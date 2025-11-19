@@ -10,8 +10,8 @@ base_url = "https://conf.cian.tech"
 access_token = "your_access_token_here"
 access_secret = "your_access_secret_here"
 
-# Optional: Override consumer key (default: md2conf)
-# consumer_key = "md2conf"
+# Optional: Override consumer key (default: adrflow)
+# consumer_key = "adrflow"
 
 [test]
 # Test space key for POC testing

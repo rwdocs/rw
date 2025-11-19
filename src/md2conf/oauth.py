@@ -75,6 +75,7 @@ def create_oauth1_auth(
         signature_method='RSA-SHA1',
         signature_type='HEADER',
         rsa_key=private_key.decode('utf-8'),
+        force_include_body=True,  # Include body in OAuth signature for POST/PUT
     )
 
 

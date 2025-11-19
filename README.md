@@ -49,32 +49,91 @@ uv run md2conf test-auth
 # Get page information
 uv run md2conf get-page <page-id>
 
-# Test creating a page
-uv run md2conf test-create "Test Page Title" --space TEST
+# Convert markdown to Confluence storage format (preview)
+uv run md2conf convert <markdown-file>
 
-# Full create/update workflow - coming soon
+# Create a page from markdown
+uv run md2conf create <markdown-file> "Page Title" --space SPACE
+
+# Update an existing page from markdown
+uv run md2conf update <markdown-file> <page-id> -m "Update message"
 ```
 
-### Testing the API
+### Example Workflow
 
-Create a test page:
+1. **Preview conversion:**
 ```bash
-uv run md2conf test-create "My Test Page"
+uv run md2conf convert your-file.md
+```
+
+2. **Create a page:**
+```bash
+uv run md2conf create your-file.md "My Test Page"
 # Returns page ID and URL
 ```
 
-Get page info:
+3. **Update the page:**
 ```bash
-uv run md2conf get-page <page-id>
-# Shows title, version, URL, and comment count
+uv run md2conf update your-file.md <page-id> -m "Updated content"
+# Shows new version and comment count
 ```
+
+### OAuth Permissions Note
+
+**IMPORTANT:** The OAuth token must have **write permissions** to create or update pages. Read-only tokens will result in `500 Internal Server Error` from Confluence.
+
+#### Generating OAuth Tokens with Write Access
+
+If you have write permissions in Confluence, generate new tokens:
+
+```bash
+uv run md2conf generate-tokens
+```
+
+This will:
+1. Start an interactive OAuth flow
+2. Open a browser for authorization
+3. Generate tokens that inherit YOUR Confluence permissions
+4. Display credentials to add to `config.toml`
+
+The generated tokens will inherit your Confluence user permissions.
 
 ## Development Status
 
-This is a POC project. See [PLAN.md](PLAN.md) for the implementation plan and [RD.md](RD.md) for requirements.
+This is a POC project for testing markdown-to-Confluence publishing with comment preservation.
 
 **Completed phases:**
 - Phase 1 - Setup & Authentication ✅
 - Phase 2 - Confluence API Client ✅
+- Phase 3 - Markdown to Confluence Conversion ✅
 
-**Current phase:** Phase 3 - Markdown to Confluence Conversion 
+**Current status:** All core functionality working. Ready for comment preservation testing.
+
+## Technical Details
+
+- Uses OAuth 1.0 RSA-SHA1 authentication
+- Supports Confluence Server/Data Center REST API v1
+- Markdown conversion via `md2cf` library
+- Async HTTP operations with `httpx`
+
+## Quick Commands Reference
+
+```bash
+# Generate OAuth tokens (needed for write access)
+uv run md2conf generate-tokens
+
+# Test authentication
+uv run md2conf test-auth
+
+# Preview conversion
+uv run md2conf convert your-file.md
+
+# Create page from markdown
+uv run md2conf create your-file.md "My Page Title"
+
+# Update existing page
+uv run md2conf update your-file.md <page-id> -m "Update message"
+
+# Get page info
+uv run md2conf get-page <page-id>
+``` 

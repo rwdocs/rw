@@ -80,8 +80,8 @@ class ConfluenceClient:
             base_url: Confluence base URL (e.g., https://conf.cian.tech)
         """
         self.client = client
-        self.base_url = base_url.rstrip('/')
-        self.api_url = f'{self.base_url}/rest/api'
+        self.base_url = base_url.rstrip("/")
+        self.api_url = f"{self.base_url}/rest/api"
 
     async def create_page(
         self,
@@ -105,26 +105,37 @@ class ConfluenceClient:
             httpx.HTTPError: If request fails
         """
         payload: dict[str, Any] = {
-            'type': 'page',
-            'title': title,
-            'space': {'key': space_key},
-            'body': {
-                'storage': {
-                    'value': body,
-                    'representation': 'storage',
+            "type": "page",
+            "title": title,
+            "space": {"key": space_key},
+            "body": {
+                "storage": {
+                    "value": body,
+                    "representation": "storage",
                 }
             },
         }
 
         if parent_id:
-            payload['ancestors'] = [{'id': parent_id}]
+            payload["ancestors"] = [{"id": parent_id}]
 
         logger.info(f'Creating page "{title}" in space {space_key}')
-        response = await self.client.post(f'{self.api_url}/content', json=payload)
+        logger.debug(f"Payload: {payload}")
+        response = await self.client.post(
+            f"{self.api_url}/content",
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "x",
+            },
+        )
+        if response.status_code >= 400:
+            logger.error(f"Error response: {response.text}")
         response.raise_for_status()
 
         data: ConfluencePageResponseDict = response.json()
-        logger.info(f'Created page with ID: {data["id"]}')
+        logger.info(f"Created page with ID: {data['id']}")
         return data
 
     async def get_page(
@@ -144,11 +155,11 @@ class ConfluenceClient:
         """
         params = {}
         if expand:
-            params['expand'] = ','.join(expand)
+            params["expand"] = ",".join(expand)
 
-        logger.info(f'Getting page {page_id}')
+        logger.info(f"Getting page {page_id}")
         response = await self.client.get(
-            f'{self.api_url}/content/{page_id}', params=params
+            f"{self.api_url}/content/{page_id}", params=params
         )
         response.raise_for_status()
 
@@ -179,28 +190,33 @@ class ConfluenceClient:
             httpx.HTTPError: If request fails
         """
         payload: dict[str, Any] = {
-            'type': 'page',
-            'title': title,
-            'body': {
-                'storage': {
-                    'value': body,
-                    'representation': 'storage',
+            "type": "page",
+            "title": title,
+            "body": {
+                "storage": {
+                    "value": body,
+                    "representation": "storage",
                 }
             },
-            'version': {'number': version + 1},
+            "version": {"number": version + 1},
         }
 
         if version_message:
-            payload['version']['message'] = version_message
+            payload["version"]["message"] = version_message
 
-        logger.info(f'Updating page {page_id} from version {version} to {version + 1}')
+        logger.info(f"Updating page {page_id} from version {version} to {version + 1}")
+        logger.debug(f"Update payload: {payload}")
         response = await self.client.put(
-            f'{self.api_url}/content/{page_id}', json=payload
+            f"{self.api_url}/content/{page_id}",
+            json=payload,
+            headers={"Content-Type": "application/json"},
         )
+        if response.status_code >= 400:
+            logger.error(f"Update error response: {response.text}")
         response.raise_for_status()
 
         data: ConfluencePageResponseDict = response.json()
-        logger.info(f'Updated page {page_id} to version {data["version"]["number"]}')
+        logger.info(f"Updated page {page_id} to version {data['version']['number']}")
         return data
 
     async def get_comments(self, page_id: str) -> ConfluenceCommentsResponseDict:
@@ -215,15 +231,15 @@ class ConfluenceClient:
         Raises:
             httpx.HTTPError: If request fails
         """
-        logger.info(f'Getting comments for page {page_id}')
+        logger.info(f"Getting comments for page {page_id}")
         response = await self.client.get(
-            f'{self.api_url}/content/{page_id}/child/comment',
-            params={'expand': 'body.storage'},
+            f"{self.api_url}/content/{page_id}/child/comment",
+            params={"expand": "body.storage"},
         )
         response.raise_for_status()
 
         data: ConfluenceCommentsResponseDict = response.json()
-        logger.info(f'Found {data["size"]} comments on page {page_id}')
+        logger.info(f"Found {data['size']} comments on page {page_id}")
         return data
 
     async def get_page_url(self, page_id: str) -> str:
@@ -240,6 +256,6 @@ class ConfluenceClient:
         """
         page_data = await self.get_page(page_id)
         # Try to get from _links if available, otherwise construct
-        if '_links' in page_data and 'webui' in page_data['_links']:
+        if "_links" in page_data and "webui" in page_data["_links"]:
             return f"{self.base_url}{page_data['_links']['webui']}"
-        return f'{self.base_url}/pages/viewpage.action?pageId={page_id}'
+        return f"{self.base_url}/pages/viewpage.action?pageId={page_id}"
