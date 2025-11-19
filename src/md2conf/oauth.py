@@ -17,7 +17,7 @@ CONFLUENCE_ENDPOINT = {
     'access_token_url': 'https://conf.cian.tech/plugins/servlet/oauth/access-token',
 }
 
-CONSUMER_KEY = 'md2conf'
+DEFAULT_CONSUMER_KEY = 'adrflow'  # Default to adrflow consumer
 CALLBACK_URL = 'http://localhost:8080/callback'
 
 
@@ -79,7 +79,10 @@ def create_oauth1_auth(
 
 
 def create_confluence_client(
-    access_token: str, access_secret: str, private_key: bytes
+    access_token: str,
+    access_secret: str,
+    private_key: bytes,
+    consumer_key: str = DEFAULT_CONSUMER_KEY,
 ) -> httpx.AsyncClient:
     """Create OAuth 1.0 authenticated Confluence client.
 
@@ -87,9 +90,10 @@ def create_confluence_client(
         access_token: OAuth access token
         access_secret: OAuth access token secret
         private_key: PEM-encoded RSA private key bytes
+        consumer_key: OAuth consumer key (default: 'adrflow')
 
     Returns:
         Authenticated httpx AsyncClient
     """
-    auth = create_oauth1_auth(CONSUMER_KEY, private_key, access_token, access_secret)
+    auth = create_oauth1_auth(consumer_key, private_key, access_token, access_secret)
     return httpx.AsyncClient(auth=auth)

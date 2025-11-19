@@ -39,7 +39,7 @@ class ConfluenceConfig:
     base_url: str
     access_token: str
     access_secret: str
-    consumer_key: str = 'md2conf'
+    consumer_key: str = 'adrflow'
 
 
 @dataclass
@@ -134,7 +134,7 @@ class Config:
             base_url=confluence_data['base_url'],
             access_token=confluence_data['access_token'],
             access_secret=confluence_data['access_secret'],
-            consumer_key=confluence_data.get('consumer_key', 'md2conf'),
+            consumer_key=confluence_data.get('consumer_key', 'adrflow'),
         )
 
         test = None
