@@ -1,3 +1,7 @@
+# Config files with secrets
+config.toml
+private_key.pem
+
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -8,3 +12,14 @@ wheels/
 
 # Virtual environments
 .venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/

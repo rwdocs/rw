@@ -1,0 +1,18 @@
+# md2conf Configuration
+# Copy this file to config.toml and fill in your credentials
+
+[confluence]
+# Confluence base URL (without /rest/api)
+base_url = "https://conf.cian.tech"
+
+# OAuth 1.0 credentials
+# Get these from Confluence OAuth configuration
+access_token = "your_access_token_here"
+access_secret = "your_access_secret_here"
+
+# Optional: Override consumer key (default: md2conf)
+# consumer_key = "md2conf"
+
+[test]
+# Test space key for POC testing
+space_key = "TEST"

@@ -1,16 +1,22 @@
 [project]
 name = "md2conf"
 version = "0.1.0"
-description = "Add your description here"
+description = "Convert markdown to Confluence pages"
 readme = "README.md"
 authors = [
     { name = "Mike Yumatov", email = "mike.yumatov@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "authlib>=1.3.0",
+    "httpx>=0.28.1",
+    "cryptography>=43.0.0",
+    "click>=8.1.0",
+    "markdown>=3.7",
+]
 
 [project.scripts]
-md2conf = "md2conf:main"
+md2conf = "md2conf.cli:cli"
 
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
