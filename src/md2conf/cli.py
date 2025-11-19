@@ -302,6 +302,12 @@ async def _get_page(page_id: str, config_path: Path, key_file: Path) -> None:
             comments = await confluence.get_comments(page_id)
             click.echo(f'\nComments: {comments["size"]}')
 
+            # Display page content
+            if 'body' in page and 'storage' in page['body']:
+                content = page['body']['storage'].get('value', '')
+                click.echo(click.style('\nPage Content (Confluence Storage Format):', fg='cyan', bold=True))
+                click.echo(content)
+
     except Exception as e:
         click.echo(click.style(f'Error: {e}', fg='red'), err=True)
         sys.exit(1)
@@ -469,6 +475,7 @@ async def _update(
     try:
         from md2conf.config import Config
         from md2conf.confluence import ConfluenceClient, MarkdownConverter
+        from md2conf.confluence.comment_preservation import CommentPreserver
         from md2conf.oauth import create_confluence_client, read_private_key
 
         # Load configuration
@@ -478,7 +485,7 @@ async def _update(
         # Convert markdown to Confluence format
         click.echo(f'Converting {markdown_file}...')
         converter = MarkdownConverter()
-        confluence_body = converter.convert_file(markdown_file)
+        new_html = converter.convert_file(markdown_file)
 
         # Create authenticated client
         async with create_confluence_client(
@@ -489,11 +496,19 @@ async def _update(
         ) as http_client:
             confluence = ConfluenceClient(http_client, config.confluence.base_url)
 
-            # Get current page to get version and title
+            # Get current page with body to preserve comments
             click.echo(f'Fetching current page {page_id}...')
-            current_page = await confluence.get_page(page_id, expand=['version'])
+            current_page = await confluence.get_page(
+                page_id, expand=['body.storage', 'version']
+            )
             current_version = current_page['version']['number']
             title = current_page['title']
+            old_html = current_page['body']['storage']['value']
+
+            # Preserve comment markers
+            click.echo('Preserving comment markers...')
+            preserver = CommentPreserver()
+            confluence_body = preserver.preserve_comments(old_html, new_html)
 
             # Update page
             click.echo(

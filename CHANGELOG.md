@@ -6,12 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Comment Preservation**: Tree-based algorithm preserves inline comments when updating pages
+  - Parses Confluence HTML and converted markdown into DOM trees
+  - Matches nodes between old and new trees using structural and text similarity
+  - Transfers comment markers from old tree to matching positions in new tree
+  - Comments on unchanged content are preserved
+  - Comments on changed content are naturally resolved (correct behavior for reviews)
+  - Implemented in `confluence/comment_preservation.py`
+  - Integrated into `update` command workflow
+
 ### Fixed
 - **CRITICAL FIX**: Fixed OAuth signature generation for POST/PUT requests by adding `force_include_body=True` to OAuth1Auth configuration
   - Root cause: Confluence requires request body to be included in OAuth signature calculation for POST/PUT operations
   - The `authlib` library defaults to `force_include_body=False`, which caused 500 Internal Server Error
   - Fixed in `oauth.py:78` by enabling body inclusion in signature
   - Discovered by comparing with working Go implementation using `github.com/dghubble/oauth1`
+- Fixed XML namespace handling in comment preservation parser
+  - Added namespace declarations to wrapper element for proper parsing
+  - Handles Confluence's `ac:` and `ri:` namespace prefixes
+- Fixed TreeNode hashability issue for dict key usage
+  - Changed matcher to use object IDs instead of objects as dict keys
 
 ### Changed
 - Updated OAuth token generation flow to use 'oob' (out-of-band) callback method per Atlassian OAuth 1.0a specifications
@@ -19,13 +34,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Improved user guidance with step-by-step instructions
   - Added fallback for manual URL/verifier code entry
   - Reference: https://developer.atlassian.com/server/jira/platform/oauth/
+- Enhanced `get-page` command to display page content in Confluence storage format
+  - Shows inline comment markers for debugging
+  - Useful for verifying comment preservation
 
 ### Verified
-All operations now working correctly:
+All operations working correctly:
 - ✅ Creating pages with `test-create`
 - ✅ Creating pages from markdown with `create`
 - ✅ Updating pages with `update`
 - ✅ OAuth token generation with `generate-tokens`
+- ✅ Comment preservation on updates (POC requirement met!)
 
 ## [0.3.0] - Phase 3: Markdown Conversion (Blocked)
 
