@@ -169,6 +169,60 @@ def update(
 
 
 @cli.command()
+@click.argument('markdown_file', type=click.Path(exists=True, path_type=Path))
+@click.argument('page_id')
+@click.option(
+    '--mkdocs-root',
+    '-r',
+    type=click.Path(exists=True, path_type=Path),
+    required=True,
+    help='Root directory of the MkDocs site',
+)
+@click.option(
+    '--kroki-url',
+    default='https://kroki.cian.tech',
+    help='Kroki server URL for diagram rendering',
+)
+@click.option(
+    '--message',
+    '-m',
+    help='Version message for the update',
+)
+@click.option(
+    '--config',
+    '-c',
+    type=click.Path(exists=True, path_type=Path),
+    default='config.toml',
+    help='Path to configuration file',
+)
+@click.option(
+    '--key-file',
+    '-k',
+    type=click.Path(exists=True, path_type=Path),
+    default='private_key.pem',
+    help='Path to OAuth private key file',
+)
+def upload_mkdocs(
+    markdown_file: Path,
+    page_id: str,
+    mkdocs_root: Path,
+    kroki_url: str,
+    message: str | None,
+    config: Path,
+    key_file: Path,
+) -> None:
+    """Upload an MkDocs document with diagrams to Confluence.
+
+    Renders PlantUML diagrams to PNG images and uploads them as attachments.
+    """
+    asyncio.run(
+        _upload_mkdocs(
+            markdown_file, page_id, mkdocs_root, kroki_url, message, config, key_file
+        )
+    )
+
+
+@cli.command()
 @click.option(
     '--private-key',
     '-k',
@@ -531,6 +585,142 @@ async def _update(
             # Show comments count
             comments = await confluence.get_comments(page_id)
             click.echo(f'\nComments on page: {comments["size"]}')
+
+    except Exception as e:
+        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
+
+
+async def _upload_mkdocs(
+    markdown_file: Path,
+    page_id: str,
+    mkdocs_root: Path,
+    kroki_url: str,
+    message: str | None,
+    config_path: Path,
+    key_file: Path,
+) -> None:
+    """Upload an MkDocs document with diagrams to Confluence.
+
+    Args:
+        markdown_file: Path to markdown file
+        page_id: Page ID to update
+        mkdocs_root: Root directory of the MkDocs site
+        kroki_url: Kroki server URL
+        message: Optional version message
+        config_path: Path to config.toml
+        key_file: Path to private key PEM file
+    """
+    try:
+        from md2conf.config import Config
+        from md2conf.confluence import ConfluenceClient, MarkdownConverter
+        from md2conf.confluence.comment_preservation import CommentPreserver
+        from md2conf.kroki import KrokiClient
+        from md2conf.mkdocs import MkDocsProcessor, create_image_tag
+        from md2conf.oauth import create_confluence_client, read_private_key
+
+        # Load configuration
+        config = Config.from_toml(config_path)
+        private_key = read_private_key(key_file)
+
+        # Build include directories from mkdocs root
+        include_dirs = [
+            mkdocs_root / "includes",
+            mkdocs_root / "gen" / "includes",
+            mkdocs_root,
+        ]
+        include_dirs = [d for d in include_dirs if d.exists()]
+
+        click.echo(f'Include directories: {[str(d) for d in include_dirs]}')
+
+        # Process MkDocs document to extract diagrams
+        click.echo(f'Processing {markdown_file}...')
+        processor = MkDocsProcessor(include_dirs)
+        processed = processor.process_file(markdown_file)
+
+        click.echo(f'Found {len(processed.diagrams)} diagrams')
+
+        # Initialize Kroki client
+        kroki = KrokiClient(kroki_url)
+
+        # Render diagrams and prepare attachments
+        attachments: list[tuple[str, bytes]] = []
+        image_tags: dict[int, str] = {}
+
+        for diagram in processed.diagrams:
+            click.echo(f'Rendering diagram {diagram.index + 1}...')
+            diagram_hash = kroki.get_diagram_hash("plantuml", diagram.resolved_source)
+            filename = f"diagram_{diagram_hash}.png"
+
+            image_data = await kroki.render_diagram(
+                "plantuml", diagram.resolved_source, "png"
+            )
+            attachments.append((filename, image_data))
+            image_tags[diagram.index] = create_image_tag(filename)
+            click.echo(f'  -> {filename} ({len(image_data)} bytes)')
+
+        # Replace diagram placeholders with image tags
+        markdown_with_images = processed.markdown
+        for index, image_tag in image_tags.items():
+            placeholder = f"{{{{DIAGRAM_{index}}}}}"
+            markdown_with_images = markdown_with_images.replace(placeholder, image_tag)
+
+        # Convert to Confluence format
+        click.echo('Converting to Confluence format...')
+        converter = MarkdownConverter()
+        new_html = converter.convert(markdown_with_images)
+
+        # Create authenticated client
+        async with create_confluence_client(
+            config.confluence.access_token,
+            config.confluence.access_secret,
+            private_key,
+            config.confluence.consumer_key,
+        ) as http_client:
+            confluence = ConfluenceClient(http_client, config.confluence.base_url)
+
+            # Upload attachments
+            click.echo(f'Uploading {len(attachments)} attachments...')
+            for filename, image_data in attachments:
+                click.echo(f'  Uploading {filename}...')
+                await confluence.upload_attachment(
+                    page_id, filename, image_data, "image/png"
+                )
+
+            # Get current page with body to preserve comments
+            click.echo(f'Fetching current page {page_id}...')
+            current_page = await confluence.get_page(
+                page_id, expand=['body.storage', 'version']
+            )
+            current_version = current_page['version']['number']
+            title = current_page['title']
+            old_html = current_page['body']['storage']['value']
+
+            # Preserve comment markers
+            click.echo('Preserving comment markers...')
+            preserver = CommentPreserver()
+            confluence_body = preserver.preserve_comments(old_html, new_html)
+
+            # Update page
+            click.echo(
+                f'Updating page "{title}" from version {current_version} to {current_version + 1}...'
+            )
+            updated_page = await confluence.update_page(
+                page_id, title, confluence_body, current_version, message
+            )
+
+            # Display result
+            click.echo(click.style('\nPage updated successfully!', fg='green', bold=True))
+            click.echo(f'ID: {updated_page["id"]}')
+            click.echo(f'Title: {updated_page["title"]}')
+            click.echo(f'Version: {updated_page["version"]["number"]}')
+
+            # Get URL
+            url = await confluence.get_page_url(page_id)
+            click.echo(f'URL: {url}')
 
     except Exception as e:
         click.echo(click.style(f'Error: {e}', fg='red'), err=True)

@@ -259,3 +259,68 @@ class ConfluenceClient:
         if "_links" in page_data and "webui" in page_data["_links"]:
             return f"{self.base_url}{page_data['_links']['webui']}"
         return f"{self.base_url}/pages/viewpage.action?pageId={page_id}"
+
+    async def upload_attachment(
+        self,
+        page_id: str,
+        filename: str,
+        data: bytes,
+        content_type: str,
+        comment: str | None = None,
+    ) -> dict[str, Any]:
+        """Upload an attachment to a Confluence page.
+
+        Args:
+            page_id: Page ID to attach file to
+            filename: Name for the attachment
+            data: File content as bytes
+            content_type: MIME type of the file (e.g., "image/png")
+            comment: Optional comment for the attachment
+
+        Returns:
+            Attachment data including ID and download link
+
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        files = {"file": (filename, data, content_type)}
+        form_data = {}
+        if comment:
+            form_data["comment"] = comment
+
+        logger.info(f"Uploading attachment '{filename}' to page {page_id}")
+        response = await self.client.post(
+            f"{self.api_url}/content/{page_id}/child/attachment",
+            files=files,
+            data=form_data if form_data else None,
+            headers={
+                "X-Atlassian-Token": "nocheck",
+                "Accept": "application/json",
+            },
+        )
+        if response.status_code >= 400:
+            logger.error(f"Attachment upload error: {response.text}")
+        response.raise_for_status()
+
+        result = response.json()
+        logger.info(f"Uploaded attachment: {result}")
+        return result
+
+    async def get_attachments(self, page_id: str) -> dict[str, Any]:
+        """Get all attachments on a page.
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Attachments data including list of attachments
+
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        logger.info(f"Getting attachments for page {page_id}")
+        response = await self.client.get(
+            f"{self.api_url}/content/{page_id}/child/attachment"
+        )
+        response.raise_for_status()
+        return response.json()
