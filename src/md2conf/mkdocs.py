@@ -212,6 +212,9 @@ class MkDocsProcessor:
         return self.extract_diagrams(markdown)
 
 
+TOC_MACRO = '<ac:structured-macro ac:name="toc" ac:schema-version="1" />'
+
+
 def create_image_tag(filename: str, width: int | None = None) -> str:
     """Create Confluence image macro for an attachment.
 
