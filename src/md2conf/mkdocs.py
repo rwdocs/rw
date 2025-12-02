@@ -20,6 +20,25 @@ INCLUDE_PATTERN = re.compile(r"^!include\s+(.+)$", re.MULTILINE)
 
 H1_PATTERN = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
+HEADER_PATTERN = re.compile(r"^(#{2,6})\s+", re.MULTILINE)
+
+
+def _level_up_headers(markdown: str) -> str:
+    """Level up all headers by removing one # from each.
+
+    Args:
+        markdown: Markdown content
+
+    Returns:
+        Markdown with headers leveled up (## -> #, ### -> ##, etc.)
+    """
+
+    def replace_header(match: re.Match[str]) -> str:
+        hashes = match.group(1)
+        return hashes[1:] + " "
+
+    return HEADER_PATTERN.sub(replace_header, markdown)
+
 
 @dataclass
 class DiagramInfo:
@@ -164,6 +183,8 @@ class MkDocsProcessor:
             title = h1_match.group(1).strip()
             # Remove the H1 line from content
             processed_markdown = H1_PATTERN.sub("", processed_markdown, count=1).lstrip()
+            # Level up all remaining headers (## -> #, ### -> ##, etc.)
+            processed_markdown = _level_up_headers(processed_markdown)
 
         return ProcessedDocument(
             markdown=processed_markdown,
