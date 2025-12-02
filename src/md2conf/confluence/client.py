@@ -268,7 +268,9 @@ class ConfluenceClient:
         content_type: str,
         comment: str | None = None,
     ) -> dict[str, Any]:
-        """Upload an attachment to a Confluence page.
+        """Upload or update an attachment on a Confluence page.
+
+        If attachment with same filename exists, updates it. Otherwise creates new.
 
         Args:
             page_id: Page ID to attach file to
@@ -288,16 +290,35 @@ class ConfluenceClient:
         if comment:
             form_data["comment"] = comment
 
-        logger.info(f"Uploading attachment '{filename}' to page {page_id}")
-        response = await self.client.post(
-            f"{self.api_url}/content/{page_id}/child/attachment",
-            files=files,
-            data=form_data if form_data else None,
-            headers={
-                "X-Atlassian-Token": "nocheck",
-                "Accept": "application/json",
-            },
-        )
+        # Check if attachment already exists
+        existing = await self._find_attachment_by_name(page_id, filename)
+
+        if existing:
+            # Update existing attachment data
+            attachment_id = existing["id"]
+            logger.info(f"Updating existing attachment '{filename}' (id={attachment_id})")
+            response = await self.client.post(
+                f"{self.api_url}/content/{page_id}/child/attachment/{attachment_id}/data",
+                files=files,
+                data=form_data if form_data else None,
+                headers={
+                    "X-Atlassian-Token": "nocheck",
+                    "Accept": "application/json",
+                },
+            )
+        else:
+            # Create new attachment
+            logger.info(f"Uploading new attachment '{filename}' to page {page_id}")
+            response = await self.client.post(
+                f"{self.api_url}/content/{page_id}/child/attachment",
+                files=files,
+                data=form_data if form_data else None,
+                headers={
+                    "X-Atlassian-Token": "nocheck",
+                    "Accept": "application/json",
+                },
+            )
+
         if response.status_code >= 400:
             logger.error(f"Attachment upload error: {response.text}")
         response.raise_for_status()
@@ -305,6 +326,24 @@ class ConfluenceClient:
         result = response.json()
         logger.info(f"Uploaded attachment: {result}")
         return result
+
+    async def _find_attachment_by_name(
+        self, page_id: str, filename: str
+    ) -> dict[str, Any] | None:
+        """Find an attachment by filename on a page.
+
+        Args:
+            page_id: Page ID
+            filename: Attachment filename to find
+
+        Returns:
+            Attachment data if found, None otherwise
+        """
+        attachments = await self.get_attachments(page_id)
+        for attachment in attachments.get("results", []):
+            if attachment.get("title") == filename:
+                return attachment
+        return None
 
     async def get_attachments(self, page_id: str) -> dict[str, Any]:
         """Get all attachments on a page.

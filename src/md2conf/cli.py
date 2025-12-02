@@ -662,16 +662,15 @@ async def _upload_mkdocs(
             image_tags[diagram.index] = create_image_tag(filename)
             click.echo(f'  -> {filename} ({len(image_data)} bytes)')
 
-        # Replace diagram placeholders with image tags
-        markdown_with_images = processed.markdown
-        for index, image_tag in image_tags.items():
-            placeholder = f"{{{{DIAGRAM_{index}}}}}"
-            markdown_with_images = markdown_with_images.replace(placeholder, image_tag)
-
-        # Convert to Confluence format
+        # Convert to Confluence format first (placeholders stay as text)
         click.echo('Converting to Confluence format...')
         converter = MarkdownConverter()
-        new_html = converter.convert(markdown_with_images)
+        new_html = converter.convert(processed.markdown)
+
+        # Replace diagram placeholders with image tags in the HTML output
+        for index, image_tag in image_tags.items():
+            placeholder = f"{{{{DIAGRAM_{index}}}}}"
+            new_html = new_html.replace(placeholder, image_tag)
 
         # Create authenticated client
         async with create_confluence_client(
