@@ -39,17 +39,27 @@ class ProcessedDocument:
     title: str | None
 
 
+DEFAULT_DPI = 200
+
+
 class MkDocsProcessor:
     """Processes MkDocs documents with PlantUML diagrams."""
 
-    def __init__(self, include_dirs: list[Path], config_file: str | None = None):
+    def __init__(
+        self,
+        include_dirs: list[Path],
+        config_file: str | None = None,
+        dpi: int = DEFAULT_DPI,
+    ):
         """Initialize processor.
 
         Args:
             include_dirs: List of directories to search for includes
             config_file: Optional PlantUML config file to prepend to diagrams
+            dpi: DPI for PNG output (default 200, PlantUML default is 96)
         """
         self.include_dirs = include_dirs
+        self.dpi = dpi
         self.config_content: str | None = None
 
         if config_file:
@@ -126,9 +136,12 @@ class MkDocsProcessor:
             source = match.group(1)
             resolved = self._resolve_includes(source)
 
-            # Prepend config if available
+            # Prepend DPI setting and config if available
+            dpi_setting = f"skinparam dpi {self.dpi}\n"
             if self.config_content:
-                resolved = self.config_content + "\n" + resolved
+                resolved = dpi_setting + self.config_content + "\n" + resolved
+            else:
+                resolved = dpi_setting + resolved
 
             diagrams.append(
                 DiagramInfo(
