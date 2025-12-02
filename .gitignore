@@ -9,6 +9,7 @@ build/
 dist/
 wheels/
 *.egg-info
+*.so
 
 # Virtual environments
 .venv
@@ -23,3 +24,5 @@ wheels/
 .pytest_cache/
 .coverage
 htmlcov/
+
+packages/md2conf-core/target/

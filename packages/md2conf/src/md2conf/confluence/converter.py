@@ -1,14 +1,13 @@
 """Markdown to Confluence storage format converter.
 
 This module converts Markdown text to Confluence XHTML storage format.
-Uses md2cf's ConfluenceRenderer for conversion.
+Uses md2conf-core's Rust-based renderer for high-performance conversion.
 """
 
 import logging
 from pathlib import Path
 
-import mistune
-from md2cf.confluence_renderer import ConfluenceRenderer
+from md2conf_core import MarkdownConverter as CoreConverter
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +16,8 @@ class MarkdownConverter:
     """Convert Markdown to Confluence storage format."""
 
     def __init__(self) -> None:
-        """Initialize the converter with Confluence renderer."""
-        self.renderer = ConfluenceRenderer(use_xhtml=True)
-        self.markdown = mistune.Markdown(renderer=self.renderer)
+        """Initialize the converter."""
+        self._converter = CoreConverter()
 
     def convert(self, markdown_text: str) -> str:
         """Convert Markdown text to Confluence storage format.
@@ -31,7 +29,7 @@ class MarkdownConverter:
             Confluence storage format (XHTML) string
         """
         logger.debug(f'Converting {len(markdown_text)} characters of markdown')
-        confluence_body = self.markdown(markdown_text)
+        confluence_body = self._converter.convert(markdown_text)
         logger.debug(f'Converted to {len(confluence_body)} characters of XHTML')
         return confluence_body
 

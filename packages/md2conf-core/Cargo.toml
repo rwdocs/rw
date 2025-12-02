@@ -1,0 +1,18 @@
+[package]
+name = "md2conf-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Markdown to Confluence converter using pulldown-cmark"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
+pyo3 = { version = "0.27", features = ["extension-module"] }
+regex = "1.11"
+
+[dev-dependencies]
+pretty_assertions = "1.4"
