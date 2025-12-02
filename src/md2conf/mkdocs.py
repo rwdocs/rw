@@ -42,13 +42,23 @@ class ProcessedDocument:
 class MkDocsProcessor:
     """Processes MkDocs documents with PlantUML diagrams."""
 
-    def __init__(self, include_dirs: list[Path]):
+    def __init__(self, include_dirs: list[Path], config_file: str | None = None):
         """Initialize processor.
 
         Args:
             include_dirs: List of directories to search for includes
+            config_file: Optional PlantUML config file to prepend to diagrams
         """
         self.include_dirs = include_dirs
+        self.config_content: str | None = None
+
+        if config_file:
+            for include_dir in include_dirs:
+                config_path = include_dir / config_file
+                if config_path.exists():
+                    self.config_content = config_path.read_text(encoding="utf-8")
+                    logger.info(f"Loaded PlantUML config from {config_path}")
+                    break
 
     def _resolve_include(self, include_path: str) -> str | None:
         """Resolve an include path to file content.
@@ -115,6 +125,10 @@ class MkDocsProcessor:
             nonlocal diagram_index
             source = match.group(1)
             resolved = self._resolve_includes(source)
+
+            # Prepend config if available
+            if self.config_content:
+                resolved = self.config_content + "\n" + resolved
 
             diagrams.append(
                 DiagramInfo(

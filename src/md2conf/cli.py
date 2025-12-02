@@ -638,7 +638,7 @@ async def _upload_mkdocs(
 
         # Process MkDocs document to extract diagrams
         click.echo(f'Processing {markdown_file}...')
-        processor = MkDocsProcessor(include_dirs)
+        processor = MkDocsProcessor(include_dirs, config_file="config.iuml")
         processed = processor.process_file(markdown_file)
 
         click.echo(f'Found {len(processed.diagrams)} diagrams')
