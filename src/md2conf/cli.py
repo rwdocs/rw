@@ -642,6 +642,8 @@ async def _upload_mkdocs(
         processed = processor.process_file(markdown_file)
 
         click.echo(f'Found {len(processed.diagrams)} diagrams')
+        if processed.title:
+            click.echo(f'Title: {processed.title}')
 
         # Initialize Kroki client
         kroki = KrokiClient(kroki_url)
@@ -695,8 +697,10 @@ async def _upload_mkdocs(
                 page_id, expand=['body.storage', 'version']
             )
             current_version = current_page['version']['number']
-            title = current_page['title']
             old_html = current_page['body']['storage']['value']
+
+            # Use extracted title or fall back to current page title
+            title = processed.title or current_page['title']
 
             # Preserve comment markers
             click.echo('Preserving comment markers...')

@@ -18,6 +18,8 @@ PLANTUML_BLOCK_PATTERN = re.compile(
 
 INCLUDE_PATTERN = re.compile(r"^!include\s+(.+)$", re.MULTILINE)
 
+H1_PATTERN = re.compile(r"^#\s+(.+)$", re.MULTILINE)
+
 
 @dataclass
 class DiagramInfo:
@@ -34,6 +36,7 @@ class ProcessedDocument:
 
     markdown: str
     diagrams: list[DiagramInfo]
+    title: str | None
 
 
 class MkDocsProcessor:
@@ -97,13 +100,13 @@ class MkDocsProcessor:
         return INCLUDE_PATTERN.sub(replace_include, source)
 
     def extract_diagrams(self, markdown: str) -> ProcessedDocument:
-        """Extract PlantUML diagrams from markdown.
+        """Extract PlantUML diagrams and title from markdown.
 
         Args:
             markdown: Markdown content
 
         Returns:
-            ProcessedDocument with diagrams extracted and placeholders inserted
+            ProcessedDocument with diagrams extracted, title extracted, and placeholders inserted
         """
         diagrams: list[DiagramInfo] = []
         diagram_index = 0
@@ -127,9 +130,18 @@ class MkDocsProcessor:
 
         processed_markdown = PLANTUML_BLOCK_PATTERN.sub(replace_diagram, markdown)
 
+        # Extract title from first H1 heading
+        title: str | None = None
+        h1_match = H1_PATTERN.search(processed_markdown)
+        if h1_match:
+            title = h1_match.group(1).strip()
+            # Remove the H1 line from content
+            processed_markdown = H1_PATTERN.sub("", processed_markdown, count=1).lstrip()
+
         return ProcessedDocument(
             markdown=processed_markdown,
             diagrams=diagrams,
+            title=title,
         )
 
     def process_file(self, file_path: Path) -> ProcessedDocument:
