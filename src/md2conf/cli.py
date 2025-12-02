@@ -618,7 +618,7 @@ async def _upload_mkdocs(
         from md2conf.config import Config
         from md2conf.confluence import ConfluenceClient, MarkdownConverter
         from md2conf.confluence.comment_preservation import CommentPreserver
-        from md2conf.kroki import KrokiClient
+        from md2conf.kroki import KrokiClient, get_png_dimensions
         from md2conf.mkdocs import MkDocsProcessor, create_image_tag
         from md2conf.oauth import create_confluence_client, read_private_key
 
@@ -661,8 +661,12 @@ async def _upload_mkdocs(
                 "plantuml", diagram.resolved_source, "png"
             )
             attachments.append((filename, image_data))
-            image_tags[diagram.index] = create_image_tag(filename)
-            click.echo(f'  -> {filename} ({len(image_data)} bytes)')
+
+            # Get image dimensions and scale to 50%
+            width, height = get_png_dimensions(image_data)
+            display_width = width // 2
+            image_tags[diagram.index] = create_image_tag(filename, width=display_width)
+            click.echo(f'  -> {filename} ({len(image_data)} bytes, {width}x{height} -> {display_width}px)')
 
         # Convert to Confluence format first (placeholders stay as text)
         click.echo('Converting to Confluence format...')

@@ -6,11 +6,27 @@ Renders PlantUML and other diagrams to images using Kroki service.
 import base64
 import hashlib
 import logging
+import struct
 import zlib
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def get_png_dimensions(data: bytes) -> tuple[int, int]:
+    """Extract width and height from PNG image data.
+
+    Args:
+        data: PNG image bytes
+
+    Returns:
+        Tuple of (width, height) in pixels
+    """
+    # PNG header is 8 bytes, IHDR chunk starts at byte 8
+    # IHDR format: length (4) + type (4) + width (4) + height (4)
+    width, height = struct.unpack(">II", data[16:24])
+    return width, height
 
 
 class KrokiClient:

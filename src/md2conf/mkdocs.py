@@ -39,7 +39,7 @@ class ProcessedDocument:
     title: str | None
 
 
-DEFAULT_DPI = 200
+DEFAULT_DPI = 192
 
 
 class MkDocsProcessor:
@@ -191,13 +191,20 @@ class MkDocsProcessor:
         return self.extract_diagrams(markdown)
 
 
-def create_image_tag(filename: str) -> str:
+def create_image_tag(filename: str, width: int | None = None) -> str:
     """Create Confluence image macro for an attachment.
 
     Args:
         filename: Attachment filename
+        width: Optional width in pixels
 
     Returns:
         Confluence storage format image macro
     """
+    if width:
+        return (
+            f'<ac:image ac:width="{width}">'
+            f'<ri:attachment ri:filename="{filename}" />'
+            f'</ac:image>'
+        )
     return f'<ac:image><ri:attachment ri:filename="{filename}" /></ac:image>'
