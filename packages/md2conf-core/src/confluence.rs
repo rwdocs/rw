@@ -3,12 +3,23 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use std::fmt::Write;
 
+/// Information about an extracted PlantUML diagram.
+#[derive(Debug, Clone)]
+pub struct DiagramInfo {
+    /// Original source code from markdown (as-is, without include resolution)
+    pub source: String,
+    /// Zero-based index of this diagram
+    pub index: usize,
+}
+
 /// Result of rendering markdown to Confluence format.
 pub struct RenderResult {
     /// Rendered Confluence XHTML
     pub html: String,
     /// Title extracted from first H1 heading (if extract_title was enabled)
     pub title: Option<String>,
+    /// PlantUML diagrams extracted from code blocks
+    pub diagrams: Vec<DiagramInfo>,
 }
 
 /// Renders pulldown-cmark events to Confluence XHTML storage format.
@@ -32,6 +43,12 @@ pub struct ConfluenceRenderer {
     in_first_h1: bool,
     /// Buffer for first H1 text
     h1_text: String,
+    /// Extracted PlantUML diagrams
+    diagrams: Vec<DiagramInfo>,
+    /// Whether we're inside a plantuml code block
+    in_plantuml_block: bool,
+    /// Buffer for plantuml source
+    plantuml_source: String,
 }
 
 impl ConfluenceRenderer {
@@ -47,6 +64,9 @@ impl ConfluenceRenderer {
             seen_first_h1: false,
             in_first_h1: false,
             h1_text: String::new(),
+            diagrams: Vec::new(),
+            in_plantuml_block: false,
+            plantuml_source: String::new(),
         }
     }
 
@@ -69,7 +89,7 @@ impl ConfluenceRenderer {
         self.output
     }
 
-    /// Render markdown events and return both HTML and extracted title.
+    /// Render markdown events and return HTML, extracted title, and diagrams.
     pub fn render_with_title<'a, I>(mut self, events: I) -> RenderResult
     where
         I: Iterator<Item = Event<'a>>,
@@ -80,6 +100,7 @@ impl ConfluenceRenderer {
         RenderResult {
             html: self.output,
             title: self.title,
+            diagrams: self.diagrams,
         }
     }
 
@@ -137,29 +158,36 @@ impl ConfluenceRenderer {
                 );
             }
             Tag::CodeBlock(kind) => {
-                self.in_code_block = true;
                 let lang = match kind {
                     CodeBlockKind::Fenced(lang) if !lang.is_empty() => {
                         Some(lang.split_whitespace().next().unwrap_or("").to_string())
                     }
                     _ => None,
                 };
-                self.code_language = lang.clone();
 
-                // Confluence code macro
-                self.output
-                    .push_str(r#"<ac:structured-macro ac:name="code" ac:schema-version="1">"#);
-                if let Some(ref lang) = lang {
-                    write!(
-                        self.output,
-                        r#"<ac:parameter ac:name="language">{}</ac:parameter>"#,
-                        escape_xml(lang)
-                    )
-                    .unwrap();
+                // Check if this is a plantuml block
+                if lang.as_deref() == Some("plantuml") {
+                    self.in_plantuml_block = true;
+                    self.plantuml_source.clear();
+                } else {
+                    self.in_code_block = true;
+                    self.code_language = lang.clone();
+
+                    // Confluence code macro
+                    self.output
+                        .push_str(r#"<ac:structured-macro ac:name="code" ac:schema-version="1">"#);
+                    if let Some(ref lang) = lang {
+                        write!(
+                            self.output,
+                            r#"<ac:parameter ac:name="language">{}</ac:parameter>"#,
+                            escape_xml(lang)
+                        )
+                        .unwrap();
+                    }
+                    self.output
+                        .push_str(r#"<ac:parameter ac:name="linenumbers">true</ac:parameter>"#);
+                    self.output.push_str(r#"<ac:plain-text-body><![CDATA["#);
                 }
-                self.output
-                    .push_str(r#"<ac:parameter ac:name="linenumbers">true</ac:parameter>"#);
-                self.output.push_str(r#"<ac:plain-text-body><![CDATA["#);
             }
             Tag::List(start) => {
                 let ordered = start.is_some();
@@ -266,10 +294,21 @@ impl ConfluenceRenderer {
                     .push_str("</ac:rich-text-body></ac:structured-macro>");
             }
             TagEnd::CodeBlock => {
-                self.output
-                    .push_str("]]></ac:plain-text-body></ac:structured-macro>");
-                self.in_code_block = false;
-                self.code_language = None;
+                if self.in_plantuml_block {
+                    // End of plantuml block - save diagram and output placeholder
+                    let index = self.diagrams.len();
+                    self.diagrams.push(DiagramInfo {
+                        source: std::mem::take(&mut self.plantuml_source),
+                        index,
+                    });
+                    write!(self.output, "{{{{DIAGRAM_{}}}}}", index).unwrap();
+                    self.in_plantuml_block = false;
+                } else {
+                    self.output
+                        .push_str("]]></ac:plain-text-body></ac:structured-macro>");
+                    self.in_code_block = false;
+                    self.code_language = None;
+                }
             }
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
@@ -332,6 +371,9 @@ impl ConfluenceRenderer {
         if self.in_first_h1 {
             // Capture text for title
             self.h1_text.push_str(text);
+        } else if self.in_plantuml_block {
+            // Capture plantuml source
+            self.plantuml_source.push_str(text);
         } else if self.in_code_block {
             // Don't escape text in code blocks (CDATA)
             self.output.push_str(text);
@@ -453,5 +495,44 @@ mod tests {
         assert_eq!(result.title, None);
         assert!(result.html.contains("<h1>My Title</h1>"));
         assert!(result.html.contains("<h2>Section</h2>"));
+    }
+
+    #[test]
+    fn test_plantuml_extraction() {
+        let markdown = r#"# Title
+
+Some text
+
+```plantuml
+@startuml
+Alice -> Bob: Hello
+@enduml
+```
+
+More text
+
+```plantuml
+@startuml
+Bob -> Alice: Hi
+@enduml
+```
+"#;
+        let parser = Parser::new(markdown);
+        let result = ConfluenceRenderer::new().render_with_title(parser);
+
+        // Should have placeholders in HTML
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert!(result.html.contains("{{DIAGRAM_1}}"));
+
+        // Should not contain plantuml code in HTML
+        assert!(!result.html.contains("@startuml"));
+        assert!(!result.html.contains("Alice -> Bob"));
+
+        // Should have extracted diagrams
+        assert_eq!(result.diagrams.len(), 2);
+        assert_eq!(result.diagrams[0].index, 0);
+        assert!(result.diagrams[0].source.contains("Alice -> Bob"));
+        assert_eq!(result.diagrams[1].index, 1);
+        assert!(result.diagrams[1].source.contains("Bob -> Alice"));
     }
 }

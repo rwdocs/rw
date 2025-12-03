@@ -1,119 +1,68 @@
-//! PlantUML diagram extraction from markdown.
+//! PlantUML diagram processing utilities.
 
 use regex::Regex;
 use std::sync::LazyLock;
 
-static PLANTUML_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?ms)^```plantuml\s*\n(.*?)\n```").unwrap());
-
 static INCLUDE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^!include\s+(.+)$").unwrap());
 
-/// Information about an extracted PlantUML diagram.
-#[derive(Debug, Clone)]
-pub struct DiagramInfo {
-    /// Original source code from markdown
-    pub source: String,
-    /// Source with includes resolved and config prepended
-    pub resolved_source: String,
-    /// Zero-based index of this diagram
-    pub index: usize,
-}
+const DEFAULT_DPI: u32 = 192;
 
-/// Result of processing a document.
-#[derive(Debug)]
-pub struct ProcessedDocument {
-    /// Markdown with diagrams replaced by placeholders
-    pub markdown: String,
-    /// Extracted diagrams
-    pub diagrams: Vec<DiagramInfo>,
-}
-
-/// Extracts PlantUML diagrams from markdown.
-pub struct PlantUmlExtractor {
-    include_dirs: Vec<String>,
-    config_content: Option<String>,
-    dpi: u32,
-}
-
-impl PlantUmlExtractor {
-    pub fn new(include_dirs: Vec<String>, config_file: Option<&str>, dpi: u32) -> Self {
-        let config_content = config_file.and_then(|cf| {
-            include_dirs.iter().find_map(|dir| {
-                let path = std::path::Path::new(dir).join(cf);
-                std::fs::read_to_string(&path).ok()
-            })
-        });
-
-        Self {
-            include_dirs,
-            config_content,
-            dpi,
-        }
+/// Resolve PlantUML !include directives in diagram source.
+pub fn resolve_includes(source: &str, include_dirs: &[String], depth: usize) -> String {
+    if depth > 10 {
+        return source.to_string();
     }
 
-    /// Process markdown, extracting diagrams.
-    pub fn process(&self, markdown: &str) -> ProcessedDocument {
-        let mut diagrams = Vec::new();
-        let mut index = 0usize;
+    INCLUDE_PATTERN
+        .replace_all(source, |caps: &regex::Captures| {
+            let include_path = caps.get(1).unwrap().as_str().trim();
 
-        // Extract PlantUML blocks and replace with placeholders
-        let processed = PLANTUML_PATTERN.replace_all(markdown, |caps: &regex::Captures| {
-            let source = caps.get(1).unwrap().as_str().to_string();
-            let resolved = self.resolve_includes(&source, 0);
-
-            // Prepend DPI and config
-            let mut final_source = format!("skinparam dpi {}\n", self.dpi);
-            if let Some(ref config) = self.config_content {
-                final_source.push_str(config);
-                final_source.push('\n');
+            // Skip stdlib includes
+            if include_path.starts_with('<') && include_path.ends_with('>') {
+                return caps.get(0).unwrap().as_str().to_string();
             }
-            final_source.push_str(&resolved);
 
-            diagrams.push(DiagramInfo {
-                source,
-                resolved_source: final_source,
-                index,
-            });
-
-            let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
-            index += 1;
-            placeholder
-        });
-
-        ProcessedDocument {
-            markdown: processed.into_owned(),
-            diagrams,
-        }
-    }
-
-    fn resolve_includes(&self, source: &str, depth: usize) -> String {
-        if depth > 10 {
-            return source.to_string();
-        }
-
-        INCLUDE_PATTERN
-            .replace_all(source, |caps: &regex::Captures| {
-                let include_path = caps.get(1).unwrap().as_str().trim();
-
-                // Skip stdlib includes
-                if include_path.starts_with('<') && include_path.ends_with('>') {
-                    return caps.get(0).unwrap().as_str().to_string();
+            // Try to resolve from include directories
+            for dir in include_dirs {
+                let full_path = std::path::Path::new(dir).join(include_path);
+                if let Ok(content) = std::fs::read_to_string(&full_path) {
+                    return resolve_includes(&content, include_dirs, depth + 1);
                 }
+            }
 
-                // Try to resolve from include directories
-                for dir in &self.include_dirs {
-                    let full_path = std::path::Path::new(dir).join(include_path);
-                    if let Ok(content) = std::fs::read_to_string(&full_path) {
-                        return self.resolve_includes(&content, depth + 1);
-                    }
-                }
+            // Keep original if not found
+            caps.get(0).unwrap().as_str().to_string()
+        })
+        .into_owned()
+}
 
-                // Keep original if not found
-                caps.get(0).unwrap().as_str().to_string()
-            })
-            .into_owned()
+/// Prepare PlantUML source for rendering.
+///
+/// Resolves includes, prepends DPI setting and optional config content.
+pub fn prepare_diagram_source(
+    source: &str,
+    include_dirs: &[String],
+    config_content: Option<&str>,
+) -> String {
+    let resolved = resolve_includes(source, include_dirs, 0);
+
+    // Prepend DPI and config
+    let mut final_source = format!("skinparam dpi {}\n", DEFAULT_DPI);
+    if let Some(config) = config_content {
+        final_source.push_str(config);
+        final_source.push('\n');
     }
+    final_source.push_str(&resolved);
+    final_source
+}
+
+/// Load config file content from include directories.
+pub fn load_config_file(include_dirs: &[String], config_file: &str) -> Option<String> {
+    include_dirs.iter().find_map(|dir| {
+        let path = std::path::Path::new(dir).join(config_file);
+        std::fs::read_to_string(&path).ok()
+    })
 }
 
 #[cfg(test)]
@@ -121,29 +70,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_plantuml() {
-        let markdown = r#"# Title
+    fn test_prepare_diagram_source() {
+        let source = "@startuml\nAlice -> Bob\n@enduml";
+        let result = prepare_diagram_source(source, &[], None);
 
-Some text
+        assert!(result.contains("skinparam dpi 192"));
+        assert!(result.contains("Alice -> Bob"));
+    }
 
-```plantuml
-@startuml
-Alice -> Bob
-@enduml
-```
+    #[test]
+    fn test_prepare_diagram_source_with_config() {
+        let source = "@startuml\nAlice -> Bob\n@enduml";
+        let config = "skinparam backgroundColor white";
+        let result = prepare_diagram_source(source, &[], Some(config));
 
-More text
-"#;
-        let extractor = PlantUmlExtractor::new(vec![], None, 192);
-        let result = extractor.process(markdown);
-
-        assert_eq!(result.diagrams.len(), 1);
-        assert!(
-            result.diagrams[0]
-                .resolved_source
-                .contains("skinparam dpi 192")
-        );
-        assert!(result.markdown.contains("{{DIAGRAM_0}}"));
-        assert!(result.markdown.contains("# Title"));
+        assert!(result.contains("skinparam dpi 192"));
+        assert!(result.contains("skinparam backgroundColor white"));
+        assert!(result.contains("Alice -> Bob"));
     }
 }

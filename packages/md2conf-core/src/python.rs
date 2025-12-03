@@ -6,46 +6,16 @@ use pulldown_cmark::{Options, Parser};
 use pyo3::prelude::*;
 
 use crate::confluence::ConfluenceRenderer;
-use crate::plantuml::{DiagramInfo as RustDiagramInfo, PlantUmlExtractor, ProcessedDocument};
+use crate::plantuml;
 
-/// Information about an extracted PlantUML diagram.
+/// Diagram info from renderer (raw source, no include resolution).
 #[pyclass(name = "DiagramInfo")]
 #[derive(Clone)]
 pub struct PyDiagramInfo {
     #[pyo3(get)]
     pub source: String,
     #[pyo3(get)]
-    pub resolved_source: String,
-    #[pyo3(get)]
     pub index: usize,
-}
-
-impl From<RustDiagramInfo> for PyDiagramInfo {
-    fn from(d: RustDiagramInfo) -> Self {
-        Self {
-            source: d.source,
-            resolved_source: d.resolved_source,
-            index: d.index,
-        }
-    }
-}
-
-/// Result of processing a document with PlantUML extraction.
-#[pyclass(name = "ProcessedDocument")]
-pub struct PyProcessedDocument {
-    #[pyo3(get)]
-    pub markdown: String,
-    #[pyo3(get)]
-    pub diagrams: Vec<PyDiagramInfo>,
-}
-
-impl From<ProcessedDocument> for PyProcessedDocument {
-    fn from(doc: ProcessedDocument) -> Self {
-        Self {
-            markdown: doc.markdown,
-            diagrams: doc.diagrams.into_iter().map(Into::into).collect(),
-        }
-    }
 }
 
 /// Result of converting markdown to Confluence format.
@@ -55,9 +25,9 @@ pub struct PyConvertResult {
     pub html: String,
     #[pyo3(get)]
     pub title: Option<String>,
+    #[pyo3(get)]
+    pub diagrams: Vec<PyDiagramInfo>,
 }
-
-use crate::confluence::RenderResult;
 
 fn get_parser_options(gfm: bool) -> Options {
     let mut options = Options::empty();
@@ -67,50 +37,6 @@ fn get_parser_options(gfm: bool) -> Options {
         options.insert(Options::ENABLE_TASKLISTS);
     }
     options
-}
-
-/// MkDocs document processor with PlantUML support.
-#[pyclass(name = "MkDocsProcessor")]
-pub struct PyMkDocsProcessor {
-    extractor: PlantUmlExtractor,
-}
-
-const DEFAULT_DPI: u32 = 192;
-
-#[pymethods]
-impl PyMkDocsProcessor {
-    #[new]
-    #[pyo3(signature = (include_dirs, config_file = None))]
-    pub fn new(include_dirs: Vec<PathBuf>, config_file: Option<&str>) -> Self {
-        let dirs: Vec<String> = include_dirs
-            .into_iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
-        Self {
-            extractor: PlantUmlExtractor::new(dirs, config_file, DEFAULT_DPI),
-        }
-    }
-
-    /// Process a markdown file.
-    ///
-    /// Args:
-    ///     file_path: Path to markdown file
-    ///
-    /// Returns:
-    ///     ProcessedDocument with diagrams extracted
-    ///
-    /// Raises:
-    ///     IOError: If file cannot be read
-    pub fn process_file(&self, file_path: PathBuf) -> PyResult<PyProcessedDocument> {
-        let content = std::fs::read_to_string(&file_path).map_err(|e| {
-            pyo3::exceptions::PyIOError::new_err(format!(
-                "Failed to read '{}': {}",
-                file_path.display(),
-                e
-            ))
-        })?;
-        Ok(self.extractor.process(&content).into())
-    }
 }
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
@@ -141,7 +67,7 @@ impl PyMarkdownConverter {
     ///     markdown_text: Markdown source text
     ///
     /// Returns:
-    ///     ConvertResult with HTML and optional title
+    ///     ConvertResult with HTML, optional title, and extracted diagrams
     pub fn convert(&self, markdown_text: &str) -> PyConvertResult {
         let options = get_parser_options(self.gfm);
         let parser = Parser::new_ext(markdown_text, options);
@@ -160,9 +86,19 @@ impl PyMarkdownConverter {
             result.html
         };
 
+        let diagrams = result
+            .diagrams
+            .into_iter()
+            .map(|d| PyDiagramInfo {
+                source: d.source,
+                index: d.index,
+            })
+            .collect();
+
         PyConvertResult {
             html,
             title: result.title,
+            diagrams,
         }
     }
 }
@@ -183,14 +119,41 @@ pub fn create_image_tag(filename: &str, width: Option<u32>) -> String {
     }
 }
 
+/// Prepare PlantUML diagram source for rendering.
+///
+/// Resolves !include directives, prepends DPI and optional config.
+///
+/// Args:
+///     source: Raw diagram source from markdown
+///     include_dirs: List of directories to search for includes
+///     config_file: Optional config filename to load and prepend
+///
+/// Returns:
+///     Prepared diagram source ready for Kroki rendering
+#[pyfunction]
+#[pyo3(signature = (source, include_dirs, config_file = None))]
+pub fn prepare_diagram_source(
+    source: &str,
+    include_dirs: Vec<PathBuf>,
+    config_file: Option<&str>,
+) -> String {
+    let dirs: Vec<String> = include_dirs
+        .into_iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+
+    let config_content = config_file.and_then(|cf| plantuml::load_config_file(&dirs, cf));
+
+    plantuml::prepare_diagram_source(source, &dirs, config_content.as_deref())
+}
+
 /// Python module definition.
 #[pymodule]
 pub fn md2conf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_image_tag, m)?)?;
+    m.add_function(wrap_pyfunction!(prepare_diagram_source, m)?)?;
     m.add_class::<PyDiagramInfo>()?;
-    m.add_class::<PyProcessedDocument>()?;
     m.add_class::<PyConvertResult>()?;
-    m.add_class::<PyMkDocsProcessor>()?;
     m.add_class::<PyMarkdownConverter>()?;
     Ok(())
 }

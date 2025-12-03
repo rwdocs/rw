@@ -619,7 +619,7 @@ async def _upload_mkdocs(
         from md2conf.confluence import ConfluenceClient, MarkdownConverter
         from md2conf.confluence.comment_preservation import CommentPreserver
         from md2conf.kroki import KrokiClient, get_png_dimensions
-        from md2conf_core import MkDocsProcessor, create_image_tag
+        from md2conf_core import create_image_tag, prepare_diagram_source
         from md2conf.oauth import create_confluence_client, read_private_key
 
         # Load configuration
@@ -628,20 +628,25 @@ async def _upload_mkdocs(
 
         # Build include directories from mkdocs root
         include_dirs = [
-            mkdocs_root / "includes",
-            mkdocs_root / "gen" / "includes",
+            mkdocs_root / 'includes',
+            mkdocs_root / 'gen' / 'includes',
             mkdocs_root,
         ]
         include_dirs = [d for d in include_dirs if d.exists()]
 
         click.echo(f'Include directories: {[str(d) for d in include_dirs]}')
 
-        # Process MkDocs document to extract diagrams
-        click.echo(f'Processing {markdown_file}...')
-        processor = MkDocsProcessor(include_dirs, config_file="config.iuml")
-        processed = processor.process_file(markdown_file)
+        # Read markdown file and convert to Confluence format
+        click.echo(f'Converting {markdown_file}...')
+        markdown_text = markdown_file.read_text(encoding='utf-8')
+        converter = MarkdownConverter(prepend_toc=True, extract_title=True)
+        result = converter.convert(markdown_text)
+        new_html = result.html
 
-        click.echo(f'Found {len(processed.diagrams)} diagrams')
+        click.echo(f'Found {len(result.diagrams)} diagrams')
+
+        if result.title:
+            click.echo(f'Title: {result.title}')
 
         # Initialize Kroki client
         kroki = KrokiClient(kroki_url)
@@ -650,30 +655,27 @@ async def _upload_mkdocs(
         attachments: list[tuple[str, bytes]] = []
         image_tags: dict[int, str] = {}
 
-        for diagram in processed.diagrams:
+        for diagram in result.diagrams:
             click.echo(f'Rendering diagram {diagram.index + 1}...')
-            diagram_hash = kroki.get_diagram_hash("plantuml", diagram.resolved_source)
-            filename = f"diagram_{diagram_hash}.png"
 
-            image_data = await kroki.render_diagram(
-                "plantuml", diagram.resolved_source, "png"
+            # Prepare diagram source (resolve includes, add DPI and config)
+            prepared_source = prepare_diagram_source(
+                diagram.source, include_dirs, config_file='config.iuml'
             )
+
+            diagram_hash = kroki.get_diagram_hash('plantuml', prepared_source)
+            filename = f'diagram_{diagram_hash}.png'
+
+            image_data = await kroki.render_diagram('plantuml', prepared_source, 'png')
             attachments.append((filename, image_data))
 
             # Get image dimensions and scale to 50%
             width, height = get_png_dimensions(image_data)
             display_width = width // 2
             image_tags[diagram.index] = create_image_tag(filename, width=display_width)
-            click.echo(f'  -> {filename} ({len(image_data)} bytes, {width}x{height} -> {display_width}px)')
-
-        # Convert to Confluence format first (placeholders stay as text)
-        click.echo('Converting to Confluence format...')
-        converter = MarkdownConverter(prepend_toc=True, extract_title=True)
-        result = converter.convert(processed.markdown)
-        new_html = result.html
-
-        if result.title:
-            click.echo(f'Title: {result.title}')
+            click.echo(
+                f'  -> {filename} ({len(image_data)} bytes, {width}x{height} -> {display_width}px)'
+            )
 
         # Replace diagram placeholders with image tags in the HTML output
         for index, image_tag in image_tags.items():

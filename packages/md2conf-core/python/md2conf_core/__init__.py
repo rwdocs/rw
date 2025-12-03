@@ -8,16 +8,14 @@ from .md2conf_core import (
     ConvertResult,
     DiagramInfo,
     MarkdownConverter,
-    MkDocsProcessor,
-    ProcessedDocument,
     create_image_tag,
+    prepare_diagram_source,
 )
 
 __all__ = [
     "ConvertResult",
     "DiagramInfo",
     "MarkdownConverter",
-    "MkDocsProcessor",
-    "ProcessedDocument",
     "create_image_tag",
+    "prepare_diagram_source",
 ]

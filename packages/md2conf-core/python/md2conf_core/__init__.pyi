@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+
 class DiagramInfo:
     """Information about an extracted PlantUML diagram."""
 
@@ -11,27 +12,10 @@ class DiagramInfo:
         ...
 
     @property
-    def resolved_source(self) -> str:
-        """Source with includes resolved and config prepended."""
-        ...
-
-    @property
     def index(self) -> int:
         """Zero-based index of this diagram."""
         ...
 
-class ProcessedDocument:
-    """Result of processing a document with PlantUML extraction."""
-
-    @property
-    def markdown(self) -> str:
-        """Markdown with diagrams replaced by placeholders."""
-        ...
-
-    @property
-    def diagrams(self) -> list[DiagramInfo]:
-        """Extracted diagrams."""
-        ...
 
 class ConvertResult:
     """Result of converting markdown to Confluence format."""
@@ -46,35 +30,11 @@ class ConvertResult:
         """Title extracted from first H1 heading (if extract_title was enabled)."""
         ...
 
-class MkDocsProcessor:
-    """MkDocs document processor with PlantUML support."""
-
-    def __init__(
-        self,
-        include_dirs: list[Path],
-        config_file: str | None = None,
-    ) -> None:
-        """Initialize processor.
-
-        Args:
-            include_dirs: List of directories to search for includes
-            config_file: Optional PlantUML config file to prepend to diagrams
-        """
+    @property
+    def diagrams(self) -> list[DiagramInfo]:
+        """PlantUML diagrams extracted from code blocks."""
         ...
 
-    def process_file(self, file_path: Path) -> ProcessedDocument:
-        """Process a markdown file.
-
-        Args:
-            file_path: Path to markdown file
-
-        Returns:
-            ProcessedDocument with diagrams extracted
-
-        Raises:
-            IOError: If file cannot be read
-        """
-        ...
 
 class MarkdownConverter:
     """Markdown to Confluence converter."""
@@ -101,9 +61,10 @@ class MarkdownConverter:
             markdown_text: Markdown source text
 
         Returns:
-            ConvertResult with HTML and optional title
+            ConvertResult with HTML, title, and diagrams
         """
         ...
+
 
 def create_image_tag(filename: str, width: int | None = None) -> str:
     """Create Confluence image macro for an attachment.
@@ -114,5 +75,25 @@ def create_image_tag(filename: str, width: int | None = None) -> str:
 
     Returns:
         Confluence storage format image macro
+    """
+    ...
+
+
+def prepare_diagram_source(
+    source: str,
+    include_dirs: list[Path],
+    config_file: str | None = None,
+) -> str:
+    """Prepare PlantUML diagram source for rendering.
+
+    Resolves !include directives, prepends DPI and optional config.
+
+    Args:
+        source: Raw diagram source from markdown
+        include_dirs: List of directories to search for includes
+        config_file: Optional config filename to load and prepend
+
+    Returns:
+        Prepared diagram source ready for Kroki rendering
     """
     ...
