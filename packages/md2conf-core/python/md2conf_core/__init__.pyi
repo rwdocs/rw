@@ -65,6 +65,20 @@ class MkDocsProcessor:
         """
         ...
 
+    def process_file(self, file_path: str) -> ProcessedDocument:
+        """Process a markdown file.
+
+        Args:
+            file_path: Path to markdown file
+
+        Returns:
+            ProcessedDocument with diagrams extracted
+
+        Raises:
+            IOError: If file cannot be read
+        """
+        ...
+
 class MarkdownConverter:
     """Markdown to Confluence converter."""
 

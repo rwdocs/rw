@@ -88,6 +88,23 @@ impl PyMkDocsProcessor {
     pub fn extract_diagrams(&self, markdown: &str) -> PyProcessedDocument {
         self.extractor.process(markdown).into()
     }
+
+    /// Process a markdown file.
+    ///
+    /// Args:
+    ///     file_path: Path to markdown file
+    ///
+    /// Returns:
+    ///     ProcessedDocument with diagrams extracted
+    ///
+    /// Raises:
+    ///     IOError: If file cannot be read
+    pub fn process_file(&self, file_path: &str) -> PyResult<PyProcessedDocument> {
+        let content = std::fs::read_to_string(file_path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to read '{}': {}", file_path, e))
+        })?;
+        Ok(self.extractor.process(&content).into())
+    }
 }
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;

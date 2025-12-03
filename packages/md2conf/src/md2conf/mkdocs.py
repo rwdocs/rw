@@ -63,11 +63,7 @@ class MkDocsProcessor:
             ProcessedDocument with diagrams extracted
 
         Raises:
-            FileNotFoundError: If file doesn't exist
+            IOError: If file cannot be read
         """
-        if not file_path.exists():
-            raise FileNotFoundError(f"Markdown file not found: {file_path}")
-
         logger.info(f"Processing MkDocs file: {file_path}")
-        markdown = file_path.read_text(encoding="utf-8")
-        return self.extract_diagrams(markdown)
+        return self._processor.process_file(str(file_path))
