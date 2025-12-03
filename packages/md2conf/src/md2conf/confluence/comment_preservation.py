@@ -159,6 +159,29 @@ class TreeMatcher:
         logger.info(f'Matched {len(self.matches)} nodes between trees')
         return self.matches
 
+    def _get_match_score(
+        self, old_node: TreeNode, new_node: TreeNode
+    ) -> float:
+        """Calculate match score between two nodes.
+
+        Args:
+            old_node: Node from old tree
+            new_node: Node from new tree
+
+        Returns:
+            Match score from 0.0 to 1.0, or -1.0 if not matchable
+        """
+        if old_node.is_comment_marker():
+            return -1.0
+
+        if old_node.tag != new_node.tag:
+            return -1.0
+
+        old_text = old_node.get_text_signature()
+        new_text = new_node.get_text_signature()
+
+        return self._text_similarity(old_text, new_text)
+
     def _match_recursive(
         self, old_node: TreeNode, new_node: TreeNode
     ) -> bool:
@@ -171,36 +194,28 @@ class TreeMatcher:
         Returns:
             True if nodes matched
         """
-        # Skip comment markers - they're what we're transferring
-        if old_node.is_comment_marker():
+        score = self._get_match_score(old_node, new_node)
+
+        if score < 0:
             return False
 
-        # Strategy 1: Exact match (tag + text signature)
-        if old_node.tag == new_node.tag:
-            old_text = old_node.get_text_signature()
-            new_text = new_node.get_text_signature()
+        # Require >80% similarity for partial matches
+        if score < 0.8:
+            return False
 
-            if old_text == new_text:
-                self.matches[id(old_node)] = new_node
-                self._match_children(old_node.children, new_node.children)
-                return True
+        if score < 1.0:
+            logger.debug(
+                f'Partial match: {old_node.tag} ({score:.2f} similarity)'
+            )
 
-            # Strategy 2: Partial match (tag + similar text)
-            similarity = self._text_similarity(old_text, new_text)
-            if similarity > 0.8:  # 80% similar
-                logger.debug(
-                    f'Partial match: {old_node.tag} ({similarity:.2f} similarity)'
-                )
-                self.matches[id(old_node)] = new_node
-                self._match_children(old_node.children, new_node.children)
-                return True
-
-        return False
+        self.matches[id(old_node)] = new_node
+        self._match_children(old_node.children, new_node.children)
+        return True
 
     def _match_children(
         self, old_children: list[TreeNode], new_children: list[TreeNode]
     ):
-        """Match child nodes.
+        """Match child nodes using best-match strategy.
 
         Args:
             old_children: Children from old node
@@ -209,11 +224,26 @@ class TreeMatcher:
         # Filter out comment markers from old children
         old_content = [c for c in old_children if not c.is_comment_marker()]
 
-        # Try to match each old child with new children
+        # Track which new children have been matched
+        matched_new: set[int] = set()
+
+        # For each old child, find the best matching new child
         for old_child in old_content:
+            best_score = 0.8  # Minimum threshold
+            best_new_child: TreeNode | None = None
+
             for new_child in new_children:
-                if self._match_recursive(old_child, new_child):
-                    break
+                if id(new_child) in matched_new:
+                    continue
+
+                score = self._get_match_score(old_child, new_child)
+                if score > best_score:
+                    best_score = score
+                    best_new_child = new_child
+
+            if best_new_child is not None:
+                matched_new.add(id(best_new_child))
+                self._match_recursive(old_child, best_new_child)
 
     def _text_similarity(self, text1: str, text2: str) -> float:
         """Calculate text similarity ratio.
