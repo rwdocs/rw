@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 
 from md2conf_core import MarkdownConverter as CoreConverter
+from md2conf_core import toc_macro
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +16,14 @@ logger = logging.getLogger(__name__)
 class MarkdownConverter:
     """Convert Markdown to Confluence storage format."""
 
-    def __init__(self) -> None:
-        """Initialize the converter."""
+    def __init__(self, prepend_toc: bool = False) -> None:
+        """Initialize the converter.
+
+        Args:
+            prepend_toc: Whether to prepend a table of contents macro
+        """
         self._converter = CoreConverter()
+        self._prepend_toc = prepend_toc
 
     def convert(self, markdown_text: str) -> str:
         """Convert Markdown text to Confluence storage format.
@@ -30,6 +36,8 @@ class MarkdownConverter:
         """
         logger.debug(f'Converting {len(markdown_text)} characters of markdown')
         confluence_body = self._converter.convert(markdown_text)
+        if self._prepend_toc:
+            confluence_body = toc_macro() + confluence_body
         logger.debug(f'Converted to {len(confluence_body)} characters of XHTML')
         return confluence_body
 

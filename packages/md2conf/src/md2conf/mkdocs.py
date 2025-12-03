@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from md2conf_core import MkDocsProcessor as CoreProcessor
-from md2conf_core import create_image_tag as core_create_image_tag
 from md2conf_core import toc_macro
 
 logger = logging.getLogger(__name__)
@@ -101,16 +100,3 @@ class MkDocsProcessor:
 
 
 TOC_MACRO = toc_macro()
-
-
-def create_image_tag(filename: str, width: int | None = None) -> str:
-    """Create Confluence image macro for an attachment.
-
-    Args:
-        filename: Attachment filename
-        width: Optional width in pixels
-
-    Returns:
-        Confluence storage format image macro
-    """
-    return core_create_image_tag(filename, width)

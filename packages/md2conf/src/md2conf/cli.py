@@ -619,7 +619,8 @@ async def _upload_mkdocs(
         from md2conf.confluence import ConfluenceClient, MarkdownConverter
         from md2conf.confluence.comment_preservation import CommentPreserver
         from md2conf.kroki import KrokiClient, get_png_dimensions
-        from md2conf.mkdocs import TOC_MACRO, MkDocsProcessor, create_image_tag
+        from md2conf.mkdocs import MkDocsProcessor
+        from md2conf_core import create_image_tag
         from md2conf.oauth import create_confluence_client, read_private_key
 
         # Load configuration
@@ -670,16 +671,13 @@ async def _upload_mkdocs(
 
         # Convert to Confluence format first (placeholders stay as text)
         click.echo('Converting to Confluence format...')
-        converter = MarkdownConverter()
+        converter = MarkdownConverter(prepend_toc=True)
         new_html = converter.convert(processed.markdown)
 
         # Replace diagram placeholders with image tags in the HTML output
         for index, image_tag in image_tags.items():
             placeholder = f"{{{{DIAGRAM_{index}}}}}"
             new_html = new_html.replace(placeholder, image_tag)
-
-        # Prepend TOC macro
-        new_html = TOC_MACRO + new_html
 
         # Create authenticated client
         async with create_confluence_client(
