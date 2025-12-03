@@ -619,8 +619,7 @@ async def _upload_mkdocs(
         from md2conf.confluence import ConfluenceClient, MarkdownConverter
         from md2conf.confluence.comment_preservation import CommentPreserver
         from md2conf.kroki import KrokiClient, get_png_dimensions
-        from md2conf.mkdocs import MkDocsProcessor
-        from md2conf_core import create_image_tag
+        from md2conf_core import MkDocsProcessor, create_image_tag
         from md2conf.oauth import create_confluence_client, read_private_key
 
         # Load configuration
