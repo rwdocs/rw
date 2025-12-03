@@ -189,6 +189,11 @@ def update(
     help='Version message for the update',
 )
 @click.option(
+    '--dry-run',
+    is_flag=True,
+    help='Preview changes without updating Confluence. Shows comments that would be lost.',
+)
+@click.option(
     '--config',
     '-c',
     type=click.Path(exists=True, path_type=Path),
@@ -208,6 +213,7 @@ def upload_mkdocs(
     mkdocs_root: Path,
     kroki_url: str,
     message: str | None,
+    dry_run: bool,
     config: Path,
     key_file: Path,
 ) -> None:
@@ -217,7 +223,7 @@ def upload_mkdocs(
     """
     asyncio.run(
         _upload_mkdocs(
-            markdown_file, page_id, mkdocs_root, kroki_url, message, config, key_file
+            markdown_file, page_id, mkdocs_root, kroki_url, message, dry_run, config, key_file
         )
     )
 
@@ -562,14 +568,14 @@ async def _update(
             # Preserve comment markers
             click.echo('Preserving comment markers...')
             preserver = CommentPreserver()
-            confluence_body = preserver.preserve_comments(old_html, new_html)
+            preserve_result = preserver.preserve_comments(old_html, new_html)
 
             # Update page
             click.echo(
                 f'Updating page "{title}" from version {current_version} to {current_version + 1}...'
             )
             updated_page = await confluence.update_page(
-                page_id, title, confluence_body, current_version, message
+                page_id, title, preserve_result.html, current_version, message
             )
 
             # Display result
@@ -586,6 +592,17 @@ async def _update(
             comments = await confluence.get_comments(page_id)
             click.echo(f'\nComments on page: {comments["size"]}')
 
+            # Warn about unmatched comments
+            if preserve_result.unmatched_comments:
+                click.echo(
+                    click.style(
+                        f'\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:',
+                        fg='yellow',
+                    )
+                )
+                for comment in preserve_result.unmatched_comments:
+                    click.echo(f'  - [{comment.ref}] "{comment.text}"')
+
     except Exception as e:
         click.echo(click.style(f'Error: {e}', fg='red'), err=True)
         import traceback
@@ -600,6 +617,7 @@ async def _upload_mkdocs(
     mkdocs_root: Path,
     kroki_url: str,
     message: str | None,
+    dry_run: bool,
     config_path: Path,
     key_file: Path,
 ) -> None:
@@ -611,6 +629,7 @@ async def _upload_mkdocs(
         mkdocs_root: Root directory of the MkDocs site
         kroki_url: Kroki server URL
         message: Optional version message
+        dry_run: If True, only show what would happen without updating
         config_path: Path to config.toml
         key_file: Path to private key PEM file
     """
@@ -692,14 +711,6 @@ async def _upload_mkdocs(
         ) as http_client:
             confluence = ConfluenceClient(http_client, config.confluence.base_url)
 
-            # Upload attachments
-            click.echo(f'Uploading {len(attachments)} attachments...')
-            for filename, image_data in attachments:
-                click.echo(f'  Uploading {filename}...')
-                await confluence.upload_attachment(
-                    page_id, filename, image_data, "image/png"
-                )
-
             # Get current page with body to preserve comments
             click.echo(f'Fetching current page {page_id}...')
             current_page = await confluence.get_page(
@@ -714,14 +725,38 @@ async def _upload_mkdocs(
             # Preserve comment markers
             click.echo('Preserving comment markers...')
             preserver = CommentPreserver()
-            confluence_body = preserver.preserve_comments(old_html, new_html)
+            preserve_result = preserver.preserve_comments(old_html, new_html)
+
+            if dry_run:
+                click.echo(click.style('\n[DRY RUN] No changes made to Confluence.', fg='cyan', bold=True))
+                if preserve_result.unmatched_comments:
+                    click.echo(
+                        click.style(
+                            f'\nComments that would be resolved ({len(preserve_result.unmatched_comments)}):',
+                            fg='yellow',
+                            bold=True,
+                        )
+                    )
+                    for comment in preserve_result.unmatched_comments:
+                        click.echo(f'  - [{comment.ref}] "{comment.text}"')
+                else:
+                    click.echo(click.style('\nNo comments would be resolved.', fg='green'))
+                return
+
+            # Upload attachments
+            click.echo(f'Uploading {len(attachments)} attachments...')
+            for filename, image_data in attachments:
+                click.echo(f'  Uploading {filename}...')
+                await confluence.upload_attachment(
+                    page_id, filename, image_data, "image/png"
+                )
 
             # Update page
             click.echo(
                 f'Updating page "{title}" from version {current_version} to {current_version + 1}...'
             )
             updated_page = await confluence.update_page(
-                page_id, title, confluence_body, current_version, message
+                page_id, title, preserve_result.html, current_version, message
             )
 
             # Display result
@@ -733,6 +768,17 @@ async def _upload_mkdocs(
             # Get URL
             url = await confluence.get_page_url(page_id)
             click.echo(f'URL: {url}')
+
+            # Warn about unmatched comments
+            if preserve_result.unmatched_comments:
+                click.echo(
+                    click.style(
+                        f'\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:',
+                        fg='yellow',
+                    )
+                )
+                for comment in preserve_result.unmatched_comments:
+                    click.echo(f'  - [{comment.ref}] "{comment.text}"')
 
     except Exception as e:
         click.echo(click.style(f'Error: {e}', fg='red'), err=True)

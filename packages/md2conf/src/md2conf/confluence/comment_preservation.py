@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class UnmatchedComment:
+    """Represents a comment that could not be placed in new HTML."""
+
+    ref: str  # Comment reference ID
+    text: str  # Text content the marker was wrapping
+
+
+@dataclass
 class TreeNode:
     """Represents a node in the HTML tree."""
 
@@ -225,6 +233,10 @@ class TreeMatcher:
 class CommentMarkerTransfer:
     """Transfer comment markers from old tree to new tree."""
 
+    def __init__(self) -> None:
+        """Initialize transfer tracker."""
+        self.unmatched_comments: list[UnmatchedComment] = []
+
     def transfer(
         self, matches: dict[int, TreeNode], new_tree: TreeNode, old_tree: TreeNode
     ) -> TreeNode:
@@ -300,13 +312,16 @@ class CommentMarkerTransfer:
 
     def _insert_marker_by_text(
         self, node: TreeNode, marker: TreeNode, marker_text: str
-    ):
+    ) -> bool:
         """Insert marker by finding matching text in node.
 
         Args:
             node: Node to insert marker into
             marker: Marker node to insert
             marker_text: Text content that should be wrapped by marker
+
+        Returns:
+            True if marker was inserted, False otherwise
         """
         # Check if marker text appears in node's direct text
         if marker_text in node.text:
@@ -322,18 +337,24 @@ class CommentMarkerTransfer:
             # Insert marker as first child
             node.children.insert(0, marker)
             logger.debug(f'Inserted marker in {node.tag} direct text')
-            return
+            return True
 
         # Check children for matching text
         for child in node.children:
             if not child.is_comment_marker() and marker_text in child.get_text_signature():
                 # Recursively insert in child
-                self._insert_marker_by_text(child, marker, marker_text)
-                return
+                if self._insert_marker_by_text(child, marker, marker_text):
+                    return True
 
         logger.warning(
             f'Could not find position for marker text: "{marker_text[:50]}..."'
         )
+        ref = marker.attrs.get(
+            '{http://www.atlassian.com/schema/confluence/4/ac/}ref',
+            marker.attrs.get('ac:ref', ''),
+        )
+        self.unmatched_comments.append(UnmatchedComment(ref=ref, text=marker_text))
+        return False
 
 
 class ConfluenceTreeSerializer:
@@ -381,6 +402,14 @@ class ConfluenceTreeSerializer:
         return elem
 
 
+@dataclass
+class PreserveResult:
+    """Result of comment preservation."""
+
+    html: str
+    unmatched_comments: list[UnmatchedComment]
+
+
 class CommentPreserver:
     """Preserve inline comments when updating Confluence pages."""
 
@@ -389,7 +418,7 @@ class CommentPreserver:
         self.parser = ConfluenceTreeParser()
         self.serializer = ConfluenceTreeSerializer()
 
-    def preserve_comments(self, old_html: str, new_html: str) -> str:
+    def preserve_comments(self, old_html: str, new_html: str) -> PreserveResult:
         """Preserve comment markers from old HTML in new HTML.
 
         Args:
@@ -397,7 +426,7 @@ class CommentPreserver:
             new_html: New HTML from markdown conversion
 
         Returns:
-            New HTML with preserved comment markers
+            PreserveResult with HTML and list of unmatched comments
         """
         logger.info('Starting comment preservation')
         logger.debug(f'Old HTML length: {len(old_html)}')
@@ -427,11 +456,11 @@ class CommentPreserver:
             logger.debug(f'Result HTML length: {len(result)}')
 
             logger.info('Comment preservation completed')
-            return result
+            return PreserveResult(html=result, unmatched_comments=transfer.unmatched_comments)
 
         except Exception as e:
             logger.error(f'Comment preservation failed: {e}')
             logger.warning('Falling back to new HTML without comment preservation')
             import traceback
             logger.debug(traceback.format_exc())
-            return new_html
+            return PreserveResult(html=new_html, unmatched_comments=[])
