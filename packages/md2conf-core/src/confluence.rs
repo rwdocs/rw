@@ -8,14 +8,12 @@ pub struct ConfluenceRenderer {
     output: String,
     /// Stack of nested list types (true = ordered, false = unordered)
     list_stack: Vec<bool>,
-    /// Current heading level for TOC extraction
-    in_heading: Option<HeadingLevel>,
-    /// Buffer for heading text
-    heading_text: String,
     /// Whether we're inside a code block
     in_code_block: bool,
     /// Language of current code block
     code_language: Option<String>,
+    /// Whether we're inside a table header row
+    in_table_head: bool,
 }
 
 impl ConfluenceRenderer {
@@ -23,10 +21,9 @@ impl ConfluenceRenderer {
         Self {
             output: String::with_capacity(4096),
             list_stack: Vec::new(),
-            in_heading: None,
-            heading_text: String::new(),
             in_code_block: false,
             code_language: None,
+            in_table_head: false,
         }
     }
 
@@ -73,8 +70,6 @@ impl ConfluenceRenderer {
                 }
             }
             Tag::Heading { level, .. } => {
-                self.in_heading = Some(level);
-                self.heading_text.clear();
                 let level_num = heading_level_to_num(level);
                 write!(self.output, "<h{}>", level_num).unwrap();
             }
@@ -94,9 +89,8 @@ impl ConfluenceRenderer {
                 self.code_language = lang.clone();
 
                 // Confluence code macro
-                self.output.push_str(
-                    r#"<ac:structured-macro ac:name="code" ac:schema-version="1">"#,
-                );
+                self.output
+                    .push_str(r#"<ac:structured-macro ac:name="code" ac:schema-version="1">"#);
                 if let Some(ref lang) = lang {
                     write!(
                         self.output,
@@ -107,8 +101,7 @@ impl ConfluenceRenderer {
                 }
                 self.output
                     .push_str(r#"<ac:parameter ac:name="linenumbers">true</ac:parameter>"#);
-                self.output
-                    .push_str(r#"<ac:plain-text-body><![CDATA["#);
+                self.output.push_str(r#"<ac:plain-text-body><![CDATA["#);
             }
             Tag::List(start) => {
                 let ordered = start.is_some();
@@ -136,13 +129,18 @@ impl ConfluenceRenderer {
                 self.output.push_str("<table><tbody>");
             }
             Tag::TableHead => {
+                self.in_table_head = true;
                 self.output.push_str("<tr>");
             }
             Tag::TableRow => {
                 self.output.push_str("<tr>");
             }
             Tag::TableCell => {
-                self.output.push_str("<td>");
+                if self.in_table_head {
+                    self.output.push_str("<th>");
+                } else {
+                    self.output.push_str("<td>");
+                }
             }
             Tag::Emphasis => {
                 self.output.push_str("<em>");
@@ -188,15 +186,16 @@ impl ConfluenceRenderer {
                 }
             }
             TagEnd::Heading(level) => {
-                self.in_heading = None;
                 let level_num = heading_level_to_num(level);
                 write!(self.output, "</h{}>", level_num).unwrap();
             }
             TagEnd::BlockQuote(_) => {
-                self.output.push_str("</ac:rich-text-body></ac:structured-macro>");
+                self.output
+                    .push_str("</ac:rich-text-body></ac:structured-macro>");
             }
             TagEnd::CodeBlock => {
-                self.output.push_str("]]></ac:plain-text-body></ac:structured-macro>");
+                self.output
+                    .push_str("]]></ac:plain-text-body></ac:structured-macro>");
                 self.in_code_block = false;
                 self.code_language = None;
             }
@@ -224,11 +223,19 @@ impl ConfluenceRenderer {
             TagEnd::Table => {
                 self.output.push_str("</tbody></table>");
             }
-            TagEnd::TableHead | TagEnd::TableRow => {
+            TagEnd::TableHead => {
+                self.output.push_str("</tr>");
+                self.in_table_head = false;
+            }
+            TagEnd::TableRow => {
                 self.output.push_str("</tr>");
             }
             TagEnd::TableCell => {
-                self.output.push_str("</td>");
+                if self.in_table_head {
+                    self.output.push_str("</th>");
+                } else {
+                    self.output.push_str("</td>");
+                }
             }
             TagEnd::Emphasis => {
                 self.output.push_str("</em>");
@@ -254,9 +261,6 @@ impl ConfluenceRenderer {
             // Don't escape text in code blocks (CDATA)
             self.output.push_str(text);
         } else {
-            if self.in_heading.is_some() {
-                self.heading_text.push_str(text);
-            }
             self.output.push_str(&escape_xml(text));
         }
     }

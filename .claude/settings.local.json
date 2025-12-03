@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(core-plugin:code-reviewer)",
+      "Bash(dx code check:*)",
+      "Bash(dx git comment:*)",
+      "Bash(dx git fetch-comments:*)",
+      "Skill(core-plugin:code-developer)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

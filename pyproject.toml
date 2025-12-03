@@ -4,10 +4,10 @@ version = "0.1.0"
 description = "Markdown to Confluence workspace"
 requires-python = ">=3.14"
 # Workspace root is not a package itself
-dependencies = []
+dependencies = ["md2conf"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
 
 [tool.uv.sources]
-md2conf-core = { workspace = true }
+md2conf = { workspace = true }

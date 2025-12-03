@@ -3,21 +3,15 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-static PLANTUML_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?ms)^```plantuml\s*\n(.*?)\n```").unwrap()
-});
+static PLANTUML_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?ms)^```plantuml\s*\n(.*?)\n```").unwrap());
 
-static INCLUDE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^!include\s+(.+)$").unwrap()
-});
+static INCLUDE_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^!include\s+(.+)$").unwrap());
 
-static H1_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^#\s+(.+)$").unwrap()
-});
+static H1_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^#\s+(.+)$").unwrap());
 
-static HEADER_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^(#{2,6})\s+").unwrap()
-});
+static HEADER_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^(#{2,6})\s+").unwrap());
 
 /// Information about an extracted PlantUML diagram.
 #[derive(Debug, Clone)]
@@ -96,9 +90,9 @@ impl PlantUmlExtractor {
         let mut processed = processed.into_owned();
 
         // Extract title from first H1
-        let title = H1_PATTERN.captures(&processed).map(|caps| {
-            caps.get(1).unwrap().as_str().trim().to_string()
-        });
+        let title = H1_PATTERN
+            .captures(&processed)
+            .map(|caps| caps.get(1).unwrap().as_str().trim().to_string());
 
         // If we found a title, remove H1 and level up headers
         if title.is_some() {
@@ -123,25 +117,27 @@ impl PlantUmlExtractor {
             return source.to_string();
         }
 
-        INCLUDE_PATTERN.replace_all(source, |caps: &regex::Captures| {
-            let include_path = caps.get(1).unwrap().as_str().trim();
+        INCLUDE_PATTERN
+            .replace_all(source, |caps: &regex::Captures| {
+                let include_path = caps.get(1).unwrap().as_str().trim();
 
-            // Skip stdlib includes
-            if include_path.starts_with('<') && include_path.ends_with('>') {
-                return caps.get(0).unwrap().as_str().to_string();
-            }
-
-            // Try to resolve from include directories
-            for dir in &self.include_dirs {
-                let full_path = std::path::Path::new(dir).join(include_path);
-                if let Ok(content) = std::fs::read_to_string(&full_path) {
-                    return self.resolve_includes(&content, depth + 1);
+                // Skip stdlib includes
+                if include_path.starts_with('<') && include_path.ends_with('>') {
+                    return caps.get(0).unwrap().as_str().to_string();
                 }
-            }
 
-            // Keep original if not found
-            caps.get(0).unwrap().as_str().to_string()
-        }).into_owned()
+                // Try to resolve from include directories
+                for dir in &self.include_dirs {
+                    let full_path = std::path::Path::new(dir).join(include_path);
+                    if let Ok(content) = std::fs::read_to_string(&full_path) {
+                        return self.resolve_includes(&content, depth + 1);
+                    }
+                }
+
+                // Keep original if not found
+                caps.get(0).unwrap().as_str().to_string()
+            })
+            .into_owned()
     }
 }
 
@@ -168,7 +164,11 @@ More text
 
         assert_eq!(result.title, Some("Title".to_string()));
         assert_eq!(result.diagrams.len(), 1);
-        assert!(result.diagrams[0].resolved_source.contains("skinparam dpi 192"));
+        assert!(
+            result.diagrams[0]
+                .resolved_source
+                .contains("skinparam dpi 192")
+        );
         assert!(result.markdown.contains("{{DIAGRAM_0}}"));
         assert!(!result.markdown.contains("# Title"));
     }

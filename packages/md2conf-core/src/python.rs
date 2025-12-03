@@ -1,7 +1,7 @@
 //! Python bindings via PyO3.
 
-use pyo3::prelude::*;
 use pulldown_cmark::{Options, Parser};
+use pyo3::prelude::*;
 
 use crate::confluence::ConfluenceRenderer;
 use crate::plantuml::{DiagramInfo as RustDiagramInfo, PlantUmlExtractor, ProcessedDocument};
@@ -107,10 +107,11 @@ impl PyMkDocsProcessor {
     ///     ProcessedDocument with diagrams extracted
     ///
     /// Raises:
-    ///     FileNotFoundError: If file doesn't exist
+    ///     IOError: If file cannot be read
     pub fn process_file(&self, file_path: &str) -> PyResult<PyProcessedDocument> {
-        let content = std::fs::read_to_string(file_path)
-            .map_err(|e| pyo3::exceptions::PyFileNotFoundError::new_err(e.to_string()))?;
+        let content = std::fs::read_to_string(file_path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to read '{}': {}", file_path, e))
+        })?;
         Ok(self.extractor.process(&content).into())
     }
 }
@@ -149,10 +150,11 @@ impl PyMarkdownConverter {
     ///     Confluence XHTML storage format string
     ///
     /// Raises:
-    ///     FileNotFoundError: If file doesn't exist
+    ///     IOError: If file cannot be read
     pub fn convert_file(&self, file_path: &str) -> PyResult<String> {
-        let content = std::fs::read_to_string(file_path)
-            .map_err(|e| pyo3::exceptions::PyFileNotFoundError::new_err(e.to_string()))?;
+        let content = std::fs::read_to_string(file_path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to read '{}': {}", file_path, e))
+        })?;
         Ok(markdown_to_confluence(&content, self.gfm))
     }
 }

@@ -229,6 +229,12 @@ source = { editable = "packages/md2conf-core" }
 name = "md2conf-workspace"
 version = "0.1.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "md2conf" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "md2conf", editable = "packages/md2conf" }]
 
 [[package]]
 name = "pycparser"
