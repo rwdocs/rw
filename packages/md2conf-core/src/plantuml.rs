@@ -9,10 +9,6 @@ static PLANTUML_PATTERN: LazyLock<Regex> =
 static INCLUDE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^!include\s+(.+)$").unwrap());
 
-static H1_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^#\s+(.+)$").unwrap());
-
-static HEADER_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^(#{2,6})\s+").unwrap());
-
 /// Information about an extracted PlantUML diagram.
 #[derive(Debug, Clone)]
 pub struct DiagramInfo {
@@ -31,8 +27,6 @@ pub struct ProcessedDocument {
     pub markdown: String,
     /// Extracted diagrams
     pub diagrams: Vec<DiagramInfo>,
-    /// Title extracted from first H1 heading
-    pub title: Option<String>,
 }
 
 /// Extracts PlantUML diagrams from markdown.
@@ -58,7 +52,7 @@ impl PlantUmlExtractor {
         }
     }
 
-    /// Process markdown, extracting diagrams and title.
+    /// Process markdown, extracting diagrams.
     pub fn process(&self, markdown: &str) -> ProcessedDocument {
         let mut diagrams = Vec::new();
         let mut index = 0usize;
@@ -87,28 +81,9 @@ impl PlantUmlExtractor {
             placeholder
         });
 
-        let mut processed = processed.into_owned();
-
-        // Extract title from first H1
-        let title = H1_PATTERN
-            .captures(&processed)
-            .map(|caps| caps.get(1).unwrap().as_str().trim().to_string());
-
-        // If we found a title, remove H1 and level up headers
-        if title.is_some() {
-            processed = H1_PATTERN.replace(&processed, "").trim_start().to_string();
-            processed = HEADER_PATTERN
-                .replace_all(&processed, |caps: &regex::Captures| {
-                    let hashes = caps.get(1).unwrap().as_str();
-                    format!("{} ", &hashes[1..])
-                })
-                .into_owned();
-        }
-
         ProcessedDocument {
-            markdown: processed,
+            markdown: processed.into_owned(),
             diagrams,
-            title,
         }
     }
 
@@ -162,7 +137,6 @@ More text
         let extractor = PlantUmlExtractor::new(vec![], None, 192);
         let result = extractor.process(markdown);
 
-        assert_eq!(result.title, Some("Title".to_string()));
         assert_eq!(result.diagrams.len(), 1);
         assert!(
             result.diagrams[0]
@@ -170,16 +144,6 @@ More text
                 .contains("skinparam dpi 192")
         );
         assert!(result.markdown.contains("{{DIAGRAM_0}}"));
-        assert!(!result.markdown.contains("# Title"));
-    }
-
-    #[test]
-    fn test_header_level_up() {
-        let markdown = "# Title\n\n## Section\n\n### Subsection";
-        let extractor = PlantUmlExtractor::new(vec![], None, 192);
-        let result = extractor.process(markdown);
-
-        assert!(result.markdown.contains("# Section"));
-        assert!(result.markdown.contains("## Subsection"));
+        assert!(result.markdown.contains("# Title"));
     }
 }

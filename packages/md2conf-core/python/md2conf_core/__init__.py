@@ -5,6 +5,7 @@ with a custom Confluence storage format renderer.
 """
 
 from .md2conf_core import (
+    ConvertResult,
     DiagramInfo,
     MarkdownConverter,
     MkDocsProcessor,
@@ -13,6 +14,7 @@ from .md2conf_core import (
 )
 
 __all__ = [
+    "ConvertResult",
     "DiagramInfo",
     "MarkdownConverter",
     "MkDocsProcessor",

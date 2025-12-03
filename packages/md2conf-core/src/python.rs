@@ -37,8 +37,6 @@ pub struct PyProcessedDocument {
     pub markdown: String,
     #[pyo3(get)]
     pub diagrams: Vec<PyDiagramInfo>,
-    #[pyo3(get)]
-    pub title: Option<String>,
 }
 
 impl From<ProcessedDocument> for PyProcessedDocument {
@@ -46,22 +44,29 @@ impl From<ProcessedDocument> for PyProcessedDocument {
         Self {
             markdown: doc.markdown,
             diagrams: doc.diagrams.into_iter().map(Into::into).collect(),
-            title: doc.title,
         }
     }
 }
 
-/// Convert markdown to Confluence storage format.
-fn markdown_to_confluence(markdown: &str, gfm: bool) -> String {
+/// Result of converting markdown to Confluence format.
+#[pyclass(name = "ConvertResult")]
+pub struct PyConvertResult {
+    #[pyo3(get)]
+    pub html: String,
+    #[pyo3(get)]
+    pub title: Option<String>,
+}
+
+use crate::confluence::RenderResult;
+
+fn get_parser_options(gfm: bool) -> Options {
     let mut options = Options::empty();
     if gfm {
         options.insert(Options::ENABLE_TABLES);
         options.insert(Options::ENABLE_STRIKETHROUGH);
         options.insert(Options::ENABLE_TASKLISTS);
     }
-
-    let parser = Parser::new_ext(markdown, options);
-    ConfluenceRenderer::new().render(parser)
+    options
 }
 
 /// MkDocs document processor with PlantUML support.
@@ -115,14 +120,19 @@ const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version=
 pub struct PyMarkdownConverter {
     gfm: bool,
     prepend_toc: bool,
+    extract_title: bool,
 }
 
 #[pymethods]
 impl PyMarkdownConverter {
     #[new]
-    #[pyo3(signature = (gfm = true, prepend_toc = false))]
-    pub fn new(gfm: bool, prepend_toc: bool) -> Self {
-        Self { gfm, prepend_toc }
+    #[pyo3(signature = (gfm = true, prepend_toc = false, extract_title = false))]
+    pub fn new(gfm: bool, prepend_toc: bool, extract_title: bool) -> Self {
+        Self {
+            gfm,
+            prepend_toc,
+            extract_title,
+        }
     }
 
     /// Convert markdown to Confluence storage format.
@@ -131,13 +141,28 @@ impl PyMarkdownConverter {
     ///     markdown_text: Markdown source text
     ///
     /// Returns:
-    ///     Confluence XHTML storage format string
-    pub fn convert(&self, markdown_text: &str) -> String {
-        let body = markdown_to_confluence(markdown_text, self.gfm);
-        if self.prepend_toc {
-            format!("{}{}", TOC_MACRO, body)
+    ///     ConvertResult with HTML and optional title
+    pub fn convert(&self, markdown_text: &str) -> PyConvertResult {
+        let options = get_parser_options(self.gfm);
+        let parser = Parser::new_ext(markdown_text, options);
+
+        let renderer = if self.extract_title {
+            ConfluenceRenderer::new().with_title_extraction()
         } else {
-            body
+            ConfluenceRenderer::new()
+        };
+
+        let result = renderer.render_with_title(parser);
+
+        let html = if self.prepend_toc {
+            format!("{}{}", TOC_MACRO, result.html)
+        } else {
+            result.html
+        };
+
+        PyConvertResult {
+            html,
+            title: result.title,
         }
     }
 }
@@ -164,6 +189,7 @@ pub fn md2conf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_image_tag, m)?)?;
     m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyProcessedDocument>()?;
+    m.add_class::<PyConvertResult>()?;
     m.add_class::<PyMkDocsProcessor>()?;
     m.add_class::<PyMarkdownConverter>()?;
     Ok(())

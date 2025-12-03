@@ -33,9 +33,17 @@ class ProcessedDocument:
         """Extracted diagrams."""
         ...
 
+class ConvertResult:
+    """Result of converting markdown to Confluence format."""
+
+    @property
+    def html(self) -> str:
+        """Confluence XHTML storage format."""
+        ...
+
     @property
     def title(self) -> str | None:
-        """Title extracted from first H1 heading."""
+        """Title extracted from first H1 heading (if extract_title was enabled)."""
         ...
 
 class MkDocsProcessor:
@@ -71,23 +79,29 @@ class MkDocsProcessor:
 class MarkdownConverter:
     """Markdown to Confluence converter."""
 
-    def __init__(self, gfm: bool = True, prepend_toc: bool = False) -> None:
+    def __init__(
+        self,
+        gfm: bool = True,
+        prepend_toc: bool = False,
+        extract_title: bool = False,
+    ) -> None:
         """Initialize converter.
 
         Args:
             gfm: Enable GitHub Flavored Markdown (tables, strikethrough, etc.)
             prepend_toc: Whether to prepend a table of contents macro
+            extract_title: Whether to extract title from first H1 and level up headers
         """
         ...
 
-    def convert(self, markdown_text: str) -> str:
+    def convert(self, markdown_text: str) -> ConvertResult:
         """Convert markdown to Confluence storage format.
 
         Args:
             markdown_text: Markdown source text
 
         Returns:
-            Confluence XHTML storage format string
+            ConvertResult with HTML and optional title
         """
         ...
 

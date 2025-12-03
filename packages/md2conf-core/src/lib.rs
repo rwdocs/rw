@@ -7,6 +7,6 @@ mod confluence;
 mod plantuml;
 mod python;
 
-pub use confluence::ConfluenceRenderer;
+pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use plantuml::{DiagramInfo, PlantUmlExtractor};
 pub use python::md2conf_core;

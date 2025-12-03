@@ -3,6 +3,14 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use std::fmt::Write;
 
+/// Result of rendering markdown to Confluence format.
+pub struct RenderResult {
+    /// Rendered Confluence XHTML
+    pub html: String,
+    /// Title extracted from first H1 heading (if extract_title was enabled)
+    pub title: Option<String>,
+}
+
 /// Renders pulldown-cmark events to Confluence XHTML storage format.
 pub struct ConfluenceRenderer {
     output: String,
@@ -14,6 +22,16 @@ pub struct ConfluenceRenderer {
     code_language: Option<String>,
     /// Whether we're inside a table header row
     in_table_head: bool,
+    /// Whether to extract title from first H1 and level up headers
+    extract_title: bool,
+    /// Extracted title from first H1
+    title: Option<String>,
+    /// Whether we've seen the first H1
+    seen_first_h1: bool,
+    /// Whether we're currently inside the first H1 (to capture its text)
+    in_first_h1: bool,
+    /// Buffer for first H1 text
+    h1_text: String,
 }
 
 impl ConfluenceRenderer {
@@ -24,7 +42,20 @@ impl ConfluenceRenderer {
             in_code_block: false,
             code_language: None,
             in_table_head: false,
+            extract_title: false,
+            title: None,
+            seen_first_h1: false,
+            in_first_h1: false,
+            h1_text: String::new(),
         }
+    }
+
+    /// Enable title extraction from first H1 heading.
+    /// When enabled, the first H1 is extracted as title and not rendered,
+    /// and all other headers are leveled up (H2→H1, H3→H2, etc.)
+    pub fn with_title_extraction(mut self) -> Self {
+        self.extract_title = true;
+        self
     }
 
     /// Render markdown events to Confluence storage format.
@@ -36,6 +67,20 @@ impl ConfluenceRenderer {
             self.process_event(event);
         }
         self.output
+    }
+
+    /// Render markdown events and return both HTML and extracted title.
+    pub fn render_with_title<'a, I>(mut self, events: I) -> RenderResult
+    where
+        I: Iterator<Item = Event<'a>>,
+    {
+        for event in events {
+            self.process_event(event);
+        }
+        RenderResult {
+            html: self.output,
+            title: self.title,
+        }
     }
 
     fn process_event(&mut self, event: Event<'_>) {
@@ -70,8 +115,21 @@ impl ConfluenceRenderer {
                 }
             }
             Tag::Heading { level, .. } => {
-                let level_num = heading_level_to_num(level);
-                write!(self.output, "<h{}>", level_num).unwrap();
+                if self.extract_title && level == HeadingLevel::H1 && !self.seen_first_h1 {
+                    // First H1 - capture as title, don't render
+                    self.in_first_h1 = true;
+                    self.h1_text.clear();
+                } else {
+                    let level_num = heading_level_to_num(level);
+                    // Level up if we extracted a title
+                    let adjusted_level = if self.extract_title && self.seen_first_h1 && level_num > 1
+                    {
+                        level_num - 1
+                    } else {
+                        level_num
+                    };
+                    write!(self.output, "<h{}>", adjusted_level).unwrap();
+                }
             }
             Tag::BlockQuote(_) => {
                 self.output.push_str(
@@ -186,8 +244,22 @@ impl ConfluenceRenderer {
                 }
             }
             TagEnd::Heading(level) => {
-                let level_num = heading_level_to_num(level);
-                write!(self.output, "</h{}>", level_num).unwrap();
+                if self.in_first_h1 {
+                    // End of first H1 - save title, don't render
+                    self.title = Some(self.h1_text.trim().to_string());
+                    self.in_first_h1 = false;
+                    self.seen_first_h1 = true;
+                } else {
+                    let level_num = heading_level_to_num(level);
+                    // Level up if we extracted a title
+                    let adjusted_level = if self.extract_title && self.seen_first_h1 && level_num > 1
+                    {
+                        level_num - 1
+                    } else {
+                        level_num
+                    };
+                    write!(self.output, "</h{}>", adjusted_level).unwrap();
+                }
             }
             TagEnd::BlockQuote(_) => {
                 self.output
@@ -257,7 +329,10 @@ impl ConfluenceRenderer {
     }
 
     fn text(&mut self, text: &str) {
-        if self.in_code_block {
+        if self.in_first_h1 {
+            // Capture text for title
+            self.h1_text.push_str(text);
+        } else if self.in_code_block {
             // Don't escape text in code blocks (CDATA)
             self.output.push_str(text);
         } else {
@@ -353,5 +428,30 @@ mod tests {
     fn test_blockquote() {
         let result = render("> Note");
         assert!(result.contains(r#"ac:name="info""#));
+    }
+
+    #[test]
+    fn test_title_extraction() {
+        let markdown = "# My Title\n\nSome content\n\n## Section\n\n### Subsection";
+        let parser = Parser::new(markdown);
+        let result = ConfluenceRenderer::new()
+            .with_title_extraction()
+            .render_with_title(parser);
+
+        assert_eq!(result.title, Some("My Title".to_string()));
+        assert!(!result.html.contains("<h1>My Title</h1>"));
+        assert!(result.html.contains("<h1>Section</h1>")); // H2 -> H1
+        assert!(result.html.contains("<h2>Subsection</h2>")); // H3 -> H2
+    }
+
+    #[test]
+    fn test_no_title_extraction() {
+        let markdown = "# My Title\n\n## Section";
+        let parser = Parser::new(markdown);
+        let result = ConfluenceRenderer::new().render_with_title(parser);
+
+        assert_eq!(result.title, None);
+        assert!(result.html.contains("<h1>My Title</h1>"));
+        assert!(result.html.contains("<h2>Section</h2>"));
     }
 }
