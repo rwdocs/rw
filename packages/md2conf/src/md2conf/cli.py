@@ -616,10 +616,10 @@ async def _upload_mkdocs(
     """
     try:
         from md2conf.config import Config
-        from md2conf.confluence import ConfluenceClient, MarkdownConverter
+        from md2conf.confluence import ConfluenceClient
         from md2conf.confluence.comment_preservation import CommentPreserver
         from md2conf.kroki import KrokiClient, get_png_dimensions
-        from md2conf_core import create_image_tag, prepare_diagram_source
+        from md2conf_core import MarkdownConverter, create_image_tag
         from md2conf.oauth import create_confluence_client, read_private_key
 
         # Load configuration
@@ -639,7 +639,12 @@ async def _upload_mkdocs(
         # Read markdown file and convert to Confluence format
         click.echo(f'Converting {markdown_file}...')
         markdown_text = markdown_file.read_text(encoding='utf-8')
-        converter = MarkdownConverter(prepend_toc=True, extract_title=True)
+        converter = MarkdownConverter(
+            prepend_toc=True,
+            extract_title=True,
+            include_dirs=include_dirs,
+            config_file='config.iuml',
+        )
         result = converter.convert(markdown_text)
         new_html = result.html
 
@@ -658,15 +663,11 @@ async def _upload_mkdocs(
         for diagram in result.diagrams:
             click.echo(f'Rendering diagram {diagram.index + 1}...')
 
-            # Prepare diagram source (resolve includes, add DPI and config)
-            prepared_source = prepare_diagram_source(
-                diagram.source, include_dirs, config_file='config.iuml'
-            )
-
-            diagram_hash = kroki.get_diagram_hash('plantuml', prepared_source)
+            # diagram.source is already resolved (includes, DPI, config)
+            diagram_hash = kroki.get_diagram_hash('plantuml', diagram.source)
             filename = f'diagram_{diagram_hash}.png'
 
-            image_data = await kroki.render_diagram('plantuml', prepared_source, 'png')
+            image_data = await kroki.render_diagram('plantuml', diagram.source, 'png')
             attachments.append((filename, image_data))
 
             # Get image dimensions and scale to 50%

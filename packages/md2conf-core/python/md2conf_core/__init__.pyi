@@ -8,7 +8,7 @@ class DiagramInfo:
 
     @property
     def source(self) -> str:
-        """Original source code from markdown."""
+        """Resolved source (includes resolved, DPI and config prepended)."""
         ...
 
     @property
@@ -32,7 +32,7 @@ class ConvertResult:
 
     @property
     def diagrams(self) -> list[DiagramInfo]:
-        """PlantUML diagrams extracted from code blocks."""
+        """PlantUML diagrams extracted from code blocks (with resolved sources)."""
         ...
 
 
@@ -44,6 +44,8 @@ class MarkdownConverter:
         gfm: bool = True,
         prepend_toc: bool = False,
         extract_title: bool = False,
+        include_dirs: list[Path] | None = None,
+        config_file: str | None = None,
     ) -> None:
         """Initialize converter.
 
@@ -51,6 +53,8 @@ class MarkdownConverter:
             gfm: Enable GitHub Flavored Markdown (tables, strikethrough, etc.)
             prepend_toc: Whether to prepend a table of contents macro
             extract_title: Whether to extract title from first H1 and level up headers
+            include_dirs: Directories to search for PlantUML includes
+            config_file: PlantUML config filename to load and prepend to diagrams
         """
         ...
 
@@ -61,7 +65,7 @@ class MarkdownConverter:
             markdown_text: Markdown source text
 
         Returns:
-            ConvertResult with HTML, title, and diagrams
+            ConvertResult with HTML, title, and diagrams (with resolved sources)
         """
         ...
 
@@ -75,25 +79,5 @@ def create_image_tag(filename: str, width: int | None = None) -> str:
 
     Returns:
         Confluence storage format image macro
-    """
-    ...
-
-
-def prepare_diagram_source(
-    source: str,
-    include_dirs: list[Path],
-    config_file: str | None = None,
-) -> str:
-    """Prepare PlantUML diagram source for rendering.
-
-    Resolves !include directives, prepends DPI and optional config.
-
-    Args:
-        source: Raw diagram source from markdown
-        include_dirs: List of directories to search for includes
-        config_file: Optional config filename to load and prepend
-
-    Returns:
-        Prepared diagram source ready for Kroki rendering
     """
     ...

@@ -9,7 +9,6 @@ from .md2conf_core import (
     DiagramInfo,
     MarkdownConverter,
     create_image_tag,
-    prepare_diagram_source,
 )
 
 __all__ = [
@@ -17,5 +16,4 @@ __all__ = [
     "DiagramInfo",
     "MarkdownConverter",
     "create_image_tag",
-    "prepare_diagram_source",
 ]

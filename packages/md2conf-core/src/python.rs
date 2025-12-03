@@ -8,12 +8,14 @@ use pyo3::prelude::*;
 use crate::confluence::ConfluenceRenderer;
 use crate::plantuml;
 
-/// Diagram info from renderer (raw source, no include resolution).
+/// Diagram info with resolved source ready for rendering.
 #[pyclass(name = "DiagramInfo")]
 #[derive(Clone)]
 pub struct PyDiagramInfo {
+    /// Resolved source (includes resolved, DPI and config prepended)
     #[pyo3(get)]
     pub source: String,
+    /// Zero-based index of this diagram
     #[pyo3(get)]
     pub index: usize,
 }
@@ -47,17 +49,35 @@ pub struct PyMarkdownConverter {
     gfm: bool,
     prepend_toc: bool,
     extract_title: bool,
+    include_dirs: Vec<String>,
+    config_content: Option<String>,
 }
 
 #[pymethods]
 impl PyMarkdownConverter {
     #[new]
-    #[pyo3(signature = (gfm = true, prepend_toc = false, extract_title = false))]
-    pub fn new(gfm: bool, prepend_toc: bool, extract_title: bool) -> Self {
+    #[pyo3(signature = (gfm = true, prepend_toc = false, extract_title = false, include_dirs = None, config_file = None))]
+    pub fn new(
+        gfm: bool,
+        prepend_toc: bool,
+        extract_title: bool,
+        include_dirs: Option<Vec<PathBuf>>,
+        config_file: Option<&str>,
+    ) -> Self {
+        let dirs: Vec<String> = include_dirs
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+
+        let config_content = config_file.and_then(|cf| plantuml::load_config_file(&dirs, cf));
+
         Self {
             gfm,
             prepend_toc,
             extract_title,
+            include_dirs: dirs,
+            config_content,
         }
     }
 
@@ -67,7 +87,7 @@ impl PyMarkdownConverter {
     ///     markdown_text: Markdown source text
     ///
     /// Returns:
-    ///     ConvertResult with HTML, optional title, and extracted diagrams
+    ///     ConvertResult with HTML, optional title, and extracted diagrams (resolved)
     pub fn convert(&self, markdown_text: &str) -> PyConvertResult {
         let options = get_parser_options(self.gfm);
         let parser = Parser::new_ext(markdown_text, options);
@@ -86,12 +106,20 @@ impl PyMarkdownConverter {
             result.html
         };
 
+        // Resolve diagram sources (resolve includes, prepend DPI and config)
         let diagrams = result
             .diagrams
             .into_iter()
-            .map(|d| PyDiagramInfo {
-                source: d.source,
-                index: d.index,
+            .map(|d| {
+                let resolved_source = plantuml::prepare_diagram_source(
+                    &d.source,
+                    &self.include_dirs,
+                    self.config_content.as_deref(),
+                );
+                PyDiagramInfo {
+                    source: resolved_source,
+                    index: d.index,
+                }
             })
             .collect();
 
@@ -119,39 +147,10 @@ pub fn create_image_tag(filename: &str, width: Option<u32>) -> String {
     }
 }
 
-/// Prepare PlantUML diagram source for rendering.
-///
-/// Resolves !include directives, prepends DPI and optional config.
-///
-/// Args:
-///     source: Raw diagram source from markdown
-///     include_dirs: List of directories to search for includes
-///     config_file: Optional config filename to load and prepend
-///
-/// Returns:
-///     Prepared diagram source ready for Kroki rendering
-#[pyfunction]
-#[pyo3(signature = (source, include_dirs, config_file = None))]
-pub fn prepare_diagram_source(
-    source: &str,
-    include_dirs: Vec<PathBuf>,
-    config_file: Option<&str>,
-) -> String {
-    let dirs: Vec<String> = include_dirs
-        .into_iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
-
-    let config_content = config_file.and_then(|cf| plantuml::load_config_file(&dirs, cf));
-
-    plantuml::prepare_diagram_source(source, &dirs, config_content.as_deref())
-}
-
 /// Python module definition.
 #[pymodule]
 pub fn md2conf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_image_tag, m)?)?;
-    m.add_function(wrap_pyfunction!(prepare_diagram_source, m)?)?;
     m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyConvertResult>()?;
     m.add_class::<PyMarkdownConverter>()?;
