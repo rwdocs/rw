@@ -468,6 +468,12 @@ class CommentMarkerTransfer:
 class ConfluenceTreeSerializer:
     """Serialize TreeNode back to Confluence storage format."""
 
+    # Tags that require CDATA wrapping for their text content
+    CDATA_TAGS = {
+        '{http://www.atlassian.com/schema/confluence/4/ac/}plain-text-body',
+        'ac:plain-text-body',
+    }
+
     def serialize(self, tree: TreeNode) -> str:
         """Convert TreeNode tree back to HTML string.
 
@@ -487,6 +493,47 @@ class ConfluenceTreeSerializer:
         import re
         html = re.sub(r'^<root[^>]*>', '', html)
         html = re.sub(r'</root>$', '', html)
+
+        # Restore CDATA sections for plain-text-body elements
+        html = self._restore_cdata_sections(html)
+
+        return html
+
+    def _restore_cdata_sections(self, html: str) -> str:
+        """Restore CDATA sections for elements that need them.
+
+        ElementTree doesn't preserve CDATA sections, so we need to
+        re-wrap plain-text-body content in CDATA after serialization.
+
+        Args:
+            html: Serialized HTML string
+
+        Returns:
+            HTML with CDATA sections restored
+        """
+        import re
+
+        def wrap_in_cdata(match: re.Match[str]) -> str:
+            tag_start = match.group(1)
+            content = match.group(2)
+            tag_end = match.group(3)
+
+            # Unescape XML entities that were escaped during serialization
+            content = content.replace('&lt;', '<')
+            content = content.replace('&gt;', '>')
+            content = content.replace('&amp;', '&')
+            content = content.replace('&quot;', '"')
+            content = content.replace('&apos;', "'")
+
+            return f'{tag_start}<![CDATA[{content}]]>{tag_end}'
+
+        # Match ac:plain-text-body with namespace or without
+        pattern = r'(<ac:plain-text-body[^>]*>)(.*?)(</ac:plain-text-body>)'
+        html = re.sub(pattern, wrap_in_cdata, html, flags=re.DOTALL)
+
+        # Also handle namespaced version
+        pattern_ns = r'(<ns\d+:plain-text-body[^>]*>)(.*?)(</ns\d+:plain-text-body>)'
+        html = re.sub(pattern_ns, wrap_in_cdata, html, flags=re.DOTALL)
 
         return html
 
