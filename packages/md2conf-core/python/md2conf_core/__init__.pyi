@@ -54,17 +54,6 @@ class MkDocsProcessor:
         """
         ...
 
-    def extract_diagrams(self, markdown: str) -> ProcessedDocument:
-        """Extract PlantUML diagrams and title from markdown.
-
-        Args:
-            markdown: Markdown content
-
-        Returns:
-            ProcessedDocument with diagrams extracted and placeholders inserted
-        """
-        ...
-
     def process_file(self, file_path: str) -> ProcessedDocument:
         """Process a markdown file.
 

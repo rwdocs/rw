@@ -78,17 +78,6 @@ impl PyMkDocsProcessor {
         }
     }
 
-    /// Extract PlantUML diagrams and title from markdown.
-    ///
-    /// Args:
-    ///     markdown: Markdown content
-    ///
-    /// Returns:
-    ///     ProcessedDocument with diagrams extracted and placeholders inserted
-    pub fn extract_diagrams(&self, markdown: &str) -> PyProcessedDocument {
-        self.extractor.process(markdown).into()
-    }
-
     /// Process a markdown file.
     ///
     /// Args:
