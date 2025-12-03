@@ -13,11 +13,9 @@ from md2conf_core import (
     ProcessedDocument,
 )
 
-__all__ = ["DiagramInfo", "MkDocsProcessor", "ProcessedDocument", "DEFAULT_DPI"]
+__all__ = ["DiagramInfo", "MkDocsProcessor", "ProcessedDocument"]
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_DPI = 192
 
 
 class MkDocsProcessor:
@@ -27,7 +25,7 @@ class MkDocsProcessor:
         self,
         include_dirs: list[Path],
         config_file: str | None = None,
-        dpi: int = DEFAULT_DPI,
+        dpi: int | None = None,
     ):
         """Initialize processor.
 
@@ -36,11 +34,12 @@ class MkDocsProcessor:
             config_file: Optional PlantUML config file to prepend to diagrams
             dpi: DPI for PNG output (default 192, PlantUML default is 96)
         """
-        self._processor = CoreProcessor(
-            [str(p) for p in include_dirs],
-            config_file,
-            dpi,
-        )
+        if dpi is not None:
+            self._processor = CoreProcessor(
+                [str(p) for p in include_dirs], config_file, dpi
+            )
+        else:
+            self._processor = CoreProcessor([str(p) for p in include_dirs], config_file)
 
     def process_file(self, file_path: Path) -> ProcessedDocument:
         """Process an MkDocs markdown file.

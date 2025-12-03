@@ -68,10 +68,12 @@ pub struct PyMkDocsProcessor {
     extractor: PlantUmlExtractor,
 }
 
+const DEFAULT_DPI: u32 = 192;
+
 #[pymethods]
 impl PyMkDocsProcessor {
     #[new]
-    #[pyo3(signature = (include_dirs, config_file = None, dpi = 192))]
+    #[pyo3(signature = (include_dirs, config_file = None, dpi = DEFAULT_DPI))]
     pub fn new(include_dirs: Vec<String>, config_file: Option<&str>, dpi: u32) -> Self {
         Self {
             extractor: PlantUmlExtractor::new(include_dirs, config_file, dpi),
