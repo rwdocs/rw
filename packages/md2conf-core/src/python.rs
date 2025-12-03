@@ -97,23 +97,6 @@ impl PyMkDocsProcessor {
     pub fn extract_diagrams(&self, markdown: &str) -> PyProcessedDocument {
         self.extractor.process(markdown).into()
     }
-
-    /// Process a markdown file.
-    ///
-    /// Args:
-    ///     file_path: Path to markdown file
-    ///
-    /// Returns:
-    ///     ProcessedDocument with diagrams extracted
-    ///
-    /// Raises:
-    ///     IOError: If file cannot be read
-    pub fn process_file(&self, file_path: &str) -> PyResult<PyProcessedDocument> {
-        let content = std::fs::read_to_string(file_path).map_err(|e| {
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to read '{}': {}", file_path, e))
-        })?;
-        Ok(self.extractor.process(&content).into())
-    }
 }
 
 /// Markdown to Confluence converter.
@@ -139,23 +122,6 @@ impl PyMarkdownConverter {
     ///     Confluence XHTML storage format string
     pub fn convert(&self, markdown_text: &str) -> String {
         markdown_to_confluence(markdown_text, self.gfm)
-    }
-
-    /// Convert a markdown file to Confluence storage format.
-    ///
-    /// Args:
-    ///     file_path: Path to markdown file
-    ///
-    /// Returns:
-    ///     Confluence XHTML storage format string
-    ///
-    /// Raises:
-    ///     IOError: If file cannot be read
-    pub fn convert_file(&self, file_path: &str) -> PyResult<String> {
-        let content = std::fs::read_to_string(file_path).map_err(|e| {
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to read '{}': {}", file_path, e))
-        })?;
-        Ok(markdown_to_confluence(&content, self.gfm))
     }
 }
 

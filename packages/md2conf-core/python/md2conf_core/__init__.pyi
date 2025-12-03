@@ -65,20 +65,6 @@ class MkDocsProcessor:
         """
         ...
 
-    def process_file(self, file_path: str) -> ProcessedDocument:
-        """Process a markdown file.
-
-        Args:
-            file_path: Path to markdown file
-
-        Returns:
-            ProcessedDocument with diagrams extracted
-
-        Raises:
-            FileNotFoundError: If file doesn't exist
-        """
-        ...
-
 class MarkdownConverter:
     """Markdown to Confluence converter."""
 
@@ -98,20 +84,6 @@ class MarkdownConverter:
 
         Returns:
             Confluence XHTML storage format string
-        """
-        ...
-
-    def convert_file(self, file_path: str) -> str:
-        """Convert a markdown file to Confluence storage format.
-
-        Args:
-            file_path: Path to markdown file
-
-        Returns:
-            Confluence XHTML storage format string
-
-        Raises:
-            FileNotFoundError: If file doesn't exist
         """
         ...
 
