@@ -87,14 +87,18 @@ class KrokiClient:
         Raises:
             httpx.HTTPError: If request fails
         """
-        encoded = self._encode_diagram(source)
-        url = f"{self.server_url}/{diagram_type}/{output_format}/{encoded}"
+        url = f"{self.server_url}/{diagram_type}/{output_format}"
 
         logger.info(f"Rendering {diagram_type} diagram via Kroki")
         logger.debug(f"Kroki URL: {url}")
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=30.0)
+            response = await client.post(
+                url,
+                content=source.encode("utf-8"),
+                headers={"Content-Type": "text/plain"},
+                timeout=30.0,
+            )
             if response.status_code >= 400:
                 logger.error(f"Kroki error: {response.text}")
             response.raise_for_status()
