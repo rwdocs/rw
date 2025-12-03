@@ -1,5 +1,7 @@
 """Type stubs for md2conf_core."""
 
+from pathlib import Path
+
 class DiagramInfo:
     """Information about an extracted PlantUML diagram."""
 
@@ -41,7 +43,7 @@ class MkDocsProcessor:
 
     def __init__(
         self,
-        include_dirs: list[str],
+        include_dirs: list[Path],
         config_file: str | None = None,
     ) -> None:
         """Initialize processor.
@@ -52,7 +54,7 @@ class MkDocsProcessor:
         """
         ...
 
-    def process_file(self, file_path: str) -> ProcessedDocument:
+    def process_file(self, file_path: Path) -> ProcessedDocument:
         """Process a markdown file.
 
         Args:

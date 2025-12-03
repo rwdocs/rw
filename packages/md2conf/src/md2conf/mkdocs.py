@@ -32,7 +32,7 @@ class MkDocsProcessor:
             include_dirs: List of directories to search for includes
             config_file: Optional PlantUML config file to prepend to diagrams
         """
-        self._processor = CoreProcessor([str(p) for p in include_dirs], config_file)
+        self._processor = CoreProcessor(include_dirs, config_file)
 
     def process_file(self, file_path: Path) -> ProcessedDocument:
         """Process an MkDocs markdown file.
@@ -47,4 +47,4 @@ class MkDocsProcessor:
             IOError: If file cannot be read
         """
         logger.info(f"Processing MkDocs file: {file_path}")
-        return self._processor.process_file(str(file_path))
+        return self._processor.process_file(file_path)

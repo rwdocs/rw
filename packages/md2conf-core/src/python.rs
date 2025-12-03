@@ -1,5 +1,7 @@
 //! Python bindings via PyO3.
 
+use std::path::PathBuf;
+
 use pulldown_cmark::{Options, Parser};
 use pyo3::prelude::*;
 
@@ -74,9 +76,13 @@ const DEFAULT_DPI: u32 = 192;
 impl PyMkDocsProcessor {
     #[new]
     #[pyo3(signature = (include_dirs, config_file = None))]
-    pub fn new(include_dirs: Vec<String>, config_file: Option<&str>) -> Self {
+    pub fn new(include_dirs: Vec<PathBuf>, config_file: Option<&str>) -> Self {
+        let dirs: Vec<String> = include_dirs
+            .into_iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
         Self {
-            extractor: PlantUmlExtractor::new(include_dirs, config_file, DEFAULT_DPI),
+            extractor: PlantUmlExtractor::new(dirs, config_file, DEFAULT_DPI),
         }
     }
 
@@ -90,9 +96,13 @@ impl PyMkDocsProcessor {
     ///
     /// Raises:
     ///     IOError: If file cannot be read
-    pub fn process_file(&self, file_path: &str) -> PyResult<PyProcessedDocument> {
-        let content = std::fs::read_to_string(file_path).map_err(|e| {
-            pyo3::exceptions::PyIOError::new_err(format!("Failed to read '{}': {}", file_path, e))
+    pub fn process_file(&self, file_path: PathBuf) -> PyResult<PyProcessedDocument> {
+        let content = std::fs::read_to_string(&file_path).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!(
+                "Failed to read '{}': {}",
+                file_path.display(),
+                e
+            ))
         })?;
         Ok(self.extractor.process(&content).into())
     }
