@@ -43,14 +43,12 @@ class MkDocsProcessor:
         self,
         include_dirs: list[str],
         config_file: str | None = None,
-        dpi: int = 192,
     ) -> None:
         """Initialize processor.
 
         Args:
             include_dirs: List of directories to search for includes
             config_file: Optional PlantUML config file to prepend to diagrams
-            dpi: DPI for PNG output (default 192)
         """
         ...
 

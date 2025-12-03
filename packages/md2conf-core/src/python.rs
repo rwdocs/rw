@@ -73,10 +73,10 @@ const DEFAULT_DPI: u32 = 192;
 #[pymethods]
 impl PyMkDocsProcessor {
     #[new]
-    #[pyo3(signature = (include_dirs, config_file = None, dpi = DEFAULT_DPI))]
-    pub fn new(include_dirs: Vec<String>, config_file: Option<&str>, dpi: u32) -> Self {
+    #[pyo3(signature = (include_dirs, config_file = None))]
+    pub fn new(include_dirs: Vec<String>, config_file: Option<&str>) -> Self {
         Self {
-            extractor: PlantUmlExtractor::new(include_dirs, config_file, dpi),
+            extractor: PlantUmlExtractor::new(include_dirs, config_file, DEFAULT_DPI),
         }
     }
 

@@ -25,21 +25,14 @@ class MkDocsProcessor:
         self,
         include_dirs: list[Path],
         config_file: str | None = None,
-        dpi: int | None = None,
     ):
         """Initialize processor.
 
         Args:
             include_dirs: List of directories to search for includes
             config_file: Optional PlantUML config file to prepend to diagrams
-            dpi: DPI for PNG output (default 192, PlantUML default is 96)
         """
-        if dpi is not None:
-            self._processor = CoreProcessor(
-                [str(p) for p in include_dirs], config_file, dpi
-            )
-        else:
-            self._processor = CoreProcessor([str(p) for p in include_dirs], config_file)
+        self._processor = CoreProcessor([str(p) for p in include_dirs], config_file)
 
     def process_file(self, file_path: Path) -> ProcessedDocument:
         """Process an MkDocs markdown file.
