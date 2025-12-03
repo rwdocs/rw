@@ -54,12 +54,33 @@ class ConfluencePageResponseDict(TypedDict):
     _links: NotRequired[dict[str, Any]]
 
 
+class ConfluenceInlinePropertiesDict(TypedDict):
+    """Confluence inline comment properties."""
+
+    markerRef: str
+    originalSelection: str
+
+
+class ConfluenceResolutionDict(TypedDict):
+    """Confluence comment resolution status."""
+
+    status: str  # "open" or "resolved"
+
+
+class ConfluenceExtensionsDict(TypedDict):
+    """Confluence comment extensions."""
+
+    inlineProperties: NotRequired[ConfluenceInlinePropertiesDict]
+    resolution: NotRequired[ConfluenceResolutionDict]
+
+
 class ConfluenceCommentDict(TypedDict):
     """Confluence comment object."""
 
     id: str
     title: str
     body: ConfluenceBodyDict
+    extensions: NotRequired[ConfluenceExtensionsDict]
 
 
 class ConfluenceCommentsResponseDict(TypedDict):
@@ -240,6 +261,60 @@ class ConfluenceClient:
 
         data: ConfluenceCommentsResponseDict = response.json()
         logger.info(f"Found {data['size']} comments on page {page_id}")
+        return data
+
+    async def get_inline_comments(self, page_id: str) -> ConfluenceCommentsResponseDict:
+        """Get inline comments on a page.
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Inline comments data with marker refs and original selection
+
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        logger.info(f"Getting inline comments for page {page_id}")
+        response = await self.client.get(
+            f"{self.api_url}/content/{page_id}/child/comment",
+            params={
+                "expand": "body.storage,extensions.inlineProperties,extensions.resolution",
+                "depth": "all",
+                "location": "inline",
+            },
+        )
+        response.raise_for_status()
+
+        data: ConfluenceCommentsResponseDict = response.json()
+        logger.info(f"Found {data['size']} inline comments on page {page_id}")
+        return data
+
+    async def get_footer_comments(self, page_id: str) -> ConfluenceCommentsResponseDict:
+        """Get footer (page-level) comments on a page.
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Footer comments data with resolution status
+
+        Raises:
+            httpx.HTTPError: If request fails
+        """
+        logger.info(f"Getting footer comments for page {page_id}")
+        response = await self.client.get(
+            f"{self.api_url}/content/{page_id}/child/comment",
+            params={
+                "expand": "body.storage,extensions.resolution",
+                "depth": "all",
+                "location": "footer",
+            },
+        )
+        response.raise_for_status()
+
+        data: ConfluenceCommentsResponseDict = response.json()
+        logger.info(f"Found {data['size']} footer comments on page {page_id}")
         return data
 
     async def get_page_url(self, page_id: str) -> str:

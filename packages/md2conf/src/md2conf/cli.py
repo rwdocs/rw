@@ -229,6 +229,40 @@ def upload_mkdocs(
 
 
 @cli.command()
+@click.argument('page_id')
+@click.option(
+    '--config',
+    '-c',
+    type=click.Path(exists=True, path_type=Path),
+    default='config.toml',
+    help='Path to configuration file',
+)
+@click.option(
+    '--key-file',
+    '-k',
+    type=click.Path(exists=True, path_type=Path),
+    default='private_key.pem',
+    help='Path to OAuth private key file',
+)
+@click.option(
+    '--include-resolved',
+    is_flag=True,
+    help='Include resolved comments in output',
+)
+def comments(
+    page_id: str,
+    config: Path,
+    key_file: Path,
+    include_resolved: bool,
+) -> None:
+    """Fetch and display comments from a Confluence page.
+
+    Outputs comments in a format suitable for fixing issues in source markdown.
+    """
+    asyncio.run(_comments(page_id, config, key_file, include_resolved))
+
+
+@cli.command()
 @click.option(
     '--private-key',
     '-k',
@@ -965,6 +999,203 @@ async def _generate_tokens(
 
     except Exception as e:
         click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        sys.exit(1)
+
+
+def _strip_html_tags(html: str) -> str:
+    """Strip HTML tags and convert to plain text.
+
+    Args:
+        html: HTML string to convert
+
+    Returns:
+        Plain text with HTML tags removed
+    """
+    import re
+
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', ' ', html)
+    # Collapse whitespace
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
+def _extract_comment_contexts(html: str, context_chars: int = 100) -> dict[str, str]:
+    """Extract surrounding context for each inline comment marker.
+
+    Args:
+        html: Page body HTML in Confluence storage format
+        context_chars: Number of characters of context on each side
+
+    Returns:
+        Dictionary mapping marker ref to context string
+    """
+    import re
+
+    contexts: dict[str, str] = {}
+
+    # Find all inline comment markers with their refs
+    # Pattern: <ac:inline-comment-marker ac:ref="UUID">text</ac:inline-comment-marker>
+    marker_pattern = re.compile(
+        r'<ac:inline-comment-marker[^>]*ac:ref="([^"]+)"[^>]*>(.*?)</ac:inline-comment-marker>',
+        re.DOTALL,
+    )
+
+    # Convert HTML to plain text while preserving marker positions
+    # Use [[[ ]]] as placeholders since they won't be stripped by HTML tag removal
+    placeholder_map: dict[str, str] = {}
+    html_with_placeholders = html
+
+    for match in marker_pattern.finditer(html):
+        ref = match.group(1)
+        marker_text = match.group(2)
+        placeholder = f'[[[MARKER:{ref}:{marker_text}]]]'
+        placeholder_map[ref] = marker_text
+        html_with_placeholders = html_with_placeholders.replace(
+            match.group(0), placeholder, 1
+        )
+
+    # Strip HTML tags
+    plain_text = _strip_html_tags(html_with_placeholders)
+
+    # Find each placeholder and extract context
+    for ref, marker_text in placeholder_map.items():
+        placeholder = f'[[[MARKER:{ref}:{marker_text}]]]'
+        pos = plain_text.find(placeholder)
+        if pos == -1:
+            continue
+
+        # Get context before and after
+        start = max(0, pos - context_chars)
+        end = min(len(plain_text), pos + len(placeholder) + context_chars)
+
+        # Extract context and replace placeholder with marked text
+        context = plain_text[start:end]
+        context = context.replace(placeholder, f'>>>{marker_text}<<<')
+
+        # Clean up the context
+        context = context.strip()
+        contexts[ref] = context
+
+    return contexts
+
+
+async def _comments(
+    page_id: str,
+    config_path: Path,
+    key_file: Path,
+    include_resolved: bool,
+) -> None:
+    """Fetch and display comments from a Confluence page.
+
+    Args:
+        page_id: Page ID to fetch comments from
+        config_path: Path to config.toml
+        key_file: Path to private key PEM file
+        include_resolved: Whether to include resolved comments
+    """
+    try:
+        from md2conf.config import Config
+        from md2conf.confluence import ConfluenceClient
+        from md2conf.oauth import create_confluence_client, read_private_key
+
+        # Load configuration
+        config = Config.from_toml(config_path)
+        private_key = read_private_key(key_file)
+
+        # Create authenticated client
+        async with create_confluence_client(
+            config.confluence.access_token,
+            config.confluence.access_secret,
+            private_key,
+            config.confluence.consumer_key,
+        ) as http_client:
+            confluence = ConfluenceClient(http_client, config.confluence.base_url)
+
+            # Fetch page info with body to extract context
+            page = await confluence.get_page(page_id, expand=['body.storage'])
+            page_title = page['title']
+            page_url = await confluence.get_page_url(page_id)
+            page_body = page.get('body', {}).get('storage', {}).get('value', '')
+
+            # Build context map for inline comments
+            context_map = _extract_comment_contexts(page_body)
+
+            # Fetch both inline and footer comments
+            inline_comments = await confluence.get_inline_comments(page_id)
+            footer_comments = await confluence.get_footer_comments(page_id)
+
+            # Filter by resolution status if needed
+            inline_results = inline_comments['results']
+            footer_results = footer_comments['results']
+
+            if not include_resolved:
+                inline_results = [
+                    c for c in inline_results
+                    if c.get('extensions', {}).get('resolution', {}).get('status', 'open') == 'open'
+                ]
+                footer_results = [
+                    c for c in footer_results
+                    if c.get('extensions', {}).get('resolution', {}).get('status', 'open') == 'open'
+                ]
+
+            total_count = len(inline_results) + len(footer_results)
+
+            if total_count == 0:
+                click.echo('No comments found.')
+                return
+
+            # Output header
+            click.echo(f'# Comments on "{page_title}"')
+            click.echo(f'Page URL: {page_url}')
+            click.echo()
+
+            # Output inline comments
+            if inline_results:
+                click.echo(f'## Inline Comments ({len(inline_results)})')
+                click.echo()
+                for comment in inline_results:
+                    extensions = comment.get('extensions', {})
+                    inline_props = extensions.get('inlineProperties', {})
+                    resolution = extensions.get('resolution', {})
+
+                    marker_ref = inline_props.get('markerRef', '')
+                    original_text = inline_props.get('originalSelection', 'N/A')
+                    status = resolution.get('status', 'open')
+                    body_html = comment.get('body', {}).get('storage', {}).get('value', '')
+                    body_text = _strip_html_tags(body_html)
+
+                    # Get context from page body
+                    context = context_map.get(marker_ref)
+
+                    click.echo(f'### On text: "{original_text}"')
+                    if context:
+                        click.echo(f'Context: ...{context}...')
+                    if include_resolved:
+                        click.echo(f'Status: {status}')
+                    click.echo(f'Comment: {body_text}')
+                    click.echo()
+
+            # Output footer comments
+            if footer_results:
+                click.echo(f'## Page Comments ({len(footer_results)})')
+                click.echo()
+                for comment in footer_results:
+                    resolution = comment.get('extensions', {}).get('resolution', {})
+                    status = resolution.get('status', 'open')
+                    body_html = comment.get('body', {}).get('storage', {}).get('value', '')
+                    body_text = _strip_html_tags(body_html)
+
+                    if include_resolved:
+                        click.echo(f'Status: {status}')
+                    click.echo(f'Comment: {body_text}')
+                    click.echo()
+
+    except Exception as e:
+        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
 
 
