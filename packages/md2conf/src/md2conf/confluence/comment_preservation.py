@@ -79,6 +79,81 @@ class ConfluenceTreeParser:
         'ri': 'http://www.atlassian.com/schema/confluence/4/ri/',
     }
 
+    # HTML entities that need to be converted for XML parsing
+    # Maps HTML entity names to their Unicode characters
+    HTML_ENTITIES = {
+        'nbsp': '\u00A0',
+        'mdash': '\u2014',
+        'ndash': '\u2013',
+        'ldquo': '\u201C',
+        'rdquo': '\u201D',
+        'lsquo': '\u2018',
+        'rsquo': '\u2019',
+        'bull': '\u2022',
+        'hellip': '\u2026',
+        'rarr': '\u2192',
+        'larr': '\u2190',
+        'harr': '\u2194',
+        'uarr': '\u2191',
+        'darr': '\u2193',
+        'le': '\u2264',
+        'ge': '\u2265',
+        'ne': '\u2260',
+        'plusmn': '\u00B1',
+        'times': '\u00D7',
+        'divide': '\u00F7',
+        'copy': '\u00A9',
+        'reg': '\u00AE',
+        'trade': '\u2122',
+        'euro': '\u20AC',
+        'pound': '\u00A3',
+        'yen': '\u00A5',
+        'cent': '\u00A2',
+        'deg': '\u00B0',
+        'para': '\u00B6',
+        'sect': '\u00A7',
+        'dagger': '\u2020',
+        'Dagger': '\u2021',
+        'laquo': '\u00AB',
+        'raquo': '\u00BB',
+        'iexcl': '\u00A1',
+        'iquest': '\u00BF',
+        'frac14': '\u00BC',
+        'frac12': '\u00BD',
+        'frac34': '\u00BE',
+        'sup1': '\u00B9',
+        'sup2': '\u00B2',
+        'sup3': '\u00B3',
+        'acute': '\u00B4',
+        'micro': '\u00B5',
+        'middot': '\u00B7',
+        'cedil': '\u00B8',
+        'ordf': '\u00AA',
+        'ordm': '\u00BA',
+    }
+
+    def _convert_html_entities(self, html: str) -> str:
+        """Convert HTML entities to Unicode characters for XML parsing.
+
+        Args:
+            html: HTML string with potential HTML entities
+
+        Returns:
+            HTML string with HTML entities converted to Unicode
+        """
+        import re
+
+        def replace_entity(match: re.Match[str]) -> str:
+            entity_name = match.group(1)
+            if entity_name in self.HTML_ENTITIES:
+                return self.HTML_ENTITIES[entity_name]
+            # Keep unknown entities as-is (they might be valid XML entities)
+            return match.group(0)
+
+        # Replace named HTML entities (but not numeric entities or standard XML entities)
+        # Standard XML entities: amp, lt, gt, quot, apos
+        return re.sub(r'&([a-zA-Z]+);', replace_entity, html)
+
     def parse(self, html: str) -> TreeNode:
         """Parse HTML string to TreeNode structure.
 
@@ -88,6 +163,9 @@ class ConfluenceTreeParser:
         Returns:
             Root TreeNode containing the parsed tree
         """
+        # Convert HTML entities to Unicode for XML parsing
+        html = self._convert_html_entities(html)
+
         # Add namespace declarations to the root element
         # This is needed because Confluence HTML fragments use namespace prefixes
         # but don't include xmlns declarations
