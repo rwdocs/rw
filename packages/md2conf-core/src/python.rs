@@ -90,18 +90,21 @@ impl PyMkDocsProcessor {
     }
 }
 
+const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
+
 /// Markdown to Confluence converter.
 #[pyclass(name = "MarkdownConverter")]
 pub struct PyMarkdownConverter {
     gfm: bool,
+    prepend_toc: bool,
 }
 
 #[pymethods]
 impl PyMarkdownConverter {
     #[new]
-    #[pyo3(signature = (gfm = true))]
-    pub fn new(gfm: bool) -> Self {
-        Self { gfm }
+    #[pyo3(signature = (gfm = true, prepend_toc = false))]
+    pub fn new(gfm: bool, prepend_toc: bool) -> Self {
+        Self { gfm, prepend_toc }
     }
 
     /// Convert markdown to Confluence storage format.
@@ -112,7 +115,12 @@ impl PyMarkdownConverter {
     /// Returns:
     ///     Confluence XHTML storage format string
     pub fn convert(&self, markdown_text: &str) -> String {
-        markdown_to_confluence(markdown_text, self.gfm)
+        let body = markdown_to_confluence(markdown_text, self.gfm);
+        if self.prepend_toc {
+            format!("{}{}", TOC_MACRO, body)
+        } else {
+            body
+        }
     }
 }
 
@@ -132,17 +140,10 @@ pub fn create_image_tag(filename: &str, width: Option<u32>) -> String {
     }
 }
 
-/// Confluence TOC macro.
-#[pyfunction]
-pub fn toc_macro() -> &'static str {
-    r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#
-}
-
 /// Python module definition.
 #[pymodule]
 pub fn md2conf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_image_tag, m)?)?;
-    m.add_function(wrap_pyfunction!(toc_macro, m)?)?;
     m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyProcessedDocument>()?;
     m.add_class::<PyMkDocsProcessor>()?;

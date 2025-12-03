@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from md2conf_core import MkDocsProcessor as CoreProcessor
-from md2conf_core import toc_macro
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +96,3 @@ class MkDocsProcessor:
         logger.info(f"Processing MkDocs file: {file_path}")
         markdown = file_path.read_text(encoding="utf-8")
         return self.extract_diagrams(markdown)
-
-
-TOC_MACRO = toc_macro()

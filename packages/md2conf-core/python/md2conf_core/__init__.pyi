@@ -68,11 +68,12 @@ class MkDocsProcessor:
 class MarkdownConverter:
     """Markdown to Confluence converter."""
 
-    def __init__(self, gfm: bool = True) -> None:
+    def __init__(self, gfm: bool = True, prepend_toc: bool = False) -> None:
         """Initialize converter.
 
         Args:
             gfm: Enable GitHub Flavored Markdown (tables, strikethrough, etc.)
+            prepend_toc: Whether to prepend a table of contents macro
         """
         ...
 
@@ -96,13 +97,5 @@ def create_image_tag(filename: str, width: int | None = None) -> str:
 
     Returns:
         Confluence storage format image macro
-    """
-    ...
-
-def toc_macro() -> str:
-    """Get Confluence TOC macro.
-
-    Returns:
-        Confluence TOC macro string
     """
     ...

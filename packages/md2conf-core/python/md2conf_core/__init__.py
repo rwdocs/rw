@@ -10,7 +10,6 @@ from .md2conf_core import (
     MkDocsProcessor,
     ProcessedDocument,
     create_image_tag,
-    toc_macro,
 )
 
 __all__ = [
@@ -19,5 +18,4 @@ __all__ = [
     "MkDocsProcessor",
     "ProcessedDocument",
     "create_image_tag",
-    "toc_macro",
 ]
