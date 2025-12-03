@@ -25,4 +25,5 @@ wheels/
 .coverage
 htmlcov/
 
+.claude/settings.local.json
 packages/md2conf-core/target/
