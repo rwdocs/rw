@@ -5,8 +5,10 @@
 
 mod confluence;
 mod plantuml;
+mod plantuml_filter;
 mod python;
 
-pub use confluence::{ConfluenceRenderer, DiagramInfo, RenderResult};
+pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use plantuml::{load_config_file, prepare_diagram_source, resolve_includes};
+pub use plantuml_filter::{DiagramInfo, PlantUmlFilter};
 pub use python::md2conf_core;

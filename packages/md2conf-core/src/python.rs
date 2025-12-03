@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 
 use crate::confluence::ConfluenceRenderer;
 use crate::plantuml;
+use crate::plantuml_filter::PlantUmlFilter;
 
 /// Diagram info with resolved source ready for rendering.
 #[pyclass(name = "DiagramInfo")]
@@ -92,23 +93,21 @@ impl PyMarkdownConverter {
         let options = get_parser_options(self.gfm);
         let parser = Parser::new_ext(markdown_text, options);
 
+        // Filter plantuml code blocks, replacing them with placeholders
+        let mut filter = PlantUmlFilter::new(parser);
+
+        // Render to Confluence format
         let renderer = if self.extract_title {
             ConfluenceRenderer::new().with_title_extraction()
         } else {
             ConfluenceRenderer::new()
         };
 
-        let result = renderer.render_with_title(parser);
+        let result = renderer.render_with_title(&mut filter);
 
-        let html = if self.prepend_toc {
-            format!("{}{}", TOC_MACRO, result.html)
-        } else {
-            result.html
-        };
-
-        // Resolve diagram sources (resolve includes, prepend DPI and config)
-        let diagrams = result
-            .diagrams
+        // Get extracted diagrams and resolve their sources
+        let diagrams = filter
+            .into_diagrams()
             .into_iter()
             .map(|d| {
                 let resolved_source = plantuml::prepare_diagram_source(
@@ -122,6 +121,12 @@ impl PyMarkdownConverter {
                 }
             })
             .collect();
+
+        let html = if self.prepend_toc {
+            format!("{}{}", TOC_MACRO, result.html)
+        } else {
+            result.html
+        };
 
         PyConvertResult {
             html,
