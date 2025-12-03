@@ -5,32 +5,19 @@ with includes and converting them to Confluence format with image attachments.
 """
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 
-from md2conf_core import MkDocsProcessor as CoreProcessor
+from md2conf_core import (
+    DiagramInfo,
+    MkDocsProcessor as CoreProcessor,
+    ProcessedDocument,
+)
+
+__all__ = ["DiagramInfo", "MkDocsProcessor", "ProcessedDocument", "DEFAULT_DPI"]
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DPI = 192
-
-
-@dataclass
-class DiagramInfo:
-    """Information about an extracted diagram."""
-
-    source: str
-    resolved_source: str
-    index: int
-
-
-@dataclass
-class ProcessedDocument:
-    """Result of processing an MkDocs document."""
-
-    markdown: str
-    diagrams: list[DiagramInfo]
-    title: str | None
 
 
 class MkDocsProcessor:
@@ -64,19 +51,7 @@ class MkDocsProcessor:
         Returns:
             ProcessedDocument with diagrams extracted, title extracted, and placeholders inserted
         """
-        result = self._processor.extract_diagrams(markdown)
-        return ProcessedDocument(
-            markdown=result.markdown,
-            diagrams=[
-                DiagramInfo(
-                    source=d.source,
-                    resolved_source=d.resolved_source,
-                    index=d.index,
-                )
-                for d in result.diagrams
-            ],
-            title=result.title,
-        )
+        return self._processor.extract_diagrams(markdown)
 
     def process_file(self, file_path: Path) -> ProcessedDocument:
         """Process an MkDocs markdown file.
