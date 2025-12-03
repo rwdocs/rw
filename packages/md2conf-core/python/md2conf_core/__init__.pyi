@@ -87,18 +87,6 @@ class MarkdownConverter:
         """
         ...
 
-def markdown_to_confluence(markdown: str, gfm: bool = True) -> str:
-    """Convert markdown to Confluence storage format.
-
-    Args:
-        markdown: Markdown source text
-        gfm: Enable GitHub Flavored Markdown (tables, strikethrough, etc.)
-
-    Returns:
-        Confluence XHTML storage format string
-    """
-    ...
-
 def create_image_tag(filename: str, width: int | None = None) -> str:
     """Create Confluence image macro for an attachment.
 

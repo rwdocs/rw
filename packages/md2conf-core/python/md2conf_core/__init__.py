@@ -10,7 +10,6 @@ from .md2conf_core import (
     MkDocsProcessor,
     ProcessedDocument,
     create_image_tag,
-    markdown_to_confluence,
     toc_macro,
 )
 
@@ -20,6 +19,5 @@ __all__ = [
     "MkDocsProcessor",
     "ProcessedDocument",
     "create_image_tag",
-    "markdown_to_confluence",
     "toc_macro",
 ]

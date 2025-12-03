@@ -50,16 +50,7 @@ impl From<ProcessedDocument> for PyProcessedDocument {
 }
 
 /// Convert markdown to Confluence storage format.
-///
-/// Args:
-///     markdown: Markdown source text
-///     gfm: Enable GitHub Flavored Markdown (tables, strikethrough, etc.)
-///
-/// Returns:
-///     Confluence XHTML storage format string
-#[pyfunction]
-#[pyo3(signature = (markdown, gfm = true))]
-pub fn markdown_to_confluence(markdown: &str, gfm: bool) -> String {
+fn markdown_to_confluence(markdown: &str, gfm: bool) -> String {
     let mut options = Options::empty();
     if gfm {
         options.insert(Options::ENABLE_TABLES);
@@ -150,7 +141,6 @@ pub fn toc_macro() -> &'static str {
 /// Python module definition.
 #[pymodule]
 pub fn md2conf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(markdown_to_confluence, m)?)?;
     m.add_function(wrap_pyfunction!(create_image_tag, m)?)?;
     m.add_function(wrap_pyfunction!(toc_macro, m)?)?;
     m.add_class::<PyDiagramInfo>()?;
