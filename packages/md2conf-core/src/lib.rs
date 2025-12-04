@@ -10,7 +10,10 @@ mod plantuml_filter;
 mod python;
 
 pub use confluence::{ConfluenceRenderer, RenderResult};
-pub use kroki::{DiagramRequest, RenderError, RenderedDiagram, render_all};
+pub use kroki::{
+    DiagramRequest, RenderError, RenderedDiagram, RenderedDiagramData, render_all,
+    render_all_to_memory,
+};
 pub use plantuml::{load_config_file, prepare_diagram_source, resolve_includes};
 pub use plantuml_filter::{DiagramInfo, PlantUmlFilter};
 pub use python::md2conf_core;

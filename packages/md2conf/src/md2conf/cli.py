@@ -667,13 +667,11 @@ async def _upload_mkdocs(
         config_path: Path to config.toml
         key_file: Path to private key PEM file
     """
-    import tempfile
-
     try:
         from md2conf.config import Config
         from md2conf.confluence import ConfluenceClient
         from md2conf.confluence.comment_preservation import CommentPreserver
-        from md2conf_core import MarkdownConverter, create_image_tag, render_diagrams
+        from md2conf_core import MarkdownConverter
         from md2conf.oauth import create_confluence_client, read_private_key
 
         # Load configuration
@@ -690,7 +688,7 @@ async def _upload_mkdocs(
 
         click.echo(f'Include directories: {[str(d) for d in include_dirs]}')
 
-        # Read markdown file and convert to Confluence format
+        # Read markdown file and convert to Confluence format with diagrams
         click.echo(f'Converting {markdown_file}...')
         markdown_text = markdown_file.read_text(encoding='utf-8')
         converter = MarkdownConverter(
@@ -699,37 +697,24 @@ async def _upload_mkdocs(
             include_dirs=include_dirs,
             config_file='config.iuml',
         )
-        result = converter.convert(markdown_text)
+
+        click.echo(f'Rendering diagrams via Kroki ({kroki_url})...')
+        result = converter.convert_with_diagrams(markdown_text, kroki_url)
         new_html = result.html
 
-        click.echo(f'Found {len(result.diagrams)} diagrams')
+        click.echo(f'Rendered {len(result.diagrams)} diagrams')
 
         if result.title:
             click.echo(f'Title: {result.title}')
 
-        # Render diagrams in parallel using Rust
+        # Collect attachment data from rendered diagrams
         attachment_data: list[tuple[str, bytes]] = []
-
-        if result.diagrams:
-            click.echo(f'Rendering {len(result.diagrams)} diagrams via Kroki...')
-            with tempfile.TemporaryDirectory() as tmpdir:
-                rendered = render_diagrams(
-                    list(result.diagrams),
-                    kroki_url,
-                    Path(tmpdir),
-                    pool_size=4,
-                )
-
-                for r in rendered:
-                    filepath = Path(tmpdir) / r.filename
-                    display_width = r.width // 2
-                    image_tag = create_image_tag(r.filename, width=display_width)
-                    placeholder = f"{{{{DIAGRAM_{r.index}}}}}"
-                    new_html = new_html.replace(placeholder, image_tag)
-                    attachment_data.append((r.filename, filepath.read_bytes()))
-                    click.echo(
-                        f'  -> {r.filename} ({r.width}x{r.height} -> {display_width}px)'
-                    )
+        for diagram in result.diagrams:
+            display_width = diagram.width // 2
+            attachment_data.append((diagram.filename, diagram.data))
+            click.echo(
+                f'  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)'
+            )
 
         # Create authenticated client
         async with create_confluence_client(
