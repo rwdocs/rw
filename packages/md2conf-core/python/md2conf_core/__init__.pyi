@@ -64,21 +64,21 @@ class MarkdownConverter:
     def convert(
         self,
         markdown_text: str,
-        kroki_url: str | None = None,
-        output_dir: object | None = None,
+        kroki_url: str,
+        output_dir: object,
     ) -> ConvertResult:
         """Convert markdown to Confluence storage format.
 
-        If kroki_url and output_dir are provided, PlantUML diagrams will be rendered
-        via Kroki and placeholders replaced with Confluence image macros.
+        PlantUML diagrams are rendered via Kroki and placeholders replaced with
+        Confluence image macros.
 
         Args:
             markdown_text: Markdown source text
-            kroki_url: Optional Kroki server URL (e.g., "https://kroki.io")
-            output_dir: Optional directory to write rendered PNG files (Path or str)
+            kroki_url: Kroki server URL (e.g., "https://kroki.io")
+            output_dir: Directory to write rendered PNG files (Path or str)
 
         Returns:
-            ConvertResult with HTML, title, and rendered diagrams (empty if no kroki_url)
+            ConvertResult with HTML, title, and rendered diagrams
 
         Raises:
             RuntimeError: If diagram rendering fails

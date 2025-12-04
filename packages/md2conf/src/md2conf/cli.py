@@ -93,13 +93,22 @@ def test_create(
 
 @cli.command()
 @click.argument('markdown_file', type=click.Path(exists=True, path_type=Path))
-def convert(markdown_file: Path) -> None:
+@click.option(
+    '--kroki-url',
+    default='https://kroki.cian.tech',
+    help='Kroki server URL for diagram rendering',
+)
+def convert(markdown_file: Path, kroki_url: str) -> None:
     """Convert a markdown file to Confluence storage format and display it."""
+    import tempfile
+
     from md2conf.confluence import MarkdownConverter
 
     converter = MarkdownConverter()
     markdown_text = markdown_file.read_text(encoding='utf-8')
-    result = converter.convert(markdown_text)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = converter.convert(markdown_text, kroki_url, Path(tmpdir))
 
     click.echo(click.style('\nMarkdown file:', fg='cyan', bold=True))
     click.echo(f'{markdown_file}\n')
@@ -116,6 +125,11 @@ def convert(markdown_file: Path) -> None:
     help='Space key (default: from config.toml test.space_key)',
 )
 @click.option(
+    '--kroki-url',
+    default='https://kroki.cian.tech',
+    help='Kroki server URL for diagram rendering',
+)
+@click.option(
     '--config',
     '-c',
     type=click.Path(exists=True, path_type=Path),
@@ -130,10 +144,15 @@ def convert(markdown_file: Path) -> None:
     help='Path to OAuth private key file',
 )
 def create(
-    markdown_file: Path, title: str, space: str | None, config: Path, key_file: Path
+    markdown_file: Path,
+    title: str,
+    space: str | None,
+    kroki_url: str,
+    config: Path,
+    key_file: Path,
 ) -> None:
     """Create a Confluence page from a markdown file."""
-    asyncio.run(_create(markdown_file, title, space, config, key_file))
+    asyncio.run(_create(markdown_file, title, space, kroki_url, config, key_file))
 
 
 @cli.command()
@@ -143,6 +162,11 @@ def create(
     '--message',
     '-m',
     help='Version message for the update',
+)
+@click.option(
+    '--kroki-url',
+    default='https://kroki.cian.tech',
+    help='Kroki server URL for diagram rendering',
 )
 @click.option(
     '--config',
@@ -162,11 +186,12 @@ def update(
     markdown_file: Path,
     page_id: str,
     message: str | None,
+    kroki_url: str,
     config: Path,
     key_file: Path,
 ) -> None:
     """Update a Confluence page from a markdown file."""
-    asyncio.run(_update(markdown_file, page_id, message, config, key_file))
+    asyncio.run(_update(markdown_file, page_id, message, kroki_url, config, key_file))
 
 
 @cli.command()
@@ -481,6 +506,7 @@ async def _create(
     markdown_file: Path,
     title: str,
     space: str | None,
+    kroki_url: str,
     config_path: Path,
     key_file: Path,
 ) -> None:
@@ -490,9 +516,12 @@ async def _create(
         markdown_file: Path to markdown file
         title: Page title
         space: Space key (or None to use config)
+        kroki_url: Kroki server URL
         config_path: Path to config.toml
         key_file: Path to private key PEM file
     """
+    import tempfile
+
     try:
         from md2conf.config import Config
         from md2conf.confluence import ConfluenceClient, MarkdownConverter
@@ -519,7 +548,9 @@ async def _create(
         click.echo(f'Converting {markdown_file}...')
         converter = MarkdownConverter()
         markdown_text = markdown_file.read_text(encoding='utf-8')
-        result = converter.convert(markdown_text)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = converter.convert(markdown_text, kroki_url, Path(tmpdir))
         confluence_body = result.html
 
         # Create authenticated client
@@ -557,6 +588,7 @@ async def _update(
     markdown_file: Path,
     page_id: str,
     message: str | None,
+    kroki_url: str,
     config_path: Path,
     key_file: Path,
 ) -> None:
@@ -566,9 +598,12 @@ async def _update(
         markdown_file: Path to markdown file
         page_id: Page ID to update
         message: Optional version message
+        kroki_url: Kroki server URL
         config_path: Path to config.toml
         key_file: Path to private key PEM file
     """
+    import tempfile
+
     try:
         from md2conf.config import Config
         from md2conf.confluence import ConfluenceClient, MarkdownConverter
@@ -583,7 +618,9 @@ async def _update(
         click.echo(f'Converting {markdown_file}...')
         converter = MarkdownConverter()
         markdown_text = markdown_file.read_text(encoding='utf-8')
-        result = converter.convert(markdown_text)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = converter.convert(markdown_text, kroki_url, Path(tmpdir))
         new_html = result.html
 
         # Create authenticated client
