@@ -6,21 +6,11 @@ use std::path::Path;
 use std::time::Duration;
 use ureq::Agent;
 
-/// Result of rendering a single diagram (file-based).
+/// Result of rendering a single diagram.
 #[derive(Debug, Clone)]
 pub struct RenderedDiagram {
     pub index: usize,
     pub filename: String,
-    pub width: u32,
-    pub height: u32,
-}
-
-/// Result of rendering a single diagram (in-memory).
-#[derive(Debug, Clone)]
-pub struct RenderedDiagramData {
-    pub index: usize,
-    pub filename: String,
-    pub data: Vec<u8>,
     pub width: u32,
     pub height: u32,
 }
@@ -129,86 +119,6 @@ fn render_one(
         filename,
         width,
         height,
-    })
-}
-
-/// Render a single diagram via Kroki (in-memory, no file I/O).
-fn render_one_to_memory(
-    agent: &Agent,
-    diagram: &DiagramRequest,
-    server_url: &str,
-) -> Result<RenderedDiagramData, RenderError> {
-    let url = format!("{}/plantuml/png", server_url);
-
-    let response = agent
-        .post(&url)
-        .header("Content-Type", "text/plain")
-        .send(diagram.source.as_bytes())
-        .map_err(|e| RenderError::Http {
-            index: diagram.index,
-            message: e.to_string(),
-        })?;
-
-    let data = response
-        .into_body()
-        .read_to_vec()
-        .map_err(|e| RenderError::Io {
-            index: diagram.index,
-            message: e.to_string(),
-        })?;
-
-    let (width, height) = get_png_dimensions(&data).ok_or(RenderError::InvalidPng {
-        index: diagram.index,
-    })?;
-
-    let hash = diagram_hash("plantuml", &diagram.source);
-    let filename = format!("diagram_{}.png", hash);
-
-    Ok(RenderedDiagramData {
-        index: diagram.index,
-        filename,
-        data,
-        width,
-        height,
-    })
-}
-
-/// Render all diagrams in parallel using Kroki service (in-memory).
-///
-/// # Arguments
-/// * `diagrams` - List of diagrams to render
-/// * `server_url` - Kroki server URL (e.g., "https://kroki.io")
-/// * `pool_size` - Number of parallel threads
-///
-/// # Returns
-/// Vector of rendered diagram data, or first error encountered.
-pub fn render_all_to_memory(
-    diagrams: Vec<DiagramRequest>,
-    server_url: &str,
-    pool_size: usize,
-) -> Result<Vec<RenderedDiagramData>, RenderError> {
-    if diagrams.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(pool_size)
-        .build()
-        .map_err(|e| RenderError::Io {
-            index: 0,
-            message: format!("Failed to create thread pool: {}", e),
-        })?;
-
-    let agent: Agent = Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .build()
-        .into();
-
-    pool.install(|| {
-        diagrams
-            .par_iter()
-            .map(|d| render_one_to_memory(&agent, d, server_url))
-            .collect()
     })
 }
 

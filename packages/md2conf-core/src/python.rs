@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use pulldown_cmark::{Options, Parser};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
 
 use crate::confluence::ConfluenceRenderer;
 use crate::kroki;
@@ -23,7 +22,7 @@ pub struct PyConvertResult {
     pub diagram_count: usize,
 }
 
-/// Rendered diagram with image data.
+/// Rendered diagram info (file written to output_dir).
 #[pyclass(name = "RenderedDiagram")]
 #[derive(Clone)]
 pub struct PyRenderedDiagram {
@@ -33,17 +32,6 @@ pub struct PyRenderedDiagram {
     pub width: u32,
     #[pyo3(get)]
     pub height: u32,
-    /// PNG image data (exposed as bytes to Python)
-    data: Vec<u8>,
-}
-
-#[pymethods]
-impl PyRenderedDiagram {
-    /// Get image data as bytes.
-    #[getter]
-    fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.data)
-    }
 }
 
 /// Result of converting markdown with diagram rendering.
@@ -155,20 +143,22 @@ impl PyMarkdownConverter {
     /// Convert markdown to Confluence storage format with diagram rendering.
     ///
     /// This method renders PlantUML diagrams via Kroki and replaces placeholders
-    /// with Confluence image macros.
+    /// with Confluence image macros. Diagram files are written to output_dir.
     ///
     /// Args:
     ///     markdown_text: Markdown source text
     ///     kroki_url: Kroki server URL (e.g., "https://kroki.io")
+    ///     output_dir: Directory to write rendered PNG files
     ///
     /// Returns:
     ///     ConvertWithDiagramsResult with HTML (placeholders replaced), title, and rendered diagrams
-    #[pyo3(signature = (markdown_text, kroki_url))]
+    #[pyo3(signature = (markdown_text, kroki_url, output_dir))]
     pub fn convert_with_diagrams(
         &self,
         py: Python<'_>,
         markdown_text: &str,
         kroki_url: &str,
+        output_dir: PathBuf,
     ) -> PyResult<PyConvertWithDiagramsResult> {
         let options = get_parser_options(self.gfm);
         let parser = Parser::new_ext(markdown_text, options);
@@ -215,7 +205,7 @@ impl PyMarkdownConverter {
             let server_url = kroki_url.trim_end_matches('/').to_string();
 
             let rendered = py.detach(|| {
-                kroki::render_all_to_memory(diagram_infos, &server_url, 4)
+                kroki::render_all(diagram_infos, &server_url, &output_dir, 4)
                     .map_err(|e| PyRuntimeError::new_err(e.to_string()))
             })?;
 
@@ -232,7 +222,6 @@ impl PyMarkdownConverter {
                     filename: r.filename,
                     width: r.width,
                     height: r.height,
-                    data: r.data,
                 });
             }
             py_diagrams

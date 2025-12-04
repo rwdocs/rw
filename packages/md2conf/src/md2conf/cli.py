@@ -667,6 +667,8 @@ async def _upload_mkdocs(
         config_path: Path to config.toml
         key_file: Path to private key PEM file
     """
+    import tempfile
+
     try:
         from md2conf.config import Config
         from md2conf.confluence import ConfluenceClient
@@ -698,102 +700,105 @@ async def _upload_mkdocs(
             config_file='config.iuml',
         )
 
-        click.echo(f'Rendering diagrams via Kroki ({kroki_url})...')
-        result = converter.convert_with_diagrams(markdown_text, kroki_url)
-        new_html = result.html
+        # Use temp directory for diagram files
+        with tempfile.TemporaryDirectory() as tmpdir:
+            click.echo(f'Rendering diagrams via Kroki ({kroki_url})...')
+            result = converter.convert_with_diagrams(markdown_text, kroki_url, Path(tmpdir))
+            new_html = result.html
 
-        click.echo(f'Rendered {len(result.diagrams)} diagrams')
+            click.echo(f'Rendered {len(result.diagrams)} diagrams')
 
-        if result.title:
-            click.echo(f'Title: {result.title}')
+            if result.title:
+                click.echo(f'Title: {result.title}')
 
-        # Collect attachment data from rendered diagrams
-        attachment_data: list[tuple[str, bytes]] = []
-        for diagram in result.diagrams:
-            display_width = diagram.width // 2
-            attachment_data.append((diagram.filename, diagram.data))
-            click.echo(
-                f'  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)'
-            )
+            # Collect attachment data from rendered diagrams
+            attachment_data: list[tuple[str, bytes]] = []
+            for diagram in result.diagrams:
+                display_width = diagram.width // 2
+                filepath = Path(tmpdir) / diagram.filename
+                attachment_data.append((diagram.filename, filepath.read_bytes()))
+                click.echo(
+                    f'  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)'
+                )
 
-        # Create authenticated client
-        async with create_confluence_client(
-            config.confluence.access_token,
-            config.confluence.access_secret,
-            private_key,
-            config.confluence.consumer_key,
-        ) as http_client:
-            confluence = ConfluenceClient(http_client, config.confluence.base_url)
+            # Create authenticated client
+            async with create_confluence_client(
+                config.confluence.access_token,
+                config.confluence.access_secret,
+                private_key,
+                config.confluence.consumer_key,
+            ) as http_client:
+                confluence = ConfluenceClient(http_client, config.confluence.base_url)
 
-            # Get current page with body to preserve comments
-            click.echo(f'Fetching current page {page_id}...')
-            current_page = await confluence.get_page(
-                page_id, expand=['body.storage', 'version']
-            )
-            current_version = current_page['version']['number']
-            old_html = current_page['body']['storage']['value']
+                # Get current page with body to preserve comments
+                click.echo(f'Fetching current page {page_id}...')
+                current_page = await confluence.get_page(
+                    page_id, expand=['body.storage', 'version']
+                )
+                current_version = current_page['version']['number']
+                old_html = current_page['body']['storage']['value']
 
-            # Use extracted title or fall back to current page title
-            title = result.title or current_page['title']
+                # Use extracted title or fall back to current page title
+                title = result.title or current_page['title']
 
-            # Preserve comment markers
-            click.echo('Preserving comment markers...')
-            preserver = CommentPreserver()
-            preserve_result = preserver.preserve_comments(old_html, new_html)
+                # Preserve comment markers
+                click.echo('Preserving comment markers...')
+                preserver = CommentPreserver()
+                preserve_result = preserver.preserve_comments(old_html, new_html)
 
-            if dry_run:
-                click.echo(click.style('\n[DRY RUN] No changes made to Confluence.', fg='cyan', bold=True))
+                if dry_run:
+                    click.echo(click.style('\n[DRY RUN] No changes made to Confluence.', fg='cyan', bold=True))
+                    if preserve_result.unmatched_comments:
+                        click.echo(
+                            click.style(
+                                f'\nComments that would be resolved ({len(preserve_result.unmatched_comments)}):',
+                                fg='yellow',
+                                bold=True,
+                            )
+                        )
+                        for comment in preserve_result.unmatched_comments:
+                            click.echo(f'  - [{comment.ref}] "{comment.text}"')
+                    else:
+                        click.echo(click.style('\nNo comments would be resolved.', fg='green'))
+                    return
+
+                # Upload attachments
+                if attachment_data:
+                    click.echo(f'Uploading {len(attachment_data)} attachments...')
+                    for filename, image_data in attachment_data:
+                        click.echo(f'  Uploading {filename}...')
+                        await confluence.upload_attachment(
+                            page_id, filename, image_data, "image/png"
+                        )
+
+                # Update page
+                click.echo(
+                    f'Updating page "{title}" from version {current_version} to {current_version + 1}...'
+                )
+                updated_page = await confluence.update_page(
+                    page_id, title, preserve_result.html, current_version, message
+                )
+
+                # Display result
+                click.echo(click.style('\nPage updated successfully!', fg='green', bold=True))
+                click.echo(f'ID: {updated_page["id"]}')
+                click.echo(f'Title: {updated_page["title"]}')
+                click.echo(f'Version: {updated_page["version"]["number"]}')
+
+                # Get URL
+                url = await confluence.get_page_url(page_id)
+                click.echo(f'URL: {url}')
+
+                # Warn about unmatched comments
                 if preserve_result.unmatched_comments:
                     click.echo(
                         click.style(
-                            f'\nComments that would be resolved ({len(preserve_result.unmatched_comments)}):',
+                            f'\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:',
                             fg='yellow',
-                            bold=True,
                         )
                     )
                     for comment in preserve_result.unmatched_comments:
                         click.echo(f'  - [{comment.ref}] "{comment.text}"')
-                else:
-                    click.echo(click.style('\nNo comments would be resolved.', fg='green'))
-                return
-
-            # Upload attachments
-            if attachment_data:
-                click.echo(f'Uploading {len(attachment_data)} attachments...')
-                for filename, image_data in attachment_data:
-                    click.echo(f'  Uploading {filename}...')
-                    await confluence.upload_attachment(
-                        page_id, filename, image_data, "image/png"
-                    )
-
-            # Update page
-            click.echo(
-                f'Updating page "{title}" from version {current_version} to {current_version + 1}...'
-            )
-            updated_page = await confluence.update_page(
-                page_id, title, preserve_result.html, current_version, message
-            )
-
-            # Display result
-            click.echo(click.style('\nPage updated successfully!', fg='green', bold=True))
-            click.echo(f'ID: {updated_page["id"]}')
-            click.echo(f'Title: {updated_page["title"]}')
-            click.echo(f'Version: {updated_page["version"]["number"]}')
-
-            # Get URL
-            url = await confluence.get_page_url(page_id)
-            click.echo(f'URL: {url}')
-
-            # Warn about unmatched comments
-            if preserve_result.unmatched_comments:
-                click.echo(
-                    click.style(
-                        f'\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:',
-                        fg='yellow',
-                    )
-                )
-                for comment in preserve_result.unmatched_comments:
-                    click.echo(f'  - [{comment.ref}] "{comment.text}"')
 
     except Exception as e:
         click.echo(click.style(f'Error: {e}', fg='red'), err=True)

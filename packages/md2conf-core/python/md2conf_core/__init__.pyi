@@ -21,7 +21,7 @@ class ConvertResult:
 
 
 class RenderedDiagram:
-    """Rendered diagram with image data."""
+    """Rendered diagram info (file written to output_dir)."""
 
     @property
     def filename(self) -> str:
@@ -36,11 +36,6 @@ class RenderedDiagram:
     @property
     def height(self) -> int:
         """Image height in pixels."""
-        ...
-
-    @property
-    def data(self) -> bytes:
-        """PNG image data."""
         ...
 
 
@@ -100,20 +95,21 @@ class MarkdownConverter:
         ...
 
     def convert_with_diagrams(
-        self, markdown_text: str, kroki_url: str
+        self, markdown_text: str, kroki_url: str, output_dir: object
     ) -> ConvertWithDiagramsResult:
         """Convert markdown to Confluence storage format with diagram rendering.
 
         This method renders PlantUML diagrams via Kroki and replaces placeholders
-        with Confluence image macros.
+        with Confluence image macros. Diagram files are written to output_dir.
 
         Args:
             markdown_text: Markdown source text
             kroki_url: Kroki server URL (e.g., "https://kroki.io")
+            output_dir: Directory to write rendered PNG files (Path or str)
 
         Returns:
             ConvertWithDiagramsResult with HTML (placeholders replaced), title,
-            and rendered diagrams with image data
+            and rendered diagram info
 
         Raises:
             RuntimeError: If diagram rendering fails
