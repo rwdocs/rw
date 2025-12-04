@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2025-12-04
+- Merge `convert_with_diagrams` into `convert` method with optional kroki_url/output_dir parameters
 - Move Kroki diagram rendering from Python to Rust with parallel requests (rayon + ureq)
 
 ### 2025-12-01

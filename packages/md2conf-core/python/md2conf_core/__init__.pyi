@@ -1,25 +1,6 @@
 """Type stubs for md2conf_core."""
 
 
-class ConvertResult:
-    """Result of converting markdown to Confluence format (without diagram rendering)."""
-
-    @property
-    def html(self) -> str:
-        """Confluence XHTML storage format (with diagram placeholders)."""
-        ...
-
-    @property
-    def title(self) -> str | None:
-        """Title extracted from first H1 heading (if extract_title was enabled)."""
-        ...
-
-    @property
-    def diagram_count(self) -> int:
-        """Number of PlantUML diagrams found in the markdown."""
-        ...
-
-
 class RenderedDiagram:
     """Rendered diagram info (file written to output_dir)."""
 
@@ -39,12 +20,12 @@ class RenderedDiagram:
         ...
 
 
-class ConvertWithDiagramsResult:
-    """Result of converting markdown with diagram rendering."""
+class ConvertResult:
+    """Result of converting markdown to Confluence format."""
 
     @property
     def html(self) -> str:
-        """Confluence XHTML storage format (with image macros replacing placeholders)."""
+        """Confluence XHTML storage format."""
         ...
 
     @property
@@ -54,7 +35,7 @@ class ConvertWithDiagramsResult:
 
     @property
     def diagrams(self) -> list[RenderedDiagram]:
-        """Rendered diagrams with image data."""
+        """Rendered diagrams (empty if kroki_url/output_dir not provided)."""
         ...
 
 
@@ -80,36 +61,24 @@ class MarkdownConverter:
         """
         ...
 
-    def convert(self, markdown_text: str) -> ConvertResult:
+    def convert(
+        self,
+        markdown_text: str,
+        kroki_url: str | None = None,
+        output_dir: object | None = None,
+    ) -> ConvertResult:
         """Convert markdown to Confluence storage format.
 
-        This method does not render diagrams. Use convert_with_diagrams() to
-        convert markdown and render PlantUML diagrams via Kroki.
+        If kroki_url and output_dir are provided, PlantUML diagrams will be rendered
+        via Kroki and placeholders replaced with Confluence image macros.
 
         Args:
             markdown_text: Markdown source text
+            kroki_url: Optional Kroki server URL (e.g., "https://kroki.io")
+            output_dir: Optional directory to write rendered PNG files (Path or str)
 
         Returns:
-            ConvertResult with HTML (containing placeholders), title, and diagram count
-        """
-        ...
-
-    def convert_with_diagrams(
-        self, markdown_text: str, kroki_url: str, output_dir: object
-    ) -> ConvertWithDiagramsResult:
-        """Convert markdown to Confluence storage format with diagram rendering.
-
-        This method renders PlantUML diagrams via Kroki and replaces placeholders
-        with Confluence image macros. Diagram files are written to output_dir.
-
-        Args:
-            markdown_text: Markdown source text
-            kroki_url: Kroki server URL (e.g., "https://kroki.io")
-            output_dir: Directory to write rendered PNG files (Path or str)
-
-        Returns:
-            ConvertWithDiagramsResult with HTML (placeholders replaced), title,
-            and rendered diagram info
+            ConvertResult with HTML, title, and rendered diagrams (empty if no kroki_url)
 
         Raises:
             RuntimeError: If diagram rendering fails

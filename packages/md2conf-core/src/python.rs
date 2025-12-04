@@ -11,17 +11,6 @@ use crate::kroki;
 use crate::plantuml;
 use crate::plantuml_filter::PlantUmlFilter;
 
-/// Result of converting markdown to Confluence format (without diagram rendering).
-#[pyclass(name = "ConvertResult")]
-pub struct PyConvertResult {
-    #[pyo3(get)]
-    pub html: String,
-    #[pyo3(get)]
-    pub title: Option<String>,
-    #[pyo3(get)]
-    pub diagram_count: usize,
-}
-
 /// Rendered diagram info (file written to output_dir).
 #[pyclass(name = "RenderedDiagram")]
 #[derive(Clone)]
@@ -34,9 +23,9 @@ pub struct PyRenderedDiagram {
     pub height: u32,
 }
 
-/// Result of converting markdown with diagram rendering.
-#[pyclass(name = "ConvertWithDiagramsResult")]
-pub struct PyConvertWithDiagramsResult {
+/// Result of converting markdown to Confluence format.
+#[pyclass(name = "ConvertResult")]
+pub struct PyConvertResult {
     #[pyo3(get)]
     pub html: String,
     #[pyo3(get)]
@@ -105,61 +94,24 @@ impl PyMarkdownConverter {
 
     /// Convert markdown to Confluence storage format.
     ///
-    /// Args:
-    ///     markdown_text: Markdown source text
-    ///
-    /// Returns:
-    ///     ConvertResult with HTML (containing placeholders), optional title, and diagram count
-    pub fn convert(&self, markdown_text: &str) -> PyConvertResult {
-        let options = get_parser_options(self.gfm);
-        let parser = Parser::new_ext(markdown_text, options);
-
-        // Filter plantuml code blocks, replacing them with placeholders
-        let mut filter = PlantUmlFilter::new(parser);
-
-        // Render to Confluence format
-        let renderer = if self.extract_title {
-            ConfluenceRenderer::new().with_title_extraction()
-        } else {
-            ConfluenceRenderer::new()
-        };
-
-        let result = renderer.render_with_title(&mut filter);
-        let diagram_count = filter.into_diagrams().len();
-
-        let html = if self.prepend_toc {
-            format!("{}{}", TOC_MACRO, result.html)
-        } else {
-            result.html
-        };
-
-        PyConvertResult {
-            html,
-            title: result.title,
-            diagram_count,
-        }
-    }
-
-    /// Convert markdown to Confluence storage format with diagram rendering.
-    ///
-    /// This method renders PlantUML diagrams via Kroki and replaces placeholders
-    /// with Confluence image macros. Diagram files are written to output_dir.
+    /// If kroki_url and output_dir are provided, PlantUML diagrams will be rendered
+    /// via Kroki and placeholders replaced with Confluence image macros.
     ///
     /// Args:
     ///     markdown_text: Markdown source text
-    ///     kroki_url: Kroki server URL (e.g., "https://kroki.io")
-    ///     output_dir: Directory to write rendered PNG files
+    ///     kroki_url: Optional Kroki server URL (e.g., "https://kroki.io")
+    ///     output_dir: Optional directory to write rendered PNG files
     ///
     /// Returns:
-    ///     ConvertWithDiagramsResult with HTML (placeholders replaced), title, and rendered diagrams
-    #[pyo3(signature = (markdown_text, kroki_url, output_dir))]
-    pub fn convert_with_diagrams(
+    ///     ConvertResult with HTML, optional title, and rendered diagrams (empty if no kroki_url)
+    #[pyo3(signature = (markdown_text, kroki_url = None, output_dir = None))]
+    pub fn convert(
         &self,
         py: Python<'_>,
         markdown_text: &str,
-        kroki_url: &str,
-        output_dir: PathBuf,
-    ) -> PyResult<PyConvertWithDiagramsResult> {
+        kroki_url: Option<&str>,
+        output_dir: Option<PathBuf>,
+    ) -> PyResult<PyConvertResult> {
         let options = get_parser_options(self.gfm);
         let parser = Parser::new_ext(markdown_text, options);
 
@@ -175,22 +127,8 @@ impl PyMarkdownConverter {
 
         let result = renderer.render_with_title(&mut filter);
 
-        // Get extracted diagrams and resolve their sources
-        let diagram_infos: Vec<_> = filter
-            .into_diagrams()
-            .into_iter()
-            .map(|d| {
-                let resolved_source = plantuml::prepare_diagram_source(
-                    &d.source,
-                    &self.include_dirs,
-                    self.config_content.as_deref(),
-                );
-                kroki::DiagramRequest {
-                    index: d.index,
-                    source: resolved_source,
-                }
-            })
-            .collect();
+        // Get extracted diagrams
+        let extracted_diagrams = filter.into_diagrams();
 
         let mut html = if self.prepend_toc {
             format!("{}{}", TOC_MACRO, result.html)
@@ -198,36 +136,53 @@ impl PyMarkdownConverter {
             result.html
         };
 
-        // Render diagrams if any
-        let diagrams = if diagram_infos.is_empty() {
-            Vec::new()
-        } else {
-            let server_url = kroki_url.trim_end_matches('/').to_string();
+        // Render diagrams if kroki_url and output_dir are provided
+        let diagrams = match (kroki_url, output_dir) {
+            (Some(url), Some(dir)) if !extracted_diagrams.is_empty() => {
+                // Resolve diagram sources
+                let diagram_infos: Vec<_> = extracted_diagrams
+                    .into_iter()
+                    .map(|d| {
+                        let resolved_source = plantuml::prepare_diagram_source(
+                            &d.source,
+                            &self.include_dirs,
+                            self.config_content.as_deref(),
+                        );
+                        kroki::DiagramRequest {
+                            index: d.index,
+                            source: resolved_source,
+                        }
+                    })
+                    .collect();
 
-            let rendered = py.detach(|| {
-                kroki::render_all(diagram_infos, &server_url, &output_dir, 4)
-                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
-            })?;
+                let server_url = url.trim_end_matches('/').to_string();
 
-            // Replace placeholders with image tags
-            let mut py_diagrams = Vec::with_capacity(rendered.len());
-            for r in rendered {
-                // Display width is half the actual width (for retina displays)
-                let display_width = r.width / 2;
-                let image_tag = create_image_tag(&r.filename, display_width);
-                let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
-                html = html.replace(&placeholder, &image_tag);
+                let rendered = py.detach(|| {
+                    kroki::render_all(diagram_infos, &server_url, &dir, 4)
+                        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+                })?;
 
-                py_diagrams.push(PyRenderedDiagram {
-                    filename: r.filename,
-                    width: r.width,
-                    height: r.height,
-                });
+                // Replace placeholders with image tags
+                let mut py_diagrams = Vec::with_capacity(rendered.len());
+                for r in rendered {
+                    // Display width is half the actual width (for retina displays)
+                    let display_width = r.width / 2;
+                    let image_tag = create_image_tag(&r.filename, display_width);
+                    let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
+                    html = html.replace(&placeholder, &image_tag);
+
+                    py_diagrams.push(PyRenderedDiagram {
+                        filename: r.filename,
+                        width: r.width,
+                        height: r.height,
+                    });
+                }
+                py_diagrams
             }
-            py_diagrams
+            _ => Vec::new(),
         };
 
-        Ok(PyConvertWithDiagramsResult {
+        Ok(PyConvertResult {
             html,
             title: result.title,
             diagrams,
@@ -239,7 +194,6 @@ impl PyMarkdownConverter {
 #[pymodule]
 pub fn md2conf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConvertResult>()?;
-    m.add_class::<PyConvertWithDiagramsResult>()?;
     m.add_class::<PyMarkdownConverter>()?;
     m.add_class::<PyRenderedDiagram>()?;
     Ok(())

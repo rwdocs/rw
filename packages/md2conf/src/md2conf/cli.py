@@ -98,12 +98,13 @@ def convert(markdown_file: Path) -> None:
     from md2conf.confluence import MarkdownConverter
 
     converter = MarkdownConverter()
-    confluence_html = converter.convert_file(markdown_file)
+    markdown_text = markdown_file.read_text(encoding='utf-8')
+    result = converter.convert(markdown_text)
 
     click.echo(click.style('\nMarkdown file:', fg='cyan', bold=True))
     click.echo(f'{markdown_file}\n')
     click.echo(click.style('Converted to Confluence storage format:', fg='green', bold=True))
-    click.echo(confluence_html)
+    click.echo(result.html)
 
 
 @cli.command()
@@ -517,7 +518,9 @@ async def _create(
         # Convert markdown to Confluence format
         click.echo(f'Converting {markdown_file}...')
         converter = MarkdownConverter()
-        confluence_body = converter.convert_file(markdown_file)
+        markdown_text = markdown_file.read_text(encoding='utf-8')
+        result = converter.convert(markdown_text)
+        confluence_body = result.html
 
         # Create authenticated client
         async with create_confluence_client(
@@ -579,7 +582,9 @@ async def _update(
         # Convert markdown to Confluence format
         click.echo(f'Converting {markdown_file}...')
         converter = MarkdownConverter()
-        new_html = converter.convert_file(markdown_file)
+        markdown_text = markdown_file.read_text(encoding='utf-8')
+        result = converter.convert(markdown_text)
+        new_html = result.html
 
         # Create authenticated client
         async with create_confluence_client(
@@ -703,7 +708,7 @@ async def _upload_mkdocs(
         # Use temp directory for diagram files
         with tempfile.TemporaryDirectory() as tmpdir:
             click.echo(f'Rendering diagrams via Kroki ({kroki_url})...')
-            result = converter.convert_with_diagrams(markdown_text, kroki_url, Path(tmpdir))
+            result = converter.convert(markdown_text, kroki_url, Path(tmpdir))
             new_html = result.html
 
             click.echo(f'Rendered {len(result.diagrams)} diagrams')
