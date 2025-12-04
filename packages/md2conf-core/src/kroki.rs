@@ -3,6 +3,7 @@
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::time::Duration;
 use ureq::Agent;
 
 /// Result of rendering a single diagram.
@@ -149,7 +150,10 @@ pub fn render_all(
             message: format!("Failed to create thread pool: {}", e),
         })?;
 
-    let agent = Agent::new_with_defaults();
+    let agent: Agent = Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .into();
 
     pool.install(|| {
         diagrams
