@@ -81,3 +81,50 @@ def create_image_tag(filename: str, width: int | None = None) -> str:
         Confluence storage format image macro
     """
     ...
+
+
+class RenderedDiagram:
+    """Result of rendering a single diagram."""
+
+    @property
+    def index(self) -> int:
+        """Zero-based index of the diagram."""
+        ...
+
+    @property
+    def filename(self) -> str:
+        """Output filename (e.g., "diagram_abc123.png")."""
+        ...
+
+    @property
+    def width(self) -> int:
+        """Image width in pixels."""
+        ...
+
+    @property
+    def height(self) -> int:
+        """Image height in pixels."""
+        ...
+
+
+def render_diagrams(
+    diagrams: list[DiagramInfo],
+    server_url: str,
+    output_dir: Path,
+    pool_size: int = 4,
+) -> list[RenderedDiagram]:
+    """Render diagrams in parallel using Kroki service.
+
+    Args:
+        diagrams: List of DiagramInfo objects from convert()
+        server_url: Kroki server URL (e.g., "https://kroki.io")
+        output_dir: Directory to save rendered PNG files
+        pool_size: Number of parallel threads (default: 4)
+
+    Returns:
+        List of RenderedDiagram with index, filename, width, height
+
+    Raises:
+        RuntimeError: If rendering fails
+    """
+    ...

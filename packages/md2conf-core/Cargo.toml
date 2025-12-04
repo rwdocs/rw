@@ -10,9 +10,13 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+hex = "0.4"
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 pyo3 = { version = "0.27", features = ["extension-module"] }
+rayon = "1.10"
 regex = "1.11"
+sha2 = "0.10"
+ureq = { version = "3", features = ["rustls"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4"

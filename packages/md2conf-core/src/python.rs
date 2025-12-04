@@ -3,9 +3,11 @@
 use std::path::PathBuf;
 
 use pulldown_cmark::{Options, Parser};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 use crate::confluence::ConfluenceRenderer;
+use crate::kroki;
 use crate::plantuml;
 use crate::plantuml_filter::PlantUmlFilter;
 
@@ -152,12 +154,74 @@ pub fn create_image_tag(filename: &str, width: Option<u32>) -> String {
     }
 }
 
+/// Result of rendering a single diagram.
+#[pyclass(name = "RenderedDiagram")]
+#[derive(Clone)]
+pub struct PyRenderedDiagram {
+    #[pyo3(get)]
+    pub index: usize,
+    #[pyo3(get)]
+    pub filename: String,
+    #[pyo3(get)]
+    pub width: u32,
+    #[pyo3(get)]
+    pub height: u32,
+}
+
+/// Render diagrams in parallel using Kroki service.
+///
+/// Args:
+///     diagrams: List of DiagramInfo objects from convert()
+///     server_url: Kroki server URL (e.g., "https://kroki.io")
+///     output_dir: Directory to save rendered PNG files
+///     pool_size: Number of parallel threads (default: 4)
+///
+/// Returns:
+///     List of RenderedDiagram with index, filename, width, height
+#[pyfunction]
+#[pyo3(signature = (diagrams, server_url, output_dir, pool_size = 4))]
+pub fn render_diagrams(
+    py: Python<'_>,
+    diagrams: Vec<PyDiagramInfo>,
+    server_url: &str,
+    output_dir: PathBuf,
+    pool_size: usize,
+) -> PyResult<Vec<PyRenderedDiagram>> {
+    let requests: Vec<kroki::DiagramRequest> = diagrams
+        .into_iter()
+        .map(|d| kroki::DiagramRequest {
+            index: d.index,
+            source: d.source,
+        })
+        .collect();
+
+    let server_url = server_url.trim_end_matches('/').to_string();
+
+    py.detach(|| {
+        kroki::render_all(requests, &server_url, &output_dir, pool_size)
+            .map(|results| {
+                results
+                    .into_iter()
+                    .map(|r| PyRenderedDiagram {
+                        index: r.index,
+                        filename: r.filename,
+                        width: r.width,
+                        height: r.height,
+                    })
+                    .collect()
+            })
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    })
+}
+
 /// Python module definition.
 #[pymodule]
 pub fn md2conf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create_image_tag, m)?)?;
+    m.add_function(wrap_pyfunction!(render_diagrams, m)?)?;
     m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyConvertResult>()?;
     m.add_class::<PyMarkdownConverter>()?;
+    m.add_class::<PyRenderedDiagram>()?;
     Ok(())
 }

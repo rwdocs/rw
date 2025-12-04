@@ -667,12 +667,13 @@ async def _upload_mkdocs(
         config_path: Path to config.toml
         key_file: Path to private key PEM file
     """
+    import tempfile
+
     try:
         from md2conf.config import Config
         from md2conf.confluence import ConfluenceClient
         from md2conf.confluence.comment_preservation import CommentPreserver
-        from md2conf.kroki import KrokiClient, get_png_dimensions
-        from md2conf_core import MarkdownConverter, create_image_tag
+        from md2conf_core import MarkdownConverter, create_image_tag, render_diagrams
         from md2conf.oauth import create_confluence_client, read_private_key
 
         # Load configuration
@@ -706,35 +707,29 @@ async def _upload_mkdocs(
         if result.title:
             click.echo(f'Title: {result.title}')
 
-        # Initialize Kroki client
-        kroki = KrokiClient(kroki_url)
+        # Render diagrams in parallel using Rust
+        attachment_data: list[tuple[str, bytes]] = []
 
-        # Render diagrams and prepare attachments
-        attachments: list[tuple[str, bytes]] = []
-        image_tags: dict[int, str] = {}
+        if result.diagrams:
+            click.echo(f'Rendering {len(result.diagrams)} diagrams via Kroki...')
+            with tempfile.TemporaryDirectory() as tmpdir:
+                rendered = render_diagrams(
+                    list(result.diagrams),
+                    kroki_url,
+                    Path(tmpdir),
+                    pool_size=4,
+                )
 
-        for diagram in result.diagrams:
-            click.echo(f'Rendering diagram {diagram.index + 1}...')
-
-            # diagram.source is already resolved (includes, DPI, config)
-            diagram_hash = kroki.get_diagram_hash('plantuml', diagram.source)
-            filename = f'diagram_{diagram_hash}.png'
-
-            image_data = await kroki.render_diagram('plantuml', diagram.source, 'png')
-            attachments.append((filename, image_data))
-
-            # Get image dimensions and scale to 50%
-            width, height = get_png_dimensions(image_data)
-            display_width = width // 2
-            image_tags[diagram.index] = create_image_tag(filename, width=display_width)
-            click.echo(
-                f'  -> {filename} ({len(image_data)} bytes, {width}x{height} -> {display_width}px)'
-            )
-
-        # Replace diagram placeholders with image tags in the HTML output
-        for index, image_tag in image_tags.items():
-            placeholder = f"{{{{DIAGRAM_{index}}}}}"
-            new_html = new_html.replace(placeholder, image_tag)
+                for r in rendered:
+                    filepath = Path(tmpdir) / r.filename
+                    display_width = r.width // 2
+                    image_tag = create_image_tag(r.filename, width=display_width)
+                    placeholder = f"{{{{DIAGRAM_{r.index}}}}}"
+                    new_html = new_html.replace(placeholder, image_tag)
+                    attachment_data.append((r.filename, filepath.read_bytes()))
+                    click.echo(
+                        f'  -> {r.filename} ({r.width}x{r.height} -> {display_width}px)'
+                    )
 
         # Create authenticated client
         async with create_confluence_client(
@@ -778,12 +773,13 @@ async def _upload_mkdocs(
                 return
 
             # Upload attachments
-            click.echo(f'Uploading {len(attachments)} attachments...')
-            for filename, image_data in attachments:
-                click.echo(f'  Uploading {filename}...')
-                await confluence.upload_attachment(
-                    page_id, filename, image_data, "image/png"
-                )
+            if attachment_data:
+                click.echo(f'Uploading {len(attachment_data)} attachments...')
+                for filename, image_data in attachment_data:
+                    click.echo(f'  Uploading {filename}...')
+                    await confluence.upload_attachment(
+                        page_id, filename, image_data, "image/png"
+                    )
 
             # Update page
             click.echo(

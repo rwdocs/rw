@@ -80,9 +80,10 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for PlantUmlFilter<'a, I> {
 
             match (&mut self.state, event) {
                 // Start of a plantuml code block
-                (FilterState::Normal, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))))
-                    if is_plantuml(&lang) =>
-                {
+                (
+                    FilterState::Normal,
+                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))),
+                ) if is_plantuml(&lang) => {
                     self.state = FilterState::InPlantUml {
                         source: String::new(),
                     };
@@ -156,9 +157,9 @@ mod tests {
         assert!(diagrams[0].source.contains("Alice -> Bob"));
 
         // Check placeholder is in events
-        let has_placeholder = events.iter().any(|e| {
-            matches!(e, Event::Html(s) if s.contains("{{DIAGRAM_0}}"))
-        });
+        let has_placeholder = events
+            .iter()
+            .any(|e| matches!(e, Event::Html(s) if s.contains("{{DIAGRAM_0}}")));
         assert!(has_placeholder);
     }
 
@@ -209,10 +210,16 @@ C -> D
         assert!(diagrams.is_empty());
 
         // Should have Start(CodeBlock), Text, End(CodeBlock)
-        assert!(events
-            .iter()
-            .any(|e| matches!(e, Event::Start(Tag::CodeBlock(_)))));
-        assert!(events.iter().any(|e| matches!(e, Event::Text(s) if s.contains("fn main"))));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::Start(Tag::CodeBlock(_))))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::Text(s) if s.contains("fn main")))
+        );
     }
 
     #[test]
