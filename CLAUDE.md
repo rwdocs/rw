@@ -57,6 +57,6 @@ Confluence rendering, Kroki diagram rendering) → Python (API calls) → Conflu
 
 ## Key Technical Details
 
-- **Rust requirements**: Edition 2024, Rust 1.85+
+- **Rust requirements**: Edition 2024, Rust 1.91+
 - **Python requirements**: 3.14+
 - **PlantUML**: Extracted from code blocks, rendered via Kroki, uploaded as attachments
