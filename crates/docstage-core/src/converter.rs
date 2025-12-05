@@ -12,11 +12,9 @@ use crate::plantuml_filter::PlantUmlFilter;
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
 /// Create Confluence image macro for an attachment.
+#[must_use]
 pub fn create_image_tag(filename: &str, width: u32) -> String {
-    format!(
-        r#"<ac:image ac:width="{}"><ri:attachment ri:filename="{}" /></ac:image>"#,
-        width, filename
-    )
+    format!(r#"<ac:image ac:width="{width}"><ri:attachment ri:filename="{filename}" /></ac:image>"#)
 }
 
 /// Information about a rendered diagram.
@@ -53,6 +51,7 @@ impl Default for MarkdownConverter {
 
 impl MarkdownConverter {
     /// Create a new converter with default settings.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             gfm: true,
@@ -64,30 +63,35 @@ impl MarkdownConverter {
     }
 
     /// Enable or disable GitHub Flavored Markdown features.
+    #[must_use]
     pub fn gfm(mut self, enabled: bool) -> Self {
         self.gfm = enabled;
         self
     }
 
     /// Enable or disable prepending a table of contents macro.
+    #[must_use]
     pub fn prepend_toc(mut self, enabled: bool) -> Self {
         self.prepend_toc = enabled;
         self
     }
 
     /// Enable or disable extracting the first H1 as page title.
+    #[must_use]
     pub fn extract_title(mut self, enabled: bool) -> Self {
         self.extract_title = enabled;
         self
     }
 
-    /// Set directories to search for PlantUML includes.
+    /// Set directories to search for `PlantUML` includes.
+    #[must_use]
     pub fn include_dirs(mut self, dirs: impl IntoIterator<Item = impl Into<PathBuf>>) -> Self {
         self.include_dirs = dirs.into_iter().map(Into::into).collect();
         self
     }
 
-    /// Load PlantUML config from a file.
+    /// Load `PlantUML` config from a file.
+    #[must_use]
     pub fn config_file(mut self, config_file: Option<&str>) -> Self {
         self.config_content = config_file.and_then(|cf| load_config_file(&self.include_dirs, cf));
         self
@@ -105,8 +109,12 @@ impl MarkdownConverter {
 
     /// Convert markdown to Confluence storage format.
     ///
-    /// PlantUML diagrams are rendered via Kroki and placeholders replaced with
+    /// `PlantUML` diagrams are rendered via Kroki and placeholders replaced with
     /// Confluence image macros.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RenderError` if diagram rendering fails.
     pub fn convert(
         &self,
         markdown_text: &str,
@@ -158,11 +166,11 @@ impl MarkdownConverter {
                 .collect();
 
             let server_url = kroki_url.trim_end_matches('/');
-            let rendered = render_all(diagram_requests, server_url, output_dir, 4)?;
+            let rendered_diagrams = render_all(&diagram_requests, server_url, output_dir, 4)?;
 
             // Replace placeholders with image tags
-            let mut diagram_infos = Vec::with_capacity(rendered.len());
-            for r in rendered {
+            let mut diagram_infos = Vec::with_capacity(rendered_diagrams.len());
+            for r in rendered_diagrams {
                 // Display width is half the actual width (for retina displays)
                 let display_width = r.width / 2;
                 let image_tag = create_image_tag(&r.filename, display_width);

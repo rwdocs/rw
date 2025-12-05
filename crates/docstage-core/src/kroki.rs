@@ -34,13 +34,13 @@ impl std::fmt::Display for RenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RenderError::Http { index, message } => {
-                write!(f, "HTTP error for diagram {}: {}", index, message)
+                write!(f, "HTTP error for diagram {index}: {message}")
             }
             RenderError::Io { index, message } => {
-                write!(f, "IO error for diagram {}: {}", index, message)
+                write!(f, "IO error for diagram {index}: {message}")
             }
             RenderError::InvalidPng { index } => {
-                write!(f, "Invalid PNG data for diagram {}", index)
+                write!(f, "Invalid PNG data for diagram {index}")
             }
         }
     }
@@ -84,7 +84,7 @@ fn render_one(
     server_url: &str,
     output_dir: &Path,
 ) -> Result<RenderedDiagram, RenderError> {
-    let url = format!("{}/plantuml/png", server_url);
+    let url = format!("{server_url}/plantuml/png");
 
     let response = agent
         .post(&url)
@@ -108,7 +108,7 @@ fn render_one(
     })?;
 
     let hash = diagram_hash("plantuml", &diagram.source);
-    let filename = format!("diagram_{}.png", hash);
+    let filename = format!("diagram_{hash}.png");
     let filepath = output_dir.join(&filename);
 
     std::fs::write(&filepath, &data).map_err(|e| RenderError::Io {
@@ -128,14 +128,18 @@ fn render_one(
 ///
 /// # Arguments
 /// * `diagrams` - List of diagrams to render
-/// * `server_url` - Kroki server URL (e.g., "https://kroki.io")
+/// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
 /// * `output_dir` - Directory to save rendered PNG files
 /// * `pool_size` - Number of parallel threads
 ///
 /// # Returns
 /// Vector of rendered diagram info, or first error encountered.
+///
+/// # Errors
+///
+/// Returns `RenderError` if HTTP request, I/O, or PNG parsing fails.
 pub fn render_all(
-    diagrams: Vec<DiagramRequest>,
+    diagrams: &[DiagramRequest],
     server_url: &str,
     output_dir: &Path,
     pool_size: usize,
@@ -149,7 +153,7 @@ pub fn render_all(
         .build()
         .map_err(|e| RenderError::Io {
             index: 0,
-            message: format!("Failed to create thread pool: {}", e),
+            message: format!("Failed to create thread pool: {e}"),
         })?;
 
     let agent: Agent = Agent::config_builder()

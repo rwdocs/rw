@@ -3,7 +3,7 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use std::fmt::Write;
 
-/// Information about an extracted PlantUML diagram.
+/// Information about an extracted `PlantUML` diagram.
 #[derive(Debug, Clone)]
 pub struct DiagramInfo {
     /// Original source code from markdown (as-is, without include resolution)
@@ -16,13 +16,14 @@ pub struct DiagramInfo {
 pub struct RenderResult {
     /// Rendered Confluence XHTML
     pub html: String,
-    /// Title extracted from first H1 heading (if extract_title was enabled)
+    /// Title extracted from first H1 heading (if `extract_title` was enabled)
     pub title: Option<String>,
-    /// PlantUML diagrams extracted from code blocks
+    /// `PlantUML` diagrams extracted from code blocks
     pub diagrams: Vec<DiagramInfo>,
 }
 
 /// Renders pulldown-cmark events to Confluence XHTML storage format.
+#[allow(clippy::struct_excessive_bools)]
 pub struct ConfluenceRenderer {
     output: String,
     /// Stack of nested list types (true = ordered, false = unordered)
@@ -43,7 +44,7 @@ pub struct ConfluenceRenderer {
     in_first_h1: bool,
     /// Buffer for first H1 text
     h1_text: String,
-    /// Extracted PlantUML diagrams
+    /// Extracted `PlantUML` diagrams
     diagrams: Vec<DiagramInfo>,
     /// Whether we're inside a plantuml code block
     in_plantuml_block: bool,
@@ -52,6 +53,7 @@ pub struct ConfluenceRenderer {
 }
 
 impl ConfluenceRenderer {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             output: String::with_capacity(4096),
@@ -73,6 +75,7 @@ impl ConfluenceRenderer {
     /// Enable title extraction from first H1 heading.
     /// When enabled, the first H1 is extracted as title and not rendered,
     /// and all other headers are leveled up (H2→H1, H3→H2, etc.)
+    #[must_use]
     pub fn with_title_extraction(mut self) -> Self {
         self.extract_title = true;
         self
@@ -110,8 +113,7 @@ impl ConfluenceRenderer {
             Event::End(tag) => self.end_tag(tag),
             Event::Text(text) => self.text(&text),
             Event::Code(code) => self.inline_code(&code),
-            Event::Html(html) => self.html(&html),
-            Event::InlineHtml(html) => self.html(&html),
+            Event::Html(html) | Event::InlineHtml(html) => self.html(&html),
             Event::SoftBreak => self.soft_break(),
             Event::HardBreak => self.hard_break(),
             Event::Rule => self.horizontal_rule(),
@@ -128,6 +130,7 @@ impl ConfluenceRenderer {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn start_tag(&mut self, tag: Tag<'_>) {
         match tag {
             Tag::Paragraph => {
@@ -149,7 +152,7 @@ impl ConfluenceRenderer {
                         } else {
                             level_num
                         };
-                    write!(self.output, "<h{}>", adjusted_level).unwrap();
+                    write!(self.output, "<h{adjusted_level}>").unwrap();
                 }
             }
             Tag::BlockQuote(_) => {
@@ -171,7 +174,7 @@ impl ConfluenceRenderer {
                     self.plantuml_source.clear();
                 } else {
                     self.in_code_block = true;
-                    self.code_language = lang.clone();
+                    self.code_language.clone_from(&lang);
 
                     // Confluence code macro
                     self.output
@@ -186,7 +189,7 @@ impl ConfluenceRenderer {
                     }
                     self.output
                         .push_str(r#"<ac:parameter ac:name="linenumbers">true</ac:parameter>"#);
-                    self.output.push_str(r#"<ac:plain-text-body><![CDATA["#);
+                    self.output.push_str(r"<ac:plain-text-body><![CDATA[");
                 }
             }
             Tag::List(start) => {
@@ -201,7 +204,7 @@ impl ConfluenceRenderer {
             Tag::Item => {
                 self.output.push_str("<li>");
             }
-            Tag::FootnoteDefinition(_) => {}
+            Tag::FootnoteDefinition(_) | Tag::HtmlBlock | Tag::MetadataBlock(_) => {}
             Tag::DefinitionList => {
                 self.output.push_str("<dl>");
             }
@@ -260,7 +263,6 @@ impl ConfluenceRenderer {
                     .unwrap();
                 }
             }
-            Tag::HtmlBlock | Tag::MetadataBlock(_) => {}
         }
     }
 
@@ -286,7 +288,7 @@ impl ConfluenceRenderer {
                         } else {
                             level_num
                         };
-                    write!(self.output, "</h{}>", adjusted_level).unwrap();
+                    write!(self.output, "</h{adjusted_level}>").unwrap();
                 }
             }
             TagEnd::BlockQuote(_) => {
@@ -301,7 +303,7 @@ impl ConfluenceRenderer {
                         source: std::mem::take(&mut self.plantuml_source),
                         index,
                     });
-                    write!(self.output, "{{{{DIAGRAM_{}}}}}", index).unwrap();
+                    write!(self.output, "{{{{DIAGRAM_{index}}}}}").unwrap();
                     self.in_plantuml_block = false;
                 } else {
                     self.output
@@ -321,7 +323,10 @@ impl ConfluenceRenderer {
             TagEnd::Item => {
                 self.output.push_str("</li>");
             }
-            TagEnd::FootnoteDefinition => {}
+            TagEnd::FootnoteDefinition
+            | TagEnd::Image
+            | TagEnd::HtmlBlock
+            | TagEnd::MetadataBlock(_) => {}
             TagEnd::DefinitionList => {
                 self.output.push_str("</dl>");
             }
@@ -360,10 +365,6 @@ impl ConfluenceRenderer {
             TagEnd::Link => {
                 self.output.push_str("</a>");
             }
-            TagEnd::Image => {
-                // Image is self-closing in start_tag
-            }
-            TagEnd::HtmlBlock | TagEnd::MetadataBlock(_) => {}
         }
     }
 

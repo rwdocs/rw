@@ -1,8 +1,8 @@
-//! PlantUML diagram extraction as an iterator adapter over pulldown-cmark events.
+//! `PlantUML` diagram extraction as an iterator adapter over pulldown-cmark events.
 
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag, TagEnd};
 
-/// Information about an extracted PlantUML diagram.
+/// Information about an extracted `PlantUML` diagram.
 #[derive(Debug, Clone)]
 pub struct ExtractedDiagram {
     /// Original source code from markdown
@@ -11,11 +11,11 @@ pub struct ExtractedDiagram {
     pub index: usize,
 }
 
-/// Iterator adapter that extracts PlantUML diagrams from a pulldown-cmark event stream.
+/// Iterator adapter that extracts `PlantUML` diagrams from a pulldown-cmark event stream.
 ///
 /// This filter:
 /// - Intercepts code blocks with `plantuml` language
-/// - Collects their source code into `DiagramInfo` structs
+/// - Collects their source code into `ExtractedDiagram` structs
 /// - Emits `{{DIAGRAM_N}}` placeholder as `Event::Html`
 /// - Passes through all other events unchanged
 ///
@@ -51,7 +51,7 @@ enum FilterState {
 }
 
 impl<'a, I: Iterator<Item = Event<'a>>> PlantUmlFilter<'a, I> {
-    /// Create a new PlantUML filter wrapping the given event iterator.
+    /// Create a new `PlantUML` filter wrapping the given event iterator.
     pub fn new(iter: I) -> Self {
         Self {
             iter,
@@ -61,11 +61,13 @@ impl<'a, I: Iterator<Item = Event<'a>>> PlantUmlFilter<'a, I> {
     }
 
     /// Get a reference to the diagrams extracted so far.
+    #[must_use]
     pub fn diagrams(&self) -> &[ExtractedDiagram] {
         &self.diagrams
     }
 
     /// Consume the filter and return the collected diagrams.
+    #[must_use]
     pub fn into_diagrams(self) -> Vec<ExtractedDiagram> {
         self.diagrams
     }
@@ -88,13 +90,11 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for PlantUmlFilter<'a, I> {
                         source: String::new(),
                     };
                     // Don't emit the Start event, continue to collect content
-                    continue;
                 }
 
                 // Text inside plantuml block - collect it
                 (FilterState::InPlantUml { source }, Event::Text(text)) => {
                     source.push_str(&text);
-                    continue;
                 }
 
                 // End of plantuml block - emit placeholder
@@ -106,7 +106,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for PlantUmlFilter<'a, I> {
                         self.diagrams.push(ExtractedDiagram { source, index });
 
                         // Emit placeholder as Html event (passes through unchanged)
-                        let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
+                        let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
                         return Some(Event::Html(CowStr::Boxed(placeholder.into_boxed_str())));
                     }
                     unreachable!()
@@ -118,7 +118,6 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for PlantUmlFilter<'a, I> {
                     if let Event::SoftBreak | Event::HardBreak = other {
                         source.push('\n');
                     }
-                    continue;
                 }
 
                 // Normal event - pass through
@@ -133,8 +132,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for PlantUmlFilter<'a, I> {
 fn is_plantuml(lang: &str) -> bool {
     lang.split_whitespace()
         .next()
-        .map(|l| l == "plantuml")
-        .unwrap_or(false)
+        .is_some_and(|l| l == "plantuml")
 }
 
 #[cfg(test)]
