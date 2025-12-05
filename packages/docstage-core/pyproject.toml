@@ -3,9 +3,9 @@ requires = ["maturin>=1.8,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "md2conf-core"
+name = "docstage-core"
 version = "0.1.0"
-description = "High-performance markdown to Confluence converter"
+description = "High-performance markdown renderer for Docstage"
 requires-python = ">=3.14"
 classifiers = [
     "Programming Language :: Rust",
@@ -16,4 +16,4 @@ classifiers = [
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "md2conf_core"
+module-name = "docstage_core"

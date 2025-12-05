@@ -26,4 +26,4 @@ wheels/
 htmlcov/
 
 .claude/settings.local.json
-packages/md2conf-core/target/
+packages/docstage-core/target/

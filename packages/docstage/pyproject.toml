@@ -1,7 +1,7 @@
 [project]
-name = "md2conf"
+name = "docstage"
 version = "0.1.0"
-description = "Convert markdown to Confluence pages"
+description = "Documentation engine for Backstage"
 readme = "../../README.md"
 authors = [
     { name = "Mike Yumatov", email = "mike.yumatov@gmail.com" }
@@ -12,18 +12,18 @@ dependencies = [
     "httpx>=0.28.1",
     "cryptography>=43.0.0",
     "click>=8.1.0",
-    "md2conf-core",
+    "docstage-core",
 ]
 
 [project.scripts]
-md2conf = "md2conf.cli:cli"
+docstage = "docstage.cli:cli"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/md2conf"]
+packages = ["src/docstage"]
 
 [tool.uv.sources]
-md2conf-core = { workspace = true }
+docstage-core = { workspace = true }

@@ -190,7 +190,7 @@ impl PyMarkdownConverter {
 
 /// Python module definition.
 #[pymodule]
-pub fn md2conf_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConvertResult>()?;
     m.add_class::<PyMarkdownConverter>()?;
     m.add_class::<PyRenderedDiagram>()?;

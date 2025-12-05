@@ -8,29 +8,31 @@ After code changes:
 
 ## Project Overview
 
-md2conf is a markdown-to-Confluence converter with PlantUML diagram support. It
-converts markdown documents to Confluence storage format (XHTML) and
-creates/updates pages in Confluence Server/Data Center.
+Docstage is a documentation engine for Backstage. It converts CommonMark
+documents to HTML and serves them via API. Currently supports Confluence storage
+format output with PlantUML diagram support.
+
+**Tagline:** "Where documentation takes the stage"
 
 ## Development Commands
 
 ```bash
-uv sync --reinstall                           # Rebuild Rust extension
-cd packages/md2conf-core && cargo test --lib  # Run Rust unit tests
+uv sync --reinstall                             # Rebuild Rust extension
+cd packages/docstage-core && cargo test --lib   # Run Rust unit tests
 ```
 
 ## Architecture
 
 ```
 packages/
-├── md2conf/           # Python CLI package (Click)
-│   └── src/md2conf/
+├── docstage/              # Python CLI package (Click)
+│   └── src/docstage/
 │       ├── cli.py                     # Main CLI commands
 │       ├── confluence/client.py       # Async Confluence REST API client
 │       ├── confluence/comment_preservation.py  # DOM-based comment preservation
 │       └── oauth.py                   # OAuth 1.0 RSA-SHA1 auth
 │
-└── md2conf-core/      # Rust core library (PyO3)
+└── docstage-core/         # Rust core library (PyO3)
     └── src/
         ├── lib.rs                # Module exports
         ├── confluence.rs         # Event-based pulldown-cmark → Confluence XHTML renderer

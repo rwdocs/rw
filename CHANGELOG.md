@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### 2025-12-05
+- Rename project from md2conf to Docstage ("Where documentation takes the stage")
+- Rename packages: md2conf → docstage, md2conf-core → docstage-core
+- Update CLI entrypoint: `md2conf` → `docstage`
+
 ### 2025-12-04
 - Merge `convert_with_diagrams` into `convert` method (kroki_url/output_dir now required)
 - Move Kroki diagram rendering from Python to Rust with parallel requests (rayon + ureq)

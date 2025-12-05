@@ -1,7 +1,6 @@
-"""Configuration management for md2conf.
+"""Configuration management for Docstage.
 
 Supports TOML configuration format for Confluence credentials.
-Adapted from adrflow project.
 """
 
 import tomllib

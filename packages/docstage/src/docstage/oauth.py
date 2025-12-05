@@ -1,7 +1,6 @@
 """OAuth 1.0 authentication for Confluence.
 
 This module provides OAuth 1.0 RSA-SHA1 authentication for Confluence.
-Adapted from adrflow project.
 """
 
 from pathlib import Path

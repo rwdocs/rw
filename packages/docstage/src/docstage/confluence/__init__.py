@@ -1,9 +1,9 @@
-"""Confluence integration for md2conf.
+"""Confluence integration for Docstage.
 
 This package provides Confluence REST API client and markdown conversion.
 """
 
-from md2conf_core import MarkdownConverter
+from docstage_core import MarkdownConverter
 
 from .client import ConfluenceClient
 

@@ -1,13 +1,13 @@
 [project]
-name = "md2conf-workspace"
+name = "docstage-workspace"
 version = "0.1.0"
-description = "Markdown to Confluence workspace"
+description = "Documentation engine for Backstage"
 requires-python = ">=3.14"
 # Workspace root is not a package itself
-dependencies = ["md2conf"]
+dependencies = ["docstage"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
 
 [tool.uv.sources]
-md2conf = { workspace = true }
+docstage = { workspace = true }

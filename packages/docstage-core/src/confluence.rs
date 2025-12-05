@@ -3,12 +3,23 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use std::fmt::Write;
 
+/// Information about an extracted PlantUML diagram.
+#[derive(Debug, Clone)]
+pub struct DiagramInfo {
+    /// Original source code from markdown (as-is, without include resolution)
+    pub source: String,
+    /// Zero-based index of this diagram
+    pub index: usize,
+}
+
 /// Result of rendering markdown to Confluence format.
 pub struct RenderResult {
     /// Rendered Confluence XHTML
     pub html: String,
     /// Title extracted from first H1 heading (if extract_title was enabled)
     pub title: Option<String>,
+    /// PlantUML diagrams extracted from code blocks
+    pub diagrams: Vec<DiagramInfo>,
 }
 
 /// Renders pulldown-cmark events to Confluence XHTML storage format.
@@ -32,6 +43,12 @@ pub struct ConfluenceRenderer {
     in_first_h1: bool,
     /// Buffer for first H1 text
     h1_text: String,
+    /// Extracted PlantUML diagrams
+    diagrams: Vec<DiagramInfo>,
+    /// Whether we're inside a plantuml code block
+    in_plantuml_block: bool,
+    /// Buffer for plantuml source
+    plantuml_source: String,
 }
 
 impl ConfluenceRenderer {
@@ -47,6 +64,9 @@ impl ConfluenceRenderer {
             seen_first_h1: false,
             in_first_h1: false,
             h1_text: String::new(),
+            diagrams: Vec::new(),
+            in_plantuml_block: false,
+            plantuml_source: String::new(),
         }
     }
 
@@ -69,7 +89,7 @@ impl ConfluenceRenderer {
         self.output
     }
 
-    /// Render markdown events and return HTML with extracted title.
+    /// Render markdown events and return HTML, extracted title, and diagrams.
     pub fn render_with_title<'a, I>(mut self, events: I) -> RenderResult
     where
         I: Iterator<Item = Event<'a>>,
@@ -80,6 +100,7 @@ impl ConfluenceRenderer {
         RenderResult {
             html: self.output,
             title: self.title,
+            diagrams: self.diagrams,
         }
     }
 
@@ -122,12 +143,12 @@ impl ConfluenceRenderer {
                 } else {
                     let level_num = heading_level_to_num(level);
                     // Level up if we extracted a title
-                    let adjusted_level =
-                        if self.extract_title && self.seen_first_h1 && level_num > 1 {
-                            level_num - 1
-                        } else {
-                            level_num
-                        };
+                    let adjusted_level = if self.extract_title && self.seen_first_h1 && level_num > 1
+                    {
+                        level_num - 1
+                    } else {
+                        level_num
+                    };
                     write!(self.output, "<h{}>", adjusted_level).unwrap();
                 }
             }
@@ -144,23 +165,29 @@ impl ConfluenceRenderer {
                     _ => None,
                 };
 
-                self.in_code_block = true;
-                self.code_language = lang.clone();
+                // Check if this is a plantuml block
+                if lang.as_deref() == Some("plantuml") {
+                    self.in_plantuml_block = true;
+                    self.plantuml_source.clear();
+                } else {
+                    self.in_code_block = true;
+                    self.code_language = lang.clone();
 
-                // Confluence code macro
-                self.output
-                    .push_str(r#"<ac:structured-macro ac:name="code" ac:schema-version="1">"#);
-                if let Some(ref lang) = lang {
-                    write!(
-                        self.output,
-                        r#"<ac:parameter ac:name="language">{}</ac:parameter>"#,
-                        escape_xml(lang)
-                    )
-                    .unwrap();
+                    // Confluence code macro
+                    self.output
+                        .push_str(r#"<ac:structured-macro ac:name="code" ac:schema-version="1">"#);
+                    if let Some(ref lang) = lang {
+                        write!(
+                            self.output,
+                            r#"<ac:parameter ac:name="language">{}</ac:parameter>"#,
+                            escape_xml(lang)
+                        )
+                        .unwrap();
+                    }
+                    self.output
+                        .push_str(r#"<ac:parameter ac:name="linenumbers">true</ac:parameter>"#);
+                    self.output.push_str(r#"<ac:plain-text-body><![CDATA["#);
                 }
-                self.output
-                    .push_str(r#"<ac:parameter ac:name="linenumbers">true</ac:parameter>"#);
-                self.output.push_str(r#"<ac:plain-text-body><![CDATA["#);
             }
             Tag::List(start) => {
                 let ordered = start.is_some();
@@ -253,12 +280,12 @@ impl ConfluenceRenderer {
                 } else {
                     let level_num = heading_level_to_num(level);
                     // Level up if we extracted a title
-                    let adjusted_level =
-                        if self.extract_title && self.seen_first_h1 && level_num > 1 {
-                            level_num - 1
-                        } else {
-                            level_num
-                        };
+                    let adjusted_level = if self.extract_title && self.seen_first_h1 && level_num > 1
+                    {
+                        level_num - 1
+                    } else {
+                        level_num
+                    };
                     write!(self.output, "</h{}>", adjusted_level).unwrap();
                 }
             }
@@ -267,10 +294,21 @@ impl ConfluenceRenderer {
                     .push_str("</ac:rich-text-body></ac:structured-macro>");
             }
             TagEnd::CodeBlock => {
-                self.output
-                    .push_str("]]></ac:plain-text-body></ac:structured-macro>");
-                self.in_code_block = false;
-                self.code_language = None;
+                if self.in_plantuml_block {
+                    // End of plantuml block - save diagram and output placeholder
+                    let index = self.diagrams.len();
+                    self.diagrams.push(DiagramInfo {
+                        source: std::mem::take(&mut self.plantuml_source),
+                        index,
+                    });
+                    write!(self.output, "{{{{DIAGRAM_{}}}}}", index).unwrap();
+                    self.in_plantuml_block = false;
+                } else {
+                    self.output
+                        .push_str("]]></ac:plain-text-body></ac:structured-macro>");
+                    self.in_code_block = false;
+                    self.code_language = None;
+                }
             }
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
@@ -333,6 +371,9 @@ impl ConfluenceRenderer {
         if self.in_first_h1 {
             // Capture text for title
             self.h1_text.push_str(text);
+        } else if self.in_plantuml_block {
+            // Capture plantuml source
+            self.plantuml_source.push_str(text);
         } else if self.in_code_block {
             // Don't escape text in code blocks (CDATA)
             self.output.push_str(text);
@@ -346,7 +387,7 @@ impl ConfluenceRenderer {
     }
 
     fn html(&mut self, html: &str) {
-        // Pass through HTML as-is (includes placeholders from PlantUmlFilter)
+        // Pass through HTML as-is
         self.output.push_str(html);
     }
 
@@ -454,15 +495,5 @@ mod tests {
         assert_eq!(result.title, None);
         assert!(result.html.contains("<h1>My Title</h1>"));
         assert!(result.html.contains("<h2>Section</h2>"));
-    }
-
-    #[test]
-    fn test_html_passthrough() {
-        // Test that Html events (like placeholders) pass through unchanged
-        let markdown = "Text before\n\n{{DIAGRAM_0}}\n\nText after";
-        let result = render(markdown);
-        // The placeholder is treated as text and escaped
-        // But if it comes as Event::Html, it passes through
-        assert!(result.contains("DIAGRAM_0"));
     }
 }

@@ -1,9 +1,9 @@
 [package]
-name = "md2conf-core"
+name = "docstage-core"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Markdown to Confluence converter using pulldown-cmark"
+description = "High-performance markdown renderer for Docstage"
 license = "MIT"
 
 [lib]

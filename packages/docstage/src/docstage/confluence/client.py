@@ -1,4 +1,4 @@
-"""Confluence API client for md2conf.
+"""Confluence API client for Docstage.
 
 This module provides async HTTP client for Confluence REST API operations.
 Supports creating, reading, and updating pages.

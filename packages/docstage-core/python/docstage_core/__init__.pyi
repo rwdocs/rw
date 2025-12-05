@@ -1,4 +1,4 @@
-"""Type stubs for md2conf_core."""
+"""Type stubs for docstage_core."""
 
 
 class RenderedDiagram:

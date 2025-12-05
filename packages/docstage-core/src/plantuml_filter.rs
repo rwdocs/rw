@@ -23,7 +23,7 @@ pub struct DiagramInfo {
 ///
 /// ```ignore
 /// use pulldown_cmark::Parser;
-/// use md2conf_core::PlantUmlFilter;
+/// use docstage_core::PlantUmlFilter;
 ///
 /// let markdown = "# Title\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```";
 /// let parser = Parser::new(markdown);

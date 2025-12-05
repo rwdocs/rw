@@ -1,4 +1,4 @@
-"""CLI interface for md2conf.
+"""CLI interface for Docstage.
 
 Command-line tool for converting markdown to Confluence pages.
 """
@@ -67,7 +67,7 @@ def get_page(page_id: str, config: Path, key_file: Path) -> None:
 @click.option(
     '--body',
     '-b',
-    default='<p>Test page created by md2conf</p>',
+    default='<p>Test page created by docstage</p>',
     help='Page body HTML',
 )
 @click.option(
@@ -102,7 +102,7 @@ def convert(markdown_file: Path, kroki_url: str) -> None:
     """Convert a markdown file to Confluence storage format and display it."""
     import tempfile
 
-    from md2conf.confluence import MarkdownConverter
+    from docstage.confluence import MarkdownConverter
 
     converter = MarkdownConverter()
     markdown_text = markdown_file.read_text(encoding='utf-8')
@@ -334,8 +334,8 @@ async def _test_auth(config_path: Path, key_file: Path) -> None:
         key_file: Path to private key PEM file
     """
     try:
-        from md2conf.config import Config
-        from md2conf.oauth import create_confluence_client, read_private_key
+        from docstage.config import Config
+        from docstage.oauth import create_confluence_client, read_private_key
 
         # Load configuration
         click.echo(f'Loading config from {config_path}...')
@@ -387,9 +387,9 @@ async def _get_page(page_id: str, config_path: Path, key_file: Path) -> None:
         key_file: Path to private key PEM file
     """
     try:
-        from md2conf.config import Config
-        from md2conf.confluence import ConfluenceClient
-        from md2conf.oauth import create_confluence_client, read_private_key
+        from docstage.config import Config
+        from docstage.confluence import ConfluenceClient
+        from docstage.oauth import create_confluence_client, read_private_key
 
         # Load configuration
         config = Config.from_toml(config_path)
@@ -450,9 +450,9 @@ async def _test_create(
         key_file: Path to private key PEM file
     """
     try:
-        from md2conf.config import Config
-        from md2conf.confluence import ConfluenceClient
-        from md2conf.oauth import create_confluence_client, read_private_key
+        from docstage.config import Config
+        from docstage.confluence import ConfluenceClient
+        from docstage.oauth import create_confluence_client, read_private_key
 
         # Load configuration
         config = Config.from_toml(config_path)
@@ -523,9 +523,9 @@ async def _create(
     import tempfile
 
     try:
-        from md2conf.config import Config
-        from md2conf.confluence import ConfluenceClient, MarkdownConverter
-        from md2conf.oauth import create_confluence_client, read_private_key
+        from docstage.config import Config
+        from docstage.confluence import ConfluenceClient, MarkdownConverter
+        from docstage.oauth import create_confluence_client, read_private_key
 
         # Load configuration
         config = Config.from_toml(config_path)
@@ -605,10 +605,10 @@ async def _update(
     import tempfile
 
     try:
-        from md2conf.config import Config
-        from md2conf.confluence import ConfluenceClient, MarkdownConverter
-        from md2conf.confluence.comment_preservation import CommentPreserver
-        from md2conf.oauth import create_confluence_client, read_private_key
+        from docstage.config import Config
+        from docstage.confluence import ConfluenceClient, MarkdownConverter
+        from docstage.confluence.comment_preservation import CommentPreserver
+        from docstage.oauth import create_confluence_client, read_private_key
 
         # Load configuration
         config = Config.from_toml(config_path)
@@ -712,11 +712,11 @@ async def _upload_mkdocs(
     import tempfile
 
     try:
-        from md2conf.config import Config
-        from md2conf.confluence import ConfluenceClient
-        from md2conf.confluence.comment_preservation import CommentPreserver
-        from md2conf_core import MarkdownConverter
-        from md2conf.oauth import create_confluence_client, read_private_key
+        from docstage.config import Config
+        from docstage.confluence import ConfluenceClient
+        from docstage.confluence.comment_preservation import CommentPreserver
+        from docstage_core import MarkdownConverter
+        from docstage.oauth import create_confluence_client, read_private_key
 
         # Load configuration
         config = Config.from_toml(config_path)
@@ -867,7 +867,7 @@ async def _generate_tokens(
 
         from authlib.integrations.httpx_client import AsyncOAuth1Client
 
-        from md2conf.oauth import read_private_key
+        from docstage.oauth import read_private_key
 
         # OAuth callback handler
         class OAuthCallbackHandler(BaseHTTPRequestHandler):
@@ -1123,9 +1123,9 @@ async def _comments(
         include_resolved: Whether to include resolved comments
     """
     try:
-        from md2conf.config import Config
-        from md2conf.confluence import ConfluenceClient
-        from md2conf.oauth import create_confluence_client, read_private_key
+        from docstage.config import Config
+        from docstage.confluence import ConfluenceClient
+        from docstage.oauth import create_confluence_client, read_private_key
 
         # Load configuration
         config = Config.from_toml(config_path)

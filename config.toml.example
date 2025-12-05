@@ -1,4 +1,4 @@
-# md2conf Configuration
+# Docstage Configuration
 # Copy this file to config.toml and fill in your credentials
 
 [confluence]
