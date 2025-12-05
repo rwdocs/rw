@@ -25,17 +25,13 @@ cargo test --lib          # Run Rust unit tests
 
 ```
 crates/
-├── docstage-core/         # Pure Rust library (no PyO3)
-│   └── src/
-│       ├── lib.rs                # Module exports
-│       ├── confluence.rs         # Event-based pulldown-cmark → Confluence XHTML renderer
-│       ├── kroki.rs              # Parallel diagram rendering via Kroki service
-│       ├── plantuml_filter.rs    # Iterator adapter: extracts PlantUML, returns placeholders
-│       └── plantuml.rs           # !include resolution, DPI configuration
-│
-└── docstage-py/           # PyO3 bindings crate
+└── docstage-core/         # Pure Rust library (no PyO3)
     └── src/
-        └── lib.rs                # #[pymodule], wrapper types
+        ├── lib.rs                # Module exports
+        ├── confluence.rs         # Event-based pulldown-cmark → Confluence XHTML renderer
+        ├── kroki.rs              # Parallel diagram rendering via Kroki service
+        ├── plantuml_filter.rs    # Iterator adapter: extracts PlantUML, returns placeholders
+        └── plantuml.rs           # !include resolution, DPI configuration
 
 packages/
 ├── docstage/              # Python CLI package (Click)
@@ -45,8 +41,11 @@ packages/
 │       ├── confluence/comment_preservation.py  # DOM-based comment preservation
 │       └── oauth.py                   # OAuth 1.0 RSA-SHA1 auth
 │
-└── docstage-core/         # Python package (maturin, points to crates/docstage-py)
+└── docstage-core/         # Python package with PyO3 bindings (maturin)
+    ├── Cargo.toml
     ├── pyproject.toml
+    ├── src/
+    │   └── lib.rs                # #[pymodule], wrapper types
     └── python/
         └── docstage_core/
             ├── __init__.py

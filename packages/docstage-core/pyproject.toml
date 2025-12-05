@@ -17,4 +17,3 @@ classifiers = [
 features = ["pyo3/extension-module"]
 python-source = "python"
 module-name = "docstage_core"
-manifest-path = "../../crates/docstage-py/Cargo.toml"

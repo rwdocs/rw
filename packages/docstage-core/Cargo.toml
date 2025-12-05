@@ -1,0 +1,18 @@
+[package]
+name = "docstage-py"
+description = "Python bindings for docstage-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[lib]
+name = "docstage_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+docstage-core = { path = "../../crates/docstage-core" }
+pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
+pyo3 = { version = "0.27", features = ["extension-module"] }
+
+[workspace]
