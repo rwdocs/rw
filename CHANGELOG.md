@@ -6,6 +6,10 @@
 - Rename project from md2conf to Docstage ("Where documentation takes the stage")
 - Rename packages: md2conf → docstage, md2conf-core → docstage-core
 - Update CLI entrypoint: `md2conf` → `docstage`
+- Restructure Rust code into Cargo workspace:
+  - `crates/docstage-core`: Pure Rust library (no PyO3)
+  - `crates/docstage-py`: PyO3 bindings only
+  - `packages/docstage-core`: Python package (maturin)
 
 ### 2025-12-04
 - Merge `convert_with_diagrams` into `convert` method (kroki_url/output_dir now required)

@@ -26,4 +26,4 @@ wheels/
 htmlcov/
 
 .claude/settings.local.json
-packages/docstage-core/target/
+/target

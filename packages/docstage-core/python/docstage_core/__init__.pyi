@@ -1,7 +1,7 @@
 """Type stubs for docstage_core."""
 
 
-class RenderedDiagram:
+class DiagramInfo:
     """Rendered diagram info (file written to output_dir)."""
 
     @property
@@ -34,7 +34,7 @@ class ConvertResult:
         ...
 
     @property
-    def diagrams(self) -> list[RenderedDiagram]:
+    def diagrams(self) -> list[DiagramInfo]:
         """Rendered diagrams (empty if kroki_url/output_dir not provided)."""
         ...
 
@@ -84,3 +84,16 @@ class MarkdownConverter:
             RuntimeError: If diagram rendering fails
         """
         ...
+
+
+def create_image_tag(filename: str, width: int) -> str:
+    """Create Confluence image macro for an attachment.
+
+    Args:
+        filename: Attachment filename
+        width: Display width in pixels
+
+    Returns:
+        Confluence image macro XML string
+    """
+    ...

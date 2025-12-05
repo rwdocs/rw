@@ -1,22 +1,23 @@
-[package]
-name = "docstage-core"
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "High-performance markdown renderer for Docstage"
 license = "MIT"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
+[workspace.dependencies]
+# Internal crates
+docstage-core = { path = "crates/docstage-core" }
 
-[dependencies]
+# External dependencies
 hex = "0.4"
+pretty_assertions = "1.4"
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 pyo3 = { version = "0.27", features = ["extension-module"] }
 rayon = "1.10"
 regex = "1.11"
 sha2 = "0.10"
 ureq = { version = "3", features = ["rustls"] }
-
-[dev-dependencies]
-pretty_assertions = "1.4"

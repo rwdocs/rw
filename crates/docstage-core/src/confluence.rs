@@ -143,12 +143,12 @@ impl ConfluenceRenderer {
                 } else {
                     let level_num = heading_level_to_num(level);
                     // Level up if we extracted a title
-                    let adjusted_level = if self.extract_title && self.seen_first_h1 && level_num > 1
-                    {
-                        level_num - 1
-                    } else {
-                        level_num
-                    };
+                    let adjusted_level =
+                        if self.extract_title && self.seen_first_h1 && level_num > 1 {
+                            level_num - 1
+                        } else {
+                            level_num
+                        };
                     write!(self.output, "<h{}>", adjusted_level).unwrap();
                 }
             }
@@ -280,12 +280,12 @@ impl ConfluenceRenderer {
                 } else {
                     let level_num = heading_level_to_num(level);
                     // Level up if we extracted a title
-                    let adjusted_level = if self.extract_title && self.seen_first_h1 && level_num > 1
-                    {
-                        level_num - 1
-                    } else {
-                        level_num
-                    };
+                    let adjusted_level =
+                        if self.extract_title && self.seen_first_h1 && level_num > 1 {
+                            level_num - 1
+                        } else {
+                            level_num
+                        };
                     write!(self.output, "</h{}>", adjusted_level).unwrap();
                 }
             }

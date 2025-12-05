@@ -17,13 +17,26 @@ format output with PlantUML diagram support.
 ## Development Commands
 
 ```bash
-uv sync --reinstall                             # Rebuild Rust extension
-cd packages/docstage-core && cargo test --lib   # Run Rust unit tests
+uv sync --reinstall       # Rebuild Rust extension
+cargo test --lib          # Run Rust unit tests
 ```
 
 ## Architecture
 
 ```
+crates/
+├── docstage-core/         # Pure Rust library (no PyO3)
+│   └── src/
+│       ├── lib.rs                # Module exports
+│       ├── confluence.rs         # Event-based pulldown-cmark → Confluence XHTML renderer
+│       ├── kroki.rs              # Parallel diagram rendering via Kroki service
+│       ├── plantuml_filter.rs    # Iterator adapter: extracts PlantUML, returns placeholders
+│       └── plantuml.rs           # !include resolution, DPI configuration
+│
+└── docstage-py/           # PyO3 bindings crate
+    └── src/
+        └── lib.rs                # #[pymodule], wrapper types
+
 packages/
 ├── docstage/              # Python CLI package (Click)
 │   └── src/docstage/
@@ -32,14 +45,12 @@ packages/
 │       ├── confluence/comment_preservation.py  # DOM-based comment preservation
 │       └── oauth.py                   # OAuth 1.0 RSA-SHA1 auth
 │
-└── docstage-core/         # Rust core library (PyO3)
-    └── src/
-        ├── lib.rs                # Module exports
-        ├── confluence.rs         # Event-based pulldown-cmark → Confluence XHTML renderer
-        ├── kroki.rs              # Parallel diagram rendering via Kroki service
-        ├── plantuml_filter.rs    # Iterator adapter: extracts PlantUML, returns placeholders
-        ├── plantuml.rs           # !include resolution, DPI configuration
-        └── python.rs             # PyO3 bindings exposing MarkdownConverter class
+└── docstage-core/         # Python package (maturin, points to crates/docstage-py)
+    ├── pyproject.toml
+    └── python/
+        └── docstage_core/
+            ├── __init__.py
+            └── __init__.pyi
 ```
 
 **Data flow**: Markdown → Rust (pulldown-cmark parsing, PlantUML extraction,

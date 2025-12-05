@@ -1,0 +1,18 @@
+[package]
+name = "docstage-core"
+description = "High-performance markdown renderer for Docstage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+hex = { workspace = true }
+pulldown-cmark = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
+sha2 = { workspace = true }
+ureq = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

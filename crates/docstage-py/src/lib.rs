@@ -1,20 +1,16 @@
-//! Python bindings via PyO3.
+//! Python bindings for docstage-core via PyO3.
 
 use std::path::PathBuf;
 
+use ::docstage_core::{ConfluenceRenderer, DiagramRequest, PlantUmlFilter};
 use pulldown_cmark::{Options, Parser};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
-use crate::confluence::ConfluenceRenderer;
-use crate::kroki;
-use crate::plantuml;
-use crate::plantuml_filter::PlantUmlFilter;
-
 /// Rendered diagram info (file written to output_dir).
-#[pyclass(name = "RenderedDiagram")]
+#[pyclass(name = "DiagramInfo")]
 #[derive(Clone)]
-pub struct PyRenderedDiagram {
+pub struct PyDiagramInfo {
     #[pyo3(get)]
     pub filename: String,
     #[pyo3(get)]
@@ -31,7 +27,7 @@ pub struct PyConvertResult {
     #[pyo3(get)]
     pub title: Option<String>,
     #[pyo3(get)]
-    pub diagrams: Vec<PyRenderedDiagram>,
+    pub diagrams: Vec<PyDiagramInfo>,
 }
 
 fn get_parser_options(gfm: bool) -> Options {
@@ -47,7 +43,8 @@ fn get_parser_options(gfm: bool) -> Options {
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
 /// Create Confluence image macro for an attachment.
-fn create_image_tag(filename: &str, width: u32) -> String {
+#[pyfunction]
+pub fn create_image_tag(filename: &str, width: u32) -> String {
     format!(
         r#"<ac:image ac:width="{}"><ri:attachment ri:filename="{}" /></ac:image>"#,
         width, filename
@@ -81,7 +78,8 @@ impl PyMarkdownConverter {
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
 
-        let config_content = config_file.and_then(|cf| plantuml::load_config_file(&dirs, cf));
+        let config_content =
+            config_file.and_then(|cf| ::docstage_core::load_config_file(&dirs, cf));
 
         Self {
             gfm,
@@ -143,12 +141,12 @@ impl PyMarkdownConverter {
             let diagram_infos: Vec<_> = extracted_diagrams
                 .into_iter()
                 .map(|d| {
-                    let resolved_source = plantuml::prepare_diagram_source(
+                    let resolved_source = ::docstage_core::prepare_diagram_source(
                         &d.source,
                         &self.include_dirs,
                         self.config_content.as_deref(),
                     );
-                    kroki::DiagramRequest {
+                    DiagramRequest {
                         index: d.index,
                         source: resolved_source,
                     }
@@ -158,7 +156,7 @@ impl PyMarkdownConverter {
             let server_url = kroki_url.trim_end_matches('/').to_string();
 
             let rendered = py.detach(|| {
-                kroki::render_all(diagram_infos, &server_url, &output_dir, 4)
+                ::docstage_core::render_all(diagram_infos, &server_url, &output_dir, 4)
                     .map_err(|e| PyRuntimeError::new_err(e.to_string()))
             })?;
 
@@ -171,7 +169,7 @@ impl PyMarkdownConverter {
                 let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
                 html = html.replace(&placeholder, &image_tag);
 
-                py_diagrams.push(PyRenderedDiagram {
+                py_diagrams.push(PyDiagramInfo {
                     filename: r.filename,
                     width: r.width,
                     height: r.height,
@@ -193,6 +191,7 @@ impl PyMarkdownConverter {
 pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConvertResult>()?;
     m.add_class::<PyMarkdownConverter>()?;
-    m.add_class::<PyRenderedDiagram>()?;
+    m.add_class::<PyDiagramInfo>()?;
+    m.add_function(wrap_pyfunction!(create_image_tag, m)?)?;
     Ok(())
 }
