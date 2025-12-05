@@ -8,12 +8,10 @@ from .docstage_core import (
     ConvertResult,
     DiagramInfo,
     MarkdownConverter,
-    create_image_tag,
 )
 
 __all__ = [
     "ConvertResult",
     "DiagramInfo",
     "MarkdownConverter",
-    "create_image_tag",
 ]

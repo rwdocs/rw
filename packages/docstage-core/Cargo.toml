@@ -12,7 +12,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 docstage-core = { path = "../../crates/docstage-core" }
-pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }
 pyo3 = { version = "0.27", features = ["extension-module"] }
 
 [workspace]

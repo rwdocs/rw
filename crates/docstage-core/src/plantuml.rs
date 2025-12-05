@@ -1,5 +1,7 @@
 //! PlantUML diagram processing utilities.
 
+use std::path::PathBuf;
+
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -9,7 +11,7 @@ static INCLUDE_PATTERN: LazyLock<Regex> =
 const DEFAULT_DPI: u32 = 192;
 
 /// Resolve PlantUML !include directives in diagram source.
-pub fn resolve_includes(source: &str, include_dirs: &[String], depth: usize) -> String {
+fn resolve_includes(source: &str, include_dirs: &[PathBuf], depth: usize) -> String {
     if depth > 10 {
         return source.to_string();
     }
@@ -25,7 +27,7 @@ pub fn resolve_includes(source: &str, include_dirs: &[String], depth: usize) -> 
 
             // Try to resolve from include directories
             for dir in include_dirs {
-                let full_path = std::path::Path::new(dir).join(include_path);
+                let full_path = dir.join(include_path);
                 if let Ok(content) = std::fs::read_to_string(&full_path) {
                     return resolve_includes(&content, include_dirs, depth + 1);
                 }
@@ -42,7 +44,7 @@ pub fn resolve_includes(source: &str, include_dirs: &[String], depth: usize) -> 
 /// Resolves includes, prepends DPI setting and optional config content.
 pub fn prepare_diagram_source(
     source: &str,
-    include_dirs: &[String],
+    include_dirs: &[PathBuf],
     config_content: Option<&str>,
 ) -> String {
     let resolved = resolve_includes(source, include_dirs, 0);
@@ -58,9 +60,9 @@ pub fn prepare_diagram_source(
 }
 
 /// Load config file content from include directories.
-pub fn load_config_file(include_dirs: &[String], config_file: &str) -> Option<String> {
+pub fn load_config_file(include_dirs: &[PathBuf], config_file: &str) -> Option<String> {
     include_dirs.iter().find_map(|dir| {
-        let path = std::path::Path::new(dir).join(config_file);
+        let path = dir.join(config_file);
         std::fs::read_to_string(&path).ok()
     })
 }

@@ -70,7 +70,9 @@ fn get_png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
 /// Generate SHA256 hash prefix for diagram filename.
 fn diagram_hash(diagram_type: &str, source: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(format!("{}:{}", diagram_type, source).as_bytes());
+    hasher.update(diagram_type.as_bytes());
+    hasher.update(b":");
+    hasher.update(source.as_bytes());
     let result = hasher.finalize();
     hex::encode(&result[..6])
 }

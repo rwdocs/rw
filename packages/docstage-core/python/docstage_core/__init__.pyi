@@ -84,16 +84,3 @@ class MarkdownConverter:
             RuntimeError: If diagram rendering fails
         """
         ...
-
-
-def create_image_tag(filename: str, width: int) -> str:
-    """Create Confluence image macro for an attachment.
-
-    Args:
-        filename: Attachment filename
-        width: Display width in pixels
-
-    Returns:
-        Confluence image macro XML string
-    """
-    ...

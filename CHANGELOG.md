@@ -9,6 +9,7 @@
 - Restructure Rust code into Cargo workspace:
   - `crates/docstage-core`: Pure Rust library (no PyO3)
   - `packages/docstage-core`: Python package with PyO3 bindings (maturin)
+- Move conversion logic from PyO3 bindings to `docstage-core::MarkdownConverter`
 
 ### 2025-12-04
 - Merge `convert_with_diagrams` into `convert` method (kroki_url/output_dir now required)

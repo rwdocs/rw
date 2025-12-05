@@ -146,7 +146,6 @@ name = "docstage-py"
 version = "0.1.0"
 dependencies = [
  "docstage-core",
- "pulldown-cmark",
  "pyo3",
 ]
 

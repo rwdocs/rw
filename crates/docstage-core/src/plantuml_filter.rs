@@ -4,7 +4,7 @@ use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag, TagEnd};
 
 /// Information about an extracted PlantUML diagram.
 #[derive(Debug, Clone)]
-pub struct DiagramInfo {
+pub struct ExtractedDiagram {
     /// Original source code from markdown
     pub source: String,
     /// Zero-based index of this diagram
@@ -37,7 +37,7 @@ pub struct DiagramInfo {
 /// ```
 pub struct PlantUmlFilter<'a, I: Iterator<Item = Event<'a>>> {
     iter: I,
-    diagrams: Vec<DiagramInfo>,
+    diagrams: Vec<ExtractedDiagram>,
     state: FilterState,
 }
 
@@ -61,12 +61,12 @@ impl<'a, I: Iterator<Item = Event<'a>>> PlantUmlFilter<'a, I> {
     }
 
     /// Get a reference to the diagrams extracted so far.
-    pub fn diagrams(&self) -> &[DiagramInfo] {
+    pub fn diagrams(&self) -> &[ExtractedDiagram] {
         &self.diagrams
     }
 
     /// Consume the filter and return the collected diagrams.
-    pub fn into_diagrams(self) -> Vec<DiagramInfo> {
+    pub fn into_diagrams(self) -> Vec<ExtractedDiagram> {
         self.diagrams
     }
 }
@@ -103,7 +103,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for PlantUmlFilter<'a, I> {
                     let old_state = std::mem::take(&mut self.state);
                     if let FilterState::InPlantUml { source } = old_state {
                         let index = self.diagrams.len();
-                        self.diagrams.push(DiagramInfo { source, index });
+                        self.diagrams.push(ExtractedDiagram { source, index });
 
                         // Emit placeholder as Html event (passes through unchanged)
                         let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
