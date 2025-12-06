@@ -39,6 +39,44 @@ class ConvertResult:
         ...
 
 
+class TocEntry:
+    """Table of contents entry."""
+
+    @property
+    def level(self) -> int:
+        """Heading level (1-6)."""
+        ...
+
+    @property
+    def title(self) -> str:
+        """Heading text."""
+        ...
+
+    @property
+    def id(self) -> str:
+        """Anchor ID for linking."""
+        ...
+
+
+class HtmlConvertResult:
+    """Result of converting markdown to HTML format."""
+
+    @property
+    def html(self) -> str:
+        """Rendered HTML content."""
+        ...
+
+    @property
+    def title(self) -> str | None:
+        """Title extracted from first H1 heading (if extract_title was enabled)."""
+        ...
+
+    @property
+    def toc(self) -> list[TocEntry]:
+        """Table of contents entries."""
+        ...
+
+
 class MarkdownConverter:
     """Markdown to Confluence converter."""
 
@@ -82,5 +120,18 @@ class MarkdownConverter:
 
         Raises:
             RuntimeError: If diagram rendering fails
+        """
+        ...
+
+    def convert_html(self, markdown_text: str) -> HtmlConvertResult:
+        """Convert markdown to HTML format.
+
+        Produces semantic HTML5 with syntax highlighting and table of contents.
+
+        Args:
+            markdown_text: Markdown source text
+
+        Returns:
+            HtmlConvertResult with HTML, title, and table of contents
         """
         ...

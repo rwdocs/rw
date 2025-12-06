@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use ::docstage_core::{ConvertResult, DiagramInfo, MarkdownConverter};
+use ::docstage_core::{ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter, TocEntry};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
@@ -45,6 +45,55 @@ impl From<ConvertResult> for PyConvertResult {
             html: result.html,
             title: result.title,
             diagrams: result.diagrams.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Table of contents entry.
+#[pyclass(name = "TocEntry")]
+#[derive(Clone)]
+pub struct PyTocEntry {
+    /// Heading level (1-6).
+    #[pyo3(get)]
+    pub level: u8,
+    /// Heading text.
+    #[pyo3(get)]
+    pub title: String,
+    /// Anchor ID for linking.
+    #[pyo3(get)]
+    pub id: String,
+}
+
+impl From<TocEntry> for PyTocEntry {
+    fn from(entry: TocEntry) -> Self {
+        Self {
+            level: entry.level,
+            title: entry.title,
+            id: entry.id,
+        }
+    }
+}
+
+/// Result of converting markdown to HTML format.
+#[pyclass(name = "HtmlConvertResult")]
+pub struct PyHtmlConvertResult {
+    /// Rendered HTML content.
+    #[pyo3(get)]
+    pub html: String,
+    /// Title extracted from first H1 heading (if `extract_title` was enabled).
+    #[pyo3(get)]
+    pub title: Option<String>,
+    /// Table of contents entries.
+    #[pyo3(get)]
+    pub toc: Vec<PyTocEntry>,
+}
+
+impl From<HtmlConvertResult> for PyHtmlConvertResult {
+    fn from(result: HtmlConvertResult) -> Self {
+        Self {
+            html: result.html,
+            title: result.title,
+            toc: result.toc.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -102,13 +151,28 @@ impl PyMarkdownConverter {
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
         })
     }
+
+    /// Convert markdown to HTML format.
+    ///
+    /// Produces semantic HTML5 with syntax highlighting and table of contents.
+    ///
+    /// Args:
+    ///     markdown_text: Markdown source text
+    ///
+    /// Returns:
+    ///     HtmlConvertResult with HTML, optional title, and table of contents
+    pub fn convert_html(&self, markdown_text: &str) -> PyHtmlConvertResult {
+        self.inner.convert_html(markdown_text).into()
+    }
 }
 
 /// Python module definition.
 #[pymodule]
 pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConvertResult>()?;
+    m.add_class::<PyHtmlConvertResult>()?;
     m.add_class::<PyMarkdownConverter>()?;
     m.add_class::<PyDiagramInfo>()?;
+    m.add_class::<PyTocEntry>()?;
     Ok(())
 }

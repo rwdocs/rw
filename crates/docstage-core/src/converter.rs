@@ -1,10 +1,11 @@
-//! Markdown to Confluence converter.
+//! Markdown converter with multiple output formats.
 
 use std::path::{Path, PathBuf};
 
 use pulldown_cmark::{Options, Parser};
 
 use crate::confluence::ConfluenceRenderer;
+use crate::html::{HtmlRenderer, TocEntry};
 use crate::kroki::{DiagramRequest, RenderError, render_all};
 use crate::plantuml::{load_config_file, prepare_diagram_source};
 use crate::plantuml_filter::PlantUmlFilter;
@@ -31,6 +32,17 @@ pub struct ConvertResult {
     pub html: String,
     pub title: Option<String>,
     pub diagrams: Vec<DiagramInfo>,
+}
+
+/// Result of converting markdown to HTML format.
+#[derive(Clone, Debug)]
+pub struct HtmlConvertResult {
+    /// Rendered HTML content.
+    pub html: String,
+    /// Title extracted from first H1 heading (if `extract_title` was enabled).
+    pub title: Option<String>,
+    /// Table of contents entries.
+    pub toc: Vec<TocEntry>,
 }
 
 /// Markdown to Confluence converter configuration.
@@ -191,5 +203,29 @@ impl MarkdownConverter {
             title: result.title,
             diagrams,
         })
+    }
+
+    /// Convert markdown to HTML format.
+    ///
+    /// Produces semantic HTML5 with syntax highlighting and table of contents.
+    /// Does not process diagrams - use `convert()` for Confluence output with diagrams.
+    #[must_use]
+    pub fn convert_html(&self, markdown_text: &str) -> HtmlConvertResult {
+        let options = self.get_parser_options();
+        let parser = Parser::new_ext(markdown_text, options);
+
+        let renderer = if self.extract_title {
+            HtmlRenderer::new().with_title_extraction()
+        } else {
+            HtmlRenderer::new()
+        };
+
+        let result = renderer.render(parser);
+
+        HtmlConvertResult {
+            html: result.html,
+            title: result.title,
+            toc: result.toc,
+        }
     }
 }

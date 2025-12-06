@@ -29,6 +29,8 @@ crates/
     └── src/
         ├── lib.rs                # Module exports
         ├── confluence.rs         # Event-based pulldown-cmark → Confluence XHTML renderer
+        ├── html.rs               # Event-based pulldown-cmark → semantic HTML5 with syntect
+        ├── converter.rs          # MarkdownConverter with convert() and convert_html() methods
         ├── kroki.rs              # Parallel diagram rendering via Kroki service
         ├── plantuml_filter.rs    # Iterator adapter: extracts PlantUML, returns placeholders
         └── plantuml.rs           # !include resolution, DPI configuration
@@ -52,8 +54,12 @@ packages/
             └── __init__.pyi
 ```
 
-**Data flow**: Markdown → Rust (pulldown-cmark parsing, PlantUML extraction,
-Confluence rendering, Kroki diagram rendering) → Python (API calls) → Confluence
+**Data flow (Confluence)**: Markdown → Rust (pulldown-cmark parsing, PlantUML
+extraction, Confluence rendering, Kroki diagram rendering) → Python (API calls)
+→ Confluence
+
+**Data flow (HTML)**: Markdown → Rust (pulldown-cmark parsing, HTML rendering
+with syntax highlighting, ToC generation) → Python (API serving) → Backstage
 
 ## Key Technical Details
 

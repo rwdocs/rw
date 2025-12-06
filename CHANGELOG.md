@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### 2025-12-06
+- Implement Phase 2: Rust Core - HTML Renderer
+  - Add `HtmlRenderer` module producing semantic HTML5
+  - Add syntax highlighting via syntect
+  - Generate heading IDs for anchor links
+  - Create `TocEntry` struct for table of contents
+  - Add `MarkdownConverter::convert_html()` method
+  - Update Python bindings with `HtmlConvertResult` and `TocEntry` classes
+- Create RD-001: Docstage Backend requirements document
+- Define API design for page rendering and navigation endpoints
+- Plan implementation phases for HTML renderer, core library, HTTP API, and live reload
+
 ### 2025-12-05
 - Rename project from md2conf to Docstage ("Where documentation takes the stage")
 - Rename packages: md2conf → docstage, md2conf-core → docstage-core
