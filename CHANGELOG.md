@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### 2025-12-06
+- Implement Phase 3: Python Backend - Core Library
+  - Add `docstage.core.cache` module with file-based caching and mtime invalidation
+  - Add `docstage.core.renderer` module wrapping Rust converter with caching
+  - Add `docstage.core.navigation` module for building navigation trees from directories
+  - Export `HtmlConvertResult` and `TocEntry` from `docstage_core` Python bindings
+  - Add 26 tests for core modules (cache, renderer, navigation)
 - Pre-Phase 3 code review and improvements
   - Add Python tests for config and CLI (16 tests)
   - Extract `HtmlRenderer` state into dedicated structs (`CodeBlockState`, `TableState`, `ImageState`, `HeadingState`)
