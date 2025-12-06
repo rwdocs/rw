@@ -9,6 +9,7 @@ dependencies = ["docstage"]
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
+    "pytest-aiohttp>=1.0.0",
 ]
 
 [tool.uv.workspace]

@@ -18,6 +18,49 @@ def cli() -> None:
 
 @cli.command()
 @click.option(
+    '--source-dir',
+    '-s',
+    type=click.Path(exists=True, path_type=Path, file_okay=False),
+    default='docs',
+    help='Documentation source directory',
+)
+@click.option(
+    '--cache-dir',
+    type=click.Path(path_type=Path, file_okay=False),
+    default='.cache',
+    help='Cache directory',
+)
+@click.option(
+    '--host',
+    '-h',
+    default='127.0.0.1',
+    help='Host to bind to',
+)
+@click.option(
+    '--port',
+    '-p',
+    type=int,
+    default=8080,
+    help='Port to bind to',
+)
+def serve(source_dir: Path, cache_dir: Path, host: str, port: int) -> None:
+    """Start the documentation server."""
+    from docstage.server import run_server
+
+    click.echo(f'Starting server on {host}:{port}')
+    click.echo(f'Source directory: {source_dir}')
+    click.echo(f'Cache directory: {cache_dir}')
+
+    run_server({
+        'host': host,
+        'port': port,
+        'source_dir': source_dir,
+        'cache_dir': cache_dir,
+    })
+
+
+@cli.command()
+@click.option(
     '--config',
     '-c',
     type=click.Path(exists=True, path_type=Path),

@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### 2025-12-06
+- Implement Phase 4: Python Backend - HTTP API
+  - Add `docstage.server` module with aiohttp application factory
+  - Add `docstage.api.pages` module with `/api/pages/{path}` endpoint
+  - Add `docstage.api.navigation` module with `/api/navigation` and `/api/navigation/{path}` endpoints
+  - Add `serve` CLI command to start documentation server
+  - Add aiohttp and pytest-aiohttp dependencies
+  - Implement cache headers (ETag, Last-Modified, Cache-Control) for page responses
+  - Add 17 tests for HTTP API endpoints
 - Implement Phase 3: Python Backend - Core Library
   - Add `docstage.core.cache` module with file-based caching and mtime invalidation
   - Add `docstage.core.renderer` module wrapping Rust converter with caching
