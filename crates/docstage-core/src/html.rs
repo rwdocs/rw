@@ -1,6 +1,17 @@
 //! HTML renderer for pulldown-cmark events.
 //!
 //! Produces semantic HTML5 with table of contents generation.
+//!
+//! # Architecture
+//!
+//! The renderer uses a state machine pattern to track context during event processing:
+//! - `CodeBlockState`: Tracks code block language and content buffering
+//! - `TableState`: Tracks table headers, cell alignments, and current cell index
+//! - `ImageState`: Captures alt text while inside image tags
+//! - `HeadingState`: Handles title extraction, table of contents generation, and inline formatting
+//!
+//! The separation of state into focused structs makes the renderer easier to understand
+//! and maintain compared to a flat collection of boolean flags.
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -29,48 +40,210 @@ pub struct HtmlRenderResult {
     pub toc: Vec<TocEntry>,
 }
 
-/// Renders pulldown-cmark events to semantic HTML5.
-#[allow(clippy::struct_excessive_bools)]
-pub struct HtmlRenderer {
-    output: String,
-    /// Stack of nested list types (true = ordered, false = unordered).
-    list_stack: Vec<bool>,
+/// State for tracking code block rendering.
+#[derive(Default)]
+struct CodeBlockState {
     /// Whether we're inside a code block.
-    in_code_block: bool,
-    /// Language of current code block.
-    code_language: Option<String>,
+    active: bool,
+    /// Language of current code block (e.g., "rust", "python").
+    language: Option<String>,
     /// Buffer for code block content.
-    code_buffer: String,
-    /// Whether we're inside a table header row.
-    in_table_head: bool,
+    buffer: String,
+}
+
+impl CodeBlockState {
+    fn start(&mut self, language: Option<String>) {
+        self.active = true;
+        self.language = language;
+        self.buffer.clear();
+    }
+
+    fn end(&mut self) -> (Option<String>, String) {
+        self.active = false;
+        (self.language.take(), std::mem::take(&mut self.buffer))
+    }
+}
+
+/// State for tracking table rendering.
+#[derive(Default)]
+struct TableState {
+    /// Whether we're inside the table header row.
+    in_head: bool,
     /// Column alignments for current table.
-    table_alignments: Vec<Alignment>,
+    alignments: Vec<Alignment>,
     /// Current column index in table row.
-    table_cell_index: usize,
-    /// Whether we're inside an image tag (to capture alt text).
-    in_image: bool,
-    /// Buffer for image alt text.
-    image_alt: String,
-    /// Whether to extract title from first H1 and level up headers.
+    cell_index: usize,
+}
+
+impl TableState {
+    fn start(&mut self, alignments: Vec<Alignment>) {
+        self.alignments = alignments;
+        self.in_head = false;
+        self.cell_index = 0;
+    }
+
+    fn start_head(&mut self) {
+        self.in_head = true;
+        self.cell_index = 0;
+    }
+
+    fn end_head(&mut self) {
+        self.in_head = false;
+    }
+
+    fn start_row(&mut self) {
+        self.cell_index = 0;
+    }
+
+    fn next_cell(&mut self) {
+        self.cell_index += 1;
+    }
+
+    fn current_alignment(&self) -> Option<&Alignment> {
+        self.alignments.get(self.cell_index)
+    }
+}
+
+/// State for tracking image alt text capture.
+#[derive(Default)]
+struct ImageState {
+    /// Whether we're inside an image tag.
+    active: bool,
+    /// Buffer for alt text.
+    alt_text: String,
+}
+
+impl ImageState {
+    fn start(&mut self) {
+        self.active = true;
+        self.alt_text.clear();
+    }
+
+    fn end(&mut self) -> String {
+        self.active = false;
+        std::mem::take(&mut self.alt_text)
+    }
+}
+
+/// State for tracking heading and title extraction.
+struct HeadingState {
+    /// Whether to extract title from first H1.
     extract_title: bool,
     /// Extracted title from first H1.
     title: Option<String>,
     /// Whether we've seen the first H1.
     seen_first_h1: bool,
-    /// Whether we're currently inside the first H1 (to capture its text).
+    /// Whether we're inside the first H1.
     in_first_h1: bool,
     /// Buffer for first H1 text.
     h1_text: String,
-    /// Current heading level being processed.
-    current_heading_level: Option<u8>,
-    /// Buffer for current heading text (plain text for ToC and slug).
-    heading_text: String,
-    /// Buffer for current heading HTML (with inline formatting).
-    heading_html: String,
+    /// Current heading level being processed (None if not in a heading).
+    current_level: Option<u8>,
+    /// Buffer for heading plain text (for table of contents and slug).
+    text: String,
+    /// Buffer for heading HTML (with inline formatting).
+    html: String,
     /// Table of contents entries.
     toc: Vec<TocEntry>,
     /// Counter for generating unique heading IDs.
-    heading_counts: HashMap<String, usize>,
+    id_counts: HashMap<String, usize>,
+}
+
+impl HeadingState {
+    fn new(extract_title: bool) -> Self {
+        Self {
+            extract_title,
+            title: None,
+            seen_first_h1: false,
+            in_first_h1: false,
+            h1_text: String::new(),
+            current_level: None,
+            text: String::new(),
+            html: String::new(),
+            toc: Vec::new(),
+            id_counts: HashMap::new(),
+        }
+    }
+
+    /// Check if we're currently inside any heading.
+    fn is_active(&self) -> bool {
+        self.current_level.is_some()
+    }
+
+    /// Start capturing the first H1 for title extraction.
+    fn start_title_capture(&mut self) {
+        self.in_first_h1 = true;
+        self.h1_text.clear();
+    }
+
+    /// Complete title capture.
+    fn complete_title_capture(&mut self) {
+        self.in_first_h1 = false;
+        self.seen_first_h1 = true;
+        let title = self.h1_text.trim().to_string();
+        self.title = Some(title);
+    }
+
+    /// Start tracking a regular heading.
+    fn start_heading(&mut self, level: u8) {
+        self.current_level = Some(level);
+        self.text.clear();
+        self.html.clear();
+    }
+
+    /// Complete heading and generate table of contents entry.
+    fn complete_heading(&mut self) -> Option<(u8, String, String, String)> {
+        let level = self.current_level.take()?;
+        let text = std::mem::take(&mut self.text);
+        let html = std::mem::take(&mut self.html);
+
+        // Generate unique ID
+        let id = self.generate_id(&text);
+
+        // Adjust level if title was extracted
+        let adjusted_level = if self.extract_title && self.seen_first_h1 && level > 1 {
+            level - 1
+        } else {
+            level
+        };
+
+        // Add to ToC
+        self.toc.push(TocEntry {
+            level: adjusted_level,
+            title: text.trim().to_string(),
+            id: id.clone(),
+        });
+
+        Some((adjusted_level, id, text, html))
+    }
+
+    /// Generate a unique ID for a heading.
+    fn generate_id(&mut self, text: &str) -> String {
+        let base_id = slugify(text);
+        let count = self.id_counts.entry(base_id.clone()).or_insert(0);
+        *count += 1;
+
+        if *count == 1 {
+            base_id
+        } else {
+            format!("{base_id}-{}", *count - 1)
+        }
+    }
+}
+
+/// Renders pulldown-cmark events to semantic HTML5.
+pub struct HtmlRenderer {
+    output: String,
+    /// Stack of nested list types (true = ordered, false = unordered).
+    list_stack: Vec<bool>,
+    /// Code block rendering state.
+    code: CodeBlockState,
+    /// Table rendering state.
+    table: TableState,
+    /// Image alt text capture state.
+    image: ImageState,
+    /// Heading and title extraction state.
+    heading: HeadingState,
 }
 
 impl HtmlRenderer {
@@ -79,24 +252,10 @@ impl HtmlRenderer {
         Self {
             output: String::with_capacity(4096),
             list_stack: Vec::new(),
-            in_code_block: false,
-            code_language: None,
-            code_buffer: String::new(),
-            in_table_head: false,
-            table_alignments: Vec::new(),
-            table_cell_index: 0,
-            in_image: false,
-            image_alt: String::new(),
-            extract_title: false,
-            title: None,
-            seen_first_h1: false,
-            in_first_h1: false,
-            h1_text: String::new(),
-            current_heading_level: None,
-            heading_text: String::new(),
-            heading_html: String::new(),
-            toc: Vec::new(),
-            heading_counts: HashMap::new(),
+            code: CodeBlockState::default(),
+            table: TableState::default(),
+            image: ImageState::default(),
+            heading: HeadingState::new(false),
         }
     }
 
@@ -106,7 +265,7 @@ impl HtmlRenderer {
     /// and all other headers are leveled up (H2->H1, H3->H2, etc.).
     #[must_use]
     pub fn with_title_extraction(mut self) -> Self {
-        self.extract_title = true;
+        self.heading = HeadingState::new(true);
         self
     }
 
@@ -120,8 +279,8 @@ impl HtmlRenderer {
         }
         HtmlRenderResult {
             html: self.output,
-            title: self.title,
-            toc: self.toc,
+            title: self.heading.title,
+            toc: self.heading.toc,
         }
     }
 
@@ -147,20 +306,20 @@ impl HtmlRenderer {
     fn start_tag(&mut self, tag: Tag<'_>) {
         match tag {
             Tag::Paragraph => {
-                if !self.in_code_block {
+                if !self.code.active {
                     self.output.push_str("<p>");
                 }
             }
             Tag::Heading { level, .. } => {
-                if self.extract_title && level == HeadingLevel::H1 && !self.seen_first_h1 {
+                if self.heading.extract_title
+                    && level == HeadingLevel::H1
+                    && !self.heading.seen_first_h1
+                {
                     // First H1 - capture as title, don't render
-                    self.in_first_h1 = true;
-                    self.h1_text.clear();
+                    self.heading.start_title_capture();
                 } else {
                     // Track heading for ToC
-                    self.current_heading_level = Some(heading_level_to_num(level));
-                    self.heading_text.clear();
-                    self.heading_html.clear();
+                    self.heading.start_heading(heading_level_to_num(level));
                 }
             }
             Tag::BlockQuote(_) => {
@@ -173,9 +332,7 @@ impl HtmlRenderer {
                     }
                     _ => None,
                 };
-                self.in_code_block = true;
-                self.code_language = lang;
-                self.code_buffer.clear();
+                self.code.start(lang);
             }
             Tag::List(start) => {
                 let ordered = start.is_some();
@@ -206,22 +363,21 @@ impl HtmlRenderer {
                 self.output.push_str("<dd>");
             }
             Tag::Table(alignments) => {
-                self.table_alignments = alignments.to_vec();
+                self.table.start(alignments.clone());
                 self.output.push_str("<table>");
             }
             Tag::TableHead => {
-                self.in_table_head = true;
-                self.table_cell_index = 0;
+                self.table.start_head();
                 self.output.push_str("<thead><tr>");
             }
             Tag::TableRow => {
-                self.table_cell_index = 0;
+                self.table.start_row();
                 self.output.push_str("<tr>");
             }
             Tag::TableCell => {
                 let align_style = self
-                    .table_alignments
-                    .get(self.table_cell_index)
+                    .table
+                    .current_alignment()
                     .and_then(|a| match a {
                         Alignment::Left => Some(" style=\"text-align:left\""),
                         Alignment::Center => Some(" style=\"text-align:center\""),
@@ -230,41 +386,36 @@ impl HtmlRenderer {
                     })
                     .unwrap_or("");
 
-                if self.in_table_head {
+                if self.table.in_head {
                     write!(self.output, "<th{align_style}>").unwrap();
                 } else {
                     write!(self.output, "<td{align_style}>").unwrap();
                 }
             }
             Tag::Emphasis => {
-                if self.current_heading_level.is_some() {
-                    self.heading_html.push_str("<em>");
+                if self.heading.is_active() {
+                    self.heading.html.push_str("<em>");
                 } else {
                     self.output.push_str("<em>");
                 }
             }
             Tag::Strong => {
-                if self.current_heading_level.is_some() {
-                    self.heading_html.push_str("<strong>");
+                if self.heading.is_active() {
+                    self.heading.html.push_str("<strong>");
                 } else {
                     self.output.push_str("<strong>");
                 }
             }
             Tag::Strikethrough => {
-                if self.current_heading_level.is_some() {
-                    self.heading_html.push_str("<del>");
+                if self.heading.is_active() {
+                    self.heading.html.push_str("<del>");
                 } else {
                     self.output.push_str("<del>");
                 }
             }
             Tag::Link { dest_url, .. } => {
-                if self.current_heading_level.is_some() {
-                    write!(
-                        self.heading_html,
-                        r#"<a href="{}">"#,
-                        escape_html(&dest_url)
-                    )
-                    .unwrap();
+                if self.heading.is_active() {
+                    write!(self.heading.html, r#"<a href="{}">"#, escape_html(&dest_url)).unwrap();
                 } else {
                     write!(self.output, r#"<a href="{}">"#, escape_html(&dest_url)).unwrap();
                 }
@@ -273,8 +424,7 @@ impl HtmlRenderer {
                 dest_url, title, ..
             } => {
                 // Start collecting alt text; image will be closed in end_tag
-                self.in_image = true;
-                self.image_alt.clear();
+                self.image.start();
                 write!(self.output, r#"<img src="{}""#, escape_html(&dest_url)).unwrap();
                 if !title.is_empty() {
                     write!(self.output, r#" title="{}""#, escape_html(&title)).unwrap();
@@ -287,44 +437,22 @@ impl HtmlRenderer {
     fn end_tag(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Paragraph => {
-                if !self.in_code_block {
+                if !self.code.active {
                     self.output.push_str("</p>");
                 }
             }
             TagEnd::Heading(level) => {
-                if self.in_first_h1 {
+                if self.heading.in_first_h1 {
                     // End of first H1 - save title, don't render
-                    self.title = Some(self.h1_text.trim().to_string());
-                    self.in_first_h1 = false;
-                    self.seen_first_h1 = true;
-                } else if let Some(level_num) = self.current_heading_level.take() {
-                    // Take ownership of heading text and HTML to avoid borrow conflicts
-                    let heading_text = std::mem::take(&mut self.heading_text);
-                    let heading_html = std::mem::take(&mut self.heading_html);
-
-                    // Generate ID from heading text
-                    let id = self.generate_heading_id(&heading_text);
-
-                    // Adjust level if we extracted a title
-                    let adjusted_level =
-                        if self.extract_title && self.seen_first_h1 && level_num > 1 {
-                            level_num - 1
-                        } else {
-                            level_num
-                        };
-
-                    // Add to ToC (plain text title)
-                    self.toc.push(TocEntry {
-                        level: adjusted_level,
-                        title: heading_text.trim().to_string(),
-                        id: id.clone(),
-                    });
-
+                    self.heading.complete_title_capture();
+                } else if let Some((adjusted_level, id, _text, html)) =
+                    self.heading.complete_heading()
+                {
                     // Render heading with ID and inline formatting
                     write!(
                         self.output,
                         r#"<h{adjusted_level} id="{id}">{}</h{adjusted_level}>"#,
-                        heading_html.trim()
+                        html.trim()
                     )
                     .unwrap();
                 } else {
@@ -337,24 +465,23 @@ impl HtmlRenderer {
                 self.output.push_str("</blockquote>");
             }
             TagEnd::CodeBlock => {
-                if let Some(ref lang) = self.code_language {
+                let (lang, buffer) = self.code.end();
+                if let Some(lang) = lang {
                     write!(
                         self.output,
                         r#"<pre><code class="language-{}">{}</code></pre>"#,
-                        escape_html(lang),
-                        escape_html(&self.code_buffer)
+                        escape_html(&lang),
+                        escape_html(&buffer)
                     )
                     .unwrap();
                 } else {
                     write!(
                         self.output,
                         "<pre><code>{}</code></pre>",
-                        escape_html(&self.code_buffer)
+                        escape_html(&buffer)
                     )
                     .unwrap();
                 }
-                self.in_code_block = false;
-                self.code_language = None;
             }
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
@@ -370,8 +497,8 @@ impl HtmlRenderer {
             TagEnd::FootnoteDefinition | TagEnd::HtmlBlock | TagEnd::MetadataBlock(_) => {}
             TagEnd::Image => {
                 // Close the image tag with collected alt text
-                write!(self.output, r#" alt="{}">"#, escape_html(&self.image_alt)).unwrap();
-                self.in_image = false;
+                let alt_text = self.image.end();
+                write!(self.output, r#" alt="{}">"#, escape_html(&alt_text)).unwrap();
             }
             TagEnd::DefinitionList => {
                 self.output.push_str("</dl>");
@@ -387,43 +514,43 @@ impl HtmlRenderer {
             }
             TagEnd::TableHead => {
                 self.output.push_str("</tr></thead><tbody>");
-                self.in_table_head = false;
+                self.table.end_head();
             }
             TagEnd::TableRow => {
                 self.output.push_str("</tr>");
             }
             TagEnd::TableCell => {
-                if self.in_table_head {
+                if self.table.in_head {
                     self.output.push_str("</th>");
                 } else {
                     self.output.push_str("</td>");
                 }
-                self.table_cell_index += 1;
+                self.table.next_cell();
             }
             TagEnd::Emphasis => {
-                if self.current_heading_level.is_some() {
-                    self.heading_html.push_str("</em>");
+                if self.heading.is_active() {
+                    self.heading.html.push_str("</em>");
                 } else {
                     self.output.push_str("</em>");
                 }
             }
             TagEnd::Strong => {
-                if self.current_heading_level.is_some() {
-                    self.heading_html.push_str("</strong>");
+                if self.heading.is_active() {
+                    self.heading.html.push_str("</strong>");
                 } else {
                     self.output.push_str("</strong>");
                 }
             }
             TagEnd::Strikethrough => {
-                if self.current_heading_level.is_some() {
-                    self.heading_html.push_str("</del>");
+                if self.heading.is_active() {
+                    self.heading.html.push_str("</del>");
                 } else {
                     self.output.push_str("</del>");
                 }
             }
             TagEnd::Link => {
-                if self.current_heading_level.is_some() {
-                    self.heading_html.push_str("</a>");
+                if self.heading.is_active() {
+                    self.heading.html.push_str("</a>");
                 } else {
                     self.output.push_str("</a>");
                 }
@@ -432,29 +559,29 @@ impl HtmlRenderer {
     }
 
     fn text(&mut self, text: &str) {
-        if self.in_first_h1 {
+        if self.heading.in_first_h1 {
             // Capture text for title
-            self.h1_text.push_str(text);
-        } else if self.in_code_block {
+            self.heading.h1_text.push_str(text);
+        } else if self.code.active {
             // Buffer code for syntax highlighting
-            self.code_buffer.push_str(text);
-        } else if self.in_image {
+            self.code.buffer.push_str(text);
+        } else if self.image.active {
             // Capture alt text for image
-            self.image_alt.push_str(text);
-        } else if self.current_heading_level.is_some() {
+            self.image.alt_text.push_str(text);
+        } else if self.heading.is_active() {
             // Capture heading text for ToC and HTML for rendering
-            self.heading_text.push_str(text);
-            self.heading_html.push_str(&escape_html(text));
+            self.heading.text.push_str(text);
+            self.heading.html.push_str(&escape_html(text));
         } else {
             self.output.push_str(&escape_html(text));
         }
     }
 
     fn inline_code(&mut self, code: &str) {
-        if self.current_heading_level.is_some() {
+        if self.heading.is_active() {
             // Buffer plain text for ToC and HTML for rendering
-            self.heading_text.push_str(code);
-            write!(self.heading_html, "<code>{}</code>", escape_html(code)).unwrap();
+            self.heading.text.push_str(code);
+            write!(self.heading.html, "<code>{}</code>", escape_html(code)).unwrap();
         } else {
             write!(self.output, "<code>{}</code>", escape_html(code)).unwrap();
         }
@@ -466,8 +593,8 @@ impl HtmlRenderer {
     }
 
     fn soft_break(&mut self) {
-        if self.in_code_block {
-            self.code_buffer.push('\n');
+        if self.code.active {
+            self.code.buffer.push('\n');
         } else {
             self.output.push('\n');
         }
@@ -487,19 +614,6 @@ impl HtmlRenderer {
                 .push_str(r#"<input type="checkbox" checked disabled> "#);
         } else {
             self.output.push_str(r#"<input type="checkbox" disabled> "#);
-        }
-    }
-
-    /// Generate a unique ID for a heading.
-    fn generate_heading_id(&mut self, text: &str) -> String {
-        let base_id = slugify(text);
-        let count = self.heading_counts.entry(base_id.clone()).or_insert(0);
-        *count += 1;
-
-        if *count == 1 {
-            base_id
-        } else {
-            format!("{base_id}-{}", *count - 1)
         }
     }
 }

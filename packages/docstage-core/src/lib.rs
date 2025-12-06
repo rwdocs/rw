@@ -2,7 +2,9 @@
 
 use std::path::PathBuf;
 
-use ::docstage_core::{ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter, TocEntry};
+use ::docstage_core::{
+    ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter, TocEntry, DEFAULT_DPI,
+};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
@@ -107,20 +109,22 @@ pub struct PyMarkdownConverter {
 #[pymethods]
 impl PyMarkdownConverter {
     #[new]
-    #[pyo3(signature = (gfm = true, prepend_toc = false, extract_title = false, include_dirs = None, config_file = None))]
+    #[pyo3(signature = (gfm = true, prepend_toc = false, extract_title = false, include_dirs = None, config_file = None, dpi = None))]
     pub fn new(
         gfm: bool,
         prepend_toc: bool,
         extract_title: bool,
         include_dirs: Option<Vec<PathBuf>>,
         config_file: Option<&str>,
+        dpi: Option<u32>,
     ) -> Self {
         let inner = MarkdownConverter::new()
             .gfm(gfm)
             .prepend_toc(prepend_toc)
             .extract_title(extract_title)
             .include_dirs(include_dirs.unwrap_or_default())
-            .config_file(config_file);
+            .config_file(config_file)
+            .dpi(dpi.unwrap_or(DEFAULT_DPI));
 
         Self { inner }
     }

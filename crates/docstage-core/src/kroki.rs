@@ -1,4 +1,10 @@
 //! Kroki diagram rendering with parallel HTTP requests.
+//!
+//! This module handles parallel diagram rendering via the Kroki service:
+//! - Renders `PlantUML` diagrams to PNG via HTTP POST
+//! - Uses rayon thread pool for parallel requests
+//! - Extracts PNG dimensions for display width calculation
+//! - Generates content-based filenames via SHA256 hashing
 
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
@@ -22,12 +28,46 @@ pub struct DiagramRequest {
     pub source: String,
 }
 
-/// Error during diagram rendering.
+/// Single diagram rendering error.
+#[derive(Debug, Clone)]
+pub struct DiagramError {
+    pub index: usize,
+    pub kind: DiagramErrorKind,
+}
+
+/// Kind of diagram rendering error.
+#[derive(Debug, Clone)]
+pub enum DiagramErrorKind {
+    Http(String),
+    Io(String),
+    InvalidPng,
+}
+
+impl std::fmt::Display for DiagramError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.kind {
+            DiagramErrorKind::Http(msg) => {
+                write!(f, "diagram {}: HTTP error: {msg}", self.index)
+            }
+            DiagramErrorKind::Io(msg) => {
+                write!(f, "diagram {}: IO error: {msg}", self.index)
+            }
+            DiagramErrorKind::InvalidPng => {
+                write!(f, "diagram {}: invalid PNG data", self.index)
+            }
+        }
+    }
+}
+
+/// Error during diagram rendering (may contain multiple errors).
 #[derive(Debug)]
 pub enum RenderError {
+    /// Single diagram error (legacy, for backwards compatibility).
     Http { index: usize, message: String },
     Io { index: usize, message: String },
     InvalidPng { index: usize },
+    /// Multiple diagram errors collected during parallel rendering.
+    Multiple(Vec<DiagramError>),
 }
 
 impl std::fmt::Display for RenderError {
@@ -41,6 +81,13 @@ impl std::fmt::Display for RenderError {
             }
             RenderError::InvalidPng { index } => {
                 write!(f, "Invalid PNG data for diagram {index}")
+            }
+            RenderError::Multiple(errors) => {
+                writeln!(f, "{} diagram(s) failed to render:", errors.len())?;
+                for error in errors {
+                    writeln!(f, "  - {error}")?;
+                }
+                Ok(())
             }
         }
     }
@@ -83,37 +130,38 @@ fn render_one(
     diagram: &DiagramRequest,
     server_url: &str,
     output_dir: &Path,
-) -> Result<RenderedDiagram, RenderError> {
+) -> Result<RenderedDiagram, DiagramError> {
     let url = format!("{server_url}/plantuml/png");
 
     let response = agent
         .post(&url)
         .header("Content-Type", "text/plain")
         .send(diagram.source.as_bytes())
-        .map_err(|e| RenderError::Http {
+        .map_err(|e| DiagramError {
             index: diagram.index,
-            message: e.to_string(),
+            kind: DiagramErrorKind::Http(e.to_string()),
         })?;
 
     let data = response
         .into_body()
         .read_to_vec()
-        .map_err(|e| RenderError::Io {
+        .map_err(|e| DiagramError {
             index: diagram.index,
-            message: e.to_string(),
+            kind: DiagramErrorKind::Io(e.to_string()),
         })?;
 
-    let (width, height) = get_png_dimensions(&data).ok_or(RenderError::InvalidPng {
+    let (width, height) = get_png_dimensions(&data).ok_or(DiagramError {
         index: diagram.index,
+        kind: DiagramErrorKind::InvalidPng,
     })?;
 
     let hash = diagram_hash("plantuml", &diagram.source);
     let filename = format!("diagram_{hash}.png");
     let filepath = output_dir.join(&filename);
 
-    std::fs::write(&filepath, &data).map_err(|e| RenderError::Io {
+    std::fs::write(&filepath, &data).map_err(|e| DiagramError {
         index: diagram.index,
-        message: e.to_string(),
+        kind: DiagramErrorKind::Io(e.to_string()),
     })?;
 
     Ok(RenderedDiagram {
@@ -133,11 +181,12 @@ fn render_one(
 /// * `pool_size` - Number of parallel threads
 ///
 /// # Returns
-/// Vector of rendered diagram info, or first error encountered.
+/// Vector of rendered diagram info, or all errors collected during rendering.
 ///
 /// # Errors
 ///
-/// Returns `RenderError` if HTTP request, I/O, or PNG parsing fails.
+/// Returns `RenderError::Multiple` if any diagrams fail to render,
+/// containing all errors (not just the first one).
 pub fn render_all(
     diagrams: &[DiagramRequest],
     server_url: &str,
@@ -161,12 +210,29 @@ pub fn render_all(
         .build()
         .into();
 
-    pool.install(|| {
+    let results: Vec<Result<RenderedDiagram, DiagramError>> = pool.install(|| {
         diagrams
             .par_iter()
             .map(|d| render_one(&agent, d, server_url, output_dir))
             .collect()
-    })
+    });
+
+    // Partition into successes and failures
+    let mut rendered = Vec::with_capacity(diagrams.len());
+    let mut errors = Vec::new();
+
+    for result in results {
+        match result {
+            Ok(diagram) => rendered.push(diagram),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(rendered)
+    } else {
+        Err(RenderError::Multiple(errors))
+    }
 }
 
 #[cfg(test)]

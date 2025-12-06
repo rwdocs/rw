@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### 2025-12-06
+- Pre-Phase 3 code review and improvements
+  - Add Python tests for config and CLI (16 tests)
+  - Extract `HtmlRenderer` state into dedicated structs (`CodeBlockState`, `TableState`, `ImageState`, `HeadingState`)
+  - Collect all Kroki diagram errors via `RenderError::Multiple` instead of failing on first
+  - Make DPI configurable via `MarkdownConverter::dpi()` builder method
+  - Add comprehensive module-level rustdoc comments
+  - Add pytest as dev dependency group
 - Implement Phase 2: Rust Core - HTML Renderer
   - Add `HtmlRenderer` module producing semantic HTML5
   - Generate heading IDs for anchor links

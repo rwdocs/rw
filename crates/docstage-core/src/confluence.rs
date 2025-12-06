@@ -1,4 +1,28 @@
 //! Confluence storage format renderer for pulldown-cmark events.
+//!
+//! This module converts `CommonMark` events to Confluence XHTML storage format,
+//! which is the format used by Confluence's REST API for page content.
+//!
+//! # Features
+//!
+//! - Code blocks with language and line numbers via `<ac:structured-macro>`
+//! - Blockquotes rendered as Confluence info panels
+//! - Task lists with checkbox support
+//! - Table of contents macro insertion
+//! - Title extraction from first H1 with header level adjustment
+//! - `PlantUML` diagram placeholder support
+//!
+//! # Example
+//!
+//! ```ignore
+//! use pulldown_cmark::Parser;
+//! use docstage_core::ConfluenceRenderer;
+//!
+//! let markdown = "# Title\n\nHello, **world**!";
+//! let parser = Parser::new(markdown);
+//! let renderer = ConfluenceRenderer::new().with_title_extraction();
+//! let result = renderer.render(&mut parser.into_iter().peekable());
+//! ```
 
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use std::fmt::Write;

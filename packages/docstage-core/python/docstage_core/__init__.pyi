@@ -87,6 +87,7 @@ class MarkdownConverter:
         extract_title: bool = False,
         include_dirs: list[object] | None = None,
         config_file: str | None = None,
+        dpi: int | None = None,
     ) -> None:
         """Initialize converter.
 
@@ -96,6 +97,7 @@ class MarkdownConverter:
             extract_title: Whether to extract title from first H1 and level up headers
             include_dirs: Directories to search for PlantUML includes
             config_file: PlantUML config filename to load and prepend to diagrams
+            dpi: DPI for PlantUML rendering (default: 192 for retina displays)
         """
         ...
 

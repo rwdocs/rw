@@ -6,8 +6,18 @@ requires-python = ">=3.14"
 # Workspace root is not a package itself
 dependencies = ["docstage"]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
 [tool.uv.workspace]
 members = ["packages/*"]
 
 [tool.uv.sources]
 docstage = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["packages/docstage/tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

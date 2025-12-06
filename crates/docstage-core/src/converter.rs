@@ -1,4 +1,37 @@
 //! Markdown converter with multiple output formats.
+//!
+//! This module provides [`MarkdownConverter`], the main entry point for converting
+//! `CommonMark` documents to either Confluence XHTML or semantic HTML5.
+//!
+//! # Features
+//!
+//! - GitHub Flavored Markdown support (tables, strikethrough, task lists)
+//! - Title extraction from first H1 heading
+//! - Table of contents generation
+//! - `PlantUML` diagram rendering via Kroki service
+//! - Configurable DPI for diagram output
+//!
+//! # Example
+//!
+//! ```ignore
+//! use std::path::Path;
+//! use docstage_core::MarkdownConverter;
+//!
+//! let converter = MarkdownConverter::new()
+//!     .extract_title(true)
+//!     .dpi(192);
+//!
+//! // Convert to HTML
+//! let result = converter.convert_html("# Hello\n\nWorld");
+//! println!("{}", result.html);
+//!
+//! // Convert to Confluence with diagram rendering
+//! let result = converter.convert(
+//!     "# Hello\n\n```plantuml\nA -> B\n```",
+//!     "https://kroki.io",
+//!     Path::new("/tmp/diagrams"),
+//! )?;
+//! ```
 
 use std::path::{Path, PathBuf};
 
@@ -7,7 +40,7 @@ use pulldown_cmark::{Options, Parser};
 use crate::confluence::ConfluenceRenderer;
 use crate::html::{HtmlRenderer, TocEntry};
 use crate::kroki::{DiagramRequest, RenderError, render_all};
-use crate::plantuml::{load_config_file, prepare_diagram_source};
+use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 use crate::plantuml_filter::PlantUmlFilter;
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
@@ -53,6 +86,8 @@ pub struct MarkdownConverter {
     extract_title: bool,
     include_dirs: Vec<PathBuf>,
     config_content: Option<String>,
+    /// DPI for `PlantUML` diagram rendering.
+    dpi: u32,
 }
 
 impl Default for MarkdownConverter {
@@ -71,6 +106,7 @@ impl MarkdownConverter {
             extract_title: false,
             include_dirs: Vec::new(),
             config_content: None,
+            dpi: DEFAULT_DPI,
         }
     }
 
@@ -106,6 +142,15 @@ impl MarkdownConverter {
     #[must_use]
     pub fn config_file(mut self, config_file: Option<&str>) -> Self {
         self.config_content = config_file.and_then(|cf| load_config_file(&self.include_dirs, cf));
+        self
+    }
+
+    /// Set DPI for `PlantUML` diagram rendering.
+    ///
+    /// Default is 192 (2x for retina displays). Set to 96 for standard resolution.
+    #[must_use]
+    pub fn dpi(mut self, dpi: u32) -> Self {
+        self.dpi = dpi;
         self
     }
 
@@ -169,6 +214,7 @@ impl MarkdownConverter {
                         &d.source,
                         &self.include_dirs,
                         self.config_content.as_deref(),
+                        self.dpi,
                     );
                     DiagramRequest {
                         index: d.index,
@@ -208,7 +254,7 @@ impl MarkdownConverter {
     /// Convert markdown to HTML format.
     ///
     /// Produces semantic HTML5 with syntax highlighting and table of contents.
-    /// PlantUML code blocks are rendered with syntax highlighting as-is.
+    /// `PlantUML` code blocks are rendered with syntax highlighting as-is.
     /// For rendered diagram images, use `convert()` which processes them via Kroki.
     #[must_use]
     pub fn convert_html(&self, markdown_text: &str) -> HtmlConvertResult {
