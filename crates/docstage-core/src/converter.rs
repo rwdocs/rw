@@ -208,7 +208,8 @@ impl MarkdownConverter {
     /// Convert markdown to HTML format.
     ///
     /// Produces semantic HTML5 with syntax highlighting and table of contents.
-    /// Does not process diagrams - use `convert()` for Confluence output with diagrams.
+    /// PlantUML code blocks are rendered with syntax highlighting as-is.
+    /// For rendered diagram images, use `convert()` which processes them via Kroki.
     #[must_use]
     pub fn convert_html(&self, markdown_text: &str) -> HtmlConvertResult {
         let options = self.get_parser_options();

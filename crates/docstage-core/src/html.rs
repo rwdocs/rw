@@ -2,8 +2,10 @@
 //!
 //! Produces semantic HTML5 with syntax highlighting and table of contents generation.
 
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
+use std::collections::HashMap;
 use std::fmt::Write;
+
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use syntect::highlighting::ThemeSet;
 use syntect::html::highlighted_html_for_string;
 use syntect::parsing::SyntaxSet;
@@ -92,6 +94,10 @@ pub struct HtmlRenderer {
     code_buffer: String,
     /// Whether we're inside a table header row.
     in_table_head: bool,
+    /// Column alignments for current table.
+    table_alignments: Vec<Alignment>,
+    /// Current column index in table row.
+    table_cell_index: usize,
     /// Whether we're inside an image tag (to capture alt text).
     in_image: bool,
     /// Buffer for image alt text.
@@ -108,12 +114,14 @@ pub struct HtmlRenderer {
     h1_text: String,
     /// Current heading level being processed.
     current_heading_level: Option<u8>,
-    /// Buffer for current heading text.
+    /// Buffer for current heading text (plain text for ToC and slug).
     heading_text: String,
+    /// Buffer for current heading HTML (with inline formatting).
+    heading_html: String,
     /// Table of contents entries.
     toc: Vec<TocEntry>,
     /// Counter for generating unique heading IDs.
-    heading_counts: std::collections::HashMap<String, usize>,
+    heading_counts: HashMap<String, usize>,
     /// Syntax highlighter for code blocks.
     highlighter: SyntaxHighlighter,
 }
@@ -128,6 +136,8 @@ impl HtmlRenderer {
             code_language: None,
             code_buffer: String::new(),
             in_table_head: false,
+            table_alignments: Vec::new(),
+            table_cell_index: 0,
             in_image: false,
             image_alt: String::new(),
             extract_title: false,
@@ -137,8 +147,9 @@ impl HtmlRenderer {
             h1_text: String::new(),
             current_heading_level: None,
             heading_text: String::new(),
+            heading_html: String::new(),
             toc: Vec::new(),
-            heading_counts: std::collections::HashMap::new(),
+            heading_counts: HashMap::new(),
             highlighter: SyntaxHighlighter::default(),
         }
     }
@@ -187,7 +198,8 @@ impl HtmlRenderer {
             Event::Rule => self.horizontal_rule(),
             Event::TaskListMarker(checked) => self.task_list_marker(checked),
             Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
-                // Not supported yet
+                // Intentionally not supported: footnotes require multi-pass rendering,
+                // math support would need KaTeX/MathJax integration
             }
         }
     }
@@ -201,16 +213,15 @@ impl HtmlRenderer {
                 }
             }
             Tag::Heading { level, .. } => {
-                let level_num = heading_level_to_num(level);
-
                 if self.extract_title && level == HeadingLevel::H1 && !self.seen_first_h1 {
                     // First H1 - capture as title, don't render
                     self.in_first_h1 = true;
                     self.h1_text.clear();
                 } else {
                     // Track heading for ToC
-                    self.current_heading_level = Some(level_num);
+                    self.current_heading_level = Some(heading_level_to_num(level));
                     self.heading_text.clear();
+                    self.heading_html.clear();
                 }
             }
             Tag::BlockQuote(_) => {
@@ -255,34 +266,69 @@ impl HtmlRenderer {
             Tag::DefinitionListDefinition => {
                 self.output.push_str("<dd>");
             }
-            Tag::Table(_alignments) => {
+            Tag::Table(alignments) => {
+                self.table_alignments = alignments.to_vec();
                 self.output.push_str("<table>");
             }
             Tag::TableHead => {
                 self.in_table_head = true;
+                self.table_cell_index = 0;
                 self.output.push_str("<thead><tr>");
             }
             Tag::TableRow => {
+                self.table_cell_index = 0;
                 self.output.push_str("<tr>");
             }
             Tag::TableCell => {
+                let align_style = self
+                    .table_alignments
+                    .get(self.table_cell_index)
+                    .and_then(|a| match a {
+                        Alignment::Left => Some(" style=\"text-align:left\""),
+                        Alignment::Center => Some(" style=\"text-align:center\""),
+                        Alignment::Right => Some(" style=\"text-align:right\""),
+                        Alignment::None => None,
+                    })
+                    .unwrap_or("");
+
                 if self.in_table_head {
-                    self.output.push_str("<th>");
+                    write!(self.output, "<th{align_style}>").unwrap();
                 } else {
-                    self.output.push_str("<td>");
+                    write!(self.output, "<td{align_style}>").unwrap();
                 }
             }
             Tag::Emphasis => {
-                self.output.push_str("<em>");
+                if self.current_heading_level.is_some() {
+                    self.heading_html.push_str("<em>");
+                } else {
+                    self.output.push_str("<em>");
+                }
             }
             Tag::Strong => {
-                self.output.push_str("<strong>");
+                if self.current_heading_level.is_some() {
+                    self.heading_html.push_str("<strong>");
+                } else {
+                    self.output.push_str("<strong>");
+                }
             }
             Tag::Strikethrough => {
-                self.output.push_str("<del>");
+                if self.current_heading_level.is_some() {
+                    self.heading_html.push_str("<del>");
+                } else {
+                    self.output.push_str("<del>");
+                }
             }
             Tag::Link { dest_url, .. } => {
-                write!(self.output, r#"<a href="{}">"#, escape_html(&dest_url)).unwrap();
+                if self.current_heading_level.is_some() {
+                    write!(
+                        self.heading_html,
+                        r#"<a href="{}">"#,
+                        escape_html(&dest_url)
+                    )
+                    .unwrap();
+                } else {
+                    write!(self.output, r#"<a href="{}">"#, escape_html(&dest_url)).unwrap();
+                }
             }
             Tag::Image {
                 dest_url, title, ..
@@ -313,8 +359,9 @@ impl HtmlRenderer {
                     self.in_first_h1 = false;
                     self.seen_first_h1 = true;
                 } else if let Some(level_num) = self.current_heading_level.take() {
-                    // Take ownership of heading text to avoid borrow conflicts
+                    // Take ownership of heading text and HTML to avoid borrow conflicts
                     let heading_text = std::mem::take(&mut self.heading_text);
+                    let heading_html = std::mem::take(&mut self.heading_html);
 
                     // Generate ID from heading text
                     let id = self.generate_heading_id(&heading_text);
@@ -327,18 +374,18 @@ impl HtmlRenderer {
                             level_num
                         };
 
-                    // Add to ToC
+                    // Add to ToC (plain text title)
                     self.toc.push(TocEntry {
                         level: adjusted_level,
                         title: heading_text.trim().to_string(),
                         id: id.clone(),
                     });
 
-                    // Render heading with ID
+                    // Render heading with ID and inline formatting
                     write!(
                         self.output,
                         r#"<h{adjusted_level} id="{id}">{}</h{adjusted_level}>"#,
-                        escape_html(heading_text.trim())
+                        heading_html.trim()
                     )
                     .unwrap();
                 } else {
@@ -400,18 +447,35 @@ impl HtmlRenderer {
                 } else {
                     self.output.push_str("</td>");
                 }
+                self.table_cell_index += 1;
             }
             TagEnd::Emphasis => {
-                self.output.push_str("</em>");
+                if self.current_heading_level.is_some() {
+                    self.heading_html.push_str("</em>");
+                } else {
+                    self.output.push_str("</em>");
+                }
             }
             TagEnd::Strong => {
-                self.output.push_str("</strong>");
+                if self.current_heading_level.is_some() {
+                    self.heading_html.push_str("</strong>");
+                } else {
+                    self.output.push_str("</strong>");
+                }
             }
             TagEnd::Strikethrough => {
-                self.output.push_str("</del>");
+                if self.current_heading_level.is_some() {
+                    self.heading_html.push_str("</del>");
+                } else {
+                    self.output.push_str("</del>");
+                }
             }
             TagEnd::Link => {
-                self.output.push_str("</a>");
+                if self.current_heading_level.is_some() {
+                    self.heading_html.push_str("</a>");
+                } else {
+                    self.output.push_str("</a>");
+                }
             }
         }
     }
@@ -427,8 +491,9 @@ impl HtmlRenderer {
             // Capture alt text for image
             self.image_alt.push_str(text);
         } else if self.current_heading_level.is_some() {
-            // Capture heading text for ToC
+            // Capture heading text for ToC and HTML for rendering
             self.heading_text.push_str(text);
+            self.heading_html.push_str(&escape_html(text));
         } else {
             self.output.push_str(&escape_html(text));
         }
@@ -436,10 +501,12 @@ impl HtmlRenderer {
 
     fn inline_code(&mut self, code: &str) {
         if self.current_heading_level.is_some() {
-            // Include code in heading text for ToC
+            // Buffer plain text for ToC and HTML for rendering
             self.heading_text.push_str(code);
+            write!(self.heading_html, "<code>{}</code>", escape_html(code)).unwrap();
+        } else {
+            write!(self.output, "<code>{}</code>", escape_html(code)).unwrap();
         }
-        write!(self.output, "<code>{}</code>", escape_html(code)).unwrap();
     }
 
     fn raw_html(&mut self, html: &str) {
@@ -505,25 +572,29 @@ fn heading_level_to_num(level: HeadingLevel) -> u8 {
 }
 
 /// Convert text to URL-safe slug.
+///
+/// Converts to lowercase, replaces whitespace/dashes/underscores with single dashes,
+/// and removes other non-alphanumeric characters.
 fn slugify(text: &str) -> String {
-    text.trim()
-        .to_lowercase()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c
-            } else if c.is_whitespace() || c == '-' || c == '_' {
-                '-'
-            } else {
-                '\0'
-            }
-        })
-        .filter(|&c| c != '\0')
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-")
+    let mut result = String::new();
+    let mut last_was_dash = true; // Prevents leading dash
+
+    for c in text.trim().chars() {
+        if c.is_ascii_alphanumeric() {
+            result.push(c.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash && (c.is_whitespace() || c == '-' || c == '_') {
+            result.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    // Remove trailing dash if present
+    if result.ends_with('-') {
+        result.pop();
+    }
+
+    result
 }
 
 /// Escape HTML special characters.
@@ -620,6 +691,48 @@ mod tests {
     }
 
     #[test]
+    fn test_heading_with_inline_code() {
+        let result = render("## Install `npm`");
+        assert_eq!(
+            result.html,
+            r#"<h2 id="install-npm">Install <code>npm</code></h2>"#
+        );
+        assert_eq!(result.toc.len(), 1);
+        assert_eq!(result.toc[0].title, "Install npm");
+        assert_eq!(result.toc[0].id, "install-npm");
+    }
+
+    #[test]
+    fn test_heading_with_emphasis() {
+        let result = render("## *Important* Section");
+        assert_eq!(
+            result.html,
+            r#"<h2 id="important-section"><em>Important</em> Section</h2>"#
+        );
+        assert_eq!(result.toc[0].title, "Important Section");
+    }
+
+    #[test]
+    fn test_heading_with_strong() {
+        let result = render("## **Bold** Title");
+        assert_eq!(
+            result.html,
+            r#"<h2 id="bold-title"><strong>Bold</strong> Title</h2>"#
+        );
+        assert_eq!(result.toc[0].title, "Bold Title");
+    }
+
+    #[test]
+    fn test_heading_with_link() {
+        let result = render("## See [Docs](https://example.com)");
+        assert_eq!(
+            result.html,
+            r#"<h2 id="see-docs">See <a href="https://example.com">Docs</a></h2>"#
+        );
+        assert_eq!(result.toc[0].title, "See Docs");
+    }
+
+    #[test]
     fn test_blockquote() {
         let result = render("> Note: Important");
         assert!(result.html.contains("<blockquote>"));
@@ -670,6 +783,41 @@ mod tests {
         assert!(result.html.contains("<th>"));
         assert!(result.html.contains("<tbody>"));
         assert!(result.html.contains("<td>"));
+    }
+
+    #[test]
+    fn test_table_alignment() {
+        let result = render("| Left | Center | Right |\n|:-----|:------:|------:|\n| a | b | c |");
+        assert!(
+            result
+                .html
+                .contains(r#"<th style="text-align:left">Left</th>"#)
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<th style="text-align:center">Center</th>"#)
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<th style="text-align:right">Right</th>"#)
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<td style="text-align:left">a</td>"#)
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<td style="text-align:center">b</td>"#)
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<td style="text-align:right">c</td>"#)
+        );
     }
 
     #[test]

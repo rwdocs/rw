@@ -98,7 +98,7 @@ impl From<HtmlConvertResult> for PyHtmlConvertResult {
     }
 }
 
-/// Markdown to Confluence converter.
+/// Markdown converter with multiple output formats.
 #[pyclass(name = "MarkdownConverter")]
 pub struct PyMarkdownConverter {
     inner: MarkdownConverter,

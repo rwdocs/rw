@@ -78,7 +78,7 @@ class HtmlConvertResult:
 
 
 class MarkdownConverter:
-    """Markdown to Confluence converter."""
+    """Markdown converter with multiple output formats."""
 
     def __init__(
         self,
