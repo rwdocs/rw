@@ -5,13 +5,13 @@
 ### 2025-12-06
 - Implement Phase 2: Rust Core - HTML Renderer
   - Add `HtmlRenderer` module producing semantic HTML5
-  - Add syntax highlighting via syntect
   - Generate heading IDs for anchor links
   - Create `TocEntry` struct for table of contents
   - Add `MarkdownConverter::convert_html()` method
   - Update Python bindings with `HtmlConvertResult` and `TocEntry` classes
   - Preserve inline formatting in headings (code, emphasis, strong, links)
   - Add table column alignment support via inline styles
+  - Code blocks output `language-*` class for client-side highlighting
 - Create RD-001: Docstage Backend requirements document
 - Define API design for page rendering and navigation endpoints
 - Plan implementation phases for HTML renderer, core library, HTTP API, and live reload

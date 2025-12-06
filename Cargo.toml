@@ -20,5 +20,4 @@ pyo3 = { version = "0.27", features = ["extension-module"] }
 rayon = "1.10"
 regex = "1.11"
 sha2 = "0.10"
-syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "default-themes", "html", "regex-onig"] }
 ureq = { version = "3", features = ["rustls"] }

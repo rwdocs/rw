@@ -1,14 +1,11 @@
 //! HTML renderer for pulldown-cmark events.
 //!
-//! Produces semantic HTML5 with syntax highlighting and table of contents generation.
+//! Produces semantic HTML5 with table of contents generation.
 
 use std::collections::HashMap;
 use std::fmt::Write;
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
-use syntect::highlighting::ThemeSet;
-use syntect::html::highlighted_html_for_string;
-use syntect::parsing::SyntaxSet;
 
 /// Table of contents entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,54 +27,6 @@ pub struct HtmlRenderResult {
     pub title: Option<String>,
     /// Table of contents entries.
     pub toc: Vec<TocEntry>,
-}
-
-/// Syntax highlighter with cached syntaxes and theme.
-pub struct SyntaxHighlighter {
-    syntax_set: SyntaxSet,
-    theme_set: ThemeSet,
-    theme_name: String,
-}
-
-impl SyntaxHighlighter {
-    /// Create a new syntax highlighter with the given theme.
-    #[must_use]
-    pub fn new(theme_name: &str) -> Self {
-        Self {
-            syntax_set: SyntaxSet::load_defaults_newlines(),
-            theme_set: ThemeSet::load_defaults(),
-            theme_name: theme_name.to_string(),
-        }
-    }
-
-    /// Highlight code with the given language.
-    ///
-    /// Returns highlighted HTML or falls back to escaped code if language is unknown.
-    pub fn highlight(&self, code: &str, lang: Option<&str>) -> String {
-        let syntax = lang
-            .and_then(|l| self.syntax_set.find_syntax_by_token(l))
-            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
-
-        let theme = self
-            .theme_set
-            .themes
-            .get(&self.theme_name)
-            .unwrap_or_else(|| {
-                self.theme_set
-                    .themes
-                    .get("base16-ocean.dark")
-                    .expect("default theme should exist")
-            });
-
-        highlighted_html_for_string(code, &self.syntax_set, syntax, theme)
-            .unwrap_or_else(|_| format!("<pre><code>{}</code></pre>", escape_html(code)))
-    }
-}
-
-impl Default for SyntaxHighlighter {
-    fn default() -> Self {
-        Self::new("base16-ocean.dark")
-    }
 }
 
 /// Renders pulldown-cmark events to semantic HTML5.
@@ -122,8 +71,6 @@ pub struct HtmlRenderer {
     toc: Vec<TocEntry>,
     /// Counter for generating unique heading IDs.
     heading_counts: HashMap<String, usize>,
-    /// Syntax highlighter for code blocks.
-    highlighter: SyntaxHighlighter,
 }
 
 impl HtmlRenderer {
@@ -150,7 +97,6 @@ impl HtmlRenderer {
             heading_html: String::new(),
             toc: Vec::new(),
             heading_counts: HashMap::new(),
-            highlighter: SyntaxHighlighter::default(),
         }
     }
 
@@ -161,13 +107,6 @@ impl HtmlRenderer {
     #[must_use]
     pub fn with_title_extraction(mut self) -> Self {
         self.extract_title = true;
-        self
-    }
-
-    /// Set the syntax highlighting theme.
-    #[must_use]
-    pub fn with_theme(mut self, theme_name: &str) -> Self {
-        self.highlighter = SyntaxHighlighter::new(theme_name);
         self
     }
 
@@ -398,10 +337,22 @@ impl HtmlRenderer {
                 self.output.push_str("</blockquote>");
             }
             TagEnd::CodeBlock => {
-                let highlighted = self
-                    .highlighter
-                    .highlight(&self.code_buffer, self.code_language.as_deref());
-                self.output.push_str(&highlighted);
+                if let Some(ref lang) = self.code_language {
+                    write!(
+                        self.output,
+                        r#"<pre><code class="language-{}">{}</code></pre>"#,
+                        escape_html(lang),
+                        escape_html(&self.code_buffer)
+                    )
+                    .unwrap();
+                } else {
+                    write!(
+                        self.output,
+                        "<pre><code>{}</code></pre>",
+                        escape_html(&self.code_buffer)
+                    )
+                    .unwrap();
+                }
                 self.in_code_block = false;
                 self.code_language = None;
             }
@@ -677,11 +628,19 @@ mod tests {
     }
 
     #[test]
-    fn test_code_block_syntax_highlighting() {
+    fn test_code_block() {
         let result = render("```rust\nfn main() {}\n```");
-        // Should contain syntax-highlighted output
-        assert!(result.html.contains("<pre"));
-        assert!(result.html.contains("fn"));
+        assert_eq!(
+            result.html,
+            r#"<pre><code class="language-rust">fn main() {}
+</code></pre>"#
+        );
+    }
+
+    #[test]
+    fn test_code_block_no_language() {
+        let result = render("```\nplain code\n```");
+        assert_eq!(result.html, "<pre><code>plain code\n</code></pre>");
     }
 
     #[test]
