@@ -19,6 +19,13 @@ format output with PlantUML diagram support.
 ```bash
 uv sync --reinstall       # Rebuild Rust extension
 cargo test --lib          # Run Rust unit tests
+
+# Frontend
+cd frontend
+npm install               # Install dependencies
+npm run dev               # Start dev server
+npm run build             # Production build
+npm run check             # Type checking
 ```
 
 ## Architecture
@@ -52,6 +59,15 @@ packages/
         └── docstage_core/
             ├── __init__.py
             └── __init__.pyi
+
+frontend/                  # Svelte 5 SPA (Vite + Tailwind)
+├── src/
+│   ├── components/        # Svelte components
+│   ├── pages/             # Page components
+│   ├── stores/            # Svelte stores (router, navigation, page)
+│   ├── api/               # API client
+│   └── types/             # TypeScript interfaces
+└── dist/                  # Production build output
 ```
 
 **Data flow (Confluence)**: Markdown → Rust (pulldown-cmark parsing, PlantUML

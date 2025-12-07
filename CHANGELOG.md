@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### 2025-12-07
+- Create RD-002: Docstage Frontend requirements document
+- Implement Frontend Phase 1: Project Setup
+  - Initialize Vite + Svelte 5 project with TypeScript
+  - Implement native SPA router using History API (no external library)
+  - Configure Tailwind CSS with Typography plugin
+  - Create base layout structure (navigation sidebar, content area, ToC sidebar)
+  - Set up API client with TypeScript interfaces
+  - Add page and navigation Svelte stores
+  - Design inspired by Stripe documentation
+
 ### 2025-12-06
 - Implement Phase 4: Python Backend - HTTP API
   - Add `docstage.server` module with aiohttp application factory

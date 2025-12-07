@@ -1,0 +1,33 @@
+<script lang="ts">
+  import { path } from "../stores/router";
+  import { page } from "../stores/page";
+
+  // Extract path from location, removing /docs prefix
+  let docPath = $derived($path.replace(/^\/docs\/?/, ""));
+
+  // Load page when path changes
+  $effect(() => {
+    page.load(docPath);
+  });
+</script>
+
+{#if $page.loading}
+  <div class="flex items-center justify-center h-64">
+    <p class="text-gray-500">Loading...</p>
+  </div>
+{:else if $page.notFound}
+  <div class="flex items-center justify-center h-64">
+    <div class="text-center">
+      <h1 class="text-4xl font-bold text-gray-300 mb-4">404</h1>
+      <p class="text-gray-600">Page not found</p>
+    </div>
+  </div>
+{:else if $page.error}
+  <div class="flex items-center justify-center h-64">
+    <p class="text-red-600">Error: {$page.error}</p>
+  </div>
+{:else if $page.data}
+  <article class="prose prose-slate max-w-none">
+    {@html $page.data.content}
+  </article>
+{/if}
