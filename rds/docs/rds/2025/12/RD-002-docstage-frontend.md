@@ -517,13 +517,13 @@ npm run build  # Outputs to dist/
 4. ~~Create base layout structure.~~
 5. ~~Set up API client with TypeScript interfaces.~~
 
-### Phase 2: Navigation
+### ~~Phase 2: Navigation~~
 
 1. ~~Implement `NavigationSidebar` with tree rendering.~~
 2. ~~Add collapse/expand functionality.~~
 3. ~~Implement active state highlighting.~~
 4. ~~Add localStorage persistence for collapse state.~~
-5. Implement mobile responsive drawer.
+5. ~~Implement mobile responsive drawer.~~
 
 ### Phase 3: Page Rendering
 

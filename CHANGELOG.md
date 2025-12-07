@@ -12,6 +12,9 @@
   - Set up API client with TypeScript interfaces
   - Add page and navigation Svelte stores
   - Design inspired by Stripe documentation
+- Complete Frontend Phase 2: Navigation
+  - Add mobile responsive drawer with hamburger menu
+  - Auto-close drawer on route change and Escape key
 
 ### 2025-12-06
 - Implement Phase 4: Python Backend - HTTP API
