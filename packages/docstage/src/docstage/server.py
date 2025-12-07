@@ -10,6 +10,7 @@ from aiohttp import web
 
 from docstage.api.navigation import create_navigation_routes
 from docstage.api.pages import create_pages_routes
+from docstage.app_keys import cache_key, navigation_key, renderer_key
 from docstage.core.cache import FileCache
 from docstage.core.navigation import NavigationBuilder
 from docstage.core.renderer import PageRenderer
@@ -39,9 +40,9 @@ def create_app(config: ServerConfig) -> web.Application:
     renderer = PageRenderer(config["source_dir"], cache)
     navigation = NavigationBuilder(config["source_dir"], cache)
 
-    app["renderer"] = renderer
-    app["navigation"] = navigation
-    app["cache"] = cache
+    app[renderer_key] = renderer
+    app[navigation_key] = navigation
+    app[cache_key] = cache
 
     app.router.add_routes(create_pages_routes())
     app.router.add_routes(create_navigation_routes())

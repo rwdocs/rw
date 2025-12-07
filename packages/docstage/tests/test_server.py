@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from docstage.app_keys import cache_key, navigation_key, renderer_key
 from docstage.server import ServerConfig, create_app
 
 
@@ -23,9 +24,9 @@ class TestCreateApp:
 
         app = create_app(config)
 
-        assert "renderer" in app
-        assert "navigation" in app
-        assert "cache" in app
-        assert app["renderer"].source_dir == source_dir
-        assert app["navigation"].source_dir == source_dir
-        assert app["cache"].cache_dir == cache_dir
+        assert renderer_key in app
+        assert navigation_key in app
+        assert cache_key in app
+        assert app[renderer_key].source_dir == source_dir
+        assert app[navigation_key].source_dir == source_dir
+        assert app[cache_key].cache_dir == cache_dir

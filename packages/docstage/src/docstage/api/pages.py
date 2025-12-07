@@ -10,8 +10,8 @@ from time import mktime
 
 from aiohttp import web
 
+from docstage.app_keys import navigation_key, renderer_key
 from docstage.core.navigation import NavigationBuilder
-from docstage.core.renderer import PageRenderer
 
 
 def create_pages_routes() -> list[web.RouteDef]:
@@ -22,8 +22,8 @@ def create_pages_routes() -> list[web.RouteDef]:
 
 async def get_page(request: web.Request) -> web.Response:
     path = request.match_info["path"]
-    renderer: PageRenderer = request.app["renderer"]
-    navigation: NavigationBuilder = request.app["navigation"]
+    renderer = request.app[renderer_key]
+    navigation = request.app[navigation_key]
 
     try:
         result = renderer.render(path)
