@@ -15,25 +15,12 @@ from docstage.core.renderer import PageRenderer
 
 
 def create_pages_routes() -> list[web.RouteDef]:
-    """Create route definitions for pages API.
-
-    Returns:
-        List of route definitions
-    """
     return [
         web.get("/api/pages/{path:.*}", get_page),
     ]
 
 
 async def get_page(request: web.Request) -> web.Response:
-    """Get rendered page with metadata.
-
-    Args:
-        request: aiohttp request
-
-    Returns:
-        JSON response with page data
-    """
     path = request.match_info["path"]
     renderer: PageRenderer = request.app["renderer"]
     navigation: NavigationBuilder = request.app["navigation"]
@@ -83,14 +70,8 @@ async def get_page(request: web.Request) -> web.Response:
 
 
 def _compute_etag(content: str) -> str:
-    """Compute ETag from content hash.
-
-    Args:
-        content: Content to hash
-
-    Returns:
-        ETag string with quotes
-    """
+    # Use first 16 hex chars (64 bits) - sufficient for cache invalidation,
+    # collision probability is negligible for this use case
     content_hash = md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
     return f'"{content_hash}"'
 
@@ -99,20 +80,12 @@ def _build_breadcrumbs(
     path: str,
     navigation: NavigationBuilder,
 ) -> list[dict[str, str]]:
-    """Build breadcrumb trail for a path.
-
-    Args:
-        path: Page path
-        navigation: Navigation builder for title lookup
-
-    Returns:
-        List of breadcrumb items with title and path
-    """
     if not path:
         return []
 
     parts = path.split("/")
     breadcrumbs: list[dict[str, str]] = []
+    # Navigation tree is cached by NavigationBuilder, so this is efficient
     nav_tree = navigation.build()
 
     current_path = ""
