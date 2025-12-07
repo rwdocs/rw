@@ -5,7 +5,7 @@
 
   // Close drawer on route change
   $effect(() => {
-    $path;
+    void $path;
     closeMobileMenu();
   });
 

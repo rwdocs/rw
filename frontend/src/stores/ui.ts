@@ -10,7 +10,3 @@ export function openMobileMenu() {
 export function closeMobileMenu() {
   mobileMenuOpen.set(false);
 }
-
-export function toggleMobileMenu() {
-  mobileMenuOpen.update((open) => !open);
-}

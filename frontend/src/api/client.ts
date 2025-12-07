@@ -14,7 +14,9 @@ export class NotFoundError extends Error {
 export async function fetchNavigation(): Promise<NavigationTree> {
   const response = await fetch(`${API_BASE}/navigation`);
   if (!response.ok) {
-    throw new Error("Failed to fetch navigation");
+    throw new Error(
+      `Failed to fetch navigation: ${response.status} ${response.statusText}`,
+    );
   }
   return response.json();
 }
@@ -26,7 +28,9 @@ export async function fetchPage(path: string): Promise<PageResponse> {
     if (response.status === 404) {
       throw new NotFoundError(path);
     }
-    throw new Error("Failed to fetch page");
+    throw new Error(
+      `Failed to fetch page: ${response.status} ${response.statusText}`,
+    );
   }
   return response.json();
 }

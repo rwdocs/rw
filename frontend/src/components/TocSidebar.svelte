@@ -75,7 +75,12 @@
   </h3>
   <ul class="space-y-2">
     {#each toc as entry (entry.id)}
-      <li style="margin-left: {(entry.level - 2) * 12}px">
+      <li
+        style="margin-left: {Math.max(
+          0,
+          Math.min((entry.level - 2) * 12, 48),
+        )}px"
+      >
         <button
           onclick={() => scrollToHeading(entry.id)}
           class="text-sm text-left transition-colors {activeId === entry.id

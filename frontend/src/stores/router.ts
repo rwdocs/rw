@@ -26,9 +26,14 @@ export function initRouter() {
     const href = anchor.getAttribute("href");
     if (!href) return;
 
-    // Skip external links, hash links, and links with target
-    if (
+    // Skip non-local links
+    const isExternal =
       href.startsWith("http") ||
+      href.startsWith("//") ||
+      href.startsWith("mailto:") ||
+      href.startsWith("tel:");
+    if (
+      isExternal ||
       href.startsWith("#") ||
       anchor.hasAttribute("target") ||
       anchor.hasAttribute("download")

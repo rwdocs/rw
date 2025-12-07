@@ -5,9 +5,13 @@
   // Extract path from location, removing /docs prefix
   let docPath = $derived($path.replace(/^\/docs\/?/, ""));
 
-  // Load page when path changes
+  // Load page when path changes (track previous to avoid duplicate loads)
+  let previousPath: string | null = null;
   $effect(() => {
-    page.load(docPath);
+    if (docPath !== previousPath) {
+      previousPath = docPath;
+      page.load(docPath);
+    }
   });
 </script>
 

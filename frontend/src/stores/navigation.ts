@@ -17,8 +17,10 @@ function loadCollapsedFromStorage(): Set<string> {
     if (stored) {
       return new Set(JSON.parse(stored));
     }
-  } catch {
-    // Ignore storage errors
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn("Failed to load navigation state from localStorage:", e);
+    }
   }
   return new Set();
 }
@@ -26,8 +28,10 @@ function loadCollapsedFromStorage(): Set<string> {
 function saveCollapsedToStorage(collapsed: Set<string>) {
   try {
     localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify([...collapsed]));
-  } catch {
-    // Ignore storage errors
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.warn("Failed to save navigation state to localStorage:", e);
+    }
   }
 }
 

@@ -46,7 +46,7 @@
 <!-- Mobile Drawer -->
 <MobileDrawer />
 
-<div class="h-full flex md:h-screen">
+<div class="min-h-screen flex flex-col md:flex-row">
   <!-- Navigation Sidebar (Desktop) -->
   <aside
     class="w-[280px] flex-shrink-0 border-r border-gray-200 overflow-y-auto hidden md:block"
