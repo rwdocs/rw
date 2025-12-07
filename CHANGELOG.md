@@ -15,6 +15,8 @@
 - Complete Frontend Phase 2: Navigation
   - Add mobile responsive drawer with hamburger menu
   - Auto-close drawer on route change and Escape key
+- Complete Frontend Phase 4: Table of Contents
+  - Add scroll spy with IntersectionObserver to highlight active heading
 
 ### 2025-12-06
 - Implement Phase 4: Python Backend - HTTP API

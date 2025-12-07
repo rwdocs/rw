@@ -532,10 +532,10 @@ npm run build  # Outputs to dist/
 3. ~~Configure Tailwind Typography for prose styling.~~
 4. ~~Handle internal link interception for SPA navigation.~~
 
-### Phase 4: Table of Contents
+### ~~Phase 4: Table of Contents~~
 
 1. ~~Implement `TocSidebar` component.~~
-2. Add scroll spy with IntersectionObserver.
+2. ~~Add scroll spy with IntersectionObserver.~~
 3. ~~Implement smooth scroll to heading on click.~~
 4. ~~Handle ToC visibility (hide when empty or on mobile).~~
 
