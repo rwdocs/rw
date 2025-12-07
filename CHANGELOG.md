@@ -17,6 +17,13 @@
   - Auto-close drawer on route change and Escape key
 - Complete Frontend Phase 4: Table of Contents
   - Add scroll spy with IntersectionObserver to highlight active heading
+- Complete Backend Phase 5: Static File Serving
+  - Add `static_dir` option to `ServerConfig` and `serve` CLI command
+  - Implement SPA fallback route serving index.html for client-side routing
+  - Serve static assets from `/assets` directory
+  - Add favicon route at `/favicon.png`
+  - API routes take precedence over SPA fallback
+  - Add 5 tests for static file serving and SPA fallback
 
 ### 2025-12-06
 - Implement Phase 4: Python Backend - HTTP API

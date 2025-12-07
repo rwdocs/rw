@@ -39,6 +39,7 @@ def client(tmp_path: Path, docs_dir: Path, aiohttp_client) -> TestClient:
         "port": 8080,
         "source_dir": docs_dir,
         "cache_dir": tmp_path / ".cache",
+        "static_dir": None,
     }
     app = create_app(config)
     return aiohttp_client(app)
@@ -96,6 +97,7 @@ class TestGetNavigation:
             "port": 8080,
             "source_dir": docs,
             "cache_dir": tmp_path / ".cache",
+            "static_dir": None,
         }
         app = create_app(config)
         test_client = await aiohttp_client(app)
