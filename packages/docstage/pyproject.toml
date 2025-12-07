@@ -26,5 +26,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/docstage"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"../../frontend/dist" = "src/docstage/static"
+
 [tool.uv.sources]
 docstage-core = { workspace = true }

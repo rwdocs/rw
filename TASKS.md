@@ -5,4 +5,6 @@
 
 ## Current
 
-Develop Svelte frontend (RD-002).
+Now serve command requires static dir. Better to include all static assets into
+backend python package and let it serve them. This will simplify deployment and
+make it easier to manage static assets.

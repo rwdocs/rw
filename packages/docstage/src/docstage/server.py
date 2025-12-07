@@ -11,6 +11,7 @@ from aiohttp import web
 from docstage.api.navigation import create_navigation_routes
 from docstage.api.pages import create_pages_routes
 from docstage.app_keys import cache_key, navigation_key, renderer_key
+from docstage.assets import get_static_dir
 from docstage.core.cache import FileCache
 from docstage.core.navigation import NavigationBuilder
 from docstage.core.renderer import PageRenderer
@@ -23,7 +24,6 @@ class ServerConfig(TypedDict):
     port: int
     source_dir: Path
     cache_dir: Path
-    static_dir: Path | None
 
 
 async def spa_fallback(request: web.Request) -> web.FileResponse:
@@ -31,14 +31,8 @@ async def spa_fallback(request: web.Request) -> web.FileResponse:
 
     All non-API routes fall back to index.html to support client-side routing.
     """
-    static_dir = request.app.get("static_dir")
-    if static_dir is None:
-        raise web.HTTPNotFound()
-
+    static_dir: Path = request.app["static_dir"]
     index_path = static_dir / "index.html"
-    if not index_path.exists():
-        raise web.HTTPNotFound()
-
     return web.FileResponse(index_path)
 
 
@@ -65,35 +59,28 @@ def create_app(config: ServerConfig) -> web.Application:
     app.router.add_routes(create_pages_routes())
     app.router.add_routes(create_navigation_routes())
 
-    # Static file serving for frontend
-    static_dir = config.get("static_dir")
-    if static_dir is not None and static_dir.exists():
-        app["static_dir"] = static_dir
+    # Static file serving for frontend (bundled assets)
+    static_dir = get_static_dir()
+    app["static_dir"] = static_dir
 
-        # Serve static assets from /assets directory
-        assets_dir = static_dir / "assets"
-        if assets_dir.exists():
-            app.router.add_static("/assets", assets_dir)
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.router.add_static("/assets", assets_dir)
 
-        # Serve other static files (favicon, etc.) from root
-        app.router.add_get("/favicon.png", _serve_favicon)
+    app.router.add_get("/favicon.png", _serve_favicon)
 
-        # SPA fallback - must be last to catch all non-API routes
-        app.router.add_get("/{path:.*}", spa_fallback)
+    # SPA fallback - must be last to catch all non-API routes
+    app.router.add_get("/{path:.*}", spa_fallback)
 
     return app
 
 
 async def _serve_favicon(request: web.Request) -> web.FileResponse:
     """Serve favicon from static directory."""
-    static_dir = request.app.get("static_dir")
-    if static_dir is None:
-        raise web.HTTPNotFound()
-
+    static_dir: Path = request.app["static_dir"]
     favicon_path = static_dir / "favicon.png"
     if not favicon_path.exists():
         raise web.HTTPNotFound()
-
     return web.FileResponse(favicon_path)
 
 

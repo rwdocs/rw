@@ -27,3 +27,6 @@ htmlcov/
 
 .claude/settings.local.json
 /target
+
+# Bundled frontend assets (generated from frontend/dist)
+packages/docstage/src/docstage/static/

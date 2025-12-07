@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### 2025-12-07
+- Bundle frontend assets into Python package (RD-003)
+  - Add `docstage.assets` module with `get_static_dir()` for bundled asset discovery
+  - Remove `--static-dir` CLI option from `serve` command
+  - Server always uses bundled assets from `docstage/static/`
+  - Add `npm run build:bundle` script to build and copy frontend to backend
+  - Configure hatchling `force-include` to bundle assets in wheel
+- Create RD-003: Bundled Frontend Assets requirements document
 - Create RD-002: Docstage Frontend requirements document
 - Implement Frontend Phase 1: Project Setup
   - Initialize Vite + Svelte 5 project with TypeScript
@@ -18,12 +25,10 @@
 - Complete Frontend Phase 4: Table of Contents
   - Add scroll spy with IntersectionObserver to highlight active heading
 - Complete Backend Phase 5: Static File Serving
-  - Add `static_dir` option to `ServerConfig` and `serve` CLI command
   - Implement SPA fallback route serving index.html for client-side routing
   - Serve static assets from `/assets` directory
   - Add favicon route at `/favicon.png`
   - API routes take precedence over SPA fallback
-  - Add 5 tests for static file serving and SPA fallback
 
 ### 2025-12-06
 - Implement Phase 4: Python Backend - HTTP API

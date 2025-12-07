@@ -31,12 +31,6 @@ def cli() -> None:
     help='Cache directory',
 )
 @click.option(
-    '--static-dir',
-    type=click.Path(exists=True, path_type=Path, file_okay=False),
-    default=None,
-    help='Frontend static files directory (e.g., frontend/dist)',
-)
-@click.option(
     '--host',
     '-h',
     default='127.0.0.1',
@@ -49,24 +43,19 @@ def cli() -> None:
     default=8080,
     help='Port to bind to',
 )
-def serve(
-    source_dir: Path, cache_dir: Path, static_dir: Path | None, host: str, port: int
-) -> None:
+def serve(source_dir: Path, cache_dir: Path, host: str, port: int) -> None:
     """Start the documentation server."""
     from docstage.server import run_server
 
     click.echo(f'Starting server on {host}:{port}')
     click.echo(f'Source directory: {source_dir}')
     click.echo(f'Cache directory: {cache_dir}')
-    if static_dir:
-        click.echo(f'Static directory: {static_dir}')
 
     run_server({
         'host': host,
         'port': port,
         'source_dir': source_dir,
         'cache_dir': cache_dir,
-        'static_dir': static_dir,
     })
 
 

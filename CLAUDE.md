@@ -23,9 +23,13 @@ cargo test --lib          # Run Rust unit tests
 # Frontend
 cd frontend
 npm install               # Install dependencies
-npm run dev               # Start dev server
-npm run build             # Production build
+npm run dev               # Start dev server (use with backend for API proxy)
+npm run build             # Production build to dist/
+npm run build:bundle      # Build and copy to backend static directory
 npm run check             # Type checking
+
+# Full rebuild with bundled frontend
+cd frontend && npm run build:bundle && cd .. && uv sync --reinstall
 ```
 
 ## Architecture
@@ -46,6 +50,9 @@ packages/
 ├── docstage/              # Python CLI package (Click)
 │   └── src/docstage/
 │       ├── cli.py                     # Main CLI commands
+│       ├── assets.py                  # Bundled frontend asset discovery
+│       ├── server.py                  # aiohttp server with SPA fallback
+│       ├── static/                    # Bundled frontend (from npm run build:bundle)
 │       ├── confluence/client.py       # Async Confluence REST API client
 │       ├── confluence/comment_preservation.py  # DOM-based comment preservation
 │       └── oauth.py                   # OAuth 1.0 RSA-SHA1 auth
