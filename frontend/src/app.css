@@ -14,11 +14,13 @@ body {
 
 /* Diagram styling */
 .prose figure.diagram {
-  @apply my-6 flex justify-center;
+  @apply my-6 flex justify-center overflow-x-auto;
 }
 
 .prose figure.diagram svg {
-  @apply max-w-full h-auto;
+  /* Constrain to container width while preserving aspect ratio */
+  max-width: 100%;
+  height: auto !important;
 }
 
 .prose figure.diagram img {
