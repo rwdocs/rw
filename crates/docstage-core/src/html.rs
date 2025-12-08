@@ -240,8 +240,9 @@ impl HtmlRenderer {
 
     /// Enable title extraction from first H1 heading.
     ///
-    /// When enabled, the first H1 is extracted as title and not rendered,
-    /// and all other headers are leveled up (H2->H1, H3->H2, etc.).
+    /// When enabled, the first H1 is extracted as title but still rendered.
+    /// Subsequent headings keep their original levels.
+    /// The title (first H1) is excluded from the table of contents.
     #[must_use]
     pub fn with_title_extraction(mut self) -> Self {
         self.heading = HeadingState::new(true);
