@@ -4,7 +4,7 @@
 </script>
 
 {#if $navigation.loading}
-  <div class="text-gray-500 text-sm">Loading...</div>
+  <div class="text-gray-600 text-sm">Loading...</div>
 {:else if $navigation.error}
   <div class="text-red-600 text-sm">{$navigation.error}</div>
 {:else if $navigation.tree}

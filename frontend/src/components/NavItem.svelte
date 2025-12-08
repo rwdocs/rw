@@ -15,6 +15,7 @@
   let isActive = $derived($path === `/docs${item.path}`);
   let hasChildren = $derived(item.children && item.children.length > 0);
   let isExpanded = $derived(!$navigation.collapsed.has(item.path));
+  let textSize = $derived(depth === 0 ? 'text-base' : 'text-sm');
 
   function toggleExpanded(e: MouseEvent) {
     e.preventDefault();
@@ -23,7 +24,7 @@
   }
 </script>
 
-<li class="my-1">
+<li>
   <div class="flex items-center">
     {#if hasChildren}
       <button
@@ -51,7 +52,7 @@
 
     <a
       href="/docs{item.path}"
-      class="flex-1 py-1 px-2 rounded text-sm transition-colors {isActive
+      class="flex-1 py-1.5 px-2 rounded {textSize} leading-relaxed transition-colors {isActive
         ? 'bg-blue-50 text-blue-700 font-medium'
         : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}"
     >

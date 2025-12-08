@@ -27,12 +27,12 @@
 
 {#if $page.loading}
   <div class="flex items-center justify-center h-64">
-    <p class="text-gray-500">Loading...</p>
+    <p class="text-gray-600">Loading...</p>
   </div>
 {:else if $page.notFound}
   <div class="flex items-center justify-center h-64">
     <div class="text-center">
-      <h1 class="text-4xl font-bold text-gray-300 mb-4">404</h1>
+      <h1 class="text-4xl font-bold tracking-tight text-gray-300 mb-4">404</h1>
       <p class="text-gray-600">Page not found</p>
     </div>
   </div>

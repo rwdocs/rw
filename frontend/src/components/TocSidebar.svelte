@@ -70,20 +70,23 @@
 </script>
 
 <div>
-  <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+  <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3">
     On this page
   </h3>
-  <ul class="space-y-2">
+  <ul class="space-y-1.5">
     {#each toc as entry (entry.id)}
       <li
-        style="margin-left: {Math.max(
-          0,
-          Math.min((entry.level - 2) * 12, 48),
-        )}px"
+        class="{entry.level === 2
+          ? ''
+          : entry.level === 3
+            ? 'ml-4'
+            : entry.level === 4
+              ? 'ml-8'
+              : 'ml-12'}"
       >
         <button
           onclick={() => scrollToHeading(entry.id)}
-          class="text-sm text-left transition-colors {activeId === entry.id
+          class="text-sm leading-snug text-left transition-colors {activeId === entry.id
             ? 'text-blue-600 font-medium'
             : 'text-gray-600 hover:text-gray-900'}"
         >

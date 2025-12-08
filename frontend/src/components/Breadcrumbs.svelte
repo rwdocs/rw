@@ -10,7 +10,7 @@
 
 {#if breadcrumbs.length > 0}
   <nav class="mb-6">
-    <ol class="flex items-center text-sm text-gray-500">
+    <ol class="flex items-center text-sm text-gray-600">
       <li class="breadcrumb-item">
         <a href="/" class="hover:text-gray-700 hover:underline">Home</a>
       </li>
@@ -31,7 +31,7 @@
 <style>
   .breadcrumb-item::after {
     content: "/";
-    margin-left: 0.5rem;
+    margin-left: 0.625rem;
     margin-right: 0.5rem;
     color: rgb(156 163 175); /* gray-400 */
   }
