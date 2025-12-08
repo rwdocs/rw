@@ -76,6 +76,11 @@ class HtmlConvertResult:
         """Table of contents entries."""
         ...
 
+    @property
+    def warnings(self) -> list[str]:
+        """Warnings generated during conversion (e.g., unresolved includes)."""
+        ...
+
 
 class MarkdownConverter:
     """Markdown converter with multiple output formats."""

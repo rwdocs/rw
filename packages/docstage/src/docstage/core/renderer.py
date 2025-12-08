@@ -37,6 +37,7 @@ class RenderResult:
     toc: list[TocEntryProtocol]
     source_path: Path
     from_cache: bool
+    warnings: list[str]
 
 
 class PageRenderer:
@@ -134,6 +135,7 @@ class PageRenderer:
             toc=list(result.toc),
             source_path=source_path,
             from_cache=False,
+            warnings=list(result.warnings),
         )
 
     def invalidate(self, path: str) -> None:
@@ -204,6 +206,7 @@ class PageRenderer:
             toc=toc_entries,
             source_path=source_path,
             from_cache=True,
+            warnings=[],  # Warnings are not cached
         )
 
 

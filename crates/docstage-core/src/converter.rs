@@ -79,6 +79,8 @@ pub struct HtmlConvertResult {
     pub title: Option<String>,
     /// Table of contents entries.
     pub toc: Vec<TocEntry>,
+    /// Warnings generated during conversion (e.g., unresolved includes).
+    pub warnings: Vec<String>,
 }
 
 /// Markdown to Confluence converter configuration.
@@ -210,16 +212,17 @@ impl MarkdownConverter {
             Vec::new()
         } else {
             // Resolve diagram sources (PlantUML filter only extracts PlantUML)
+            // Note: warnings are ignored for Confluence output (used for legacy support)
             let diagram_requests: Vec<_> = extracted_diagrams
                 .into_iter()
                 .map(|d| {
-                    let resolved_source = prepare_diagram_source(
+                    let prepare_result = prepare_diagram_source(
                         &d.source,
                         &self.include_dirs,
                         self.config_content.as_deref(),
                         self.dpi,
                     );
-                    DiagramRequest::plantuml(d.index, resolved_source)
+                    DiagramRequest::plantuml(d.index, prepare_result.source)
                 })
                 .collect();
 
@@ -273,6 +276,7 @@ impl MarkdownConverter {
             html: result.html,
             title: result.title,
             toc: result.toc,
+            warnings: Vec::new(),
         }
     }
 
@@ -315,6 +319,7 @@ impl MarkdownConverter {
         let extracted_diagrams = filter.into_diagrams();
 
         let mut html = result.html;
+        let mut warnings = Vec::new();
 
         if !extracted_diagrams.is_empty() {
             let server_url = kroki_url.trim_end_matches('/');
@@ -325,12 +330,14 @@ impl MarkdownConverter {
 
             for d in &extracted_diagrams {
                 let source = if d.language.needs_plantuml_preprocessing() {
-                    prepare_diagram_source(
+                    let prepare_result = prepare_diagram_source(
                         &d.source,
                         &self.include_dirs,
                         self.config_content.as_deref(),
                         self.dpi,
-                    )
+                    );
+                    warnings.extend(prepare_result.warnings);
+                    prepare_result.source
                 } else {
                     d.source.clone()
                 };
@@ -400,6 +407,7 @@ impl MarkdownConverter {
             html,
             title: result.title,
             toc: result.toc,
+            warnings,
         }
     }
 }

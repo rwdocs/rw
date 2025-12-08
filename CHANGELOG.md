@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Add verbose mode for diagram rendering warnings
+  - Add `--verbose` / `-v` flag to `serve` command
+  - Log warnings for unresolved `!include` files to stderr
+  - Warnings show searched paths for easier debugging
+  - `HtmlConvertResult.warnings` property exposes warnings in Python API
 - Implement unified configuration file (RD-005)
   - Replace `config.toml` with `docstage.toml` for all settings
   - Add auto-discovery: search for `docstage.toml` in current and parent directories

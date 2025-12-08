@@ -88,6 +88,9 @@ pub struct PyHtmlConvertResult {
     /// Table of contents entries.
     #[pyo3(get)]
     pub toc: Vec<PyTocEntry>,
+    /// Warnings generated during conversion (e.g., unresolved includes).
+    #[pyo3(get)]
+    pub warnings: Vec<String>,
 }
 
 impl From<HtmlConvertResult> for PyHtmlConvertResult {
@@ -96,6 +99,7 @@ impl From<HtmlConvertResult> for PyHtmlConvertResult {
             html: result.html,
             title: result.title,
             toc: result.toc.into_iter().map(Into::into).collect(),
+            warnings: result.warnings,
         }
     }
 }

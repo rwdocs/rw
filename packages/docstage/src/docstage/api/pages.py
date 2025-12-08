@@ -3,6 +3,7 @@
 Handles page rendering and returns JSON responses with metadata, ToC, and HTML content.
 """
 
+import sys
 from datetime import datetime, timezone
 from email.utils import formatdate
 from hashlib import md5
@@ -32,6 +33,11 @@ async def get_page(request: web.Request) -> web.Response:
             {"error": "Page not found", "path": path},
             status=404,
         )
+
+    # Log warnings in verbose mode
+    if request.app.get("verbose") and result.warnings:
+        for warning in result.warnings:
+            print(f"[WARNING] {path}: {warning}", file=sys.stderr)
 
     source_mtime = result.source_path.stat().st_mtime
     last_modified = datetime.fromtimestamp(source_mtime, tz=timezone.utc)

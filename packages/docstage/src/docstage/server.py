@@ -28,6 +28,7 @@ class ServerConfig(TypedDict, total=False):
     include_dirs: list[Path]
     config_file: str | None
     dpi: int
+    verbose: bool
 
 
 async def spa_fallback(request: web.Request) -> web.FileResponse:
@@ -70,6 +71,7 @@ def create_app(config: ServerConfig) -> web.Application:
     app[renderer_key] = renderer
     app[navigation_key] = navigation
     app[cache_key] = cache
+    app["verbose"] = config.get("verbose", False)
 
     # API routes (must be registered first to take precedence over SPA fallback)
     app.router.add_routes(create_pages_routes())

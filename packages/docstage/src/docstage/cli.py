@@ -42,7 +42,6 @@ def cli() -> None:
 )
 @click.option(
     '--host',
-    '-h',
     default=None,
     help='Host to bind to (overrides config)',
 )
@@ -58,6 +57,12 @@ def cli() -> None:
     default=None,
     help='Kroki server URL for diagram rendering (overrides config)',
 )
+@click.option(
+    '--verbose',
+    '-v',
+    is_flag=True,
+    help='Enable verbose output (show diagram warnings)',
+)
 def serve(
     config_path: Path | None,
     source_dir: Path | None,
@@ -65,6 +70,7 @@ def serve(
     host: str | None,
     port: int | None,
     kroki_url: str | None,
+    verbose: bool,
 ) -> None:
     """Start the documentation server."""
     from docstage.server import run_server
@@ -94,6 +100,7 @@ def serve(
         'include_dirs': config.diagrams.include_dirs,
         'config_file': config.diagrams.config_file,
         'dpi': config.diagrams.dpi,
+        'verbose': verbose,
     })
 
 
