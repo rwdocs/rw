@@ -14,9 +14,11 @@
 //! assert_eq!(result.title, Some("Hello".to_string()));
 //! ```
 //!
-//! # `PlantUML` Diagram Support
+//! # Diagram Support
 //!
-//! When converting to Confluence format, `PlantUML` code blocks are automatically
+//! Multiple diagram languages are supported via Kroki: PlantUML, Mermaid, GraphViz, etc.
+//!
+//! When converting to Confluence format, diagram code blocks are automatically
 //! rendered via the Kroki service and replaced with image macros:
 //!
 //! ```ignore
@@ -31,16 +33,28 @@
 //! )?;
 //! ```
 //!
+//! For HTML output with rendered diagrams:
+//!
+//! ```ignore
+//! let result = converter.convert_html_with_diagrams(
+//!     "```mermaid\ngraph TD\n  A --> B\n```",
+//!     "https://kroki.io",
+//! )?;
+//! // Result contains inline SVG diagrams
+//! ```
+//!
 //! # Architecture
 //!
 //! - [`MarkdownConverter`]: Main entry point with builder pattern
 //! - [`HtmlRenderer`]: Event-based HTML5 renderer
 //! - [`ConfluenceRenderer`]: Event-based Confluence XHTML renderer
-//! - [`PlantUmlFilter`]: Iterator adapter for diagram extraction
-//! - [`render_all`]: Parallel diagram rendering via Kroki
+//! - [`DiagramFilter`]: Iterator adapter for diagram extraction
+//! - [`render_all`]: Parallel PNG diagram rendering via Kroki
+//! - [`render_all_svg`]: Parallel SVG diagram rendering via Kroki
 
 mod confluence;
 mod converter;
+mod diagram_filter;
 mod html;
 mod kroki;
 mod plantuml;
@@ -50,9 +64,12 @@ pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use converter::{
     ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter, create_image_tag,
 };
+pub use diagram_filter::{DiagramFilter, DiagramFormat, DiagramLanguage, ExtractedDiagram};
 pub use html::{HtmlRenderResult, HtmlRenderer, TocEntry};
 pub use kroki::{
-    DiagramError, DiagramErrorKind, DiagramRequest, RenderError, RenderedDiagram, render_all,
+    DiagramError, DiagramErrorKind, DiagramRequest, RenderError, RenderedDiagram,
+    RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri, render_all_svg,
 };
 pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
-pub use plantuml_filter::{ExtractedDiagram, PlantUmlFilter};
+// Re-export for backwards compatibility (deprecated)
+pub use plantuml_filter::PlantUmlFilter;

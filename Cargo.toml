@@ -13,6 +13,7 @@ license = "MIT"
 docstage-core = { path = "crates/docstage-core" }
 
 # External dependencies
+base64 = "0.22"
 hex = "0.4"
 pretty_assertions = "1.4"
 pulldown-cmark = { version = "0.12", default-features = false, features = ["simd"] }

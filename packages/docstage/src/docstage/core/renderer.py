@@ -44,6 +44,9 @@ class PageRenderer:
 
     Uses the Rust core for actual conversion and FileCache for persistence.
     Cache invalidation is based on source file mtime.
+
+    When kroki_url is provided, diagram code blocks (plantuml, mermaid, graphviz, etc.)
+    are rendered as images via Kroki. Otherwise they appear as syntax-highlighted code.
     """
 
     def __init__(
@@ -52,6 +55,7 @@ class PageRenderer:
         cache: FileCache,
         *,
         extract_title: bool = True,
+        kroki_url: str | None = None,
     ) -> None:
         """Initialize renderer.
 
@@ -59,10 +63,13 @@ class PageRenderer:
             source_dir: Root directory containing markdown sources
             cache: FileCache instance for caching rendered content
             extract_title: Whether to extract title from first H1
+            kroki_url: Kroki server URL for diagram rendering (e.g., "https://kroki.io").
+                       If None, diagrams are rendered as code blocks.
         """
         self._source_dir = source_dir
         self._cache = cache
         self._extract_title = extract_title
+        self._kroki_url = kroki_url
         self._converter = MarkdownConverter(
             gfm=True,
             extract_title=extract_title,
@@ -152,6 +159,8 @@ class PageRenderer:
             HtmlConvertResult from Rust converter
         """
         markdown_text = source_path.read_text(encoding="utf-8")
+        if self._kroki_url:
+            return self._converter.convert_html_with_diagrams(markdown_text, self._kroki_url)
         return self._converter.convert_html(markdown_text)
 
     def _from_cache(self, cached: CacheEntry, source_path: Path) -> RenderResult:

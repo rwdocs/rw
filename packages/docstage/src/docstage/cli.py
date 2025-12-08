@@ -43,19 +43,29 @@ def cli() -> None:
     default=8080,
     help='Port to bind to',
 )
-def serve(source_dir: Path, cache_dir: Path, host: str, port: int) -> None:
+@click.option(
+    '--kroki-url',
+    default=None,
+    help='Kroki server URL for diagram rendering (e.g., https://kroki.io)',
+)
+def serve(source_dir: Path, cache_dir: Path, host: str, port: int, kroki_url: str | None) -> None:
     """Start the documentation server."""
     from docstage.server import run_server
 
     click.echo(f'Starting server on {host}:{port}')
     click.echo(f'Source directory: {source_dir}')
     click.echo(f'Cache directory: {cache_dir}')
+    if kroki_url:
+        click.echo(f'Kroki URL: {kroki_url}')
+    else:
+        click.echo('Diagram rendering: disabled (no --kroki-url specified)')
 
     run_server({
         'host': host,
         'port': port,
         'source_dir': source_dir,
         'cache_dir': cache_dir,
+        'kroki_url': kroki_url,
     })
 
 

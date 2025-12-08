@@ -38,8 +38,11 @@ use std::path::{Path, PathBuf};
 use pulldown_cmark::{Options, Parser};
 
 use crate::confluence::ConfluenceRenderer;
+use crate::diagram_filter::{DiagramFilter, DiagramFormat};
 use crate::html::{HtmlRenderer, TocEntry};
-use crate::kroki::{DiagramRequest, RenderError, render_all};
+use crate::kroki::{
+    DiagramRequest, RenderError, render_all, render_all_png_data_uri, render_all_svg,
+};
 use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 use crate::plantuml_filter::PlantUmlFilter;
 
@@ -206,7 +209,7 @@ impl MarkdownConverter {
         let diagrams = if extracted_diagrams.is_empty() {
             Vec::new()
         } else {
-            // Resolve diagram sources
+            // Resolve diagram sources (PlantUML filter only extracts PlantUML)
             let diagram_requests: Vec<_> = extracted_diagrams
                 .into_iter()
                 .map(|d| {
@@ -216,10 +219,7 @@ impl MarkdownConverter {
                         self.config_content.as_deref(),
                         self.dpi,
                     );
-                    DiagramRequest {
-                        index: d.index,
-                        source: resolved_source,
-                    }
+                    DiagramRequest::plantuml(d.index, resolved_source)
                 })
                 .collect();
 
@@ -254,8 +254,8 @@ impl MarkdownConverter {
     /// Convert markdown to HTML format.
     ///
     /// Produces semantic HTML5 with syntax highlighting and table of contents.
-    /// `PlantUML` code blocks are rendered with syntax highlighting as-is.
-    /// For rendered diagram images, use `convert()` which processes them via Kroki.
+    /// Diagram code blocks are rendered with syntax highlighting as-is.
+    /// For rendered diagram images, use `convert_html_with_diagrams()`.
     #[must_use]
     pub fn convert_html(&self, markdown_text: &str) -> HtmlConvertResult {
         let options = self.get_parser_options();
@@ -274,5 +274,102 @@ impl MarkdownConverter {
             title: result.title,
             toc: result.toc,
         }
+    }
+
+    /// Convert markdown to HTML format with rendered diagrams.
+    ///
+    /// Produces semantic HTML5 with diagram code blocks rendered as images via Kroki.
+    /// Diagrams are rendered based on their format attribute:
+    /// - `svg` (default): Inline SVG (supports links and interactivity)
+    /// - `png`: Inline PNG as base64 data URI
+    /// - `img`: External SVG via `<img>` tag (not yet implemented, falls back to inline SVG)
+    ///
+    /// # Arguments
+    ///
+    /// * `markdown_text` - Markdown source text
+    /// * `kroki_url` - Kroki server URL (e.g., `"https://kroki.io"`)
+    ///
+    /// # Errors
+    ///
+    /// Returns `RenderError` if diagram rendering fails.
+    pub fn convert_html_with_diagrams(
+        &self,
+        markdown_text: &str,
+        kroki_url: &str,
+    ) -> Result<HtmlConvertResult, RenderError> {
+        let options = self.get_parser_options();
+        let parser = Parser::new_ext(markdown_text, options);
+
+        // Filter diagram code blocks, replacing them with placeholders
+        let mut filter = DiagramFilter::new(parser);
+
+        // Render to HTML format
+        let renderer = if self.extract_title {
+            HtmlRenderer::new().with_title_extraction()
+        } else {
+            HtmlRenderer::new()
+        };
+
+        let result = renderer.render(&mut filter);
+        let extracted_diagrams = filter.into_diagrams();
+
+        let mut html = result.html;
+
+        if !extracted_diagrams.is_empty() {
+            let server_url = kroki_url.trim_end_matches('/');
+
+            // Group diagrams by format
+            let mut svg_diagrams = Vec::new();
+            let mut png_diagrams = Vec::new();
+
+            for d in &extracted_diagrams {
+                let source = if d.language.needs_plantuml_preprocessing() {
+                    prepare_diagram_source(
+                        &d.source,
+                        &self.include_dirs,
+                        self.config_content.as_deref(),
+                        self.dpi,
+                    )
+                } else {
+                    d.source.clone()
+                };
+
+                let request = DiagramRequest::new(d.index, source, d.language);
+
+                match d.format {
+                    DiagramFormat::Svg | DiagramFormat::Img => svg_diagrams.push(request),
+                    DiagramFormat::Png => png_diagrams.push(request),
+                }
+            }
+
+            // Render SVG diagrams
+            if !svg_diagrams.is_empty() {
+                let rendered = render_all_svg(&svg_diagrams, server_url, 4)?;
+                for r in rendered {
+                    let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
+                    let figure = format!(r#"<figure class="diagram">{}</figure>"#, r.svg.trim());
+                    html = html.replace(&placeholder, &figure);
+                }
+            }
+
+            // Render PNG diagrams (as base64 data URIs)
+            if !png_diagrams.is_empty() {
+                let rendered = render_all_png_data_uri(&png_diagrams, server_url, 4)?;
+                for r in rendered {
+                    let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
+                    let figure = format!(
+                        r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
+                        r.data_uri
+                    );
+                    html = html.replace(&placeholder, &figure);
+                }
+            }
+        }
+
+        Ok(HtmlConvertResult {
+            html,
+            title: result.title,
+            toc: result.toc,
+        })
     }
 }

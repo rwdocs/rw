@@ -133,6 +133,7 @@ dependencies = [
 name = "docstage-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "hex",
  "pretty_assertions",
  "pulldown-cmark",

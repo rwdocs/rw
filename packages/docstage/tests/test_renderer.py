@@ -113,7 +113,8 @@ class TestPageRendererRender:
         """Extract table of contents from markdown."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        # extract_title=True levels up headings (H2 -> H1, H3 -> H2)
+        # HTML renderer keeps original heading levels (H1 stays H1, H2 stays H2)
+        # Title (first H1) is excluded from ToC
         (source_dir / "guide.md").write_text("""# Guide
 
 ## Introduction
@@ -134,20 +135,20 @@ Steps.
 
         result = renderer.render("guide")
 
-        # With extract_title=True, H2 becomes H1, H3 becomes H2
+        # HTML renderer preserves levels, title excluded from ToC
         assert len(result.toc) == 3
-        assert result.toc[0].level == 1
+        assert result.toc[0].level == 2
         assert result.toc[0].title == "Introduction"
-        assert result.toc[1].level == 1
+        assert result.toc[1].level == 2
         assert result.toc[1].title == "Getting Started"
-        assert result.toc[2].level == 2
+        assert result.toc[2].level == 3
         assert result.toc[2].title == "Installation"
 
     def test_preserves_toc_in_cache(self, tmp_path: Path) -> None:
         """Preserve ToC structure when loaded from cache."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        # extract_title=True levels up H2 to H1
+        # HTML renderer keeps original heading levels
         (source_dir / "guide.md").write_text("# Guide\n\n## Section\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
@@ -158,7 +159,7 @@ Steps.
 
         assert result.from_cache is True
         assert len(result.toc) == 1
-        assert result.toc[0].level == 1  # H2 becomes H1 with extract_title
+        assert result.toc[0].level == 2  # H2 stays H2 with HTML renderer
         assert result.toc[0].title == "Section"
 
 

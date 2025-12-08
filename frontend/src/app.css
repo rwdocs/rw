@@ -11,3 +11,25 @@ body,
 body {
   @apply bg-white text-gray-900 antialiased;
 }
+
+/* Diagram styling */
+.prose figure.diagram {
+  @apply my-6 flex justify-center;
+}
+
+.prose figure.diagram svg {
+  @apply max-w-full h-auto;
+}
+
+.prose figure.diagram img {
+  @apply max-w-full h-auto;
+}
+
+/* Error state for diagrams that failed to render */
+.prose figure.diagram-error {
+  @apply border border-red-200 bg-red-50 rounded p-4;
+}
+
+.prose figure.diagram-error pre {
+  @apply m-0;
+}

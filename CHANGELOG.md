@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Implement diagram rendering for HTML output (RD-004)
+  - Add `DiagramFilter` iterator adapter supporting PlantUML, Mermaid, GraphViz, and 14 other Kroki-supported formats
+  - Add `render_all_svg` and `render_all_png_data_uri` functions for SVG and PNG output
+  - Add `convert_html_with_diagrams` method to `MarkdownConverter` for HTML with rendered diagrams
+  - Diagrams are wrapped in `<figure class="diagram">` for styling
+  - Support format attribute in code fence: `plantuml format=png` for PNG instead of default SVG
+  - Add `--kroki-url` CLI option to `serve` command to enable diagram rendering
+  - Add `kroki_url` parameter to `PageRenderer` for conditional diagram rendering
+  - Add frontend CSS for diagram styling (centered, responsive)
+  - PlantUML filter retained for backwards compatibility (used by Confluence output)
 - Skip non-navigable directories in left navigation
   - Directories without index.md are now excluded from navigation tree
   - Children of such directories are promoted to parent level

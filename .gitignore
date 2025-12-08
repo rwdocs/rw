@@ -30,3 +30,4 @@ htmlcov/
 
 # Bundled frontend assets (generated from frontend/dist)
 packages/docstage/src/docstage/static/
+.cache/

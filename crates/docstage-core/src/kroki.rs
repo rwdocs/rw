@@ -1,18 +1,27 @@
 //! Kroki diagram rendering with parallel HTTP requests.
 //!
 //! This module handles parallel diagram rendering via the Kroki service:
-//! - Renders `PlantUML` diagrams to PNG via HTTP POST
+//! - Renders diagrams to PNG or SVG via HTTP POST
 //! - Uses rayon thread pool for parallel requests
 //! - Extracts PNG dimensions for display width calculation
 //! - Generates content-based filenames via SHA256 hashing
+//!
+//! # Output Formats
+//!
+//! - [`render_all`]: PNG output for Confluence (requires output directory)
+//! - [`render_all_svg`]: SVG output for HTML (returns SVG strings directly)
 
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::time::Duration;
 use ureq::Agent;
 
-/// Result of rendering a single diagram.
+use crate::diagram_filter::DiagramLanguage;
+
+/// Result of rendering a single diagram to PNG.
 #[derive(Debug, Clone)]
 pub struct RenderedDiagram {
     pub index: usize,
@@ -21,11 +30,51 @@ pub struct RenderedDiagram {
     pub height: u32,
 }
 
+/// Result of rendering a single diagram to SVG.
+#[derive(Debug, Clone)]
+pub struct RenderedSvg {
+    /// Index matching the original diagram request.
+    pub index: usize,
+    /// SVG content as a string.
+    pub svg: String,
+}
+
+/// Result of rendering a single diagram to PNG (as base64 data URI).
+#[derive(Debug, Clone)]
+pub struct RenderedPngDataUri {
+    /// Index matching the original diagram request.
+    pub index: usize,
+    /// PNG data as base64-encoded data URI.
+    pub data_uri: String,
+}
+
 /// Diagram info for rendering.
 #[derive(Debug, Clone)]
 pub struct DiagramRequest {
     pub index: usize,
     pub source: String,
+    /// Diagram language (defaults to PlantUML for backwards compatibility).
+    pub language: DiagramLanguage,
+}
+
+impl DiagramRequest {
+    /// Create a new diagram request.
+    pub fn new(index: usize, source: String, language: DiagramLanguage) -> Self {
+        Self {
+            index,
+            source,
+            language,
+        }
+    }
+
+    /// Create a PlantUML diagram request (for backwards compatibility).
+    pub fn plantuml(index: usize, source: String) -> Self {
+        Self {
+            index,
+            source,
+            language: DiagramLanguage::PlantUml,
+        }
+    }
 }
 
 /// Single diagram rendering error.
@@ -132,14 +181,15 @@ fn diagram_hash(diagram_type: &str, source: &str) -> String {
     hex::encode(&result[..6])
 }
 
-/// Render a single diagram via Kroki.
-fn render_one(
+/// Render a single diagram to PNG via Kroki.
+fn render_one_png(
     agent: &Agent,
     diagram: &DiagramRequest,
     server_url: &str,
     output_dir: &Path,
 ) -> Result<RenderedDiagram, DiagramError> {
-    let url = format!("{server_url}/plantuml/png");
+    let endpoint = diagram.language.kroki_endpoint();
+    let url = format!("{server_url}/{endpoint}/png");
 
     let response = agent
         .post(&url)
@@ -163,7 +213,7 @@ fn render_one(
         kind: DiagramErrorKind::InvalidPng,
     })?;
 
-    let hash = diagram_hash("plantuml", &diagram.source);
+    let hash = diagram_hash(endpoint, &diagram.source);
     let filename = format!("diagram_{hash}.png");
     let filepath = output_dir.join(&filename);
 
@@ -221,7 +271,7 @@ pub fn render_all(
     let results: Vec<Result<RenderedDiagram, DiagramError>> = pool.install(|| {
         diagrams
             .par_iter()
-            .map(|d| render_one(&agent, d, server_url, output_dir))
+            .map(|d| render_one_png(&agent, d, server_url, output_dir))
             .collect()
     });
 
@@ -232,6 +282,204 @@ pub fn render_all(
     for result in results {
         match result {
             Ok(diagram) => rendered.push(diagram),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(rendered)
+    } else {
+        Err(RenderError::Multiple(errors))
+    }
+}
+
+/// Render a single diagram to SVG via Kroki.
+fn render_one_svg(
+    agent: &Agent,
+    diagram: &DiagramRequest,
+    server_url: &str,
+) -> Result<RenderedSvg, DiagramError> {
+    let endpoint = diagram.language.kroki_endpoint();
+    let url = format!("{server_url}/{endpoint}/svg");
+
+    let response = agent
+        .post(&url)
+        .header("Content-Type", "text/plain")
+        .send(diagram.source.as_bytes())
+        .map_err(|e| DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::Http(e.to_string()),
+        })?;
+
+    let svg = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::Io(e.to_string()),
+        })?;
+
+    Ok(RenderedSvg {
+        index: diagram.index,
+        svg,
+    })
+}
+
+/// Render a single diagram to PNG as base64 data URI via Kroki.
+fn render_one_png_data_uri(
+    agent: &Agent,
+    diagram: &DiagramRequest,
+    server_url: &str,
+) -> Result<RenderedPngDataUri, DiagramError> {
+    let endpoint = diagram.language.kroki_endpoint();
+    let url = format!("{server_url}/{endpoint}/png");
+
+    let response = agent
+        .post(&url)
+        .header("Content-Type", "text/plain")
+        .send(diagram.source.as_bytes())
+        .map_err(|e| DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::Http(e.to_string()),
+        })?;
+
+    let data = response
+        .into_body()
+        .read_to_vec()
+        .map_err(|e| DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::Io(e.to_string()),
+        })?;
+
+    // Validate PNG
+    if get_png_dimensions(&data).is_none() {
+        return Err(DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::InvalidPng,
+        });
+    }
+
+    let base64 = BASE64_STANDARD.encode(&data);
+    let data_uri = format!("data:image/png;base64,{base64}");
+
+    Ok(RenderedPngDataUri {
+        index: diagram.index,
+        data_uri,
+    })
+}
+
+/// Render all diagrams to SVG in parallel using Kroki service.
+///
+/// Unlike [`render_all`], this returns SVG strings directly without writing files.
+/// SVG is ideal for HTML output as it scales perfectly and can be inlined.
+///
+/// # Arguments
+/// * `diagrams` - List of diagrams to render
+/// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
+/// * `pool_size` - Number of parallel threads
+///
+/// # Returns
+/// Vector of rendered SVG content, or all errors collected during rendering.
+///
+/// # Errors
+///
+/// Returns `RenderError::Multiple` if any diagrams fail to render.
+pub fn render_all_svg(
+    diagrams: &[DiagramRequest],
+    server_url: &str,
+    pool_size: usize,
+) -> Result<Vec<RenderedSvg>, RenderError> {
+    if diagrams.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(pool_size)
+        .build()
+        .map_err(|e| RenderError::Io {
+            index: 0,
+            message: format!("Failed to create thread pool: {e}"),
+        })?;
+
+    let agent: Agent = Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .into();
+
+    let server_url = server_url.trim_end_matches('/');
+    let results: Vec<Result<RenderedSvg, DiagramError>> = pool.install(|| {
+        diagrams
+            .par_iter()
+            .map(|d| render_one_svg(&agent, d, server_url))
+            .collect()
+    });
+
+    let mut rendered = Vec::with_capacity(diagrams.len());
+    let mut errors = Vec::new();
+
+    for result in results {
+        match result {
+            Ok(svg) => rendered.push(svg),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(rendered)
+    } else {
+        Err(RenderError::Multiple(errors))
+    }
+}
+
+/// Render all diagrams to PNG as base64 data URIs in parallel.
+///
+/// Returns PNG images encoded as data URIs, suitable for embedding in HTML.
+/// Use this when SVG is not desired (e.g., for simpler rendering or smaller files).
+///
+/// # Arguments
+/// * `diagrams` - List of diagrams to render
+/// * `server_url` - Kroki server URL
+/// * `pool_size` - Number of parallel threads
+///
+/// # Errors
+///
+/// Returns `RenderError::Multiple` if any diagrams fail to render.
+pub fn render_all_png_data_uri(
+    diagrams: &[DiagramRequest],
+    server_url: &str,
+    pool_size: usize,
+) -> Result<Vec<RenderedPngDataUri>, RenderError> {
+    if diagrams.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(pool_size)
+        .build()
+        .map_err(|e| RenderError::Io {
+            index: 0,
+            message: format!("Failed to create thread pool: {e}"),
+        })?;
+
+    let agent: Agent = Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .into();
+
+    let server_url = server_url.trim_end_matches('/');
+    let results: Vec<Result<RenderedPngDataUri, DiagramError>> = pool.install(|| {
+        diagrams
+            .par_iter()
+            .map(|d| render_one_png_data_uri(&agent, d, server_url))
+            .collect()
+    });
+
+    let mut rendered = Vec::with_capacity(diagrams.len());
+    let mut errors = Vec::new();
+
+    for result in results {
+        match result {
+            Ok(png) => rendered.push(png),
             Err(error) => errors.push(error),
         }
     }

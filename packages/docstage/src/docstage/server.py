@@ -17,13 +17,14 @@ from docstage.core.navigation import NavigationBuilder
 from docstage.core.renderer import PageRenderer
 
 
-class ServerConfig(TypedDict):
+class ServerConfig(TypedDict, total=False):
     """Server configuration."""
 
     host: str
     port: int
     source_dir: Path
     cache_dir: Path
+    kroki_url: str | None
 
 
 async def spa_fallback(request: web.Request) -> web.FileResponse:
@@ -48,7 +49,8 @@ def create_app(config: ServerConfig) -> web.Application:
     app = web.Application()
 
     cache = FileCache(config["cache_dir"])
-    renderer = PageRenderer(config["source_dir"], cache)
+    kroki_url = config.get("kroki_url")
+    renderer = PageRenderer(config["source_dir"], cache, kroki_url=kroki_url)
     navigation = NavigationBuilder(config["source_dir"], cache)
 
     app[renderer_key] = renderer

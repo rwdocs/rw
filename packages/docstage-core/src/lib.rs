@@ -159,6 +159,8 @@ impl PyMarkdownConverter {
     /// Convert markdown to HTML format.
     ///
     /// Produces semantic HTML5 with syntax highlighting and table of contents.
+    /// Diagram code blocks are rendered as syntax-highlighted code.
+    /// For rendered diagram images, use `convert_html_with_diagrams()`.
     ///
     /// Args:
     ///     markdown_text: Markdown source text
@@ -167,6 +169,39 @@ impl PyMarkdownConverter {
     ///     HtmlConvertResult with HTML, optional title, and table of contents
     pub fn convert_html(&self, markdown_text: &str) -> PyHtmlConvertResult {
         self.inner.convert_html(markdown_text).into()
+    }
+
+    /// Convert markdown to HTML format with rendered diagrams.
+    ///
+    /// Produces semantic HTML5 with diagram code blocks rendered as images via Kroki.
+    /// Supports PlantUML, Mermaid, GraphViz, and other Kroki-supported diagram types.
+    ///
+    /// Diagrams are rendered based on their format attribute:
+    /// - `svg` (default): Inline SVG (supports links and interactivity)
+    /// - `png`: Inline PNG as base64 data URI
+    /// - `img`: External SVG via `<img>` tag (falls back to inline SVG)
+    ///
+    /// Args:
+    ///     markdown_text: Markdown source text
+    ///     kroki_url: Kroki server URL (e.g., "https://kroki.io")
+    ///
+    /// Returns:
+    ///     HtmlConvertResult with HTML containing rendered diagrams
+    ///
+    /// Raises:
+    ///     RuntimeError: If diagram rendering fails
+    pub fn convert_html_with_diagrams(
+        &self,
+        py: Python<'_>,
+        markdown_text: &str,
+        kroki_url: &str,
+    ) -> PyResult<PyHtmlConvertResult> {
+        py.detach(|| {
+            self.inner
+                .convert_html_with_diagrams(markdown_text, kroki_url)
+                .map(Into::into)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
     }
 }
 
