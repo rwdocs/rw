@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Skip non-navigable directories in left navigation
+  - Directories without index.md are now excluded from navigation tree
+  - Children of such directories are promoted to parent level
+  - Prevents 404 errors when clicking navigation items
 - Use "/" separator in breadcrumbs via CSS ::after pseudo-element (Stripe-style)
 - Skip non-navigable paths in breadcrumbs
   - Breadcrumbs now only include paths with index.md files

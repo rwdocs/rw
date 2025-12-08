@@ -158,40 +158,44 @@ class NavigationBuilder:
                 continue
 
             if entry.is_dir():
-                item = self._process_directory(entry, base_path)
-                if item is not None:
-                    items.append(item)
+                result = self._process_directory(entry, base_path)
+                if result is None:
+                    continue
+                if isinstance(result, list):
+                    items.extend(result)
+                else:
+                    items.append(result)
             elif entry.suffix == ".md" and entry.name != "index.md":
                 item = self._process_file(entry, base_path)
                 items.append(item)
 
         return items
 
-    def _process_directory(self, dir_path: Path, base_path: str) -> NavItem | None:
-        """Process a directory into a navigation item.
+    def _process_directory(
+        self, dir_path: Path, base_path: str
+    ) -> NavItem | list[NavItem] | None:
+        """Process a directory into navigation item(s).
 
         Args:
             dir_path: Directory to process
             base_path: URL path prefix
 
         Returns:
-            NavItem for the directory, or None if empty
+            NavItem for the directory if it has index.md,
+            list of child NavItems if directory has no index.md (promoted children),
+            or None if empty
         """
         dir_name = dir_path.name
         item_path = f"{base_path}/{dir_name}" if base_path else f"/{dir_name}"
 
         index_file = dir_path / "index.md"
-        if index_file.exists():
-            title = self._extract_title(index_file) or self._title_from_name(dir_name)
-        else:
-            title = self._title_from_name(dir_name)
-
         children = self._scan_directory(dir_path, item_path)
 
-        # Skip empty directories (no index.md and no children)
-        if not children and not index_file.exists():
-            return None
+        if not index_file.exists():
+            # No index.md - promote children to parent level, skip this directory
+            return children if children else None
 
+        title = self._extract_title(index_file) or self._title_from_name(dir_name)
         return NavItem(title=title, path=item_path, children=children)
 
     def _process_file(self, file_path: Path, base_path: str) -> NavItem:

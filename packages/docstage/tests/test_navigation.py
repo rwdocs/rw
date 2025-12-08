@@ -147,6 +147,43 @@ class TestNavigationBuilderBuild:
         assert len(tree.items) == 1
         assert tree.items[0].title == "Guide"
 
+    def test_promotes_children_when_directory_has_no_index(self, tmp_path: Path) -> None:
+        """Promote children to parent level when directory has no index.md."""
+        source_dir = tmp_path / "docs"
+        # Create directory without index.md
+        no_index_dir = source_dir / "no-index"
+        no_index_dir.mkdir(parents=True)
+        (no_index_dir / "child.md").write_text("# Child Page\n\nContent.")
+
+        builder = NavigationBuilder(source_dir)
+
+        tree = builder.build()
+
+        # Child should be promoted to root level
+        assert len(tree.items) == 1
+        assert tree.items[0].title == "Child Page"
+        assert tree.items[0].path == "/no-index/child"
+
+    def test_promotes_nested_children_when_parent_has_no_index(
+        self, tmp_path: Path
+    ) -> None:
+        """Promote nested navigable items when intermediate directory has no index.md."""
+        source_dir = tmp_path / "docs"
+        # Create: docs/wrapper/domain-a/index.md where wrapper has no index.md
+        wrapper_dir = source_dir / "wrapper"
+        domain_dir = wrapper_dir / "domain-a"
+        domain_dir.mkdir(parents=True)
+        (domain_dir / "index.md").write_text("# Domain A\n\nOverview.")
+
+        builder = NavigationBuilder(source_dir)
+
+        tree = builder.build()
+
+        # domain-a should be promoted to root level
+        assert len(tree.items) == 1
+        assert tree.items[0].title == "Domain A"
+        assert tree.items[0].path == "/wrapper/domain-a"
+
     def test_uses_cache(self, tmp_path: Path) -> None:
         """Use cached navigation on subsequent builds."""
         source_dir = tmp_path / "docs"
@@ -189,6 +226,7 @@ class TestNavigationBuilderGetSubtree:
         domain_dir = source_dir / "domain-a" / "sub"
         domain_dir.mkdir(parents=True)
         (source_dir / "domain-a" / "index.md").write_text("# Domain A")
+        (domain_dir / "index.md").write_text("# Sub")
         (domain_dir / "guide.md").write_text("# Guide")
 
         builder = NavigationBuilder(source_dir)
