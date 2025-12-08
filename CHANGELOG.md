@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### 2025-12-08
-- Switch diagram font from Roboto to Helvetica to avoid Google Fonts external requests
+- Use Lato font for diagrams with bundled web fonts via `@fontsource/lato`
 - Refactor `convert_html_with_diagrams` for better testability
   - Extract `replace_svg_diagrams` and `replace_png_diagrams` helper functions
   - Add `replace_placeholder_with_svg`, `replace_placeholder_with_png`, and `replace_placeholder_with_error` helpers
