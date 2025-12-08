@@ -121,8 +121,13 @@ function createLiveReloadStore() {
     },
 
     /** Register callback for reload events on current page */
-    onReload(callback: (path: string) => void) {
+    onReload(callback: (path: string) => void): () => void {
       onReloadCallback = callback;
+      return () => {
+        if (onReloadCallback === callback) {
+          onReloadCallback = null;
+        }
+      };
     },
   };
 }

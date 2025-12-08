@@ -5,6 +5,7 @@ via WebSocket to trigger page reloads.
 """
 
 import asyncio
+import json
 import weakref
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -120,13 +121,14 @@ class LiveReloadManager:
         Returns:
             True if path matches any pattern
         """
+        try:
+            relative = path.relative_to(self._source_dir)
+        except ValueError:
+            return False
+
         for pattern in self._watch_patterns:
-            try:
-                path.relative_to(self._source_dir)
-                if path.match(pattern):
-                    return True
-            except ValueError:
-                continue
+            if relative.match(pattern):
+                return True
         return False
 
     def _to_doc_path(self, file_path: Path) -> str:
@@ -155,8 +157,6 @@ class LiveReloadManager:
         if not self._connections:
             return
 
-        import json
-
         message = json.dumps({"type": "reload", "path": path})
 
         for ws in list(self._connections):
@@ -165,6 +165,7 @@ class LiveReloadManager:
             try:
                 await ws.send_str(message)
             except ConnectionResetError:
+                # Client disconnected mid-send, will be cleaned up by WeakSet
                 pass
 
 

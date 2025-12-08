@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
   import { path } from "../stores/router";
   import { page } from "../stores/page";
   import { liveReload } from "../stores/liveReload";
@@ -17,8 +18,9 @@
   });
 
   onMount(() => {
-    liveReload.onReload(() => {
-      page.load(docPath, { bypassCache: true });
+    return liveReload.onReload(() => {
+      const currentDocPath = get(path).replace(/^\/docs\/?/, "");
+      page.load(currentDocPath, { bypassCache: true });
     });
   });
 </script>

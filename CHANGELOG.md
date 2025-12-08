@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Address PR review feedback for live reload
+  - Fix `onReload` callback capturing stale path by reading current path from store
+  - Fix potential memory leak by returning unsubscribe function from `onReload`
+  - Rename `format` variable to `fmt` to avoid shadowing builtin in diagrams module
+  - Replace broad `Exception` catch with specific network exceptions
+  - Fix unused `path.relative_to()` call in pattern matching logic
+  - Move `json` import to module level for consistency
+  - Add explanatory comment for `ConnectionResetError` handling
 - Fix browser cache preventing live reload from showing updated content
   - Add `bypassCache` option to `fetchNavigation` and `fetchPage` API client functions
   - Use `cache: "no-store"` fetch option when bypassCache is true

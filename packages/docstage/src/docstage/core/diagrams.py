@@ -5,6 +5,7 @@ Renders diagrams via Kroki with content-based caching to avoid redundant request
 
 import base64
 import re
+import urllib.error
 import urllib.request
 import zlib
 from dataclasses import dataclass
@@ -52,19 +53,19 @@ def render_diagrams_with_cache(
     results: list[RenderedDiagram] = []
     to_render: list[DiagramToRender] = []
 
-    for index, source, endpoint, format in diagrams:
-        content_hash = compute_diagram_hash(source, endpoint, format)
-        cached = cache.get_diagram(content_hash, format)
+    for index, source, endpoint, fmt in diagrams:
+        content_hash = compute_diagram_hash(source, endpoint, fmt)
+        cached = cache.get_diagram(content_hash, fmt)
 
         if cached is not None:
-            results.append(RenderedDiagram(index=index, content=cached, format=format))
+            results.append(RenderedDiagram(index=index, content=cached, format=fmt))
         else:
             to_render.append(
                 DiagramToRender(
                     index=index,
                     source=source,
                     endpoint=endpoint,
-                    format=format,
+                    format=fmt,
                     content_hash=content_hash,
                 )
             )
@@ -104,7 +105,7 @@ def _render_via_kroki(
             else:
                 content = _render_png_data_uri(diagram, server_url)
             results.append((diagram, content))
-        except Exception as e:
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as e:
             error_content = f'<pre class="diagram-error">Diagram rendering failed: {e}</pre>'
             results.append((diagram, error_content))
 
