@@ -429,8 +429,19 @@ fn replace_png_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)],
 
 fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str) {
     let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
-    let figure = format!(r#"<figure class="diagram">{}</figure>"#, svg);
+    let clean_svg = strip_google_fonts_import(svg);
+    let figure = format!(r#"<figure class="diagram">{}</figure>"#, clean_svg);
     *html = html.replace(&placeholder, &figure);
+}
+
+/// Strip Google Fonts @import from SVG to avoid external requests.
+///
+/// PlantUML embeds `@import url('https://fonts.googleapis.com/...')` in SVG
+/// when using Roboto font. We remove this since Roboto is bundled locally.
+fn strip_google_fonts_import(svg: &str) -> String {
+    use regex::Regex;
+    let re = Regex::new(r#"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?"#).unwrap();
+    re.replace_all(svg, "").to_string()
 }
 
 fn replace_placeholder_with_png(html: &mut String, index: usize, data_uri: &str) {
