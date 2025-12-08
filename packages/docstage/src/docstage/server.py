@@ -29,6 +29,8 @@ class ServerConfig(TypedDict, total=False):
     config_file: str | None
     dpi: int
     verbose: bool
+    live_reload: bool
+    watch_patterns: list[str] | None
 
 
 async def spa_fallback(request: web.Request) -> web.FileResponse:
@@ -77,6 +79,20 @@ def create_app(config: ServerConfig) -> web.Application:
     app.router.add_routes(create_pages_routes())
     app.router.add_routes(create_navigation_routes())
 
+    # Live reload WebSocket endpoint
+    if config.get("live_reload", False):
+        from docstage.live import LiveReloadManager
+        from docstage.live.reload import create_live_reload_routes
+
+        manager = LiveReloadManager(
+            config["source_dir"],
+            watch_patterns=config.get("watch_patterns"),
+        )
+        app["live_reload_manager"] = manager
+        app.router.add_routes(create_live_reload_routes(manager))
+        app.on_startup.append(_start_live_reload)
+        app.on_cleanup.append(_stop_live_reload)
+
     # Static file serving for frontend (bundled assets)
     static_dir = get_static_dir()
     app["static_dir"] = static_dir
@@ -91,6 +107,22 @@ def create_app(config: ServerConfig) -> web.Application:
     app.router.add_get("/{path:.*}", spa_fallback)
 
     return app
+
+
+async def _start_live_reload(app: web.Application) -> None:
+    """Start live reload on application startup."""
+    from docstage.live import LiveReloadManager
+
+    manager: LiveReloadManager = app["live_reload_manager"]
+    await manager.start()
+
+
+async def _stop_live_reload(app: web.Application) -> None:
+    """Stop live reload on application cleanup."""
+    from docstage.live import LiveReloadManager
+
+    manager: LiveReloadManager = app["live_reload_manager"]
+    await manager.stop()
 
 
 async def _serve_favicon(request: web.Request) -> web.FileResponse:

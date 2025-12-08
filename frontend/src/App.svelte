@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { path, initRouter } from "./stores/router";
+  import { liveReload } from "./stores/liveReload";
   import Layout from "./components/Layout.svelte";
   import Home from "./pages/Home.svelte";
   import Page from "./pages/Page.svelte";
@@ -8,6 +9,11 @@
 
   onMount(() => {
     initRouter();
+    liveReload.start();
+  });
+
+  onDestroy(() => {
+    liveReload.stop();
   });
 
   // Determine which page to render based on path

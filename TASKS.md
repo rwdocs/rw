@@ -8,4 +8,4 @@
 
 ## Current
 
-Implement RD-005: Configuration File.
+Now please implement live reload (described in RD-001). On the backend and frontend.

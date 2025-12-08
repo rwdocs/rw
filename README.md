@@ -34,6 +34,10 @@ include_dirs = ["."]            # PlantUML !include search paths
 config_file = "config.iuml"     # PlantUML config file
 dpi = 192                       # DPI for diagrams (retina)
 
+[live_reload]
+enabled = true                  # Enable live reload (default: true)
+watch_patterns = ["**/*.md"]    # Patterns to watch
+
 [confluence]
 base_url = "https://confluence.example.com"
 access_token = "your-token"
@@ -60,8 +64,11 @@ docstage serve --config /path/to/docstage.toml
 ## Usage
 
 ```bash
-# Start documentation server
+# Start documentation server (with live reload)
 uv run docstage serve
+
+# Start server without live reload
+uv run docstage serve --no-live-reload
 
 # Generate OAuth tokens (requires write permissions in Confluence)
 uv run docstage generate-tokens

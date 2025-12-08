@@ -63,6 +63,11 @@ def cli() -> None:
     is_flag=True,
     help='Enable verbose output (show diagram warnings)',
 )
+@click.option(
+    '--live-reload/--no-live-reload',
+    default=None,
+    help='Enable/disable live reload (overrides config, default: enabled)',
+)
 def serve(
     config_path: Path | None,
     source_dir: Path | None,
@@ -71,6 +76,7 @@ def serve(
     port: int | None,
     kroki_url: str | None,
     verbose: bool,
+    live_reload: bool | None,
 ) -> None:
     """Start the documentation server."""
     from docstage.server import run_server
@@ -82,6 +88,7 @@ def serve(
     effective_source_dir = source_dir if source_dir is not None else config.docs.source_dir
     effective_cache_dir = cache_dir if cache_dir is not None else config.docs.cache_dir
     effective_kroki_url = kroki_url if kroki_url is not None else config.diagrams.kroki_url
+    effective_live_reload = live_reload if live_reload is not None else config.live_reload.enabled
 
     click.echo(f'Starting server on {effective_host}:{effective_port}')
     click.echo(f'Source directory: {effective_source_dir}')
@@ -90,6 +97,10 @@ def serve(
         click.echo(f'Kroki URL: {effective_kroki_url}')
     else:
         click.echo('Diagram rendering: disabled (no kroki_url in config)')
+    if effective_live_reload:
+        click.echo('Live reload: enabled')
+    else:
+        click.echo('Live reload: disabled')
 
     run_server({
         'host': effective_host,
@@ -101,6 +112,8 @@ def serve(
         'config_file': config.diagrams.config_file,
         'dpi': config.diagrams.dpi,
         'verbose': verbose,
+        'live_reload': effective_live_reload,
+        'watch_patterns': config.live_reload.watch_patterns,
     })
 
 

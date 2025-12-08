@@ -47,6 +47,14 @@ class ConfluenceConfig:
 
 
 @dataclass
+class LiveReloadConfig:
+    """Live reload configuration."""
+
+    enabled: bool = True
+    watch_patterns: list[str] | None = None
+
+
+@dataclass
 class ConfluenceTestConfig:
     """Confluence test configuration."""
 
@@ -60,6 +68,7 @@ class Config:
     server: ServerConfig
     docs: DocsConfig
     diagrams: DiagramsConfig
+    live_reload: LiveReloadConfig
     confluence: ConfluenceConfig | None
     confluence_test: ConfluenceTestConfig | None
     config_path: Path | None = None
@@ -120,6 +129,7 @@ class Config:
             server=ServerConfig(),
             docs=DocsConfig(),
             diagrams=DiagramsConfig(),
+            live_reload=LiveReloadConfig(),
             confluence=None,
             confluence_test=None,
         )
@@ -148,6 +158,7 @@ class Config:
         server = cls._parse_server(data.get("server"))
         docs = cls._parse_docs(data.get("docs"), config_dir)
         diagrams = cls._parse_diagrams(data.get("diagrams"), config_dir)
+        live_reload = cls._parse_live_reload(data.get("live_reload"))
         confluence = cls._parse_confluence(data.get("confluence"))
         confluence_test = cls._parse_confluence_test(data.get("confluence", {}).get("test"))
 
@@ -155,6 +166,7 @@ class Config:
             server=server,
             docs=docs,
             diagrams=diagrams,
+            live_reload=live_reload,
             confluence=confluence,
             confluence_test=confluence_test,
             config_path=path,
@@ -262,6 +274,39 @@ class Config:
             config_file=config_file,
             dpi=dpi,
         )
+
+    @classmethod
+    def _parse_live_reload(cls, data: object) -> LiveReloadConfig:
+        """Parse live_reload configuration section.
+
+        Args:
+            data: Raw live_reload section data
+
+        Returns:
+            LiveReloadConfig instance
+        """
+        if data is None:
+            return LiveReloadConfig()
+
+        if not isinstance(data, dict):
+            raise ValueError("live_reload section must be a dictionary")
+
+        enabled = data.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError("live_reload.enabled must be a boolean")
+
+        watch_patterns_raw = data.get("watch_patterns")
+        watch_patterns: list[str] | None = None
+        if watch_patterns_raw is not None:
+            if not isinstance(watch_patterns_raw, list):
+                raise ValueError("live_reload.watch_patterns must be a list")
+            watch_patterns = []
+            for item in watch_patterns_raw:
+                if not isinstance(item, str):
+                    raise ValueError("live_reload.watch_patterns items must be strings")
+                watch_patterns.append(item)
+
+        return LiveReloadConfig(enabled=enabled, watch_patterns=watch_patterns)
 
     @classmethod
     def _parse_confluence(cls, data: object) -> ConfluenceConfig | None:

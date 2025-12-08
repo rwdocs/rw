@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Implement live reload for development mode (RD-001 Phase 5)
+  - Add WebSocket endpoint `/ws/live-reload` for real-time file change notifications
+  - Add `docstage.live` module with `LiveReloadManager` class
+  - Integrate `watchfiles` library for efficient file system monitoring
+  - Add `[live_reload]` configuration section with `enabled` and `watch_patterns` options
+  - Add `--live-reload/--no-live-reload` CLI flag to `serve` command (enabled by default)
+  - Frontend automatically reconnects on connection loss with 2-second retry
+  - Navigation tree reloads when any markdown file changes
+  - Current page reloads when its source file changes
 - Use Roboto font for diagrams with bundled web fonts via `@fontsource/roboto`
   - Strip Google Fonts `@import` from PlantUML SVG output (PlantUML adds it automatically for Roboto)
 - Refactor `convert_html_with_diagrams` for better testability

@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { path } from "../stores/router";
   import { page } from "../stores/page";
+  import { liveReload } from "../stores/liveReload";
 
   // Extract path from location, removing /docs prefix
   let docPath = $derived($path.replace(/^\/docs\/?/, ""));
@@ -12,6 +14,12 @@
       previousPath = docPath;
       page.load(docPath);
     }
+  });
+
+  onMount(() => {
+    liveReload.onReload(() => {
+      page.load(docPath);
+    });
   });
 </script>
 
