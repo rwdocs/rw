@@ -37,6 +37,10 @@ use std::path::{Path, PathBuf};
 
 use pulldown_cmark::{Options, Parser};
 
+use std::sync::LazyLock;
+
+use regex::Regex;
+
 use crate::confluence::ConfluenceRenderer;
 use crate::diagram_filter::{DiagramFilter, DiagramFormat};
 use crate::html::{HtmlRenderer, TocEntry, escape_html};
@@ -46,6 +50,10 @@ use crate::kroki::{
 };
 use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 use crate::plantuml_filter::PlantUmlFilter;
+
+static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?"#).unwrap()
+});
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
@@ -439,9 +447,7 @@ fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str) {
 /// PlantUML embeds `@import url('https://fonts.googleapis.com/...')` in SVG
 /// when using Roboto font. We remove this since Roboto is bundled locally.
 fn strip_google_fonts_import(svg: &str) -> String {
-    use regex::Regex;
-    let re = Regex::new(r#"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?"#).unwrap();
-    re.replace_all(svg, "").to_string()
+    GOOGLE_FONTS_RE.replace_all(svg, "").to_string()
 }
 
 fn replace_placeholder_with_png(html: &mut String, index: usize, data_uri: &str) {
