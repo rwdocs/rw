@@ -9,7 +9,7 @@
   - Integrate `watchfiles` library for efficient file system monitoring
   - Add `[live_reload]` configuration section with `enabled` and `watch_patterns` options
   - Add `--live-reload/--no-live-reload` CLI flag to `serve` command (enabled by default)
-  - Invalidate page and navigation caches when source files change
+  - Invalidate navigation cache when source files change (page cache uses mtime-based invalidation)
   - Frontend automatically reconnects on connection loss with 2-second retry
   - Navigation tree reloads when any markdown file changes
   - Current page reloads when its source file changes
