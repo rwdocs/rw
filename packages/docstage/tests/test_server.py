@@ -9,8 +9,10 @@ from aiohttp import web
 from docstage.app_keys import cache_key, navigation_key, renderer_key
 from docstage.assets import get_static_dir
 from docstage.server import ServerConfig, create_app
+from tests.test_assets import requires_bundled_assets
 
 
+@requires_bundled_assets
 class TestCreateApp:
     """Tests for create_app()."""
 
@@ -54,6 +56,7 @@ class TestCreateApp:
         assert app["static_dir"] == get_static_dir()
 
 
+@requires_bundled_assets
 class TestSpaFallback:
     """Tests for SPA fallback route."""
 

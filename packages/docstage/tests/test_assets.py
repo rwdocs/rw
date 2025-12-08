@@ -1,13 +1,27 @@
 """Tests for assets module."""
 
 import pytest
+from importlib.resources import files
 
 from docstage.assets import get_static_dir
+
+
+def _bundled_assets_exist() -> bool:
+    """Check if bundled frontend assets exist."""
+    static = files("docstage").joinpath("static")
+    return static.is_dir() and (static / "index.html").is_file()
+
+
+requires_bundled_assets = pytest.mark.skipif(
+    not _bundled_assets_exist(),
+    reason="Bundled assets not found. Run 'cd frontend && npm run build:bundle'.",
+)
 
 
 class TestGetStaticDir:
     """Tests for get_static_dir()."""
 
+    @requires_bundled_assets
     def test__bundled_assets_exist__returns_path(self) -> None:
         """Bundled assets directory should be accessible."""
         static_dir = get_static_dir()

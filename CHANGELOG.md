@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### 2025-12-08
+- Address PR review feedback for bundled assets
+  - Fix error message to reference correct build command (`npm run build:bundle`)
+  - Add `requires_bundled_assets` skip marker for tests depending on bundled assets
+
 ### 2025-12-07
 - Bundle frontend assets into Python package (RD-003)
   - Add `docstage.assets` module with `get_static_dir()` for bundled asset discovery

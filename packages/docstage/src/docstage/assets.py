@@ -20,7 +20,7 @@ def get_static_dir() -> Path:
     if not static.is_dir():
         msg = (
             "Bundled static assets not found. "
-            "Run 'cd frontend && npm run build' then 'uv sync --reinstall'."
+            "Run 'cd frontend && npm run build:bundle' then 'uv sync --reinstall'."
         )
         raise FileNotFoundError(msg)
     return Path(str(static))
