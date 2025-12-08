@@ -268,6 +268,7 @@ pub fn render_all(
         .build()
         .into();
 
+    let server_url = server_url.trim_end_matches('/');
     let results: Vec<Result<RenderedDiagram, DiagramError>> = pool.install(|| {
         diagrams
             .par_iter()
@@ -313,9 +314,7 @@ fn render_one_svg(
             // Try to read error body for more details
             return Err(DiagramError {
                 index: diagram.index,
-                kind: DiagramErrorKind::Http(format!(
-                    "HTTP {status} from {url}"
-                )),
+                kind: DiagramErrorKind::Http(format!("HTTP {status} from {url}")),
             });
         }
         Err(e) => {
@@ -383,6 +382,15 @@ fn render_one_png_data_uri(
     })
 }
 
+/// Result of rendering diagrams with partial failures.
+#[derive(Debug)]
+pub struct PartialRenderResult<T> {
+    /// Successfully rendered diagrams.
+    pub rendered: Vec<T>,
+    /// Errors for diagrams that failed to render.
+    pub errors: Vec<DiagramError>,
+}
+
 /// Render all diagrams to SVG in parallel using Kroki service.
 ///
 /// Unlike [`render_all`], this returns SVG strings directly without writing files.
@@ -404,8 +412,41 @@ pub fn render_all_svg(
     server_url: &str,
     pool_size: usize,
 ) -> Result<Vec<RenderedSvg>, RenderError> {
+    let result = render_all_svg_partial(diagrams, server_url, pool_size)?;
+    if result.errors.is_empty() {
+        Ok(result.rendered)
+    } else {
+        Err(RenderError::Multiple(result.errors))
+    }
+}
+
+/// Render all diagrams to SVG in parallel, returning partial results on failure.
+///
+/// Unlike [`render_all_svg`], this returns successfully rendered diagrams even when
+/// some diagrams fail. Use this when you want to show partial results rather than
+/// failing completely.
+///
+/// # Arguments
+/// * `diagrams` - List of diagrams to render
+/// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
+/// * `pool_size` - Number of parallel threads
+///
+/// # Returns
+/// Partial result containing both successful renders and errors.
+///
+/// # Errors
+///
+/// Returns `RenderError::Io` if thread pool creation fails.
+pub fn render_all_svg_partial(
+    diagrams: &[DiagramRequest],
+    server_url: &str,
+    pool_size: usize,
+) -> Result<PartialRenderResult<RenderedSvg>, RenderError> {
     if diagrams.is_empty() {
-        return Ok(Vec::new());
+        return Ok(PartialRenderResult {
+            rendered: Vec::new(),
+            errors: Vec::new(),
+        });
     }
 
     let pool = rayon::ThreadPoolBuilder::new()
@@ -439,11 +480,7 @@ pub fn render_all_svg(
         }
     }
 
-    if errors.is_empty() {
-        Ok(rendered)
-    } else {
-        Err(RenderError::Multiple(errors))
-    }
+    Ok(PartialRenderResult { rendered, errors })
 }
 
 /// Render all diagrams to PNG as base64 data URIs in parallel.
@@ -464,8 +501,37 @@ pub fn render_all_png_data_uri(
     server_url: &str,
     pool_size: usize,
 ) -> Result<Vec<RenderedPngDataUri>, RenderError> {
+    let result = render_all_png_data_uri_partial(diagrams, server_url, pool_size)?;
+    if result.errors.is_empty() {
+        Ok(result.rendered)
+    } else {
+        Err(RenderError::Multiple(result.errors))
+    }
+}
+
+/// Render all diagrams to PNG as base64 data URIs, returning partial results on failure.
+///
+/// Unlike [`render_all_png_data_uri`], this returns successfully rendered diagrams even when
+/// some diagrams fail.
+///
+/// # Arguments
+/// * `diagrams` - List of diagrams to render
+/// * `server_url` - Kroki server URL
+/// * `pool_size` - Number of parallel threads
+///
+/// # Errors
+///
+/// Returns `RenderError::Io` if thread pool creation fails.
+pub fn render_all_png_data_uri_partial(
+    diagrams: &[DiagramRequest],
+    server_url: &str,
+    pool_size: usize,
+) -> Result<PartialRenderResult<RenderedPngDataUri>, RenderError> {
     if diagrams.is_empty() {
-        return Ok(Vec::new());
+        return Ok(PartialRenderResult {
+            rendered: Vec::new(),
+            errors: Vec::new(),
+        });
     }
 
     let pool = rayon::ThreadPoolBuilder::new()
@@ -499,11 +565,7 @@ pub fn render_all_png_data_uri(
         }
     }
 
-    if errors.is_empty() {
-        Ok(rendered)
-    } else {
-        Err(RenderError::Multiple(errors))
-    }
+    Ok(PartialRenderResult { rendered, errors })
 }
 
 #[cfg(test)]

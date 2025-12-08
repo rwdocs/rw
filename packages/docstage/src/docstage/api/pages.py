@@ -11,7 +11,7 @@ from time import mktime
 
 from aiohttp import web
 
-from docstage.app_keys import navigation_key, renderer_key
+from docstage.app_keys import navigation_key, renderer_key, verbose_key
 from docstage.core.navigation import NavigationBuilder
 
 
@@ -35,7 +35,7 @@ async def get_page(request: web.Request) -> web.Response:
         )
 
     # Log warnings in verbose mode
-    if request.app.get("verbose") and result.warnings:
+    if request.app[verbose_key] and result.warnings:
         for warning in result.warnings:
             print(f"[WARNING] {path}: {warning}", file=sys.stderr)
 

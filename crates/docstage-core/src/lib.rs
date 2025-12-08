@@ -67,8 +67,9 @@ pub use converter::{
 pub use diagram_filter::{DiagramFilter, DiagramFormat, DiagramLanguage, ExtractedDiagram};
 pub use html::{HtmlRenderResult, HtmlRenderer, TocEntry, escape_html};
 pub use kroki::{
-    DiagramError, DiagramErrorKind, DiagramRequest, RenderError, RenderedDiagram,
-    RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri, render_all_svg,
+    DiagramError, DiagramErrorKind, DiagramRequest, PartialRenderResult, RenderError,
+    RenderedDiagram, RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri,
+    render_all_png_data_uri_partial, render_all_svg, render_all_svg_partial,
 };
 pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 // Re-export for backwards compatibility (deprecated)

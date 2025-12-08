@@ -82,7 +82,7 @@ class PageRenderer:
         self._config_file = config_file
         self._dpi = dpi
 
-        effective_include_dirs = include_dirs if include_dirs else [source_dir] if kroki_url else None
+        effective_include_dirs: list[Path] = include_dirs or ([source_dir] if kroki_url else [])
         converter_include_dirs = [str(d) for d in effective_include_dirs] if effective_include_dirs else None
         self._converter = MarkdownConverter(
             gfm=True,

@@ -53,7 +53,8 @@ fn resolve_includes(
         for dir in include_dirs {
             let full_path = dir.join(include_path);
             if let Ok(content) = std::fs::read_to_string(&full_path) {
-                let resolved_content = resolve_includes(&content, include_dirs, depth + 1, warnings);
+                let resolved_content =
+                    resolve_includes(&content, include_dirs, depth + 1, warnings);
                 result = result.replace(full_match, &resolved_content);
                 resolved = true;
                 break;

@@ -123,26 +123,50 @@ pub struct ExtractedDiagram {
     pub format: DiagramFormat,
 }
 
+/// Result of parsing a code fence info string.
+struct ParsedInfoString {
+    language: DiagramLanguage,
+    format: DiagramFormat,
+    warnings: Vec<String>,
+}
+
 /// Parse code fence info string into language and attributes.
 ///
 /// Format: `language [key=value ...]`
 ///
 /// Example: `plantuml format=png` → `(PlantUml, Png)`
-fn parse_info_string(info: &str) -> Option<(DiagramLanguage, DiagramFormat)> {
+fn parse_info_string(info: &str) -> Option<ParsedInfoString> {
     let mut parts = info.split_whitespace();
     let language = DiagramLanguage::parse(parts.next()?)?;
 
     let mut format = DiagramFormat::default();
+    let mut warnings = Vec::new();
+
     for part in parts {
-        if let Some((key, value)) = part.split_once('=')
-            && key == "format"
-            && let Some(f) = DiagramFormat::parse(value)
-        {
-            format = f;
+        if let Some((key, value)) = part.split_once('=') {
+            if key == "format" {
+                if let Some(f) = DiagramFormat::parse(value) {
+                    format = f;
+                } else {
+                    warnings.push(format!(
+                        "unknown format value '{value}', using default 'svg' (valid: svg, png, img)"
+                    ));
+                }
+            } else {
+                warnings.push(format!("unknown attribute '{key}' ignored (valid: format)"));
+            }
+        } else {
+            warnings.push(format!(
+                "malformed attribute '{part}' ignored (expected key=value)"
+            ));
         }
     }
 
-    Some((language, format))
+    Some(ParsedInfoString {
+        language,
+        format,
+        warnings,
+    })
 }
 
 /// Iterator adapter that extracts diagrams from a pulldown-cmark event stream.
@@ -152,9 +176,11 @@ fn parse_info_string(info: &str) -> Option<(DiagramLanguage, DiagramFormat)> {
 /// - Collects their source code into `ExtractedDiagram` structs
 /// - Emits `{{DIAGRAM_N}}` placeholder as `Event::Html`
 /// - Passes through all other events unchanged
+/// - Collects warnings for unknown attributes or format values
 pub struct DiagramFilter<'a, I: Iterator<Item = Event<'a>>> {
     iter: I,
     diagrams: Vec<ExtractedDiagram>,
+    warnings: Vec<String>,
     state: FilterState,
 }
 
@@ -175,6 +201,7 @@ impl<'a, I: Iterator<Item = Event<'a>>> DiagramFilter<'a, I> {
         Self {
             iter,
             diagrams: Vec::new(),
+            warnings: Vec::new(),
             state: FilterState::Normal,
         }
     }
@@ -189,6 +216,18 @@ impl<'a, I: Iterator<Item = Event<'a>>> DiagramFilter<'a, I> {
     #[must_use]
     pub fn into_diagrams(self) -> Vec<ExtractedDiagram> {
         self.diagrams
+    }
+
+    /// Get a reference to the warnings collected so far.
+    #[must_use]
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    /// Consume the filter and return both diagrams and warnings.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<ExtractedDiagram>, Vec<String>) {
+        (self.diagrams, self.warnings)
     }
 }
 
@@ -205,11 +244,16 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for DiagramFilter<'a, I> {
                     FilterState::Normal,
                     Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))),
                 ) => {
-                    if let Some((language, format)) = parse_info_string(&info) {
+                    if let Some(parsed) = parse_info_string(&info) {
+                        // Collect any warnings from parsing with diagram context
+                        let diagram_index = self.diagrams.len();
+                        for w in parsed.warnings {
+                            self.warnings.push(format!("diagram {diagram_index}: {w}"));
+                        }
                         self.state = FilterState::InDiagram {
                             source: String::new(),
-                            language,
-                            format,
+                            language: parsed.language,
+                            format: parsed.format,
                         };
                         // Don't emit the Start event, continue to collect content
                     } else {
@@ -227,25 +271,28 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for DiagramFilter<'a, I> {
                 (FilterState::InDiagram { .. }, Event::End(TagEnd::CodeBlock)) => {
                     // Take the state and reset to Normal
                     let old_state = std::mem::take(&mut self.state);
-                    if let FilterState::InDiagram {
+                    let FilterState::InDiagram {
                         source,
                         language,
                         format,
                     } = old_state
-                    {
-                        let index = self.diagrams.len();
-                        self.diagrams.push(ExtractedDiagram {
-                            source,
-                            index,
-                            language,
-                            format,
-                        });
+                    else {
+                        // Should not happen - state machine invariant violated
+                        // Continue without emitting anything rather than panicking
+                        continue;
+                    };
 
-                        // Emit placeholder as Html event (passes through unchanged)
-                        let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-                        return Some(Event::Html(CowStr::Boxed(placeholder.into_boxed_str())));
-                    }
-                    unreachable!()
+                    let index = self.diagrams.len();
+                    self.diagrams.push(ExtractedDiagram {
+                        source,
+                        index,
+                        language,
+                        format,
+                    });
+
+                    // Emit placeholder as Html event (passes through unchanged)
+                    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
+                    return Some(Event::Html(CowStr::Boxed(placeholder.into_boxed_str())));
                 }
 
                 // Any other event while in diagram block (shouldn't happen normally)
@@ -443,19 +490,63 @@ graph TD
 
     #[test]
     fn test_parse_info_string() {
-        assert_eq!(
-            parse_info_string("plantuml"),
-            Some((DiagramLanguage::PlantUml, DiagramFormat::Svg))
-        );
-        assert_eq!(
-            parse_info_string("plantuml format=png"),
-            Some((DiagramLanguage::PlantUml, DiagramFormat::Png))
-        );
-        assert_eq!(
-            parse_info_string("mermaid format=img"),
-            Some((DiagramLanguage::Mermaid, DiagramFormat::Img))
-        );
-        assert_eq!(parse_info_string("rust"), None);
-        assert_eq!(parse_info_string(""), None);
+        let result = parse_info_string("plantuml").unwrap();
+        assert_eq!(result.language, DiagramLanguage::PlantUml);
+        assert_eq!(result.format, DiagramFormat::Svg);
+        assert!(result.warnings.is_empty());
+
+        let result = parse_info_string("plantuml format=png").unwrap();
+        assert_eq!(result.language, DiagramLanguage::PlantUml);
+        assert_eq!(result.format, DiagramFormat::Png);
+        assert!(result.warnings.is_empty());
+
+        let result = parse_info_string("mermaid format=img").unwrap();
+        assert_eq!(result.language, DiagramLanguage::Mermaid);
+        assert_eq!(result.format, DiagramFormat::Img);
+        assert!(result.warnings.is_empty());
+
+        assert!(parse_info_string("rust").is_none());
+        assert!(parse_info_string("").is_none());
+    }
+
+    #[test]
+    fn test_parse_info_string_unknown_format() {
+        let result = parse_info_string("plantuml format=jpeg").unwrap();
+        assert_eq!(result.language, DiagramLanguage::PlantUml);
+        assert_eq!(result.format, DiagramFormat::Svg); // fallback
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("unknown format value 'jpeg'"));
+    }
+
+    #[test]
+    fn test_parse_info_string_unknown_attribute() {
+        let result = parse_info_string("plantuml size=large").unwrap();
+        assert_eq!(result.language, DiagramLanguage::PlantUml);
+        assert_eq!(result.format, DiagramFormat::Svg);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("unknown attribute 'size'"));
+    }
+
+    #[test]
+    fn test_parse_info_string_malformed_attribute() {
+        let result = parse_info_string("plantuml nope").unwrap();
+        assert_eq!(result.language, DiagramLanguage::PlantUml);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("malformed attribute 'nope'"));
+    }
+
+    #[test]
+    fn test_filter_collects_warnings() {
+        let markdown = "```plantuml formt=png\n@startuml\nA -> B\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = DiagramFilter::new(parser);
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        let (diagrams, warnings) = filter.into_parts();
+        assert_eq!(diagrams.len(), 1);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("diagram 0"));
+        assert!(warnings[0].contains("unknown attribute 'formt'"));
     }
 }

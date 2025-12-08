@@ -10,7 +10,7 @@ from aiohttp import web
 
 from docstage.api.navigation import create_navigation_routes
 from docstage.api.pages import create_pages_routes
-from docstage.app_keys import cache_key, navigation_key, renderer_key
+from docstage.app_keys import cache_key, navigation_key, renderer_key, verbose_key
 from docstage.assets import get_static_dir
 from docstage.core.cache import FileCache
 from docstage.core.navigation import NavigationBuilder
@@ -71,7 +71,7 @@ def create_app(config: ServerConfig) -> web.Application:
     app[renderer_key] = renderer
     app[navigation_key] = navigation
     app[cache_key] = cache
-    app["verbose"] = config.get("verbose", False)
+    app[verbose_key] = config.get("verbose", False)
 
     # API routes (must be registered first to take precedence over SPA fallback)
     app.router.add_routes(create_pages_routes())

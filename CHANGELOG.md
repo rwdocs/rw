@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Improve diagram rendering robustness and error handling
+  - Add per-diagram error handling: failed diagrams show errors while successful ones render
+  - Add warning when `format=img` is used (not yet implemented, falls back to inline SVG)
+  - Add warnings for unknown attributes (e.g., `formt=png` typo) and invalid format values
+  - Replace `unreachable!()` with defensive handling in diagram filter
+  - Normalize URL trimming consistently in all Kroki render functions
+  - Add `render_all_svg_partial` and `render_all_png_data_uri_partial` for partial success handling
+- Add typed `verbose_key` app key for type-safe access
+- Simplify `include_dirs` default logic in `PageRenderer`
 - Add verbose mode for diagram rendering warnings
   - Add `--verbose` / `-v` flag to `serve` command
   - Log warnings for unresolved `!include` files to stderr
