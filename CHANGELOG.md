@@ -24,6 +24,7 @@
   - Fix error message to reference correct build command (`npm run build:bundle`)
   - Add `requires_bundled_assets` skip marker for tests depending on bundled assets
 - Fix outdated docstring on `with_title_extraction()` method
+- Add test for empty breadcrumbs when parent directory has no index.md
 
 ### 2025-12-07
 - Bundle frontend assets into Python package (RD-003)

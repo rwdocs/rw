@@ -108,6 +108,24 @@ class TestGetPage:
         assert data["toc"][1]["title"] == "Section Two"
 
     @pytest.mark.asyncio
+    async def test__response__empty_breadcrumbs_when_parent_not_navigable(
+        self, docs_dir: Path, client
+    ) -> None:
+        """Return empty breadcrumbs when parent directory has no index.md."""
+        domain = docs_dir / "domain"
+        domain.mkdir()
+        # domain has no index.md, so it's not navigable
+        (domain / "guide.md").write_text("# Guide\n\nContent.")
+
+        test_client = await client
+        response = await test_client.get("/api/pages/domain/guide")
+
+        assert response.status == 200
+        data = await response.json()
+        # No navigable parents, so breadcrumbs should be empty
+        assert data["breadcrumbs"] == []
+
+    @pytest.mark.asyncio
     async def test__response__includes_only_navigable_breadcrumbs(
         self, docs_dir: Path, client
     ) -> None:
