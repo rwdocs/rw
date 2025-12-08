@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Refactor `convert_html_with_diagrams` for better testability
+  - Extract `replace_svg_diagrams` and `replace_png_diagrams` helper functions
+  - Add `replace_placeholder_with_svg`, `replace_placeholder_with_png`, and `replace_placeholder_with_error` helpers
 - Improve diagram rendering robustness and error handling
   - Add per-diagram error handling: failed diagrams show errors while successful ones render
   - Add warning when `format=img` is used (not yet implemented, falls back to inline SVG)

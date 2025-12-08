@@ -41,7 +41,7 @@ use crate::confluence::ConfluenceRenderer;
 use crate::diagram_filter::{DiagramFilter, DiagramFormat};
 use crate::html::{HtmlRenderer, TocEntry, escape_html};
 use crate::kroki::{
-    DiagramRequest, RenderError, render_all, render_all_png_data_uri_partial,
+    DiagramError, DiagramRequest, RenderError, render_all, render_all_png_data_uri_partial,
     render_all_svg_partial,
 };
 use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
@@ -356,79 +356,8 @@ impl MarkdownConverter {
                 }
             }
 
-            // Render SVG diagrams
-            if !svg_diagrams.is_empty() {
-                let requests: Vec<_> = svg_diagrams.iter().map(|(_, r)| r.clone()).collect();
-                match render_all_svg_partial(&requests, kroki_url, 4) {
-                    Ok(result) => {
-                        // Replace successful diagrams with rendered SVG
-                        for r in result.rendered {
-                            let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
-                            let figure =
-                                format!(r#"<figure class="diagram">{}</figure>"#, r.svg.trim());
-                            html = html.replace(&placeholder, &figure);
-                        }
-                        // Replace failed diagrams with error messages
-                        for e in result.errors {
-                            let placeholder = format!("{{{{DIAGRAM_{}}}}}", e.index);
-                            let error_figure = format!(
-                                r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
-                                escape_html(&e.to_string())
-                            );
-                            html = html.replace(&placeholder, &error_figure);
-                        }
-                    }
-                    Err(e) => {
-                        // Thread pool creation failed - replace all with same error
-                        for (idx, _) in &svg_diagrams {
-                            let placeholder = format!("{{{{DIAGRAM_{}}}}}", idx);
-                            let error_figure = format!(
-                                r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
-                                escape_html(&e.to_string())
-                            );
-                            html = html.replace(&placeholder, &error_figure);
-                        }
-                    }
-                }
-            }
-
-            // Render PNG diagrams (as base64 data URIs)
-            if !png_diagrams.is_empty() {
-                let requests: Vec<_> = png_diagrams.iter().map(|(_, r)| r.clone()).collect();
-                match render_all_png_data_uri_partial(&requests, kroki_url, 4) {
-                    Ok(result) => {
-                        // Replace successful diagrams with rendered PNG
-                        for r in result.rendered {
-                            let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
-                            let figure = format!(
-                                r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
-                                r.data_uri
-                            );
-                            html = html.replace(&placeholder, &figure);
-                        }
-                        // Replace failed diagrams with error messages
-                        for e in result.errors {
-                            let placeholder = format!("{{{{DIAGRAM_{}}}}}", e.index);
-                            let error_figure = format!(
-                                r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
-                                escape_html(&e.to_string())
-                            );
-                            html = html.replace(&placeholder, &error_figure);
-                        }
-                    }
-                    Err(e) => {
-                        // Thread pool creation failed - replace all with same error
-                        for (idx, _) in &png_diagrams {
-                            let placeholder = format!("{{{{DIAGRAM_{}}}}}", idx);
-                            let error_figure = format!(
-                                r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
-                                escape_html(&e.to_string())
-                            );
-                            html = html.replace(&placeholder, &error_figure);
-                        }
-                    }
-                }
-            }
+            replace_svg_diagrams(&mut html, &svg_diagrams, kroki_url);
+            replace_png_diagrams(&mut html, &png_diagrams, kroki_url);
         }
 
         HtmlConvertResult {
@@ -438,4 +367,90 @@ impl MarkdownConverter {
             warnings,
         }
     }
+}
+
+/// Replace diagram placeholders with rendered SVG content.
+///
+/// Attempts to render all diagrams via Kroki. On success, replaces placeholders
+/// with `<figure class="diagram">` containing the SVG. On failure, replaces
+/// with an error message in `<figure class="diagram diagram-error">`.
+fn replace_svg_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)], kroki_url: &str) {
+    if diagrams.is_empty() {
+        return;
+    }
+
+    let requests: Vec<_> = diagrams.iter().map(|(_, r)| r.clone()).collect();
+    match render_all_svg_partial(&requests, kroki_url, 4) {
+        Ok(result) => {
+            for r in result.rendered {
+                replace_placeholder_with_svg(html, r.index, r.svg.trim());
+            }
+            for e in result.errors {
+                replace_placeholder_with_error(html, e);
+            }
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+            for (idx, _) in diagrams {
+                replace_placeholder_with_error_msg(html, *idx, &error_msg);
+            }
+        }
+    }
+}
+
+/// Replace diagram placeholders with rendered PNG content as data URIs.
+///
+/// Attempts to render all diagrams via Kroki. On success, replaces placeholders
+/// with `<figure class="diagram">` containing an `<img>` tag with base64 data URI.
+/// On failure, replaces with an error message in `<figure class="diagram diagram-error">`.
+fn replace_png_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)], kroki_url: &str) {
+    if diagrams.is_empty() {
+        return;
+    }
+
+    let requests: Vec<_> = diagrams.iter().map(|(_, r)| r.clone()).collect();
+    match render_all_png_data_uri_partial(&requests, kroki_url, 4) {
+        Ok(result) => {
+            for r in result.rendered {
+                replace_placeholder_with_png(html, r.index, &r.data_uri);
+            }
+            for e in result.errors {
+                replace_placeholder_with_error(html, e);
+            }
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+            for (idx, _) in diagrams {
+                replace_placeholder_with_error_msg(html, *idx, &error_msg);
+            }
+        }
+    }
+}
+
+fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str) {
+    let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
+    let figure = format!(r#"<figure class="diagram">{}</figure>"#, svg);
+    *html = html.replace(&placeholder, &figure);
+}
+
+fn replace_placeholder_with_png(html: &mut String, index: usize, data_uri: &str) {
+    let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
+    let figure = format!(
+        r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
+        data_uri
+    );
+    *html = html.replace(&placeholder, &figure);
+}
+
+fn replace_placeholder_with_error(html: &mut String, error: DiagramError) {
+    replace_placeholder_with_error_msg(html, error.index, &error.to_string());
+}
+
+fn replace_placeholder_with_error_msg(html: &mut String, index: usize, error_msg: &str) {
+    let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
+    let error_figure = format!(
+        r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
+        escape_html(error_msg)
+    );
+    *html = html.replace(&placeholder, &error_figure);
 }
