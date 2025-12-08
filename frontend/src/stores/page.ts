@@ -21,7 +21,7 @@ function createPageStore() {
     subscribe,
 
     /** Load a page by path */
-    async load(path: string) {
+    async load(path: string, options?: { bypassCache?: boolean }) {
       update((state) => ({
         ...state,
         loading: true,
@@ -29,7 +29,7 @@ function createPageStore() {
         notFound: false,
       }));
       try {
-        const data = await fetchPage(path);
+        const data = await fetchPage(path, options);
         set({ data, loading: false, error: null, notFound: false });
         // Update document title
         if (data.meta.title) {

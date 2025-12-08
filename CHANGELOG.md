@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Fix browser cache preventing live reload from showing updated content
+  - Add `bypassCache` option to `fetchNavigation` and `fetchPage` API client functions
+  - Use `cache: "no-store"` fetch option when bypassCache is true
+  - Navigation store passes bypassCache to API on live reload
+  - Page store passes bypassCache to API on live reload
 - Implement separate diagram caching for efficient live reload
   - Add content-based diagram caching using SHA-256 hash of source + endpoint + format
   - Add `docstage.core.diagrams` module for diagram rendering with caching

@@ -18,7 +18,7 @@
 
   onMount(() => {
     liveReload.onReload(() => {
-      page.load(docPath);
+      page.load(docPath, { bypassCache: true });
     });
   });
 </script>

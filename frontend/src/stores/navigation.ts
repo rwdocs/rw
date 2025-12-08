@@ -47,10 +47,10 @@ function createNavigationStore() {
     subscribe,
 
     /** Load navigation tree from API */
-    async load() {
+    async load(options?: { bypassCache?: boolean }) {
       update((state) => ({ ...state, loading: true, error: null }));
       try {
-        const tree = await fetchNavigation();
+        const tree = await fetchNavigation(options);
         update((state) => ({ ...state, tree, loading: false }));
       } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";

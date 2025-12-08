@@ -72,7 +72,7 @@ function createLiveReloadStore() {
       console.log("[LiveReload] File changed:", changedPath);
     }
 
-    navigation.load();
+    navigation.load({ bypassCache: true });
 
     const currentPath = get(path);
     if (onReloadCallback && shouldReload(currentPath, changedPath)) {
