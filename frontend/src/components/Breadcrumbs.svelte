@@ -14,7 +14,7 @@
       <li>
         <a href="/" class="hover:text-gray-700 hover:underline">Home</a>
       </li>
-      {#each breadcrumbs as crumb, i (crumb.path)}
+      {#each breadcrumbs as crumb (crumb.path)}
         <li class="flex items-center">
           <svg
             class="w-4 h-4 mx-2 text-gray-400"
@@ -27,16 +27,12 @@
               clip-rule="evenodd"
             />
           </svg>
-          {#if i === breadcrumbs.length - 1}
-            <span class="text-gray-900 font-medium">{crumb.title}</span>
-          {:else}
-            <a
-              href="/docs{crumb.path}"
-              class="hover:text-gray-700 hover:underline"
-            >
-              {crumb.title}
-            </a>
-          {/if}
+          <a
+            href="/docs{crumb.path}"
+            class="hover:text-gray-700 hover:underline"
+          >
+            {crumb.title}
+          </a>
         </li>
       {/each}
     </ol>

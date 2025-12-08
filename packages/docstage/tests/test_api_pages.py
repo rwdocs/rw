@@ -108,10 +108,10 @@ class TestGetPage:
         assert data["toc"][1]["title"] == "Section Two"
 
     @pytest.mark.asyncio
-    async def test__response__includes_breadcrumbs(
+    async def test__response__includes_breadcrumbs_excluding_current_page(
         self, docs_dir: Path, client
     ) -> None:
-        """Include breadcrumbs in response."""
+        """Include breadcrumbs in response, excluding the current page."""
         nested = docs_dir / "domain" / "subdomain"
         nested.mkdir(parents=True)
         (docs_dir / "domain" / "index.md").write_text("# Domain\n\nContent.")
@@ -122,10 +122,11 @@ class TestGetPage:
 
         assert response.status == 200
         data = await response.json()
-        assert len(data["breadcrumbs"]) == 3
+        # Breadcrumbs exclude current page (guide), showing only path to it
+        assert len(data["breadcrumbs"]) == 2
         assert data["breadcrumbs"][0]["title"] == "Domain"
         assert data["breadcrumbs"][0]["path"] == "/domain"
-        assert data["breadcrumbs"][2]["path"] == "/domain/subdomain/guide"
+        assert data["breadcrumbs"][1]["path"] == "/domain/subdomain"
 
     @pytest.mark.asyncio
     async def test__response__includes_cache_headers(

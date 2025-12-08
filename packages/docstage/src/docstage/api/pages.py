@@ -80,10 +80,21 @@ def _build_breadcrumbs(
     path: str,
     navigation: NavigationBuilder,
 ) -> list[dict[str, str]]:
+    """Build breadcrumbs for the given path, excluding the current page.
+
+    Returns breadcrumb trail leading to the current page, but not including it.
+    For example, path "domain/subdomain/guide" returns breadcrumbs for
+    "domain" and "subdomain" only.
+    """
     if not path:
         return []
 
     parts = path.split("/")
+    # Exclude the last part (current page) from breadcrumbs
+    if len(parts) <= 1:
+        return []
+
+    parent_parts = parts[:-1]
     breadcrumbs: list[dict[str, str]] = []
     # Navigation tree is cached by NavigationBuilder, so this is efficient
     nav_tree = navigation.build()
@@ -91,7 +102,7 @@ def _build_breadcrumbs(
     current_path = ""
     items = nav_tree.items
 
-    for part in parts:
+    for part in parent_parts:
         current_path = f"{current_path}/{part}" if current_path else f"/{part}"
 
         title = part.replace("-", " ").replace("_", " ").title()

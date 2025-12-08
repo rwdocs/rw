@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Remove current page from breadcrumbs
+  - Breadcrumbs now show only the path to the current page, not including it
+  - Backend `_build_breadcrumbs` excludes last path segment
+  - Frontend simplified to render all breadcrumb items as links
 - Improve ToC sidebar styling
   - Remove left border
   - Position ToC at page H1 level instead of top
