@@ -1,0 +1,40 @@
+<h1 id="kassa">Оплата привязанной картой в ЮKassa</h1><pre><code class="language-plantuml">!include c4/sequence.iuml
+
+!include actors/customer.iuml
+!include systems/svc_billing_accounts.iuml
+!include systems/ext/sys_audience_auth.iuml
+!include systems/ext/sys_moderation_sanctions.iuml
+ContainerDb_Ext(db_billing, &quot;Billing&quot;, &quot;MSSQL&quot;)
+!include systems/svc_yandex_payments.iuml
+!include systems/ext/sys_yookassa.iuml
+
+Rel(customer, svc_billing_accounts, &quot;Совершает платеж через привязанную карту&quot;, $descr=&quot;POST /public/v1/yookassa/deposit-amount-linked-card-onclick/&quot;)
+
+Rel(svc_billing_accounts, sys_audience_auth, &quot;Запрашивает пользователя&quot;, $descr=&quot;GET /v2/get-user/&quot;)
+Rel(sys_audience_auth, svc_billing_accounts, &quot;Возвращает пользователя&quot;)
+
+Rel(svc_billing_accounts, sys_moderation_sanctions, &quot;Запрашивает наличие санкции DenyPayment&quot;, $descr=&quot;GET /v1/has-user-sanction/&quot;)
+Rel(sys_moderation_sanctions, svc_billing_accounts, &quot;Возвращает наличие санкции&quot;)
+
+Rel(svc_billing_accounts, db_billing, &quot;Запрашивает информацию о плательщике&quot;, $descr=&quot;Billing.Accounts&quot;)
+Rel(db_billing, svc_billing_accounts, &quot;Возвращает информацию о плательщике&quot;)
+
+Rel(svc_billing_accounts, db_billing, &quot;Запрашивает список привязанных карт покупателя&quot;, $descr=&quot;Payment.ApprovedCards&quot;)
+Rel(db_billing, svc_billing_accounts, &quot;Возвращает список карт&quot;)
+
+Rel(svc_billing_accounts, svc_yandex_payments, &quot;Создает платеж&quot;, $descr=&quot;POST /v1/create-recurring-payment/&quot;)
+Rel(svc_yandex_payments, sys_yookassa, &quot;Создает платеж&quot;)
+Rel(sys_yookassa, svc_yandex_payments, &quot;Возвращает платеж&quot;)
+Rel(svc_yandex_payments, svc_billing_accounts, &quot;Возвращает платеж&quot;)
+
+Rel(svc_billing_accounts, customer, &quot;Возвращает ID платежа&quot;)
+</code></pre><h2 id="">Кошелек ЛК Риэлтора</h2><p>Мкс <code>lk-specialist-wallet-frontend</code>. Проводит оплату через метод
+<code>/public/v1/yookassa/deposit-amount-linked-card-onclick/</code> мкса <code>billing-accounts</code>. Список
+привязанных карт получает через <code>POST /public/v2/get-data/</code> мкса <code>lk-specialist</code>, который
+проксирует запрос в <code>GET /lk/1.0/data/linked_card</code> монолита Python.</p><h2 id="-1">Виджет оплаты</h2><p>Мкс <code>payment-widget-frontend</code>. Проводит оплату через метод
+<code>/public/v1/yookassa/deposit-amount-linked-card-onclick/</code> мкса <code>billing-accounts</code>. Список
+привязанных карт получает через <code>GET /public/v1/get-payment-widget-methods/</code> мкса
+<code>billing-payments</code>.</p><h2 id="c">C# Монолит</h2><pre><code>AccountAutoPayService.AutoPayAsync
+  &lt;- POST /api/profile/autopay/pay/ (нет вызовов, скорее всего не используется)
+  &lt;- AutoPayByPeriodTask
+</code></pre><h2 id="notes">NOTES</h2><ul><li><code>/v1/deposit-amount-recurring/</code> (<code>monolith-cian-profileapi</code>, <code>monolith-cian-realty</code>)</li><li>Кто еще работает с <code>Payment.ApprovedCards</code>?</li><li>Почему здесь нет сохранения платежа в V3 Log?</li><li>Получение списка привязанных карт — <code>POST /api/profile/autopay/get-card</code> в <code>profileapi</code></li><li>Удаление привязанной карты — <code>POST /api/profile/autopay/disable</code> в <code>profileapi</code></li><li>Ручки автоплатежей в <code>profileapi</code>:<ul><li><code>POST /api/profile/autopay/change/</code></li><li><code>POST /api/profile/autopay/disable/</code></li><li><code>POST /api/profile/autopay/get-card/</code></li><li><code>POST /api/profile/autopay/settings/</code></li><li><code>POST /api/profile/autopay/pay/</code></li></ul></li></ul>

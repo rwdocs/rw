@@ -61,7 +61,11 @@
 
   <!-- Main Content -->
   <main class="flex-1 overflow-y-auto">
-    <div class="max-w-4xl mx-auto px-4 md:px-8 py-6">
+    <div
+      class="py-6 {$page.data && $page.data.toc.length > 0
+        ? 'max-w-4xl mx-auto px-4 md:px-8'
+        : 'px-4 md:px-8'}"
+    >
       {#if $page.data}
         <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
       {/if}

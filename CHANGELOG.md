@@ -6,6 +6,7 @@
 - Improve ToC sidebar styling
   - Remove left border
   - Position ToC at page H1 level instead of top
+  - Article takes full width when ToC is empty, centered when ToC present
 - Fix HTML renderer to preserve H1 title and heading levels
   - Title extraction now extracts first H1 without removing it from output
   - Header levels are no longer shifted (H2 stays H2, not H1)
