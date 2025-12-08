@@ -82,6 +82,59 @@ class HtmlConvertResult:
         ...
 
 
+class PreparedDiagram:
+    """A prepared diagram ready for rendering via Kroki."""
+
+    @property
+    def index(self) -> int:
+        """Zero-based index of this diagram in the document."""
+        ...
+
+    @property
+    def source(self) -> str:
+        """Prepared source ready for Kroki (with !include resolved, config injected)."""
+        ...
+
+    @property
+    def endpoint(self) -> str:
+        """Kroki endpoint for this diagram type (e.g., "plantuml", "mermaid")."""
+        ...
+
+    @property
+    def format(self) -> str:
+        """Output format ("svg" or "png")."""
+        ...
+
+
+class ExtractResult:
+    """Result of extracting diagrams from markdown."""
+
+    @property
+    def html(self) -> str:
+        """HTML with diagram placeholders ({{DIAGRAM_0}}, {{DIAGRAM_1}}, etc.)."""
+        ...
+
+    @property
+    def title(self) -> str | None:
+        """Title extracted from first H1 heading (if extract_title was enabled)."""
+        ...
+
+    @property
+    def toc(self) -> list[TocEntry]:
+        """Table of contents entries."""
+        ...
+
+    @property
+    def diagrams(self) -> list[PreparedDiagram]:
+        """Prepared diagrams ready for rendering."""
+        ...
+
+    @property
+    def warnings(self) -> list[str]:
+        """Warnings generated during conversion."""
+        ...
+
+
 class MarkdownConverter:
     """Markdown converter with multiple output formats."""
 
@@ -169,5 +222,22 @@ class MarkdownConverter:
 
         Returns:
             HtmlConvertResult with HTML containing rendered diagrams or error messages
+        """
+        ...
+
+    def extract_html_with_diagrams(self, markdown_text: str) -> ExtractResult:
+        """Extract diagrams from markdown without rendering.
+
+        Returns HTML with `{{DIAGRAM_N}}` placeholders and prepared diagrams.
+        This method is used for diagram caching - the caller should:
+        1. Check the cache for each diagram by content hash
+        2. Render only uncached diagrams via Kroki
+        3. Replace placeholders with rendered content
+
+        Args:
+            markdown_text: Markdown source text
+
+        Returns:
+            ExtractResult with HTML placeholders and prepared diagrams
         """
         ...

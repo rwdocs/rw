@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from docstage_core import HtmlConvertResult, MarkdownConverter
+from docstage_core import MarkdownConverter
 
 from docstage.core.cache import CacheEntry, FileCache
+from docstage.core.diagrams import render_diagrams_with_cache, replace_diagram_placeholders
 
 
 class TocEntryProtocol(Protocol):
@@ -118,7 +119,7 @@ class PageRenderer:
 
         cached = self._cache.get(path, source_mtime)
         if cached is not None:
-            return self._from_cache(cached, source_path)
+            return _from_cache(cached, source_path)
 
         result = self._render_fresh(source_path)
         self._cache.set(
@@ -167,47 +168,84 @@ class PageRenderer:
 
         return source_path
 
-    def _render_fresh(self, source_path: Path) -> HtmlConvertResult:
+    def _render_fresh(self, source_path: Path) -> "_FreshRenderResult":
         """Render markdown from source file.
 
         Args:
             source_path: Path to markdown file
 
         Returns:
-            HtmlConvertResult from Rust converter
+            _FreshRenderResult with HTML, title, ToC, and warnings
         """
         markdown_text = source_path.read_text(encoding="utf-8")
+
         if self._kroki_url:
-            return self._converter.convert_html_with_diagrams(markdown_text, self._kroki_url)
-        return self._converter.convert_html(markdown_text)
+            extract_result = self._converter.extract_html_with_diagrams(markdown_text)
 
-    def _from_cache(self, cached: CacheEntry, source_path: Path) -> RenderResult:
-        """Create RenderResult from cache entry.
+            if extract_result.diagrams:
+                diagrams_input = [
+                    (d.index, d.source, d.endpoint, d.format) for d in extract_result.diagrams
+                ]
+                rendered_diagrams = render_diagrams_with_cache(
+                    diagrams_input, self._kroki_url, self._cache
+                )
+                html = replace_diagram_placeholders(extract_result.html, rendered_diagrams)
+            else:
+                html = extract_result.html
 
-        Args:
-            cached: Cache entry with HTML and metadata
-            source_path: Source file path
-
-        Returns:
-            RenderResult reconstructed from cache
-        """
-        toc_entries: list[TocEntryProtocol] = [
-            _CachedTocEntry(
-                level=int(entry["level"]),
-                title=str(entry["title"]),
-                id=str(entry["id"]),
+            return _FreshRenderResult(
+                html=html,
+                title=extract_result.title,
+                toc=list(extract_result.toc),
+                warnings=list(extract_result.warnings),
             )
-            for entry in cached.meta["toc"]
-        ]
 
-        return RenderResult(
-            html=cached.html,
-            title=cached.meta["title"],
-            toc=toc_entries,
-            source_path=source_path,
-            from_cache=True,
-            warnings=[],  # Warnings are not cached
+        result = self._converter.convert_html(markdown_text)
+        return _FreshRenderResult(
+            html=result.html,
+            title=result.title,
+            toc=list(result.toc),
+            warnings=list(result.warnings),
         )
+
+
+@dataclass
+class _FreshRenderResult:
+    """Internal result from fresh rendering."""
+
+    html: str
+    title: str | None
+    toc: list
+    warnings: list[str]
+
+
+def _from_cache(cached: CacheEntry, source_path: Path) -> RenderResult:
+    """Create RenderResult from cache entry.
+
+    Args:
+        cached: Cache entry with HTML and metadata
+        source_path: Source file path
+
+    Returns:
+        RenderResult reconstructed from cache
+    """
+    toc_entries: list[TocEntryProtocol] = [
+        _CachedTocEntry(
+            level=int(entry["level"]),
+            title=str(entry["title"]),
+            id=str(entry["id"]),
+        )
+        for entry in cached.meta["toc"]
+    ]
+
+    return RenderResult(
+        html=cached.html,
+        title=cached.meta["title"],
+        toc=toc_entries,
+        source_path=source_path,
+        from_cache=True,
+        warnings=[],  # Warnings are not cached
+    )
 
 
 @dataclass

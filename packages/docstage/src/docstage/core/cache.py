@@ -10,9 +10,13 @@ Cache structure:
     │   └── domain-a/
     │       └── subdomain/
     │           └── guide.json       # Extracted metadata
+    ├── diagrams/
+    │   └── <content_hash>.svg       # Rendered SVG diagrams
+    │   └── <content_hash>.png       # Rendered PNG diagrams (base64 data URI)
     └── navigation.json              # Full nav tree
 """
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +39,21 @@ class CacheEntry:
     meta: CachedMetadata
 
 
+def compute_diagram_hash(source: str, endpoint: str, format: str) -> str:
+    """Compute a content hash for diagram caching.
+
+    Args:
+        source: Diagram source code
+        endpoint: Kroki endpoint (e.g., "plantuml", "mermaid")
+        format: Output format ("svg" or "png")
+
+    Returns:
+        SHA-256 hash of the combined inputs
+    """
+    content = f"{endpoint}:{format}:{source}"
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
 class FileCache:
     """File-based cache for rendered HTML and metadata.
 
@@ -51,6 +70,7 @@ class FileCache:
         self._cache_dir = cache_dir
         self._pages_dir = cache_dir / "pages"
         self._meta_dir = cache_dir / "meta"
+        self._diagrams_dir = cache_dir / "diagrams"
 
     @property
     def cache_dir(self) -> Path:
@@ -172,6 +192,37 @@ class FileCache:
         nav_path = self._cache_dir / "navigation.json"
         if nav_path.exists():
             nav_path.unlink()
+
+    def get_diagram(self, content_hash: str, format: str) -> str | None:
+        """Retrieve cached diagram by content hash.
+
+        Args:
+            content_hash: SHA-256 hash of diagram content
+            format: Output format ("svg" or "png")
+
+        Returns:
+            Cached diagram content (SVG string or PNG data URI), or None if not cached
+        """
+        diagram_path = self._diagrams_dir / f"{content_hash}.{format}"
+        if not diagram_path.exists():
+            return None
+
+        try:
+            return diagram_path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+
+    def set_diagram(self, content_hash: str, format: str, content: str) -> None:
+        """Store rendered diagram in cache.
+
+        Args:
+            content_hash: SHA-256 hash of diagram content
+            format: Output format ("svg" or "png")
+            content: Rendered diagram (SVG string or PNG data URI)
+        """
+        self._diagrams_dir.mkdir(parents=True, exist_ok=True)
+        diagram_path = self._diagrams_dir / f"{content_hash}.{format}"
+        diagram_path.write_text(content, encoding="utf-8")
 
     def _read_meta(self, meta_path: Path) -> CachedMetadata | None:
         """Read and validate metadata file.

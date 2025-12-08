@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Implement separate diagram caching for efficient live reload
+  - Add content-based diagram caching using SHA-256 hash of source + endpoint + format
+  - Add `docstage.core.diagrams` module for diagram rendering with caching
+  - Add `FileCache.get_diagram()` and `FileCache.set_diagram()` methods
+  - Add `compute_diagram_hash()` utility function
+  - Add `MarkdownConverter.extract_html_with_diagrams()` to extract diagrams without rendering
+  - Diagrams are only re-rendered when their source code changes
+  - Text-only edits to markdown files no longer trigger Kroki requests
 - Implement live reload for development mode (RD-001 Phase 5)
   - Add WebSocket endpoint `/ws/live-reload` for real-time file change notifications
   - Add `docstage.live` module with `LiveReloadManager` class

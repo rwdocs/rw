@@ -92,6 +92,34 @@ pub struct HtmlConvertResult {
     pub warnings: Vec<String>,
 }
 
+/// A diagram extracted from markdown with its prepared source.
+#[derive(Clone, Debug)]
+pub struct PreparedDiagram {
+    /// Zero-based index of this diagram in the document.
+    pub index: usize,
+    /// Prepared source ready for Kroki (with !include resolved, config injected).
+    pub source: String,
+    /// Kroki endpoint for this diagram type.
+    pub endpoint: String,
+    /// Output format (svg, png).
+    pub format: String,
+}
+
+/// Result of extracting diagrams from markdown.
+#[derive(Clone, Debug)]
+pub struct ExtractResult {
+    /// HTML with diagram placeholders ({{DIAGRAM_0}}, {{DIAGRAM_1}}, etc.).
+    pub html: String,
+    /// Title extracted from first H1 heading (if `extract_title` was enabled).
+    pub title: Option<String>,
+    /// Table of contents entries.
+    pub toc: Vec<TocEntry>,
+    /// Prepared diagrams ready for rendering.
+    pub diagrams: Vec<PreparedDiagram>,
+    /// Warnings generated during conversion.
+    pub warnings: Vec<String>,
+}
+
 /// Markdown to Confluence converter configuration.
 #[derive(Clone, Debug)]
 pub struct MarkdownConverter {
@@ -286,6 +314,80 @@ impl MarkdownConverter {
             title: result.title,
             toc: result.toc,
             warnings: Vec::new(),
+        }
+    }
+
+    /// Extract diagrams from markdown and return HTML with placeholders.
+    ///
+    /// This method is used for diagram caching. It returns:
+    /// - HTML with `{{DIAGRAM_N}}` placeholders
+    /// - Prepared diagrams with source ready for Kroki
+    ///
+    /// The caller is responsible for:
+    /// 1. Checking the cache for each diagram by content hash
+    /// 2. Rendering uncached diagrams via Kroki
+    /// 3. Replacing placeholders with rendered content
+    #[must_use]
+    pub fn extract_html_with_diagrams(&self, markdown_text: &str) -> ExtractResult {
+        let options = self.get_parser_options();
+        let parser = Parser::new_ext(markdown_text, options);
+
+        // Filter diagram code blocks, replacing them with placeholders
+        let mut filter = DiagramFilter::new(parser);
+
+        // Render to HTML format
+        let renderer = if self.extract_title {
+            HtmlRenderer::new().with_title_extraction()
+        } else {
+            HtmlRenderer::new()
+        };
+
+        let result = renderer.render(&mut filter);
+        let (extracted_diagrams, filter_warnings) = filter.into_parts();
+
+        let mut warnings = filter_warnings;
+        let mut diagrams = Vec::with_capacity(extracted_diagrams.len());
+
+        for d in extracted_diagrams {
+            let source = if d.language.needs_plantuml_preprocessing() {
+                let prepare_result = prepare_diagram_source(
+                    &d.source,
+                    &self.include_dirs,
+                    self.config_content.as_deref(),
+                    self.dpi,
+                );
+                warnings.extend(prepare_result.warnings);
+                prepare_result.source
+            } else {
+                d.source
+            };
+
+            let format = match d.format {
+                DiagramFormat::Svg => "svg".to_string(),
+                DiagramFormat::Img => {
+                    warnings.push(format!(
+                        "diagram {}: format=img is not yet implemented, falling back to inline SVG",
+                        d.index
+                    ));
+                    "svg".to_string()
+                }
+                DiagramFormat::Png => "png".to_string(),
+            };
+
+            diagrams.push(PreparedDiagram {
+                index: d.index,
+                source,
+                endpoint: d.language.kroki_endpoint().to_string(),
+                format,
+            });
+        }
+
+        ExtractResult {
+            html: result.html,
+            title: result.title,
+            toc: result.toc,
+            diagrams,
+            warnings,
         }
     }
 
