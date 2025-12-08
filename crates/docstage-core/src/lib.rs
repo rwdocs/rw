@@ -65,7 +65,7 @@ pub use converter::{
     ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter, create_image_tag,
 };
 pub use diagram_filter::{DiagramFilter, DiagramFormat, DiagramLanguage, ExtractedDiagram};
-pub use html::{HtmlRenderResult, HtmlRenderer, TocEntry};
+pub use html::{HtmlRenderResult, HtmlRenderer, TocEntry, escape_html};
 pub use kroki::{
     DiagramError, DiagramErrorKind, DiagramRequest, RenderError, RenderedDiagram,
     RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri, render_all_svg,

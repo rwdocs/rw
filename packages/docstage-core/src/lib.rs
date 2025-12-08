@@ -181,26 +181,25 @@ impl PyMarkdownConverter {
     /// - `png`: Inline PNG as base64 data URI
     /// - `img`: External SVG via `<img>` tag (falls back to inline SVG)
     ///
+    /// If diagram rendering fails, the diagram is replaced with an error message.
+    /// This allows the page to still render even when Kroki is unavailable.
+    ///
     /// Args:
     ///     markdown_text: Markdown source text
     ///     kroki_url: Kroki server URL (e.g., "https://kroki.io")
     ///
     /// Returns:
-    ///     HtmlConvertResult with HTML containing rendered diagrams
-    ///
-    /// Raises:
-    ///     RuntimeError: If diagram rendering fails
+    ///     HtmlConvertResult with HTML containing rendered diagrams or error messages
     pub fn convert_html_with_diagrams(
         &self,
         py: Python<'_>,
         markdown_text: &str,
         kroki_url: &str,
-    ) -> PyResult<PyHtmlConvertResult> {
+    ) -> PyHtmlConvertResult {
         py.detach(|| {
             self.inner
                 .convert_html_with_diagrams(markdown_text, kroki_url)
-                .map(Into::into)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+                .into()
         })
     }
 }

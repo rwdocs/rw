@@ -631,7 +631,7 @@ fn slugify(text: &str) -> String {
 }
 
 /// Escape HTML special characters.
-fn escape_html(s: &str) -> String {
+pub fn escape_html(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     for c in s.chars() {
         match c {

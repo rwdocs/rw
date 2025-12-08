@@ -13,6 +13,7 @@
   - Add `kroki_url` parameter to `PageRenderer` for conditional diagram rendering
   - Add frontend CSS for diagram styling (centered, responsive)
   - PlantUML filter retained for backwards compatibility (used by Confluence output)
+  - Graceful error handling: failed diagrams show error message instead of causing 500
 - Skip non-navigable directories in left navigation
   - Directories without index.md are now excluded from navigation tree
   - Children of such directories are promoted to parent level
