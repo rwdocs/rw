@@ -71,10 +71,8 @@
 
   <!-- Table of Contents Sidebar -->
   {#if $page.data && $page.data.toc.length > 0}
-    <aside
-      class="w-[240px] flex-shrink-0 border-l border-gray-200 overflow-y-auto hidden lg:block"
-    >
-      <div class="p-4 sticky top-0">
+    <aside class="w-[240px] flex-shrink-0 overflow-y-auto hidden lg:block">
+      <div class="p-4 sticky top-[72px]">
         <TocSidebar toc={$page.data.toc} />
       </div>
     </aside>
