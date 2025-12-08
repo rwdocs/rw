@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Use "/" separator in breadcrumbs via CSS ::after pseudo-element (Stripe-style)
 - Skip non-navigable paths in breadcrumbs
   - Breadcrumbs now only include paths with index.md files
   - Prevents 404 errors when clicking breadcrumb links for directories without index.md

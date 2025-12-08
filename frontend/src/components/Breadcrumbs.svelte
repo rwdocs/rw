@@ -11,22 +11,11 @@
 {#if breadcrumbs.length > 0}
   <nav class="mb-6">
     <ol class="flex items-center text-sm text-gray-500">
-      <li>
+      <li class="breadcrumb-item">
         <a href="/" class="hover:text-gray-700 hover:underline">Home</a>
       </li>
       {#each breadcrumbs as crumb (crumb.path)}
-        <li class="flex items-center">
-          <svg
-            class="w-4 h-4 mx-2 text-gray-400"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-              clip-rule="evenodd"
-            />
-          </svg>
+        <li class="breadcrumb-item">
           <a
             href="/docs{crumb.path}"
             class="hover:text-gray-700 hover:underline"
@@ -38,3 +27,16 @@
     </ol>
   </nav>
 {/if}
+
+<style>
+  .breadcrumb-item::after {
+    content: "/";
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    color: rgb(156 163 175); /* gray-400 */
+  }
+
+  .breadcrumb-item:last-child::after {
+    content: none;
+  }
+</style>
