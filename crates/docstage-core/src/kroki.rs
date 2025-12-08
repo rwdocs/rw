@@ -63,9 +63,17 @@ impl std::fmt::Display for DiagramError {
 #[derive(Debug)]
 pub enum RenderError {
     /// Single diagram error (legacy, for backwards compatibility).
-    Http { index: usize, message: String },
-    Io { index: usize, message: String },
-    InvalidPng { index: usize },
+    Http {
+        index: usize,
+        message: String,
+    },
+    Io {
+        index: usize,
+        message: String,
+    },
+    InvalidPng {
+        index: usize,
+    },
     /// Multiple diagram errors collected during parallel rendering.
     Multiple(Vec<DiagramError>),
 }

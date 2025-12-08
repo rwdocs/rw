@@ -1,0 +1,58 @@
+<h1 id="kassa">Обработка сообщения о платеже от ЮKassa</h1><h2 id="1-kassa">1. Обработка вызова колбека от ЮKassa</h2><pre><code class="language-plantuml">@startuml
+!include c4/sequence.iuml
+
+!include systems/ext/sys_yookassa.iuml
+!include systems/svc_yandex_payments.iuml
+!include systems/ext/sys_sday_snimi_slo.iuml
+
+ContainerDb(db_yandex_payments, &quot;YandexPayments&quot;, &quot;PostgreSQL&quot;)
+ContainerQueue(queue_yandex_payments_callback_event_received, &quot;yandex-payments.callback-event.received&quot;, &quot;Kafka&quot;)
+
+Rel(sys_yookassa, svc_yandex_payments, &quot;Отправляет информацию о платеже&quot;, $descr=&quot;POST /v1/handle-event/&quot;)
+Rel(svc_yandex_payments, db_yandex_payments, &quot;Сохраняет вызов в лог&quot;, $descr=&quot;yandex_api_callback_log&quot;)
+Rel(svc_yandex_payments, sys_sday_snimi_slo, &quot;POST /v1/log-operation-started/&quot;)
+Rel(svc_yandex_payments, queue_yandex_payments_callback_event_received, &quot;Отправляет сообщение о вызове колбека&quot;)
+@enduml
+</code></pre><p>Вопросы:</p><ul><li>Каким образом используется лог?</li></ul><h2 id="2-yandex-payments">2. Обработка сообщения о вызове колбека (<code>yandex-payments</code>)</h2><h3 id="21">2.1 Платеж совершен</h3><pre><code class="language-plantuml">!include c4/sequence.iuml
+
+ContainerQueue(queue_yandex_payments_callback_event_received, &quot;yandex-payments.callback-event.received&quot;, &quot;Kafka&quot;)
+!include systems/svc_yandex_payments.iuml
+ContainerDb(db_yandex_payments, &quot;YandexPayments&quot;, &quot;PostgreSQL&quot;)
+ContainerQueue(queue_changed, &quot;yandex-payments.payment-reporting.v1.changed&quot;, &quot;Kafka&quot;)
+
+Rel(queue_yandex_payments_callback_event_received, svc_yandex_payments, &quot;Отправляет сообщение о вызове колбека&quot;)
+Rel(svc_yandex_payments, db_yandex_payments, &quot;Запрашивает платеж, создает его, если не найден, обновляет статус платежа&quot;, $descr=&quot;payments&quot;)
+Rel(svc_yandex_payments, queue_changed, &quot;Отправляет сообщение об изменении платежа&quot;)
+</code></pre><h3 id="22">2.2 Платеж отменен</h3><pre><code class="language-plantuml">!include c4/sequence.iuml
+
+ContainerQueue(queue_yandex_payments_callback_event_received, &quot;yandex-payments.callback-event.received&quot;, &quot;Kafka&quot;)
+!include systems/svc_yandex_payments.iuml
+ContainerDb(db_yandex_payments, &quot;YandexPayments&quot;, &quot;PostgreSQL&quot;)
+ContainerQueue(queue_changed, &quot;yandex-payments.payment-reporting.v1.refunded&quot;, &quot;Kafka&quot;)
+
+Rel(queue_yandex_payments_callback_event_received, svc_yandex_payments, &quot;Отправляет сообщение о вызове колбека&quot;)
+Rel(svc_yandex_payments, db_yandex_payments, &quot;Запрашивает платеж&quot;, $descr=&quot;payments&quot;)
+Rel(svc_yandex_payments, db_yandex_payments, &quot;Сохраняет отмененный платеж&quot;, $descr=&quot;refunded_payments&quot;)
+Rel(svc_yandex_payments, queue_changed, &quot;Отправляет сообщение об отмене платежа&quot;)
+</code></pre><h2 id="3-billing-accounts">3. Обработка сообщения об изменении платежа (<code>billing-accounts</code>)</h2><pre><code class="language-plantuml">!include c4/sequence.iuml
+
+ContainerQueue(queue_changed, &quot;yandex-payments.payment-reporting.v1.changed&quot;, &quot;Kafka&quot;)
+!include systems/svc_billing_accounts.iuml
+ContainerDb(db_billing, &quot;Billing&quot;, &quot;MSSQL&quot;)
+ContainerQueue(queue_comitted, &quot;billing-accounts.billing-accounts.payment.commited&quot;, &quot;Kafka&quot;)
+!include systems/svc_monolith_cian_bill.iuml
+
+Rel(queue_changed, svc_billing_accounts, &quot;Отправляет сообщение об изменении платежа&quot;)
+Rel(svc_billing_accounts, db_billing, &quot;Проверяет, что платеж есть в логе&quot;, $descr=&quot;Payment.YandexV3PaymentLogs&quot;)
+Rel(svc_billing_accounts, db_billing, &quot;Проверяет, что это не дубль платежа&quot;, $descr=&quot;Payment.YandexV3PaymentLogs&quot;)
+Rel(svc_billing_accounts, db_billing, &quot;Обновляет платеж&quot;, $descr=&quot;Payment.YandexV3PaymentLogs&quot;)
+Rel(svc_billing_accounts, queue_comitted, &quot;Отправляет сообщение о произведенном платеже&quot;)
+</code></pre><h2 id="4-monolith-cian-bill">4. Обработка сообщения о произведенном платеже (<code>monolith-cian-bill</code>)</h2><pre><code class="language-plantuml">!include c4/sequence.iuml
+
+ContainerQueue(queue_comitted, &quot;billing-accounts.billing-accounts.payment.commited&quot;, &quot;Kafka&quot;)
+!include systems/svc_monolith_cian_bill.iuml
+ContainerDb(db_billing, &quot;Billing&quot;, &quot;MSSQL&quot;)
+
+Rel(queue_comitted, svc_monolith_cian_bill, &quot;Отправляет сообщение о произведенном платеже&quot;)
+Rel(svc_monolith_cian_bill, db_billing, &quot;Проверяет наличие контракта&quot;, $descr=&quot;Billing.SubServicesContracts&quot;)
+</code></pre>

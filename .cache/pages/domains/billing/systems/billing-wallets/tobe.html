@@ -1,0 +1,288 @@
+<h1 id="to-be">Кошельки и балансы (To Be)</h1><h2 id="system-context-diagram">System Context Diagram</h2><h2 id="use-cases">Use cases</h2><pre><code class="language-plantuml">skinparam linetype polyline
+
+!include c4/usecase.iuml
+
+!include actors/customer.iuml
+!include actors/cs.iuml
+System_Ext(unit, &quot;Продуктовая команда&quot;, $descr=&quot;Оказывает платные услуги клиентам&quot;)
+
+System_Boundary(catalog, &quot;Каталог услуг&quot;) {
+    UseCase(pay_for_services, &quot;Оплатить услугу&quot;)
+    UseCase(get_services, &quot;Получить список услуг&quot;)
+    UseCase(get_pending_services, &quot;Получить список услуг ожидающих оплаты&quot;)
+    UseCase(close_service, &quot;Закрыть услугу&quot;)
+    UseCase(close_service_partially, &quot;Закрыть услугу частично&quot;)
+    UseCase(cancel_service, &quot;Отменить покупку услуги&quot;)
+}
+
+System_Boundary(wallets_and_balances, &quot;Кошельки и балансы&quot;) {
+    UseCase(topup_wallet, &quot;Пополнить баланс&quot;)
+    UseCase(get_balance, &quot;Получить доступный баланс&quot;)
+}
+
+Assoc(customer, topup_wallet)
+Assoc(customer, get_balance)
+Assoc(customer, pay_for_services)
+Assoc(customer, cancel_service)
+Assoc(customer, get_pending_services)
+Assoc(unit, get_balance)
+Assoc(unit, pay_for_services)
+Assoc(unit, cancel_service)
+Assoc(unit, close_service)
+Assoc(unit, close_service_partially)
+Assoc(cs, get_balance)
+Assoc(cs, get_services)
+Assoc(cs, cancel_service)
+</code></pre><h2 id="">События</h2><h3 id="-1">Транзакции</h3><h4 id="transactioncompleted">transaction.completed</h4><p><strong>Зачисление 250 рублей платежом</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;b8d9e0f1-2a3b-4c5d-6e7f-8g9h0i1j2k3l&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;accrual&quot;,
+  &quot;amount&quot;: 250.00,
+  &quot;currency&quot;: &quot;RUB&quot;,
+  &quot;intentId&quot;: &quot;c4d5e6f7-8g9h-0i1j-2k3l-4m5n6o7p8q9&quot;, -- ссылка на намерение на пополнение
+  &quot;description&quot;: &quot;Пополнение баланса&quot;,
+  &quot;metadata&quot;: {
+    &quot;sourceType&quot;: &quot;payment&quot;,
+    &quot;sourceId&quot;: &quot;b7a793bb-6f40-4806-a810-8f9dd497958e&quot;
+  },
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:30:15Z&quot;
+}
+</code></pre><p><strong>Зачисление 100 баллов в качестве кешбека за пакет</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;e3f4g5h6-7i8j-9k0l-1m2n-3o4p5q6r7s8t&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;accrual&quot;,
+  &quot;amount&quot;: 100.00,
+  &quot;currency&quot;: &quot;POINTS&quot;,
+  &quot;intentId&quot;: null,
+  &quot;description&quot;: &quot;Кешбек за пакет&quot;,
+  &quot;metadata&quot;: {
+    &quot;sourceType&quot;: &quot;servicePackageCashback&quot;,
+    &quot;sourceId&quot;: &quot;7374742&quot;
+  },
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:40:00Z&quot;
+}
+</code></pre><p><strong>Зачисление 200 баллов за покупку пакета баллов</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;f4g5h6i7-8j9k-0l1m-2n3o-4p5q6r7s8t9u&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;accrual&quot;,
+  &quot;amount&quot;: 200.00,
+  &quot;currency&quot;: &quot;POINTS&quot;,
+  &quot;intentId&quot;: null,
+  &quot;description&quot;: &quot;За подписку&quot;,
+  &quot;metadata&quot;: {
+    &quot;sourceType&quot;: &quot;servicePackage&quot;,
+    &quot;sourceId&quot;: &quot;7374743&quot;
+  },
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:45:00Z&quot;
+}
+</code></pre><p><strong>Списание 100 баллов</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;86cc2c94-dcd4-467b-b73c-90e8f74ecbd9&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;spend&quot;,
+  &quot;amount&quot;: 100.00,
+  &quot;currency&quot;: &quot;POINTS&quot;,
+  &quot;intentId&quot;: &quot;b7a793bb-6f40-4806-a810-8f9dd497958e&quot;,
+  &quot;description&quot;: &quot;Размещение объявления на 30 дней&quot;,
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:23:45Z&quot;,
+  &quot;metadata&quot;: {
+    &quot;amountBySources&quot;: [
+      {
+        &quot;amount&quot;: 80,
+        &quot;sourceType&quot;: &quot;servicePackageCashback&quot;,
+        &quot;sourceId&quot;: &quot;7374742&quot;
+      },
+      {
+        &quot;amount&quot;: 20,
+        &quot;sourceType&quot;: &quot;servicePackage&quot;,
+        &quot;sourceId&quot;: &quot;7374742&quot;
+      }
+    ]
+  }
+}
+</code></pre><p><strong>Списание 100 рублей</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;86cc2c94-dcd4-467b-b73c-90e8f74ecbd9&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;spend&quot;,
+  &quot;amount&quot;: 100.00,
+  &quot;currency&quot;: &quot;RUB&quot;,
+  &quot;intentId&quot;: &quot;b7a793bb-6f40-4806-a810-8f9dd497958e&quot;,
+  &quot;description&quot;: &quot;Размещение объявления на 30 дней&quot;,
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:23:45Z&quot;,
+  &quot;metadata&quot;: {
+    &quot;amountBySources&quot;: [
+      {
+        &quot;amount&quot;: 50,
+        &quot;sourceType&quot;: &quot;realLicense&quot;,
+        &quot;sourceId&quot;: null
+      },
+      {
+        &quot;amount&quot;: 30,
+        &quot;sourceType&quot;: &quot;realOffer&quot;,
+        &quot;sourceId&quot;: null
+      },
+      {
+        &quot;amount&quot;: 20,
+        &quot;sourceType&quot;: &quot;technical&quot;,
+        &quot;sourceId&quot;: null
+      }
+    ]
+  }
+}
+</code></pre><p><strong>Аллокация 100 баллов</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;f47ac10b-58cc-4372-a567-0e02b2c3d479&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;allocation&quot;,
+  &quot;amount&quot;: 100.00,
+  &quot;currency&quot;: &quot;POINTS&quot;,
+  &quot;intentId&quot;: &quot;a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6&quot;,
+  &quot;description&quot;: &quot;Зарезервировано на продвижение&quot;,
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:25:00Z&quot;,
+  &quot;metadata&quot;: {
+    &quot;amountBySources&quot;: [
+      {
+        &quot;amount&quot;: 60,
+        &quot;sourceType&quot;: &quot;servicePackageCashback&quot;,
+        &quot;sourceId&quot;: &quot;7374742&quot;
+      },
+      {
+        &quot;amount&quot;: 40,
+        &quot;sourceType&quot;: &quot;servicePackage&quot;,
+        &quot;sourceId&quot;: &quot;7374742&quot;
+      }
+    ]
+  }
+}
+</code></pre><p><strong>Аллокация использована на 100 баллов</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;f47ac10b-58cc-4372-a567-0e02b2c3d479&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;allocationConsumed&quot;,
+  &quot;amount&quot;: 100.00,
+  &quot;currency&quot;: &quot;POINTS&quot;,
+  &quot;intentId&quot;: &quot;a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6&quot;,
+  &quot;description&quot;: null,
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:25:00Z&quot;,
+  &quot;metadata&quot;: {
+    &quot;amountBySources&quot;: [
+      {
+        &quot;amount&quot;: 60,
+        &quot;sourceType&quot;: &quot;servicePackageCashback&quot;,
+        &quot;sourceId&quot;: &quot;7374742&quot;
+      },
+      {
+        &quot;amount&quot;: 40,
+        &quot;sourceType&quot;: &quot;servicePackage&quot;,
+        &quot;sourceId&quot;: &quot;7374742&quot;
+      }
+    ]
+  }
+}
+</code></pre><p><strong>Отмена аллокации на 100 баллов</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;f47ac10b-58cc-4372-a567-0e02b2c3d479&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;allocationReleased&quot;,
+  &quot;amount&quot;: 100.00,
+  &quot;currency&quot;: &quot;POINTS&quot;,
+  &quot;intentId&quot;: &quot;a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6&quot;,
+  &quot;description&quot;: &quot;Отмена резервирования за продвижение&quot;,
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:25:00Z&quot;,
+  &quot;metadata&quot;: {
+    &quot;amountBySources&quot;: [
+      {
+        &quot;amount&quot;: 60,
+        &quot;sourceType&quot;: &quot;servicePackageCashback&quot;,
+        &quot;sourceId&quot;: &quot;7374742&quot;
+      },
+      {
+        &quot;amount&quot;: 40,
+        &quot;sourceType&quot;: &quot;servicePackage&quot;,
+        &quot;sourceId&quot;: &quot;7374742&quot;
+      }
+    ]
+  }
+}
+</code></pre><p><strong>Сжигание 100 бонусов</strong></p><pre><code class="language-json">{
+  &quot;id&quot;: &quot;d2e3f4g5-6h7i-8j9k-0l1m-2n3o4p5q6r7s&quot;,
+  &quot;accountId&quot;: 4737727244,
+  &quot;type&quot;: &quot;accrualExpired&quot;,
+  &quot;amount&quot;: 100.00,
+  &quot;currency&quot;: &quot;BONUS&quot;,
+  &quot;intentId&quot;: null,
+  &quot;description&quot;: &quot;Сжигание бонусов при истечении срока&quot;,
+  &quot;createdAtUtc&quot;: &quot;2025-10-13T10:35:30Z&quot;,
+  &quot;metadata&quot;: {
+    &quot;amountBySources&quot;: [
+      {
+        &quot;amount&quot;: 100,
+        &quot;sourceType&quot;: &quot;promoCode&quot;,
+        &quot;sourceId&quot;: &quot;12345678&quot;
+      }
+    ]
+  }
+}
+</code></pre><h4 id="debit-intentallocated">debit-intent.allocated</h4><p>По намерению на списание аллоцированы средства. Содержит состояние намерения на списание на момент совершения события.</p><ul><li>allocated - сколько аллоцированных средств в себе содержит намерение на списание</li><li>confirmed - сколько подтвержденных и списанных средств в себе содержит намерение на списание</li></ul><pre><code class="language-json">{
+  &quot;id&quot;: &quot;a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6&quot;,
+  &quot;externalId&quot;: &quot;2cead8ba-7cd2-4913-85d8-9553fd0afb99&quot;,
+  &quot;entries&quot;: {
+    &quot;RUB&quot;: {&quot;allocated&quot;: 120, &quot;confirmed&quot;: 0},
+    &quot;BONUS&quot;: {&quot;allocated&quot;: 90, &quot;confirmed&quot;: 0}
+  }
+}
+</code></pre><h4 id="debit-intentcompleted">debit-intent.completed</h4><p>Намерение на списание завершено. Содержит состояние намерения на списание на момент совершения события.</p><ul><li>allocated - сколько аллоцированных средств в себе содержит намерение на списание</li><li>confirmed - сколько подтвержденных и списанных средств в себе содержит намерение на списание</li></ul><pre><code class="language-json">{
+  &quot;id&quot;: &quot;a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6&quot;,
+  &quot;externalId&quot;: &quot;2cead8ba-7cd2-4913-85d8-9553fd0afb99&quot;,
+  &quot;entries&quot;: {
+    &quot;RUB&quot;: {&quot;allocated&quot;: 120, &quot;confirmed&quot;: 100},
+    &quot;BONUS&quot;: {&quot;allocated&quot;: 90, &quot;confirmed&quot;: 90}
+  }
+}
+</code></pre><h2 id="-2">Внутреннее устройство системы</h2><h3 id="-3">Описание</h3><p>Домен кошельков делится на 2 слоя:</p><ul><li>бизнесовый</li><li>бухгалтерский</li></ul><p>Бизнесовый - это намерение пользователя/системы (<strong>SomeIntent</strong>). Он управляет процессами, контролирует логику и взаимодействие с пользователем или внешними системами.</p><p>Бухгалтерский - фиксирует фактическое движение средств, обеспечивает финансовую прозрачность и возможность аудита. Строится на сущностях: <strong>Transaction</strong>, <strong>LedgerEntry</strong>.</p><pre><code class="language-plantuml">@startuml
+!pragma layout smetana
+
+left to right direction
+
+entity Wallet {
+  + Id
+  + AccountId
+  + Type
+}
+
+entity SomeIntent {
+  + Id
+  + ExternalId
+  + Entries
+  + Description
+}
+
+entity Transaction {
+  + Id
+  + Type
+  + IntentId?
+  + Currency
+  + Amount
+  + Description
+  + ParentTransactionId
+  + Metadata
+  + CreatedAtUtc
+}
+
+entity LedgerEntry {
+  + Id
+  + TransactionId
+  + DebitBalanceType
+  + DebitBalanceId
+  + CreditBalanceType
+  + CreditBalanceId
+  + Amount
+  + CreatedAtUtc
+}
+
+Wallet &quot;0..*&quot; -- &quot;0..*&quot; LedgerEntry : associated with
+LedgerEntry &quot;1..*&quot; -- &quot;1&quot; Transaction : belongs to
+Transaction &quot;0..*&quot; -- &quot;1&quot; SomeIntent : generated from
+
+@enduml
+</code></pre><h3 id="wallet">Wallet</h3><p>Кошелек аккаунта as is.</p><p>Подробнее <a href="https://conf.cian.tech/pages/viewpage.action?pageId=1472746925">тут</a>.</p><h3 id="ledgerentry">LedgerEntry</h3><p><strong>Ключевые моменты:</strong></p><ul><li>Отражает дебит/кредит на конкретном счёте/кошельке, обеспечивает точную бухгалтерию.</li><li>Источник правды текущего состояния балансов, формирования аналитики и отчётности.</li><li>Все возвраты, списания и начисления фиксируются через LedgerEntry, обеспечивая финансовую консистентность.</li><li>Аллокация средств с баланса, не фиксируется в LedgerEntry</li></ul><p><strong>Описание:</strong> LedgerEntry фиксирует конкретное движение средств с баланса на другой баланс, отражая дебит или кредит.
+Каждая Transaction порождает одну или несколько LedgerEntry, которые в последствии формируют состояние каждого баланса.</p><blockquote><p>Например.</p><p>При переводах между кошельками будет создан 1 LedgerEntry в рамках одной транзакции</p><ul><li>списание с одного кошелька (DebitBalanceType=Wallet,DebitBalanceId=757)</li><li>пополнение другого кошелька (CreditBalanceType=Wallet,CreditBalanceId=234)</li></ul><p>Больше двух LedgerEntry - когда одна операция затрагивает:</p><ul><li>несколько источников средств</li><li>распределение между разными получателями</li></ul></blockquote><p>Ledger обеспечивает прозрачность, возможность аудита и расчёт текущего баланса по всем источникам средств.</p><p><strong>Поля:</strong></p><p><strong>Id</strong> - уникальный идентификатор записи в леджере. Обеспечивает уникальность каждой операции и возможность ссылаться на конкретную запись.</p><p><strong>TransactionId</strong> - ссылка на транзакцию, в рамках которой создана запись. Связывает движение средств с конкретной финансовой операцией.</p><p><strong>DebitBalanceType</strong> - тип баланса, на котором происходит debit. Например: кошелек пользователя, рассчетный счет Циан, технический счет и тд.</p><p><strong>DebitBalanceId</strong> - идентификатор конкретного баланса, на котором происходит debit.</p><p><strong>CreditBalanceType</strong> - тип баланса, на котором происходит credit. Например: кошелек пользователя, рассчетный счет Циан, технический счет и тд.</p><p><strong>CreditBalanceId</strong> - идентификатор конкретного баланса, на котором происходит credit.</p><p><strong>Amount</strong> - сумма операции. Всегда положительное значение. Направление задается полем <strong>Direction</strong>.</p><p><strong>CreatedAtUtc</strong> - временная метка создания записи в UTC. Фиксирует точное время совершения операции для хронологического учета и аудита.</p><h3 id="transaction">Transaction</h3><p><strong>Ключевые моменты:</strong></p><ul><li>Является фактом движения средств.</li><li>Объясняет на каком основании созданы LedgerEntry</li></ul><p><strong>Описание:</strong>
+Transaction представляет собой фактическое движение средств. Каждая Transaction является единицей финансовой записи в системе. Для исполнения намерения, может создаваться несколько транзакций.</p><p><strong>Поля:</strong></p><p><strong>Id</strong> - уникальный идентификатор транзакции в системе (UUID). Используется для связывания с другими сущностями и обеспечения целостности данных.</p><p><strong>Type</strong> - тип транзакции, определяющий характер операции (пополнение, списание, перевод, возврат и т.д.). Позволяет категоризировать операции для аналитики и бизнес-логики.</p><p><strong>IntentId</strong> - опциональная ссылка на намерение (SomeIntent), в рамках которого была создана транзакция. Позволяет связать фактическое движение средств с исходным бизнес-процессом.</p><p><strong>Currency</strong> - валюта транзакции. Определяет в какой валюте производится операция.</p><p><strong>Amount</strong> - сумма транзакции.</p><p><strong>Description</strong> - текстовое описание транзакции. Содержит человекочитаемое объяснение операции для аудита и пользовательского интерфейса.</p><p><strong>ParentTransactionId</strong> - ссылка на родительскую транзакцию. Используется для создания иерархии операций, например, при возвратах.</p><p><strong>Metadata</strong> - дополнительные данные транзакции в формате определенного <strong>Type</strong>. Содержит техническую информацию, специфичную для конкретного типа операции.</p><p><strong>CreatedAtUtc</strong> - временная метка создания транзакции в UTC. Фиксирует момент совершения операции для аудита и хронологического анализа.</p><h3 id="someintent">SomeIntent (пока абстракция некоторого намерения)</h3><p>Например, намерение на списание (DebitIntent) или на пополнение (CreditIntent).</p><p><strong>Ключевые моменты:</strong></p><ul><li>Оркестратор исполнения некоторого намерения по операциям над балансом.</li><li>В конечном счете создает одну или несколько транзакций над балансом.</li><li>Позволяет управлять сложной логикой, когда для совершения намерения необходимо выполнить несколько действий, которые могут быть размазаны во времени.</li></ul><p><strong>Описание:</strong>
+Представляет собой некоторое намерение пользователя/системы совершить операцию над балансом, которая происходит не сразу или через взаимодействие с внешними системами. Управляет процессом: резервирование, взаимодействие с внешними платёжными провайдерами и тд.
+На этом уровне операция ещё не фиксирует движение средств — это лишь намерение или инициирование будущей транзакции.</p>

@@ -131,12 +131,6 @@ struct HeadingState {
     extract_title: bool,
     /// Extracted title from first H1.
     title: Option<String>,
-    /// Whether we've seen the first H1.
-    seen_first_h1: bool,
-    /// Whether we're inside the first H1.
-    in_first_h1: bool,
-    /// Buffer for first H1 text.
-    h1_text: String,
     /// Current heading level being processed (None if not in a heading).
     current_level: Option<u8>,
     /// Buffer for heading plain text (for table of contents and slug).
@@ -154,9 +148,6 @@ impl HeadingState {
         Self {
             extract_title,
             title: None,
-            seen_first_h1: false,
-            in_first_h1: false,
-            h1_text: String::new(),
             current_level: None,
             text: String::new(),
             html: String::new(),
@@ -170,21 +161,7 @@ impl HeadingState {
         self.current_level.is_some()
     }
 
-    /// Start capturing the first H1 for title extraction.
-    fn start_title_capture(&mut self) {
-        self.in_first_h1 = true;
-        self.h1_text.clear();
-    }
-
-    /// Complete title capture.
-    fn complete_title_capture(&mut self) {
-        self.in_first_h1 = false;
-        self.seen_first_h1 = true;
-        let title = self.h1_text.trim().to_string();
-        self.title = Some(title);
-    }
-
-    /// Start tracking a regular heading.
+    /// Start tracking a heading.
     fn start_heading(&mut self, level: u8) {
         self.current_level = Some(level);
         self.text.clear();
@@ -192,6 +169,7 @@ impl HeadingState {
     }
 
     /// Complete heading and generate table of contents entry.
+    /// Returns (level, id, text, html) or None if not in a heading.
     fn complete_heading(&mut self) -> Option<(u8, String, String, String)> {
         let level = self.current_level.take()?;
         let text = std::mem::take(&mut self.text);
@@ -200,21 +178,22 @@ impl HeadingState {
         // Generate unique ID
         let id = self.generate_id(&text);
 
-        // Adjust level if title was extracted
-        let adjusted_level = if self.extract_title && self.seen_first_h1 && level > 1 {
-            level - 1
-        } else {
-            level
-        };
+        // Extract title from first H1 (but still render it - no level shifting for HTML)
+        let is_title = self.extract_title && level == 1 && self.title.is_none();
+        if is_title {
+            self.title = Some(text.trim().to_string());
+        }
 
-        // Add to ToC
-        self.toc.push(TocEntry {
-            level: adjusted_level,
-            title: text.trim().to_string(),
-            id: id.clone(),
-        });
+        // Add to ToC (but not the page title)
+        if !is_title {
+            self.toc.push(TocEntry {
+                level,
+                title: text.trim().to_string(),
+                id: id.clone(),
+            });
+        }
 
-        Some((adjusted_level, id, text, html))
+        Some((level, id, text, html))
     }
 
     /// Generate a unique ID for a heading.
@@ -311,16 +290,7 @@ impl HtmlRenderer {
                 }
             }
             Tag::Heading { level, .. } => {
-                if self.heading.extract_title
-                    && level == HeadingLevel::H1
-                    && !self.heading.seen_first_h1
-                {
-                    // First H1 - capture as title, don't render
-                    self.heading.start_title_capture();
-                } else {
-                    // Track heading for ToC
-                    self.heading.start_heading(heading_level_to_num(level));
-                }
+                self.heading.start_heading(heading_level_to_num(level));
             }
             Tag::BlockQuote(_) => {
                 self.output.push_str("<blockquote>");
@@ -415,7 +385,12 @@ impl HtmlRenderer {
             }
             Tag::Link { dest_url, .. } => {
                 if self.heading.is_active() {
-                    write!(self.heading.html, r#"<a href="{}">"#, escape_html(&dest_url)).unwrap();
+                    write!(
+                        self.heading.html,
+                        r#"<a href="{}">"#,
+                        escape_html(&dest_url)
+                    )
+                    .unwrap();
                 } else {
                     write!(self.output, r#"<a href="{}">"#, escape_html(&dest_url)).unwrap();
                 }
@@ -442,16 +417,11 @@ impl HtmlRenderer {
                 }
             }
             TagEnd::Heading(level) => {
-                if self.heading.in_first_h1 {
-                    // End of first H1 - save title, don't render
-                    self.heading.complete_title_capture();
-                } else if let Some((adjusted_level, id, _text, html)) =
-                    self.heading.complete_heading()
-                {
+                if let Some((heading_level, id, _text, html)) = self.heading.complete_heading() {
                     // Render heading with ID and inline formatting
                     write!(
                         self.output,
-                        r#"<h{adjusted_level} id="{id}">{}</h{adjusted_level}>"#,
+                        r#"<h{heading_level} id="{id}">{}</h{heading_level}>"#,
                         html.trim()
                     )
                     .unwrap();
@@ -559,10 +529,7 @@ impl HtmlRenderer {
     }
 
     fn text(&mut self, text: &str) {
-        if self.heading.in_first_h1 {
-            // Capture text for title
-            self.heading.h1_text.push_str(text);
-        } else if self.code.active {
+        if self.code.active {
             // Buffer code for syntax highlighting
             self.code.buffer.push_str(text);
         } else if self.image.active {
@@ -726,19 +693,24 @@ mod tests {
         let markdown = "# My Title\n\nSome content\n\n## Section\n\n### Subsection";
         let result = render_with_title(markdown);
 
+        // Title is extracted from first H1
         assert_eq!(result.title, Some("My Title".to_string()));
-        assert!(!result.html.contains("My Title"));
-        assert!(result.html.contains(r#"<h1 id="section">Section</h1>"#)); // H2 -> H1
+
+        // H1 is still rendered in the output (unlike Confluence)
+        assert!(result.html.contains(r#"<h1 id="my-title">My Title</h1>"#));
+        assert!(result.html.contains(r#"<h2 id="section">Section</h2>"#));
         assert!(
             result
                 .html
-                .contains(r#"<h2 id="subsection">Subsection</h2>"#)
-        ); // H3 -> H2
+                .contains(r#"<h3 id="subsection">Subsection</h3>"#)
+        );
 
-        // ToC should have adjusted levels
+        // ToC excludes page title, has original levels (no adjustment for HTML)
         assert_eq!(result.toc.len(), 2);
-        assert_eq!(result.toc[0].level, 1);
-        assert_eq!(result.toc[1].level, 2);
+        assert_eq!(result.toc[0].level, 2);
+        assert_eq!(result.toc[0].title, "Section");
+        assert_eq!(result.toc[1].level, 3);
+        assert_eq!(result.toc[1].title, "Subsection");
     }
 
     #[test]

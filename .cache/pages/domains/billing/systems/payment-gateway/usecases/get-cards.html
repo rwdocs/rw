@@ -1,0 +1,16 @@
+<h1 id="">Получить привязанную карту для автоплатежа</h1><pre><code class="language-plantuml">!include c4/sequence.iuml
+
+!include actors/customer.iuml
+!include systems/svc_monolith_cian_profileapi.iuml
+ContainerDb(db_users, &quot;RealtyUsers&quot;, &quot;MSSQL&quot;)
+ContainerDb(db_billing, &quot;Billing&quot;, &quot;MSSQL&quot;)
+
+Rel(customer, svc_monolith_cian_profileapi, &quot;Получает привязанную карту&quot;, $descr=&quot;/api/profile/autopay/get-card/&quot;)
+Rel(svc_monolith_cian_profileapi, db_users, &quot;Получает информацию о пользователе&quot;, $descr=&quot;dbo.Users&quot;)
+Rel(svc_monolith_cian_profileapi, db_billing, &quot;Получает биллинговый аккаунт пользователя или создает новый&quot;, $descr=&quot;Billing.Accounts&quot;)
+Rel(svc_monolith_cian_profileapi, db_billing, &quot;Получает информацию об аккаунте пользователя или создает новый&quot;, $descr=&quot;Billing.AccountInfo&quot;)
+Rel(svc_monolith_cian_profileapi, db_billing, &quot;Получает или создает настройки автоплатежа&quot;, $descr=&quot;Payment.AccountAutoPaySettings&quot;)
+Rel(svc_monolith_cian_profileapi, db_billing, &quot;Получает привязанную карту для автоплатежа&quot;, $descr=&quot;Payment.ApprovedCards&quot;)
+Rel(svc_monolith_cian_profileapi, customer, &quot;Возвращает информацию о привязанной карте&quot;)
+
+</code></pre>

@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Fix HTML renderer to preserve H1 title and heading levels
+  - Title extraction now extracts first H1 without removing it from output
+  - Header levels are no longer shifted (H2 stays H2, not H1)
+  - ToC excludes page title (first H1) but includes all other headings
+  - This differs from Confluence renderer which removes H1 and shifts headers
 - Address PR review feedback for bundled assets
   - Fix error message to reference correct build command (`npm run build:bundle`)
   - Add `requires_bundled_assets` skip marker for tests depending on bundled assets

@@ -51,6 +51,8 @@ pub use converter::{
     ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter, create_image_tag,
 };
 pub use html::{HtmlRenderResult, HtmlRenderer, TocEntry};
-pub use kroki::{DiagramError, DiagramErrorKind, DiagramRequest, RenderError, RenderedDiagram, render_all};
+pub use kroki::{
+    DiagramError, DiagramErrorKind, DiagramRequest, RenderError, RenderedDiagram, render_all,
+};
 pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 pub use plantuml_filter::{ExtractedDiagram, PlantUmlFilter};
