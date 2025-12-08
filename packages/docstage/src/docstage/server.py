@@ -87,6 +87,9 @@ def create_app(config: ServerConfig) -> web.Application:
         manager = LiveReloadManager(
             config["source_dir"],
             watch_patterns=config.get("watch_patterns"),
+            cache=cache,
+            renderer=renderer,
+            navigation=navigation,
         )
         app["live_reload_manager"] = manager
         app.router.add_routes(create_live_reload_routes(manager))

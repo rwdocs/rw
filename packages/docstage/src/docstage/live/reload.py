@@ -7,9 +7,15 @@ via WebSocket to trigger page reloads.
 import asyncio
 import weakref
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from aiohttp import WSMsgType, web
 from watchfiles import Change, awatch
+
+if TYPE_CHECKING:
+    from docstage.core.cache import FileCache
+    from docstage.core.navigation import NavigationBuilder
+    from docstage.core.renderer import PageRenderer
 
 
 class LiveReloadManager:
@@ -20,18 +26,30 @@ class LiveReloadManager:
     """
 
     def __init__(
-        self, source_dir: Path, watch_patterns: list[str] | None = None
+        self,
+        source_dir: Path,
+        watch_patterns: list[str] | None = None,
+        *,
+        cache: "FileCache | None" = None,
+        renderer: "PageRenderer | None" = None,
+        navigation: "NavigationBuilder | None" = None,
     ) -> None:
         """Initialize the live reload manager.
 
         Args:
             source_dir: Directory to watch for changes
             watch_patterns: Glob patterns to watch (default: ["**/*.md"])
+            cache: FileCache instance for cache invalidation
+            renderer: PageRenderer instance for page cache invalidation
+            navigation: NavigationBuilder instance for navigation cache invalidation
         """
         self._source_dir = source_dir
         self._watch_patterns = watch_patterns or ["**/*.md"]
         self._connections: weakref.WeakSet[web.WebSocketResponse] = weakref.WeakSet()
         self._watch_task: asyncio.Task[None] | None = None
+        self._cache = cache
+        self._renderer = renderer
+        self._navigation = navigation
 
     async def start(self) -> None:
         """Start the file watcher."""
@@ -86,8 +104,26 @@ class LiveReloadManager:
                 if not self._matches_patterns(path):
                     continue
 
+                cache_path = self._to_cache_path(path)
                 doc_path = self._to_doc_path(path)
+
+                self._invalidate_caches(cache_path)
                 await self._broadcast_reload(doc_path)
+
+    def _invalidate_caches(self, cache_path: str) -> None:
+        """Invalidate caches for a changed file.
+
+        Args:
+            cache_path: Cache path (e.g., "guide/setup")
+        """
+        if self._renderer:
+            self._renderer.invalidate(cache_path)
+
+        if self._navigation:
+            self._navigation.invalidate()
+
+        if self._cache:
+            self._cache.invalidate_navigation()
 
     def _matches_patterns(self, path: Path) -> bool:
         """Check if a path matches any watch pattern.
@@ -106,6 +142,18 @@ class LiveReloadManager:
             except ValueError:
                 continue
         return False
+
+    def _to_cache_path(self, file_path: Path) -> str:
+        """Convert a file system path to a cache path.
+
+        Args:
+            file_path: Absolute file path
+
+        Returns:
+            Cache path (e.g., "guide/setup" or "guide/index")
+        """
+        relative = file_path.relative_to(self._source_dir)
+        return str(relative.with_suffix(""))
 
     def _to_doc_path(self, file_path: Path) -> str:
         """Convert a file system path to a documentation path.
