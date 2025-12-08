@@ -108,13 +108,14 @@ class TestGetPage:
         assert data["toc"][1]["title"] == "Section Two"
 
     @pytest.mark.asyncio
-    async def test__response__includes_breadcrumbs_excluding_current_page(
+    async def test__response__includes_only_navigable_breadcrumbs(
         self, docs_dir: Path, client
     ) -> None:
-        """Include breadcrumbs in response, excluding the current page."""
+        """Include only breadcrumbs for paths with index.md files."""
         nested = docs_dir / "domain" / "subdomain"
         nested.mkdir(parents=True)
         (docs_dir / "domain" / "index.md").write_text("# Domain\n\nContent.")
+        # Note: subdomain has no index.md, so it won't appear in breadcrumbs
         (nested / "guide.md").write_text("# Nested Guide\n\nContent.")
 
         test_client = await client
@@ -122,11 +123,31 @@ class TestGetPage:
 
         assert response.status == 200
         data = await response.json()
-        # Breadcrumbs exclude current page (guide), showing only path to it
-        assert len(data["breadcrumbs"]) == 2
-        assert data["breadcrumbs"][0]["title"] == "Domain"
-        assert data["breadcrumbs"][0]["path"] == "/domain"
-        assert data["breadcrumbs"][1]["path"] == "/domain/subdomain"
+        # Only /domain has index.md, subdomain is skipped (would cause 404)
+        assert data["breadcrumbs"] == [
+            {"title": "Domain", "path": "/domain"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test__response__includes_all_breadcrumbs_when_all_have_index(
+        self, docs_dir: Path, client
+    ) -> None:
+        """Include all ancestor paths in breadcrumbs when they all have index.md."""
+        nested = docs_dir / "domain" / "subdomain"
+        nested.mkdir(parents=True)
+        (docs_dir / "domain" / "index.md").write_text("# Domain\n\nContent.")
+        (nested / "index.md").write_text("# Subdomain\n\nContent.")
+        (nested / "guide.md").write_text("# Nested Guide\n\nContent.")
+
+        test_client = await client
+        response = await test_client.get("/api/pages/domain/subdomain/guide")
+
+        assert response.status == 200
+        data = await response.json()
+        assert data["breadcrumbs"] == [
+            {"title": "Domain", "path": "/domain"},
+            {"title": "Subdomain", "path": "/domain/subdomain"},
+        ]
 
     @pytest.mark.asyncio
     async def test__response__includes_cache_headers(

@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Skip non-navigable paths in breadcrumbs
+  - Breadcrumbs now only include paths with index.md files
+  - Prevents 404 errors when clicking breadcrumb links for directories without index.md
 - Remove current page from breadcrumbs
   - Breadcrumbs now show only the path to the current page, not including it
   - Backend `_build_breadcrumbs` excludes last path segment
