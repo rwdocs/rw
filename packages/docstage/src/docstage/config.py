@@ -1,34 +1,39 @@
 """Configuration management for Docstage.
 
-Supports TOML configuration format for Confluence credentials.
+Supports TOML configuration format with auto-discovery.
 """
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NotRequired, TypedDict, cast
+
+CONFIG_FILENAME = "docstage.toml"
 
 
-class ConfluenceConfigDict(TypedDict):
-    """Confluence configuration dictionary from TOML."""
+@dataclass
+class ServerConfig:
+    """Server configuration."""
 
-    base_url: str
-    access_token: str
-    access_secret: str
-    consumer_key: NotRequired[str]
-
-
-class TestConfigDict(TypedDict):
-    """Test configuration dictionary from TOML."""
-
-    space_key: str
+    host: str = "127.0.0.1"
+    port: int = 8080
 
 
-class ConfigDict(TypedDict):
-    """Configuration dictionary from TOML."""
+@dataclass
+class DocsConfig:
+    """Documentation configuration."""
 
-    confluence: ConfluenceConfigDict
-    test: NotRequired[TestConfigDict]
+    source_dir: Path = field(default_factory=lambda: Path("docs"))
+    cache_dir: Path = field(default_factory=lambda: Path(".cache"))
+
+
+@dataclass
+class DiagramsConfig:
+    """Diagram rendering configuration."""
+
+    kroki_url: str | None = None
+    include_dirs: list[Path] = field(default_factory=list)
+    config_file: str | None = None
+    dpi: int = 192
 
 
 @dataclass
@@ -38,12 +43,12 @@ class ConfluenceConfig:
     base_url: str
     access_token: str
     access_secret: str
-    consumer_key: str = 'adrflow'
+    consumer_key: str = "docstage"
 
 
 @dataclass
-class TestConfig:
-    """Test configuration."""
+class ConfluenceTestConfig:
+    """Confluence test configuration."""
 
     space_key: str
 
@@ -52,12 +57,76 @@ class TestConfig:
 class Config:
     """Application configuration."""
 
-    confluence: ConfluenceConfig
-    test: TestConfig | None
+    server: ServerConfig
+    docs: DocsConfig
+    diagrams: DiagramsConfig
+    confluence: ConfluenceConfig | None
+    confluence_test: ConfluenceTestConfig | None
+    config_path: Path | None = None
 
     @classmethod
-    def from_toml(cls, path: str | Path) -> 'Config':
-        """Load configuration from TOML file.
+    def load(cls, config_path: Path | None = None) -> "Config":
+        """Load configuration from file.
+
+        If config_path is provided, loads from that file.
+        Otherwise, searches for docstage.toml in current directory and parents.
+
+        Args:
+            config_path: Optional explicit path to config file
+
+        Returns:
+            Config instance with defaults for missing sections
+
+        Raises:
+            FileNotFoundError: If explicit config_path doesn't exist
+            ValueError: If configuration is invalid
+        """
+        if config_path is not None:
+            if not config_path.exists():
+                raise FileNotFoundError(f"Configuration file not found: {config_path}")
+            return cls._load_from_file(config_path)
+
+        discovered_path = cls._discover_config()
+        if discovered_path is None:
+            return cls._default()
+
+        return cls._load_from_file(discovered_path)
+
+    @classmethod
+    def _discover_config(cls) -> Path | None:
+        """Search for config file in current directory and parents.
+
+        Returns:
+            Path to config file or None if not found
+        """
+        current = Path.cwd()
+        while True:
+            candidate = current / CONFIG_FILENAME
+            if candidate.exists():
+                return candidate
+            parent = current.parent
+            if parent == current:
+                return None
+            current = parent
+
+    @classmethod
+    def _default(cls) -> "Config":
+        """Create config with all defaults.
+
+        Returns:
+            Config instance with default values
+        """
+        return cls(
+            server=ServerConfig(),
+            docs=DocsConfig(),
+            diagrams=DiagramsConfig(),
+            confluence=None,
+            confluence_test=None,
+        )
+
+    @classmethod
+    def _load_from_file(cls, path: Path) -> "Config":
+        """Load configuration from a specific file.
 
         Args:
             path: Path to TOML configuration file
@@ -66,79 +135,193 @@ class Config:
             Config instance
 
         Raises:
-            FileNotFoundError: If configuration file doesn't exist
             ValueError: If configuration is invalid
         """
-        config_path = Path(path)
-        if not config_path.exists():
-            raise FileNotFoundError(f'Configuration file not found: {path}')
-
-        with config_path.open('rb') as f:
+        with path.open("rb") as f:
             data = tomllib.load(f)
 
-        # Validate and cast to ConfigDict
-        validated_data = cls._validate_config(data)
-        return cls._from_dict(validated_data)
-
-    @classmethod
-    def _validate_config(cls, data: object) -> ConfigDict:
-        """Validate configuration dictionary structure.
-
-        Args:
-            data: Raw configuration data from TOML
-
-        Returns:
-            Validated ConfigDict
-
-        Raises:
-            ValueError: If configuration structure is invalid
-        """
         if not isinstance(data, dict):
-            raise ValueError('Configuration must be a dictionary')
+            raise ValueError("Configuration must be a dictionary")
 
-        # Validate confluence section
-        confluence = data.get('confluence')
-        if not isinstance(confluence, dict):
-            raise ValueError('confluence section is required and must be a dictionary')
-        if not isinstance(confluence.get('base_url'), str):
-            raise ValueError('confluence.base_url must be a string')
-        if not isinstance(confluence.get('access_token'), str):
-            raise ValueError('confluence.access_token must be a string')
-        if not isinstance(confluence.get('access_secret'), str):
-            raise ValueError('confluence.access_secret must be a string')
+        config_dir = path.parent
 
-        # Validate test section (optional)
-        test = data.get('test')
-        if test is not None:
-            if not isinstance(test, dict):
-                raise ValueError('test section must be a dictionary if provided')
-            if not isinstance(test.get('space_key'), str):
-                raise ValueError('test.space_key must be a string')
+        server = cls._parse_server(data.get("server"))
+        docs = cls._parse_docs(data.get("docs"), config_dir)
+        diagrams = cls._parse_diagrams(data.get("diagrams"), config_dir)
+        confluence = cls._parse_confluence(data.get("confluence"))
+        confluence_test = cls._parse_confluence_test(data.get("confluence", {}).get("test"))
 
-        # Safe to cast after validation
-        return cast(ConfigDict, data)
-
-    @classmethod
-    def _from_dict(cls, data: ConfigDict) -> 'Config':
-        """Create Config from typed dictionary.
-
-        Args:
-            data: Configuration dictionary (validated by TypedDict)
-
-        Returns:
-            Config instance
-        """
-        confluence_data = data['confluence']
-        confluence = ConfluenceConfig(
-            base_url=confluence_data['base_url'],
-            access_token=confluence_data['access_token'],
-            access_secret=confluence_data['access_secret'],
-            consumer_key=confluence_data.get('consumer_key', 'adrflow'),
+        return cls(
+            server=server,
+            docs=docs,
+            diagrams=diagrams,
+            confluence=confluence,
+            confluence_test=confluence_test,
+            config_path=path,
         )
 
-        test = None
-        test_data = data.get('test')
-        if test_data is not None:
-            test = TestConfig(space_key=test_data['space_key'])
+    @classmethod
+    def _parse_server(cls, data: object) -> ServerConfig:
+        """Parse server configuration section.
 
-        return cls(confluence=confluence, test=test)
+        Args:
+            data: Raw server section data
+
+        Returns:
+            ServerConfig instance
+        """
+        if data is None:
+            return ServerConfig()
+
+        if not isinstance(data, dict):
+            raise ValueError("server section must be a dictionary")
+
+        host = data.get("host", "127.0.0.1")
+        if not isinstance(host, str):
+            raise ValueError("server.host must be a string")
+
+        port = data.get("port", 8080)
+        if not isinstance(port, int):
+            raise ValueError("server.port must be an integer")
+
+        return ServerConfig(host=host, port=port)
+
+    @classmethod
+    def _parse_docs(cls, data: object, config_dir: Path) -> DocsConfig:
+        """Parse docs configuration section.
+
+        Args:
+            data: Raw docs section data
+            config_dir: Directory containing config file (for relative paths)
+
+        Returns:
+            DocsConfig instance
+        """
+        if data is None:
+            return DocsConfig(
+                source_dir=config_dir / "docs",
+                cache_dir=config_dir / ".cache",
+            )
+
+        if not isinstance(data, dict):
+            raise ValueError("docs section must be a dictionary")
+
+        source_dir = data.get("source_dir", "docs")
+        if not isinstance(source_dir, str):
+            raise ValueError("docs.source_dir must be a string")
+        source_path = config_dir / source_dir
+
+        cache_dir = data.get("cache_dir", ".cache")
+        if not isinstance(cache_dir, str):
+            raise ValueError("docs.cache_dir must be a string")
+        cache_path = config_dir / cache_dir
+
+        return DocsConfig(source_dir=source_path, cache_dir=cache_path)
+
+    @classmethod
+    def _parse_diagrams(cls, data: object, config_dir: Path) -> DiagramsConfig:
+        """Parse diagrams configuration section.
+
+        Args:
+            data: Raw diagrams section data
+            config_dir: Directory containing config file (for relative paths)
+
+        Returns:
+            DiagramsConfig instance
+        """
+        if data is None:
+            return DiagramsConfig()
+
+        if not isinstance(data, dict):
+            raise ValueError("diagrams section must be a dictionary")
+
+        kroki_url = data.get("kroki_url")
+        if kroki_url is not None and not isinstance(kroki_url, str):
+            raise ValueError("diagrams.kroki_url must be a string")
+
+        include_dirs_raw = data.get("include_dirs", [])
+        if not isinstance(include_dirs_raw, list):
+            raise ValueError("diagrams.include_dirs must be a list")
+        include_dirs: list[Path] = []
+        for item in include_dirs_raw:
+            if not isinstance(item, str):
+                raise ValueError("diagrams.include_dirs items must be strings")
+            include_dirs.append(config_dir / item)
+
+        config_file = data.get("config_file")
+        if config_file is not None and not isinstance(config_file, str):
+            raise ValueError("diagrams.config_file must be a string")
+
+        dpi = data.get("dpi", 192)
+        if not isinstance(dpi, int):
+            raise ValueError("diagrams.dpi must be an integer")
+
+        return DiagramsConfig(
+            kroki_url=kroki_url,
+            include_dirs=include_dirs,
+            config_file=config_file,
+            dpi=dpi,
+        )
+
+    @classmethod
+    def _parse_confluence(cls, data: object) -> ConfluenceConfig | None:
+        """Parse confluence configuration section.
+
+        Args:
+            data: Raw confluence section data
+
+        Returns:
+            ConfluenceConfig instance or None if section not present
+        """
+        if data is None:
+            return None
+
+        if not isinstance(data, dict):
+            raise ValueError("confluence section must be a dictionary")
+
+        base_url = data.get("base_url")
+        if base_url is None:
+            return None
+        if not isinstance(base_url, str):
+            raise ValueError("confluence.base_url must be a string")
+
+        access_token = data.get("access_token")
+        if not isinstance(access_token, str):
+            raise ValueError("confluence.access_token must be a string")
+
+        access_secret = data.get("access_secret")
+        if not isinstance(access_secret, str):
+            raise ValueError("confluence.access_secret must be a string")
+
+        consumer_key = data.get("consumer_key", "docstage")
+        if not isinstance(consumer_key, str):
+            raise ValueError("confluence.consumer_key must be a string")
+
+        return ConfluenceConfig(
+            base_url=base_url,
+            access_token=access_token,
+            access_secret=access_secret,
+            consumer_key=consumer_key,
+        )
+
+    @classmethod
+    def _parse_confluence_test(cls, data: object) -> ConfluenceTestConfig | None:
+        """Parse confluence.test configuration section.
+
+        Args:
+            data: Raw confluence.test section data
+
+        Returns:
+            ConfluenceTestConfig instance or None if section not present
+        """
+        if data is None:
+            return None
+
+        if not isinstance(data, dict):
+            raise ValueError("confluence.test section must be a dictionary")
+
+        space_key = data.get("space_key")
+        if not isinstance(space_key, str):
+            raise ValueError("confluence.test.space_key must be a string")
+
+        return ConfluenceTestConfig(space_key=space_key)

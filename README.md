@@ -8,14 +8,61 @@ Documentation engine for Backstage. Convert markdown files to Confluence pages w
 
 ```bash
 uv sync
-cp config.toml.example config.toml
+cp docstage.toml.example docstage.toml
 ```
 
-Edit `config.toml` with your OAuth credentials and place `private_key.pem` in the project root.
+Edit `docstage.toml` with your settings and place `private_key.pem` in the project root.
+
+## Configuration
+
+Docstage uses `docstage.toml` for configuration. The file is automatically discovered in the current directory or any parent directory.
+
+```toml
+# docstage.toml
+
+[server]
+host = "127.0.0.1"      # Server host
+port = 8080             # Server port
+
+[docs]
+source_dir = "docs"     # Markdown source directory
+cache_dir = ".cache"    # Cache directory
+
+[diagrams]
+kroki_url = "https://kroki.io"  # Enables diagram rendering
+include_dirs = ["."]            # PlantUML !include search paths
+config_file = "config.iuml"     # PlantUML config file
+dpi = 192                       # DPI for diagrams (retina)
+
+[confluence]
+base_url = "https://confluence.example.com"
+access_token = "your-token"
+access_secret = "your-secret"
+consumer_key = "docstage"
+
+[confluence.test]
+space_key = "DOCS"
+```
+
+CLI options override config file values:
+
+```bash
+# Use config file
+docstage serve
+
+# Override port from config
+docstage serve --port 9000
+
+# Use explicit config file
+docstage serve --config /path/to/docstage.toml
+```
 
 ## Usage
 
 ```bash
+# Start documentation server
+uv run docstage serve
+
 # Generate OAuth tokens (requires write permissions in Confluence)
 uv run docstage generate-tokens
 

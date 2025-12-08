@@ -56,6 +56,9 @@ class PageRenderer:
         *,
         extract_title: bool = True,
         kroki_url: str | None = None,
+        include_dirs: list[Path] | None = None,
+        config_file: str | None = None,
+        dpi: int = 192,
     ) -> None:
         """Initialize renderer.
 
@@ -65,14 +68,27 @@ class PageRenderer:
             extract_title: Whether to extract title from first H1
             kroki_url: Kroki server URL for diagram rendering (e.g., "https://kroki.io").
                        If None, diagrams are rendered as code blocks.
+            include_dirs: Directories to search for PlantUML !include files.
+                          If None, defaults to [source_dir] when kroki_url is set.
+            config_file: PlantUML config file name (searched in include_dirs)
+            dpi: DPI for diagram rendering (default: 192 for retina)
         """
         self._source_dir = source_dir
         self._cache = cache
         self._extract_title = extract_title
         self._kroki_url = kroki_url
+        self._include_dirs = include_dirs
+        self._config_file = config_file
+        self._dpi = dpi
+
+        effective_include_dirs = include_dirs if include_dirs else [source_dir] if kroki_url else None
+        converter_include_dirs = [str(d) for d in effective_include_dirs] if effective_include_dirs else None
         self._converter = MarkdownConverter(
             gfm=True,
             extract_title=extract_title,
+            include_dirs=converter_include_dirs,
+            config_file=config_file,
+            dpi=dpi,
         )
 
     @property

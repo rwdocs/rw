@@ -16,12 +16,14 @@ class TestConvertCommand:
         markdown_file = tmp_path / 'test.md'
         markdown_file.write_text('# Hello World\n\nThis is a test.')
 
+        config_file = tmp_path / 'docstage.toml'
+        config_file.write_text('[diagrams]\nkroki_url = "https://kroki.io"')
+
         runner = CliRunner()
-        result = runner.invoke(cli, ['convert', str(markdown_file)])
+        result = runner.invoke(cli, ['convert', str(markdown_file), '-c', str(config_file)])
 
         assert result.exit_code == 0
         assert 'Converted to Confluence storage format' in result.output
-        # Check that content was converted
         assert '<p>This is a test.</p>' in result.output
 
     def test_converts_with_code_blocks(self, tmp_path: Path) -> None:
@@ -34,11 +36,13 @@ print("Hello")
 ```
 """)
 
+        config_file = tmp_path / 'docstage.toml'
+        config_file.write_text('[diagrams]\nkroki_url = "https://kroki.io"')
+
         runner = CliRunner()
-        result = runner.invoke(cli, ['convert', str(markdown_file)])
+        result = runner.invoke(cli, ['convert', str(markdown_file), '-c', str(config_file)])
 
         assert result.exit_code == 0
-        # Confluence uses ac:structured-macro for code blocks
         assert 'ac:structured-macro' in result.output
         assert 'print("Hello")' in result.output
 
@@ -49,8 +53,21 @@ print("Hello")
         runner = CliRunner()
         result = runner.invoke(cli, ['convert', str(nonexistent)])
 
-        # Click validates path existence
         assert result.exit_code != 0
+
+    def test_fails_without_kroki_url(self, tmp_path: Path) -> None:
+        """Fail when kroki_url is not provided."""
+        markdown_file = tmp_path / 'test.md'
+        markdown_file.write_text('# Hello World')
+
+        config_file = tmp_path / 'docstage.toml'
+        config_file.write_text('')
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ['convert', str(markdown_file), '-c', str(config_file)])
+
+        assert result.exit_code == 1
+        assert 'kroki_url required' in result.output
 
 
 class TestGetPageCommand:

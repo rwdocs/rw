@@ -25,6 +25,9 @@ class ServerConfig(TypedDict, total=False):
     source_dir: Path
     cache_dir: Path
     kroki_url: str | None
+    include_dirs: list[Path]
+    config_file: str | None
+    dpi: int
 
 
 async def spa_fallback(request: web.Request) -> web.FileResponse:
@@ -50,7 +53,18 @@ def create_app(config: ServerConfig) -> web.Application:
 
     cache = FileCache(config["cache_dir"])
     kroki_url = config.get("kroki_url")
-    renderer = PageRenderer(config["source_dir"], cache, kroki_url=kroki_url)
+    include_dirs = config.get("include_dirs", [])
+    config_file = config.get("config_file")
+    dpi = config.get("dpi", 192)
+
+    renderer = PageRenderer(
+        config["source_dir"],
+        cache,
+        kroki_url=kroki_url,
+        include_dirs=include_dirs,
+        config_file=config_file,
+        dpi=dpi,
+    )
     navigation = NavigationBuilder(config["source_dir"], cache)
 
     app[renderer_key] = renderer

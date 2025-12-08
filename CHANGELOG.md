@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### 2025-12-08
+- Implement unified configuration file (RD-005)
+  - Replace `config.toml` with `docstage.toml` for all settings
+  - Add auto-discovery: search for `docstage.toml` in current and parent directories
+  - Consolidate server, docs, diagrams, and confluence settings in single file
+  - CLI options override config file values when specified
+  - Add `--config` option to all commands for explicit config file path
+  - Add diagram configuration: `include_dirs`, `config_file`, `dpi`
+  - Create `docstage.toml.example` with documented options
 - Implement diagram rendering for HTML output (RD-004)
   - Add `DiagramFilter` iterator adapter supporting PlantUML, Mermaid, GraphViz, and 14 other Kroki-supported formats
   - Add `render_all_svg` and `render_all_png_data_uri` functions for SVG and PNG output

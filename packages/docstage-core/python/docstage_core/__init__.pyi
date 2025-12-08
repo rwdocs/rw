@@ -85,7 +85,7 @@ class MarkdownConverter:
         gfm: bool = True,
         prepend_toc: bool = False,
         extract_title: bool = False,
-        include_dirs: list[object] | None = None,
+        include_dirs: list[str] | None = None,
         config_file: str | None = None,
         dpi: int | None = None,
     ) -> None:
