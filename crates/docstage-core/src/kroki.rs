@@ -305,11 +305,26 @@ fn render_one_svg(
     let response = agent
         .post(&url)
         .header("Content-Type", "text/plain")
-        .send(diagram.source.as_bytes())
-        .map_err(|e| DiagramError {
-            index: diagram.index,
-            kind: DiagramErrorKind::Http(e.to_string()),
-        })?;
+        .send(diagram.source.as_bytes());
+
+    let response = match response {
+        Ok(r) => r,
+        Err(ureq::Error::StatusCode(status)) => {
+            // Try to read error body for more details
+            return Err(DiagramError {
+                index: diagram.index,
+                kind: DiagramErrorKind::Http(format!(
+                    "HTTP {status} from {url}"
+                )),
+            });
+        }
+        Err(e) => {
+            return Err(DiagramError {
+                index: diagram.index,
+                kind: DiagramErrorKind::Http(e.to_string()),
+            });
+        }
+    };
 
     let svg = response
         .into_body()
