@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Address PR review feedback for link resolution
+  - Fix absolute paths to avoid double slashes (`/absolute/path.md` → `/docs/absolute/path`)
+  - Simplify `.md` and `/index` suffix stripping with sequential strip calls
+  - Document path traversal behavior with tests (excessive `..` clamped at root)
 - Fix broken article links in rendered markdown (backend-side resolution)
   - Add `base_path` parameter to `HtmlRenderer` and converter methods
   - Resolve relative .md links (./page.md, ../other.md) to absolute `/docs/...` paths during rendering

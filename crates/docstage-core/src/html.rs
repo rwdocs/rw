@@ -695,19 +695,16 @@ fn resolve_link(url: &str, base_path: &str) -> String {
 
     // Resolve the path
     let resolved = if path_part.starts_with('/') {
-        // Absolute path - just strip .md
-        path_part.to_string()
+        // Absolute path - strip leading slash since we add /docs/ prefix later
+        path_part.trim_start_matches('/').to_string()
     } else {
         // Relative path - resolve against base
         resolve_relative_path(path_part, base_path)
     };
 
     // Strip .md extension and /index suffix for clean URLs
-    let clean = resolved
-        .strip_suffix(".md")
-        .unwrap_or(&resolved)
-        .strip_suffix("/index")
-        .unwrap_or(resolved.strip_suffix(".md").unwrap_or(&resolved));
+    let clean = resolved.strip_suffix(".md").unwrap_or(&resolved);
+    let clean = clean.strip_suffix("/index").unwrap_or(clean);
 
     // Add /docs prefix and fragment
     let with_prefix = format!("/docs/{clean}");
@@ -729,7 +726,8 @@ fn resolve_relative_path(relative: &str, base: &str) -> String {
         match component {
             "" | "." => {} // Current directory, skip
             ".." => {
-                segments.pop(); // Parent directory
+                // Parent directory - ignore if already at root to prevent traversal
+                segments.pop();
             }
             _ => segments.push(component),
         }
@@ -1030,6 +1028,21 @@ mod tests {
         assert_eq!(
             resolve_link("./image.png", "base/path"),
             "./image.png"
+        );
+    }
+
+    #[test]
+    fn test_resolve_link_absolute() {
+        // Absolute paths should not produce double slashes
+        assert_eq!(resolve_link("/absolute/path.md", "base/path"), "/docs/absolute/path");
+    }
+
+    #[test]
+    fn test_resolve_link_traversal_clamped() {
+        // Excessive parent traversal should clamp at root, not go negative
+        assert_eq!(
+            resolve_link("../../../etc/passwd.md", "a/b"),
+            "/docs/etc/passwd"
         );
     }
 
