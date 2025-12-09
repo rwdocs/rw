@@ -15,8 +15,14 @@
 
   let { children }: Props = $props();
 
-  onMount(() => {
-    navigation.load();
+  onMount(async () => {
+    await navigation.load();
+    // Expand to current path after initial load
+    const currentPath = window.location.pathname;
+    if (currentPath.startsWith("/docs")) {
+      const docPath = currentPath.replace(/^\/docs\/?/, "");
+      navigation.expandOnlyTo("/" + docPath);
+    }
   });
 </script>
 

@@ -3,6 +3,7 @@
   import { get } from "svelte/store";
   import { path } from "../stores/router";
   import { page } from "../stores/page";
+  import { navigation } from "../stores/navigation";
   import { liveReload } from "../stores/liveReload";
 
   // Extract path from location, removing /docs prefix
@@ -14,6 +15,8 @@
     if (docPath !== previousPath) {
       previousPath = docPath;
       page.load(docPath);
+      // Expand only the path to the current page in navigation
+      navigation.expandOnlyTo("/" + docPath);
     }
   });
 

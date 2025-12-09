@@ -65,16 +65,22 @@ function createLiveReloadStore() {
     };
   }
 
-  function handleReload(changedPath: string) {
+  async function handleReload(changedPath: string) {
     update((state) => ({ ...state, lastReload: changedPath }));
 
     if (import.meta.env.DEV) {
       console.log("[LiveReload] File changed:", changedPath);
     }
 
-    navigation.load({ bypassCache: true });
+    await navigation.load({ bypassCache: true });
 
+    // Expand to current path after reload
     const currentPath = get(path);
+    if (currentPath.startsWith("/docs")) {
+      const docPath = currentPath.replace(/^\/docs\/?/, "");
+      navigation.expandOnlyTo("/" + docPath);
+    }
+
     if (onReloadCallback && shouldReload(currentPath, changedPath)) {
       onReloadCallback(changedPath);
     }

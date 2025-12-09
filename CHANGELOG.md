@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Auto-collapse navigation items except the path to current page
+  - All navigation items with children are collapsed by default
+  - Only the path to the currently viewed page is expanded
+  - Navigation auto-expands when navigating to a new page
+  - Collapsed state is no longer persisted to localStorage
 - Add bottom padding to main content container for consistent spacing
 
 ### 2025-12-08
