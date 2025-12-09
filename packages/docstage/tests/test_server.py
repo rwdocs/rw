@@ -1,13 +1,13 @@
 """Tests for server module."""
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 from aiohttp import web
 from docstage.app_keys import cache_key, navigation_key, renderer_key
 from docstage.assets import get_static_dir
-from docstage.server import ServerConfig, create_app
+from docstage.config import Config
+from docstage.server import create_app
 
 from tests.test_assets import requires_bundled_assets
 
@@ -16,42 +16,20 @@ from tests.test_assets import requires_bundled_assets
 class TestCreateApp:
     """Tests for create_app()."""
 
-    def test__valid_config__returns_configured_app(self, tmp_path: Path) -> None:
+    def test__valid_config__returns_configured_app(self, test_config: Config) -> None:
         """Create app with valid configuration."""
-        source_dir = tmp_path / "docs"
-        source_dir.mkdir()
-        cache_dir = tmp_path / ".cache"
-
-        config: ServerConfig = {
-            "host": "127.0.0.1",
-            "port": 8080,
-            "source_dir": source_dir,
-            "cache_dir": cache_dir,
-        }
-
-        app = create_app(config)
+        app = create_app(test_config)
 
         assert renderer_key in app
         assert navigation_key in app
         assert cache_key in app
-        assert app[renderer_key].source_dir == source_dir
-        assert app[navigation_key].source_dir == source_dir
-        assert app[cache_key].cache_dir == cache_dir
+        assert app[renderer_key].source_dir == test_config.docs.source_dir
+        assert app[navigation_key].source_dir == test_config.docs.source_dir
+        assert app[cache_key].cache_dir == test_config.docs.cache_dir
 
-    def test__app__uses_bundled_static_assets(self, tmp_path: Path) -> None:
+    def test__app__uses_bundled_static_assets(self, test_config: Config) -> None:
         """Create app uses bundled static assets."""
-        source_dir = tmp_path / "docs"
-        source_dir.mkdir()
-        cache_dir = tmp_path / ".cache"
-
-        config: ServerConfig = {
-            "host": "127.0.0.1",
-            "port": 8080,
-            "source_dir": source_dir,
-            "cache_dir": cache_dir,
-        }
-
-        app = create_app(config)
+        app = create_app(test_config)
 
         assert app["static_dir"] == get_static_dir()
 
@@ -61,20 +39,9 @@ class TestSpaFallback:
     """Tests for SPA fallback route."""
 
     @pytest.fixture
-    def app(self, tmp_path: Path) -> web.Application:
+    def app(self, test_config: Config) -> web.Application:
         """Create app with bundled static assets for testing."""
-        source_dir = tmp_path / "docs"
-        source_dir.mkdir()
-        cache_dir = tmp_path / ".cache"
-
-        config: ServerConfig = {
-            "host": "127.0.0.1",
-            "port": 8080,
-            "source_dir": source_dir,
-            "cache_dir": cache_dir,
-        }
-
-        return create_app(config)
+        return create_app(test_config)
 
     @pytest.mark.asyncio
     async def test__root_path__serves_index_html(

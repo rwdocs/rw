@@ -4,7 +4,7 @@ Supports TOML configuration format with auto-discovery.
 """
 
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 CONFIG_FILENAME = "docstage.toml"
@@ -372,3 +372,61 @@ class Config:
             raise ValueError("confluence.test.space_key must be a string")
 
         return ConfluenceTestConfig(space_key=space_key)
+
+    def with_overrides(
+        self,
+        *,
+        host: str | None = None,
+        port: int | None = None,
+        source_dir: Path | None = None,
+        cache_dir: Path | None = None,
+        kroki_url: str | None = None,
+        live_reload_enabled: bool | None = None,
+    ) -> Config:
+        """Create a new Config with CLI overrides applied.
+
+        Only non-None values override the existing config. This follows
+        the immutable pattern - the original Config is not modified.
+
+        Args:
+            host: Override server.host
+            port: Override server.port
+            source_dir: Override docs.source_dir
+            cache_dir: Override docs.cache_dir
+            kroki_url: Override diagrams.kroki_url
+            live_reload_enabled: Override live_reload.enabled
+
+        Returns:
+            New Config instance with overrides applied
+        """
+        server = self.server
+        if host is not None or port is not None:
+            server = replace(
+                self.server,
+                host=host if host is not None else self.server.host,
+                port=port if port is not None else self.server.port,
+            )
+
+        docs = self.docs
+        if source_dir is not None or cache_dir is not None:
+            docs = replace(
+                self.docs,
+                source_dir=source_dir if source_dir is not None else self.docs.source_dir,
+                cache_dir=cache_dir if cache_dir is not None else self.docs.cache_dir,
+            )
+
+        diagrams = self.diagrams
+        if kroki_url is not None:
+            diagrams = replace(self.diagrams, kroki_url=kroki_url)
+
+        live_reload = self.live_reload
+        if live_reload_enabled is not None:
+            live_reload = replace(self.live_reload, enabled=live_reload_enabled)
+
+        return replace(
+            self,
+            server=server,
+            docs=docs,
+            diagrams=diagrams,
+            live_reload=live_reload,
+        )

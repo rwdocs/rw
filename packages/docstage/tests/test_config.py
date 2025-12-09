@@ -453,3 +453,92 @@ class TestConfluenceConfig:
         )
 
         assert config.consumer_key == "custom-key"
+
+
+class TestConfigWithOverrides:
+    """Tests for Config.with_overrides method."""
+
+    def test__no_overrides__returns_same_values(self) -> None:
+        """When no overrides are provided, values remain unchanged."""
+        original = Config._default()
+
+        result = original.with_overrides()
+
+        assert result.server.host == original.server.host
+        assert result.server.port == original.server.port
+        assert result.docs.source_dir == original.docs.source_dir
+        assert result.docs.cache_dir == original.docs.cache_dir
+        assert result.diagrams.kroki_url == original.diagrams.kroki_url
+        assert result.live_reload.enabled == original.live_reload.enabled
+
+    def test__override_host__changes_only_host(self) -> None:
+        """Override host changes only server.host."""
+        original = Config._default()
+
+        result = original.with_overrides(host="0.0.0.0")
+
+        assert result.server.host == "0.0.0.0"
+        assert result.server.port == original.server.port
+
+    def test__override_port__changes_only_port(self) -> None:
+        """Override port changes only server.port."""
+        original = Config._default()
+
+        result = original.with_overrides(port=9000)
+
+        assert result.server.port == 9000
+        assert result.server.host == original.server.host
+
+    def test__override_source_dir__changes_only_source_dir(self) -> None:
+        """Override source_dir changes only docs.source_dir."""
+        original = Config._default()
+        new_path = Path("/custom/docs")
+
+        result = original.with_overrides(source_dir=new_path)
+
+        assert result.docs.source_dir == new_path
+        assert result.docs.cache_dir == original.docs.cache_dir
+
+    def test__override_kroki_url__changes_diagrams_kroki_url(self) -> None:
+        """Override kroki_url changes diagrams.kroki_url."""
+        original = Config._default()
+
+        result = original.with_overrides(kroki_url="https://kroki.example.com")
+
+        assert result.diagrams.kroki_url == "https://kroki.example.com"
+
+    def test__override_live_reload_enabled__changes_live_reload(self) -> None:
+        """Override live_reload_enabled changes live_reload.enabled."""
+        original = Config._default()
+        assert original.live_reload.enabled is True
+
+        result = original.with_overrides(live_reload_enabled=False)
+
+        assert result.live_reload.enabled is False
+
+    def test__multiple_overrides__changes_all_specified(self) -> None:
+        """Multiple overrides change all specified values."""
+        original = Config._default()
+
+        result = original.with_overrides(
+            host="0.0.0.0",
+            port=9000,
+            kroki_url="https://kroki.io",
+            live_reload_enabled=False,
+        )
+
+        assert result.server.host == "0.0.0.0"
+        assert result.server.port == 9000
+        assert result.diagrams.kroki_url == "https://kroki.io"
+        assert result.live_reload.enabled is False
+
+    def test__immutability__original_unchanged(self) -> None:
+        """with_overrides does not mutate the original Config."""
+        original = Config._default()
+        original_host = original.server.host
+        original_port = original.server.port
+
+        _ = original.with_overrides(host="0.0.0.0", port=9000)
+
+        assert original.server.host == original_host
+        assert original.server.port == original_port

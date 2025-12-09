@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pytest
 from aiohttp.test_utils import TestClient
-from docstage.server import ServerConfig, create_app
+from docstage.config import (
+    Config,
+    DiagramsConfig,
+    DocsConfig,
+    LiveReloadConfig,
+    ServerConfig,
+)
+from docstage.server import create_app
 
 
 @pytest.fixture
@@ -30,16 +37,22 @@ def docs_dir(tmp_path: Path) -> Path:
     return docs
 
 
+def _make_config(source_dir: Path, cache_dir: Path) -> Config:
+    """Create a Config for testing."""
+    return Config(
+        server=ServerConfig(),
+        docs=DocsConfig(source_dir=source_dir, cache_dir=cache_dir),
+        diagrams=DiagramsConfig(),
+        live_reload=LiveReloadConfig(enabled=False),
+        confluence=None,
+        confluence_test=None,
+    )
+
+
 @pytest.fixture
 def client(tmp_path: Path, docs_dir: Path, aiohttp_client) -> TestClient:
     """Create test client with configured app."""
-    config: ServerConfig = {
-        "host": "127.0.0.1",
-        "port": 8080,
-        "source_dir": docs_dir,
-        "cache_dir": tmp_path / ".cache",
-        "static_dir": None,
-    }
+    config = _make_config(docs_dir, tmp_path / ".cache")
     app = create_app(config)
     return aiohttp_client(app)
 
@@ -97,13 +110,7 @@ class TestGetNavigation:
         """Return empty items for empty docs directory."""
         docs = tmp_path / "empty-docs"
         docs.mkdir()
-        config: ServerConfig = {
-            "host": "127.0.0.1",
-            "port": 8080,
-            "source_dir": docs,
-            "cache_dir": tmp_path / ".cache",
-            "static_dir": None,
-        }
+        config = _make_config(docs, tmp_path / ".cache")
         app = create_app(config)
         test_client = await aiohttp_client(app)
 

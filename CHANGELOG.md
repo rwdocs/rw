@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Refactor server to accept `Config` directly instead of dict
+  - Remove `ServerConfig` TypedDict from `server.py`
+  - `run_server()` and `create_app()` now accept `Config` dataclass
+  - Eliminates dict conversion in CLI, cleaner type-safe API
+  - Add `test_config` fixture in conftest.py for test reuse
+- Add `Config.with_overrides()` method for immutable CLI option handling
+  - Replace `effective_*` variables in serve command with cleaner pattern
+  - Uses `dataclasses.replace()` for type-safe nested updates
+  - Add 8 unit tests for override functionality
+- Fix 42 ruff COM812 (trailing comma) violations
 - Replace `dict[str, object]` with TypedDict for navigation tree type safety
   - Add `NavItemDict` and `NavigationTreeDict` TypedDicts in navigation module
   - Update `FileCache.get_navigation()` and `set_navigation()` to use `NavigationTreeDict`

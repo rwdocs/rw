@@ -81,48 +81,28 @@ def serve(
     """Start the documentation server."""
     from docstage.server import run_server
 
-    config = Config.load(config_path)
-
-    effective_host = host if host is not None else config.server.host
-    effective_port = port if port is not None else config.server.port
-    effective_source_dir = (
-        source_dir if source_dir is not None else config.docs.source_dir
-    )
-    effective_cache_dir = cache_dir if cache_dir is not None else config.docs.cache_dir
-    effective_kroki_url = (
-        kroki_url if kroki_url is not None else config.diagrams.kroki_url
-    )
-    effective_live_reload = (
-        live_reload if live_reload is not None else config.live_reload.enabled
+    config = Config.load(config_path).with_overrides(
+        host=host,
+        port=port,
+        source_dir=source_dir,
+        cache_dir=cache_dir,
+        kroki_url=kroki_url,
+        live_reload_enabled=live_reload,
     )
 
-    click.echo(f"Starting server on {effective_host}:{effective_port}")
-    click.echo(f"Source directory: {effective_source_dir}")
-    click.echo(f"Cache directory: {effective_cache_dir}")
-    if effective_kroki_url:
-        click.echo(f"Kroki URL: {effective_kroki_url}")
+    click.echo(f"Starting server on {config.server.host}:{config.server.port}")
+    click.echo(f"Source directory: {config.docs.source_dir}")
+    click.echo(f"Cache directory: {config.docs.cache_dir}")
+    if config.diagrams.kroki_url:
+        click.echo(f"Kroki URL: {config.diagrams.kroki_url}")
     else:
         click.echo("Diagram rendering: disabled (no kroki_url in config)")
-    if effective_live_reload:
+    if config.live_reload.enabled:
         click.echo("Live reload: enabled")
     else:
         click.echo("Live reload: disabled")
 
-    run_server(
-        {
-            "host": effective_host,
-            "port": effective_port,
-            "source_dir": effective_source_dir,
-            "cache_dir": effective_cache_dir,
-            "kroki_url": effective_kroki_url,
-            "include_dirs": config.diagrams.include_dirs,
-            "config_file": config.diagrams.config_file,
-            "dpi": config.diagrams.dpi,
-            "verbose": verbose,
-            "live_reload": effective_live_reload,
-            "watch_patterns": config.live_reload.watch_patterns,
-        },
-    )
+    run_server(config, verbose=verbose)
 
 
 @cli.command()

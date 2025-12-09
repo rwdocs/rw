@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 from aiohttp.test_utils import TestClient
-from docstage.server import ServerConfig, create_app
+from docstage.config import Config
+from docstage.server import create_app
 
 
 @pytest.fixture
@@ -16,15 +17,14 @@ def docs_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def client(tmp_path: Path, docs_dir: Path, aiohttp_client) -> TestClient:
+def client(
+    tmp_path: Path,
+    docs_dir: Path,
+    test_config: Config,
+    aiohttp_client,
+) -> TestClient:
     """Create test client with configured app."""
-    config: ServerConfig = {
-        "host": "127.0.0.1",
-        "port": 8080,
-        "source_dir": docs_dir,
-        "cache_dir": tmp_path / ".cache",
-        "static_dir": None,
-    }
+    config = test_config.with_overrides(source_dir=docs_dir, cache_dir=tmp_path / ".cache")
     app = create_app(config)
     return aiohttp_client(app)
 
