@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Fix indented `!include` directives not being resolved in PlantUML diagrams
+  - Now handles `!include` with leading whitespace (e.g., inside `System_Boundary`)
+  - Included content is indented to match the `!include` directive
+- Allow Cmd/Ctrl+click to open article links in new tab
 - Auto-create .gitignore in cache directory to prevent accidental commits
 - Address PR review feedback for link resolution
   - Fix absolute paths to avoid double slashes (`/absolute/path.md` → `/docs/absolute/path`)

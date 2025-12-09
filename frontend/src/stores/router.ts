@@ -31,6 +31,11 @@ export function initRouter() {
     const href = anchor.getAttribute("href");
     if (!href) return;
 
+    // Skip if modifier key pressed (allow Cmd/Ctrl+click to open in new tab)
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+
     // Skip non-local links
     const isExternal =
       href.startsWith("http") ||

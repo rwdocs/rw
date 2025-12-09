@@ -11,7 +11,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 static INCLUDE_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^!include\s+(.+)$").unwrap());
+    LazyLock::new(|| Regex::new(r"(?m)^(\s*)!include\s+(.+)$").unwrap());
 
 /// Default DPI for `PlantUML` diagram rendering (192 = 2x for retina displays).
 pub const DEFAULT_DPI: u32 = 192;
@@ -40,7 +40,8 @@ fn resolve_includes(
     let mut result = source.to_string();
 
     for caps in INCLUDE_PATTERN.captures_iter(source) {
-        let include_path = caps.get(1).unwrap().as_str().trim();
+        let leading_whitespace = caps.get(1).unwrap().as_str();
+        let include_path = caps.get(2).unwrap().as_str().trim();
         let full_match = caps.get(0).unwrap().as_str();
 
         // Skip stdlib includes
@@ -55,7 +56,23 @@ fn resolve_includes(
             if let Ok(content) = std::fs::read_to_string(&full_path) {
                 let resolved_content =
                     resolve_includes(&content, include_dirs, depth + 1, warnings);
-                result = result.replace(full_match, &resolved_content);
+                // Indent included content to match the !include directive
+                let indented_content = if leading_whitespace.is_empty() {
+                    resolved_content
+                } else {
+                    resolved_content
+                        .lines()
+                        .map(|line| {
+                            if line.is_empty() {
+                                String::new()
+                            } else {
+                                format!("{leading_whitespace}{line}")
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+                result = result.replace(full_match, &indented_content);
                 resolved = true;
                 break;
             }
@@ -271,5 +288,34 @@ mod tests {
         assert!(result.warnings.is_empty());
         // Stdlib include should be preserved as-is
         assert!(result.source.contains("!include <tupadr3/common>"));
+    }
+
+    #[test]
+    fn test_indented_include_resolved() {
+        // Create a temp file for the include
+        let temp_dir = std::env::temp_dir();
+        let include_path = temp_dir.join("test_component.iuml");
+        std::fs::write(&include_path, "Component(comp, \"Component\")").unwrap();
+
+        let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include test_component.iuml\nBoundary_End()\n@enduml";
+        let result = prepare_diagram_source(source, &[temp_dir.clone()], None, DEFAULT_DPI);
+
+        // Cleanup
+        std::fs::remove_file(&include_path).unwrap();
+
+        assert!(result.warnings.is_empty());
+        // Indented include should be resolved and content should be indented
+        assert!(result.source.contains("  Component(comp, \"Component\")"));
+        assert!(!result.source.contains("!include"));
+    }
+
+    #[test]
+    fn test_indented_include_warning() {
+        let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include missing.iuml\nBoundary_End()\n@enduml";
+        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+
+        // Should generate warning for indented include too
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("missing.iuml"));
     }
 }
