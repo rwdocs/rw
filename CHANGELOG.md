@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Add fade transition when navigating between pages to reduce visual jarring
 - Remove background highlight on hover for navigation items
 - Style article links with blue color and underline on hover only
 - Address PR review feedback for layout improvements
