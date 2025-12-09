@@ -7,4 +7,4 @@ from docstage_core import MarkdownConverter
 
 from .client import ConfluenceClient
 
-__all__ = ['ConfluenceClient', 'MarkdownConverter']
+__all__ = ["ConfluenceClient", "MarkdownConverter"]

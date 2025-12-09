@@ -4,7 +4,7 @@ Handles page rendering and returns JSON responses with metadata, ToC, and HTML c
 """
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import formatdate
 from hashlib import md5
 from time import mktime
@@ -40,7 +40,7 @@ async def get_page(request: web.Request) -> web.Response:
             print(f"[WARNING] {path}: {warning}", file=sys.stderr)
 
     source_mtime = result.source_path.stat().st_mtime
-    last_modified = datetime.fromtimestamp(source_mtime, tz=timezone.utc)
+    last_modified = datetime.fromtimestamp(source_mtime, tz=UTC)
 
     etag = _compute_etag(result.html)
 

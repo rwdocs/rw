@@ -74,7 +74,7 @@ class Config:
     config_path: Path | None = None
 
     @classmethod
-    def load(cls, config_path: Path | None = None) -> "Config":
+    def load(cls, config_path: Path | None = None) -> Config:
         """Load configuration from file.
 
         If config_path is provided, loads from that file.
@@ -119,7 +119,7 @@ class Config:
             current = parent
 
     @classmethod
-    def _default(cls) -> "Config":
+    def _default(cls) -> Config:
         """Create config with all defaults.
 
         Returns:
@@ -135,7 +135,7 @@ class Config:
         )
 
     @classmethod
-    def _load_from_file(cls, path: Path) -> "Config":
+    def _load_from_file(cls, path: Path) -> Config:
         """Load configuration from a specific file.
 
         Args:
@@ -160,7 +160,9 @@ class Config:
         diagrams = cls._parse_diagrams(data.get("diagrams"), config_dir)
         live_reload = cls._parse_live_reload(data.get("live_reload"))
         confluence = cls._parse_confluence(data.get("confluence"))
-        confluence_test = cls._parse_confluence_test(data.get("confluence", {}).get("test"))
+        confluence_test = cls._parse_confluence_test(
+            data.get("confluence", {}).get("test")
+        )
 
         return cls(
             server=server,

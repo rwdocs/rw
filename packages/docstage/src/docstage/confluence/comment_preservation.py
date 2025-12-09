@@ -8,7 +8,6 @@ comment markers to matching positions.
 import logging
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Optional
 from xml.etree import ElementTree as ET
 
 logger = logging.getLogger(__name__)
@@ -27,11 +26,11 @@ class TreeNode:
     """Represents a node in the HTML tree."""
 
     tag: str  # Element tag name
-    text: str = ''  # Direct text content
-    tail: str = ''  # Text after element (for inline elements)
+    text: str = ""  # Direct text content
+    tail: str = ""  # Text after element (for inline elements)
     attrs: dict[str, str] = field(default_factory=dict)  # Attributes
-    children: list['TreeNode'] = field(default_factory=list)  # Child nodes
-    element: Optional[ET.Element] = None  # Original XML element reference
+    children: list[TreeNode] = field(default_factory=list)  # Child nodes
+    element: ET.Element | None = None  # Original XML element reference
 
     def get_text_signature(self) -> str:
         """Get normalized text content for matching.
@@ -46,7 +45,7 @@ class TreeNode:
             texts.append(child.get_text_signature())
         if self.tail:
             texts.append(self.tail.strip())
-        return ' '.join(t for t in texts if t)
+        return " ".join(t for t in texts if t)
 
     def is_comment_marker(self) -> bool:
         """Check if this is an inline comment marker.
@@ -56,12 +55,13 @@ class TreeNode:
         """
         # Handle both with and without namespace prefix
         return (
-            self.tag == '{http://www.atlassian.com/schema/confluence/4/ac/}inline-comment-marker'
-            or self.tag == 'ac:inline-comment-marker'
-            or 'inline-comment-marker' in self.tag
+            self.tag
+            == "{http://www.atlassian.com/schema/confluence/4/ac/}inline-comment-marker"
+            or self.tag == "ac:inline-comment-marker"
+            or "inline-comment-marker" in self.tag
         )
 
-    def get_comment_markers(self) -> list['TreeNode']:
+    def get_comment_markers(self) -> list[TreeNode]:
         """Get all comment marker children of this node.
 
         Returns:
@@ -75,61 +75,61 @@ class ConfluenceTreeParser:
 
     # Confluence XML namespaces
     NAMESPACES = {
-        'ac': 'http://www.atlassian.com/schema/confluence/4/ac/',
-        'ri': 'http://www.atlassian.com/schema/confluence/4/ri/',
+        "ac": "http://www.atlassian.com/schema/confluence/4/ac/",
+        "ri": "http://www.atlassian.com/schema/confluence/4/ri/",
     }
 
     # HTML entities that need to be converted for XML parsing
     # Maps HTML entity names to their Unicode characters
     HTML_ENTITIES = {
-        'nbsp': '\u00A0',
-        'mdash': '\u2014',
-        'ndash': '\u2013',
-        'ldquo': '\u201C',
-        'rdquo': '\u201D',
-        'lsquo': '\u2018',
-        'rsquo': '\u2019',
-        'bull': '\u2022',
-        'hellip': '\u2026',
-        'rarr': '\u2192',
-        'larr': '\u2190',
-        'harr': '\u2194',
-        'uarr': '\u2191',
-        'darr': '\u2193',
-        'le': '\u2264',
-        'ge': '\u2265',
-        'ne': '\u2260',
-        'plusmn': '\u00B1',
-        'times': '\u00D7',
-        'divide': '\u00F7',
-        'copy': '\u00A9',
-        'reg': '\u00AE',
-        'trade': '\u2122',
-        'euro': '\u20AC',
-        'pound': '\u00A3',
-        'yen': '\u00A5',
-        'cent': '\u00A2',
-        'deg': '\u00B0',
-        'para': '\u00B6',
-        'sect': '\u00A7',
-        'dagger': '\u2020',
-        'Dagger': '\u2021',
-        'laquo': '\u00AB',
-        'raquo': '\u00BB',
-        'iexcl': '\u00A1',
-        'iquest': '\u00BF',
-        'frac14': '\u00BC',
-        'frac12': '\u00BD',
-        'frac34': '\u00BE',
-        'sup1': '\u00B9',
-        'sup2': '\u00B2',
-        'sup3': '\u00B3',
-        'acute': '\u00B4',
-        'micro': '\u00B5',
-        'middot': '\u00B7',
-        'cedil': '\u00B8',
-        'ordf': '\u00AA',
-        'ordm': '\u00BA',
+        "nbsp": "\u00a0",
+        "mdash": "\u2014",
+        "ndash": "\u2013",
+        "ldquo": "\u201c",
+        "rdquo": "\u201d",
+        "lsquo": "\u2018",
+        "rsquo": "\u2019",
+        "bull": "\u2022",
+        "hellip": "\u2026",
+        "rarr": "\u2192",
+        "larr": "\u2190",
+        "harr": "\u2194",
+        "uarr": "\u2191",
+        "darr": "\u2193",
+        "le": "\u2264",
+        "ge": "\u2265",
+        "ne": "\u2260",
+        "plusmn": "\u00b1",
+        "times": "\u00d7",
+        "divide": "\u00f7",
+        "copy": "\u00a9",
+        "reg": "\u00ae",
+        "trade": "\u2122",
+        "euro": "\u20ac",
+        "pound": "\u00a3",
+        "yen": "\u00a5",
+        "cent": "\u00a2",
+        "deg": "\u00b0",
+        "para": "\u00b6",
+        "sect": "\u00a7",
+        "dagger": "\u2020",
+        "Dagger": "\u2021",
+        "laquo": "\u00ab",
+        "raquo": "\u00bb",
+        "iexcl": "\u00a1",
+        "iquest": "\u00bf",
+        "frac14": "\u00bc",
+        "frac12": "\u00bd",
+        "frac34": "\u00be",
+        "sup1": "\u00b9",
+        "sup2": "\u00b2",
+        "sup3": "\u00b3",
+        "acute": "\u00b4",
+        "micro": "\u00b5",
+        "middot": "\u00b7",
+        "cedil": "\u00b8",
+        "ordf": "\u00aa",
+        "ordm": "\u00ba",
     }
 
     def _convert_html_entities(self, html: str) -> str:
@@ -152,7 +152,7 @@ class ConfluenceTreeParser:
 
         # Replace named HTML entities (but not numeric entities or standard XML entities)
         # Standard XML entities: amp, lt, gt, quot, apos
-        return re.sub(r'&([a-zA-Z]+);', replace_entity, html)
+        return re.sub(r"&([a-zA-Z]+);", replace_entity, html)
 
     def parse(self, html: str) -> TreeNode:
         """Parse HTML string to TreeNode structure.
@@ -169,21 +169,22 @@ class ConfluenceTreeParser:
         # Add namespace declarations to the root element
         # This is needed because Confluence HTML fragments use namespace prefixes
         # but don't include xmlns declarations
-        namespace_decls = ' '.join(
+        namespace_decls = " ".join(
             f'xmlns:{prefix}="{uri}"' for prefix, uri in self.NAMESPACES.items()
         )
-        wrapped = f'<root {namespace_decls}>{html}</root>'
+        wrapped = f"<root {namespace_decls}>{html}</root>"
 
         # Register namespaces for parsing
         for prefix, uri in self.NAMESPACES.items():
             ET.register_namespace(prefix, uri)
 
         try:
-            root = ET.fromstring(wrapped)
+            # S314: Input is Confluence storage format HTML from authenticated API
+            root = ET.fromstring(wrapped)  # noqa: S314
             return self._parse_element(root)
         except ET.ParseError as e:
-            logger.error(f'Failed to parse HTML: {e}')
-            logger.debug(f'HTML content: {html[:500]}...')
+            logger.error(f"Failed to parse HTML: {e}")
+            logger.debug(f"HTML content: {html[:500]}...")
             raise
 
     def _parse_element(self, elem: ET.Element) -> TreeNode:
@@ -197,8 +198,8 @@ class ConfluenceTreeParser:
         """
         node = TreeNode(
             tag=elem.tag,
-            text=elem.text or '',
-            tail=elem.tail or '',
+            text=elem.text or "",
+            tail=elem.tail or "",
             attrs=dict(elem.attrib),
             children=[],
             element=elem,
@@ -214,7 +215,7 @@ class ConfluenceTreeParser:
 class TreeMatcher:
     """Match nodes between old and new trees."""
 
-    def __init__(self, old_tree: TreeNode, new_tree: TreeNode):
+    def __init__(self, old_tree: TreeNode, new_tree: TreeNode) -> None:
         """Initialize matcher.
 
         Args:
@@ -234,11 +235,13 @@ class TreeMatcher:
         # Start by matching children of the root nodes
         # (The root nodes are wrappers we added, so match their children)
         self._match_children(self.old_tree.children, self.new_tree.children)
-        logger.info(f'Matched {len(self.matches)} nodes between trees')
+        logger.info(f"Matched {len(self.matches)} nodes between trees")
         return self.matches
 
     def _get_match_score(
-        self, old_node: TreeNode, new_node: TreeNode
+        self,
+        old_node: TreeNode,
+        new_node: TreeNode,
     ) -> float:
         """Calculate match score between two nodes.
 
@@ -261,7 +264,9 @@ class TreeMatcher:
         return self._text_similarity(old_text, new_text)
 
     def _match_recursive(
-        self, old_node: TreeNode, new_node: TreeNode
+        self,
+        old_node: TreeNode,
+        new_node: TreeNode,
     ) -> bool:
         """Recursively match nodes using multiple strategies.
 
@@ -283,7 +288,7 @@ class TreeMatcher:
 
         if score < 1.0:
             logger.debug(
-                f'Partial match: {old_node.tag} ({score:.2f} similarity)'
+                f"Partial match: {old_node.tag} ({score:.2f} similarity)",
             )
 
         self.matches[id(old_node)] = new_node
@@ -291,7 +296,9 @@ class TreeMatcher:
         return True
 
     def _match_children(
-        self, old_children: list[TreeNode], new_children: list[TreeNode]
+        self,
+        old_children: list[TreeNode],
+        new_children: list[TreeNode],
     ) -> None:
         """Match child nodes using best-match strategy.
 
@@ -346,7 +353,10 @@ class CommentMarkerTransfer:
         self.unmatched_comments: list[UnmatchedComment] = []
 
     def transfer(
-        self, matches: dict[int, TreeNode], new_tree: TreeNode, old_tree: TreeNode
+        self,
+        matches: dict[int, TreeNode],
+        new_tree: TreeNode,
+        old_tree: TreeNode,
     ) -> TreeNode:
         """Transfer comment markers based on node matches.
 
@@ -378,17 +388,20 @@ class CommentMarkerTransfer:
 
             if markers:
                 logger.debug(
-                    f'Transferring {len(markers)} markers from {old_node.tag}'
+                    f"Transferring {len(markers)} markers from {old_node.tag}",
                 )
                 for marker in markers:
                     self._transfer_marker(old_node, new_node, marker)
                     transferred_count += 1
 
-        logger.info(f'Transferred {transferred_count} comment markers')
+        logger.info(f"Transferred {transferred_count} comment markers")
         return new_tree
 
     def _transfer_marker(
-        self, old_node: TreeNode, new_node: TreeNode, marker: TreeNode
+        self,
+        old_node: TreeNode,
+        new_node: TreeNode,
+        marker: TreeNode,
     ) -> None:
         """Transfer a specific marker to new node.
 
@@ -412,14 +425,17 @@ class CommentMarkerTransfer:
         marker_text = marker.text.strip()
 
         if not marker_text:
-            logger.warning('Empty comment marker text, skipping')
+            logger.warning("Empty comment marker text, skipping")
             return
 
         # Try to insert marker at the right position
         self._insert_marker_by_text(new_node, new_marker, marker_text)
 
     def _insert_marker_by_text(
-        self, node: TreeNode, marker: TreeNode, marker_text: str
+        self,
+        node: TreeNode,
+        marker: TreeNode,
+        marker_text: str,
     ) -> bool:
         """Insert marker by finding matching text in node.
 
@@ -444,22 +460,24 @@ class CommentMarkerTransfer:
 
             # Insert marker as first child
             node.children.insert(0, marker)
-            logger.debug(f'Inserted marker in {node.tag} direct text')
+            logger.debug(f"Inserted marker in {node.tag} direct text")
             return True
 
         # Check children for matching text
         for child in node.children:
-            if not child.is_comment_marker() and marker_text in child.get_text_signature():
-                # Recursively insert in child
-                if self._insert_marker_by_text(child, marker, marker_text):
-                    return True
+            if (
+                not child.is_comment_marker()
+                and marker_text in child.get_text_signature()
+                and self._insert_marker_by_text(child, marker, marker_text)
+            ):
+                return True
 
         logger.warning(
-            f'Could not find position for marker text: "{marker_text[:50]}..."'
+            f'Could not find position for marker text: "{marker_text[:50]}..."',
         )
         ref = marker.attrs.get(
-            '{http://www.atlassian.com/schema/confluence/4/ac/}ref',
-            marker.attrs.get('ac:ref', ''),
+            "{http://www.atlassian.com/schema/confluence/4/ac/}ref",
+            marker.attrs.get("ac:ref", ""),
         )
         self.unmatched_comments.append(UnmatchedComment(ref=ref, text=marker_text))
         return False
@@ -470,8 +488,8 @@ class ConfluenceTreeSerializer:
 
     # Tags that require CDATA wrapping for their text content
     CDATA_TAGS = {
-        '{http://www.atlassian.com/schema/confluence/4/ac/}plain-text-body',
-        'ac:plain-text-body',
+        "{http://www.atlassian.com/schema/confluence/4/ac/}plain-text-body",
+        "ac:plain-text-body",
     }
 
     def serialize(self, tree: TreeNode) -> str:
@@ -486,13 +504,14 @@ class ConfluenceTreeSerializer:
         root = self._build_element(tree)
 
         # Convert to string
-        html = ET.tostring(root, encoding='unicode', method='xml')
+        html = ET.tostring(root, encoding="unicode", method="xml")
 
         # Remove wrapper - handle both with and without namespace declarations
         # Pattern: <root ...>...</root>
         import re
-        html = re.sub(r'^<root[^>]*>', '', html)
-        html = re.sub(r'</root>$', '', html)
+
+        html = re.sub(r"^<root[^>]*>", "", html)
+        html = re.sub(r"</root>$", "", html)
 
         # Restore CDATA sections for plain-text-body elements
         html = self._restore_cdata_sections(html)
@@ -519,20 +538,20 @@ class ConfluenceTreeSerializer:
             tag_end = match.group(3)
 
             # Unescape XML entities that were escaped during serialization
-            content = content.replace('&lt;', '<')
-            content = content.replace('&gt;', '>')
-            content = content.replace('&amp;', '&')
-            content = content.replace('&quot;', '"')
-            content = content.replace('&apos;', "'")
+            content = content.replace("&lt;", "<")
+            content = content.replace("&gt;", ">")
+            content = content.replace("&amp;", "&")
+            content = content.replace("&quot;", '"')
+            content = content.replace("&apos;", "'")
 
-            return f'{tag_start}<![CDATA[{content}]]>{tag_end}'
+            return f"{tag_start}<![CDATA[{content}]]>{tag_end}"
 
         # Match ac:plain-text-body with namespace or without
-        pattern = r'(<ac:plain-text-body[^>]*>)(.*?)(</ac:plain-text-body>)'
+        pattern = r"(<ac:plain-text-body[^>]*>)(.*?)(</ac:plain-text-body>)"
         html = re.sub(pattern, wrap_in_cdata, html, flags=re.DOTALL)
 
         # Also handle namespaced version
-        pattern_ns = r'(<ns\d+:plain-text-body[^>]*>)(.*?)(</ns\d+:plain-text-body>)'
+        pattern_ns = r"(<ns\d+:plain-text-body[^>]*>)(.*?)(</ns\d+:plain-text-body>)"
         html = re.sub(pattern_ns, wrap_in_cdata, html, flags=re.DOTALL)
 
         return html
@@ -583,39 +602,42 @@ class CommentPreserver:
         Returns:
             PreserveResult with HTML and list of unmatched comments
         """
-        logger.info('Starting comment preservation')
-        logger.debug(f'Old HTML length: {len(old_html)}')
-        logger.debug(f'New HTML length: {len(new_html)}')
+        logger.info("Starting comment preservation")
+        logger.debug(f"Old HTML length: {len(old_html)}")
+        logger.debug(f"New HTML length: {len(new_html)}")
 
         try:
             # Parse both HTMLs
-            logger.debug('Parsing old HTML...')
+            logger.debug("Parsing old HTML...")
             old_tree = self.parser.parse(old_html)
-            logger.debug('Parsing new HTML...')
+            logger.debug("Parsing new HTML...")
             new_tree = self.parser.parse(new_html)
 
             # Match nodes
-            logger.debug('Matching nodes...')
+            logger.debug("Matching nodes...")
             matcher = TreeMatcher(old_tree, new_tree)
             matches = matcher.match()
-            logger.info(f'Found {len(matches)} matching nodes')
+            logger.info(f"Found {len(matches)} matching nodes")
 
             # Transfer markers
-            logger.debug('Transferring markers...')
+            logger.debug("Transferring markers...")
             transfer = CommentMarkerTransfer()
             modified_tree = transfer.transfer(matches, new_tree, old_tree)
 
             # Serialize back
-            logger.debug('Serializing result...')
+            logger.debug("Serializing result...")
             result = self.serializer.serialize(modified_tree)
-            logger.debug(f'Result HTML length: {len(result)}')
+            logger.debug(f"Result HTML length: {len(result)}")
 
-            logger.info('Comment preservation completed')
-            return PreserveResult(html=result, unmatched_comments=transfer.unmatched_comments)
+            logger.info("Comment preservation completed")
+            return PreserveResult(
+                html=result, unmatched_comments=transfer.unmatched_comments
+            )
 
         except Exception as e:
-            logger.error(f'Comment preservation failed: {e}')
-            logger.warning('Falling back to new HTML without comment preservation')
+            logger.error(f"Comment preservation failed: {e}")
+            logger.warning("Falling back to new HTML without comment preservation")
             import traceback
+
             logger.debug(traceback.format_exc())
             return PreserveResult(html=new_html, unmatched_comments=[])

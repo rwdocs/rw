@@ -93,7 +93,7 @@ class ConfluenceCommentsResponseDict(TypedDict):
 class ConfluenceClient:
     """Async HTTP client for Confluence REST API."""
 
-    def __init__(self, client: httpx.AsyncClient, base_url: str):
+    def __init__(self, client: httpx.AsyncClient, base_url: str) -> None:
         """Initialize Confluence client.
 
         Args:
@@ -133,7 +133,7 @@ class ConfluenceClient:
                 "storage": {
                     "value": body,
                     "representation": "storage",
-                }
+                },
             },
         }
 
@@ -160,7 +160,9 @@ class ConfluenceClient:
         return data
 
     async def get_page(
-        self, page_id: str, expand: list[str] | None = None
+        self,
+        page_id: str,
+        expand: list[str] | None = None,
     ) -> ConfluencePageResponseDict:
         """Get page content and metadata.
 
@@ -180,7 +182,8 @@ class ConfluenceClient:
 
         logger.info(f"Getting page {page_id}")
         response = await self.client.get(
-            f"{self.api_url}/content/{page_id}", params=params
+            f"{self.api_url}/content/{page_id}",
+            params=params,
         )
         response.raise_for_status()
 
@@ -217,7 +220,7 @@ class ConfluenceClient:
                 "storage": {
                     "value": body,
                     "representation": "storage",
-                }
+                },
             },
             "version": {"number": version + 1},
         }
@@ -371,7 +374,9 @@ class ConfluenceClient:
         if existing:
             # Update existing attachment data
             attachment_id = existing["id"]
-            logger.info(f"Updating existing attachment '{filename}' (id={attachment_id})")
+            logger.info(
+                f"Updating existing attachment '{filename}' (id={attachment_id})"
+            )
             response = await self.client.post(
                 f"{self.api_url}/content/{page_id}/child/attachment/{attachment_id}/data",
                 files=files,
@@ -403,7 +408,9 @@ class ConfluenceClient:
         return result
 
     async def _find_attachment_by_name(
-        self, page_id: str, filename: str
+        self,
+        page_id: str,
+        filename: str,
     ) -> dict[str, Any] | None:
         """Find an attachment by filename on a page.
 
@@ -434,7 +441,7 @@ class ConfluenceClient:
         """
         logger.info(f"Getting attachments for page {page_id}")
         response = await self.client.get(
-            f"{self.api_url}/content/{page_id}/child/attachment"
+            f"{self.api_url}/content/{page_id}/child/attachment",
         )
         response.raise_for_status()
         result: dict[str, Any] = response.json()

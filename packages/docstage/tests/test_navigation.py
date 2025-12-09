@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from docstage.core.cache import FileCache
-from docstage.core.navigation import NavItem, NavigationBuilder, NavigationTree
+from docstage.core.navigation import NavigationBuilder, NavigationTree, NavItem
 
 
 class TestNavigationBuilderBuild:
@@ -147,7 +147,9 @@ class TestNavigationBuilderBuild:
         assert len(tree.items) == 1
         assert tree.items[0].title == "Guide"
 
-    def test_promotes_children_when_directory_has_no_index(self, tmp_path: Path) -> None:
+    def test_promotes_children_when_directory_has_no_index(
+        self, tmp_path: Path
+    ) -> None:
         """Promote children to parent level when directory has no index.md."""
         source_dir = tmp_path / "docs"
         # Create directory without index.md
@@ -165,7 +167,8 @@ class TestNavigationBuilderBuild:
         assert tree.items[0].path == "/no-index/child"
 
     def test_promotes_nested_children_when_parent_has_no_index(
-        self, tmp_path: Path
+        self,
+        tmp_path: Path,
     ) -> None:
         """Promote nested navigable items when intermediate directory has no index.md."""
         source_dir = tmp_path / "docs"

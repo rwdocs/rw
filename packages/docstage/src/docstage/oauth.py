@@ -11,13 +11,13 @@ from cryptography.hazmat.backends import default_backend
 
 # OAuth 1.0 endpoints for Confluence
 CONFLUENCE_ENDPOINT = {
-    'request_token_url': 'https://conf.cian.tech/plugins/servlet/oauth/request-token',
-    'authorize_url': 'https://conf.cian.tech/plugins/servlet/oauth/authorize',
-    'access_token_url': 'https://conf.cian.tech/plugins/servlet/oauth/access-token',
+    "request_token_url": "https://conf.cian.tech/plugins/servlet/oauth/request-token",
+    "authorize_url": "https://conf.cian.tech/plugins/servlet/oauth/authorize",
+    "access_token_url": "https://conf.cian.tech/plugins/servlet/oauth/access-token",
 }
 
-DEFAULT_CONSUMER_KEY = 'adrflow'  # Default to adrflow consumer
-CALLBACK_URL = 'http://localhost:8080/callback'
+DEFAULT_CONSUMER_KEY = "adrflow"  # Default to adrflow consumer
+CALLBACK_URL = "http://localhost:8080/callback"
 
 
 def read_private_key(path: str | Path) -> bytes:
@@ -35,7 +35,7 @@ def read_private_key(path: str | Path) -> bytes:
     """
     key_path = Path(path)
     if not key_path.exists():
-        raise FileNotFoundError(f'Private key file not found: {path}')
+        raise FileNotFoundError(f"Private key file not found: {path}")
 
     data = key_path.read_bytes()
 
@@ -45,7 +45,7 @@ def read_private_key(path: str | Path) -> bytes:
 
         load_pem_private_key(data, password=None, backend=default_backend())
     except Exception as e:
-        raise ValueError(f'Invalid private key format: {e}') from e
+        raise ValueError(f"Invalid private key format: {e}") from e
 
     return data
 
@@ -71,9 +71,9 @@ def create_oauth1_auth(
         client_id=consumer_key,
         token=access_token,
         token_secret=access_secret,
-        signature_method='RSA-SHA1',
-        signature_type='HEADER',
-        rsa_key=private_key.decode('utf-8'),
+        signature_method="RSA-SHA1",
+        signature_type="HEADER",
+        rsa_key=private_key.decode("utf-8"),
         force_include_body=True,  # Include body in OAuth signature for POST/PUT
     )
 

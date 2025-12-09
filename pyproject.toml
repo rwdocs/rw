@@ -11,6 +11,7 @@ dev = [
     "mypy>=1.19.0",
     "pytest>=8.0.0",
     "pytest-aiohttp>=1.0.0",
+    "ruff>=0.14.8",
 ]
 
 [tool.uv.workspace]
@@ -33,3 +34,40 @@ exclude = [
 [[tool.mypy.overrides]]
 module = ["authlib.*", "authlib.integrations.*"]
 ignore_missing_imports = true
+
+[tool.ruff.lint]
+select = [
+    "ANN",
+    "ASYNC",
+    "S",
+    "B",
+    "A",
+    "COM",
+    "C4",
+    "DTZ",
+    "PT",
+    "SIM",
+    "TID",
+    "PTH",
+    "I",
+    "E",
+    "W",
+    "F",
+    "UP",
+    "RUF",
+    "TRY",
+]
+ignore = [
+    "E501",  # Line too long - handled by formatter
+    "TRY003",  # Long exception messages are fine for CLI apps
+    "TRY004",  # ValueError is appropriate for config validation
+    "TRY300",  # return in try is fine
+    "TRY400",  # logger.error is fine when we handle the error
+    "SIM105",  # try-except-pass is clearer than contextlib.suppress
+    "SIM110",  # explicit for loop can be clearer than any()
+    "SIM108",  # ternary isn't always clearer
+    "RUF012",  # ClassVar annotation not needed for constants
+]
+
+[tool.ruff.lint.per-file-ignores]
+"packages/docstage/tests/*" = ["ANN", "S101", "S104", "S105", "S106", "RUF043"]

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import click
 
-from docstage.config import Config
+from docstage.config import Config, ConfluenceConfig
 
 
 @click.group()
@@ -20,53 +20,53 @@ def cli() -> None:
 
 @cli.command()
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--source-dir',
-    '-s',
+    "--source-dir",
+    "-s",
     type=click.Path(exists=True, path_type=Path, file_okay=False),
     default=None,
-    help='Documentation source directory (overrides config)',
+    help="Documentation source directory (overrides config)",
 )
 @click.option(
-    '--cache-dir',
+    "--cache-dir",
     type=click.Path(path_type=Path, file_okay=False),
     default=None,
-    help='Cache directory (overrides config)',
+    help="Cache directory (overrides config)",
 )
 @click.option(
-    '--host',
+    "--host",
     default=None,
-    help='Host to bind to (overrides config)',
+    help="Host to bind to (overrides config)",
 )
 @click.option(
-    '--port',
-    '-p',
+    "--port",
+    "-p",
     type=int,
     default=None,
-    help='Port to bind to (overrides config)',
+    help="Port to bind to (overrides config)",
 )
 @click.option(
-    '--kroki-url',
+    "--kroki-url",
     default=None,
-    help='Kroki server URL for diagram rendering (overrides config)',
+    help="Kroki server URL for diagram rendering (overrides config)",
 )
 @click.option(
-    '--verbose',
-    '-v',
+    "--verbose",
+    "-v",
     is_flag=True,
-    help='Enable verbose output (show diagram warnings)',
+    help="Enable verbose output (show diagram warnings)",
 )
 @click.option(
-    '--live-reload/--no-live-reload',
+    "--live-reload/--no-live-reload",
     default=None,
-    help='Enable/disable live reload (overrides config, default: enabled)',
+    help="Enable/disable live reload (overrides config, default: enabled)",
 )
 def serve(
     config_path: Path | None,
@@ -85,53 +85,61 @@ def serve(
 
     effective_host = host if host is not None else config.server.host
     effective_port = port if port is not None else config.server.port
-    effective_source_dir = source_dir if source_dir is not None else config.docs.source_dir
+    effective_source_dir = (
+        source_dir if source_dir is not None else config.docs.source_dir
+    )
     effective_cache_dir = cache_dir if cache_dir is not None else config.docs.cache_dir
-    effective_kroki_url = kroki_url if kroki_url is not None else config.diagrams.kroki_url
-    effective_live_reload = live_reload if live_reload is not None else config.live_reload.enabled
+    effective_kroki_url = (
+        kroki_url if kroki_url is not None else config.diagrams.kroki_url
+    )
+    effective_live_reload = (
+        live_reload if live_reload is not None else config.live_reload.enabled
+    )
 
-    click.echo(f'Starting server on {effective_host}:{effective_port}')
-    click.echo(f'Source directory: {effective_source_dir}')
-    click.echo(f'Cache directory: {effective_cache_dir}')
+    click.echo(f"Starting server on {effective_host}:{effective_port}")
+    click.echo(f"Source directory: {effective_source_dir}")
+    click.echo(f"Cache directory: {effective_cache_dir}")
     if effective_kroki_url:
-        click.echo(f'Kroki URL: {effective_kroki_url}')
+        click.echo(f"Kroki URL: {effective_kroki_url}")
     else:
-        click.echo('Diagram rendering: disabled (no kroki_url in config)')
+        click.echo("Diagram rendering: disabled (no kroki_url in config)")
     if effective_live_reload:
-        click.echo('Live reload: enabled')
+        click.echo("Live reload: enabled")
     else:
-        click.echo('Live reload: disabled')
+        click.echo("Live reload: disabled")
 
-    run_server({
-        'host': effective_host,
-        'port': effective_port,
-        'source_dir': effective_source_dir,
-        'cache_dir': effective_cache_dir,
-        'kroki_url': effective_kroki_url,
-        'include_dirs': config.diagrams.include_dirs,
-        'config_file': config.diagrams.config_file,
-        'dpi': config.diagrams.dpi,
-        'verbose': verbose,
-        'live_reload': effective_live_reload,
-        'watch_patterns': config.live_reload.watch_patterns,
-    })
+    run_server(
+        {
+            "host": effective_host,
+            "port": effective_port,
+            "source_dir": effective_source_dir,
+            "cache_dir": effective_cache_dir,
+            "kroki_url": effective_kroki_url,
+            "include_dirs": config.diagrams.include_dirs,
+            "config_file": config.diagrams.config_file,
+            "dpi": config.diagrams.dpi,
+            "verbose": verbose,
+            "live_reload": effective_live_reload,
+            "watch_patterns": config.live_reload.watch_patterns,
+        }
+    )
 
 
 @cli.command()
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--key-file',
-    '-k',
+    "--key-file",
+    "-k",
     type=click.Path(exists=True, path_type=Path),
-    default='private_key.pem',
-    help='Path to OAuth private key file',
+    default="private_key.pem",
+    help="Path to OAuth private key file",
 )
 def test_auth(config_path: Path | None, key_file: Path) -> None:
     """Test Confluence authentication."""
@@ -139,21 +147,21 @@ def test_auth(config_path: Path | None, key_file: Path) -> None:
 
 
 @cli.command()
-@click.argument('page_id')
+@click.argument("page_id")
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--key-file',
-    '-k',
+    "--key-file",
+    "-k",
     type=click.Path(exists=True, path_type=Path),
-    default='private_key.pem',
-    help='Path to OAuth private key file',
+    default="private_key.pem",
+    help="Path to OAuth private key file",
 )
 def get_page(page_id: str, config_path: Path | None, key_file: Path) -> None:
     """Get page information by ID."""
@@ -161,107 +169,122 @@ def get_page(page_id: str, config_path: Path | None, key_file: Path) -> None:
 
 
 @cli.command()
-@click.argument('title')
+@click.argument("title")
 @click.option(
-    '--space',
-    '-s',
-    help='Space key (default: from config confluence.test.space_key)',
+    "--space",
+    "-s",
+    help="Space key (default: from config confluence.test.space_key)",
 )
 @click.option(
-    '--body',
-    '-b',
-    default='<p>Test page created by docstage</p>',
-    help='Page body HTML',
+    "--body",
+    "-b",
+    default="<p>Test page created by docstage</p>",
+    help="Page body HTML",
 )
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--key-file',
-    '-k',
+    "--key-file",
+    "-k",
     type=click.Path(exists=True, path_type=Path),
-    default='private_key.pem',
-    help='Path to OAuth private key file',
+    default="private_key.pem",
+    help="Path to OAuth private key file",
 )
 def test_create(
-    title: str, space: str | None, body: str, config_path: Path | None, key_file: Path
+    title: str,
+    space: str | None,
+    body: str,
+    config_path: Path | None,
+    key_file: Path,
 ) -> None:
     """Test creating a page."""
     asyncio.run(_test_create(title, space, body, config_path, key_file))
 
 
 @cli.command()
-@click.argument('markdown_file', type=click.Path(exists=True, path_type=Path))
+@click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--kroki-url',
+    "--kroki-url",
     default=None,
-    help='Kroki server URL for diagram rendering (overrides config)',
+    help="Kroki server URL for diagram rendering (overrides config)",
 )
-def convert(markdown_file: Path, config_path: Path | None, kroki_url: str | None) -> None:
+def convert(
+    markdown_file: Path, config_path: Path | None, kroki_url: str | None
+) -> None:
     """Convert a markdown file to Confluence storage format and display it."""
     import tempfile
 
     from docstage.confluence import MarkdownConverter
 
     config = Config.load(config_path)
-    effective_kroki_url = kroki_url if kroki_url is not None else config.diagrams.kroki_url
+    effective_kroki_url = (
+        kroki_url if kroki_url is not None else config.diagrams.kroki_url
+    )
 
     if not effective_kroki_url:
-        click.echo(click.style('Error: kroki_url required (via --kroki-url or config)', fg='red'), err=True)
+        click.echo(
+            click.style(
+                "Error: kroki_url required (via --kroki-url or config)", fg="red"
+            ),
+            err=True,
+        )
         sys.exit(1)
 
     converter = MarkdownConverter()
-    markdown_text = markdown_file.read_text(encoding='utf-8')
+    markdown_text = markdown_file.read_text(encoding="utf-8")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
 
-    click.echo(click.style('\nMarkdown file:', fg='cyan', bold=True))
-    click.echo(f'{markdown_file}\n')
-    click.echo(click.style('Converted to Confluence storage format:', fg='green', bold=True))
+    click.echo(click.style("\nMarkdown file:", fg="cyan", bold=True))
+    click.echo(f"{markdown_file}\n")
+    click.echo(
+        click.style("Converted to Confluence storage format:", fg="green", bold=True)
+    )
     click.echo(result.html)
 
 
 @cli.command()
-@click.argument('markdown_file', type=click.Path(exists=True, path_type=Path))
-@click.argument('title')
+@click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("title")
 @click.option(
-    '--space',
-    '-s',
-    help='Space key (default: from config confluence.test.space_key)',
+    "--space",
+    "-s",
+    help="Space key (default: from config confluence.test.space_key)",
 )
 @click.option(
-    '--kroki-url',
+    "--kroki-url",
     default=None,
-    help='Kroki server URL for diagram rendering (overrides config)',
+    help="Kroki server URL for diagram rendering (overrides config)",
 )
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--key-file',
-    '-k',
+    "--key-file",
+    "-k",
     type=click.Path(exists=True, path_type=Path),
-    default='private_key.pem',
-    help='Path to OAuth private key file',
+    default="private_key.pem",
+    help="Path to OAuth private key file",
 )
 def create(
     markdown_file: Path,
@@ -276,32 +299,32 @@ def create(
 
 
 @cli.command()
-@click.argument('markdown_file', type=click.Path(exists=True, path_type=Path))
-@click.argument('page_id')
+@click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("page_id")
 @click.option(
-    '--message',
-    '-m',
-    help='Version message for the update',
+    "--message",
+    "-m",
+    help="Version message for the update",
 )
 @click.option(
-    '--kroki-url',
+    "--kroki-url",
     default=None,
-    help='Kroki server URL for diagram rendering (overrides config)',
+    help="Kroki server URL for diagram rendering (overrides config)",
 )
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--key-file',
-    '-k',
+    "--key-file",
+    "-k",
     type=click.Path(exists=True, path_type=Path),
-    default='private_key.pem',
-    help='Path to OAuth private key file',
+    default="private_key.pem",
+    help="Path to OAuth private key file",
 )
 def update(
     markdown_file: Path,
@@ -312,48 +335,50 @@ def update(
     key_file: Path,
 ) -> None:
     """Update a Confluence page from a markdown file."""
-    asyncio.run(_update(markdown_file, page_id, message, kroki_url, config_path, key_file))
+    asyncio.run(
+        _update(markdown_file, page_id, message, kroki_url, config_path, key_file)
+    )
 
 
 @cli.command()
-@click.argument('markdown_file', type=click.Path(exists=True, path_type=Path))
-@click.argument('page_id')
+@click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("page_id")
 @click.option(
-    '--mkdocs-root',
-    '-r',
+    "--mkdocs-root",
+    "-r",
     type=click.Path(exists=True, path_type=Path),
     required=True,
-    help='Root directory of the MkDocs site',
+    help="Root directory of the MkDocs site",
 )
 @click.option(
-    '--kroki-url',
+    "--kroki-url",
     default=None,
-    help='Kroki server URL for diagram rendering (overrides config)',
+    help="Kroki server URL for diagram rendering (overrides config)",
 )
 @click.option(
-    '--message',
-    '-m',
-    help='Version message for the update',
+    "--message",
+    "-m",
+    help="Version message for the update",
 )
 @click.option(
-    '--dry-run',
+    "--dry-run",
     is_flag=True,
-    help='Preview changes without updating Confluence. Shows comments that would be lost.',
+    help="Preview changes without updating Confluence. Shows comments that would be lost.",
 )
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--key-file',
-    '-k',
+    "--key-file",
+    "-k",
     type=click.Path(exists=True, path_type=Path),
-    default='private_key.pem',
-    help='Path to OAuth private key file',
+    default="private_key.pem",
+    help="Path to OAuth private key file",
 )
 def upload_mkdocs(
     markdown_file: Path,
@@ -371,32 +396,39 @@ def upload_mkdocs(
     """
     asyncio.run(
         _upload_mkdocs(
-            markdown_file, page_id, mkdocs_root, kroki_url, message, dry_run, config_path, key_file
-        )
+            markdown_file,
+            page_id,
+            mkdocs_root,
+            kroki_url,
+            message,
+            dry_run,
+            config_path,
+            key_file,
+        ),
     )
 
 
 @cli.command()
-@click.argument('page_id')
+@click.argument("page_id")
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 @click.option(
-    '--key-file',
-    '-k',
+    "--key-file",
+    "-k",
     type=click.Path(exists=True, path_type=Path),
-    default='private_key.pem',
-    help='Path to OAuth private key file',
+    default="private_key.pem",
+    help="Path to OAuth private key file",
 )
 @click.option(
-    '--include-resolved',
+    "--include-resolved",
     is_flag=True,
-    help='Include resolved comments in output',
+    help="Include resolved comments in output",
 )
 def comments(
     page_id: str,
@@ -413,37 +445,37 @@ def comments(
 
 @cli.command()
 @click.option(
-    '--private-key',
-    '-k',
+    "--private-key",
+    "-k",
     type=click.Path(exists=True, path_type=Path),
-    default='private_key.pem',
-    help='Path to RSA private key file',
+    default="private_key.pem",
+    help="Path to RSA private key file",
 )
 @click.option(
-    '--consumer-key',
+    "--consumer-key",
     default=None,
     help='OAuth consumer key (default: from config or "docstage")',
 )
 @click.option(
-    '--base-url',
-    '-u',
+    "--base-url",
+    "-u",
     default=None,
-    help='Confluence base URL (default: from config)',
+    help="Confluence base URL (default: from config)",
 )
 @click.option(
-    '--port',
-    '-p',
+    "--port",
+    "-p",
     default=8080,
     type=int,
-    help='Local callback server port (default: 8080)',
+    help="Local callback server port (default: 8080)",
 )
 @click.option(
-    '--config',
-    '-c',
-    'config_path',
+    "--config",
+    "-c",
+    "config_path",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help='Path to configuration file (default: auto-discover docstage.toml)',
+    help="Path to configuration file (default: auto-discover docstage.toml)",
 )
 def generate_tokens(
     private_key: Path,
@@ -463,35 +495,51 @@ def generate_tokens(
     if effective_consumer_key is None and config.confluence is not None:
         effective_consumer_key = config.confluence.consumer_key
     if effective_consumer_key is None:
-        effective_consumer_key = 'docstage'
+        effective_consumer_key = "docstage"
 
     effective_base_url = base_url
     if effective_base_url is None and config.confluence is not None:
         effective_base_url = config.confluence.base_url
     if effective_base_url is None:
-        click.echo(click.style('Error: base_url required (via --base-url or config)', fg='red'), err=True)
+        click.echo(
+            click.style(
+                "Error: base_url required (via --base-url or config)", fg="red"
+            ),
+            err=True,
+        )
         sys.exit(1)
 
-    asyncio.run(_generate_tokens(private_key, effective_consumer_key, effective_base_url, port))
+    asyncio.run(
+        _generate_tokens(private_key, effective_consumer_key, effective_base_url, port)
+    )
 
 
-def _require_confluence_config(config: Config) -> None:
-    """Check that confluence configuration is present.
+def _require_confluence_config(config: Config) -> ConfluenceConfig:
+    """Check that confluence configuration is present and return it.
 
     Args:
         config: Application config
+
+    Returns:
+        Confluence configuration
 
     Raises:
         SystemExit: If confluence config is missing
     """
     if config.confluence is None:
-        click.echo(click.style('Error: confluence configuration required in docstage.toml', fg='red'), err=True)
-        click.echo('\nAdd the following to your docstage.toml:')
-        click.echo('\n[confluence]')
+        click.echo(
+            click.style(
+                "Error: confluence configuration required in docstage.toml", fg="red"
+            ),
+            err=True,
+        )
+        click.echo("\nAdd the following to your docstage.toml:")
+        click.echo("\n[confluence]")
         click.echo('base_url = "https://confluence.example.com"')
         click.echo('access_token = "your-token"')
         click.echo('access_secret = "your-secret"')
         sys.exit(1)
+    return config.confluence
 
 
 async def _test_auth(config_path: Path | None, key_file: Path) -> None:
@@ -505,39 +553,40 @@ async def _test_auth(config_path: Path | None, key_file: Path) -> None:
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
-        _require_confluence_config(config)
-        assert config.confluence is not None
+        conf_config = _require_confluence_config(config)
 
-        click.echo(f'Reading private key from {key_file}...')
+        click.echo(f"Reading private key from {key_file}...")
         private_key = read_private_key(key_file)
 
-        click.echo('Creating authenticated client...')
+        click.echo("Creating authenticated client...")
         async with create_confluence_client(
-            config.confluence.access_token,
-            config.confluence.access_secret,
+            conf_config.access_token,
+            conf_config.access_secret,
             private_key,
-            config.confluence.consumer_key,
+            conf_config.consumer_key,
         ) as client:
-            base_url = config.confluence.base_url
-            click.echo(f'Testing connection to {base_url}...')
+            base_url = conf_config.base_url
+            click.echo(f"Testing connection to {base_url}...")
 
-            response = await client.get(f'{base_url}/rest/api/user/current')
+            response = await client.get(f"{base_url}/rest/api/user/current")
             response.raise_for_status()
 
             user_data = response.json()
-            username = user_data.get('username', user_data.get('displayName', 'Unknown'))
+            username = user_data.get(
+                "username", user_data.get("displayName", "Unknown")
+            )
 
-            click.echo(click.style('Authentication successful!', fg='green'))
-            click.echo(f'Authenticated as: {username}')
+            click.echo(click.style("Authentication successful!", fg="green"))
+            click.echo(f"Authenticated as: {username}")
 
     except FileNotFoundError as e:
-        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
-        click.echo('\nMake sure you have:')
-        click.echo('1. Created docstage.toml with your OAuth credentials')
-        click.echo('2. Placed your private_key.pem file in the project root')
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
+        click.echo("\nMake sure you have:")
+        click.echo("1. Created docstage.toml with your OAuth credentials")
+        click.echo("2. Placed your private_key.pem file in the project root")
         sys.exit(1)
     except Exception as e:
-        click.echo(click.style(f'Authentication failed: {e}', fg='red'), err=True)
+        click.echo(click.style(f"Authentication failed: {e}", fg="red"), err=True)
         sys.exit(1)
 
 
@@ -554,40 +603,47 @@ async def _get_page(page_id: str, config_path: Path | None, key_file: Path) -> N
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
-        _require_confluence_config(config)
-        assert config.confluence is not None
+        conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
 
         async with create_confluence_client(
-            config.confluence.access_token,
-            config.confluence.access_secret,
+            conf_config.access_token,
+            conf_config.access_secret,
             private_key,
-            config.confluence.consumer_key,
+            conf_config.consumer_key,
         ) as http_client:
-            confluence = ConfluenceClient(http_client, config.confluence.base_url)
+            confluence = ConfluenceClient(http_client, conf_config.base_url)
 
-            click.echo(f'Fetching page {page_id}...')
-            page = await confluence.get_page(page_id, expand=['body.storage', 'version'])
+            click.echo(f"Fetching page {page_id}...")
+            page = await confluence.get_page(
+                page_id, expand=["body.storage", "version"]
+            )
 
-            click.echo(click.style('\nPage Information:', fg='green', bold=True))
-            click.echo(f'ID: {page["id"]}')
-            click.echo(f'Title: {page["title"]}')
-            click.echo(f'Version: {page["version"]["number"]}')
+            click.echo(click.style("\nPage Information:", fg="green", bold=True))
+            click.echo(f"ID: {page['id']}")
+            click.echo(f"Title: {page['title']}")
+            click.echo(f"Version: {page['version']['number']}")
 
             url = await confluence.get_page_url(page_id)
-            click.echo(f'URL: {url}')
+            click.echo(f"URL: {url}")
 
             comments = await confluence.get_comments(page_id)
-            click.echo(f'\nComments: {comments["size"]}')
+            click.echo(f"\nComments: {comments['size']}")
 
-            if 'body' in page and 'storage' in page['body']:
-                content = page['body']['storage'].get('value', '')
-                click.echo(click.style('\nPage Content (Confluence Storage Format):', fg='cyan', bold=True))
+            if "body" in page and "storage" in page["body"]:
+                content = page["body"]["storage"].get("value", "")
+                click.echo(
+                    click.style(
+                        "\nPage Content (Confluence Storage Format):",
+                        fg="cyan",
+                        bold=True,
+                    )
+                )
                 click.echo(content)
 
     except Exception as e:
-        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         sys.exit(1)
 
 
@@ -612,8 +668,7 @@ async def _test_create(
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
-        _require_confluence_config(config)
-        assert config.confluence is not None
+        conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
 
@@ -621,8 +676,8 @@ async def _test_create(
             if not config.confluence_test or not config.confluence_test.space_key:
                 click.echo(
                     click.style(
-                        'Error: No space key provided and confluence.test.space_key not in config',
-                        fg='red',
+                        "Error: No space key provided and confluence.test.space_key not in config",
+                        fg="red",
                     ),
                     err=True,
                 )
@@ -630,26 +685,28 @@ async def _test_create(
             space = config.confluence_test.space_key
 
         async with create_confluence_client(
-            config.confluence.access_token,
-            config.confluence.access_secret,
+            conf_config.access_token,
+            conf_config.access_secret,
             private_key,
-            config.confluence.consumer_key,
+            conf_config.consumer_key,
         ) as http_client:
-            confluence = ConfluenceClient(http_client, config.confluence.base_url)
+            confluence = ConfluenceClient(http_client, conf_config.base_url)
 
             click.echo(f'Creating page "{title}" in space {space}...')
             page = await confluence.create_page(space, title, body)
 
-            click.echo(click.style('\nPage created successfully!', fg='green', bold=True))
-            click.echo(f'ID: {page["id"]}')
-            click.echo(f'Title: {page["title"]}')
-            click.echo(f'Version: {page["version"]["number"]}')
+            click.echo(
+                click.style("\nPage created successfully!", fg="green", bold=True)
+            )
+            click.echo(f"ID: {page['id']}")
+            click.echo(f"Title: {page['title']}")
+            click.echo(f"Version: {page['version']['number']}")
 
-            url = await confluence.get_page_url(page['id'])
-            click.echo(f'URL: {url}')
+            url = await confluence.get_page_url(page["id"])
+            click.echo(f"URL: {url}")
 
     except Exception as e:
-        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         import traceback
 
         traceback.print_exc()
@@ -681,57 +738,65 @@ async def _create(
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
-        _require_confluence_config(config)
-        assert config.confluence is not None
+        conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
 
-        effective_kroki_url = kroki_url if kroki_url is not None else config.diagrams.kroki_url
+        effective_kroki_url = (
+            kroki_url if kroki_url is not None else config.diagrams.kroki_url
+        )
         if not effective_kroki_url:
-            click.echo(click.style('Error: kroki_url required (via --kroki-url or config)', fg='red'), err=True)
+            click.echo(
+                click.style(
+                    "Error: kroki_url required (via --kroki-url or config)", fg="red"
+                ),
+                err=True,
+            )
             sys.exit(1)
 
         if not space:
             if not config.confluence_test or not config.confluence_test.space_key:
                 click.echo(
                     click.style(
-                        'Error: No space key provided and confluence.test.space_key not in config',
-                        fg='red',
+                        "Error: No space key provided and confluence.test.space_key not in config",
+                        fg="red",
                     ),
                     err=True,
                 )
                 sys.exit(1)
             space = config.confluence_test.space_key
 
-        click.echo(f'Converting {markdown_file}...')
+        click.echo(f"Converting {markdown_file}...")
         converter = MarkdownConverter()
-        markdown_text = markdown_file.read_text(encoding='utf-8')
+        markdown_text = markdown_file.read_text(encoding="utf-8")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
         confluence_body = result.html
 
         async with create_confluence_client(
-            config.confluence.access_token,
-            config.confluence.access_secret,
+            conf_config.access_token,
+            conf_config.access_secret,
             private_key,
-            config.confluence.consumer_key,
+            conf_config.consumer_key,
         ) as http_client:
-            confluence = ConfluenceClient(http_client, config.confluence.base_url)
+            confluence = ConfluenceClient(http_client, conf_config.base_url)
 
             click.echo(f'Creating page "{title}" in space {space}...')
             page = await confluence.create_page(space, title, confluence_body)
 
-            click.echo(click.style('\nPage created successfully!', fg='green', bold=True))
-            click.echo(f'ID: {page["id"]}')
-            click.echo(f'Title: {page["title"]}')
-            click.echo(f'Version: {page["version"]["number"]}')
+            click.echo(
+                click.style("\nPage created successfully!", fg="green", bold=True)
+            )
+            click.echo(f"ID: {page['id']}")
+            click.echo(f"Title: {page['title']}")
+            click.echo(f"Version: {page['version']['number']}")
 
-            url = await confluence.get_page_url(page['id'])
-            click.echo(f'URL: {url}')
+            url = await confluence.get_page_url(page["id"])
+            click.echo(f"URL: {url}")
 
     except Exception as e:
-        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         import traceback
 
         traceback.print_exc()
@@ -764,74 +829,87 @@ async def _update(
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
-        _require_confluence_config(config)
-        assert config.confluence is not None
+        conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
 
-        effective_kroki_url = kroki_url if kroki_url is not None else config.diagrams.kroki_url
+        effective_kroki_url = (
+            kroki_url if kroki_url is not None else config.diagrams.kroki_url
+        )
         if not effective_kroki_url:
-            click.echo(click.style('Error: kroki_url required (via --kroki-url or config)', fg='red'), err=True)
+            click.echo(
+                click.style(
+                    "Error: kroki_url required (via --kroki-url or config)", fg="red"
+                ),
+                err=True,
+            )
             sys.exit(1)
 
-        click.echo(f'Converting {markdown_file}...')
+        click.echo(f"Converting {markdown_file}...")
         converter = MarkdownConverter()
-        markdown_text = markdown_file.read_text(encoding='utf-8')
+        markdown_text = markdown_file.read_text(encoding="utf-8")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
         new_html = result.html
 
         async with create_confluence_client(
-            config.confluence.access_token,
-            config.confluence.access_secret,
+            conf_config.access_token,
+            conf_config.access_secret,
             private_key,
-            config.confluence.consumer_key,
+            conf_config.consumer_key,
         ) as http_client:
-            confluence = ConfluenceClient(http_client, config.confluence.base_url)
+            confluence = ConfluenceClient(http_client, conf_config.base_url)
 
-            click.echo(f'Fetching current page {page_id}...')
+            click.echo(f"Fetching current page {page_id}...")
             current_page = await confluence.get_page(
-                page_id, expand=['body.storage', 'version']
+                page_id,
+                expand=["body.storage", "version"],
             )
-            current_version = current_page['version']['number']
-            title = current_page['title']
-            old_html = current_page['body']['storage']['value']
+            current_version = current_page["version"]["number"]
+            title = current_page["title"]
+            old_html = current_page["body"]["storage"]["value"]
 
-            click.echo('Preserving comment markers...')
+            click.echo("Preserving comment markers...")
             preserver = CommentPreserver()
             preserve_result = preserver.preserve_comments(old_html, new_html)
 
             click.echo(
-                f'Updating page "{title}" from version {current_version} to {current_version + 1}...'
+                f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
             )
             updated_page = await confluence.update_page(
-                page_id, title, preserve_result.html, current_version, message
+                page_id,
+                title,
+                preserve_result.html,
+                current_version,
+                message,
             )
 
-            click.echo(click.style('\nPage updated successfully!', fg='green', bold=True))
-            click.echo(f'ID: {updated_page["id"]}')
-            click.echo(f'Title: {updated_page["title"]}')
-            click.echo(f'Version: {updated_page["version"]["number"]}')
+            click.echo(
+                click.style("\nPage updated successfully!", fg="green", bold=True)
+            )
+            click.echo(f"ID: {updated_page['id']}")
+            click.echo(f"Title: {updated_page['title']}")
+            click.echo(f"Version: {updated_page['version']['number']}")
 
             url = await confluence.get_page_url(page_id)
-            click.echo(f'URL: {url}')
+            click.echo(f"URL: {url}")
 
             comments = await confluence.get_comments(page_id)
-            click.echo(f'\nComments on page: {comments["size"]}')
+            click.echo(f"\nComments on page: {comments['size']}")
 
             if preserve_result.unmatched_comments:
                 click.echo(
                     click.style(
-                        f'\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:',
-                        fg='yellow',
-                    )
+                        f"\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:",
+                        fg="yellow",
+                    ),
                 )
                 for comment in preserve_result.unmatched_comments:
                     click.echo(f'  - [{comment.ref}] "{comment.text}"')
 
     except Exception as e:
-        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         import traceback
 
         traceback.print_exc()
@@ -863,49 +941,56 @@ async def _upload_mkdocs(
     import tempfile
 
     try:
+        from docstage_core import MarkdownConverter
+
         from docstage.confluence import ConfluenceClient
         from docstage.confluence.comment_preservation import CommentPreserver
-        from docstage_core import MarkdownConverter
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
-        _require_confluence_config(config)
-        assert config.confluence is not None
+        conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
 
-        effective_kroki_url = kroki_url if kroki_url is not None else config.diagrams.kroki_url
+        effective_kroki_url = (
+            kroki_url if kroki_url is not None else config.diagrams.kroki_url
+        )
         if not effective_kroki_url:
-            click.echo(click.style('Error: kroki_url required (via --kroki-url or config)', fg='red'), err=True)
+            click.echo(
+                click.style(
+                    "Error: kroki_url required (via --kroki-url or config)", fg="red"
+                ),
+                err=True,
+            )
             sys.exit(1)
 
         include_dirs = [
-            mkdocs_root / 'includes',
-            mkdocs_root / 'gen' / 'includes',
+            mkdocs_root / "includes",
+            mkdocs_root / "gen" / "includes",
             mkdocs_root,
         ]
         include_dirs = [d for d in include_dirs if d.exists()]
 
-        click.echo(f'Include directories: {[str(d) for d in include_dirs]}')
+        click.echo(f"Include directories: {[str(d) for d in include_dirs]}")
 
-        click.echo(f'Converting {markdown_file}...')
-        markdown_text = markdown_file.read_text(encoding='utf-8')
+        click.echo(f"Converting {markdown_file}...")
+        markdown_text = markdown_file.read_text(encoding="utf-8")
         converter = MarkdownConverter(
             prepend_toc=True,
             extract_title=True,
             include_dirs=include_dirs,
-            config_file='config.iuml',
+            config_file="config.iuml",
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            click.echo(f'Rendering diagrams via Kroki ({effective_kroki_url})...')
+            click.echo(f"Rendering diagrams via Kroki ({effective_kroki_url})...")
             result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
             new_html = result.html
 
-            click.echo(f'Rendered {len(result.diagrams)} diagrams')
+            click.echo(f"Rendered {len(result.diagrams)} diagrams")
 
             if result.title:
-                click.echo(f'Title: {result.title}')
+                click.echo(f"Title: {result.title}")
 
             attachment_data: list[tuple[str, bytes]] = []
             for diagram in result.diagrams:
@@ -913,81 +998,99 @@ async def _upload_mkdocs(
                 filepath = Path(tmpdir) / diagram.filename
                 attachment_data.append((diagram.filename, filepath.read_bytes()))
                 click.echo(
-                    f'  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)'
+                    f"  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)",
                 )
 
             async with create_confluence_client(
-                config.confluence.access_token,
-                config.confluence.access_secret,
+                conf_config.access_token,
+                conf_config.access_secret,
                 private_key,
-                config.confluence.consumer_key,
+                conf_config.consumer_key,
             ) as http_client:
-                confluence = ConfluenceClient(http_client, config.confluence.base_url)
+                confluence = ConfluenceClient(http_client, conf_config.base_url)
 
-                click.echo(f'Fetching current page {page_id}...')
+                click.echo(f"Fetching current page {page_id}...")
                 current_page = await confluence.get_page(
-                    page_id, expand=['body.storage', 'version']
+                    page_id,
+                    expand=["body.storage", "version"],
                 )
-                current_version = current_page['version']['number']
-                old_html = current_page['body']['storage']['value']
+                current_version = current_page["version"]["number"]
+                old_html = current_page["body"]["storage"]["value"]
 
-                title = result.title or current_page['title']
+                title = result.title or current_page["title"]
 
-                click.echo('Preserving comment markers...')
+                click.echo("Preserving comment markers...")
                 preserver = CommentPreserver()
                 preserve_result = preserver.preserve_comments(old_html, new_html)
 
                 if dry_run:
-                    click.echo(click.style('\n[DRY RUN] No changes made to Confluence.', fg='cyan', bold=True))
+                    click.echo(
+                        click.style(
+                            "\n[DRY RUN] No changes made to Confluence.",
+                            fg="cyan",
+                            bold=True,
+                        )
+                    )
                     if preserve_result.unmatched_comments:
                         click.echo(
                             click.style(
-                                f'\nComments that would be resolved ({len(preserve_result.unmatched_comments)}):',
-                                fg='yellow',
+                                f"\nComments that would be resolved ({len(preserve_result.unmatched_comments)}):",
+                                fg="yellow",
                                 bold=True,
-                            )
+                            ),
                         )
                         for comment in preserve_result.unmatched_comments:
                             click.echo(f'  - [{comment.ref}] "{comment.text}"')
                     else:
-                        click.echo(click.style('\nNo comments would be resolved.', fg='green'))
+                        click.echo(
+                            click.style("\nNo comments would be resolved.", fg="green")
+                        )
                     return
 
                 if attachment_data:
-                    click.echo(f'Uploading {len(attachment_data)} attachments...')
+                    click.echo(f"Uploading {len(attachment_data)} attachments...")
                     for filename, image_data in attachment_data:
-                        click.echo(f'  Uploading {filename}...')
+                        click.echo(f"  Uploading {filename}...")
                         await confluence.upload_attachment(
-                            page_id, filename, image_data, "image/png"
+                            page_id,
+                            filename,
+                            image_data,
+                            "image/png",
                         )
 
                 click.echo(
-                    f'Updating page "{title}" from version {current_version} to {current_version + 1}...'
+                    f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
                 )
                 updated_page = await confluence.update_page(
-                    page_id, title, preserve_result.html, current_version, message
+                    page_id,
+                    title,
+                    preserve_result.html,
+                    current_version,
+                    message,
                 )
 
-                click.echo(click.style('\nPage updated successfully!', fg='green', bold=True))
-                click.echo(f'ID: {updated_page["id"]}')
-                click.echo(f'Title: {updated_page["title"]}')
-                click.echo(f'Version: {updated_page["version"]["number"]}')
+                click.echo(
+                    click.style("\nPage updated successfully!", fg="green", bold=True)
+                )
+                click.echo(f"ID: {updated_page['id']}")
+                click.echo(f"Title: {updated_page['title']}")
+                click.echo(f"Version: {updated_page['version']['number']}")
 
                 url = await confluence.get_page_url(page_id)
-                click.echo(f'URL: {url}')
+                click.echo(f"URL: {url}")
 
                 if preserve_result.unmatched_comments:
                     click.echo(
                         click.style(
-                            f'\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:',
-                            fg='yellow',
-                        )
+                            f"\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:",
+                            fg="yellow",
+                        ),
                     )
                     for comment in preserve_result.unmatched_comments:
                         click.echo(f'  - [{comment.ref}] "{comment.text}"')
 
     except Exception as e:
-        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         import traceback
 
         traceback.print_exc()
@@ -995,7 +1098,10 @@ async def _upload_mkdocs(
 
 
 async def _generate_tokens(
-    private_key_path: Path, consumer_key: str, base_url: str, port: int = 8080
+    private_key_path: Path,
+    consumer_key: str,
+    base_url: str,
+    port: int = 8080,
 ) -> None:
     """Generate OAuth access tokens through interactive flow.
 
@@ -1006,107 +1112,122 @@ async def _generate_tokens(
         port: Local callback server port
     """
     try:
-        from urllib.parse import parse_qs, urlparse
-
         from authlib.integrations.httpx_client import AsyncOAuth1Client
 
         from docstage.oauth import read_private_key
 
-        click.echo(f'Reading private key from {private_key_path}...')
+        click.echo(f"Reading private key from {private_key_path}...")
         private_key = read_private_key(private_key_path)
 
-        base_url = base_url.rstrip('/')
+        base_url = base_url.rstrip("/")
         endpoints = {
-            'request_token_url': f'{base_url}/plugins/servlet/oauth/request-token',
-            'authorize_url': f'{base_url}/plugins/servlet/oauth/authorize',
-            'access_token_url': f'{base_url}/plugins/servlet/oauth/access-token',
+            "request_token_url": f"{base_url}/plugins/servlet/oauth/request-token",
+            "authorize_url": f"{base_url}/plugins/servlet/oauth/authorize",
+            "access_token_url": f"{base_url}/plugins/servlet/oauth/access-token",
         }
 
-        click.echo(f'Creating OAuth client for consumer key: {consumer_key}')
+        click.echo(f"Creating OAuth client for consumer key: {consumer_key}")
         client = AsyncOAuth1Client(
             client_id=consumer_key,
-            rsa_key=private_key.decode('utf-8'),
-            signature_method='RSA-SHA1',
+            rsa_key=private_key.decode("utf-8"),
+            signature_method="RSA-SHA1",
         )
 
         try:
-            click.echo('\nStep 1: Requesting temporary credentials...')
-            client.redirect_uri = 'oob'
+            click.echo("\nStep 1: Requesting temporary credentials...")
+            client.redirect_uri = "oob"
             response = await client.fetch_request_token(
-                endpoints['request_token_url']
+                endpoints["request_token_url"],
             )
-            oauth_token = response.get('oauth_token')
-            oauth_token_secret = response.get('oauth_token_secret')
+            oauth_token = response.get("oauth_token")
+            oauth_token_secret = response.get("oauth_token_secret")
 
             if not oauth_token or not oauth_token_secret:
-                click.echo(click.style('Failed to get request token', fg='red'), err=True)
-                sys.exit(1)
-
-            click.echo(click.style('✓ Temporary token received', fg='green'))
-
-            auth_url = f'{endpoints["authorize_url"]}?oauth_token={oauth_token}'
-
-            click.echo('\n' + '=' * 70)
-            click.echo(click.style('Step 2: Authorization Required', fg='cyan', bold=True))
-            click.echo('=' * 70)
-            click.echo('\nPlease open this URL in your browser to authorize the application:')
-            click.echo(click.style(f'\n{auth_url}\n', fg='cyan', bold=True))
-            click.echo('\nAfter clicking "Allow" in Confluence:')
-            click.echo('  - Confluence will display a VERIFICATION CODE on the page')
-            click.echo('  - Copy that code and paste it below')
-            click.echo('=' * 70)
-
-            click.echo('\nStep 3: Enter the verification code...')
-            click.echo('After authorizing, Confluence should display a verification code.')
-            oauth_verifier = click.prompt('Enter the verification code', type=str).strip()
-
-            if not oauth_verifier:
-                click.echo(click.style('Error: Verification code is required', fg='red'), err=True)
-                sys.exit(1)
-
-            click.echo(click.style('✓ Verification code received', fg='green'))
-
-            click.echo('\nStep 4: Exchanging for access token...')
-            client.token = {
-                'oauth_token': oauth_token,
-                'oauth_token_secret': oauth_token_secret,
-            }
-            response = await client.fetch_access_token(
-                endpoints['access_token_url'], verifier=oauth_verifier
-            )
-
-            access_token = response.get('oauth_token')
-            access_secret = response.get('oauth_token_secret')
-
-            if not access_token or not access_secret:
                 click.echo(
-                    click.style('Failed to get access token', fg='red'), err=True
+                    click.style("Failed to get request token", fg="red"), err=True
                 )
                 sys.exit(1)
 
-            click.echo('\n' + '=' * 70)
-            click.echo(click.style('✓ OAuth Authorization Successful!', fg='green', bold=True))
-            click.echo('=' * 70)
-            click.echo('\nAdd these credentials to your docstage.toml:')
-            click.echo('\n[confluence]')
+            click.echo(click.style("✓ Temporary token received", fg="green"))
+
+            auth_url = f"{endpoints['authorize_url']}?oauth_token={oauth_token}"
+
+            click.echo("\n" + "=" * 70)
+            click.echo(
+                click.style("Step 2: Authorization Required", fg="cyan", bold=True)
+            )
+            click.echo("=" * 70)
+            click.echo(
+                "\nPlease open this URL in your browser to authorize the application:"
+            )
+            click.echo(click.style(f"\n{auth_url}\n", fg="cyan", bold=True))
+            click.echo('\nAfter clicking "Allow" in Confluence:')
+            click.echo("  - Confluence will display a VERIFICATION CODE on the page")
+            click.echo("  - Copy that code and paste it below")
+            click.echo("=" * 70)
+
+            click.echo("\nStep 3: Enter the verification code...")
+            click.echo(
+                "After authorizing, Confluence should display a verification code."
+            )
+            oauth_verifier = click.prompt(
+                "Enter the verification code", type=str
+            ).strip()
+
+            if not oauth_verifier:
+                click.echo(
+                    click.style("Error: Verification code is required", fg="red"),
+                    err=True,
+                )
+                sys.exit(1)
+
+            click.echo(click.style("✓ Verification code received", fg="green"))
+
+            click.echo("\nStep 4: Exchanging for access token...")
+            client.token = {
+                "oauth_token": oauth_token,
+                "oauth_token_secret": oauth_token_secret,
+            }
+            response = await client.fetch_access_token(
+                endpoints["access_token_url"],
+                verifier=oauth_verifier,
+            )
+
+            access_token = response.get("oauth_token")
+            access_secret = response.get("oauth_token_secret")
+
+            if not access_token or not access_secret:
+                click.echo(
+                    click.style("Failed to get access token", fg="red"),
+                    err=True,
+                )
+                sys.exit(1)
+
+            click.echo("\n" + "=" * 70)
+            click.echo(
+                click.style("✓ OAuth Authorization Successful!", fg="green", bold=True)
+            )
+            click.echo("=" * 70)
+            click.echo("\nAdd these credentials to your docstage.toml:")
+            click.echo("\n[confluence]")
             click.echo(f'base_url = "{base_url}"')
             click.echo(f'access_token = "{access_token}"')
             click.echo(f'access_secret = "{access_secret}"')
             click.echo(f'consumer_key = "{consumer_key}"')
-            click.echo('\n' + '=' * 70)
+            click.echo("\n" + "=" * 70)
             click.echo(
                 click.style(
-                    '\nNote: These tokens inherit YOUR permissions in Confluence.',
-                    fg='yellow',
-                )
+                    "\nNote: These tokens inherit YOUR permissions in Confluence.",
+                    fg="yellow",
+                ),
             )
             click.echo(
-                'If you can create/edit pages, these tokens will have write access.'
+                "If you can create/edit pages, these tokens will have write access.",
             )
-            click.echo('=' * 70 + '\n')
+            click.echo("=" * 70 + "\n")
 
         except Exception as e:
-            click.echo(click.style(f'OAuth flow failed: {e}', fg='red'), err=True)
+            click.echo(click.style(f"OAuth flow failed: {e}", fg="red"), err=True)
             import traceback
 
             traceback.print_exc()
@@ -1115,7 +1236,7 @@ async def _generate_tokens(
             await client.aclose()
 
     except Exception as e:
-        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         sys.exit(1)
 
 
@@ -1130,8 +1251,8 @@ def _strip_html_tags(html: str) -> str:
     """
     import re
 
-    text = re.sub(r'<[^>]+>', ' ', html)
-    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
@@ -1160,16 +1281,18 @@ def _extract_comment_contexts(html: str, context_chars: int = 100) -> dict[str, 
     for match in marker_pattern.finditer(html):
         ref = match.group(1)
         marker_text = match.group(2)
-        placeholder = f'[[[MARKER:{ref}:{marker_text}]]]'
+        placeholder = f"[[[MARKER:{ref}:{marker_text}]]]"
         placeholder_map[ref] = marker_text
         html_with_placeholders = html_with_placeholders.replace(
-            match.group(0), placeholder, 1
+            match.group(0),
+            placeholder,
+            1,
         )
 
     plain_text = _strip_html_tags(html_with_placeholders)
 
     for ref, marker_text in placeholder_map.items():
-        placeholder = f'[[[MARKER:{ref}:{marker_text}]]]'
+        placeholder = f"[[[MARKER:{ref}:{marker_text}]]]"
         pos = plain_text.find(placeholder)
         if pos == -1:
             continue
@@ -1178,7 +1301,7 @@ def _extract_comment_contexts(html: str, context_chars: int = 100) -> dict[str, 
         end = min(len(plain_text), pos + len(placeholder) + context_chars)
 
         context = plain_text[start:end]
-        context = context.replace(placeholder, f'>>>{marker_text}<<<')
+        context = context.replace(placeholder, f">>>{marker_text}<<<")
 
         context = context.strip()
         contexts[ref] = context
@@ -1205,97 +1328,108 @@ async def _comments(
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
-        _require_confluence_config(config)
-        assert config.confluence is not None
+        conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
 
         async with create_confluence_client(
-            config.confluence.access_token,
-            config.confluence.access_secret,
+            conf_config.access_token,
+            conf_config.access_secret,
             private_key,
-            config.confluence.consumer_key,
+            conf_config.consumer_key,
         ) as http_client:
-            confluence = ConfluenceClient(http_client, config.confluence.base_url)
+            confluence = ConfluenceClient(http_client, conf_config.base_url)
 
-            page = await confluence.get_page(page_id, expand=['body.storage'])
-            page_title = page['title']
+            page = await confluence.get_page(page_id, expand=["body.storage"])
+            page_title = page["title"]
             page_url = await confluence.get_page_url(page_id)
-            page_body = page.get('body', {}).get('storage', {}).get('value', '')
+            page_body = page.get("body", {}).get("storage", {}).get("value", "")
 
             context_map = _extract_comment_contexts(page_body)
 
             inline_comments = await confluence.get_inline_comments(page_id)
             footer_comments = await confluence.get_footer_comments(page_id)
 
-            inline_results = inline_comments['results']
-            footer_results = footer_comments['results']
+            inline_results = inline_comments["results"]
+            footer_results = footer_comments["results"]
 
             if not include_resolved:
                 inline_results = [
-                    c for c in inline_results
-                    if c.get('extensions', {}).get('resolution', {}).get('status', 'open') == 'open'
+                    c
+                    for c in inline_results
+                    if c.get("extensions", {})
+                    .get("resolution", {})
+                    .get("status", "open")
+                    == "open"
                 ]
                 footer_results = [
-                    c for c in footer_results
-                    if c.get('extensions', {}).get('resolution', {}).get('status', 'open') == 'open'
+                    c
+                    for c in footer_results
+                    if c.get("extensions", {})
+                    .get("resolution", {})
+                    .get("status", "open")
+                    == "open"
                 ]
 
             total_count = len(inline_results) + len(footer_results)
 
             if total_count == 0:
-                click.echo('No comments found.')
+                click.echo("No comments found.")
                 return
 
             click.echo(f'# Comments on "{page_title}"')
-            click.echo(f'Page URL: {page_url}')
+            click.echo(f"Page URL: {page_url}")
             click.echo()
 
             if inline_results:
-                click.echo(f'## Inline Comments ({len(inline_results)})')
+                click.echo(f"## Inline Comments ({len(inline_results)})")
                 click.echo()
                 for comment in inline_results:
-                    extensions = comment.get('extensions', {})
-                    inline_props = extensions.get('inlineProperties', {})
-                    resolution = extensions.get('resolution', {})
+                    extensions = comment.get("extensions", {})
+                    inline_props = extensions.get("inlineProperties", {})
+                    resolution = extensions.get("resolution", {})
 
-                    marker_ref = inline_props.get('markerRef', '')
-                    original_text = inline_props.get('originalSelection', 'N/A')
-                    status = resolution.get('status', 'open')
-                    body_html = comment.get('body', {}).get('storage', {}).get('value', '')
+                    marker_ref = inline_props.get("markerRef", "")
+                    original_text = inline_props.get("originalSelection", "N/A")
+                    status = resolution.get("status", "open")
+                    body_html = (
+                        comment.get("body", {}).get("storage", {}).get("value", "")
+                    )
                     body_text = _strip_html_tags(body_html)
 
                     context = context_map.get(marker_ref)
 
                     click.echo(f'### On text: "{original_text}"')
                     if context:
-                        click.echo(f'Context: ...{context}...')
+                        click.echo(f"Context: ...{context}...")
                     if include_resolved:
-                        click.echo(f'Status: {status}')
-                    click.echo(f'Comment: {body_text}')
+                        click.echo(f"Status: {status}")
+                    click.echo(f"Comment: {body_text}")
                     click.echo()
 
             if footer_results:
-                click.echo(f'## Page Comments ({len(footer_results)})')
+                click.echo(f"## Page Comments ({len(footer_results)})")
                 click.echo()
                 for comment in footer_results:
-                    resolution = comment.get('extensions', {}).get('resolution', {})
-                    status = resolution.get('status', 'open')
-                    body_html = comment.get('body', {}).get('storage', {}).get('value', '')
+                    resolution = comment.get("extensions", {}).get("resolution", {})
+                    status = resolution.get("status", "open")
+                    body_html = (
+                        comment.get("body", {}).get("storage", {}).get("value", "")
+                    )
                     body_text = _strip_html_tags(body_html)
 
                     if include_resolved:
-                        click.echo(f'Status: {status}')
-                    click.echo(f'Comment: {body_text}')
+                        click.echo(f"Status: {status}")
+                    click.echo(f"Comment: {body_text}")
                     click.echo()
 
     except Exception as e:
-        click.echo(click.style(f'Error: {e}', fg='red'), err=True)
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         import traceback
 
         traceback.print_exc()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     cli()

@@ -10,7 +10,10 @@ from typing import Protocol
 from docstage_core import MarkdownConverter
 
 from docstage.core.cache import CacheEntry, FileCache
-from docstage.core.diagrams import render_diagrams_with_cache, replace_diagram_placeholders
+from docstage.core.diagrams import (
+    render_diagrams_with_cache,
+    replace_diagram_placeholders,
+)
 
 
 class TocEntryProtocol(Protocol):
@@ -83,7 +86,9 @@ class PageRenderer:
         self._config_file = config_file
         self._dpi = dpi
 
-        effective_include_dirs: list[Path] = include_dirs or ([source_dir] if kroki_url else [])
+        effective_include_dirs: list[Path] = include_dirs or (
+            [source_dir] if kroki_url else []
+        )
         self._converter = MarkdownConverter(
             gfm=True,
             extract_title=extract_title,
@@ -167,7 +172,7 @@ class PageRenderer:
 
         return source_path
 
-    def _render_fresh(self, source_path: Path, base_path: str) -> "_FreshRenderResult":
+    def _render_fresh(self, source_path: Path, base_path: str) -> _FreshRenderResult:
         """Render markdown from source file.
 
         Args:
@@ -180,16 +185,24 @@ class PageRenderer:
         markdown_text = source_path.read_text(encoding="utf-8")
 
         if self._kroki_url:
-            extract_result = self._converter.extract_html_with_diagrams(markdown_text, base_path)
+            extract_result = self._converter.extract_html_with_diagrams(
+                markdown_text, base_path
+            )
 
             if extract_result.diagrams:
                 diagrams_input = [
-                    (d.index, d.source, d.endpoint, d.format) for d in extract_result.diagrams
+                    (d.index, d.source, d.endpoint, d.format)
+                    for d in extract_result.diagrams
                 ]
                 rendered_diagrams = render_diagrams_with_cache(
-                    diagrams_input, self._kroki_url, self._cache, self._dpi
+                    diagrams_input,
+                    self._kroki_url,
+                    self._cache,
+                    self._dpi,
                 )
-                html = replace_diagram_placeholders(extract_result.html, rendered_diagrams)
+                html = replace_diagram_placeholders(
+                    extract_result.html, rendered_diagrams
+                )
             else:
                 html = extract_result.html
 

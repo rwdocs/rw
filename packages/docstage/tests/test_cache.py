@@ -29,8 +29,8 @@ class TestFileCacheGet:
                     "title": "Test Page",
                     "source_mtime": 1234567890.0,
                     "toc": [],
-                }
-            )
+                },
+            ),
         )
 
         result = cache.get("domain/page", 1234567890.0)
@@ -112,14 +112,20 @@ class TestFileCacheSet:
 
         gitignore_path = tmp_path / ".cache" / ".gitignore"
         assert gitignore_path.exists()
-        assert gitignore_path.read_text() == "# Ignore everything in this directory\n*\n"
+        assert (
+            gitignore_path.read_text() == "# Ignore everything in this directory\n*\n"
+        )
 
     def test_writes_html_content(self, tmp_path: Path) -> None:
         """Write HTML content to pages directory."""
         cache = FileCache(tmp_path / ".cache")
 
         cache.set(
-            "page", "<article><h1>Title</h1></article>", "Title", 1234567890.0, []
+            "page",
+            "<article><h1>Title</h1></article>",
+            "Title",
+            1234567890.0,
+            [],
         )
 
         html_path = tmp_path / ".cache" / "pages" / "page.html"
@@ -210,7 +216,7 @@ class TestFileCacheNavigation:
         nav = {
             "items": [
                 {"title": "Domain A", "path": "/domain-a", "children": []},
-            ]
+            ],
         }
 
         cache.set_navigation(nav)

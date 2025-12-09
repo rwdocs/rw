@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from aiohttp.test_utils import TestClient
-
 from docstage.server import ServerConfig, create_app
 
 
@@ -35,7 +34,9 @@ class TestGetPage:
 
     @pytest.mark.asyncio
     async def test__existing_page__returns_rendered_content(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Return rendered page for existing markdown file."""
         (docs_dir / "guide.md").write_text("# Guide\n\nThis is a guide.")
@@ -77,7 +78,9 @@ class TestGetPage:
 
     @pytest.mark.asyncio
     async def test__index_md__resolves_for_directory_path(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Resolve directory path to index.md."""
         domain = docs_dir / "domain"
@@ -95,7 +98,7 @@ class TestGetPage:
     async def test__response__includes_toc(self, docs_dir: Path, client) -> None:
         """Include table of contents in response."""
         (docs_dir / "guide.md").write_text(
-            "# Guide\n\n## Section One\n\nContent.\n\n## Section Two\n\nMore."
+            "# Guide\n\n## Section One\n\nContent.\n\n## Section Two\n\nMore.",
         )
 
         test_client = await client
@@ -109,7 +112,9 @@ class TestGetPage:
 
     @pytest.mark.asyncio
     async def test__response__empty_breadcrumbs_when_parent_not_navigable(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Return empty breadcrumbs when parent directory has no index.md."""
         domain = docs_dir / "domain"
@@ -127,7 +132,9 @@ class TestGetPage:
 
     @pytest.mark.asyncio
     async def test__response__includes_only_navigable_breadcrumbs(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Include only breadcrumbs for paths with index.md files."""
         nested = docs_dir / "domain" / "subdomain"
@@ -148,7 +155,9 @@ class TestGetPage:
 
     @pytest.mark.asyncio
     async def test__response__includes_all_breadcrumbs_when_all_have_index(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Include all ancestor paths in breadcrumbs when they all have index.md."""
         nested = docs_dir / "domain" / "subdomain"
@@ -169,7 +178,9 @@ class TestGetPage:
 
     @pytest.mark.asyncio
     async def test__response__includes_cache_headers(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Include cache headers in response."""
         (docs_dir / "guide.md").write_text("# Guide\n\nContent.")
@@ -192,14 +203,17 @@ class TestGetPage:
         etag = response1.headers["ETag"]
 
         response2 = await test_client.get(
-            "/api/pages/guide", headers={"If-None-Match": etag}
+            "/api/pages/guide",
+            headers={"If-None-Match": etag},
         )
 
         assert response2.status == 304
 
     @pytest.mark.asyncio
     async def test__response__meta_includes_last_modified(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Include last_modified in meta."""
         (docs_dir / "guide.md").write_text("# Guide\n\nContent.")

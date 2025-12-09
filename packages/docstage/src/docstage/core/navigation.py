@@ -16,7 +16,7 @@ class NavItemDict(TypedDict, total=False):
 
     title: str
     path: str
-    children: list["NavItemDict"]
+    children: list[NavItemDict]
 
 
 class NavigationTreeDict(TypedDict):
@@ -47,7 +47,7 @@ class NavItem:
 
     title: str
     path: str
-    children: list["NavItem"] = field(default_factory=list)
+    children: list[NavItem] = field(default_factory=list)
 
     def to_dict(self) -> NavItemDict:
         """Convert to dictionary for JSON serialization."""
@@ -179,7 +179,8 @@ class NavigationBuilder:
         items: list[NavItem] = []
 
         entries = sorted(
-            dir_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+            dir_path.iterdir(),
+            key=lambda p: (not p.is_dir(), p.name.lower()),
         )
 
         for entry in entries:
@@ -201,7 +202,9 @@ class NavigationBuilder:
         return items
 
     def _process_directory(
-        self, dir_path: Path, base_path: str
+        self,
+        dir_path: Path,
+        base_path: str,
     ) -> NavItem | list[NavItem] | None:
         """Process a directory into navigation item(s).
 

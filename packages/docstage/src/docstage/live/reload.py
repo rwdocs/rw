@@ -29,7 +29,7 @@ class LiveReloadManager:
         source_dir: Path,
         watch_patterns: list[str] | None = None,
         *,
-        navigation: "NavigationBuilder | None" = None,
+        navigation: NavigationBuilder | None = None,
     ) -> None:
         """Initialize the live reload manager.
 

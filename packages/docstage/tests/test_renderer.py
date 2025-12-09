@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from docstage.core.cache import FileCache
 from docstage.core.renderer import PageRenderer
 

@@ -81,7 +81,7 @@ def render_diagrams_with_cache(
                     endpoint=endpoint,
                     format=fmt,
                     content_hash=content_hash,
-                )
+                ),
             )
 
     if to_render:
@@ -89,7 +89,9 @@ def render_diagrams_with_cache(
         for diagram, content in rendered:
             cache.set_diagram(diagram.content_hash, diagram.format, content)
             results.append(
-                RenderedDiagram(index=diagram.index, content=content, format=diagram.format)
+                RenderedDiagram(
+                    index=diagram.index, content=content, format=diagram.format
+                ),
             )
 
     results.sort(key=lambda r: r.index)
@@ -124,8 +126,15 @@ def _render_via_kroki(
             else:
                 content = _render_png_data_uri(diagram, server_url)
             results.append((diagram, content))
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError) as e:
-            error_content = f'<pre class="diagram-error">Diagram rendering failed: {e}</pre>'
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            OSError,
+            TimeoutError,
+        ) as e:
+            error_content = (
+                f'<pre class="diagram-error">Diagram rendering failed: {e}</pre>'
+            )
             results.append((diagram, error_content))
 
     return results
@@ -144,7 +153,8 @@ def _render_svg(diagram: DiagramToRender, server_url: str) -> str:
     encoded = _encode_source(diagram.source)
     url = f"{server_url}/{diagram.endpoint}/svg/{encoded}"
 
-    with urllib.request.urlopen(url, timeout=30) as response:
+    # S310: URL is constructed from configured Kroki server (http/https only)
+    with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
         svg = response.read().decode("utf-8")
 
     return _strip_google_fonts(svg)
@@ -163,7 +173,8 @@ def _render_png_data_uri(diagram: DiagramToRender, server_url: str) -> str:
     encoded = _encode_source(diagram.source)
     url = f"{server_url}/{diagram.endpoint}/png/{encoded}"
 
-    with urllib.request.urlopen(url, timeout=30) as response:
+    # S310: URL is constructed from configured Kroki server (http/https only)
+    with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
         png_data = response.read()
 
     b64 = base64.b64encode(png_data).decode("ascii")

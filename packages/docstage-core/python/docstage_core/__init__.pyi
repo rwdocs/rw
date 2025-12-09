@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 class DiagramInfo:
     """Rendered diagram info (file written to output_dir)."""
 
@@ -20,7 +19,6 @@ class DiagramInfo:
     def height(self) -> int:
         """Image height in pixels."""
         ...
-
 
 class ConvertResult:
     """Result of converting markdown to Confluence format."""
@@ -40,7 +38,6 @@ class ConvertResult:
         """Rendered diagrams (empty if kroki_url/output_dir not provided)."""
         ...
 
-
 class TocEntry:
     """Table of contents entry."""
 
@@ -58,7 +55,6 @@ class TocEntry:
     def id(self) -> str:
         """Anchor ID for linking."""
         ...
-
 
 class HtmlConvertResult:
     """Result of converting markdown to HTML format."""
@@ -83,7 +79,6 @@ class HtmlConvertResult:
         """Warnings generated during conversion (e.g., unresolved includes)."""
         ...
 
-
 class PreparedDiagram:
     """A prepared diagram ready for rendering via Kroki."""
 
@@ -106,7 +101,6 @@ class PreparedDiagram:
     def format(self) -> str:
         """Output format ("svg" or "png")."""
         ...
-
 
 class ExtractResult:
     """Result of extracting diagrams from markdown."""
@@ -135,7 +129,6 @@ class ExtractResult:
     def warnings(self) -> list[str]:
         """Warnings generated during conversion."""
         ...
-
 
 class MarkdownConverter:
     """Markdown converter with multiple output formats."""

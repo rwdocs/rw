@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 from aiohttp import web
-
 from docstage.app_keys import cache_key, navigation_key, renderer_key
 from docstage.assets import get_static_dir
 from docstage.server import ServerConfig, create_app
+
 from tests.test_assets import requires_bundled_assets
 
 
@@ -78,7 +78,9 @@ class TestSpaFallback:
 
     @pytest.mark.asyncio
     async def test__root_path__serves_index_html(
-        self, aiohttp_client: Any, app: web.Application
+        self,
+        aiohttp_client: Any,
+        app: web.Application,
     ) -> None:
         """Root path serves index.html."""
         client = await aiohttp_client(app)
@@ -89,7 +91,9 @@ class TestSpaFallback:
 
     @pytest.mark.asyncio
     async def test__spa_route__serves_index_html(
-        self, aiohttp_client: Any, app: web.Application
+        self,
+        aiohttp_client: Any,
+        app: web.Application,
     ) -> None:
         """SPA routes serve index.html for client-side routing."""
         client = await aiohttp_client(app)
@@ -100,7 +104,9 @@ class TestSpaFallback:
 
     @pytest.mark.asyncio
     async def test__api_routes__take_precedence(
-        self, aiohttp_client: Any, app: web.Application
+        self,
+        aiohttp_client: Any,
+        app: web.Application,
     ) -> None:
         """API routes take precedence over SPA fallback."""
         client = await aiohttp_client(app)

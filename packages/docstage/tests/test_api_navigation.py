@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from aiohttp.test_utils import TestClient
-
 from docstage.server import ServerConfig, create_app
 
 
@@ -50,7 +49,9 @@ class TestGetNavigation:
 
     @pytest.mark.asyncio
     async def test__populated_docs__returns_full_tree(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Return complete navigation tree."""
         test_client = await client
@@ -63,7 +64,9 @@ class TestGetNavigation:
 
     @pytest.mark.asyncio
     async def test__tree_structure__includes_nested_items(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Include nested navigation items."""
         test_client = await client
@@ -87,7 +90,9 @@ class TestGetNavigation:
 
     @pytest.mark.asyncio
     async def test__empty_docs__returns_empty_items(
-        self, tmp_path: Path, aiohttp_client
+        self,
+        tmp_path: Path,
+        aiohttp_client,
     ) -> None:
         """Return empty items for empty docs directory."""
         docs = tmp_path / "empty-docs"
@@ -114,7 +119,9 @@ class TestGetNavigationSubtree:
 
     @pytest.mark.asyncio
     async def test__existing_section__returns_subtree(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Return subtree for existing section."""
         test_client = await client
@@ -126,7 +133,9 @@ class TestGetNavigationSubtree:
 
     @pytest.mark.asyncio
     async def test__nested_section__returns_children(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Return children of nested section."""
         test_client = await client
@@ -140,7 +149,9 @@ class TestGetNavigationSubtree:
 
     @pytest.mark.asyncio
     async def test__nonexistent_section__returns_404(
-        self, docs_dir: Path, client
+        self,
+        docs_dir: Path,
+        client,
     ) -> None:
         """Return 404 for non-existent section."""
         test_client = await client

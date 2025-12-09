@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from docstage.config import (
     Config,
     ConfluenceConfig,
@@ -259,7 +258,9 @@ include_dirs = "not-a-list"
 include_dirs = [123]
 """)
 
-        with pytest.raises(ValueError, match="diagrams.include_dirs items must be strings"):
+        with pytest.raises(
+            ValueError, match="diagrams.include_dirs items must be strings"
+        ):
             Config.load(config_file)
 
     def test__invalid_dpi_type__raises_error(self, tmp_path: Path) -> None:
@@ -296,7 +297,9 @@ consumer_key = "my-consumer"
         assert config.confluence.access_secret == "secret456"
         assert config.confluence.consumer_key == "my-consumer"
 
-    def test__confluence_default_consumer_key__uses_docstage(self, tmp_path: Path) -> None:
+    def test__confluence_default_consumer_key__uses_docstage(
+        self, tmp_path: Path
+    ) -> None:
         """Consumer key defaults to 'docstage'."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("""
@@ -332,7 +335,9 @@ base_url = "https://confluence.example.com"
 access_token = 123
 """)
 
-        with pytest.raises(ValueError, match="confluence.access_token must be a string"):
+        with pytest.raises(
+            ValueError, match="confluence.access_token must be a string"
+        ):
             Config.load(config_file)
 
     def test__missing_access_secret__raises_error(self, tmp_path: Path) -> None:
@@ -344,7 +349,9 @@ base_url = "https://confluence.example.com"
 access_token = "token123"
 """)
 
-        with pytest.raises(ValueError, match="confluence.access_secret must be a string"):
+        with pytest.raises(
+            ValueError, match="confluence.access_secret must be a string"
+        ):
             Config.load(config_file)
 
 
@@ -377,7 +384,9 @@ space_key = "DOCS"
 space_key = 123
 """)
 
-        with pytest.raises(ValueError, match="confluence.test.space_key must be a string"):
+        with pytest.raises(
+            ValueError, match="confluence.test.space_key must be a string"
+        ):
             Config.load(config_file)
 
 

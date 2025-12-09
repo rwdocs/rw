@@ -1,8 +1,8 @@
 """Tests for assets module."""
 
-import pytest
 from importlib.resources import files
 
+import pytest
 from docstage.assets import get_static_dir
 
 
@@ -30,7 +30,8 @@ class TestGetStaticDir:
         assert (static_dir / "index.html").exists()
 
     def test__static_not_directory__raises_file_not_found_error(
-        self, monkeypatch: pytest.MonkeyPatch
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Should raise FileNotFoundError when static directory doesn't exist."""
 
@@ -38,7 +39,7 @@ class TestGetStaticDir:
             def is_dir(self) -> bool:
                 return False
 
-            def joinpath(self, name: str) -> "FakeTraversable":
+            def joinpath(self, name: str) -> FakeTraversable:
                 return self
 
         monkeypatch.setattr("docstage.assets.files", lambda _: FakeTraversable())
