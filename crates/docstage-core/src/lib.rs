@@ -16,7 +16,7 @@
 //!
 //! # Diagram Support
 //!
-//! Multiple diagram languages are supported via Kroki: PlantUML, Mermaid, GraphViz, etc.
+//! Multiple diagram languages are supported via Kroki: `PlantUML`, Mermaid, `GraphViz`, etc.
 //!
 //! When converting to Confluence format, diagram code blocks are automatically
 //! rendered via the Kroki service and replaced with image macros:

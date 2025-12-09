@@ -1,6 +1,6 @@
 //! Diagram extraction as an iterator adapter over pulldown-cmark events.
 //!
-//! Supports multiple diagram languages via Kroki: PlantUML, Mermaid, GraphViz, etc.
+//! Supports multiple diagram languages via Kroki: `PlantUML`, Mermaid, `GraphViz`, etc.
 
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag, TagEnd};
 
@@ -30,6 +30,7 @@ impl DiagramLanguage {
     /// Parse language from code fence info string.
     ///
     /// Returns None if the language is not a supported diagram type.
+    #[must_use] 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "plantuml" => Some(Self::PlantUml),
@@ -79,7 +80,7 @@ impl DiagramLanguage {
 
     /// Whether this diagram type requires PlantUML-specific preprocessing.
     ///
-    /// PlantUML and C4PlantUML need `!include` resolution and config injection.
+    /// `PlantUML` and `C4PlantUML` need `!include` resolution and config injection.
     #[must_use]
     pub fn needs_plantuml_preprocessing(&self) -> bool {
         matches!(self, Self::PlantUml | Self::C4PlantUml)
@@ -100,6 +101,7 @@ pub enum DiagramFormat {
 
 impl DiagramFormat {
     /// Parse format from attribute value.
+    #[must_use] 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "svg" => Some(Self::Svg),

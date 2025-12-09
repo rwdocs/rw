@@ -645,6 +645,7 @@ fn slugify(text: &str) -> String {
 }
 
 /// Escape HTML special characters.
+#[must_use] 
 pub fn escape_html(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     for c in s.chars() {
@@ -669,6 +670,7 @@ pub fn escape_html(s: &str) -> String {
 /// - `adr-101/index.md` → `/docs/base/path/adr-101`
 ///
 /// External links, fragment-only links, and non-markdown links are returned unchanged.
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
 fn resolve_link(url: &str, base_path: &str) -> String {
     // Skip external links, fragments, and non-local URLs
     if url.starts_with("http://")

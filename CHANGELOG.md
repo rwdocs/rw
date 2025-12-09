@@ -3,6 +3,23 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Fix all clippy pedantic warnings in Rust core
+  - Remove needless raw string hashes in regex patterns
+  - Inline format string arguments
+  - Add backticks to doc comments for code references
+  - Add `#[must_use]` attributes to pure functions
+  - Fix doc list item over-indentation
+  - Change `DiagramError` parameter to reference to avoid unnecessary clone
+  - Allow intentional cast truncation in SVG dimension scaling
+  - Allow case-sensitive `.md` extension comparison (intentional)
+- Document caching strategy in architecture docs
+  - Page cache: mtime-based invalidation for fast, simple cache misses
+  - Diagram cache: content-hash based for cross-page reuse and live reload efficiency
+- Remove unused `load_config_file_with_warning` function from Rust core
+- Add documentation for docstage using docstage itself
+  - Usage guide: server, diagrams, Confluence publishing
+  - Architecture docs: Rust core, Python backend, frontend
+- Fix root page redirect: `/` now redirects to `/docs/index` instead of first nav item
 - Fix indented `!include` directives not being resolved in PlantUML diagrams
   - Now handles `!include` with leading whitespace (e.g., inside `System_Boundary`)
   - Included content is indented to match the `!include` directive

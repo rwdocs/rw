@@ -85,8 +85,7 @@ fn resolve_includes(
                 .collect();
             if searched_paths.is_empty() {
                 warnings.push(format!(
-                    "Include file not found: '{}' (no include directories configured)",
-                    include_path
+                    "Include file not found: '{include_path}' (no include directories configured)"
                 ));
             } else {
                 warnings.push(format!(
@@ -166,40 +165,6 @@ pub fn load_config_file(include_dirs: &[PathBuf], config_file: &str) -> Option<S
         let path = dir.join(config_file);
         std::fs::read_to_string(&path).ok()
     })
-}
-
-/// Load config file content, returning warnings if not found.
-#[must_use]
-pub fn load_config_file_with_warning(
-    include_dirs: &[PathBuf],
-    config_file: &str,
-) -> (Option<String>, Vec<String>) {
-    for dir in include_dirs {
-        let path = dir.join(config_file);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            return (Some(content), Vec::new());
-        }
-    }
-
-    let searched_paths: Vec<_> = include_dirs
-        .iter()
-        .map(|d| d.join(config_file).display().to_string())
-        .collect();
-
-    let warning = if searched_paths.is_empty() {
-        format!(
-            "Config file not found: '{}' (no include directories configured)",
-            config_file
-        )
-    } else {
-        format!(
-            "Config file not found: '{}' (searched: {})",
-            config_file,
-            searched_paths.join(", ")
-        )
-    };
-
-    (None, vec![warning])
 }
 
 #[cfg(test)]
@@ -298,7 +263,7 @@ mod tests {
         std::fs::write(&include_path, "Component(comp, \"Component\")").unwrap();
 
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include test_component.iuml\nBoundary_End()\n@enduml";
-        let result = prepare_diagram_source(source, &[temp_dir.clone()], None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
 
         // Cleanup
         std::fs::remove_file(&include_path).unwrap();

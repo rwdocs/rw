@@ -52,7 +52,7 @@ use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 use crate::plantuml_filter::PlantUmlFilter;
 
 static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?"#).unwrap()
+    Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()
 });
 
 /// Regex to match SVG width attribute with pixel value.
@@ -65,11 +65,11 @@ static SVG_HEIGHT_RE: LazyLock<Regex> =
 
 /// Regex to match width in style attribute (e.g., `width:136px`).
 static STYLE_WIDTH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(width:\s*)(\d+)(px)"#).unwrap());
+    LazyLock::new(|| Regex::new(r"(width:\s*)(\d+)(px)").unwrap());
 
 /// Regex to match height in style attribute (e.g., `height:210px`).
 static STYLE_HEIGHT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(height:\s*)(\d+)(px)"#).unwrap());
+    LazyLock::new(|| Regex::new(r"(height:\s*)(\d+)(px)").unwrap());
 
 /// Standard display DPI (96) used as baseline for scaling calculations.
 const STANDARD_DPI: u32 = 96;
@@ -87,6 +87,7 @@ const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version=
 ///
 /// The scaling factor is `STANDARD_DPI / dpi`. At 192 DPI, this is 0.5 (halved).
 /// At 96 DPI, dimensions are unchanged.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
     if dpi == STANDARD_DPI {
         return svg.to_string();
@@ -99,7 +100,7 @@ fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
         let prefix = &caps[1];
         let width: f64 = caps[2].parse().unwrap_or(0.0);
         let scaled = (width * scale).round() as u32;
-        format!(r#"{}width="{}""#, prefix, scaled)
+        format!(r#"{prefix}width="{scaled}""#)
     });
 
     // Scale height attribute
@@ -107,7 +108,7 @@ fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
         let prefix = &caps[1];
         let height: f64 = caps[2].parse().unwrap_or(0.0);
         let scaled = (height * scale).round() as u32;
-        format!(r#"{}height="{}""#, prefix, scaled)
+        format!(r#"{prefix}height="{scaled}""#)
     });
 
     // Scale width in style attribute
@@ -116,7 +117,7 @@ fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
         let width: f64 = caps[2].parse().unwrap_or(0.0);
         let suffix = &caps[3];
         let scaled = (width * scale).round() as u32;
-        format!("{}{}{}", prefix, scaled, suffix)
+        format!("{prefix}{scaled}{suffix}")
     });
 
     // Scale height in style attribute
@@ -125,7 +126,7 @@ fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
         let height: f64 = caps[2].parse().unwrap_or(0.0);
         let suffix = &caps[3];
         let scaled = (height * scale).round() as u32;
-        format!("{}{}{}", prefix, scaled, suffix)
+        format!("{prefix}{scaled}{suffix}")
     });
 
     result.into_owned()
@@ -182,7 +183,7 @@ pub struct PreparedDiagram {
 /// Result of extracting diagrams from markdown.
 #[derive(Clone, Debug)]
 pub struct ExtractResult {
-    /// HTML with diagram placeholders ({{DIAGRAM_0}}, {{DIAGRAM_1}}, etc.).
+    /// HTML with diagram placeholders ({{`DIAGRAM_0`}}, {{`DIAGRAM_1`}}, etc.).
     pub html: String,
     /// Title extracted from first H1 heading (if `extract_title` was enabled).
     pub title: Option<String>,
@@ -375,7 +376,7 @@ impl MarkdownConverter {
     ///
     /// * `markdown_text` - Markdown source text
     /// * `base_path` - Optional base path for resolving relative links (e.g., "domains/billing/guide").
-    ///                 When provided, relative `.md` links are transformed to absolute `/docs/...` paths.
+    ///   When provided, relative `.md` links are transformed to absolute `/docs/...` paths.
     #[must_use]
     pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> HtmlConvertResult {
         let options = self.get_parser_options();
@@ -607,7 +608,7 @@ fn replace_svg_diagrams(
             for r in result.rendered {
                 replace_placeholder_with_svg(html, r.index, r.svg.trim(), dpi);
             }
-            for e in result.errors {
+            for e in &result.errors {
                 replace_placeholder_with_error(html, e);
             }
         }
@@ -636,7 +637,7 @@ fn replace_png_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)],
             for r in result.rendered {
                 replace_placeholder_with_png(html, r.index, &r.data_uri);
             }
-            for e in result.errors {
+            for e in &result.errors {
                 replace_placeholder_with_error(html, e);
             }
         }
@@ -650,36 +651,35 @@ fn replace_png_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)],
 }
 
 fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str, dpi: u32) {
-    let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
+    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
     let clean_svg = strip_google_fonts_import(svg);
     let scaled_svg = scale_svg_dimensions(&clean_svg, dpi);
-    let figure = format!(r#"<figure class="diagram">{}</figure>"#, scaled_svg);
+    let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
     *html = html.replace(&placeholder, &figure);
 }
 
 /// Strip Google Fonts @import from SVG to avoid external requests.
 ///
-/// PlantUML embeds `@import url('https://fonts.googleapis.com/...')` in SVG
+/// `PlantUML` embeds `@import url('https://fonts.googleapis.com/...')` in SVG
 /// when using Roboto font. We remove this since Roboto is bundled locally.
 fn strip_google_fonts_import(svg: &str) -> String {
     GOOGLE_FONTS_RE.replace_all(svg, "").to_string()
 }
 
 fn replace_placeholder_with_png(html: &mut String, index: usize, data_uri: &str) {
-    let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
+    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
     let figure = format!(
-        r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
-        data_uri
+        r#"<figure class="diagram"><img src="{data_uri}" alt="diagram"></figure>"#
     );
     *html = html.replace(&placeholder, &figure);
 }
 
-fn replace_placeholder_with_error(html: &mut String, error: DiagramError) {
+fn replace_placeholder_with_error(html: &mut String, error: &DiagramError) {
     replace_placeholder_with_error_msg(html, error.index, &error.to_string());
 }
 
 fn replace_placeholder_with_error_msg(html: &mut String, index: usize, error_msg: &str) {
-    let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
+    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
     let error_figure = format!(
         r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
         escape_html(error_msg)
