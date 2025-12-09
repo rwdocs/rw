@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Remove background highlight on hover for navigation items
 - Style article links with blue color and underline on hover only
 - Address PR review feedback for layout improvements
   - Extract `extractDocPath()` helper function in router.ts to deduplicate path extraction logic

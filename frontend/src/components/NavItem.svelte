@@ -54,7 +54,7 @@
       href="/docs{item.path}"
       class="flex-1 py-1 px-1.5 rounded text-sm transition-colors {isActive
         ? 'text-blue-700 font-medium'
-        : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}"
+        : 'text-gray-700 hover:text-gray-900'}"
     >
       {item.title}
     </a>
