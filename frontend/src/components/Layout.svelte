@@ -49,7 +49,7 @@
 <div class="min-h-screen flex flex-col md:flex-row">
   <!-- Navigation Sidebar (Desktop) -->
   <aside
-    class="w-[280px] flex-shrink-0 border-r border-gray-200 overflow-y-auto hidden md:block"
+    class="w-[280px] flex-shrink-0 border-r border-gray-200 hidden md:block h-screen sticky top-0 overflow-y-auto"
   >
     <div class="p-4">
       <a href="/" class="block mb-6">
@@ -59,26 +59,27 @@
     </div>
   </aside>
 
-  <!-- Main Content -->
-  <main class="flex-1 overflow-y-auto">
-    <div
-      class="py-6 {$page.data && $page.data.toc.length > 0
-        ? 'max-w-4xl mx-auto px-4 md:px-8'
-        : 'px-4 md:px-8'}"
-    >
+  <!-- Main Content + ToC Container -->
+  <div class="flex-1">
+    <div class="max-w-6xl mx-auto px-4 md:px-8 pt-6">
       {#if $page.data}
         <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
       {/if}
-      {@render children()}
-    </div>
-  </main>
+      <div class="flex">
+        <!-- Main Content -->
+        <main class="flex-1 min-w-0">
+          {@render children()}
+        </main>
 
-  <!-- Table of Contents Sidebar -->
-  {#if $page.data && $page.data.toc.length > 0}
-    <aside class="w-[240px] flex-shrink-0 overflow-y-auto hidden lg:block">
-      <div class="p-4 sticky top-[72px]">
-        <TocSidebar toc={$page.data.toc} />
+        <!-- Table of Contents Sidebar -->
+        {#if $page.data && $page.data.toc.length > 0}
+          <aside class="w-[240px] flex-shrink-0 hidden lg:block">
+            <div class="pl-8 sticky top-6">
+              <TocSidebar toc={$page.data.toc} />
+            </div>
+          </aside>
+        {/if}
       </div>
-    </aside>
-  {/if}
+    </div>
+  </div>
 </div>
