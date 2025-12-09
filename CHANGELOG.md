@@ -15,6 +15,8 @@
   - Add comment explaining magic number in NavItem spacer width calculation
   - Fix ToC filter to explicitly exclude H1 headings (`entry.level >= 2 && entry.level <= 3`)
   - Add early return optimization to `expandOnlyTo()` to avoid unnecessary re-renders
+  - Add clarification comment for early return optimization behavior
+  - Add unit tests for Python `scale_svg_dimensions` function
 - Improve navigation sidebar styling
   - Use consistent text size (text-sm) for all navigation items regardless of depth
   - Reduce vertical padding from py-1.5 to py-1

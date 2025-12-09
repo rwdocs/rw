@@ -82,7 +82,9 @@ function createNavigationStore() {
         if (!state.tree) return state;
 
         const pathsToExpand = getParentPaths(path);
-        // Check if already in desired state to avoid unnecessary re-renders
+        // Optimization: skip update if target path is already expanded.
+        // This handles clicks on the current page or its children.
+        // For navigation to different branches, the full re-collapse happens below.
         const alreadyCorrect = pathsToExpand.every(
           (p) => !state.collapsed.has(p),
         );
