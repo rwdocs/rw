@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Fix broken article links in rendered markdown
+  - Add `resolveLink()` function to resolve relative paths (./page.md, ../other.md)
+  - Strip .md extensions from links for SPA navigation
+  - Properly resolve links against current document path using URL API
 - Fix diagram sizing to display at correct physical size
   - Scale SVG width/height attributes based on configured DPI
   - Diagrams rendered at 192 DPI now display at half their pixel size (matching standard 96 DPI displays)

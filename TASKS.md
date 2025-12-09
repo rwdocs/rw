@@ -8,4 +8,4 @@
 
 ## Current
 
-Navigation bar styles improved.
+None.
