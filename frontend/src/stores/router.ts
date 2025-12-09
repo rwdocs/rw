@@ -12,6 +12,8 @@ export function extractDocPath(urlPath: string): string {
 export function goto(newPath: string) {
   window.history.pushState({}, "", newPath);
   path.set(newPath);
+  // Scroll to top on navigation
+  window.scrollTo(0, 0);
 }
 
 /** Initialize router - call once on app mount */
