@@ -61,7 +61,7 @@
 
   <!-- Main Content + ToC Container -->
   <div class="flex-1">
-    <div class="max-w-6xl mx-auto px-4 md:px-8 pt-6">
+    <div class="max-w-6xl mx-auto px-4 md:px-8 pt-6 pb-12">
       {#if $page.data}
         <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
       {/if}

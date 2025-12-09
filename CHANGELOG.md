@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### 2025-12-09
+- Add bottom padding to main content container for consistent spacing
+
 ### 2025-12-08
 - Address PR review feedback for live reload
   - Fix `onReload` callback capturing stale path by reading current path from store
