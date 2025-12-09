@@ -259,7 +259,8 @@ include_dirs = [123]
 """)
 
         with pytest.raises(
-            ValueError, match="diagrams.include_dirs items must be strings"
+            ValueError,
+            match="diagrams.include_dirs items must be strings",
         ):
             Config.load(config_file)
 
@@ -298,7 +299,8 @@ consumer_key = "my-consumer"
         assert config.confluence.consumer_key == "my-consumer"
 
     def test__confluence_default_consumer_key__uses_docstage(
-        self, tmp_path: Path
+        self,
+        tmp_path: Path,
     ) -> None:
         """Consumer key defaults to 'docstage'."""
         config_file = tmp_path / "docstage.toml"
@@ -336,7 +338,8 @@ access_token = 123
 """)
 
         with pytest.raises(
-            ValueError, match="confluence.access_token must be a string"
+            ValueError,
+            match="confluence.access_token must be a string",
         ):
             Config.load(config_file)
 
@@ -350,7 +353,8 @@ access_token = "token123"
 """)
 
         with pytest.raises(
-            ValueError, match="confluence.access_secret must be a string"
+            ValueError,
+            match="confluence.access_secret must be a string",
         ):
             Config.load(config_file)
 
@@ -385,7 +389,8 @@ space_key = 123
 """)
 
         with pytest.raises(
-            ValueError, match="confluence.test.space_key must be a string"
+            ValueError,
+            match="confluence.test.space_key must be a string",
         ):
             Config.load(config_file)
 

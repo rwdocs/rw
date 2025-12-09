@@ -161,7 +161,7 @@ class Config:
         live_reload = cls._parse_live_reload(data.get("live_reload"))
         confluence = cls._parse_confluence(data.get("confluence"))
         confluence_test = cls._parse_confluence_test(
-            data.get("confluence", {}).get("test")
+            data.get("confluence", {}).get("test"),
         )
 
         return cls(

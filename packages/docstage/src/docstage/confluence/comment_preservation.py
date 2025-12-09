@@ -631,7 +631,8 @@ class CommentPreserver:
 
             logger.info("Comment preservation completed")
             return PreserveResult(
-                html=result, unmatched_comments=transfer.unmatched_comments
+                html=result,
+                unmatched_comments=transfer.unmatched_comments,
             )
 
         except Exception as e:

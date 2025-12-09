@@ -90,7 +90,9 @@ def render_diagrams_with_cache(
             cache.set_diagram(diagram.content_hash, diagram.format, content)
             results.append(
                 RenderedDiagram(
-                    index=diagram.index, content=content, format=diagram.format
+                    index=diagram.index,
+                    content=content,
+                    format=diagram.format,
                 ),
             )
 

@@ -188,7 +188,7 @@ class FileCache:
 
         try:
             result: NavigationTreeDict = json.loads(
-                nav_path.read_text(encoding="utf-8")
+                nav_path.read_text(encoding="utf-8"),
             )
             return result
         except (OSError, json.JSONDecodeError):

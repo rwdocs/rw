@@ -375,7 +375,7 @@ class ConfluenceClient:
             # Update existing attachment data
             attachment_id = existing["id"]
             logger.info(
-                f"Updating existing attachment '{filename}' (id={attachment_id})"
+                f"Updating existing attachment '{filename}' (id={attachment_id})",
             )
             response = await self.client.post(
                 f"{self.api_url}/content/{page_id}/child/attachment/{attachment_id}/data",

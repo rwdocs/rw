@@ -19,7 +19,8 @@ class TestConvertCommand:
 
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["convert", str(markdown_file), "-c", str(config_file)]
+            cli,
+            ["convert", str(markdown_file), "-c", str(config_file)],
         )
 
         assert result.exit_code == 0
@@ -41,7 +42,8 @@ print("Hello")
 
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["convert", str(markdown_file), "-c", str(config_file)]
+            cli,
+            ["convert", str(markdown_file), "-c", str(config_file)],
         )
 
         assert result.exit_code == 0
@@ -67,7 +69,8 @@ print("Hello")
 
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["convert", str(markdown_file), "-c", str(config_file)]
+            cli,
+            ["convert", str(markdown_file), "-c", str(config_file)],
         )
 
         assert result.exit_code == 1

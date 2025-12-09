@@ -148,7 +148,8 @@ class TestNavigationBuilderBuild:
         assert tree.items[0].title == "Guide"
 
     def test_promotes_children_when_directory_has_no_index(
-        self, tmp_path: Path
+        self,
+        tmp_path: Path,
     ) -> None:
         """Promote children to parent level when directory has no index.md."""
         source_dir = tmp_path / "docs"

@@ -186,7 +186,8 @@ class PageRenderer:
 
         if self._kroki_url:
             extract_result = self._converter.extract_html_with_diagrams(
-                markdown_text, base_path
+                markdown_text,
+                base_path,
             )
 
             if extract_result.diagrams:
@@ -201,7 +202,8 @@ class PageRenderer:
                     self._dpi,
                 )
                 html = replace_diagram_placeholders(
-                    extract_result.html, rendered_diagrams
+                    extract_result.html,
+                    rendered_diagrams,
                 )
             else:
                 html = extract_result.html

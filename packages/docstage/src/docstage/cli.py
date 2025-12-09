@@ -121,7 +121,7 @@ def serve(
             "verbose": verbose,
             "live_reload": effective_live_reload,
             "watch_patterns": config.live_reload.watch_patterns,
-        }
+        },
     )
 
 
@@ -223,7 +223,9 @@ def test_create(
     help="Kroki server URL for diagram rendering (overrides config)",
 )
 def convert(
-    markdown_file: Path, config_path: Path | None, kroki_url: str | None
+    markdown_file: Path,
+    config_path: Path | None,
+    kroki_url: str | None,
 ) -> None:
     """Convert a markdown file to Confluence storage format and display it."""
     import tempfile
@@ -238,7 +240,8 @@ def convert(
     if not effective_kroki_url:
         click.echo(
             click.style(
-                "Error: kroki_url required (via --kroki-url or config)", fg="red"
+                "Error: kroki_url required (via --kroki-url or config)",
+                fg="red",
             ),
             err=True,
         )
@@ -253,7 +256,7 @@ def convert(
     click.echo(click.style("\nMarkdown file:", fg="cyan", bold=True))
     click.echo(f"{markdown_file}\n")
     click.echo(
-        click.style("Converted to Confluence storage format:", fg="green", bold=True)
+        click.style("Converted to Confluence storage format:", fg="green", bold=True),
     )
     click.echo(result.html)
 
@@ -336,7 +339,7 @@ def update(
 ) -> None:
     """Update a Confluence page from a markdown file."""
     asyncio.run(
-        _update(markdown_file, page_id, message, kroki_url, config_path, key_file)
+        _update(markdown_file, page_id, message, kroki_url, config_path, key_file),
     )
 
 
@@ -503,14 +506,15 @@ def generate_tokens(
     if effective_base_url is None:
         click.echo(
             click.style(
-                "Error: base_url required (via --base-url or config)", fg="red"
+                "Error: base_url required (via --base-url or config)",
+                fg="red",
             ),
             err=True,
         )
         sys.exit(1)
 
     asyncio.run(
-        _generate_tokens(private_key, effective_consumer_key, effective_base_url, port)
+        _generate_tokens(private_key, effective_consumer_key, effective_base_url, port),
     )
 
 
@@ -529,7 +533,8 @@ def _require_confluence_config(config: Config) -> ConfluenceConfig:
     if config.confluence is None:
         click.echo(
             click.style(
-                "Error: confluence configuration required in docstage.toml", fg="red"
+                "Error: confluence configuration required in docstage.toml",
+                fg="red",
             ),
             err=True,
         )
@@ -573,7 +578,8 @@ async def _test_auth(config_path: Path | None, key_file: Path) -> None:
 
             user_data = response.json()
             username = user_data.get(
-                "username", user_data.get("displayName", "Unknown")
+                "username",
+                user_data.get("displayName", "Unknown"),
             )
 
             click.echo(click.style("Authentication successful!", fg="green"))
@@ -617,7 +623,8 @@ async def _get_page(page_id: str, config_path: Path | None, key_file: Path) -> N
 
             click.echo(f"Fetching page {page_id}...")
             page = await confluence.get_page(
-                page_id, expand=["body.storage", "version"]
+                page_id,
+                expand=["body.storage", "version"],
             )
 
             click.echo(click.style("\nPage Information:", fg="green", bold=True))
@@ -638,7 +645,7 @@ async def _get_page(page_id: str, config_path: Path | None, key_file: Path) -> N
                         "\nPage Content (Confluence Storage Format):",
                         fg="cyan",
                         bold=True,
-                    )
+                    ),
                 )
                 click.echo(content)
 
@@ -696,7 +703,7 @@ async def _test_create(
             page = await confluence.create_page(space, title, body)
 
             click.echo(
-                click.style("\nPage created successfully!", fg="green", bold=True)
+                click.style("\nPage created successfully!", fg="green", bold=True),
             )
             click.echo(f"ID: {page['id']}")
             click.echo(f"Title: {page['title']}")
@@ -748,7 +755,8 @@ async def _create(
         if not effective_kroki_url:
             click.echo(
                 click.style(
-                    "Error: kroki_url required (via --kroki-url or config)", fg="red"
+                    "Error: kroki_url required (via --kroki-url or config)",
+                    fg="red",
                 ),
                 err=True,
             )
@@ -786,7 +794,7 @@ async def _create(
             page = await confluence.create_page(space, title, confluence_body)
 
             click.echo(
-                click.style("\nPage created successfully!", fg="green", bold=True)
+                click.style("\nPage created successfully!", fg="green", bold=True),
             )
             click.echo(f"ID: {page['id']}")
             click.echo(f"Title: {page['title']}")
@@ -839,7 +847,8 @@ async def _update(
         if not effective_kroki_url:
             click.echo(
                 click.style(
-                    "Error: kroki_url required (via --kroki-url or config)", fg="red"
+                    "Error: kroki_url required (via --kroki-url or config)",
+                    fg="red",
                 ),
                 err=True,
             )
@@ -886,7 +895,7 @@ async def _update(
             )
 
             click.echo(
-                click.style("\nPage updated successfully!", fg="green", bold=True)
+                click.style("\nPage updated successfully!", fg="green", bold=True),
             )
             click.echo(f"ID: {updated_page['id']}")
             click.echo(f"Title: {updated_page['title']}")
@@ -958,7 +967,8 @@ async def _upload_mkdocs(
         if not effective_kroki_url:
             click.echo(
                 click.style(
-                    "Error: kroki_url required (via --kroki-url or config)", fg="red"
+                    "Error: kroki_url required (via --kroki-url or config)",
+                    fg="red",
                 ),
                 err=True,
             )
@@ -1029,7 +1039,7 @@ async def _upload_mkdocs(
                             "\n[DRY RUN] No changes made to Confluence.",
                             fg="cyan",
                             bold=True,
-                        )
+                        ),
                     )
                     if preserve_result.unmatched_comments:
                         click.echo(
@@ -1043,7 +1053,7 @@ async def _upload_mkdocs(
                             click.echo(f'  - [{comment.ref}] "{comment.text}"')
                     else:
                         click.echo(
-                            click.style("\nNo comments would be resolved.", fg="green")
+                            click.style("\nNo comments would be resolved.", fg="green"),
                         )
                     return
 
@@ -1070,7 +1080,7 @@ async def _upload_mkdocs(
                 )
 
                 click.echo(
-                    click.style("\nPage updated successfully!", fg="green", bold=True)
+                    click.style("\nPage updated successfully!", fg="green", bold=True),
                 )
                 click.echo(f"ID: {updated_page['id']}")
                 click.echo(f"Title: {updated_page['title']}")
@@ -1144,7 +1154,8 @@ async def _generate_tokens(
 
             if not oauth_token or not oauth_token_secret:
                 click.echo(
-                    click.style("Failed to get request token", fg="red"), err=True
+                    click.style("Failed to get request token", fg="red"),
+                    err=True,
                 )
                 sys.exit(1)
 
@@ -1154,11 +1165,11 @@ async def _generate_tokens(
 
             click.echo("\n" + "=" * 70)
             click.echo(
-                click.style("Step 2: Authorization Required", fg="cyan", bold=True)
+                click.style("Step 2: Authorization Required", fg="cyan", bold=True),
             )
             click.echo("=" * 70)
             click.echo(
-                "\nPlease open this URL in your browser to authorize the application:"
+                "\nPlease open this URL in your browser to authorize the application:",
             )
             click.echo(click.style(f"\n{auth_url}\n", fg="cyan", bold=True))
             click.echo('\nAfter clicking "Allow" in Confluence:')
@@ -1168,10 +1179,11 @@ async def _generate_tokens(
 
             click.echo("\nStep 3: Enter the verification code...")
             click.echo(
-                "After authorizing, Confluence should display a verification code."
+                "After authorizing, Confluence should display a verification code.",
             )
             oauth_verifier = click.prompt(
-                "Enter the verification code", type=str
+                "Enter the verification code",
+                type=str,
             ).strip()
 
             if not oauth_verifier:
@@ -1205,7 +1217,7 @@ async def _generate_tokens(
 
             click.echo("\n" + "=" * 70)
             click.echo(
-                click.style("✓ OAuth Authorization Successful!", fg="green", bold=True)
+                click.style("✓ OAuth Authorization Successful!", fg="green", bold=True),
             )
             click.echo("=" * 70)
             click.echo("\nAdd these credentials to your docstage.toml:")
