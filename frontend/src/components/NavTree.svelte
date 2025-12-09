@@ -10,7 +10,7 @@
   let { items, depth = 0 }: Props = $props();
 </script>
 
-<ul class={depth > 0 ? "ml-4" : ""}>
+<ul class={depth > 0 ? "ml-3" : ""}>
   {#each items as item (item.path)}
     <NavItemComponent {item} {depth} />
   {/each}

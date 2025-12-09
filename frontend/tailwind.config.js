@@ -68,12 +68,14 @@ export default {
               fontSize: '0.875rem',
               lineHeight: '1.7',
               backgroundColor: 'rgb(248 250 252)', // slate-50
+              color: 'rgb(30 41 59)', // slate-800
               border: '1px solid rgb(226 232 240)', // slate-200
               borderRadius: '0.5rem',
               padding: '1rem 1.25rem',
             },
             'pre code': {
               backgroundColor: 'transparent',
+              color: 'inherit',
               padding: '0',
               border: 'none',
               borderRadius: '0',

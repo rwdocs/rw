@@ -15,7 +15,6 @@
   let isActive = $derived($path === `/docs${item.path}`);
   let hasChildren = $derived(item.children && item.children.length > 0);
   let isExpanded = $derived(!$navigation.collapsed.has(item.path));
-  let textSize = $derived(depth === 0 ? 'text-base' : 'text-sm');
 
   function toggleExpanded(e: MouseEvent) {
     e.preventDefault();
@@ -29,7 +28,7 @@
     {#if hasChildren}
       <button
         onclick={toggleExpanded}
-        class="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-gray-600 mr-1"
+        class="w-4 h-4 flex items-center justify-center text-gray-400 hover:text-gray-600 mr-0.5"
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
         <svg
@@ -47,13 +46,13 @@
         </svg>
       </button>
     {:else}
-      <span class="w-6"></span>
+      <span class="w-[18px]"></span>
     {/if}
 
     <a
       href="/docs{item.path}"
-      class="flex-1 py-1.5 px-2 rounded {textSize} leading-relaxed transition-colors {isActive
-        ? 'bg-blue-50 text-blue-700 font-medium'
+      class="flex-1 py-1 px-1.5 rounded text-sm transition-colors {isActive
+        ? 'text-blue-700 font-medium'
         : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'}"
     >
       {item.title}

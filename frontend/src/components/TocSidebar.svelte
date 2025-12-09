@@ -8,6 +8,9 @@
 
   let { toc }: Props = $props();
 
+  // Filter to only show h2 and h3 (two levels deep)
+  let filteredToc = $derived(toc.filter((entry) => entry.level <= 3));
+
   let activeId = $state<string | null>(null);
 
   function scrollToHeading(id: string) {
@@ -18,7 +21,7 @@
   }
 
   onMount(() => {
-    if (toc.length === 0) return;
+    if (filteredToc.length === 0) return;
 
     // Track visible headings
     const visibleHeadings = new Set<string>();
@@ -34,7 +37,7 @@
         }
 
         // Find the topmost visible heading based on ToC order
-        for (const tocEntry of toc) {
+        for (const tocEntry of filteredToc) {
           if (visibleHeadings.has(tocEntry.id)) {
             activeId = tocEntry.id;
             return;
@@ -51,7 +54,7 @@
     );
 
     // Observe all headings from ToC
-    for (const entry of toc) {
+    for (const entry of filteredToc) {
       const element = document.getElementById(entry.id);
       if (element) {
         observer.observe(element);
@@ -59,8 +62,8 @@
     }
 
     // Set initial active heading to first one
-    if (toc.length > 0) {
-      activeId = toc[0].id;
+    if (filteredToc.length > 0) {
+      activeId = filteredToc[0].id;
     }
 
     return () => {
@@ -74,16 +77,8 @@
     On this page
   </h3>
   <ul class="space-y-1.5">
-    {#each toc as entry (entry.id)}
-      <li
-        class="{entry.level === 2
-          ? ''
-          : entry.level === 3
-            ? 'ml-4'
-            : entry.level === 4
-              ? 'ml-8'
-              : 'ml-12'}"
-      >
+    {#each filteredToc as entry (entry.id)}
+      <li class={entry.level === 3 ? "ml-3" : ""}>
         <button
           onclick={() => scrollToHeading(entry.id)}
           class="text-sm leading-snug text-left transition-colors {activeId === entry.id

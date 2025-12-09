@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Improve navigation sidebar styling
+  - Use consistent text size (text-sm) for all navigation items regardless of depth
+  - Reduce vertical padding from py-1.5 to py-1
+  - Reduce horizontal padding from px-2 to px-1.5
+  - Reduce indentation for nested items from ml-4 to ml-3
+  - Reduce arrow button size and spacing (w-5 to w-4, mr-1 to mr-0.5)
+  - Remove background highlight from active navigation item
+  - Stylize logo: uppercase with "STAGE" in lighter gray
+  - Fix code block readability by adding explicit dark text color
+  - Limit table of contents to two levels deep (h2 and h3 only)
 - Auto-collapse navigation items except the path to current page
   - All navigation items with children are collapsed by default
   - Only the path to the currently viewed page is expanded

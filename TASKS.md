@@ -8,4 +8,4 @@
 
 ## Current
 
-Live reload implemented with separate diagram caching.
+Navigation bar styles improved.
