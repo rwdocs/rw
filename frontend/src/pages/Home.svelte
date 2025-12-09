@@ -1,16 +1,39 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { goto } from "../stores/router";
+  import { get } from "svelte/store";
+  import { path, extractDocPath } from "../stores/router";
+  import { page } from "../stores/page";
+  import { navigation } from "../stores/navigation";
+  import { liveReload } from "../stores/liveReload";
 
+  // Load index page at root
   onMount(() => {
-    // Redirect to root documentation page
-    goto("/index");
+    page.load("index");
+    return liveReload.onReload(() => {
+      page.load("index", { bypassCache: true });
+    });
   });
 </script>
 
-<div class="flex items-center justify-center h-full">
-  <div class="text-center">
-    <h1 class="text-3xl font-semibold tracking-tight text-gray-900 mb-4">Docstage</h1>
-    <p class="text-gray-600">Where documentation takes the stage</p>
-  </div>
+<div
+  class="transition-opacity duration-150 {$page.loading
+    ? 'opacity-0'
+    : 'opacity-100'}"
+>
+  {#if $page.notFound}
+    <div class="flex items-center justify-center h-64">
+      <div class="text-center">
+        <h1 class="text-4xl font-bold tracking-tight text-gray-300 mb-4">404</h1>
+        <p class="text-gray-600">Page not found</p>
+      </div>
+    </div>
+  {:else if $page.error}
+    <div class="flex items-center justify-center h-64">
+      <p class="text-red-600">Error: {$page.error}</p>
+    </div>
+  {:else if $page.data}
+    <article class="prose prose-slate max-w-none">
+      {@html $page.data.content}
+    </article>
+  {/if}
 </div>
