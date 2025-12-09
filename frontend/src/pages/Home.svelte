@@ -1,17 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { goto } from "../stores/router";
-  import { navigation } from "../stores/navigation";
 
   onMount(() => {
-    // Redirect to first documentation page if available
-    const unsubscribe = navigation.subscribe((state) => {
-      if (state.tree && state.tree.items.length > 0) {
-        const firstItem = state.tree.items[0];
-        goto(`/docs${firstItem.path}`);
-      }
-    });
-    return unsubscribe;
+    // Redirect to root documentation page
+    goto("/docs/index");
   });
 </script>
 
