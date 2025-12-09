@@ -14,6 +14,15 @@ from docstage.core.cache import FileCache, compute_diagram_hash
 
 GOOGLE_FONTS_RE = re.compile(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?")
 
+# Regex patterns for SVG dimension scaling
+SVG_WIDTH_RE = re.compile(r'(<svg[^>]*\s)width="(\d+)(?:px)?"')
+SVG_HEIGHT_RE = re.compile(r'(<svg[^>]*\s)height="(\d+)(?:px)?"')
+STYLE_WIDTH_RE = re.compile(r"(width:\s*)(\d+)(px)")
+STYLE_HEIGHT_RE = re.compile(r"(height:\s*)(\d+)(px)")
+
+# Standard display DPI used as baseline for scaling
+STANDARD_DPI = 96
+
 
 @dataclass
 class DiagramToRender:
@@ -39,13 +48,18 @@ def render_diagrams_with_cache(
     diagrams: list[tuple[int, str, str, str]],
     kroki_url: str,
     cache: FileCache,
+    dpi: int = 192,
 ) -> list[RenderedDiagram]:
     """Render diagrams via Kroki with caching.
+
+    SVG diagrams are scaled based on DPI before caching. This ensures
+    diagrams display at their intended physical size.
 
     Args:
         diagrams: List of (index, source, endpoint, format) tuples
         kroki_url: Kroki server URL
         cache: FileCache for diagram caching
+        dpi: DPI used for diagram rendering (for scaling SVG dimensions)
 
     Returns:
         List of RenderedDiagram with content ready for HTML
@@ -54,7 +68,7 @@ def render_diagrams_with_cache(
     to_render: list[DiagramToRender] = []
 
     for index, source, endpoint, fmt in diagrams:
-        content_hash = compute_diagram_hash(source, endpoint, fmt)
+        content_hash = compute_diagram_hash(source, endpoint, fmt, dpi)
         cached = cache.get_diagram(content_hash, fmt)
 
         if cached is not None:
@@ -71,7 +85,7 @@ def render_diagrams_with_cache(
             )
 
     if to_render:
-        rendered = _render_via_kroki(to_render, kroki_url)
+        rendered = _render_via_kroki(to_render, kroki_url, dpi)
         for diagram, content in rendered:
             cache.set_diagram(diagram.content_hash, diagram.format, content)
             results.append(
@@ -85,12 +99,16 @@ def render_diagrams_with_cache(
 def _render_via_kroki(
     diagrams: list[DiagramToRender],
     kroki_url: str,
+    dpi: int,
 ) -> list[tuple[DiagramToRender, str]]:
     """Render diagrams via Kroki service.
+
+    SVG diagrams are scaled based on DPI after rendering.
 
     Args:
         diagrams: Diagrams to render
         kroki_url: Kroki server URL
+        dpi: DPI for scaling SVG dimensions
 
     Returns:
         List of (diagram, rendered_content) tuples
@@ -102,6 +120,7 @@ def _render_via_kroki(
         try:
             if diagram.format == "svg":
                 content = _render_svg(diagram, server_url)
+                content = scale_svg_dimensions(content, dpi)
             else:
                 content = _render_png_data_uri(diagram, server_url)
             results.append((diagram, content))
@@ -203,3 +222,58 @@ def replace_diagram_placeholders(html: str, diagrams: list[RenderedDiagram]) -> 
         html = html.replace(placeholder, figure)
 
     return html
+
+
+def scale_svg_dimensions(svg: str, dpi: int) -> str:
+    """Scale SVG width and height based on DPI.
+
+    Diagrams are rendered at a configured DPI (e.g., 192 for retina displays).
+    This function scales the SVG dimensions down so that the diagram displays
+    at its intended physical size.
+
+    Scales both XML attributes (width="136") and inline style properties (width:136px).
+
+    Args:
+        svg: SVG content
+        dpi: DPI used for rendering
+
+    Returns:
+        SVG with scaled dimensions
+    """
+    if dpi == STANDARD_DPI:
+        return svg
+
+    scale = STANDARD_DPI / dpi
+
+    def scale_width_attr(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        value = int(match.group(2))
+        scaled = round(value * scale)
+        return f'{prefix}width="{scaled}"'
+
+    def scale_height_attr(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        value = int(match.group(2))
+        scaled = round(value * scale)
+        return f'{prefix}height="{scaled}"'
+
+    def scale_style_width(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        value = int(match.group(2))
+        suffix = match.group(3)
+        scaled = round(value * scale)
+        return f"{prefix}{scaled}{suffix}"
+
+    def scale_style_height(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        value = int(match.group(2))
+        suffix = match.group(3)
+        scaled = round(value * scale)
+        return f"{prefix}{scaled}{suffix}"
+
+    result = SVG_WIDTH_RE.sub(scale_width_attr, svg)
+    result = SVG_HEIGHT_RE.sub(scale_height_attr, result)
+    result = STYLE_WIDTH_RE.sub(scale_style_width, result)
+    result = STYLE_HEIGHT_RE.sub(scale_style_height, result)
+
+    return result

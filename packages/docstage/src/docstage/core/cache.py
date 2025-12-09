@@ -39,18 +39,19 @@ class CacheEntry:
     meta: CachedMetadata
 
 
-def compute_diagram_hash(source: str, endpoint: str, format: str) -> str:
+def compute_diagram_hash(source: str, endpoint: str, format: str, dpi: int = 192) -> str:
     """Compute a content hash for diagram caching.
 
     Args:
         source: Diagram source code
         endpoint: Kroki endpoint (e.g., "plantuml", "mermaid")
         format: Output format ("svg" or "png")
+        dpi: DPI used for rendering (affects SVG scaling)
 
     Returns:
         SHA-256 hash of the combined inputs
     """
-    content = f"{endpoint}:{format}:{source}"
+    content = f"{endpoint}:{format}:{dpi}:{source}"
     return hashlib.sha256(content.encode()).hexdigest()
 
 

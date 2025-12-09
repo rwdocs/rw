@@ -55,7 +55,81 @@ static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?"#).unwrap()
 });
 
+/// Regex to match SVG width attribute with pixel value.
+static SVG_WIDTH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)width="(\d+)(?:px)?""#).unwrap());
+
+/// Regex to match SVG height attribute with pixel value.
+static SVG_HEIGHT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)height="(\d+)(?:px)?""#).unwrap());
+
+/// Regex to match width in style attribute (e.g., `width:136px`).
+static STYLE_WIDTH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(width:\s*)(\d+)(px)"#).unwrap());
+
+/// Regex to match height in style attribute (e.g., `height:210px`).
+static STYLE_HEIGHT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(height:\s*)(\d+)(px)"#).unwrap());
+
+/// Standard display DPI (96) used as baseline for scaling calculations.
+const STANDARD_DPI: u32 = 96;
+
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
+
+/// Scale SVG width and height based on DPI.
+///
+/// Diagrams are rendered at a configured DPI (e.g., 192 for retina displays).
+/// This function scales the SVG dimensions down so that the diagram displays
+/// at its intended physical size. For example, a diagram rendered at 192 DPI
+/// will have its dimensions halved to display correctly on standard 96 DPI displays.
+///
+/// Scales both XML attributes (`width="136"`) and inline style properties (`width:136px`).
+///
+/// The scaling factor is `STANDARD_DPI / dpi`. At 192 DPI, this is 0.5 (halved).
+/// At 96 DPI, dimensions are unchanged.
+fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
+    if dpi == STANDARD_DPI {
+        return svg.to_string();
+    }
+
+    let scale = f64::from(STANDARD_DPI) / f64::from(dpi);
+
+    // Scale width attribute
+    let result = SVG_WIDTH_RE.replace(svg, |caps: &regex::Captures| {
+        let prefix = &caps[1];
+        let width: f64 = caps[2].parse().unwrap_or(0.0);
+        let scaled = (width * scale).round() as u32;
+        format!(r#"{}width="{}""#, prefix, scaled)
+    });
+
+    // Scale height attribute
+    let result = SVG_HEIGHT_RE.replace(&result, |caps: &regex::Captures| {
+        let prefix = &caps[1];
+        let height: f64 = caps[2].parse().unwrap_or(0.0);
+        let scaled = (height * scale).round() as u32;
+        format!(r#"{}height="{}""#, prefix, scaled)
+    });
+
+    // Scale width in style attribute
+    let result = STYLE_WIDTH_RE.replace_all(&result, |caps: &regex::Captures| {
+        let prefix = &caps[1];
+        let width: f64 = caps[2].parse().unwrap_or(0.0);
+        let suffix = &caps[3];
+        let scaled = (width * scale).round() as u32;
+        format!("{}{}{}", prefix, scaled, suffix)
+    });
+
+    // Scale height in style attribute
+    let result = STYLE_HEIGHT_RE.replace_all(&result, |caps: &regex::Captures| {
+        let prefix = &caps[1];
+        let height: f64 = caps[2].parse().unwrap_or(0.0);
+        let suffix = &caps[3];
+        let scaled = (height * scale).round() as u32;
+        format!("{}{}{}", prefix, scaled, suffix)
+    });
+
+    result.into_owned()
+}
 
 /// Create Confluence image macro for an attachment.
 #[must_use]
@@ -466,7 +540,7 @@ impl MarkdownConverter {
                 }
             }
 
-            replace_svg_diagrams(&mut html, &svg_diagrams, kroki_url);
+            replace_svg_diagrams(&mut html, &svg_diagrams, kroki_url, self.dpi);
             replace_png_diagrams(&mut html, &png_diagrams, kroki_url);
         }
 
@@ -484,7 +558,16 @@ impl MarkdownConverter {
 /// Attempts to render all diagrams via Kroki. On success, replaces placeholders
 /// with `<figure class="diagram">` containing the SVG. On failure, replaces
 /// with an error message in `<figure class="diagram diagram-error">`.
-fn replace_svg_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)], kroki_url: &str) {
+///
+/// SVG dimensions are scaled based on DPI to display at correct physical size.
+/// For example, at 192 DPI (2x retina), dimensions are halved so diagrams
+/// appear at their intended size on standard displays.
+fn replace_svg_diagrams(
+    html: &mut String,
+    diagrams: &[(usize, DiagramRequest)],
+    kroki_url: &str,
+    dpi: u32,
+) {
     if diagrams.is_empty() {
         return;
     }
@@ -493,7 +576,7 @@ fn replace_svg_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)],
     match render_all_svg_partial(&requests, kroki_url, 4) {
         Ok(result) => {
             for r in result.rendered {
-                replace_placeholder_with_svg(html, r.index, r.svg.trim());
+                replace_placeholder_with_svg(html, r.index, r.svg.trim(), dpi);
             }
             for e in result.errors {
                 replace_placeholder_with_error(html, e);
@@ -537,10 +620,11 @@ fn replace_png_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)],
     }
 }
 
-fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str) {
+fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str, dpi: u32) {
     let placeholder = format!("{{{{DIAGRAM_{}}}}}", index);
     let clean_svg = strip_google_fonts_import(svg);
-    let figure = format!(r#"<figure class="diagram">{}</figure>"#, clean_svg);
+    let scaled_svg = scale_svg_dimensions(&clean_svg, dpi);
+    let figure = format!(r#"<figure class="diagram">{}</figure>"#, scaled_svg);
     *html = html.replace(&placeholder, &figure);
 }
 
@@ -572,4 +656,66 @@ fn replace_placeholder_with_error_msg(html: &mut String, index: usize, error_msg
         escape_html(error_msg)
     );
     *html = html.replace(&placeholder, &error_figure);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scale_svg_dimensions_at_192_dpi() {
+        // At 192 DPI (2x retina), dimensions should be halved
+        let svg = r#"<svg width="400" height="200" viewBox="0 0 400 200"></svg>"#;
+        let result = scale_svg_dimensions(svg, 192);
+        assert_eq!(
+            result,
+            r#"<svg width="200" height="100" viewBox="0 0 400 200"></svg>"#
+        );
+    }
+
+    #[test]
+    fn test_scale_svg_dimensions_at_96_dpi() {
+        // At 96 DPI (standard), dimensions should be unchanged
+        let svg = r#"<svg width="400" height="200"></svg>"#;
+        let result = scale_svg_dimensions(svg, 96);
+        assert_eq!(result, r#"<svg width="400" height="200"></svg>"#);
+    }
+
+    #[test]
+    fn test_scale_svg_dimensions_with_px_suffix() {
+        // Handle width/height with "px" suffix
+        let svg = r#"<svg width="400px" height="200px"></svg>"#;
+        let result = scale_svg_dimensions(svg, 192);
+        assert_eq!(result, r#"<svg width="200" height="100"></svg>"#);
+    }
+
+    #[test]
+    fn test_scale_svg_dimensions_preserves_other_attributes() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" class="diagram"></svg>"#;
+        let result = scale_svg_dimensions(svg, 192);
+        assert_eq!(
+            result,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" class="diagram"></svg>"#
+        );
+    }
+
+    #[test]
+    fn test_scale_svg_dimensions_at_144_dpi() {
+        // At 144 DPI (1.5x), dimensions should be scaled to 2/3
+        let svg = r#"<svg width="300" height="150"></svg>"#;
+        let result = scale_svg_dimensions(svg, 144);
+        // 300 * (96/144) = 200, 150 * (96/144) = 100
+        assert_eq!(result, r#"<svg width="200" height="100"></svg>"#);
+    }
+
+    #[test]
+    fn test_scale_svg_dimensions_with_style_attribute() {
+        // Handle width/height in style attribute (as Kroki returns)
+        let svg = r#"<svg width="136" height="210" style="width:136px;height:210px;background:#FFFFFF;"></svg>"#;
+        let result = scale_svg_dimensions(svg, 192);
+        assert_eq!(
+            result,
+            r#"<svg width="68" height="105" style="width:68px;height:105px;background:#FFFFFF;"></svg>"#
+        );
+    }
 }

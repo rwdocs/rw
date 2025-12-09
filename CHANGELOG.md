@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Fix diagram sizing to display at correct physical size
+  - Scale SVG width/height attributes based on configured DPI
+  - Diagrams rendered at 192 DPI now display at half their pixel size (matching standard 96 DPI displays)
+  - Small diagrams show at their intended size, large diagrams still fit within container
 - Add fade transition when navigating between pages to reduce visual jarring
 - Remove background highlight on hover for navigation items
 - Style article links with blue color and underline on hover only

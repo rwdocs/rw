@@ -27,7 +27,11 @@ body {
 }
 
 .prose figure.diagram svg {
-  /* Constrain to container width while preserving aspect ratio */
+  /*
+   * SVG width/height are adjusted in Rust to display at correct physical size.
+   * max-width: 100% ensures large diagrams still fit within the container.
+   * height: auto maintains aspect ratio.
+   */
   max-width: 100%;
   height: auto !important;
 }

@@ -187,7 +187,7 @@ class PageRenderer:
                     (d.index, d.source, d.endpoint, d.format) for d in extract_result.diagrams
                 ]
                 rendered_diagrams = render_diagrams_with_cache(
-                    diagrams_input, self._kroki_url, self._cache
+                    diagrams_input, self._kroki_url, self._cache, self._dpi
                 )
                 html = replace_diagram_placeholders(extract_result.html, rendered_diagrams)
             else:
