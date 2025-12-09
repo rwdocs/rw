@@ -86,20 +86,23 @@ def _build_breadcrumbs(
     path: str,
     navigation: NavigationBuilder,
 ) -> list[dict[str, str]]:
-    """Build breadcrumbs for navigable ancestor paths only.
+    """Build breadcrumbs for the current page.
 
-    Returns breadcrumb trail with only paths that have an index.md file.
-    Path segments without index.md are skipped to avoid 404 errors.
+    Always starts with "Home" linking to root, followed by navigable ancestor
+    paths (those with index.md files). Path segments without index.md are
+    skipped to avoid 404 errors.
     """
+    # Always start with Home for non-root pages
     if not path:
         return []
 
+    breadcrumbs: list[dict[str, str]] = [{"title": "Home", "path": "/"}]
+
     parts = path.split("/")
     if len(parts) <= 1:
-        return []
+        return breadcrumbs
 
     parent_parts = parts[:-1]
-    breadcrumbs: list[dict[str, str]] = []
     nav_tree = navigation.build()
     source_dir = navigation.source_dir
 
