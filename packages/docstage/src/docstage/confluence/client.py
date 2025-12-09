@@ -398,7 +398,7 @@ class ConfluenceClient:
             logger.error(f"Attachment upload error: {response.text}")
         response.raise_for_status()
 
-        result = response.json()
+        result: dict[str, Any] = response.json()
         logger.info(f"Uploaded attachment: {result}")
         return result
 
@@ -416,7 +416,7 @@ class ConfluenceClient:
         """
         attachments = await self.get_attachments(page_id)
         for attachment in attachments.get("results", []):
-            if attachment.get("title") == filename:
+            if isinstance(attachment, dict) and attachment.get("title") == filename:
                 return attachment
         return None
 
@@ -437,4 +437,5 @@ class ConfluenceClient:
             f"{self.api_url}/content/{page_id}/child/attachment"
         )
         response.raise_for_status()
-        return response.json()
+        result: dict[str, Any] = response.json()
+        return result

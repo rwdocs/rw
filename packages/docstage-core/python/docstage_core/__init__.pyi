@@ -1,5 +1,7 @@
 """Type stubs for docstage_core."""
 
+from pathlib import Path
+
 
 class DiagramInfo:
     """Rendered diagram info (file written to output_dir)."""
@@ -143,7 +145,7 @@ class MarkdownConverter:
         gfm: bool = True,
         prepend_toc: bool = False,
         extract_title: bool = False,
-        include_dirs: list[str] | None = None,
+        include_dirs: list[Path] | None = None,
         config_file: str | None = None,
         dpi: int | None = None,
     ) -> None:

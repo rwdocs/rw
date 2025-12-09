@@ -84,11 +84,10 @@ class PageRenderer:
         self._dpi = dpi
 
         effective_include_dirs: list[Path] = include_dirs or ([source_dir] if kroki_url else [])
-        converter_include_dirs = [str(d) for d in effective_include_dirs] if effective_include_dirs else None
         self._converter = MarkdownConverter(
             gfm=True,
             extract_title=extract_title,
-            include_dirs=converter_include_dirs,
+            include_dirs=effective_include_dirs,
             config_file=config_file,
             dpi=dpi,
         )
@@ -216,7 +215,7 @@ class _FreshRenderResult:
 
     html: str
     title: str | None
-    toc: list
+    toc: list[TocEntryProtocol]
     warnings: list[str]
 
 

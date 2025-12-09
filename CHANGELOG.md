@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Replace `dict[str, object]` with TypedDict for navigation tree type safety
+  - Add `NavItemDict` and `NavigationTreeDict` TypedDicts in navigation module
+  - Update `FileCache.get_navigation()` and `set_navigation()` to use `NavigationTreeDict`
+  - Simplify `_from_cached()` and `_dict_to_nav_item()` with typed access
+- Fix all mypy strict mode errors in Python code
+  - Add return type annotations to comment preservation methods
+  - Add generic type parameters to dict/list annotations
+  - Fix `MarkdownConverter` type stub to accept `Sequence[str | PathLike]` for `include_dirs`
+  - Add isinstance checks for safer dict access from JSON
+  - Configure mypy to exclude test files and external examples
+  - Ignore authlib import stubs (no typed stubs available)
 - Fix all clippy pedantic warnings in Rust core
   - Remove needless raw string hashes in regex patterns
   - Inline format string arguments

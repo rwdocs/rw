@@ -8,6 +8,7 @@ dependencies = ["docstage"]
 
 [dependency-groups]
 dev = [
+    "mypy>=1.19.0",
     "pytest>=8.0.0",
     "pytest-aiohttp>=1.0.0",
 ]
@@ -22,3 +23,13 @@ docstage = { workspace = true }
 testpaths = ["packages/docstage/tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+
+[tool.mypy]
+strict = true
+exclude = [
+    "^packages/docstage/tests/",  # Test files
+]
+
+[[tool.mypy.overrides]]
+module = ["authlib.*", "authlib.integrations.*"]
+ignore_missing_imports = true

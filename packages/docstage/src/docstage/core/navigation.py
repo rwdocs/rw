@@ -8,8 +8,37 @@ in each document.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol, TypedDict
 
-from docstage.core.cache import FileCache
+
+class NavItemDict(TypedDict, total=False):
+    """Dictionary representation of a navigation item."""
+
+    title: str
+    path: str
+    children: list["NavItemDict"]
+
+
+class NavigationTreeDict(TypedDict):
+    """Dictionary representation of a navigation tree."""
+
+    items: list[NavItemDict]
+
+
+class NavigationCache(Protocol):
+    """Protocol for navigation tree caching."""
+
+    def get_navigation(self) -> NavigationTreeDict | None:
+        """Retrieve cached navigation tree."""
+        ...
+
+    def set_navigation(self, navigation: NavigationTreeDict) -> None:
+        """Store navigation tree in cache."""
+        ...
+
+    def invalidate_navigation(self) -> None:
+        """Remove cached navigation tree."""
+        ...
 
 
 @dataclass
@@ -20,9 +49,9 @@ class NavItem:
     path: str
     children: list["NavItem"] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> NavItemDict:
         """Convert to dictionary for JSON serialization."""
-        result: dict = {
+        result: NavItemDict = {
             "title": self.title,
             "path": self.path,
         }
@@ -37,7 +66,7 @@ class NavigationTree:
 
     items: list[NavItem]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> NavigationTreeDict:
         """Convert to dictionary for JSON serialization."""
         return {
             "items": [item.to_dict() for item in self.items],
@@ -55,13 +84,13 @@ class NavigationBuilder:
     def __init__(
         self,
         source_dir: Path,
-        cache: FileCache | None = None,
+        cache: NavigationCache | None = None,
     ) -> None:
         """Initialize builder.
 
         Args:
             source_dir: Root directory containing markdown sources
-            cache: Optional FileCache for caching navigation tree
+            cache: Optional cache implementing NavigationCache protocol
         """
         self._source_dir = source_dir
         self._cache = cache
@@ -252,7 +281,7 @@ class NavigationBuilder:
         # Title case
         return title.title()
 
-    def _from_cached(self, cached: dict) -> NavigationTree:
+    def _from_cached(self, cached: NavigationTreeDict) -> NavigationTree:
         """Reconstruct NavigationTree from cached dict.
 
         Args:
@@ -261,10 +290,10 @@ class NavigationBuilder:
         Returns:
             NavigationTree instance
         """
-        items = [self._dict_to_nav_item(item) for item in cached.get("items", [])]
+        items = [self._dict_to_nav_item(item) for item in cached["items"]]
         return NavigationTree(items=items)
 
-    def _dict_to_nav_item(self, data: dict) -> NavItem:
+    def _dict_to_nav_item(self, data: NavItemDict) -> NavItem:
         """Reconstruct NavItem from dictionary.
 
         Args:

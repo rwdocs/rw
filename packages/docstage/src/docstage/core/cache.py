@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
 
+from docstage.core.navigation import NavigationTreeDict
+
 
 class CachedMetadata(TypedDict):
     """Cached page metadata structure."""
@@ -174,7 +176,7 @@ class FileCache:
         if self._meta_dir.exists():
             shutil.rmtree(self._meta_dir)
 
-    def get_navigation(self) -> dict | None:
+    def get_navigation(self) -> NavigationTreeDict | None:
         """Retrieve cached navigation tree.
 
         Returns:
@@ -185,11 +187,12 @@ class FileCache:
             return None
 
         try:
-            return json.loads(nav_path.read_text(encoding="utf-8"))
+            result: NavigationTreeDict = json.loads(nav_path.read_text(encoding="utf-8"))
+            return result
         except (OSError, json.JSONDecodeError):
             return None
 
-    def set_navigation(self, navigation: dict) -> None:
+    def set_navigation(self, navigation: NavigationTreeDict) -> None:
         """Store navigation tree in cache.
 
         Args:

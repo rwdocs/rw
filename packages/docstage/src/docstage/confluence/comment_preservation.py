@@ -292,7 +292,7 @@ class TreeMatcher:
 
     def _match_children(
         self, old_children: list[TreeNode], new_children: list[TreeNode]
-    ):
+    ) -> None:
         """Match child nodes using best-match strategy.
 
         Args:
@@ -389,7 +389,7 @@ class CommentMarkerTransfer:
 
     def _transfer_marker(
         self, old_node: TreeNode, new_node: TreeNode, marker: TreeNode
-    ):
+    ) -> None:
         """Transfer a specific marker to new node.
 
         Args:
@@ -568,7 +568,7 @@ class PreserveResult:
 class CommentPreserver:
     """Preserve inline comments when updating Confluence pages."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize comment preserver."""
         self.parser = ConfluenceTreeParser()
         self.serializer = ConfluenceTreeSerializer()
