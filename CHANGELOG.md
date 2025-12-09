@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Auto-create .gitignore in cache directory to prevent accidental commits
 - Address PR review feedback for link resolution
   - Fix absolute paths to avoid double slashes (`/absolute/path.md` → `/docs/absolute/path`)
   - Simplify `.md` and `/index` suffix stripping with sequential strip calls

@@ -104,6 +104,16 @@ class TestFileCacheSet:
         assert html_path.exists()
         assert meta_path.exists()
 
+    def test_creates_gitignore(self, tmp_path: Path) -> None:
+        """Create .gitignore in cache directory."""
+        cache = FileCache(tmp_path / ".cache")
+
+        cache.set("page", "<p>Test</p>", "Title", 1234567890.0, [])
+
+        gitignore_path = tmp_path / ".cache" / ".gitignore"
+        assert gitignore_path.exists()
+        assert gitignore_path.read_text() == "# Ignore everything in this directory\n*\n"
+
     def test_writes_html_content(self, tmp_path: Path) -> None:
         """Write HTML content to pages directory."""
         cache = FileCache(tmp_path / ".cache")

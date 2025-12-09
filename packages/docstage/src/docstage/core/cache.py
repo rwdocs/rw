@@ -62,6 +62,8 @@ class FileCache:
     when the cached mtime matches the current source file mtime.
     """
 
+    _GITIGNORE_CONTENT = "# Ignore everything in this directory\n*\n"
+
     def __init__(self, cache_dir: Path) -> None:
         """Initialize cache with directory path.
 
@@ -77,6 +79,13 @@ class FileCache:
     def cache_dir(self) -> Path:
         """Root cache directory."""
         return self._cache_dir
+
+    def _ensure_cache_dir(self) -> None:
+        """Create cache directory with .gitignore if it doesn't exist."""
+        if not self._cache_dir.exists():
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
+            gitignore_path = self._cache_dir / ".gitignore"
+            gitignore_path.write_text(self._GITIGNORE_CONTENT, encoding="utf-8")
 
     def get(self, path: str, source_mtime: float) -> CacheEntry | None:
         """Retrieve cached entry if valid.
@@ -125,6 +134,8 @@ class FileCache:
             source_mtime: Source file mtime for invalidation
             toc: Table of contents entries
         """
+        self._ensure_cache_dir()
+
         html_path = self._pages_dir / f"{path}.html"
         meta_path = self._meta_dir / f"{path}.json"
 
@@ -184,7 +195,7 @@ class FileCache:
         Args:
             navigation: Navigation tree dictionary
         """
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_cache_dir()
         nav_path = self._cache_dir / "navigation.json"
         nav_path.write_text(json.dumps(navigation), encoding="utf-8")
 
@@ -194,17 +205,17 @@ class FileCache:
         if nav_path.exists():
             nav_path.unlink()
 
-    def get_diagram(self, content_hash: str, format: str) -> str | None:
+    def get_diagram(self, content_hash: str, fmt: str) -> str | None:
         """Retrieve cached diagram by content hash.
 
         Args:
             content_hash: SHA-256 hash of diagram content
-            format: Output format ("svg" or "png")
+            fmt: Output format ("svg" or "png")
 
         Returns:
             Cached diagram content (SVG string or PNG data URI), or None if not cached
         """
-        diagram_path = self._diagrams_dir / f"{content_hash}.{format}"
+        diagram_path = self._diagrams_dir / f"{content_hash}.{fmt}"
         if not diagram_path.exists():
             return None
 
@@ -213,16 +224,17 @@ class FileCache:
         except OSError:
             return None
 
-    def set_diagram(self, content_hash: str, format: str, content: str) -> None:
+    def set_diagram(self, content_hash: str, fmt: str, content: str) -> None:
         """Store rendered diagram in cache.
 
         Args:
             content_hash: SHA-256 hash of diagram content
-            format: Output format ("svg" or "png")
+            fmt: Output format ("svg" or "png")
             content: Rendered diagram (SVG string or PNG data URI)
         """
+        self._ensure_cache_dir()
         self._diagrams_dir.mkdir(parents=True, exist_ok=True)
-        diagram_path = self._diagrams_dir / f"{content_hash}.{format}"
+        diagram_path = self._diagrams_dir / f"{content_hash}.{fmt}"
         diagram_path.write_text(content, encoding="utf-8")
 
     def _read_meta(self, meta_path: Path) -> CachedMetadata | None:
