@@ -80,10 +80,18 @@ function createNavigationStore() {
     expandOnlyTo(path: string) {
       update((state) => {
         if (!state.tree) return state;
+
+        const pathsToExpand = getParentPaths(path);
+        // Check if already in desired state to avoid unnecessary re-renders
+        const alreadyCorrect = pathsToExpand.every(
+          (p) => !state.collapsed.has(p),
+        );
+        if (alreadyCorrect) return state;
+
         // Collapse all parent items
         const collapsed = new Set(collectParentPaths(state.tree.items));
         // Expand the path to the current page
-        for (const parentPath of getParentPaths(path)) {
+        for (const parentPath of pathsToExpand) {
           collapsed.delete(parentPath);
         }
         return { ...state, collapsed };

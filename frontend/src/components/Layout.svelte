@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { navigation } from "../stores/navigation";
+  import { extractDocPath } from "../stores/router";
   import { openMobileMenu } from "../stores/ui";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import TocSidebar from "./TocSidebar.svelte";
@@ -20,8 +21,7 @@
     // Expand to current path after initial load
     const currentPath = window.location.pathname;
     if (currentPath.startsWith("/docs")) {
-      const docPath = currentPath.replace(/^\/docs\/?/, "");
-      navigation.expandOnlyTo("/" + docPath);
+      navigation.expandOnlyTo("/" + extractDocPath(currentPath));
     }
   });
 </script>

@@ -8,8 +8,10 @@
 
   let { toc }: Props = $props();
 
-  // Filter to only show h2 and h3 (two levels deep)
-  let filteredToc = $derived(toc.filter((entry) => entry.level <= 3));
+  // Filter to only show h2 and h3 (two levels deep, excludes h1)
+  let filteredToc = $derived(
+    toc.filter((entry) => entry.level >= 2 && entry.level <= 3),
+  );
 
   let activeId = $state<string | null>(null);
 

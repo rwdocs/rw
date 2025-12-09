@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { path } from "../stores/router";
+  import { path, extractDocPath } from "../stores/router";
   import { page } from "../stores/page";
   import { navigation } from "../stores/navigation";
   import { liveReload } from "../stores/liveReload";
 
   // Extract path from location, removing /docs prefix
-  let docPath = $derived($path.replace(/^\/docs\/?/, ""));
+  let docPath = $derived(extractDocPath($path));
 
   // Load page when path changes (track previous to avoid duplicate loads)
   let previousPath: string | null = null;
@@ -22,8 +22,7 @@
 
   onMount(() => {
     return liveReload.onReload(() => {
-      const currentDocPath = get(path).replace(/^\/docs\/?/, "");
-      page.load(currentDocPath, { bypassCache: true });
+      page.load(extractDocPath(get(path)), { bypassCache: true });
     });
   });
 </script>

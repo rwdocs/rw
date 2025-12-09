@@ -1,5 +1,5 @@
 import { writable, get } from "svelte/store";
-import { path } from "./router";
+import { path, extractDocPath } from "./router";
 import { navigation } from "./navigation";
 
 interface LiveReloadState {
@@ -77,8 +77,7 @@ function createLiveReloadStore() {
     // Expand to current path after reload
     const currentPath = get(path);
     if (currentPath.startsWith("/docs")) {
-      const docPath = currentPath.replace(/^\/docs\/?/, "");
-      navigation.expandOnlyTo("/" + docPath);
+      navigation.expandOnlyTo("/" + extractDocPath(currentPath));
     }
 
     if (onReloadCallback && shouldReload(currentPath, changedPath)) {
@@ -87,10 +86,7 @@ function createLiveReloadStore() {
   }
 
   function shouldReload(currentPath: string, changedPath: string): boolean {
-    const normalizedCurrent = currentPath.replace(/^\/docs\/?/, "");
-    const normalizedChanged = changedPath.replace(/^\/docs\/?/, "");
-
-    return normalizedCurrent === normalizedChanged;
+    return extractDocPath(currentPath) === extractDocPath(changedPath);
   }
 
   function scheduleReconnect() {

@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Address PR review feedback for layout improvements
+  - Extract `extractDocPath()` helper function in router.ts to deduplicate path extraction logic
+  - Add comment explaining magic number in NavItem spacer width calculation
+  - Fix ToC filter to explicitly exclude H1 headings (`entry.level >= 2 && entry.level <= 3`)
+  - Add early return optimization to `expandOnlyTo()` to avoid unnecessary re-renders
 - Improve navigation sidebar styling
   - Use consistent text size (text-sm) for all navigation items regardless of depth
   - Reduce vertical padding from py-1.5 to py-1

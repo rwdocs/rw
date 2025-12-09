@@ -46,6 +46,7 @@
         </svg>
       </button>
     {:else}
+      <!-- Spacer matches expand button: w-4 (16px) + mr-0.5 (2px) = 18px -->
       <span class="w-[18px]"></span>
     {/if}
 
