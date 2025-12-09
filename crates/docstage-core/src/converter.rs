@@ -370,16 +370,26 @@ impl MarkdownConverter {
     /// Produces semantic HTML5 with syntax highlighting and table of contents.
     /// Diagram code blocks are rendered with syntax highlighting as-is.
     /// For rendered diagram images, use `convert_html_with_diagrams()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `markdown_text` - Markdown source text
+    /// * `base_path` - Optional base path for resolving relative links (e.g., "domains/billing/guide").
+    ///                 When provided, relative `.md` links are transformed to absolute `/docs/...` paths.
     #[must_use]
-    pub fn convert_html(&self, markdown_text: &str) -> HtmlConvertResult {
+    pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> HtmlConvertResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        let renderer = if self.extract_title {
+        let mut renderer = if self.extract_title {
             HtmlRenderer::new().with_title_extraction()
         } else {
             HtmlRenderer::new()
         };
+
+        if let Some(path) = base_path {
+            renderer = renderer.with_base_path(path);
+        }
 
         let result = renderer.render(parser);
 
@@ -401,8 +411,17 @@ impl MarkdownConverter {
     /// 1. Checking the cache for each diagram by content hash
     /// 2. Rendering uncached diagrams via Kroki
     /// 3. Replacing placeholders with rendered content
+    ///
+    /// # Arguments
+    ///
+    /// * `markdown_text` - Markdown source text
+    /// * `base_path` - Optional base path for resolving relative links
     #[must_use]
-    pub fn extract_html_with_diagrams(&self, markdown_text: &str) -> ExtractResult {
+    pub fn extract_html_with_diagrams(
+        &self,
+        markdown_text: &str,
+        base_path: Option<&str>,
+    ) -> ExtractResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
@@ -410,11 +429,15 @@ impl MarkdownConverter {
         let mut filter = DiagramFilter::new(parser);
 
         // Render to HTML format
-        let renderer = if self.extract_title {
+        let mut renderer = if self.extract_title {
             HtmlRenderer::new().with_title_extraction()
         } else {
             HtmlRenderer::new()
         };
+
+        if let Some(path) = base_path {
+            renderer = renderer.with_base_path(path);
+        }
 
         let result = renderer.render(&mut filter);
         let (extracted_diagrams, filter_warnings) = filter.into_parts();
@@ -481,11 +504,13 @@ impl MarkdownConverter {
     ///
     /// * `markdown_text` - Markdown source text
     /// * `kroki_url` - Kroki server URL (e.g., `"https://kroki.io"`)
+    /// * `base_path` - Optional base path for resolving relative links
     #[must_use]
     pub fn convert_html_with_diagrams(
         &self,
         markdown_text: &str,
         kroki_url: &str,
+        base_path: Option<&str>,
     ) -> HtmlConvertResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
@@ -494,11 +519,15 @@ impl MarkdownConverter {
         let mut filter = DiagramFilter::new(parser);
 
         // Render to HTML format
-        let renderer = if self.extract_title {
+        let mut renderer = if self.extract_title {
             HtmlRenderer::new().with_title_extraction()
         } else {
             HtmlRenderer::new()
         };
+
+        if let Some(path) = base_path {
+            renderer = renderer.with_base_path(path);
+        }
 
         let result = renderer.render(&mut filter);
         let (extracted_diagrams, filter_warnings) = filter.into_parts();

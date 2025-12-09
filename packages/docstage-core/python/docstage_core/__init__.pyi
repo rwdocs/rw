@@ -183,7 +183,11 @@ class MarkdownConverter:
         """
         ...
 
-    def convert_html(self, markdown_text: str) -> HtmlConvertResult:
+    def convert_html(
+        self,
+        markdown_text: str,
+        base_path: str | None = None,
+    ) -> HtmlConvertResult:
         """Convert markdown to HTML format.
 
         Produces semantic HTML5 with syntax highlighting and table of contents.
@@ -192,6 +196,8 @@ class MarkdownConverter:
 
         Args:
             markdown_text: Markdown source text
+            base_path: Optional base path for resolving relative links (e.g., "domains/billing/guide").
+                       When provided, relative `.md` links are transformed to absolute `/docs/...` paths.
 
         Returns:
             HtmlConvertResult with HTML, title, and table of contents
@@ -202,6 +208,7 @@ class MarkdownConverter:
         self,
         markdown_text: str,
         kroki_url: str,
+        base_path: str | None = None,
     ) -> HtmlConvertResult:
         """Convert markdown to HTML format with rendered diagrams.
 
@@ -219,13 +226,18 @@ class MarkdownConverter:
         Args:
             markdown_text: Markdown source text
             kroki_url: Kroki server URL (e.g., "https://kroki.io")
+            base_path: Optional base path for resolving relative links
 
         Returns:
             HtmlConvertResult with HTML containing rendered diagrams or error messages
         """
         ...
 
-    def extract_html_with_diagrams(self, markdown_text: str) -> ExtractResult:
+    def extract_html_with_diagrams(
+        self,
+        markdown_text: str,
+        base_path: str | None = None,
+    ) -> ExtractResult:
         """Extract diagrams from markdown without rendering.
 
         Returns HTML with `{{DIAGRAM_N}}` placeholders and prepared diagrams.
@@ -236,6 +248,7 @@ class MarkdownConverter:
 
         Args:
             markdown_text: Markdown source text
+            base_path: Optional base path for resolving relative links
 
         Returns:
             ExtractResult with HTML placeholders and prepared diagrams

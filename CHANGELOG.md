@@ -3,10 +3,12 @@
 ## [Unreleased]
 
 ### 2025-12-09
-- Fix broken article links in rendered markdown
-  - Add `resolveLink()` function to resolve relative paths (./page.md, ../other.md)
-  - Strip .md extensions from links for SPA navigation
-  - Properly resolve links against current document path using URL API
+- Fix broken article links in rendered markdown (backend-side resolution)
+  - Add `base_path` parameter to `HtmlRenderer` and converter methods
+  - Resolve relative .md links (./page.md, ../other.md) to absolute `/docs/...` paths during rendering
+  - Strip .md extensions and /index suffix for clean URLs
+  - Links work correctly even without JavaScript
+  - Simplify frontend router (no longer needs link resolution)
 - Fix diagram sizing to display at correct physical size
   - Scale SVG width/height attributes based on configured DPI
   - Diagrams rendered at 192 DPI now display at half their pixel size (matching standard 96 DPI displays)

@@ -223,6 +223,9 @@ pub struct HtmlRenderer {
     image: ImageState,
     /// Heading and title extraction state.
     heading: HeadingState,
+    /// Base path for resolving relative links (e.g., "domains/billing/guide").
+    /// When set, relative .md links are transformed to absolute paths.
+    base_path: Option<String>,
 }
 
 impl HtmlRenderer {
@@ -235,6 +238,7 @@ impl HtmlRenderer {
             table: TableState::default(),
             image: ImageState::default(),
             heading: HeadingState::new(false),
+            base_path: None,
         }
     }
 
@@ -246,6 +250,17 @@ impl HtmlRenderer {
     #[must_use]
     pub fn with_title_extraction(mut self) -> Self {
         self.heading = HeadingState::new(true);
+        self
+    }
+
+    /// Set base path for resolving relative links.
+    ///
+    /// When set, relative markdown links (e.g., `./sibling.md`, `../parent.md`)
+    /// are resolved to absolute paths (e.g., `/docs/path/to/sibling`).
+    /// The `.md` extension and `/index` suffix are stripped for clean URLs.
+    #[must_use]
+    pub fn with_base_path(mut self, path: impl Into<String>) -> Self {
+        self.base_path = Some(path.into());
         self
     }
 
@@ -385,15 +400,14 @@ impl HtmlRenderer {
                 }
             }
             Tag::Link { dest_url, .. } => {
+                let href = match &self.base_path {
+                    Some(base) => resolve_link(&dest_url, base),
+                    None => dest_url.to_string(),
+                };
                 if self.heading.is_active() {
-                    write!(
-                        self.heading.html,
-                        r#"<a href="{}">"#,
-                        escape_html(&dest_url)
-                    )
-                    .unwrap();
+                    write!(self.heading.html, r#"<a href="{}">"#, escape_html(&href)).unwrap();
                 } else {
-                    write!(self.output, r#"<a href="{}">"#, escape_html(&dest_url)).unwrap();
+                    write!(self.output, r#"<a href="{}">"#, escape_html(&href)).unwrap();
                 }
             }
             Tag::Image {
@@ -646,6 +660,84 @@ pub fn escape_html(s: &str) -> String {
     result
 }
 
+/// Resolve a markdown link URL relative to a base path.
+///
+/// Transforms relative `.md` links to absolute paths suitable for SPA navigation:
+/// - `./sibling.md` → `/docs/base/path/sibling`
+/// - `../parent.md` → `/docs/base/parent`
+/// - `subdir/page.md` → `/docs/base/path/subdir/page`
+/// - `adr-101/index.md` → `/docs/base/path/adr-101`
+///
+/// External links, fragment-only links, and non-markdown links are returned unchanged.
+fn resolve_link(url: &str, base_path: &str) -> String {
+    // Skip external links, fragments, and non-local URLs
+    if url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with("//")
+        || url.starts_with("mailto:")
+        || url.starts_with("tel:")
+        || url.starts_with('#')
+    {
+        return url.to_string();
+    }
+
+    // Only process markdown links
+    if !url.ends_with(".md") && !url.contains(".md#") {
+        return url.to_string();
+    }
+
+    // Split URL into path and fragment
+    let (path_part, fragment) = if let Some(hash_pos) = url.find('#') {
+        (&url[..hash_pos], Some(&url[hash_pos..]))
+    } else {
+        (url, None)
+    };
+
+    // Resolve the path
+    let resolved = if path_part.starts_with('/') {
+        // Absolute path - just strip .md
+        path_part.to_string()
+    } else {
+        // Relative path - resolve against base
+        resolve_relative_path(path_part, base_path)
+    };
+
+    // Strip .md extension and /index suffix for clean URLs
+    let clean = resolved
+        .strip_suffix(".md")
+        .unwrap_or(&resolved)
+        .strip_suffix("/index")
+        .unwrap_or(resolved.strip_suffix(".md").unwrap_or(&resolved));
+
+    // Add /docs prefix and fragment
+    let with_prefix = format!("/docs/{clean}");
+    match fragment {
+        Some(frag) => format!("{with_prefix}{frag}"),
+        None => with_prefix,
+    }
+}
+
+/// Resolve a relative path against a base path.
+///
+/// Handles `.` (current), `..` (parent), and plain relative paths.
+fn resolve_relative_path(relative: &str, base: &str) -> String {
+    // Split base into segments (the base is treated as a directory)
+    let mut segments: Vec<&str> = base.split('/').filter(|s| !s.is_empty()).collect();
+
+    // Process each component of the relative path
+    for component in relative.split('/') {
+        match component {
+            "" | "." => {} // Current directory, skip
+            ".." => {
+                segments.pop(); // Parent directory
+            }
+            _ => segments.push(component),
+        }
+    }
+
+    segments.join("/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -881,5 +973,87 @@ mod tests {
         assert_eq!(escape_html("<script>"), "&lt;script&gt;");
         assert_eq!(escape_html("a & b"), "a &amp; b");
         assert_eq!(escape_html(r#""quoted""#), "&quot;quoted&quot;");
+    }
+
+    #[test]
+    fn test_resolve_link_relative() {
+        // Sibling link from domains/billing/systems/payment-gateway/adr
+        assert_eq!(
+            resolve_link("adr-101/index.md", "domains/billing/systems/payment-gateway/adr"),
+            "/docs/domains/billing/systems/payment-gateway/adr/adr-101"
+        );
+    }
+
+    #[test]
+    fn test_resolve_link_parent() {
+        assert_eq!(
+            resolve_link("../other.md", "domains/billing/guide"),
+            "/docs/domains/billing/other"
+        );
+    }
+
+    #[test]
+    fn test_resolve_link_current_dir() {
+        assert_eq!(
+            resolve_link("./sibling.md", "domains/billing/guide"),
+            "/docs/domains/billing/guide/sibling"
+        );
+    }
+
+    #[test]
+    fn test_resolve_link_external_unchanged() {
+        assert_eq!(
+            resolve_link("https://example.com", "base/path"),
+            "https://example.com"
+        );
+        assert_eq!(
+            resolve_link("mailto:test@example.com", "base/path"),
+            "mailto:test@example.com"
+        );
+    }
+
+    #[test]
+    fn test_resolve_link_fragment_only() {
+        assert_eq!(resolve_link("#section", "base/path"), "#section");
+    }
+
+    #[test]
+    fn test_resolve_link_with_fragment() {
+        assert_eq!(
+            resolve_link("./page.md#section", "base/path"),
+            "/docs/base/path/page#section"
+        );
+    }
+
+    #[test]
+    fn test_resolve_link_non_md_unchanged() {
+        assert_eq!(
+            resolve_link("./image.png", "base/path"),
+            "./image.png"
+        );
+    }
+
+    fn render_with_base_path(markdown: &str, base_path: &str) -> HtmlRenderResult {
+        let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+        let parser = Parser::new_ext(markdown, options);
+        HtmlRenderer::new().with_base_path(base_path).render(parser)
+    }
+
+    #[test]
+    fn test_render_link_with_base_path() {
+        let result = render_with_base_path(
+            "[ADR 101](adr-101/index.md)",
+            "domains/billing/systems/payment-gateway/adr",
+        );
+        assert!(result.html.contains(
+            r#"<a href="/docs/domains/billing/systems/payment-gateway/adr/adr-101">"#
+        ));
+    }
+
+    #[test]
+    fn test_render_link_without_base_path() {
+        // Without base_path, links are unchanged
+        let result = render("[Link](./page.md)");
+        assert!(result.html.contains(r#"<a href="./page.md">"#));
     }
 }

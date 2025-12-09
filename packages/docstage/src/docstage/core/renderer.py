@@ -121,7 +121,7 @@ class PageRenderer:
         if cached is not None:
             return _from_cache(cached, source_path)
 
-        result = self._render_fresh(source_path)
+        result = self._render_fresh(source_path, path)
         self._cache.set(
             path,
             result.html,
@@ -168,11 +168,12 @@ class PageRenderer:
 
         return source_path
 
-    def _render_fresh(self, source_path: Path) -> "_FreshRenderResult":
+    def _render_fresh(self, source_path: Path, base_path: str) -> "_FreshRenderResult":
         """Render markdown from source file.
 
         Args:
             source_path: Path to markdown file
+            base_path: Document path for resolving relative links
 
         Returns:
             _FreshRenderResult with HTML, title, ToC, and warnings
@@ -180,7 +181,7 @@ class PageRenderer:
         markdown_text = source_path.read_text(encoding="utf-8")
 
         if self._kroki_url:
-            extract_result = self._converter.extract_html_with_diagrams(markdown_text)
+            extract_result = self._converter.extract_html_with_diagrams(markdown_text, base_path)
 
             if extract_result.diagrams:
                 diagrams_input = [
@@ -200,7 +201,7 @@ class PageRenderer:
                 warnings=list(extract_result.warnings),
             )
 
-        result = self._converter.convert_html(markdown_text)
+        result = self._converter.convert_html(markdown_text, base_path)
         return _FreshRenderResult(
             html=result.html,
             title=result.title,

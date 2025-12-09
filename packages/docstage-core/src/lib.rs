@@ -230,11 +230,18 @@ impl PyMarkdownConverter {
     ///
     /// Args:
     ///     markdown_text: Markdown source text
+    ///     base_path: Optional base path for resolving relative links (e.g., "domains/billing/guide").
+    ///                When provided, relative `.md` links are transformed to absolute `/docs/...` paths.
     ///
     /// Returns:
     ///     HtmlConvertResult with HTML, optional title, and table of contents
-    pub fn convert_html(&self, markdown_text: &str) -> PyHtmlConvertResult {
-        self.inner.convert_html(markdown_text).into()
+    #[pyo3(signature = (markdown_text, base_path = None))]
+    pub fn convert_html(
+        &self,
+        markdown_text: &str,
+        base_path: Option<&str>,
+    ) -> PyHtmlConvertResult {
+        self.inner.convert_html(markdown_text, base_path).into()
     }
 
     /// Convert markdown to HTML format with rendered diagrams.
@@ -253,18 +260,21 @@ impl PyMarkdownConverter {
     /// Args:
     ///     markdown_text: Markdown source text
     ///     kroki_url: Kroki server URL (e.g., "https://kroki.io")
+    ///     base_path: Optional base path for resolving relative links
     ///
     /// Returns:
     ///     HtmlConvertResult with HTML containing rendered diagrams or error messages
+    #[pyo3(signature = (markdown_text, kroki_url, base_path = None))]
     pub fn convert_html_with_diagrams(
         &self,
         py: Python<'_>,
         markdown_text: &str,
         kroki_url: &str,
+        base_path: Option<&str>,
     ) -> PyHtmlConvertResult {
         py.detach(|| {
             self.inner
-                .convert_html_with_diagrams(markdown_text, kroki_url)
+                .convert_html_with_diagrams(markdown_text, kroki_url, base_path)
                 .into()
         })
     }
@@ -279,11 +289,19 @@ impl PyMarkdownConverter {
     ///
     /// Args:
     ///     markdown_text: Markdown source text
+    ///     base_path: Optional base path for resolving relative links
     ///
     /// Returns:
     ///     ExtractResult with HTML placeholders and prepared diagrams
-    pub fn extract_html_with_diagrams(&self, markdown_text: &str) -> PyExtractResult {
-        self.inner.extract_html_with_diagrams(markdown_text).into()
+    #[pyo3(signature = (markdown_text, base_path = None))]
+    pub fn extract_html_with_diagrams(
+        &self,
+        markdown_text: &str,
+        base_path: Option<&str>,
+    ) -> PyExtractResult {
+        self.inner
+            .extract_html_with_diagrams(markdown_text, base_path)
+            .into()
     }
 }
 
