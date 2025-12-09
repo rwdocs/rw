@@ -17,10 +17,14 @@
   });
 
   // Determine which page to render based on path
+  // Any non-root path is treated as a document page
   const getRoute = (currentPath: string) => {
     if (currentPath === "/") return "home";
-    if (currentPath.startsWith("/docs")) return "page";
-    return "notfound";
+    // Skip API routes and static assets
+    if (currentPath.startsWith("/api/") || currentPath.startsWith("/assets/")) {
+      return "notfound";
+    }
+    return "page";
   };
 
   let route = $derived(getRoute($path));

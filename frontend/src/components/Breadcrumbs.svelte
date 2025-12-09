@@ -17,7 +17,7 @@
       {#each breadcrumbs as crumb (crumb.path)}
         <li class="breadcrumb-item">
           <a
-            href="/docs{crumb.path}"
+            href={crumb.path}
             class="hover:text-gray-700 hover:underline"
           >
             {crumb.title}

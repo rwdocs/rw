@@ -3,9 +3,9 @@ import { writable } from "svelte/store";
 /** Current URL path */
 export const path = writable(window.location.pathname);
 
-/** Extract document path by removing the /docs prefix */
+/** Extract document path for API calls (strip leading slash) */
 export function extractDocPath(urlPath: string): string {
-  return urlPath.replace(/^\/docs\/?/, "");
+  return urlPath.replace(/^\//, "");
 }
 
 /** Navigate to a path programmatically */

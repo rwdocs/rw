@@ -20,8 +20,8 @@
     await navigation.load();
     // Expand to current path after initial load
     const currentPath = window.location.pathname;
-    if (currentPath.startsWith("/docs")) {
-      navigation.expandOnlyTo("/" + extractDocPath(currentPath));
+    if (currentPath !== "/") {
+      navigation.expandOnlyTo(currentPath);
     }
   });
 </script>

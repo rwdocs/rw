@@ -76,8 +76,8 @@ function createLiveReloadStore() {
 
     // Expand to current path after reload
     const currentPath = get(path);
-    if (currentPath.startsWith("/docs")) {
-      navigation.expandOnlyTo("/" + extractDocPath(currentPath));
+    if (currentPath !== "/") {
+      navigation.expandOnlyTo(currentPath);
     }
 
     if (onReloadCallback && shouldReload(currentPath, changedPath)) {

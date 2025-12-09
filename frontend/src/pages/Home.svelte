@@ -4,7 +4,7 @@
 
   onMount(() => {
     // Redirect to root documentation page
-    goto("/docs/index");
+    goto("/index");
   });
 </script>
 

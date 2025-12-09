@@ -11,8 +11,8 @@
 
   let { item, depth }: Props = $props();
 
-  // Check if this item is active
-  let isActive = $derived($path === `/docs${item.path}`);
+  // Check if this item is active (item.path already has leading slash)
+  let isActive = $derived($path === item.path);
   let hasChildren = $derived(item.children && item.children.length > 0);
   let isExpanded = $derived(!$navigation.collapsed.has(item.path));
 
@@ -51,7 +51,7 @@
     {/if}
 
     <a
-      href="/docs{item.path}"
+      href={item.path}
       class="flex-1 py-1 px-1.5 rounded text-sm transition-colors {isActive
         ? 'text-blue-700 font-medium'
         : 'text-gray-700 hover:text-gray-900'}"

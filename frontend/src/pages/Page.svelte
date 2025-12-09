@@ -6,17 +6,17 @@
   import { navigation } from "../stores/navigation";
   import { liveReload } from "../stores/liveReload";
 
-  // Extract path from location, removing /docs prefix
-  let docPath = $derived(extractDocPath($path));
+  // Extract API path from URL (strips leading slash for API call)
+  let apiPath = $derived(extractDocPath($path));
 
   // Load page when path changes (track previous to avoid duplicate loads)
   let previousPath: string | null = null;
   $effect(() => {
-    if (docPath !== previousPath) {
-      previousPath = docPath;
-      page.load(docPath);
+    if (apiPath !== previousPath) {
+      previousPath = apiPath;
+      page.load(apiPath);
       // Expand only the path to the current page in navigation
-      navigation.expandOnlyTo("/" + docPath);
+      navigation.expandOnlyTo($path);
     }
   });
 

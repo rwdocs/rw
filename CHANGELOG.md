@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Remove `/docs` prefix from URL paths
+  - Navigation paths now use clean URLs (e.g., `/domain/page` instead of `/docs/domain/page`)
+  - Frontend router updated to treat any non-root path as a document page
+  - Home page redirects to `/index` instead of `/docs/index`
 - Refactor server to accept `Config` directly instead of dict
   - Remove `ServerConfig` TypedDict from `server.py`
   - `run_server()` and `create_app()` now accept `Config` dataclass
