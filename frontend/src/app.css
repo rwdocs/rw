@@ -45,6 +45,11 @@ body {
   @apply max-w-full h-auto;
 }
 
+/* Remove underline from links inside SVG diagrams */
+.prose figure.diagram svg a {
+  text-decoration: none !important;
+}
+
 /* Error state for diagrams that failed to render */
 .prose figure.diagram-error {
   @apply border border-red-200 bg-red-50 rounded p-4;
