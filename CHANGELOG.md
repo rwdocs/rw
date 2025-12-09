@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### 2025-12-09
+- Style article links with blue color and underline on hover only
 - Address PR review feedback for layout improvements
   - Extract `extractDocPath()` helper function in router.ts to deduplicate path extraction logic
   - Add comment explaining magic number in NavItem spacer width calculation

@@ -41,13 +41,14 @@ export default {
             },
             // Links
             a: {
-              textDecoration: 'underline',
-              textDecorationColor: 'rgb(203 213 225)', // slate-300
-              textUnderlineOffset: '3px',
-              textDecorationThickness: '1px',
-              transition: 'text-decoration-color 0.15s',
+              color: 'rgb(37 99 235)', // blue-600
+              textDecoration: 'none',
+              transition: 'color 0.15s',
               '&:hover': {
-                textDecorationColor: 'rgb(71 85 105)', // slate-600
+                color: 'rgb(29 78 216)', // blue-700
+                textDecoration: 'underline',
+                textUnderlineOffset: '3px',
+                textDecorationThickness: '1px',
               },
             },
             // Inline code
