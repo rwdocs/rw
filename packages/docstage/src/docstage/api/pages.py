@@ -25,13 +25,15 @@ async def get_page(request: web.Request) -> web.Response:
     renderer = request.app[renderer_key]
     site_loader = request.app[site_loader_key]
 
-    try:
-        result = renderer.render(path)
-    except FileNotFoundError:
+    site = site_loader.load()
+    source_path = site.resolve_source_path(path)
+    if source_path is None:
         return web.json_response(
             {"error": "Page not found", "path": path},
             status=404,
         )
+
+    result = renderer.render(source_path, path)
 
     # Log warnings in verbose mode
     if request.app[verbose_key] and result.warnings:
@@ -47,7 +49,6 @@ async def get_page(request: web.Request) -> web.Response:
     if if_none_match == etag:
         return web.Response(status=304)
 
-    site = site_loader.load()
     breadcrumbs = [b.to_dict() for b in site.get_breadcrumbs(path)]
 
     response_data = {

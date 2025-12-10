@@ -102,12 +102,12 @@ class PageRenderer:
         """Root directory containing markdown sources."""
         return self._source_dir
 
-    def render(self, path: str) -> RenderResult:
+    def render(self, source_path: Path, base_path: str) -> RenderResult:
         """Render a markdown document.
 
         Args:
-            path: Document path relative to source_dir (without .md extension)
-                  e.g., "domain-a/subdomain/guide"
+            source_path: Absolute path to markdown source file
+            base_path: URL path for resolving relative links (e.g., "domain-a/guide")
 
         Returns:
             RenderResult with HTML, title, and ToC
@@ -115,19 +115,18 @@ class PageRenderer:
         Raises:
             FileNotFoundError: If source markdown file doesn't exist
         """
-        source_path = self._resolve_source_path(path)
         if not source_path.exists():
             raise FileNotFoundError(f"Source file not found: {source_path}")
 
         source_mtime = source_path.stat().st_mtime
 
-        cached = self._cache.get(path, source_mtime)
+        cached = self._cache.get(base_path, source_mtime)
         if cached is not None:
             return _from_cache(cached, source_path)
 
-        result = self._render_fresh(source_path, path)
+        result = self._render_fresh(source_path, base_path)
         self._cache.set(
-            path,
+            base_path,
             result.html,
             result.title,
             source_mtime,
@@ -150,27 +149,6 @@ class PageRenderer:
             path: Document path to invalidate
         """
         self._cache.invalidate(path)
-
-    def _resolve_source_path(self, path: str) -> Path:
-        """Resolve document path to source file.
-
-        Handles index.md convention for directories.
-
-        Args:
-            path: Document path (e.g., "domain-a/guide")
-
-        Returns:
-            Path to source markdown file
-        """
-        source_path = self._source_dir / f"{path}.md"
-
-        # If path.md doesn't exist, check for path/index.md
-        if not source_path.exists():
-            index_path = self._source_dir / path / "index.md"
-            if index_path.exists():
-                return index_path
-
-        return source_path
 
     def _render_fresh(self, source_path: Path, base_path: str) -> _FreshRenderResult:
         """Render markdown from source file.

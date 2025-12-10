@@ -14,12 +14,13 @@ class TestPageRendererRender:
         """Render a simple markdown file to HTML."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide\n\nThis is a guide.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nThis is a guide.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         # extract_title=True removes H1 from HTML and extracts it as title
         assert "This is a guide" in result.html
@@ -35,22 +36,22 @@ class TestPageRendererRender:
         renderer = PageRenderer(source_dir, cache)
 
         with pytest.raises(FileNotFoundError, match="Source file not found"):
-            renderer.render("nonexistent")
+            renderer.render(source_dir / "nonexistent.md", "nonexistent")
 
     def test__second_render__returns_cached_result(self, tmp_path: Path) -> None:
         """Return cached result on subsequent renders."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        md_file = source_dir / "guide.md"
-        md_file.write_text("# Guide\n\nOriginal content.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nOriginal content.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        result1 = renderer.render("guide")
+        result1 = renderer.render(source_path, "guide")
         assert result1.from_cache is False
 
-        result2 = renderer.render("guide")
+        result2 = renderer.render(source_path, "guide")
         assert result2.from_cache is True
         assert result2.html == result1.html
         assert result2.title == result1.title
@@ -59,22 +60,22 @@ class TestPageRendererRender:
         """Re-render when source file mtime changes."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        md_file = source_dir / "guide.md"
-        md_file.write_text("# Guide\n\nOriginal content.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nOriginal content.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        result1 = renderer.render("guide")
+        result1 = renderer.render(source_path, "guide")
         assert "Original content" in result1.html
 
         # Modify file (changes mtime)
         import time
 
         time.sleep(0.01)  # Ensure mtime differs
-        md_file.write_text("# Guide\n\nUpdated content.")
+        source_path.write_text("# Guide\n\nUpdated content.")
 
-        result2 = renderer.render("guide")
+        result2 = renderer.render(source_path, "guide")
         assert result2.from_cache is False
         assert "Updated content" in result2.html
 
@@ -83,30 +84,16 @@ class TestPageRendererRender:
         source_dir = tmp_path / "docs"
         nested_dir = source_dir / "domain" / "subdomain"
         nested_dir.mkdir(parents=True)
-        (nested_dir / "guide.md").write_text("# Nested Guide\n\nDeep content.")
+        source_path = nested_dir / "guide.md"
+        source_path.write_text("# Nested Guide\n\nDeep content.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        result = renderer.render("domain/subdomain/guide")
+        result = renderer.render(source_path, "domain/subdomain/guide")
 
         assert result.title == "Nested Guide"
         assert "Deep content" in result.html
-
-    def test__directory_path__resolves_to_index_md(self, tmp_path: Path) -> None:
-        """Resolve path to index.md when direct path doesn't exist."""
-        source_dir = tmp_path / "docs"
-        domain_dir = source_dir / "domain"
-        domain_dir.mkdir(parents=True)
-        (domain_dir / "index.md").write_text("# Domain Index\n\nIndex content.")
-
-        cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
-
-        result = renderer.render("domain")
-
-        assert result.title == "Domain Index"
-        assert "Index content" in result.html
 
     def test__headings__extracts_toc(self, tmp_path: Path) -> None:
         """Extract table of contents from markdown."""
@@ -114,7 +101,8 @@ class TestPageRendererRender:
         source_dir.mkdir()
         # HTML renderer keeps original heading levels (H1 stays H1, H2 stays H2)
         # Title (first H1) is excluded from ToC
-        (source_dir / "guide.md").write_text("""# Guide
+        source_path = source_dir / "guide.md"
+        source_path.write_text("""# Guide
 
 ## Introduction
 
@@ -132,7 +120,7 @@ Steps.
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         # HTML renderer preserves levels, title excluded from ToC
         assert len(result.toc) == 3
@@ -148,13 +136,14 @@ Steps.
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
         # HTML renderer keeps original heading levels
-        (source_dir / "guide.md").write_text("# Guide\n\n## Section\n\nContent.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\n## Section\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        renderer.render("guide")
-        result = renderer.render("guide")
+        renderer.render(source_path, "guide")
+        result = renderer.render(source_path, "guide")
 
         assert result.from_cache is True
         assert len(result.toc) == 1
@@ -169,14 +158,15 @@ class TestPageRendererInvalidate:
         """Invalidate cache entry for path."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        renderer.render("guide")
+        renderer.render(source_path, "guide")
         renderer.invalidate("guide")
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         assert result.from_cache is False
 
@@ -202,7 +192,8 @@ class TestPageRendererWithKroki:
         """Render markdown without diagrams even when kroki_url is set."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide\n\nNo diagrams here.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nNo diagrams here.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(
@@ -211,7 +202,7 @@ class TestPageRendererWithKroki:
             kroki_url="https://kroki.io",
         )
 
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         assert result.title == "Guide"
         assert "No diagrams here" in result.html
@@ -221,7 +212,8 @@ class TestPageRendererWithKroki:
         """Extract diagrams when kroki_url is set (Kroki call expected to fail)."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text(
+        source_path = source_dir / "guide.md"
+        source_path.write_text(
             "# Guide\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```\n\nText after."
         )
 
@@ -233,7 +225,7 @@ class TestPageRendererWithKroki:
         )
 
         # Kroki request will fail - diagram appears as error in result
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         assert result.title == "Guide"
         # Verify diagram extraction was attempted (error HTML contains diagram placeholder)
@@ -247,12 +239,13 @@ class TestPageRendererOptions:
         """Keep H1 in output when extract_title is False."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# My Title\n\nContent.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# My Title\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache, extract_title=False)
 
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         # Title should still be extracted for metadata
         # but H1 should remain in HTML
@@ -263,12 +256,13 @@ class TestPageRendererOptions:
         """Accept custom DPI setting."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache, dpi=300)
 
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         assert result.title == "Guide"
 
@@ -278,7 +272,8 @@ class TestPageRendererOptions:
         source_dir.mkdir()
         include_dir = tmp_path / "includes"
         include_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(
@@ -287,7 +282,7 @@ class TestPageRendererOptions:
             include_dirs=[include_dir],
         )
 
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         assert result.title == "Guide"
 
@@ -295,7 +290,8 @@ class TestPageRendererOptions:
         """Accept config file option."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nContent.")
         (source_dir / "config.iuml").write_text("skinparam backgroundColor white")
 
         cache = FileCache(tmp_path / ".cache")
@@ -305,7 +301,7 @@ class TestPageRendererOptions:
             config_file="config.iuml",
         )
 
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         assert result.title == "Guide"
 
@@ -317,12 +313,13 @@ class TestRenderResult:
         """RenderResult includes warnings list."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        result = renderer.render("guide")
+        result = renderer.render(source_path, "guide")
 
         # Fresh render should have warnings (empty list)
         assert isinstance(result.warnings, list)
@@ -331,13 +328,14 @@ class TestRenderResult:
         """Cached results have empty warnings list."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+        source_path = source_dir / "guide.md"
+        source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(source_dir, cache)
 
-        renderer.render("guide")
-        result = renderer.render("guide")
+        renderer.render(source_path, "guide")
+        result = renderer.render(source_path, "guide")
 
         assert result.from_cache is True
         assert result.warnings == []

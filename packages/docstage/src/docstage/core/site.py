@@ -152,6 +152,20 @@ class Site:
         """Get root-level pages."""
         return [self._pages[i] for i in self._roots]
 
+    def resolve_source_path(self, path: str) -> Path | None:
+        """Resolve URL path to absolute source file path.
+
+        Args:
+            path: URL path (e.g., "domain/page" or "/domain/page")
+
+        Returns:
+            Absolute path to source markdown file, or None if page not found
+        """
+        page = self.get_page(path)
+        if page is None:
+            return None
+        return self._source_dir / page.source_path
+
     def _normalize_path(self, path: str) -> str:
         """Normalize path to have leading slash."""
         return path if path.startswith("/") else f"/{path}"

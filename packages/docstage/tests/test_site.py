@@ -147,6 +147,48 @@ class TestSite:
 
         assert site.source_dir == source_dir
 
+    def test__resolve_source_path__returns_absolute_path(
+        self, source_dir: Path
+    ) -> None:
+        """Resolve URL path to absolute source file path."""
+        builder = SiteBuilder(source_dir)
+        builder.add_page("Guide", "/guide", "guide.md")
+        site = builder.build()
+
+        result = site.resolve_source_path("/guide")
+
+        assert result == source_dir / "guide.md"
+
+    def test__resolve_source_path__nested_page(self, source_dir: Path) -> None:
+        """Resolve nested page path."""
+        builder = SiteBuilder(source_dir)
+        builder.add_page("Deep", "/domain/subdomain/page", "domain/subdomain/page.md")
+        site = builder.build()
+
+        result = site.resolve_source_path("/domain/subdomain/page")
+
+        assert result == source_dir / "domain/subdomain/page.md"
+
+    def test__resolve_source_path__not_found__returns_none(
+        self, source_dir: Path
+    ) -> None:
+        """Return None when page not found."""
+        site = SiteBuilder(source_dir).build()
+
+        result = site.resolve_source_path("/nonexistent")
+
+        assert result is None
+
+    def test__resolve_source_path__normalizes_path(self, source_dir: Path) -> None:
+        """Normalize path without leading slash."""
+        builder = SiteBuilder(source_dir)
+        builder.add_page("Guide", "/guide", "guide.md")
+        site = builder.build()
+
+        result = site.resolve_source_path("guide")
+
+        assert result == source_dir / "guide.md"
+
 
 class TestSiteBuilder:
     """Tests for SiteBuilder class."""
