@@ -55,19 +55,6 @@ class TestBuildNavigation:
         assert domain.children[0].title == "Setup Guide"
         assert domain.children[0].path == "/domain-a/guide"
 
-    def test__with_root_path__returns_subtree(self, source_dir: Path) -> None:
-        """Return subtree when root_path is specified."""
-        builder = SiteBuilder(source_dir)
-        parent_idx = builder.add_page("Domain A", "/domain-a", "domain-a/index.md")
-        builder.add_page("Guide", "/domain-a/guide", "domain-a/guide.md", parent_idx)
-        builder.add_page("Other", "/other", "other.md")
-        site = builder.build()
-
-        nav = build_navigation(site, "/domain-a")
-
-        assert len(nav) == 1
-        assert nav[0].title == "Guide"
-
     def test__deeply_nested__builds_full_tree(self, source_dir: Path) -> None:
         """Build navigation for deeply nested structure."""
         builder = SiteBuilder(source_dir)

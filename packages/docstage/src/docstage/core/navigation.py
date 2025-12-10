@@ -34,22 +34,16 @@ class NavItem:
         return result
 
 
-def build_navigation(site: Site, root_path: str | None = None) -> list[NavItem]:
+def build_navigation(site: Site) -> list[NavItem]:
     """Build navigation tree from site structure.
 
     Args:
         site: Site structure to build navigation from
-        root_path: Optional path to start from (for subtrees)
 
     Returns:
         List of NavItem trees for navigation UI
     """
-    if root_path:
-        pages = site.get_children(root_path)
-    else:
-        pages = site.get_root_pages()
-
-    return [_build_nav_item(site, page) for page in pages]
+    return [_build_nav_item(site, page) for page in site.get_root_pages()]
 
 
 def _build_nav_item(site: Site, page: Page) -> NavItem:
