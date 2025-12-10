@@ -2,7 +2,72 @@
 
 ## [Unreleased]
 
+### 2025-12-10
+- Add pytest-cov (>=7.0.0) to dev dependencies for test coverage reports
+  - Configure pytest to auto-run coverage with `--cov=docstage --cov-report=term-missing`
+- Add cargo-llvm-cov for Rust code coverage (`cargo llvm-cov --lib`)
+- Add Vitest + @testing-library/svelte for frontend testing
+  - Configure coverage with v8 provider
+  - Add `npm run test` and `npm run test:watch` scripts
+  - Add 64 tests: router (25), navigation store (16), page store (10), API client (9), ui store (4)
+  - All TypeScript stores and API client at 100% coverage
+  - Frontend coverage improved from 0.8% to 40%
+- Fix breadcrumb tests to expect Home link at start of breadcrumbs
+- Add Makefile with `build`, `test`, `format`, and `lint` commands
+- Set Prettier printWidth to 100 (matching Rust rustfmt default)
+- Fix lint issues: remove needless raw string hashes, remove unused imports
+- Add 16 tests for Python cache.py (diagram cache, hash function, edge cases)
+  - Cache coverage improved from 78% to 97%
+- Add 25 tests for Rust confluence.rs renderer
+  - Coverage improved from 53% to 95%
+  - Tests for lists, tables, links, images, code blocks, diagrams, escaping
+- Add 22 tests for Rust html.rs renderer
+  - Coverage improved from 85% to 95%
+  - Tests for lists, breaks, escaping, task lists, link resolution, headings
+- Add 10 tests for Python navigation.py
+  - Coverage improved from 97% to 100%
+  - Tests for source_dir property, unreadable files, get_subtree edge cases, sorting
+- Add 10 tests for Rust plantuml.rs
+  - Coverage improved from 92% to 100%
+  - Tests for load_config_file, include depth limit, nested includes, fallback paths
+- Add 9 tests for Rust plantuml_filter.rs
+  - Coverage improved from 92% to 97%
+  - Tests for diagrams() ref, is_plantuml edge cases, empty blocks, whitespace preservation
+- Add 9 tests for Python renderer.py
+  - Coverage improved from 85% to 100%
+  - Tests for source_dir property, Kroki path, options (extract_title, dpi, include_dirs)
+- Add 16 tests for Python config.py
+  - Coverage improved from 81% to 99%
+  - Tests for live_reload parsing, invalid section types, validation edge cases
+- Add 14 tests for Rust diagram_filter.rs
+  - Coverage improved from 93% to 99%
+  - Tests for all diagram languages, format parsing, warnings, clone/copy traits
+- Add 13 tests for Python diagrams.py
+  - Coverage improved from 87% to 100%
+  - Tests for cache hit/miss, PNG rendering, error handling, placeholder replacement
+- Add 20 tests for frontend liveReload.ts
+  - Coverage improved from 0% to 98%
+  - Tests for WebSocket connection, reconnect logic, message handling, onReload callback
+- Add Playwright E2E tests for frontend (19 tests)
+  - Tests for navigation: sidebar, expand/collapse, page navigation, breadcrumbs
+  - Tests for page content: markdown rendering, code highlighting, internal links, ToC
+  - Tests for mobile: hamburger menu, drawer open/close, escape key, content visibility
+  - Uses webServer config to auto-start docstage backend during tests
+- Improve breadcrumb generation in pages API
+  - Skip non-navigable paths (directories without index.md) in breadcrumbs
+  - Use navigation tree to look up titles instead of generating from path
+  - Breadcrumbs show only ancestor paths, excluding current page
+- Create RD-006: Structured Documentation and Generated Artifacts
+  - Three-phase problem: Metadata Schema + Entity Discovery + Artifact Generation
+  - Phase 1 (Metadata): Implicit, Frontmatter, Schema definition, Open schema
+  - Phase 2 (Discovery): Convention-based, Metadata-based, Schema-based
+  - Phase 3 (Generation): Plugin system, Template engine, Built-in generators
+
 ### 2025-12-09
+- Move Confluence CLI commands to `confluence` subcommand
+  - Commands now use `docstage confluence <command>` instead of `docstage <command>`
+  - Affected commands: `convert`, `create`, `update`, `get-page`, `test-auth`, `test-create`, `generate-tokens`, `comments`, `upload-mkdocs`
+  - The `serve` command remains at root level
 - Remove `/docs` prefix from URL paths
   - Navigation paths now use clean URLs (e.g., `/domain/page` instead of `/docs/domain/page`)
   - Frontend router updated to treat any non-root path as a document page

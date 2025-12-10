@@ -9,6 +9,9 @@ Documentation engine for Backstage. Convert markdown files to Confluence pages w
 ```bash
 uv sync
 cp docstage.toml.example docstage.toml
+
+# Install coverage tool (optional, for running `make test`)
+cargo install cargo-llvm-cov
 ```
 
 Edit `docstage.toml` with your settings and place `private_key.pem` in the project root.
@@ -69,31 +72,37 @@ uv run docstage serve
 
 # Start server without live reload
 uv run docstage serve --no-live-reload
+```
 
+## Confluence Publishing
+
+All Confluence-related commands are grouped under the `confluence` subcommand:
+
+```bash
 # Generate OAuth tokens (requires write permissions in Confluence)
-uv run docstage generate-tokens
+uv run docstage confluence generate-tokens
 
 # Test authentication
-uv run docstage test-auth
+uv run docstage confluence test-auth
 
 # Preview markdown conversion
-uv run docstage convert document.md
+uv run docstage confluence convert document.md
 
 # Create a new page
-uv run docstage create document.md "Page Title" --space ARCH
+uv run docstage confluence create document.md "Page Title" --space ARCH
 
 # Update an existing page
-uv run docstage update document.md <page-id> -m "Update message"
+uv run docstage confluence update document.md <page-id> -m "Update message"
 
 # Get page info
-uv run docstage get-page <page-id>
+uv run docstage confluence get-page <page-id>
 ```
 
 ## OAuth Permissions
 
 OAuth tokens inherit the authorizing user's permissions. If you get `500` errors on create/update:
 1. Verify you can create/edit pages manually in the target space
-2. Regenerate tokens with `uv run docstage generate-tokens`
+2. Regenerate tokens with `uv run docstage confluence generate-tokens`
 
 ## Technical Details
 

@@ -10,7 +10,7 @@ from docstage.core.renderer import PageRenderer
 class TestPageRendererRender:
     """Tests for PageRenderer.render()."""
 
-    def test_renders_markdown_file(self, tmp_path: Path) -> None:
+    def test__simple_markdown__renders_to_html(self, tmp_path: Path) -> None:
         """Render a simple markdown file to HTML."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -26,7 +26,7 @@ class TestPageRendererRender:
         assert result.title == "Guide"
         assert result.from_cache is False
 
-    def test_raises_for_missing_file(self, tmp_path: Path) -> None:
+    def test__missing_file__raises_file_not_found(self, tmp_path: Path) -> None:
         """Raise FileNotFoundError when source file doesn't exist."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -37,7 +37,7 @@ class TestPageRendererRender:
         with pytest.raises(FileNotFoundError, match="Source file not found"):
             renderer.render("nonexistent")
 
-    def test_returns_cached_result(self, tmp_path: Path) -> None:
+    def test__second_render__returns_cached_result(self, tmp_path: Path) -> None:
         """Return cached result on subsequent renders."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -55,7 +55,7 @@ class TestPageRendererRender:
         assert result2.html == result1.html
         assert result2.title == result1.title
 
-    def test_invalidates_cache_on_mtime_change(self, tmp_path: Path) -> None:
+    def test__mtime_change__invalidates_cache(self, tmp_path: Path) -> None:
         """Re-render when source file mtime changes."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -78,7 +78,7 @@ class TestPageRendererRender:
         assert result2.from_cache is False
         assert "Updated content" in result2.html
 
-    def test_renders_nested_path(self, tmp_path: Path) -> None:
+    def test__nested_path__renders_correctly(self, tmp_path: Path) -> None:
         """Render markdown file in nested directory."""
         source_dir = tmp_path / "docs"
         nested_dir = source_dir / "domain" / "subdomain"
@@ -93,7 +93,7 @@ class TestPageRendererRender:
         assert result.title == "Nested Guide"
         assert "Deep content" in result.html
 
-    def test_resolves_index_md(self, tmp_path: Path) -> None:
+    def test__directory_path__resolves_to_index_md(self, tmp_path: Path) -> None:
         """Resolve path to index.md when direct path doesn't exist."""
         source_dir = tmp_path / "docs"
         domain_dir = source_dir / "domain"
@@ -108,7 +108,7 @@ class TestPageRendererRender:
         assert result.title == "Domain Index"
         assert "Index content" in result.html
 
-    def test_extracts_toc(self, tmp_path: Path) -> None:
+    def test__headings__extracts_toc(self, tmp_path: Path) -> None:
         """Extract table of contents from markdown."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -143,7 +143,7 @@ Steps.
         assert result.toc[2].level == 3
         assert result.toc[2].title == "Installation"
 
-    def test_preserves_toc_in_cache(self, tmp_path: Path) -> None:
+    def test__cached_result__preserves_toc(self, tmp_path: Path) -> None:
         """Preserve ToC structure when loaded from cache."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -165,7 +165,7 @@ Steps.
 class TestPageRendererInvalidate:
     """Tests for PageRenderer.invalidate()."""
 
-    def test_invalidates_cached_entry(self, tmp_path: Path) -> None:
+    def test__cached_entry__invalidates_on_call(self, tmp_path: Path) -> None:
         """Invalidate cache entry for path."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -184,7 +184,7 @@ class TestPageRendererInvalidate:
 class TestPageRendererProperties:
     """Tests for PageRenderer properties."""
 
-    def test_source_dir_property(self, tmp_path: Path) -> None:
+    def test__source_dir__returns_path(self, tmp_path: Path) -> None:
         """Return source directory from property."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -198,7 +198,7 @@ class TestPageRendererProperties:
 class TestPageRendererWithKroki:
     """Tests for PageRenderer with Kroki diagram rendering."""
 
-    def test_renders_without_diagrams_when_kroki_set(self, tmp_path: Path) -> None:
+    def test__kroki_set_no_diagrams__renders_content(self, tmp_path: Path) -> None:
         """Render markdown without diagrams even when kroki_url is set."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -217,11 +217,10 @@ class TestPageRendererWithKroki:
         assert "No diagrams here" in result.html
         assert result.from_cache is False
 
-    def test_extracts_diagrams_for_kroki(self, tmp_path: Path) -> None:
-        """Extract diagrams when kroki_url is set (mocked, no actual HTTP)."""
+    def test__kroki_set_with_diagram__extracts_diagram(self, tmp_path: Path) -> None:
+        """Extract diagrams when kroki_url is set (Kroki call expected to fail)."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        # Create markdown with a plantuml diagram
         (source_dir / "guide.md").write_text(
             "# Guide\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```\n\nText after."
         )
@@ -233,23 +232,18 @@ class TestPageRendererWithKroki:
             kroki_url="https://kroki.io",
         )
 
-        # This will fail to connect to Kroki but exercises the code path
-        # The diagram rendering is done via HTTP, which we don't mock here
-        # Instead, we verify the extraction path is taken
-        try:
-            result = renderer.render("guide")
-            # If somehow it works (cached or mock), check structure
-            assert result.title == "Guide"
-        except Exception:
-            # Expected - can't connect to Kroki in tests
-            # The important thing is the code path was exercised
-            pass
+        # Kroki request will fail - diagram appears as error in result
+        result = renderer.render("guide")
+
+        assert result.title == "Guide"
+        # Verify diagram extraction was attempted (error HTML contains diagram placeholder)
+        assert "diagram" in result.html.lower()
 
 
 class TestPageRendererOptions:
     """Tests for PageRenderer configuration options."""
 
-    def test_extract_title_false(self, tmp_path: Path) -> None:
+    def test__extract_title_false__keeps_h1_in_output(self, tmp_path: Path) -> None:
         """Keep H1 in output when extract_title is False."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -265,7 +259,7 @@ class TestPageRendererOptions:
         assert "<h1" in result.html
         assert "My Title" in result.html
 
-    def test_custom_dpi(self, tmp_path: Path) -> None:
+    def test__custom_dpi__accepted(self, tmp_path: Path) -> None:
         """Accept custom DPI setting."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -278,7 +272,7 @@ class TestPageRendererOptions:
 
         assert result.title == "Guide"
 
-    def test_include_dirs_option(self, tmp_path: Path) -> None:
+    def test__include_dirs__accepted(self, tmp_path: Path) -> None:
         """Accept custom include directories."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -297,7 +291,7 @@ class TestPageRendererOptions:
 
         assert result.title == "Guide"
 
-    def test_config_file_option(self, tmp_path: Path) -> None:
+    def test__config_file__accepted(self, tmp_path: Path) -> None:
         """Accept config file option."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -319,7 +313,7 @@ class TestPageRendererOptions:
 class TestRenderResult:
     """Tests for RenderResult dataclass."""
 
-    def test_render_result_warnings(self, tmp_path: Path) -> None:
+    def test__fresh_render__has_warnings_list(self, tmp_path: Path) -> None:
         """RenderResult includes warnings list."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -333,7 +327,7 @@ class TestRenderResult:
         # Fresh render should have warnings (empty list)
         assert isinstance(result.warnings, list)
 
-    def test_cached_result_has_empty_warnings(self, tmp_path: Path) -> None:
+    def test__cached_result__has_empty_warnings(self, tmp_path: Path) -> None:
         """Cached results have empty warnings list."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()

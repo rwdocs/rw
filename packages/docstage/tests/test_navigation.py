@@ -9,7 +9,7 @@ from docstage.core.navigation import NavigationBuilder, NavigationTree, NavItem
 class TestNavigationBuilderBuild:
     """Tests for NavigationBuilder.build()."""
 
-    def test_returns_empty_tree_for_missing_dir(self, tmp_path: Path) -> None:
+    def test__missing_dir__returns_empty_tree(self, tmp_path: Path) -> None:
         """Return empty tree when source directory doesn't exist."""
         builder = NavigationBuilder(tmp_path / "nonexistent")
 
@@ -17,7 +17,7 @@ class TestNavigationBuilderBuild:
 
         assert tree.items == []
 
-    def test_returns_empty_tree_for_empty_dir(self, tmp_path: Path) -> None:
+    def test__empty_dir__returns_empty_tree(self, tmp_path: Path) -> None:
         """Return empty tree when source directory is empty."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -28,7 +28,7 @@ class TestNavigationBuilderBuild:
 
         assert tree.items == []
 
-    def test_builds_flat_structure(self, tmp_path: Path) -> None:
+    def test__flat_structure__builds_tree(self, tmp_path: Path) -> None:
         """Build tree from flat directory with markdown files."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -44,7 +44,7 @@ class TestNavigationBuilderBuild:
         assert "API Reference" in titles
         assert "User Guide" in titles
 
-    def test_builds_nested_structure(self, tmp_path: Path) -> None:
+    def test__nested_structure__builds_tree(self, tmp_path: Path) -> None:
         """Build tree from nested directory structure."""
         source_dir = tmp_path / "docs"
         domain_dir = source_dir / "domain-a"
@@ -64,7 +64,7 @@ class TestNavigationBuilderBuild:
         assert domain.children[0].title == "Setup Guide"
         assert domain.children[0].path == "/domain-a/guide"
 
-    def test_extracts_title_from_h1(self, tmp_path: Path) -> None:
+    def test__file_with_h1__extracts_title(self, tmp_path: Path) -> None:
         """Extract title from first H1 heading."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -76,7 +76,7 @@ class TestNavigationBuilderBuild:
 
         assert tree.items[0].title == "My Custom Title"
 
-    def test_falls_back_to_filename(self, tmp_path: Path) -> None:
+    def test__file_without_h1__falls_back_to_filename(self, tmp_path: Path) -> None:
         """Fall back to filename when no H1 heading."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -88,7 +88,7 @@ class TestNavigationBuilderBuild:
 
         assert tree.items[0].title == "Setup Guide"
 
-    def test_skips_hidden_files(self, tmp_path: Path) -> None:
+    def test__hidden_files__skips_them(self, tmp_path: Path) -> None:
         """Skip files starting with dot."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -102,7 +102,7 @@ class TestNavigationBuilderBuild:
         assert len(tree.items) == 1
         assert tree.items[0].title == "Visible"
 
-    def test_skips_underscore_files(self, tmp_path: Path) -> None:
+    def test__underscore_files__skips_them(self, tmp_path: Path) -> None:
         """Skip files starting with underscore."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -116,7 +116,7 @@ class TestNavigationBuilderBuild:
         assert len(tree.items) == 1
         assert tree.items[0].title == "Main"
 
-    def test_skips_index_md_as_item(self, tmp_path: Path) -> None:
+    def test__index_md__skips_as_item(self, tmp_path: Path) -> None:
         """Don't include index.md as separate navigation item."""
         source_dir = tmp_path / "docs"
         domain_dir = source_dir / "domain"
@@ -133,7 +133,7 @@ class TestNavigationBuilderBuild:
         assert len(domain.children) == 1
         assert domain.children[0].title == "Guide"
 
-    def test_skips_empty_directories(self, tmp_path: Path) -> None:
+    def test__empty_directories__skips_them(self, tmp_path: Path) -> None:
         """Skip directories with no markdown files and no index.md."""
         source_dir = tmp_path / "docs"
         empty_dir = source_dir / "empty"
@@ -147,7 +147,7 @@ class TestNavigationBuilderBuild:
         assert len(tree.items) == 1
         assert tree.items[0].title == "Guide"
 
-    def test_promotes_children_when_directory_has_no_index(
+    def test__directory_without_index__promotes_children(
         self,
         tmp_path: Path,
     ) -> None:
@@ -167,7 +167,7 @@ class TestNavigationBuilderBuild:
         assert tree.items[0].title == "Child Page"
         assert tree.items[0].path == "/no-index/child"
 
-    def test_promotes_nested_children_when_parent_has_no_index(
+    def test__nested_dir_without_index__promotes_nested_children(
         self,
         tmp_path: Path,
     ) -> None:
@@ -188,7 +188,7 @@ class TestNavigationBuilderBuild:
         assert tree.items[0].title == "Domain A"
         assert tree.items[0].path == "/wrapper/domain-a"
 
-    def test_uses_cache(self, tmp_path: Path) -> None:
+    def test__with_cache__uses_cached_result(self, tmp_path: Path) -> None:
         """Use cached navigation on subsequent builds."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -205,7 +205,7 @@ class TestNavigationBuilderBuild:
         # Should return cached version
         assert len(tree.items) == 1
 
-    def test_bypasses_cache_when_disabled(self, tmp_path: Path) -> None:
+    def test__use_cache_false__bypasses_cache(self, tmp_path: Path) -> None:
         """Bypass cache when use_cache=False."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -224,7 +224,7 @@ class TestNavigationBuilderBuild:
 class TestNavigationBuilderGetSubtree:
     """Tests for NavigationBuilder.get_subtree()."""
 
-    def test_returns_subtree_for_path(self, tmp_path: Path) -> None:
+    def test__valid_path__returns_subtree(self, tmp_path: Path) -> None:
         """Return subtree for specific section path."""
         source_dir = tmp_path / "docs"
         domain_dir = source_dir / "domain-a" / "sub"
@@ -241,7 +241,7 @@ class TestNavigationBuilderGetSubtree:
         assert len(subtree.items) == 1
         assert subtree.items[0].title == "Sub"
 
-    def test_returns_none_for_invalid_path(self, tmp_path: Path) -> None:
+    def test__invalid_path__returns_none(self, tmp_path: Path) -> None:
         """Return None when path doesn't exist in tree."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -257,7 +257,7 @@ class TestNavigationBuilderGetSubtree:
 class TestNavigationBuilderInvalidate:
     """Tests for NavigationBuilder.invalidate()."""
 
-    def test_invalidates_cached_navigation(self, tmp_path: Path) -> None:
+    def test__with_cache__invalidates_cached_navigation(self, tmp_path: Path) -> None:
         """Invalidate cached navigation tree."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -277,7 +277,7 @@ class TestNavigationBuilderInvalidate:
 class TestNavItem:
     """Tests for NavItem dataclass."""
 
-    def test_to_dict_minimal(self) -> None:
+    def test__no_children__to_dict_returns_minimal(self) -> None:
         """Convert item without children to dict."""
         item = NavItem(title="Guide", path="/guide")
 
@@ -285,7 +285,7 @@ class TestNavItem:
 
         assert result == {"title": "Guide", "path": "/guide"}
 
-    def test_to_dict_with_children(self) -> None:
+    def test__with_children__to_dict_includes_children(self) -> None:
         """Convert item with children to dict."""
         child = NavItem(title="Sub", path="/parent/sub")
         item = NavItem(title="Parent", path="/parent", children=[child])
@@ -304,7 +304,7 @@ class TestNavItem:
 class TestNavigationTree:
     """Tests for NavigationTree dataclass."""
 
-    def test_to_dict(self) -> None:
+    def test__with_items__to_dict_returns_items(self) -> None:
         """Convert tree to dict."""
         item = NavItem(title="Guide", path="/guide")
         tree = NavigationTree(items=[item])
@@ -321,7 +321,7 @@ class TestNavigationTree:
 class TestNavigationBuilderProperties:
     """Tests for NavigationBuilder properties."""
 
-    def test_source_dir_property(self, tmp_path: Path) -> None:
+    def test__source_dir__returns_path(self, tmp_path: Path) -> None:
         """Return source directory from property."""
         source_dir = tmp_path / "docs"
         builder = NavigationBuilder(source_dir)
@@ -332,7 +332,7 @@ class TestNavigationBuilderProperties:
 class TestNavigationBuilderExtractTitle:
     """Tests for title extraction edge cases."""
 
-    def test_extract_title_handles_unreadable_file(self, tmp_path: Path) -> None:
+    def test__unreadable_file__falls_back_to_filename(self, tmp_path: Path) -> None:
         """Fall back to filename when file cannot be read."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -355,7 +355,7 @@ class TestNavigationBuilderExtractTitle:
 class TestNavigationBuilderInvalidateNoCache:
     """Tests for invalidate without cache."""
 
-    def test_invalidate_does_nothing_without_cache(self, tmp_path: Path) -> None:
+    def test__no_cache__invalidate_is_noop(self, tmp_path: Path) -> None:
         """Invalidate is a no-op when no cache is configured."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -368,7 +368,7 @@ class TestNavigationBuilderInvalidateNoCache:
 class TestNavigationBuilderGetSubtreeEdgeCases:
     """Tests for get_subtree edge cases."""
 
-    def test_get_subtree_empty_path(self, tmp_path: Path) -> None:
+    def test__empty_path__returns_full_tree(self, tmp_path: Path) -> None:
         """Return full tree items for empty path."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -382,7 +382,7 @@ class TestNavigationBuilderGetSubtreeEdgeCases:
         assert len(subtree.items) == 1
         assert subtree.items[0].title == "Guide"
 
-    def test_get_subtree_with_leading_slash(self, tmp_path: Path) -> None:
+    def test__leading_slash__returns_subtree(self, tmp_path: Path) -> None:
         """Handle path with leading slash."""
         source_dir = tmp_path / "docs"
         domain_dir = source_dir / "domain"
@@ -398,7 +398,7 @@ class TestNavigationBuilderGetSubtreeEdgeCases:
         assert len(subtree.items) == 1
         assert subtree.items[0].title == "Guide"
 
-    def test_get_subtree_deeply_nested(self, tmp_path: Path) -> None:
+    def test__deeply_nested_path__returns_subtree(self, tmp_path: Path) -> None:
         """Navigate through deeply nested structure."""
         source_dir = tmp_path / "docs"
         deep_dir = source_dir / "a" / "b" / "c"
@@ -420,7 +420,7 @@ class TestNavigationBuilderGetSubtreeEdgeCases:
 class TestNavigationBuilderTitleFromName:
     """Tests for title generation from filename."""
 
-    def test_title_from_snake_case(self, tmp_path: Path) -> None:
+    def test__snake_case__converts_to_title_case(self, tmp_path: Path) -> None:
         """Convert snake_case to Title Case."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -432,7 +432,7 @@ class TestNavigationBuilderTitleFromName:
 
         assert tree.items[0].title == "My Great Guide"
 
-    def test_title_from_mixed_separators(self, tmp_path: Path) -> None:
+    def test__mixed_separators__converts_to_title_case(self, tmp_path: Path) -> None:
         """Handle both hyphens and underscores."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -448,7 +448,7 @@ class TestNavigationBuilderTitleFromName:
 class TestNavigationBuilderSorting:
     """Tests for sorting behavior."""
 
-    def test_directories_sorted_before_files(self, tmp_path: Path) -> None:
+    def test__mixed_dirs_and_files__directories_first(self, tmp_path: Path) -> None:
         """Directories appear before files in navigation."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
@@ -466,9 +466,7 @@ class TestNavigationBuilderSorting:
         assert tree.items[0].title == "Aardvark"
         assert tree.items[1].title == "Zebra"
 
-    def test_items_sorted_alphabetically_case_insensitive(
-        self, tmp_path: Path
-    ) -> None:
+    def test__mixed_case_names__sorted_case_insensitive(self, tmp_path: Path) -> None:
         """Items sorted case-insensitively."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
