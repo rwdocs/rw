@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### 2025-12-10
+- Separate document structure (Site) from navigation (NavItem)
+  - Add `Site` class for document hierarchy with O(1) path lookups
+  - Add `Page` dataclass for document metadata (title, path)
+  - Add `SiteBuilder` for constructing Site instances
+  - Site handles breadcrumbs via `get_breadcrumbs()` method
+  - `NavItem` restored to simple tree structure with children for UI
+  - `build_navigation()` function creates NavItem tree from Site
+  - NavigationBuilder.build() returns `list[NavItem]` for navigation UI
+  - NavigationBuilder.build_site() returns `Site` for page operations
 - Add pytest-cov (>=7.0.0) to dev dependencies for test coverage reports
   - Configure pytest to auto-run coverage with `--cov=docstage --cov-report=term-missing`
 - Add cargo-llvm-cov for Rust code coverage (`cargo llvm-cov --lib`)

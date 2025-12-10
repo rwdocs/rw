@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, TypedDict
 
+from docstage.core.site import Page, Site, SiteBuilder
+
 
 class NavItemDict(TypedDict, total=False):
     """Dictionary representation of a navigation item."""
@@ -43,7 +45,7 @@ class NavigationCache(Protocol):
 
 @dataclass
 class NavItem:
-    """Navigation tree item."""
+    """Navigation item with children for UI tree."""
 
     title: str
     path: str
@@ -51,32 +53,44 @@ class NavItem:
 
     def to_dict(self) -> NavItemDict:
         """Convert to dictionary for JSON serialization."""
-        result: NavItemDict = {
-            "title": self.title,
-            "path": self.path,
-        }
+        result: NavItemDict = {"title": self.title, "path": self.path}
         if self.children:
             result["children"] = [child.to_dict() for child in self.children]
         return result
 
 
-@dataclass
-class NavigationTree:
-    """Complete navigation tree."""
+def build_navigation(site: Site, root_path: str | None = None) -> list[NavItem]:
+    """Build navigation tree from site structure.
 
-    items: list[NavItem]
+    Args:
+        site: Site structure to build navigation from
+        root_path: Optional path to start from (for subtrees)
 
-    def to_dict(self) -> NavigationTreeDict:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "items": [item.to_dict() for item in self.items],
-        }
+    Returns:
+        List of NavItem trees for navigation UI
+    """
+    if root_path:
+        pages = site.get_children(root_path)
+    else:
+        pages = site.get_root_pages()
+
+    return [_build_nav_item(site, page) for page in pages]
+
+
+def _build_nav_item(site: Site, page: Page) -> NavItem:
+    """Recursively build NavItem from page."""
+    children = site.get_children(page.path)
+    return NavItem(
+        title=page.title,
+        path=page.path,
+        children=[_build_nav_item(site, child) for child in children],
+    )
 
 
 class NavigationBuilder:
-    """Builds navigation trees from directory structure.
+    """Builds site structure and navigation from directory structure.
 
-    Scans the source directory for markdown files and builds a tree structure.
+    Scans the source directory for markdown files and builds a Site structure.
     Uses index.md files as section landing pages. Extracts titles from the
     first H1 heading in each document, falling back to filename-based titles.
     """
@@ -94,89 +108,96 @@ class NavigationBuilder:
         """
         self._source_dir = source_dir
         self._cache = cache
+        self._site: Site | None = None
 
     @property
     def source_dir(self) -> Path:
         """Root directory containing markdown sources."""
         return self._source_dir
 
-    def build(self, *, use_cache: bool = True) -> NavigationTree:
+    def build_site(self, *, use_cache: bool = True) -> Site:
+        """Build site structure from directory.
+
+        Args:
+            use_cache: Whether to use cached data if available
+
+        Returns:
+            Site with all discovered documents
+        """
+        if use_cache and self._cache is not None:
+            cached = self._cache.get_navigation()
+            if cached is not None:
+                self._site = self._site_from_cached(cached)
+                return self._site
+
+        self._site = self._build_site_from_filesystem()
+
+        if self._cache is not None:
+            nav = build_navigation(self._site)
+            self._cache.set_navigation({"items": [item.to_dict() for item in nav]})
+
+        return self._site
+
+    def build(self, *, use_cache: bool = True) -> list[NavItem]:
         """Build navigation tree from directory structure.
 
         Args:
             use_cache: Whether to use cached navigation if available
 
         Returns:
-            NavigationTree with all discovered documents
+            List of NavItem for navigation UI
         """
-        if use_cache and self._cache is not None:
-            cached = self._cache.get_navigation()
-            if cached is not None:
-                return self._from_cached(cached)
-
-        tree = self._build_from_filesystem()
-
-        if self._cache is not None:
-            self._cache.set_navigation(tree.to_dict())
-
-        return tree
+        site = self.build_site(use_cache=use_cache)
+        return build_navigation(site)
 
     def invalidate(self) -> None:
         """Invalidate cached navigation tree."""
+        self._site = None
         if self._cache is not None:
             self._cache.invalidate_navigation()
 
-    def get_subtree(self, path: str) -> NavigationTree | None:
+    def get_subtree(self, path: str) -> list[NavItem] | None:
         """Get navigation subtree for a specific section.
 
         Args:
             path: Section path (e.g., "domain-a/subdomain")
 
         Returns:
-            NavigationTree for the section, or None if not found
+            List of NavItem for the section, or None if not found
         """
-        tree = self.build()
-        parts = path.strip("/").split("/") if path else []
+        site = self.build_site()
 
-        items = tree.items
-        for part in parts:
-            found = None
-            for item in items:
-                item_last_part = (
-                    item.path.strip("/").split("/")[-1] if item.path else ""
-                )
-                if item_last_part == part:
-                    found = item
-                    break
-            if found is None:
-                return None
-            items = found.children
+        if not path:
+            return build_navigation(site)
 
-        return NavigationTree(items=items)
+        normalized = path if path.startswith("/") else f"/{path}"
+        page = site.get_page(normalized)
+        if page is None:
+            return None
 
-    def _build_from_filesystem(self) -> NavigationTree:
-        """Scan filesystem and build navigation tree.
+        return build_navigation(site, normalized)
 
-        Returns:
-            NavigationTree with all discovered documents
+    def _build_site_from_filesystem(self) -> Site:
+        """Scan filesystem and build site structure."""
+        builder = SiteBuilder()
+
+        if self._source_dir.exists():
+            self._scan_directory(self._source_dir, "", builder, None)
+
+        return builder.build()
+
+    def _scan_directory(
+        self,
+        dir_path: Path,
+        base_path: str,
+        builder: SiteBuilder,
+        parent_idx: int | None,
+    ) -> list[int]:
+        """Recursively scan directory for pages.
+
+        Returns list of page indices added at this level.
         """
-        if not self._source_dir.exists():
-            return NavigationTree(items=[])
-
-        items = self._scan_directory(self._source_dir, "")
-        return NavigationTree(items=items)
-
-    def _scan_directory(self, dir_path: Path, base_path: str) -> list[NavItem]:
-        """Recursively scan directory for navigation items.
-
-        Args:
-            dir_path: Directory to scan
-            base_path: URL path prefix for items in this directory
-
-        Returns:
-            List of NavItem for this directory level
-        """
-        items: list[NavItem] = []
+        indices: list[int] = []
 
         entries = sorted(
             dir_path.iterdir(),
@@ -188,80 +209,65 @@ class NavigationBuilder:
                 continue
 
             if entry.is_dir():
-                result = self._process_directory(entry, base_path)
-                if result is None:
-                    continue
-                if isinstance(result, list):
-                    items.extend(result)
-                else:
-                    items.append(result)
+                result = self._process_directory(entry, base_path, builder, parent_idx)
+                if result is not None:
+                    indices.extend(result)
             elif entry.suffix == ".md" and entry.name != "index.md":
-                item = self._process_file(entry, base_path)
-                items.append(item)
+                idx = self._process_file(entry, base_path, builder, parent_idx)
+                indices.append(idx)
 
-        return items
+        return indices
 
     def _process_directory(
         self,
         dir_path: Path,
         base_path: str,
-    ) -> NavItem | list[NavItem] | None:
-        """Process a directory into navigation item(s).
-
-        Args:
-            dir_path: Directory to process
-            base_path: URL path prefix
-
-        Returns:
-            NavItem for the directory if it has index.md,
-            list of child NavItems if directory has no index.md (promoted children),
-            or None if empty
-        """
+        builder: SiteBuilder,
+        parent_idx: int | None,
+    ) -> list[int] | None:
+        """Process a directory into page(s)."""
         dir_name = dir_path.name
         item_path = f"{base_path}/{dir_name}" if base_path else f"/{dir_name}"
 
         index_file = dir_path / "index.md"
-        children = self._scan_directory(dir_path, item_path)
 
         if not index_file.exists():
-            # No index.md - promote children to parent level, skip this directory
-            return children if children else None
+            # No index.md - promote children to parent level
+            child_indices = self._scan_directory(
+                dir_path, item_path, builder, parent_idx
+            )
+            return child_indices if child_indices else None
 
+        # Create page for this directory
         title = self._extract_title(index_file) or self._title_from_name(dir_name)
-        return NavItem(title=title, path=item_path, children=children)
+        page_idx = builder.add_page(title, item_path, parent_idx)
 
-    def _process_file(self, file_path: Path, base_path: str) -> NavItem:
-        """Process a markdown file into a navigation item.
+        # Scan children with this page as parent
+        self._scan_directory(dir_path, item_path, builder, page_idx)
 
-        Args:
-            file_path: Markdown file to process
-            base_path: URL path prefix
+        return [page_idx]
 
-        Returns:
-            NavItem for the file
-        """
+    def _process_file(
+        self,
+        file_path: Path,
+        base_path: str,
+        builder: SiteBuilder,
+        parent_idx: int | None,
+    ) -> int:
+        """Process a markdown file into a page."""
         file_name = file_path.stem
         item_path = f"{base_path}/{file_name}" if base_path else f"/{file_name}"
 
         title = self._extract_title(file_path) or self._title_from_name(file_name)
-
-        return NavItem(title=title, path=item_path)
+        return builder.add_page(title, item_path, parent_idx)
 
     def _extract_title(self, file_path: Path) -> str | None:
-        """Extract title from first H1 heading in markdown file.
-
-        Args:
-            file_path: Path to markdown file
-
-        Returns:
-            Title string, or None if no H1 found
-        """
+        """Extract title from first H1 heading in markdown file."""
         try:
             content = file_path.read_text(encoding="utf-8")
         except OSError:
             return None
 
-        # Match first H1 heading (# Title)
         match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
         if match:
             return match.group(1).strip()
@@ -269,45 +275,25 @@ class NavigationBuilder:
         return None
 
     def _title_from_name(self, name: str) -> str:
-        """Generate title from file/directory name.
-
-        Converts kebab-case and snake_case to Title Case.
-
-        Args:
-            name: File or directory name (without extension)
-
-        Returns:
-            Human-readable title
-        """
-        # Replace hyphens and underscores with spaces
+        """Generate title from file/directory name."""
         title = name.replace("-", " ").replace("_", " ")
-        # Title case
         return title.title()
 
-    def _from_cached(self, cached: NavigationTreeDict) -> NavigationTree:
-        """Reconstruct NavigationTree from cached dict.
+    def _site_from_cached(self, cached: NavigationTreeDict) -> Site:
+        """Reconstruct Site from cached navigation dict."""
+        builder = SiteBuilder()
+        self._cached_items_to_pages(cached["items"], builder, None)
+        return builder.build()
 
-        Args:
-            cached: Cached navigation dictionary
-
-        Returns:
-            NavigationTree instance
-        """
-        items = [self._dict_to_nav_item(item) for item in cached["items"]]
-        return NavigationTree(items=items)
-
-    def _dict_to_nav_item(self, data: NavItemDict) -> NavItem:
-        """Reconstruct NavItem from dictionary.
-
-        Args:
-            data: Dictionary with title, path, and optional children
-
-        Returns:
-            NavItem instance
-        """
-        children = [self._dict_to_nav_item(child) for child in data.get("children", [])]
-        return NavItem(
-            title=data["title"],
-            path=data["path"],
-            children=children,
-        )
+    def _cached_items_to_pages(
+        self,
+        items: list[NavItemDict],
+        builder: SiteBuilder,
+        parent_idx: int | None,
+    ) -> None:
+        """Reconstruct pages from cached navigation items."""
+        for data in items:
+            idx = builder.add_page(data["title"], data["path"], parent_idx)
+            children = data.get("children", [])
+            if children:
+                self._cached_items_to_pages(children, builder, idx)

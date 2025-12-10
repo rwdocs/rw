@@ -12,7 +12,6 @@ from time import mktime
 from aiohttp import web
 
 from docstage.app_keys import navigation_key, renderer_key, verbose_key
-from docstage.core.navigation import NavigationBuilder
 
 
 def create_pages_routes() -> list[web.RouteDef]:
@@ -48,7 +47,8 @@ async def get_page(request: web.Request) -> web.Response:
     if if_none_match == etag:
         return web.Response(status=304)
 
-    breadcrumbs = _build_breadcrumbs(path, navigation)
+    site = navigation.build_site()
+    breadcrumbs = [b.to_dict() for b in site.get_breadcrumbs(path)]
 
     response_data = {
         "meta": {
@@ -80,55 +80,3 @@ def _compute_etag(content: str) -> str:
     # collision probability is negligible for this use case
     content_hash = md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
     return f'"{content_hash}"'
-
-
-def _build_breadcrumbs(
-    path: str,
-    navigation: NavigationBuilder,
-) -> list[dict[str, str]]:
-    """Build breadcrumbs for the current page.
-
-    Always starts with "Home" linking to root, followed by navigable ancestor
-    paths (those with index.md files). Path segments without index.md are
-    skipped to avoid 404 errors.
-    """
-    # Always start with Home for non-root pages
-    if not path:
-        return []
-
-    breadcrumbs: list[dict[str, str]] = [{"title": "Home", "path": "/"}]
-
-    parts = path.split("/")
-    if len(parts) <= 1:
-        return breadcrumbs
-
-    parent_parts = parts[:-1]
-    nav_tree = navigation.build()
-    source_dir = navigation.source_dir
-
-    current_path = ""
-    items = nav_tree.items
-
-    for part in parent_parts:
-        current_path = f"{current_path}/{part}" if current_path else f"/{part}"
-        dir_path = source_dir / current_path.lstrip("/")
-
-        # Only include if directory has index.md (is navigable)
-        if not (dir_path / "index.md").exists():
-            # Update items for next iteration even if we skip this breadcrumb
-            for item in items:
-                if item.path == current_path:
-                    items = item.children
-                    break
-            continue
-
-        title = part.replace("-", " ").replace("_", " ").title()
-        for item in items:
-            if item.path == current_path:
-                title = item.title
-                items = item.children
-                break
-
-        breadcrumbs.append({"title": title, "path": current_path})
-
-    return breadcrumbs

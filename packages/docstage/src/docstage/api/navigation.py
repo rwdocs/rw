@@ -17,8 +17,8 @@ def create_navigation_routes() -> list[web.RouteDef]:
 
 async def get_navigation(request: web.Request) -> web.Response:
     navigation = request.app[navigation_key]
-    tree = navigation.build()
-    return web.json_response(tree.to_dict())
+    nav_items = navigation.build()
+    return web.json_response({"items": [item.to_dict() for item in nav_items]})
 
 
 async def get_navigation_subtree(request: web.Request) -> web.Response:
@@ -32,4 +32,4 @@ async def get_navigation_subtree(request: web.Request) -> web.Response:
             status=404,
         )
 
-    return web.json_response(subtree.to_dict())
+    return web.json_response({"items": [item.to_dict() for item in subtree]})
