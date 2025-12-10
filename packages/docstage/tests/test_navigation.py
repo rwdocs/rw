@@ -441,6 +441,59 @@ class TestNavigationBuilderTitleFromName:
         assert nav[0].title == "Api User Guide"
 
 
+class TestNavigationBuilderSiteCaching:
+    """Tests for Site instance caching."""
+
+    def test__build_site__caches_site_instance(self, tmp_path: Path) -> None:
+        """Site instance is cached and reused on subsequent calls."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+
+        builder = NavigationBuilder(source_dir)
+
+        site1 = builder.build_site()
+        site2 = builder.build_site()
+
+        # Same instance should be returned
+        assert site1 is site2
+
+    def test__build_site__invalidate_clears_cached_site(self, tmp_path: Path) -> None:
+        """Invalidate clears cached Site instance."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+
+        builder = NavigationBuilder(source_dir)
+
+        site1 = builder.build_site()
+        builder.invalidate()
+        (source_dir / "new.md").write_text("# New\n\nContent.")
+        site2 = builder.build_site()
+
+        # Different instance after invalidation
+        assert site1 is not site2
+        # New site should have both pages
+        assert site2.get_page("/new") is not None
+
+    def test__build__reuses_cached_site(self, tmp_path: Path) -> None:
+        """build() reuses Site from build_site() cache."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+
+        builder = NavigationBuilder(source_dir)
+
+        site = builder.build_site()
+        # Add new file - should not be picked up due to caching
+        (source_dir / "new.md").write_text("# New\n\nContent.")
+        nav = builder.build()
+
+        # Only original file should be in navigation (Site is cached)
+        assert len(nav) == 1
+        assert nav[0].title == "Guide"
+
+
 class TestNavigationBuilderSorting:
     """Tests for sorting behavior."""
 

@@ -36,6 +36,8 @@ class Site:
     building where d is the page depth.
     """
 
+    __slots__ = ("_children", "_pages", "_parents", "_path_index", "_roots")
+
     def __init__(
         self,
         pages: list[Page],
@@ -92,6 +94,11 @@ class Site:
 
         Returns breadcrumbs starting with "Home" for non-root pages,
         followed by ancestor pages. The current page is not included.
+
+        Note:
+            For unknown paths, returns [Home] to provide minimal navigation
+            in UI even when the page doesn't exist in the site structure.
+            This differs from get_page() which returns None for unknown paths.
 
         Args:
             path: Page path (e.g., "domain/page" or "/domain/page")

@@ -124,6 +124,10 @@ class NavigationBuilder:
         Returns:
             Site with all discovered documents
         """
+        # Return cached Site instance if available
+        if use_cache and self._site is not None:
+            return self._site
+
         if use_cache and self._cache is not None:
             cached = self._cache.get_navigation()
             if cached is not None:
@@ -193,9 +197,16 @@ class NavigationBuilder:
         builder: SiteBuilder,
         parent_idx: int | None,
     ) -> list[int]:
-        """Recursively scan directory for pages.
+        """Recursively scan directory and add pages to builder.
 
-        Returns list of page indices added at this level.
+        Args:
+            dir_path: Directory to scan
+            base_path: URL path prefix for items in this directory
+            builder: SiteBuilder to add pages to
+            parent_idx: Index of parent page in builder
+
+        Returns:
+            List of page indices added at this directory level
         """
         indices: list[int] = []
 
