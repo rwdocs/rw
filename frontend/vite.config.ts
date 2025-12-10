@@ -8,4 +8,15 @@ export default defineConfig({
       "/api": "http://localhost:8080",
     },
   },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    include: ["src/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/**/*.ts", "src/**/*.svelte"],
+      exclude: ["src/**/*.test.ts", "src/main.ts"],
+    },
+  },
 });

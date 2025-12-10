@@ -111,12 +111,12 @@ class TestGetPage:
         assert data["toc"][1]["title"] == "Section Two"
 
     @pytest.mark.asyncio
-    async def test__response__empty_breadcrumbs_when_parent_not_navigable(
+    async def test__response__home_breadcrumb_when_parent_not_navigable(
         self,
         docs_dir: Path,
         client,
     ) -> None:
-        """Return empty breadcrumbs when parent directory has no index.md."""
+        """Return only Home breadcrumb when parent directory has no index.md."""
         domain = docs_dir / "domain"
         domain.mkdir()
         # domain has no index.md, so it's not navigable
@@ -127,8 +127,8 @@ class TestGetPage:
 
         assert response.status == 200
         data = await response.json()
-        # No navigable parents, so breadcrumbs should be empty
-        assert data["breadcrumbs"] == []
+        # Only Home breadcrumb, domain is skipped (no index.md)
+        assert data["breadcrumbs"] == [{"title": "Home", "path": "/"}]
 
     @pytest.mark.asyncio
     async def test__response__includes_only_navigable_breadcrumbs(
@@ -148,8 +148,9 @@ class TestGetPage:
 
         assert response.status == 200
         data = await response.json()
-        # Only /domain has index.md, subdomain is skipped (would cause 404)
+        # Home + /domain, subdomain is skipped (no index.md, would cause 404)
         assert data["breadcrumbs"] == [
+            {"title": "Home", "path": "/"},
             {"title": "Domain", "path": "/domain"},
         ]
 
@@ -172,6 +173,7 @@ class TestGetPage:
         assert response.status == 200
         data = await response.json()
         assert data["breadcrumbs"] == [
+            {"title": "Home", "path": "/"},
             {"title": "Domain", "path": "/domain"},
             {"title": "Subdomain", "path": "/domain/subdomain"},
         ]
