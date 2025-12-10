@@ -13,16 +13,19 @@ Cache structure:
     ├── diagrams/
     │   └── <content_hash>.svg       # Rendered SVG diagrams
     │   └── <content_hash>.png       # Rendered PNG diagrams (base64 data URI)
-    └── navigation.json              # Full nav tree
+    └── site.json                    # Site structure
 """
+
+from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
-from docstage.core.navigation import NavigationTreeDict
+if TYPE_CHECKING:
+    from docstage.core.site import Site
 
 
 class CachedMetadata(TypedDict):
@@ -176,39 +179,55 @@ class FileCache:
         if self._meta_dir.exists():
             shutil.rmtree(self._meta_dir)
 
-    def get_navigation(self) -> NavigationTreeDict | None:
-        """Retrieve cached navigation tree.
+    def get_site(self) -> Site | None:
+        """Retrieve cached site structure.
 
         Returns:
-            Navigation dict if exists, None otherwise
+            Site if exists, None otherwise
         """
-        nav_path = self._cache_dir / "navigation.json"
-        if not nav_path.exists():
+        from docstage.core.site import Page, Site
+
+        site_path = self._cache_dir / "site.json"
+        if not site_path.exists():
             return None
 
         try:
-            result: NavigationTreeDict = json.loads(
-                nav_path.read_text(encoding="utf-8"),
-            )
-            return result
+            data = json.loads(site_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
 
-    def set_navigation(self, navigation: NavigationTreeDict) -> None:
-        """Store navigation tree in cache.
+        # Reconstruct Site from cached data
+        pages = [Page(title=p["title"], path=p["path"]) for p in data["pages"]]
+        return Site(
+            pages=pages,
+            children=data["children"],
+            parents=data["parents"],
+            roots=data["roots"],
+        )
+
+    def set_site(self, site: Site) -> None:
+        """Store site structure in cache.
 
         Args:
-            navigation: Navigation tree dictionary
+            site: Site to cache
         """
         self._ensure_cache_dir()
-        nav_path = self._cache_dir / "navigation.json"
-        nav_path.write_text(json.dumps(navigation), encoding="utf-8")
+        site_path = self._cache_dir / "site.json"
 
-    def invalidate_navigation(self) -> None:
-        """Remove cached navigation tree."""
-        nav_path = self._cache_dir / "navigation.json"
-        if nav_path.exists():
-            nav_path.unlink()
+        # Serialize Site to JSON-compatible dict
+        data = {
+            "pages": [{"title": p.title, "path": p.path} for p in site._pages],
+            "children": site._children,
+            "parents": site._parents,
+            "roots": site._roots,
+        }
+        site_path.write_text(json.dumps(data), encoding="utf-8")
+
+    def invalidate_site(self) -> None:
+        """Remove cached site structure."""
+        site_path = self._cache_dir / "site.json"
+        if site_path.exists():
+            site_path.unlink()
 
     def get_diagram(self, content_hash: str, fmt: str) -> str | None:
         """Retrieve cached diagram by content hash.

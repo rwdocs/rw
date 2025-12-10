@@ -6,9 +6,9 @@ Navigation is a view layer over the site document hierarchy.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, TypedDict
+from typing import TypedDict
 
-from docstage.core.site import Page, Site, SiteBuilder, SiteLoader
+from docstage.core.site import Page, Site, SiteCache, SiteLoader
 
 
 class NavItemDict(TypedDict, total=False):
@@ -17,28 +17,6 @@ class NavItemDict(TypedDict, total=False):
     title: str
     path: str
     children: list[NavItemDict]
-
-
-class NavigationTreeDict(TypedDict):
-    """Dictionary representation of a navigation tree."""
-
-    items: list[NavItemDict]
-
-
-class NavigationCache(Protocol):
-    """Protocol for navigation tree caching."""
-
-    def get_navigation(self) -> NavigationTreeDict | None:
-        """Retrieve cached navigation tree."""
-        ...
-
-    def set_navigation(self, navigation: NavigationTreeDict) -> None:
-        """Store navigation tree in cache."""
-        ...
-
-    def invalidate_navigation(self) -> None:
-        """Remove cached navigation tree."""
-        ...
 
 
 @dataclass
@@ -85,48 +63,6 @@ def _build_nav_item(site: Site, page: Page) -> NavItem:
     )
 
 
-class _SiteCacheAdapter:
-    """Adapts NavigationCache to SiteCache protocol."""
-
-    def __init__(self, cache: NavigationCache) -> None:
-        self._cache = cache
-
-    def get_site(self) -> Site | None:
-        """Load Site from cached navigation."""
-        cached = self._cache.get_navigation()
-        if cached is None:
-            return None
-        return self._site_from_cached(cached)
-
-    def set_site(self, site: Site) -> None:
-        """Save Site as navigation to cache."""
-        nav = build_navigation(site)
-        self._cache.set_navigation({"items": [item.to_dict() for item in nav]})
-
-    def invalidate_site(self) -> None:
-        """Invalidate cached navigation."""
-        self._cache.invalidate_navigation()
-
-    def _site_from_cached(self, cached: NavigationTreeDict) -> Site:
-        """Reconstruct Site from cached navigation dict."""
-        builder = SiteBuilder()
-        self._cached_items_to_pages(cached["items"], builder, None)
-        return builder.build()
-
-    def _cached_items_to_pages(
-        self,
-        items: list[NavItemDict],
-        builder: SiteBuilder,
-        parent_idx: int | None,
-    ) -> None:
-        """Reconstruct pages from cached navigation items."""
-        for data in items:
-            idx = builder.add_page(data["title"], data["path"], parent_idx)
-            children = data.get("children", [])
-            if children:
-                self._cached_items_to_pages(children, builder, idx)
-
-
 class NavigationBuilder:
     """Builds navigation views from site structure.
 
@@ -137,16 +73,15 @@ class NavigationBuilder:
     def __init__(
         self,
         source_dir: Path,
-        cache: NavigationCache | None = None,
+        cache: SiteCache | None = None,
     ) -> None:
         """Initialize builder.
 
         Args:
             source_dir: Root directory containing markdown sources
-            cache: Optional cache implementing NavigationCache protocol
+            cache: Optional cache implementing SiteCache protocol
         """
-        site_cache = _SiteCacheAdapter(cache) if cache is not None else None
-        self._site_loader = SiteLoader(source_dir, site_cache)
+        self._site_loader = SiteLoader(source_dir, cache)
 
     @property
     def source_dir(self) -> Path:

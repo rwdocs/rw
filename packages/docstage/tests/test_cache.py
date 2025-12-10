@@ -199,55 +199,64 @@ class TestFileCacheClear:
         cache.clear()  # Should not raise
 
 
-class TestFileCacheNavigation:
-    """Tests for navigation cache methods."""
+class TestFileCacheSite:
+    """Tests for site cache methods."""
 
-    def test_get_navigation_returns_none_when_missing(self, tmp_path: Path) -> None:
-        """Return None when navigation cache doesn't exist."""
+    def test_get_site_returns_none_when_missing(self, tmp_path: Path) -> None:
+        """Return None when site cache doesn't exist."""
         cache = FileCache(tmp_path / ".cache")
 
-        result = cache.get_navigation()
+        result = cache.get_site()
 
         assert result is None
 
-    def test_set_and_get_navigation(self, tmp_path: Path) -> None:
-        """Store and retrieve navigation tree."""
+    def test_set_and_get_site(self, tmp_path: Path) -> None:
+        """Store and retrieve site structure."""
+        from docstage.core.site import SiteBuilder
+
         cache = FileCache(tmp_path / ".cache")
-        nav = {
-            "items": [
-                {"title": "Domain A", "path": "/domain-a", "children": []},
-            ],
-        }
+        builder = SiteBuilder()
+        parent_idx = builder.add_page("Domain A", "/domain-a")
+        builder.add_page("Guide", "/domain-a/guide", parent_idx)
+        site = builder.build()
 
-        cache.set_navigation(nav)
-        result = cache.get_navigation()
+        cache.set_site(site)
+        result = cache.get_site()
 
-        assert result == nav
+        assert result is not None
+        assert result.get_page("/domain-a") is not None
+        assert result.get_page("/domain-a").title == "Domain A"
+        children = result.get_children("/domain-a")
+        assert len(children) == 1
+        assert children[0].title == "Guide"
 
-    def test_invalidate_navigation(self, tmp_path: Path) -> None:
-        """Remove cached navigation tree."""
+    def test_invalidate_site(self, tmp_path: Path) -> None:
+        """Remove cached site structure."""
+        from docstage.core.site import SiteBuilder
+
         cache = FileCache(tmp_path / ".cache")
-        cache.set_navigation({"items": []})
+        site = SiteBuilder().build()
+        cache.set_site(site)
 
-        cache.invalidate_navigation()
+        cache.invalidate_site()
 
-        assert cache.get_navigation() is None
+        assert cache.get_site() is None
 
-    def test_invalidate_navigation_when_missing(self, tmp_path: Path) -> None:
-        """Do nothing when navigation cache doesn't exist."""
+    def test_invalidate_site_when_missing(self, tmp_path: Path) -> None:
+        """Do nothing when site cache doesn't exist."""
         cache = FileCache(tmp_path / ".cache")
 
-        cache.invalidate_navigation()  # Should not raise
+        cache.invalidate_site()  # Should not raise
 
-    def test_get_navigation_returns_none_on_invalid_json(self, tmp_path: Path) -> None:
-        """Return None when navigation file contains invalid JSON."""
+    def test_get_site_returns_none_on_invalid_json(self, tmp_path: Path) -> None:
+        """Return None when site file contains invalid JSON."""
         cache = FileCache(tmp_path / ".cache")
         cache_dir = tmp_path / ".cache"
         cache_dir.mkdir(parents=True)
-        nav_path = cache_dir / "navigation.json"
-        nav_path.write_text("not valid json {", encoding="utf-8")
+        site_path = cache_dir / "site.json"
+        site_path.write_text("not valid json {", encoding="utf-8")
 
-        result = cache.get_navigation()
+        result = cache.get_site()
 
         assert result is None
 
