@@ -247,11 +247,6 @@ class SiteLoader:
         self._cache = cache
         self._site: Site | None = None
 
-    @property
-    def source_dir(self) -> Path:
-        """Root directory containing markdown sources."""
-        return self._source_dir
-
     def load(self, *, use_cache: bool = True) -> Site:
         """Load site structure from directory.
 

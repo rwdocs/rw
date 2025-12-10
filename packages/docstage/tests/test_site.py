@@ -398,13 +398,6 @@ class TestSiteLoader:
         assert site1 is not site2
         assert site2.get_page("/new") is not None
 
-    def test__source_dir__returns_path(self, tmp_path: Path) -> None:
-        """Return source directory from property."""
-        source_dir = tmp_path / "docs"
-        loader = SiteLoader(source_dir)
-
-        assert loader.source_dir == source_dir
-
     def test__load__site_has_source_dir(self, tmp_path: Path) -> None:
         """Loaded site has correct source_dir."""
         source_dir = tmp_path / "docs"
