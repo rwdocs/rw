@@ -17,6 +17,7 @@ class Page:
 
     title: str
     path: str
+    source_path: str  # Relative path to source .md file (e.g., "guide.md")
 
 
 @dataclass(frozen=True)
@@ -39,10 +40,18 @@ class Site:
     building where d is the page depth.
     """
 
-    __slots__ = ("_children", "_pages", "_parents", "_path_index", "_roots")
+    __slots__ = (
+        "_children",
+        "_pages",
+        "_parents",
+        "_path_index",
+        "_roots",
+        "_source_dir",
+    )
 
     def __init__(
         self,
+        source_dir: Path,
         pages: list[Page],
         children: list[list[int]],
         parents: list[int | None],
@@ -51,16 +60,23 @@ class Site:
         """Initialize site structure.
 
         Args:
+            source_dir: Root directory containing markdown sources
             pages: Flat list of all pages
             children: Children indices for each page
             parents: Parent index for each page (None for roots)
             roots: Indices of root pages
         """
+        self._source_dir = source_dir
         self._pages = pages
         self._children = children
         self._parents = parents
         self._roots = roots
         self._path_index = {page.path: i for i, page in enumerate(pages)}
+
+    @property
+    def source_dir(self) -> Path:
+        """Root directory containing markdown sources."""
+        return self._source_dir
 
     def get_page(self, path: str) -> Page | None:
         """Get page by path.
@@ -144,7 +160,8 @@ class Site:
 class SiteBuilder:
     """Builder for constructing Site instances."""
 
-    def __init__(self) -> None:
+    def __init__(self, source_dir: Path) -> None:
+        self._source_dir = source_dir
         self._pages: list[Page] = []
         self._children: list[list[int]] = []
         self._parents: list[int | None] = []
@@ -154,20 +171,22 @@ class SiteBuilder:
         self,
         title: str,
         path: str,
+        source_path: str,
         parent_idx: int | None = None,
     ) -> int:
         """Add a page to the site.
 
         Args:
             title: Page title
-            path: Page path
+            path: URL path (e.g., "/guide")
+            source_path: Relative path to source file (e.g., "guide.md")
             parent_idx: Index of parent page, None for root
 
         Returns:
             Index of the added page
         """
         idx = len(self._pages)
-        self._pages.append(Page(title=title, path=path))
+        self._pages.append(Page(title=title, path=path, source_path=source_path))
         self._children.append([])
         self._parents.append(parent_idx)
 
@@ -181,6 +200,7 @@ class SiteBuilder:
     def build(self) -> Site:
         """Build the Site instance."""
         return Site(
+            source_dir=self._source_dir,
             pages=self._pages,
             children=self._children,
             parents=self._parents,
@@ -266,7 +286,7 @@ class SiteLoader:
 
     def _load_from_filesystem(self) -> Site:
         """Scan filesystem and build site structure."""
-        builder = SiteBuilder()
+        builder = SiteBuilder(self._source_dir)
 
         if self._source_dir.exists():
             self._scan_directory(self._source_dir, "", builder, None)
@@ -334,7 +354,8 @@ class SiteLoader:
 
         # Create page for this directory
         title = self._extract_title(index_file) or self._title_from_name(dir_name)
-        page_idx = builder.add_page(title, item_path, parent_idx)
+        source_path = str(index_file.relative_to(self._source_dir))
+        page_idx = builder.add_page(title, item_path, source_path, parent_idx)
 
         # Scan children with this page as parent
         self._scan_directory(dir_path, item_path, builder, page_idx)
@@ -353,7 +374,8 @@ class SiteLoader:
         item_path = f"{base_path}/{file_name}" if base_path else f"/{file_name}"
 
         title = self._extract_title(file_path) or self._title_from_name(file_name)
-        return builder.add_page(title, item_path, parent_idx)
+        source_path = str(file_path.relative_to(self._source_dir))
+        return builder.add_page(title, item_path, source_path, parent_idx)
 
     def _extract_title(self, file_path: Path) -> str | None:
         """Extract title from first H1 heading in markdown file."""

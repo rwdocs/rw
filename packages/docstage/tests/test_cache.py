@@ -214,28 +214,33 @@ class TestFileCacheSite:
         """Store and retrieve site structure."""
         from docstage.core.site import SiteBuilder
 
+        source_dir = tmp_path / "docs"
         cache = FileCache(tmp_path / ".cache")
-        builder = SiteBuilder()
-        parent_idx = builder.add_page("Domain A", "/domain-a")
-        builder.add_page("Guide", "/domain-a/guide", parent_idx)
+        builder = SiteBuilder(source_dir)
+        parent_idx = builder.add_page("Domain A", "/domain-a", "domain-a/index.md")
+        builder.add_page("Guide", "/domain-a/guide", "domain-a/guide.md", parent_idx)
         site = builder.build()
 
         cache.set_site(site)
         result = cache.get_site()
 
         assert result is not None
+        assert result.source_dir == source_dir
         assert result.get_page("/domain-a") is not None
         assert result.get_page("/domain-a").title == "Domain A"
+        assert result.get_page("/domain-a").source_path == "domain-a/index.md"
         children = result.get_children("/domain-a")
         assert len(children) == 1
         assert children[0].title == "Guide"
+        assert children[0].source_path == "domain-a/guide.md"
 
     def test_invalidate_site(self, tmp_path: Path) -> None:
         """Remove cached site structure."""
         from docstage.core.site import SiteBuilder
 
+        source_dir = tmp_path / "docs"
         cache = FileCache(tmp_path / ".cache")
-        site = SiteBuilder().build()
+        site = SiteBuilder(source_dir).build()
         cache.set_site(site)
 
         cache.invalidate_site()

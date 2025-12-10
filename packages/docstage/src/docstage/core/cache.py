@@ -197,8 +197,13 @@ class FileCache:
             return None
 
         # Reconstruct Site from cached data
-        pages = [Page(title=p["title"], path=p["path"]) for p in data["pages"]]
+        source_dir = Path(data["source_dir"])
+        pages = [
+            Page(title=p["title"], path=p["path"], source_path=p["source_path"])
+            for p in data["pages"]
+        ]
         return Site(
+            source_dir=source_dir,
             pages=pages,
             children=data["children"],
             parents=data["parents"],
@@ -216,7 +221,11 @@ class FileCache:
 
         # Serialize Site to JSON-compatible dict
         data = {
-            "pages": [{"title": p.title, "path": p.path} for p in site._pages],
+            "source_dir": str(site.source_dir),
+            "pages": [
+                {"title": p.title, "path": p.path, "source_path": p.source_path}
+                for p in site._pages
+            ],
             "children": site._children,
             "parents": site._parents,
             "roots": site._roots,
