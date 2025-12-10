@@ -7,7 +7,7 @@ from docstage.cli import cli
 
 
 class TestConvertCommand:
-    """Tests for the convert command."""
+    """Tests for the confluence convert command."""
 
     def test_converts_markdown_file(self, tmp_path: Path) -> None:
         """Convert a simple markdown file to Confluence format."""
@@ -20,7 +20,7 @@ class TestConvertCommand:
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["convert", str(markdown_file), "-c", str(config_file)],
+            ["confluence", "convert", str(markdown_file), "-c", str(config_file)],
         )
 
         assert result.exit_code == 0
@@ -43,7 +43,7 @@ print("Hello")
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["convert", str(markdown_file), "-c", str(config_file)],
+            ["confluence", "convert", str(markdown_file), "-c", str(config_file)],
         )
 
         assert result.exit_code == 0
@@ -55,7 +55,7 @@ print("Hello")
         nonexistent = tmp_path / "nonexistent.md"
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["convert", str(nonexistent)])
+        result = runner.invoke(cli, ["confluence", "convert", str(nonexistent)])
 
         assert result.exit_code != 0
 
@@ -70,7 +70,7 @@ print("Hello")
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["convert", str(markdown_file), "-c", str(config_file)],
+            ["confluence", "convert", str(markdown_file), "-c", str(config_file)],
         )
 
         assert result.exit_code == 1
@@ -78,42 +78,58 @@ print("Hello")
 
 
 class TestGetPageCommand:
-    """Tests for the get-page command."""
+    """Tests for the confluence get-page command."""
 
     def test_fails_without_config(self, tmp_path: Path) -> None:
         """Fail when config file doesn't exist."""
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["get-page", "12345", "--config", str(tmp_path / "nonexistent.toml")],
+            [
+                "confluence",
+                "get-page",
+                "12345",
+                "--config",
+                str(tmp_path / "nonexistent.toml"),
+            ],
         )
 
         assert result.exit_code != 0
 
 
 class TestTestAuthCommand:
-    """Tests for the test-auth command."""
+    """Tests for the confluence test-auth command."""
 
     def test_fails_without_config(self, tmp_path: Path) -> None:
         """Fail when config file doesn't exist."""
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["test-auth", "--config", str(tmp_path / "nonexistent.toml")],
+            [
+                "confluence",
+                "test-auth",
+                "--config",
+                str(tmp_path / "nonexistent.toml"),
+            ],
         )
 
         assert result.exit_code != 0
 
 
 class TestGenerateTokensCommand:
-    """Tests for the generate-tokens command."""
+    """Tests for the confluence generate-tokens command."""
 
     def test_fails_without_private_key(self, tmp_path: Path) -> None:
         """Fail when private key file doesn't exist."""
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["generate-tokens", "--private-key", str(tmp_path / "nonexistent.pem")],
+            [
+                "confluence",
+                "generate-tokens",
+                "--private-key",
+                str(tmp_path / "nonexistent.pem"),
+            ],
         )
 
         assert result.exit_code != 0

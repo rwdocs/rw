@@ -14,8 +14,17 @@ from docstage.config import Config, ConfluenceConfig
 
 @click.group()
 def cli() -> None:
-    """Convert markdown files to Confluence pages."""
+    """Docstage - Where documentation takes the stage."""
     pass
+
+
+@click.group()
+def confluence() -> None:
+    """Confluence publishing commands."""
+    pass
+
+
+cli.add_command(confluence)
 
 
 @cli.command()
@@ -105,7 +114,7 @@ def serve(
     run_server(config, verbose=verbose)
 
 
-@cli.command()
+@confluence.command()
 @click.option(
     "--config",
     "-c",
@@ -126,7 +135,7 @@ def test_auth(config_path: Path | None, key_file: Path) -> None:
     asyncio.run(_test_auth(config_path, key_file))
 
 
-@cli.command()
+@confluence.command()
 @click.argument("page_id")
 @click.option(
     "--config",
@@ -148,7 +157,7 @@ def get_page(page_id: str, config_path: Path | None, key_file: Path) -> None:
     asyncio.run(_get_page(page_id, config_path, key_file))
 
 
-@cli.command()
+@confluence.command()
 @click.argument("title")
 @click.option(
     "--space",
@@ -187,7 +196,7 @@ def test_create(
     asyncio.run(_test_create(title, space, body, config_path, key_file))
 
 
-@cli.command()
+@confluence.command()
 @click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--config",
@@ -241,7 +250,7 @@ def convert(
     click.echo(result.html)
 
 
-@cli.command()
+@confluence.command()
 @click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
 @click.argument("title")
 @click.option(
@@ -281,7 +290,7 @@ def create(
     asyncio.run(_create(markdown_file, title, space, kroki_url, config_path, key_file))
 
 
-@cli.command()
+@confluence.command()
 @click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
 @click.argument("page_id")
 @click.option(
@@ -323,7 +332,7 @@ def update(
     )
 
 
-@cli.command()
+@confluence.command()
 @click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
 @click.argument("page_id")
 @click.option(
@@ -391,7 +400,7 @@ def upload_mkdocs(
     )
 
 
-@cli.command()
+@confluence.command()
 @click.argument("page_id")
 @click.option(
     "--config",
@@ -426,7 +435,7 @@ def comments(
     asyncio.run(_comments(page_id, config_path, key_file, include_resolved))
 
 
-@cli.command()
+@confluence.command()
 @click.option(
     "--private-key",
     "-k",
