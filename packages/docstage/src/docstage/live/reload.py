@@ -14,7 +14,7 @@ from aiohttp import WSMsgType, web
 from watchfiles import Change, awatch
 
 if TYPE_CHECKING:
-    from docstage.core.navigation import NavigationBuilder
+    from docstage.core.site import SiteLoader
 
 
 class LiveReloadManager:
@@ -29,20 +29,20 @@ class LiveReloadManager:
         source_dir: Path,
         watch_patterns: list[str] | None = None,
         *,
-        navigation: NavigationBuilder | None = None,
+        site_loader: SiteLoader | None = None,
     ) -> None:
         """Initialize the live reload manager.
 
         Args:
             source_dir: Directory to watch for changes
             watch_patterns: Glob patterns to watch (default: ["**/*.md"])
-            navigation: NavigationBuilder instance for navigation cache invalidation
+            site_loader: SiteLoader instance for site cache invalidation
         """
         self._source_dir = source_dir
         self._watch_patterns = watch_patterns or ["**/*.md"]
         self._connections: weakref.WeakSet[web.WebSocketResponse] = weakref.WeakSet()
         self._watch_task: asyncio.Task[None] | None = None
-        self._navigation = navigation
+        self._site_loader = site_loader
 
     async def start(self) -> None:
         """Start the file watcher."""
@@ -103,14 +103,14 @@ class LiveReloadManager:
                 await self._broadcast_reload(doc_path)
 
     def _invalidate_caches(self) -> None:
-        """Invalidate navigation cache.
+        """Invalidate site cache.
 
         Note: Page cache uses mtime-based invalidation, so explicit invalidation
         is not needed - the cache will automatically return None when the source
         file's mtime changes.
         """
-        if self._navigation:
-            self._navigation.invalidate()
+        if self._site_loader:
+            self._site_loader.invalidate()
 
     def _matches_patterns(self, path: Path) -> bool:
         """Check if a path matches any watch pattern.

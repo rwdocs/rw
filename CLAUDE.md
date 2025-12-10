@@ -17,19 +17,13 @@ format output with PlantUML diagram support.
 ## Development Commands
 
 ```bash
-uv sync --reinstall       # Rebuild Rust extension
-cargo test --lib          # Run Rust unit tests
+make build                # Build frontend and reinstall Python package
+make test                 # Run all tests with coverage (Rust, Python, Frontend)
+make format               # Format all code (Rust, Python, Frontend)
+make lint                 # Lint all code (clippy, ruff, mypy, svelte-check)
 
-# Frontend
-cd frontend
-npm install               # Install dependencies
-npm run dev               # Start dev server (use with backend for API proxy)
-npm run build             # Production build to dist/
-npm run build:bundle      # Build and copy to backend static directory
-npm run check             # Type checking
-
-# Full rebuild with bundled frontend
-cd frontend && npm run build:bundle && cd .. && uv sync --reinstall
+# Frontend dev server
+cd frontend && npm run dev
 ```
 
 ## Architecture

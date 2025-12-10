@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from aiohttp import web
-from docstage.app_keys import cache_key, navigation_key, renderer_key
+from docstage.app_keys import cache_key, renderer_key, site_loader_key
 from docstage.assets import get_static_dir
 from docstage.config import Config
 from docstage.server import create_app
@@ -21,10 +21,10 @@ class TestCreateApp:
         app = create_app(test_config)
 
         assert renderer_key in app
-        assert navigation_key in app
+        assert site_loader_key in app
         assert cache_key in app
         assert app[renderer_key].source_dir == test_config.docs.source_dir
-        assert app[navigation_key].source_dir == test_config.docs.source_dir
+        assert app[site_loader_key].source_dir == test_config.docs.source_dir
         assert app[cache_key].cache_dir == test_config.docs.cache_dir
 
     def test__app__uses_bundled_static_assets(self, test_config: Config) -> None:

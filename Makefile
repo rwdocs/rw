@@ -1,3 +1,5 @@
+all: build test format lint
+
 build:
 	cd frontend && npm run build:bundle
 	uv sync --reinstall

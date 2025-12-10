@@ -9,12 +9,12 @@ from aiohttp import web
 
 from docstage.api.navigation import create_navigation_routes
 from docstage.api.pages import create_pages_routes
-from docstage.app_keys import cache_key, navigation_key, renderer_key, verbose_key
+from docstage.app_keys import cache_key, renderer_key, site_loader_key, verbose_key
 from docstage.assets import get_static_dir
 from docstage.config import Config
 from docstage.core.cache import FileCache
-from docstage.core.navigation import NavigationBuilder
 from docstage.core.renderer import PageRenderer
+from docstage.core.site import SiteLoader
 
 
 async def spa_fallback(request: web.Request) -> web.FileResponse:
@@ -49,10 +49,10 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
         config_file=config.diagrams.config_file,
         dpi=config.diagrams.dpi,
     )
-    navigation = NavigationBuilder(config.docs.source_dir, cache)
+    site_loader = SiteLoader(config.docs.source_dir, cache)
 
     app[renderer_key] = renderer
-    app[navigation_key] = navigation
+    app[site_loader_key] = site_loader
     app[cache_key] = cache
     app[verbose_key] = verbose
 
@@ -68,7 +68,7 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
         manager = LiveReloadManager(
             config.docs.source_dir,
             watch_patterns=config.live_reload.watch_patterns,
-            navigation=navigation,
+            site_loader=site_loader,
         )
         app["live_reload_manager"] = manager
         app.router.add_routes(create_live_reload_routes(manager))

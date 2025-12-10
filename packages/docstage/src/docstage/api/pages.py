@@ -11,7 +11,7 @@ from time import mktime
 
 from aiohttp import web
 
-from docstage.app_keys import navigation_key, renderer_key, verbose_key
+from docstage.app_keys import renderer_key, site_loader_key, verbose_key
 
 
 def create_pages_routes() -> list[web.RouteDef]:
@@ -23,7 +23,7 @@ def create_pages_routes() -> list[web.RouteDef]:
 async def get_page(request: web.Request) -> web.Response:
     path = request.match_info["path"]
     renderer = request.app[renderer_key]
-    navigation = request.app[navigation_key]
+    site_loader = request.app[site_loader_key]
 
     try:
         result = renderer.render(path)
@@ -47,7 +47,7 @@ async def get_page(request: web.Request) -> web.Response:
     if if_none_match == etag:
         return web.Response(status=304)
 
-    site = navigation.build_site()
+    site = site_loader.load()
     breadcrumbs = [b.to_dict() for b in site.get_breadcrumbs(path)]
 
     response_data = {

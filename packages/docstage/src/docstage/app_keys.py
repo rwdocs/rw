@@ -3,10 +3,10 @@
 from aiohttp import web
 
 from docstage.core.cache import FileCache
-from docstage.core.navigation import NavigationBuilder
 from docstage.core.renderer import PageRenderer
+from docstage.core.site import SiteLoader
 
 renderer_key = web.AppKey("renderer", PageRenderer)
-navigation_key = web.AppKey("navigation", NavigationBuilder)
+site_loader_key = web.AppKey("site_loader", SiteLoader)
 cache_key = web.AppKey("cache", FileCache)
 verbose_key = web.AppKey("verbose", bool)
