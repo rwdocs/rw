@@ -1190,7 +1190,7 @@ mod tests {
 
     #[test]
     fn test_link_with_special_chars() {
-        let result = render(r#"[test](https://example.com?a=1&b=2)"#);
+        let result = render(r"[test](https://example.com?a=1&b=2)");
         assert!(
             result
                 .html

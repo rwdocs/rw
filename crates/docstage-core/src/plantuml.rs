@@ -313,7 +313,7 @@ mod tests {
         let config_path = temp_dir.join("test_config.iuml");
         std::fs::write(&config_path, "skinparam backgroundColor white").unwrap();
 
-        let result = load_config_file(&[temp_dir.clone()], "test_config.iuml");
+        let result = load_config_file(std::slice::from_ref(&temp_dir), "test_config.iuml");
 
         std::fs::remove_file(&config_path).unwrap();
 

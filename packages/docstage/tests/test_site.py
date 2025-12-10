@@ -1,6 +1,7 @@
 """Tests for Site class."""
 
-from docstage.core.site import BreadcrumbItem, Page, Site, SiteBuilder
+import pytest
+from docstage.core.site import BreadcrumbItem, Page, SiteBuilder
 
 
 class TestSite:
@@ -181,11 +182,8 @@ class TestPage:
         """Page is frozen/immutable."""
         page = Page(title="Guide", path="/guide")
 
-        try:
+        with pytest.raises(AttributeError):
             page.title = "New Title"  # type: ignore[misc]
-            assert False, "Should raise FrozenInstanceError"
-        except AttributeError:
-            pass
 
 
 class TestBreadcrumbItem:

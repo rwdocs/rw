@@ -588,21 +588,21 @@ mod tests {
 
     #[test]
     fn test_link_with_special_chars() {
-        let result = render(r#"[test](https://example.com?a=1&b=2)"#);
+        let result = render(r"[test](https://example.com?a=1&b=2)");
         assert!(result.contains(r#"href="https://example.com?a=1&amp;b=2""#));
     }
 
     #[test]
     fn test_external_image() {
         let result = render("![alt](https://example.com/image.png)");
-        assert!(result.contains(r#"<ac:image>"#));
+        assert!(result.contains(r"<ac:image>"));
         assert!(result.contains(r#"ri:url ri:value="https://example.com/image.png""#));
     }
 
     #[test]
     fn test_local_image() {
         let result = render("![alt](./images/diagram.png)");
-        assert!(result.contains(r#"<ac:image>"#));
+        assert!(result.contains(r"<ac:image>"));
         assert!(result.contains(r#"ri:attachment ri:filename="diagram.png""#));
     }
 

@@ -294,7 +294,7 @@ C -> D
             source: "test".to_string(),
             index: 0,
         };
-        let debug_str = format!("{:?}", diagram);
+        let debug_str = format!("{diagram:?}");
         assert!(debug_str.contains("ExtractedDiagram"));
         assert!(debug_str.contains("test"));
     }

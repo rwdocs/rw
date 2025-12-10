@@ -641,8 +641,7 @@ graph TD
             assert_eq!(
                 lang.kroki_endpoint(),
                 expected,
-                "Wrong endpoint for {:?}",
-                lang
+                "Wrong endpoint for {lang:?}"
             );
         }
     }
@@ -685,7 +684,7 @@ graph TD
             language: DiagramLanguage::Mermaid,
             format: DiagramFormat::Png,
         };
-        let debug_str = format!("{:?}", diagram);
+        let debug_str = format!("{diagram:?}");
         assert!(debug_str.contains("ExtractedDiagram"));
         assert!(debug_str.contains("Mermaid"));
         assert!(debug_str.contains("Png"));
@@ -694,18 +693,16 @@ graph TD
     #[test]
     fn test_diagram_language_clone_copy() {
         let lang = DiagramLanguage::PlantUml;
-        let cloned = lang.clone();
         let copied = lang;
-        assert_eq!(cloned, DiagramLanguage::PlantUml);
+        assert_eq!(lang, DiagramLanguage::PlantUml);
         assert_eq!(copied, DiagramLanguage::PlantUml);
     }
 
     #[test]
     fn test_diagram_format_clone_copy() {
         let fmt = DiagramFormat::Png;
-        let cloned = fmt.clone();
         let copied = fmt;
-        assert_eq!(cloned, DiagramFormat::Png);
+        assert_eq!(fmt, DiagramFormat::Png);
         assert_eq!(copied, DiagramFormat::Png);
     }
 
