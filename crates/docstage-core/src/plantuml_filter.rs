@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_extracts_multiple_diagrams() {
-        let markdown = r#"
+        let markdown = r"
 ```plantuml
 @startuml
 A -> B
@@ -177,7 +177,7 @@ Some text
 C -> D
 @enduml
 ```
-"#;
+";
         let parser = Parser::new(markdown);
         let mut filter = PlantUmlFilter::new(parser);
 

@@ -1,9 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { get } from "svelte/store";
-  import { path, extractDocPath } from "../stores/router";
   import { page } from "../stores/page";
-  import { navigation } from "../stores/navigation";
   import { liveReload } from "../stores/liveReload";
 
   // Load index page at root

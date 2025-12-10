@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { navigation } from "../stores/navigation";
-  import { extractDocPath } from "../stores/router";
   import { openMobileMenu } from "../stores/ui";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import TocSidebar from "./TocSidebar.svelte";

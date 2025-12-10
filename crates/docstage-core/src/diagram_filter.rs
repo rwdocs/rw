@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_extracts_multiple_diagrams() {
-        let markdown = r#"
+        let markdown = r"
 ```plantuml
 @startuml
 A -> B
@@ -421,7 +421,7 @@ Some text
 graph TD
   C --> D
 ```
-"#;
+";
         let parser = Parser::new(markdown);
         let mut filter = DiagramFilter::new(parser);
 
