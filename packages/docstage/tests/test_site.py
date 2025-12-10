@@ -1,7 +1,15 @@
 """Tests for Site class."""
 
+from pathlib import Path
+
 import pytest
-from docstage.core.site import BreadcrumbItem, Page, SiteBuilder
+from docstage.core.site import (
+    BreadcrumbItem,
+    Page,
+    Site,
+    SiteBuilder,
+    SiteLoader,
+)
 
 
 class TestSite:
@@ -203,3 +211,240 @@ class TestBreadcrumbItem:
         result = item.to_dict()
 
         assert result == {"title": "Home", "path": "/"}
+
+
+class TestSiteLoader:
+    """Tests for SiteLoader class."""
+
+    def test__load__missing_dir__returns_empty_site(self, tmp_path: Path) -> None:
+        """Return empty site when source directory doesn't exist."""
+        loader = SiteLoader(tmp_path / "nonexistent")
+
+        site = loader.load()
+
+        assert site.get_root_pages() == []
+
+    def test__load__empty_dir__returns_empty_site(self, tmp_path: Path) -> None:
+        """Return empty site when source directory is empty."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        assert site.get_root_pages() == []
+
+    def test__load__flat_structure__builds_site(self, tmp_path: Path) -> None:
+        """Build site from flat directory with markdown files."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# User Guide\n\nContent.")
+        (source_dir / "api.md").write_text("# API Reference\n\nDocs.")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        assert len(site.get_root_pages()) == 2
+        assert site.get_page("/guide") is not None
+        assert site.get_page("/api") is not None
+
+    def test__load__nested_structure__builds_site(self, tmp_path: Path) -> None:
+        """Build site from nested directory structure."""
+        source_dir = tmp_path / "docs"
+        domain_dir = source_dir / "domain-a"
+        domain_dir.mkdir(parents=True)
+        (domain_dir / "index.md").write_text("# Domain A\n\nOverview.")
+        (domain_dir / "guide.md").write_text("# Setup Guide\n\nSteps.")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        domain = site.get_page("/domain-a")
+        assert domain is not None
+        assert domain.title == "Domain A"
+
+        children = site.get_children("/domain-a")
+        assert len(children) == 1
+        assert children[0].title == "Setup Guide"
+
+    def test__load__extracts_title_from_h1(self, tmp_path: Path) -> None:
+        """Extract title from first H1 heading."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# My Custom Title\n\nContent.")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        page = site.get_page("/guide")
+        assert page is not None
+        assert page.title == "My Custom Title"
+
+    def test__load__falls_back_to_filename(self, tmp_path: Path) -> None:
+        """Fall back to filename when no H1 heading."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "setup-guide.md").write_text("Content without heading.")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        page = site.get_page("/setup-guide")
+        assert page is not None
+        assert page.title == "Setup Guide"
+
+    def test__load__skips_hidden_files(self, tmp_path: Path) -> None:
+        """Skip files starting with dot."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / ".hidden.md").write_text("# Hidden")
+        (source_dir / "visible.md").write_text("# Visible")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        assert site.get_page("/.hidden") is None
+        assert site.get_page("/visible") is not None
+
+    def test__load__skips_underscore_files(self, tmp_path: Path) -> None:
+        """Skip files starting with underscore."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "_partial.md").write_text("# Partial")
+        (source_dir / "main.md").write_text("# Main")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        assert site.get_page("/_partial") is None
+        assert site.get_page("/main") is not None
+
+    def test__load__directory_without_index__promotes_children(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Promote children to parent level when directory has no index.md."""
+        source_dir = tmp_path / "docs"
+        no_index_dir = source_dir / "no-index"
+        no_index_dir.mkdir(parents=True)
+        (no_index_dir / "child.md").write_text("# Child Page")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        # Child should be at root level (promoted)
+        roots = site.get_root_pages()
+        assert len(roots) == 1
+        assert roots[0].path == "/no-index/child"
+
+    def test__load__caches_site_instance(self, tmp_path: Path) -> None:
+        """Site instance is cached and reused on subsequent calls."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide")
+
+        loader = SiteLoader(source_dir)
+
+        site1 = loader.load()
+        site2 = loader.load()
+
+        assert site1 is site2
+
+    def test__invalidate__clears_cached_site(self, tmp_path: Path) -> None:
+        """Invalidate clears cached Site instance."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide")
+
+        loader = SiteLoader(source_dir)
+
+        site1 = loader.load()
+        loader.invalidate()
+        (source_dir / "new.md").write_text("# New")
+        site2 = loader.load()
+
+        assert site1 is not site2
+        assert site2.get_page("/new") is not None
+
+    def test__source_dir__returns_path(self, tmp_path: Path) -> None:
+        """Return source directory from property."""
+        source_dir = tmp_path / "docs"
+        loader = SiteLoader(source_dir)
+
+        assert loader.source_dir == source_dir
+
+
+class TestSiteLoaderWithCache:
+    """Tests for SiteLoader with cache."""
+
+    def test__load__uses_cached_site(self, tmp_path: Path) -> None:
+        """Use cached site on subsequent loads."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide")
+
+        cache = _MockSiteCache()
+        loader = SiteLoader(source_dir, cache)
+
+        loader.load()
+        # Modify file after first load
+        (source_dir / "new.md").write_text("# New")
+        site = loader.load()
+
+        # Should return cached version (no /new page)
+        assert site.get_page("/new") is None
+
+    def test__load__use_cache_false__bypasses_cache(self, tmp_path: Path) -> None:
+        """Bypass cache when use_cache=False."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide")
+
+        cache = _MockSiteCache()
+        loader = SiteLoader(source_dir, cache)
+
+        loader.load()
+        (source_dir / "new.md").write_text("# New")
+        site = loader.load(use_cache=False)
+
+        assert site.get_page("/new") is not None
+
+    def test__invalidate__invalidates_cache(self, tmp_path: Path) -> None:
+        """Invalidate clears external cache."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide")
+
+        cache = _MockSiteCache()
+        loader = SiteLoader(source_dir, cache)
+
+        loader.load()
+        (source_dir / "new.md").write_text("# New")
+        loader.invalidate()
+        site = loader.load()
+
+        assert site.get_page("/new") is not None
+
+
+class _MockSiteCache:
+    """Mock implementation of SiteCache protocol."""
+
+    def __init__(self) -> None:
+        self._site: Site | None = None
+
+    def get_site(self) -> Site | None:
+        return self._site
+
+    def set_site(self, site: Site) -> None:
+        self._site = site
+
+    def invalidate_site(self) -> None:
+        self._site = None

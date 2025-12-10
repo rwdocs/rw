@@ -484,7 +484,7 @@ class TestNavigationBuilderSiteCaching:
 
         builder = NavigationBuilder(source_dir)
 
-        site = builder.build_site()
+        builder.build_site()
         # Add new file - should not be picked up due to caching
         (source_dir / "new.md").write_text("# New\n\nContent.")
         nav = builder.build()
