@@ -354,6 +354,9 @@ C -> D
                 _ => None,
             })
             .collect();
-        assert_eq!(event_types, vec!["heading", "diagram", "heading", "diagram", "end"]);
+        assert_eq!(
+            event_types,
+            vec!["heading", "diagram", "heading", "diagram", "end"]
+        );
     }
 }

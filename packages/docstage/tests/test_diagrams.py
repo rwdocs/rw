@@ -79,7 +79,7 @@ class TestStripGoogleFonts:
 
     def test__with_google_fonts__strips_import(self) -> None:
         """Remove Google Fonts @import from SVG."""
-        svg = '<style>@import url(https://fonts.googleapis.com/css?family=Roboto);.text{fill:#000;}</style>'
+        svg = "<style>@import url(https://fonts.googleapis.com/css?family=Roboto);.text{fill:#000;}</style>"
 
         result = _strip_google_fonts(svg)
 
@@ -119,15 +119,16 @@ class TestReplaceDiagramPlaceholders:
 
         result = replace_diagram_placeholders(html, diagrams)
 
-        assert result == '<p>Before</p><figure class="diagram"><svg></svg></figure><p>After</p>'
+        assert (
+            result
+            == '<p>Before</p><figure class="diagram"><svg></svg></figure><p>After</p>'
+        )
 
     def test__png_format__creates_img_tag(self) -> None:
         """PNG diagrams create img tag with data URI."""
         html = "{{DIAGRAM_0}}"
         diagrams = [
-            RenderedDiagram(
-                index=0, content="data:image/png;base64,abc", format="png"
-            )
+            RenderedDiagram(index=0, content="data:image/png;base64,abc", format="png")
         ]
 
         result = replace_diagram_placeholders(html, diagrams)
@@ -184,9 +185,7 @@ class TestRenderDiagramsWithCache:
         mock_response.__exit__ = MagicMock(return_value=False)
 
         with patch("urllib.request.urlopen", return_value=mock_response):
-            result = render_diagrams_with_cache(
-                diagrams, "https://kroki.io", cache, 96
-            )
+            result = render_diagrams_with_cache(diagrams, "https://kroki.io", cache, 96)
 
         assert len(result) == 1
         assert "<svg>rendered</svg>" in result[0].content

@@ -566,9 +566,7 @@ class TestConfigInvalidSections:
         config_file = tmp_path / "docstage.toml"
         config_file.write_text('confluence = "invalid"')
 
-        with pytest.raises(
-            ValueError, match="confluence section must be a dictionary"
-        ):
+        with pytest.raises(ValueError, match="confluence section must be a dictionary"):
             Config.load(config_file)
 
     def test__invalid_confluence_test_section_type__raises_error(

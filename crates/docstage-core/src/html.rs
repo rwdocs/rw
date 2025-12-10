@@ -1174,7 +1174,11 @@ mod tests {
         let result = HtmlRenderer::new().render(parser);
 
         assert!(result.html.contains(r#"<input type="checkbox" disabled>"#));
-        assert!(result.html.contains(r#"<input type="checkbox" checked disabled>"#));
+        assert!(
+            result
+                .html
+                .contains(r#"<input type="checkbox" checked disabled>"#)
+        );
     }
 
     #[test]
@@ -1187,7 +1191,11 @@ mod tests {
     #[test]
     fn test_link_with_special_chars() {
         let result = render(r#"[test](https://example.com?a=1&b=2)"#);
-        assert!(result.html.contains(r#"href="https://example.com?a=1&amp;b=2""#));
+        assert!(
+            result
+                .html
+                .contains(r#"href="https://example.com?a=1&amp;b=2""#)
+        );
     }
 
     #[test]
@@ -1197,12 +1205,18 @@ mod tests {
 
     #[test]
     fn test_resolve_link_http() {
-        assert_eq!(resolve_link("http://example.com", "base"), "http://example.com");
+        assert_eq!(
+            resolve_link("http://example.com", "base"),
+            "http://example.com"
+        );
     }
 
     #[test]
     fn test_resolve_link_protocol_relative() {
-        assert_eq!(resolve_link("//example.com/page", "base"), "//example.com/page");
+        assert_eq!(
+            resolve_link("//example.com/page", "base"),
+            "//example.com/page"
+        );
     }
 
     #[test]

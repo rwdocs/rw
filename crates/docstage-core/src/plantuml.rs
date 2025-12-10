@@ -372,10 +372,7 @@ mod tests {
         std::fs::remove_file(&include_path).unwrap();
 
         // Should have warning about depth exceeded
-        assert!(result
-            .warnings
-            .iter()
-            .any(|w| w.contains("depth exceeded")));
+        assert!(result.warnings.iter().any(|w| w.contains("depth exceeded")));
     }
 
     #[test]

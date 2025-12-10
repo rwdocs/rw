@@ -472,7 +472,8 @@ mod tests {
     }
 
     fn render_with_options(markdown: &str) -> String {
-        let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+        let options =
+            Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
         let parser = Parser::new_ext(markdown, options);
         ConfluenceRenderer::new().render(parser)
     }
