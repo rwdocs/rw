@@ -316,3 +316,169 @@ class TestNavigationTree:
                 {"title": "Guide", "path": "/guide"},
             ],
         }
+
+
+class TestNavigationBuilderProperties:
+    """Tests for NavigationBuilder properties."""
+
+    def test_source_dir_property(self, tmp_path: Path) -> None:
+        """Return source directory from property."""
+        source_dir = tmp_path / "docs"
+        builder = NavigationBuilder(source_dir)
+
+        assert builder.source_dir == source_dir
+
+
+class TestNavigationBuilderExtractTitle:
+    """Tests for title extraction edge cases."""
+
+    def test_extract_title_handles_unreadable_file(self, tmp_path: Path) -> None:
+        """Fall back to filename when file cannot be read."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        file_path = source_dir / "guide.md"
+        file_path.write_text("# Guide Title\n\nContent.")
+        # Make file unreadable
+        file_path.chmod(0o000)
+
+        builder = NavigationBuilder(source_dir)
+
+        try:
+            tree = builder.build()
+            # Should fall back to filename-based title
+            assert tree.items[0].title == "Guide"
+        finally:
+            # Restore permissions for cleanup
+            file_path.chmod(0o644)
+
+
+class TestNavigationBuilderInvalidateNoCache:
+    """Tests for invalidate without cache."""
+
+    def test_invalidate_does_nothing_without_cache(self, tmp_path: Path) -> None:
+        """Invalidate is a no-op when no cache is configured."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        builder = NavigationBuilder(source_dir)
+
+        # Should not raise
+        builder.invalidate()
+
+
+class TestNavigationBuilderGetSubtreeEdgeCases:
+    """Tests for get_subtree edge cases."""
+
+    def test_get_subtree_empty_path(self, tmp_path: Path) -> None:
+        """Return full tree items for empty path."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "guide.md").write_text("# Guide\n\nContent.")
+
+        builder = NavigationBuilder(source_dir)
+
+        subtree = builder.get_subtree("")
+
+        assert subtree is not None
+        assert len(subtree.items) == 1
+        assert subtree.items[0].title == "Guide"
+
+    def test_get_subtree_with_leading_slash(self, tmp_path: Path) -> None:
+        """Handle path with leading slash."""
+        source_dir = tmp_path / "docs"
+        domain_dir = source_dir / "domain"
+        domain_dir.mkdir(parents=True)
+        (domain_dir / "index.md").write_text("# Domain")
+        (domain_dir / "guide.md").write_text("# Guide")
+
+        builder = NavigationBuilder(source_dir)
+
+        subtree = builder.get_subtree("/domain")
+
+        assert subtree is not None
+        assert len(subtree.items) == 1
+        assert subtree.items[0].title == "Guide"
+
+    def test_get_subtree_deeply_nested(self, tmp_path: Path) -> None:
+        """Navigate through deeply nested structure."""
+        source_dir = tmp_path / "docs"
+        deep_dir = source_dir / "a" / "b" / "c"
+        deep_dir.mkdir(parents=True)
+        (source_dir / "a" / "index.md").write_text("# A")
+        (source_dir / "a" / "b" / "index.md").write_text("# B")
+        (deep_dir / "index.md").write_text("# C")
+        (deep_dir / "file.md").write_text("# File")
+
+        builder = NavigationBuilder(source_dir)
+
+        subtree = builder.get_subtree("a/b/c")
+
+        assert subtree is not None
+        assert len(subtree.items) == 1
+        assert subtree.items[0].title == "File"
+
+
+class TestNavigationBuilderTitleFromName:
+    """Tests for title generation from filename."""
+
+    def test_title_from_snake_case(self, tmp_path: Path) -> None:
+        """Convert snake_case to Title Case."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "my_great_guide.md").write_text("Content without heading.")
+
+        builder = NavigationBuilder(source_dir)
+
+        tree = builder.build()
+
+        assert tree.items[0].title == "My Great Guide"
+
+    def test_title_from_mixed_separators(self, tmp_path: Path) -> None:
+        """Handle both hyphens and underscores."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "api-user_guide.md").write_text("No heading here.")
+
+        builder = NavigationBuilder(source_dir)
+
+        tree = builder.build()
+
+        assert tree.items[0].title == "Api User Guide"
+
+
+class TestNavigationBuilderSorting:
+    """Tests for sorting behavior."""
+
+    def test_directories_sorted_before_files(self, tmp_path: Path) -> None:
+        """Directories appear before files in navigation."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        # Create file first, then directory
+        (source_dir / "zebra.md").write_text("# Zebra")
+        subdir = source_dir / "aardvark"
+        subdir.mkdir()
+        (subdir / "index.md").write_text("# Aardvark")
+
+        builder = NavigationBuilder(source_dir)
+
+        tree = builder.build()
+
+        # Directory should come first despite alphabetical order
+        assert tree.items[0].title == "Aardvark"
+        assert tree.items[1].title == "Zebra"
+
+    def test_items_sorted_alphabetically_case_insensitive(
+        self, tmp_path: Path
+    ) -> None:
+        """Items sorted case-insensitively."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "Zebra.md").write_text("# Zebra")
+        (source_dir / "apple.md").write_text("# Apple")
+        (source_dir / "Banana.md").write_text("# Banana")
+
+        builder = NavigationBuilder(source_dir)
+
+        tree = builder.build()
+
+        titles = [item.title for item in tree.items]
+        assert titles == ["Apple", "Banana", "Zebra"]

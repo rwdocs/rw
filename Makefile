@@ -7,6 +7,9 @@ test:
 	uv run pytest
 	cd frontend && npm run test
 
+test-e2e:
+	cd frontend && npm run test:e2e
+
 format:
 	cargo fmt
 	uv run ruff format .

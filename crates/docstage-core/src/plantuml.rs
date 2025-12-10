@@ -284,4 +284,156 @@ mod tests {
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("missing.iuml"));
     }
+
+    #[test]
+    fn test_prepare_diagram_source_no_startuml() {
+        // Source without @startuml - fallback to prepending config
+        let source = "Alice -> Bob";
+        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+
+        // Config should be prepended
+        assert!(result.source.starts_with("skinparam dpi 192\n"));
+        assert!(result.source.contains("Alice -> Bob"));
+    }
+
+    #[test]
+    fn test_prepare_diagram_source_startuml_no_newline() {
+        // @startuml at end of source without newline
+        let source = "@startuml";
+        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+
+        // Should fallback to prepending
+        assert!(result.source.contains("skinparam dpi 192"));
+        assert!(result.source.contains("@startuml"));
+    }
+
+    #[test]
+    fn test_load_config_file_found() {
+        let temp_dir = std::env::temp_dir();
+        let config_path = temp_dir.join("test_config.iuml");
+        std::fs::write(&config_path, "skinparam backgroundColor white").unwrap();
+
+        let result = load_config_file(&[temp_dir.clone()], "test_config.iuml");
+
+        std::fs::remove_file(&config_path).unwrap();
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), "skinparam backgroundColor white");
+    }
+
+    #[test]
+    fn test_load_config_file_not_found() {
+        let temp_dir = std::env::temp_dir();
+        let result = load_config_file(&[temp_dir], "nonexistent_config.iuml");
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_load_config_file_empty_dirs() {
+        let result = load_config_file(&[], "config.iuml");
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_load_config_file_searches_multiple_dirs() {
+        let temp_dir = std::env::temp_dir();
+        let subdir = temp_dir.join("plantuml_test_subdir");
+        std::fs::create_dir_all(&subdir).unwrap();
+        let config_path = subdir.join("my_config.iuml");
+        std::fs::write(&config_path, "config content").unwrap();
+
+        // First dir doesn't have it, second does
+        let result = load_config_file(
+            &[temp_dir.join("nonexistent"), subdir.clone()],
+            "my_config.iuml",
+        );
+
+        std::fs::remove_file(&config_path).unwrap();
+        std::fs::remove_dir(&subdir).ok();
+
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), "config content");
+    }
+
+    #[test]
+    fn test_include_depth_exceeded() {
+        // Create a self-referencing include to trigger depth limit
+        let temp_dir = std::env::temp_dir();
+        let include_path = temp_dir.join("recursive.iuml");
+        // File includes itself
+        std::fs::write(&include_path, "!include recursive.iuml\nContent").unwrap();
+
+        let source = "@startuml\n!include recursive.iuml\n@enduml";
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+
+        std::fs::remove_file(&include_path).unwrap();
+
+        // Should have warning about depth exceeded
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.contains("depth exceeded")));
+    }
+
+    #[test]
+    fn test_multiple_includes_resolved() {
+        let temp_dir = std::env::temp_dir();
+        let include1 = temp_dir.join("part1.iuml");
+        let include2 = temp_dir.join("part2.iuml");
+        std::fs::write(&include1, "Alice -> Bob").unwrap();
+        std::fs::write(&include2, "Bob -> Charlie").unwrap();
+
+        let source = "@startuml\n!include part1.iuml\n!include part2.iuml\n@enduml";
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+
+        std::fs::remove_file(&include1).unwrap();
+        std::fs::remove_file(&include2).unwrap();
+
+        assert!(result.warnings.is_empty());
+        assert!(result.source.contains("Alice -> Bob"));
+        assert!(result.source.contains("Bob -> Charlie"));
+        assert!(!result.source.contains("!include"));
+    }
+
+    #[test]
+    fn test_nested_includes() {
+        let temp_dir = std::env::temp_dir();
+        let outer = temp_dir.join("outer.iuml");
+        let inner = temp_dir.join("inner.iuml");
+        std::fs::write(&inner, "InnerContent").unwrap();
+        std::fs::write(&outer, "OuterBefore\n!include inner.iuml\nOuterAfter").unwrap();
+
+        let source = "@startuml\n!include outer.iuml\n@enduml";
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+
+        std::fs::remove_file(&outer).unwrap();
+        std::fs::remove_file(&inner).unwrap();
+
+        assert!(result.warnings.is_empty());
+        assert!(result.source.contains("OuterBefore"));
+        assert!(result.source.contains("InnerContent"));
+        assert!(result.source.contains("OuterAfter"));
+    }
+
+    #[test]
+    fn test_indented_content_empty_lines_preserved() {
+        let temp_dir = std::env::temp_dir();
+        let include_path = temp_dir.join("with_empty.iuml");
+        std::fs::write(&include_path, "Line1\n\nLine3").unwrap();
+
+        let source = "@startuml\n  !include with_empty.iuml\n@enduml";
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+
+        std::fs::remove_file(&include_path).unwrap();
+
+        assert!(result.warnings.is_empty());
+        // Empty lines should remain empty (not indented)
+        assert!(result.source.contains("  Line1\n\n  Line3"));
+    }
 }

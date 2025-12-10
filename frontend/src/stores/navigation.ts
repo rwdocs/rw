@@ -2,15 +2,22 @@ import { writable } from "svelte/store";
 import type { NavigationTree, NavItem } from "../types";
 import { fetchNavigation } from "../api/client";
 
-interface NavigationState {
+export interface NavigationState {
   tree: NavigationTree | null;
   loading: boolean;
   error: string | null;
   collapsed: Set<string>;
 }
 
+const initialState: NavigationState = {
+  tree: null,
+  loading: true,
+  error: null,
+  collapsed: new Set(),
+};
+
 /** Collect all paths with children from the navigation tree */
-function collectParentPaths(items: NavItem[]): string[] {
+export function collectParentPaths(items: NavItem[]): string[] {
   const paths: string[] = [];
   for (const item of items) {
     if (item.children && item.children.length > 0) {
@@ -22,7 +29,7 @@ function collectParentPaths(items: NavItem[]): string[] {
 }
 
 /** Get parent paths for a given path */
-function getParentPaths(path: string): string[] {
+export function getParentPaths(path: string): string[] {
   const parts = path.split("/").filter(Boolean);
   const paths: string[] = [];
   let current = "";
@@ -34,12 +41,7 @@ function getParentPaths(path: string): string[] {
 }
 
 function createNavigationStore() {
-  const { subscribe, update } = writable<NavigationState>({
-    tree: null,
-    loading: true,
-    error: null,
-    collapsed: new Set(),
-  });
+  const { subscribe, set, update } = writable<NavigationState>(initialState);
 
   return {
     subscribe,
@@ -96,6 +98,11 @@ function createNavigationStore() {
         }
         return { ...state, collapsed };
       });
+    },
+
+    /** Reset store to initial state (for testing) */
+    _reset() {
+      set({ ...initialState, collapsed: new Set() });
     },
   };
 }

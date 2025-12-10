@@ -464,10 +464,16 @@ fn escape_xml(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pulldown_cmark::Parser;
+    use pulldown_cmark::{Options, Parser};
 
     fn render(markdown: &str) -> String {
         let parser = Parser::new(markdown);
+        ConfluenceRenderer::new().render(parser)
+    }
+
+    fn render_with_options(markdown: &str) -> String {
+        let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+        let parser = Parser::new_ext(markdown, options);
         ConfluenceRenderer::new().render(parser)
     }
 
@@ -520,5 +526,211 @@ mod tests {
         assert_eq!(result.title, None);
         assert!(result.html.contains("<h1>My Title</h1>"));
         assert!(result.html.contains("<h2>Section</h2>"));
+    }
+
+    #[test]
+    fn test_unordered_list() {
+        let result = render("- Item 1\n- Item 2\n- Item 3");
+        assert!(result.contains("<ul>"));
+        assert!(result.contains("<li>"));
+        assert!(result.contains("Item 1"));
+        assert!(result.contains("</li>"));
+        assert!(result.contains("</ul>"));
+    }
+
+    #[test]
+    fn test_ordered_list() {
+        let result = render("1. First\n2. Second\n3. Third");
+        assert!(result.contains("<ol>"));
+        assert!(result.contains("<li>"));
+        assert!(result.contains("First"));
+        assert!(result.contains("</ol>"));
+    }
+
+    #[test]
+    fn test_nested_list() {
+        let result = render("- Outer\n  - Inner");
+        assert!(result.contains("<ul>"));
+        assert!(result.contains("Outer"));
+        assert!(result.contains("Inner"));
+    }
+
+    #[test]
+    fn test_table() {
+        let result = render_with_options("| A | B |\n|---|---|\n| 1 | 2 |");
+        assert!(result.contains("<table>"));
+        assert!(result.contains("<tbody>"));
+        assert!(result.contains("<tr>"));
+        assert!(result.contains("<th>"));
+        assert!(result.contains("<td>"));
+        assert!(result.contains("</table>"));
+    }
+
+    #[test]
+    fn test_emphasis() {
+        let result = render("*italic* and **bold**");
+        assert!(result.contains("<em>italic</em>"));
+        assert!(result.contains("<strong>bold</strong>"));
+    }
+
+    #[test]
+    fn test_strikethrough() {
+        let result = render_with_options("~~deleted~~");
+        assert!(result.contains("<s>deleted</s>"));
+    }
+
+    #[test]
+    fn test_link() {
+        let result = render("[text](https://example.com)");
+        assert!(result.contains(r#"<a href="https://example.com">text</a>"#));
+    }
+
+    #[test]
+    fn test_link_with_special_chars() {
+        let result = render(r#"[test](https://example.com?a=1&b=2)"#);
+        assert!(result.contains(r#"href="https://example.com?a=1&amp;b=2""#));
+    }
+
+    #[test]
+    fn test_external_image() {
+        let result = render("![alt](https://example.com/image.png)");
+        assert!(result.contains(r#"<ac:image>"#));
+        assert!(result.contains(r#"ri:url ri:value="https://example.com/image.png""#));
+    }
+
+    #[test]
+    fn test_local_image() {
+        let result = render("![alt](./images/diagram.png)");
+        assert!(result.contains(r#"<ac:image>"#));
+        assert!(result.contains(r#"ri:attachment ri:filename="diagram.png""#));
+    }
+
+    #[test]
+    fn test_inline_code() {
+        let result = render("Use `code` here");
+        assert!(result.contains("<code>code</code>"));
+    }
+
+    #[test]
+    fn test_inline_code_escaping() {
+        let result = render("Use `<script>` tag");
+        assert!(result.contains("<code>&lt;script&gt;</code>"));
+    }
+
+    #[test]
+    fn test_code_block_without_language() {
+        let result = render("```\nplain code\n```");
+        assert!(result.contains(r#"ac:name="code""#));
+        assert!(!result.contains(r#"ac:name="language""#));
+        assert!(result.contains("plain code"));
+    }
+
+    #[test]
+    fn test_horizontal_rule() {
+        let result = render("Above\n\n---\n\nBelow");
+        assert!(result.contains("<hr />"));
+    }
+
+    #[test]
+    fn test_hard_break() {
+        let result = render("Line one  \nLine two");
+        assert!(result.contains("<br />"));
+    }
+
+    #[test]
+    fn test_xml_escaping() {
+        // Use backticks to prevent markdown parsing HTML-like content
+        let result = render("Use & \"quotes\" and 'apostrophes'");
+        assert!(result.contains("&amp;"));
+        assert!(result.contains("&quot;quotes&quot;"));
+        assert!(result.contains("&#39;apostrophes&#39;"));
+    }
+
+    #[test]
+    fn test_escape_xml_function() {
+        assert_eq!(escape_xml("<tag>"), "&lt;tag&gt;");
+        assert_eq!(escape_xml("a & b"), "a &amp; b");
+        assert_eq!(escape_xml("\"quoted\""), "&quot;quoted&quot;");
+        assert_eq!(escape_xml("it's"), "it&#39;s");
+    }
+
+    #[test]
+    fn test_plantuml_diagram() {
+        let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let result = ConfluenceRenderer::new().render_with_title(parser);
+
+        assert_eq!(result.diagrams.len(), 1);
+        assert_eq!(result.diagrams[0].index, 0);
+        assert!(result.diagrams[0].source.contains("@startuml"));
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+    }
+
+    #[test]
+    fn test_multiple_plantuml_diagrams() {
+        let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```\n\nText\n\n```plantuml\n@startuml\nC -> D\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let result = ConfluenceRenderer::new().render_with_title(parser);
+
+        assert_eq!(result.diagrams.len(), 2);
+        assert_eq!(result.diagrams[0].index, 0);
+        assert_eq!(result.diagrams[1].index, 1);
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert!(result.html.contains("{{DIAGRAM_1}}"));
+    }
+
+    #[test]
+    fn test_task_list() {
+        let result = render_with_options("- [ ] Unchecked\n- [x] Checked");
+        assert!(result.contains("[ ] Unchecked"));
+        assert!(result.contains("[x] Checked"));
+    }
+
+    #[test]
+    fn test_raw_html_passthrough() {
+        let result = render("<div class=\"custom\">Content</div>");
+        assert!(result.contains("<div class=\"custom\">Content</div>"));
+    }
+
+    #[test]
+    fn test_all_heading_levels() {
+        let result = render("## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6");
+        assert!(result.contains("<h2>H2</h2>"));
+        assert!(result.contains("<h3>H3</h3>"));
+        assert!(result.contains("<h4>H4</h4>"));
+        assert!(result.contains("<h5>H5</h5>"));
+        assert!(result.contains("<h6>H6</h6>"));
+    }
+
+    #[test]
+    fn test_default_renderer() {
+        let renderer = ConfluenceRenderer::default();
+        let parser = Parser::new("Hello");
+        let result = renderer.render(parser);
+        assert_eq!(result, "<p>Hello</p>");
+    }
+
+    #[test]
+    fn test_heading_level_adjustment_all_levels() {
+        let markdown = "# Title\n\n## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6";
+        let parser = Parser::new(markdown);
+        let result = ConfluenceRenderer::new()
+            .with_title_extraction()
+            .render_with_title(parser);
+
+        assert_eq!(result.title, Some("Title".to_string()));
+        // H2-H6 should be adjusted to H1-H5
+        assert!(result.html.contains("<h1>H2</h1>"));
+        assert!(result.html.contains("<h2>H3</h2>"));
+        assert!(result.html.contains("<h3>H4</h3>"));
+        assert!(result.html.contains("<h4>H5</h4>"));
+        assert!(result.html.contains("<h5>H6</h5>"));
+    }
+
+    #[test]
+    fn test_code_block_with_language_extra_info() {
+        // Some markdown has extra info after language like ```python {.class}
+        let result = render("```python extra\ncode\n```");
+        assert!(result.contains(r#"ac:name="language">python"#));
     }
 }

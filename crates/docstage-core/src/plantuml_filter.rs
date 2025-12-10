@@ -231,4 +231,129 @@ C -> D
         let diagrams = filter.into_diagrams();
         assert!(diagrams.is_empty());
     }
+
+    #[test]
+    fn test_diagrams_ref_during_iteration() {
+        let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = PlantUmlFilter::new(parser);
+
+        // Diagrams empty before iteration
+        assert!(filter.diagrams().is_empty());
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        // Diagrams available via reference after iteration
+        assert_eq!(filter.diagrams().len(), 1);
+        assert!(filter.diagrams()[0].source.contains("A -> B"));
+    }
+
+    #[test]
+    fn test_plantuml_with_extra_info() {
+        // Language tag with extra info: ```plantuml format=svg
+        let markdown = "```plantuml format=svg\n@startuml\nA -> B\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = PlantUmlFilter::new(parser);
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        let diagrams = filter.into_diagrams();
+        assert_eq!(diagrams.len(), 1);
+    }
+
+    #[test]
+    fn test_is_plantuml_exact_match() {
+        assert!(is_plantuml("plantuml"));
+        assert!(is_plantuml("plantuml format=png"));
+        assert!(is_plantuml("plantuml  extra  spaces"));
+    }
+
+    #[test]
+    fn test_is_plantuml_non_match() {
+        assert!(!is_plantuml("plant"));
+        assert!(!is_plantuml("uml"));
+        assert!(!is_plantuml("plantuml2"));
+        assert!(!is_plantuml("rust"));
+        assert!(!is_plantuml(""));
+    }
+
+    #[test]
+    fn test_extracted_diagram_clone() {
+        let diagram = ExtractedDiagram {
+            source: "test".to_string(),
+            index: 0,
+        };
+        let cloned = diagram.clone();
+        assert_eq!(cloned.source, "test");
+        assert_eq!(cloned.index, 0);
+    }
+
+    #[test]
+    fn test_extracted_diagram_debug() {
+        let diagram = ExtractedDiagram {
+            source: "test".to_string(),
+            index: 0,
+        };
+        let debug_str = format!("{:?}", diagram);
+        assert!(debug_str.contains("ExtractedDiagram"));
+        assert!(debug_str.contains("test"));
+    }
+
+    #[test]
+    fn test_empty_plantuml_block() {
+        let markdown = "```plantuml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = PlantUmlFilter::new(parser);
+
+        let events: Vec<_> = filter.by_ref().collect();
+
+        let diagrams = filter.into_diagrams();
+        assert_eq!(diagrams.len(), 1);
+        assert!(diagrams[0].source.is_empty());
+
+        // Placeholder should still be emitted
+        let has_placeholder = events
+            .iter()
+            .any(|e| matches!(e, Event::Html(s) if s.contains("{{DIAGRAM_0}}")));
+        assert!(has_placeholder);
+    }
+
+    #[test]
+    fn test_plantuml_preserves_whitespace() {
+        let markdown = "```plantuml\n  @startuml\n    A -> B\n  @enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = PlantUmlFilter::new(parser);
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        let diagrams = filter.into_diagrams();
+        assert!(diagrams[0].source.contains("  @startuml"));
+        assert!(diagrams[0].source.contains("    A -> B"));
+    }
+
+    #[test]
+    fn test_mixed_content_order_preserved() {
+        let markdown = "# H1\n\n```plantuml\nA\n```\n\n## H2\n\n```plantuml\nB\n```\n\nEnd";
+        let parser = Parser::new(markdown);
+        let mut filter = PlantUmlFilter::new(parser);
+
+        let events: Vec<_> = filter.by_ref().collect();
+
+        let diagrams = filter.into_diagrams();
+        assert_eq!(diagrams.len(), 2);
+        assert_eq!(diagrams[0].index, 0);
+        assert_eq!(diagrams[1].index, 1);
+
+        // Check event order has headings and placeholders interleaved correctly
+        let event_types: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::Start(Tag::Heading { .. }) => Some("heading"),
+                Event::Html(s) if s.contains("DIAGRAM") => Some("diagram"),
+                Event::Text(s) if s.as_ref() == "End" => Some("end"),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(event_types, vec!["heading", "diagram", "heading", "diagram", "end"]);
+    }
 }

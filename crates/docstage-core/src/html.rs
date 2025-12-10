@@ -1076,4 +1076,159 @@ mod tests {
         let result = render("[Link](./page.md)");
         assert!(result.html.contains(r#"<a href="./page.md">"#));
     }
+
+    #[test]
+    fn test_unordered_list() {
+        let result = render("- Item 1\n- Item 2\n- Item 3");
+        assert!(result.html.contains("<ul>"));
+        assert!(result.html.contains("<li>"));
+        assert!(result.html.contains("Item 1"));
+        assert!(result.html.contains("</li>"));
+        assert!(result.html.contains("</ul>"));
+    }
+
+    #[test]
+    fn test_ordered_list() {
+        let result = render("1. First\n2. Second\n3. Third");
+        assert!(result.html.contains("<ol>"));
+        assert!(result.html.contains("<li>"));
+        assert!(result.html.contains("First"));
+        assert!(result.html.contains("</ol>"));
+    }
+
+    #[test]
+    fn test_ordered_list_with_start() {
+        let result = render("5. Fifth\n6. Sixth");
+        assert!(result.html.contains(r#"<ol start="5">"#));
+    }
+
+    #[test]
+    fn test_nested_list() {
+        let result = render("- Outer\n  - Inner");
+        assert!(result.html.contains("<ul>"));
+        assert!(result.html.contains("Outer"));
+        assert!(result.html.contains("Inner"));
+    }
+
+    #[test]
+    fn test_horizontal_rule() {
+        let result = render("Above\n\n---\n\nBelow");
+        assert!(result.html.contains("<hr>"));
+    }
+
+    #[test]
+    fn test_hard_break() {
+        let result = render("Line one  \nLine two");
+        assert!(result.html.contains("<br>"));
+    }
+
+    #[test]
+    fn test_emphasis() {
+        let result = render("*italic* and **bold**");
+        assert!(result.html.contains("<em>italic</em>"));
+        assert!(result.html.contains("<strong>bold</strong>"));
+    }
+
+    #[test]
+    fn test_raw_html_passthrough() {
+        let result = render("<div class=\"custom\">Content</div>");
+        assert!(result.html.contains("<div class=\"custom\">Content</div>"));
+    }
+
+    #[test]
+    fn test_html_escaping_in_text() {
+        let result = render("Use & and \"quotes\"");
+        assert!(result.html.contains("&amp;"));
+        assert!(result.html.contains("&quot;quotes&quot;"));
+    }
+
+    #[test]
+    fn test_default_renderer() {
+        let parser = Parser::new("Hello");
+        let result = HtmlRenderer::default().render(parser);
+        assert_eq!(result.html, "<p>Hello</p>");
+    }
+
+    #[test]
+    fn test_all_heading_levels() {
+        let result = render("# H1\n\n## H2\n\n### H3\n\n#### H4\n\n##### H5\n\n###### H6");
+        assert!(result.html.contains("<h1"));
+        assert!(result.html.contains("<h2"));
+        assert!(result.html.contains("<h3"));
+        assert!(result.html.contains("<h4"));
+        assert!(result.html.contains("<h5"));
+        assert!(result.html.contains("<h6"));
+    }
+
+    #[test]
+    fn test_heading_with_strikethrough() {
+        let result = render("## ~~Old~~ New Title");
+        assert!(result.html.contains("<del>Old</del>"));
+        assert_eq!(result.toc[0].title, "Old New Title");
+    }
+
+    #[test]
+    fn test_task_list() {
+        let options = Options::ENABLE_TASKLISTS;
+        let parser = Parser::new_ext("- [ ] Unchecked\n- [x] Checked", options);
+        let result = HtmlRenderer::new().render(parser);
+
+        assert!(result.html.contains(r#"<input type="checkbox" disabled>"#));
+        assert!(result.html.contains(r#"<input type="checkbox" checked disabled>"#));
+    }
+
+    #[test]
+    fn test_code_block_with_extra_info() {
+        // Some markdown has extra info after language like ```python {.class}
+        let result = render("```python extra\ncode\n```");
+        assert!(result.html.contains(r#"class="language-python""#));
+    }
+
+    #[test]
+    fn test_link_with_special_chars() {
+        let result = render(r#"[test](https://example.com?a=1&b=2)"#);
+        assert!(result.html.contains(r#"href="https://example.com?a=1&amp;b=2""#));
+    }
+
+    #[test]
+    fn test_escape_html_apostrophe() {
+        assert_eq!(escape_html("it's"), "it&#x27;s");
+    }
+
+    #[test]
+    fn test_resolve_link_http() {
+        assert_eq!(resolve_link("http://example.com", "base"), "http://example.com");
+    }
+
+    #[test]
+    fn test_resolve_link_protocol_relative() {
+        assert_eq!(resolve_link("//example.com/page", "base"), "//example.com/page");
+    }
+
+    #[test]
+    fn test_resolve_link_tel() {
+        assert_eq!(resolve_link("tel:+1234567890", "base"), "tel:+1234567890");
+    }
+
+    #[test]
+    fn test_heading_in_link_context() {
+        // Link inside a heading
+        let result = render_with_base_path("## [Docs](./page.md)", "base/path");
+        assert!(result.html.contains(r#"<a href="/docs/base/path/page">"#));
+    }
+
+    #[test]
+    fn test_soft_break_in_code() {
+        let result = render("```\nline1\nline2\n```");
+        assert!(result.html.contains("line1\nline2"));
+    }
+
+    #[test]
+    fn test_no_title_extraction() {
+        let result = render("# Title\n\nContent");
+        assert!(result.title.is_none());
+        // H1 should be in ToC when not extracting title
+        assert_eq!(result.toc.len(), 1);
+        assert_eq!(result.toc[0].level, 1);
+    }
 }

@@ -551,4 +551,220 @@ graph TD
         assert!(warnings[0].contains("diagram 0"));
         assert!(warnings[0].contains("unknown attribute 'formt'"));
     }
+
+    #[test]
+    fn test_diagrams_ref_during_iteration() {
+        let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = DiagramFilter::new(parser);
+
+        // Diagrams empty before iteration
+        assert!(filter.diagrams().is_empty());
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        // Diagrams available via reference after iteration
+        assert_eq!(filter.diagrams().len(), 1);
+        assert!(filter.diagrams()[0].source.contains("A -> B"));
+    }
+
+    #[test]
+    fn test_warnings_ref_during_iteration() {
+        let markdown = "```plantuml bad=attr\n@startuml\nA -> B\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = DiagramFilter::new(parser);
+
+        // Warnings empty before iteration
+        assert!(filter.warnings().is_empty());
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        // Warnings available via reference after iteration
+        assert_eq!(filter.warnings().len(), 1);
+        assert!(filter.warnings()[0].contains("unknown attribute"));
+    }
+
+    #[test]
+    fn test_all_diagram_languages() {
+        // Test all supported languages
+        let languages = [
+            ("plantuml", DiagramLanguage::PlantUml),
+            ("c4plantuml", DiagramLanguage::C4PlantUml),
+            ("mermaid", DiagramLanguage::Mermaid),
+            ("graphviz", DiagramLanguage::GraphViz),
+            ("dot", DiagramLanguage::GraphViz),
+            ("ditaa", DiagramLanguage::Ditaa),
+            ("blockdiag", DiagramLanguage::BlockDiag),
+            ("seqdiag", DiagramLanguage::SeqDiag),
+            ("actdiag", DiagramLanguage::ActDiag),
+            ("nwdiag", DiagramLanguage::NwDiag),
+            ("packetdiag", DiagramLanguage::PacketDiag),
+            ("rackdiag", DiagramLanguage::RackDiag),
+            ("erd", DiagramLanguage::Erd),
+            ("nomnoml", DiagramLanguage::Nomnoml),
+            ("svgbob", DiagramLanguage::Svgbob),
+            ("vega", DiagramLanguage::Vega),
+            ("vegalite", DiagramLanguage::VegaLite),
+            ("wavedrom", DiagramLanguage::WaveDrom),
+        ];
+
+        for (name, expected) in languages {
+            let parsed = DiagramLanguage::parse(name);
+            assert_eq!(parsed, Some(expected), "Failed to parse: {name}");
+        }
+    }
+
+    #[test]
+    fn test_all_kroki_endpoints() {
+        // Verify all languages have correct endpoint
+        let endpoints = [
+            (DiagramLanguage::PlantUml, "plantuml"),
+            (DiagramLanguage::C4PlantUml, "c4plantuml"),
+            (DiagramLanguage::Mermaid, "mermaid"),
+            (DiagramLanguage::GraphViz, "graphviz"),
+            (DiagramLanguage::Ditaa, "ditaa"),
+            (DiagramLanguage::BlockDiag, "blockdiag"),
+            (DiagramLanguage::SeqDiag, "seqdiag"),
+            (DiagramLanguage::ActDiag, "actdiag"),
+            (DiagramLanguage::NwDiag, "nwdiag"),
+            (DiagramLanguage::PacketDiag, "packetdiag"),
+            (DiagramLanguage::RackDiag, "rackdiag"),
+            (DiagramLanguage::Erd, "erd"),
+            (DiagramLanguage::Nomnoml, "nomnoml"),
+            (DiagramLanguage::Svgbob, "svgbob"),
+            (DiagramLanguage::Vega, "vega"),
+            (DiagramLanguage::VegaLite, "vegalite"),
+            (DiagramLanguage::WaveDrom, "wavedrom"),
+        ];
+
+        for (lang, expected) in endpoints {
+            assert_eq!(
+                lang.kroki_endpoint(),
+                expected,
+                "Wrong endpoint for {:?}",
+                lang
+            );
+        }
+    }
+
+    #[test]
+    fn test_diagram_format_default() {
+        let format = DiagramFormat::default();
+        assert_eq!(format, DiagramFormat::Svg);
+    }
+
+    #[test]
+    fn test_diagram_format_parse() {
+        assert_eq!(DiagramFormat::parse("svg"), Some(DiagramFormat::Svg));
+        assert_eq!(DiagramFormat::parse("png"), Some(DiagramFormat::Png));
+        assert_eq!(DiagramFormat::parse("img"), Some(DiagramFormat::Img));
+        assert_eq!(DiagramFormat::parse("jpeg"), None);
+        assert_eq!(DiagramFormat::parse(""), None);
+    }
+
+    #[test]
+    fn test_extracted_diagram_clone() {
+        let diagram = ExtractedDiagram {
+            source: "test".to_string(),
+            index: 0,
+            language: DiagramLanguage::PlantUml,
+            format: DiagramFormat::Svg,
+        };
+        let cloned = diagram.clone();
+        assert_eq!(cloned.source, "test");
+        assert_eq!(cloned.index, 0);
+        assert_eq!(cloned.language, DiagramLanguage::PlantUml);
+        assert_eq!(cloned.format, DiagramFormat::Svg);
+    }
+
+    #[test]
+    fn test_extracted_diagram_debug() {
+        let diagram = ExtractedDiagram {
+            source: "test".to_string(),
+            index: 0,
+            language: DiagramLanguage::Mermaid,
+            format: DiagramFormat::Png,
+        };
+        let debug_str = format!("{:?}", diagram);
+        assert!(debug_str.contains("ExtractedDiagram"));
+        assert!(debug_str.contains("Mermaid"));
+        assert!(debug_str.contains("Png"));
+    }
+
+    #[test]
+    fn test_diagram_language_clone_copy() {
+        let lang = DiagramLanguage::PlantUml;
+        let cloned = lang.clone();
+        let copied = lang;
+        assert_eq!(cloned, DiagramLanguage::PlantUml);
+        assert_eq!(copied, DiagramLanguage::PlantUml);
+    }
+
+    #[test]
+    fn test_diagram_format_clone_copy() {
+        let fmt = DiagramFormat::Png;
+        let cloned = fmt.clone();
+        let copied = fmt;
+        assert_eq!(cloned, DiagramFormat::Png);
+        assert_eq!(copied, DiagramFormat::Png);
+    }
+
+    #[test]
+    fn test_empty_diagram_block() {
+        let markdown = "```plantuml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = DiagramFilter::new(parser);
+
+        let events: Vec<_> = filter.by_ref().collect();
+
+        let diagrams = filter.into_diagrams();
+        assert_eq!(diagrams.len(), 1);
+        assert!(diagrams[0].source.is_empty());
+
+        let has_placeholder = events
+            .iter()
+            .any(|e| matches!(e, Event::Html(s) if s.contains("{{DIAGRAM_0}}")));
+        assert!(has_placeholder);
+    }
+
+    #[test]
+    fn test_diagram_preserves_whitespace() {
+        let markdown = "```plantuml\n  @startuml\n    A -> B\n  @enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = DiagramFilter::new(parser);
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        let diagrams = filter.into_diagrams();
+        assert!(diagrams[0].source.contains("  @startuml"));
+        assert!(diagrams[0].source.contains("    A -> B"));
+    }
+
+    #[test]
+    fn test_multiple_warnings_in_single_diagram() {
+        let markdown = "```plantuml format=bad size=huge\n@startuml\nA\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = DiagramFilter::new(parser);
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        let warnings = filter.warnings();
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[0].contains("format value 'bad'"));
+        assert!(warnings[1].contains("unknown attribute 'size'"));
+    }
+
+    #[test]
+    fn test_c4plantuml_extraction() {
+        let markdown = "```c4plantuml\n@startuml\nSystem(sys, \"System\")\n@enduml\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = DiagramFilter::new(parser);
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        let diagrams = filter.into_diagrams();
+        assert_eq!(diagrams.len(), 1);
+        assert_eq!(diagrams[0].language, DiagramLanguage::C4PlantUml);
+        assert!(diagrams[0].language.needs_plantuml_preprocessing());
+    }
 }

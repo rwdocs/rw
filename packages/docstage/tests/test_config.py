@@ -455,6 +455,210 @@ class TestConfluenceConfig:
         assert config.consumer_key == "custom-key"
 
 
+class TestLiveReloadConfigParsing:
+    """Tests for live_reload config section parsing."""
+
+    def test__valid_live_reload__parses_correctly(self, tmp_path: Path) -> None:
+        """Parse valid live_reload section."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[live_reload]
+enabled = false
+watch_patterns = ["**/*.md", "**/*.toml"]
+""")
+
+        config = Config.load(config_file)
+
+        assert config.live_reload.enabled is False
+        assert config.live_reload.watch_patterns == ["**/*.md", "**/*.toml"]
+
+    def test__live_reload_defaults__enabled_true_no_patterns(
+        self, tmp_path: Path
+    ) -> None:
+        """Live reload defaults to enabled with no patterns."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("")
+
+        config = Config.load(config_file)
+
+        assert config.live_reload.enabled is True
+        assert config.live_reload.watch_patterns is None
+
+    def test__invalid_enabled_type__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when enabled is not a boolean."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[live_reload]
+enabled = "yes"
+""")
+
+        with pytest.raises(ValueError, match="live_reload.enabled must be a boolean"):
+            Config.load(config_file)
+
+    def test__invalid_watch_patterns_type__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when watch_patterns is not a list."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[live_reload]
+watch_patterns = "**/*.md"
+""")
+
+        with pytest.raises(
+            ValueError, match="live_reload.watch_patterns must be a list"
+        ):
+            Config.load(config_file)
+
+    def test__invalid_watch_patterns_item__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when watch_patterns item is not a string."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[live_reload]
+watch_patterns = [123]
+""")
+
+        with pytest.raises(
+            ValueError, match="live_reload.watch_patterns items must be strings"
+        ):
+            Config.load(config_file)
+
+    def test__invalid_section_type__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when live_reload section is not a dict."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text('live_reload = "invalid"')
+
+        with pytest.raises(
+            ValueError, match="live_reload section must be a dictionary"
+        ):
+            Config.load(config_file)
+
+
+class TestConfigInvalidSections:
+    """Tests for invalid section types."""
+
+    def test__invalid_server_section_type__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when server section is not a dict."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text('server = "invalid"')
+
+        with pytest.raises(ValueError, match="server section must be a dictionary"):
+            Config.load(config_file)
+
+    def test__invalid_docs_section_type__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when docs section is not a dict."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text('docs = "invalid"')
+
+        with pytest.raises(ValueError, match="docs section must be a dictionary"):
+            Config.load(config_file)
+
+    def test__invalid_diagrams_section_type__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when diagrams section is not a dict."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text('diagrams = "invalid"')
+
+        with pytest.raises(ValueError, match="diagrams section must be a dictionary"):
+            Config.load(config_file)
+
+    def test__invalid_confluence_section_type__raises_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Raise ValueError when confluence section is not a dict."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text('confluence = "invalid"')
+
+        with pytest.raises(
+            ValueError, match="confluence section must be a dictionary"
+        ):
+            Config.load(config_file)
+
+    def test__invalid_confluence_test_section_type__raises_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Raise ValueError when confluence.test section is not a dict."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[confluence]
+test = "invalid"
+""")
+
+        with pytest.raises(
+            ValueError, match="confluence.test section must be a dictionary"
+        ):
+            Config.load(config_file)
+
+
+class TestConfigAdditionalValidation:
+    """Tests for additional validation edge cases."""
+
+    def test__invalid_docs_cache_dir_type__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when cache_dir is not a string."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[docs]
+cache_dir = 123
+""")
+
+        with pytest.raises(ValueError, match="docs.cache_dir must be a string"):
+            Config.load(config_file)
+
+    def test__invalid_diagrams_config_file_type__raises_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Raise ValueError when config_file is not a string."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[diagrams]
+config_file = 123
+""")
+
+        with pytest.raises(ValueError, match="diagrams.config_file must be a string"):
+            Config.load(config_file)
+
+    def test__invalid_confluence_base_url_type__raises_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Raise ValueError when base_url is not a string."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[confluence]
+base_url = 123
+access_token = "token"
+access_secret = "secret"
+""")
+
+        with pytest.raises(ValueError, match="confluence.base_url must be a string"):
+            Config.load(config_file)
+
+    def test__invalid_confluence_consumer_key_type__raises_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Raise ValueError when consumer_key is not a string."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[confluence]
+base_url = "https://example.com"
+access_token = "token"
+access_secret = "secret"
+consumer_key = 123
+""")
+
+        with pytest.raises(
+            ValueError, match="confluence.consumer_key must be a string"
+        ):
+            Config.load(config_file)
+
+    def test__auto_discovered_config__sets_config_path(self, tmp_path: Path) -> None:
+        """Auto-discovered config sets config_path."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("[server]\nport = 9000")
+
+        with patch("pathlib.Path.cwd", return_value=tmp_path):
+            config = Config.load()
+
+        assert config.config_path == config_file
+        assert config.server.port == 9000
+
+
 class TestConfigWithOverrides:
     """Tests for Config.with_overrides method."""
 
