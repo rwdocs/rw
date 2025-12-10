@@ -23,7 +23,6 @@ class TestCreateApp:
         assert renderer_key in app
         assert site_loader_key in app
         assert cache_key in app
-        assert app[renderer_key].source_dir == test_config.docs.source_dir
         assert app[cache_key].cache_dir == test_config.docs.cache_dir
 
     def test__app__uses_bundled_static_assets(self, test_config: Config) -> None:

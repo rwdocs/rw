@@ -18,7 +18,7 @@ class TestPageRendererRender:
         source_path.write_text("# Guide\n\nThis is a guide.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         result = renderer.render(source_path, "guide")
 
@@ -33,7 +33,7 @@ class TestPageRendererRender:
         source_dir.mkdir()
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         with pytest.raises(FileNotFoundError, match="Source file not found"):
             renderer.render(source_dir / "nonexistent.md", "nonexistent")
@@ -46,7 +46,7 @@ class TestPageRendererRender:
         source_path.write_text("# Guide\n\nOriginal content.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         result1 = renderer.render(source_path, "guide")
         assert result1.from_cache is False
@@ -64,7 +64,7 @@ class TestPageRendererRender:
         source_path.write_text("# Guide\n\nOriginal content.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         result1 = renderer.render(source_path, "guide")
         assert "Original content" in result1.html
@@ -88,7 +88,7 @@ class TestPageRendererRender:
         source_path.write_text("# Nested Guide\n\nDeep content.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         result = renderer.render(source_path, "domain/subdomain/guide")
 
@@ -118,7 +118,7 @@ Steps.
 """)
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         result = renderer.render(source_path, "guide")
 
@@ -140,7 +140,7 @@ Steps.
         source_path.write_text("# Guide\n\n## Section\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         renderer.render(source_path, "guide")
         result = renderer.render(source_path, "guide")
@@ -162,27 +162,13 @@ class TestPageRendererInvalidate:
         source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         renderer.render(source_path, "guide")
         renderer.invalidate("guide")
         result = renderer.render(source_path, "guide")
 
         assert result.from_cache is False
-
-
-class TestPageRendererProperties:
-    """Tests for PageRenderer properties."""
-
-    def test__source_dir__returns_path(self, tmp_path: Path) -> None:
-        """Return source directory from property."""
-        source_dir = tmp_path / "docs"
-        source_dir.mkdir()
-
-        cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
-
-        assert renderer.source_dir == source_dir
 
 
 class TestPageRendererWithKroki:
@@ -197,7 +183,6 @@ class TestPageRendererWithKroki:
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(
-            source_dir,
             cache,
             kroki_url="https://kroki.io",
         )
@@ -219,7 +204,6 @@ class TestPageRendererWithKroki:
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(
-            source_dir,
             cache,
             kroki_url="https://kroki.io",
         )
@@ -243,7 +227,7 @@ class TestPageRendererOptions:
         source_path.write_text("# My Title\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache, extract_title=False)
+        renderer = PageRenderer(cache, extract_title=False)
 
         result = renderer.render(source_path, "guide")
 
@@ -260,7 +244,7 @@ class TestPageRendererOptions:
         source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache, dpi=300)
+        renderer = PageRenderer(cache, dpi=300)
 
         result = renderer.render(source_path, "guide")
 
@@ -277,7 +261,6 @@ class TestPageRendererOptions:
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(
-            source_dir,
             cache,
             include_dirs=[include_dir],
         )
@@ -296,7 +279,6 @@ class TestPageRendererOptions:
 
         cache = FileCache(tmp_path / ".cache")
         renderer = PageRenderer(
-            source_dir,
             cache,
             config_file="config.iuml",
         )
@@ -317,7 +299,7 @@ class TestRenderResult:
         source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         result = renderer.render(source_path, "guide")
 
@@ -332,7 +314,7 @@ class TestRenderResult:
         source_path.write_text("# Guide\n\nContent.")
 
         cache = FileCache(tmp_path / ".cache")
-        renderer = PageRenderer(source_dir, cache)
+        renderer = PageRenderer(cache)
 
         renderer.render(source_path, "guide")
         result = renderer.render(source_path, "guide")

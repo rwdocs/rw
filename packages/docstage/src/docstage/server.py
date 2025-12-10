@@ -42,7 +42,6 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
     cache = FileCache(config.docs.cache_dir)
 
     renderer = PageRenderer(
-        config.docs.source_dir,
         cache,
         kroki_url=config.diagrams.kroki_url,
         include_dirs=config.diagrams.include_dirs,

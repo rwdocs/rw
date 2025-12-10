@@ -56,7 +56,6 @@ class PageRenderer:
 
     def __init__(
         self,
-        source_dir: Path,
         cache: FileCache,
         *,
         extract_title: bool = True,
@@ -68,7 +67,6 @@ class PageRenderer:
         """Initialize renderer.
 
         Args:
-            source_dir: Root directory containing markdown sources
             cache: FileCache instance for caching rendered content
             extract_title: Whether to extract title from first H1
             kroki_url: Kroki server URL for diagram rendering (e.g., "https://kroki.io").
@@ -77,12 +75,8 @@ class PageRenderer:
             config_file: PlantUML config file name (searched in include_dirs)
             dpi: DPI for diagram rendering (default: 192 for retina)
         """
-        self._source_dir = source_dir
         self._cache = cache
-        self._extract_title = extract_title
         self._kroki_url = kroki_url
-        self._include_dirs = include_dirs
-        self._config_file = config_file
         self._dpi = dpi
 
         self._converter = MarkdownConverter(
@@ -92,11 +86,6 @@ class PageRenderer:
             config_file=config_file,
             dpi=dpi,
         )
-
-    @property
-    def source_dir(self) -> Path:
-        """Root directory containing markdown sources."""
-        return self._source_dir
 
     def render(self, source_path: Path, base_path: str) -> RenderResult:
         """Render a markdown document.
