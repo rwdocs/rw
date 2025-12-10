@@ -9,9 +9,7 @@
   let { toc }: Props = $props();
 
   // Filter to only show h2 and h3 (two levels deep, excludes h1)
-  let filteredToc = $derived(
-    toc.filter((entry) => entry.level >= 2 && entry.level <= 3),
-  );
+  let filteredToc = $derived(toc.filter((entry) => entry.level >= 2 && entry.level <= 3));
 
   let activeId = $state<string | null>(null);
 
@@ -75,9 +73,7 @@
 </script>
 
 <div>
-  <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3">
-    On this page
-  </h3>
+  <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3">On this page</h3>
   <ul class="space-y-1.5">
     {#each filteredToc as entry (entry.id)}
       <li class={entry.level === 3 ? "ml-3" : ""}>

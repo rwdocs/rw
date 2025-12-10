@@ -59,7 +59,7 @@ pub struct DiagramRequest {
 
 impl DiagramRequest {
     /// Create a new diagram request.
-    #[must_use] 
+    #[must_use]
     pub fn new(index: usize, source: String, language: DiagramLanguage) -> Self {
         Self {
             index,
@@ -69,7 +69,7 @@ impl DiagramRequest {
     }
 
     /// Create a `PlantUML` diagram request (for backwards compatibility).
-    #[must_use] 
+    #[must_use]
     pub fn plantuml(index: usize, source: String) -> Self {
         Self {
             index,

@@ -30,7 +30,7 @@ impl DiagramLanguage {
     /// Parse language from code fence info string.
     ///
     /// Returns None if the language is not a supported diagram type.
-    #[must_use] 
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "plantuml" => Some(Self::PlantUml),
@@ -101,7 +101,7 @@ pub enum DiagramFormat {
 
 impl DiagramFormat {
     /// Parse format from attribute value.
-    #[must_use] 
+    #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "svg" => Some(Self::Svg),

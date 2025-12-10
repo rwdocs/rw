@@ -263,7 +263,8 @@ mod tests {
         std::fs::write(&include_path, "Component(comp, \"Component\")").unwrap();
 
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include test_component.iuml\nBoundary_End()\n@enduml";
-        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
 
         // Cleanup
         std::fs::remove_file(&include_path).unwrap();

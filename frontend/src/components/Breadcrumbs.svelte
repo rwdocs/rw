@@ -13,10 +13,7 @@
     <ol class="flex items-center text-sm text-gray-600">
       {#each breadcrumbs as crumb (crumb.path)}
         <li class="breadcrumb-item">
-          <a
-            href={crumb.path}
-            class="hover:text-gray-700 hover:underline"
-          >
+          <a href={crumb.path} class="hover:text-gray-700 hover:underline">
             {crumb.title}
           </a>
         </li>

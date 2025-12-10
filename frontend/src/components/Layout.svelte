@@ -45,7 +45,9 @@
     </svg>
   </button>
   <a href="/" class="ml-3">
-    <span class="text-lg font-semibold uppercase"><span class="text-gray-900">Doc</span><span class="text-gray-400">stage</span></span>
+    <span class="text-lg font-semibold uppercase"
+      ><span class="text-gray-900">Doc</span><span class="text-gray-400">stage</span></span
+    >
   </a>
 </header>
 
@@ -59,7 +61,9 @@
   >
     <div class="p-4">
       <a href="/" class="block mb-6">
-        <span class="text-xl font-semibold uppercase"><span class="text-gray-900">Doc</span><span class="text-gray-400">stage</span></span>
+        <span class="text-xl font-semibold uppercase"
+          ><span class="text-gray-900">Doc</span><span class="text-gray-400">stage</span></span
+        >
       </a>
       <NavigationSidebar />
     </div>

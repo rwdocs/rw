@@ -69,7 +69,8 @@ select = [
     "TRY",
 ]
 ignore = [
-    "E501",  # Line too long - handled by formatter
+    "COM812",  # Conflicts with formatter
+    "E501",    # Line too long - handled by formatter
     "TRY003",  # Long exception messages are fine for CLI apps
     "TRY004",  # ValueError is appropriate for config validation
     "TRY300",  # return in try is fine

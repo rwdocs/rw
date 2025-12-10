@@ -1,4 +1,5 @@
 {
+  "printWidth": 100,
   "plugins": ["prettier-plugin-svelte"],
   "overrides": [
     {

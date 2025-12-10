@@ -27,11 +27,7 @@
   });
 </script>
 
-<div
-  class="transition-opacity duration-150 {$page.loading
-    ? 'opacity-0'
-    : 'opacity-100'}"
->
+<div class="transition-opacity duration-150 {$page.loading ? 'opacity-0' : 'opacity-100'}">
   {#if $page.notFound}
     <div class="flex items-center justify-center h-64">
       <div class="text-center">

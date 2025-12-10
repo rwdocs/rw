@@ -32,9 +32,7 @@
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
         <svg
-          class="w-3 h-3 transition-transform {isExpanded
-            ? 'rotate-90'
-            : 'rotate-0'}"
+          class="w-3 h-3 transition-transform {isExpanded ? 'rotate-90' : 'rotate-0'}"
           fill="currentColor"
           viewBox="0 0 20 20"
         >

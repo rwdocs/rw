@@ -411,7 +411,9 @@ class Config:
         if source_dir is not None or cache_dir is not None:
             docs = replace(
                 self.docs,
-                source_dir=source_dir if source_dir is not None else self.docs.source_dir,
+                source_dir=source_dir
+                if source_dir is not None
+                else self.docs.source_dir,
                 cache_dir=cache_dir if cache_dir is not None else self.docs.cache_dir,
             )
 

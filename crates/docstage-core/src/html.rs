@@ -645,7 +645,7 @@ fn slugify(text: &str) -> String {
 }
 
 /// Escape HTML special characters.
-#[must_use] 
+#[must_use]
 pub fn escape_html(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     for c in s.chars() {
@@ -979,7 +979,10 @@ mod tests {
     fn test_resolve_link_relative() {
         // Sibling link from domains/billing/systems/payment-gateway/adr
         assert_eq!(
-            resolve_link("adr-101/index.md", "domains/billing/systems/payment-gateway/adr"),
+            resolve_link(
+                "adr-101/index.md",
+                "domains/billing/systems/payment-gateway/adr"
+            ),
             "/docs/domains/billing/systems/payment-gateway/adr/adr-101"
         );
     }
@@ -1027,16 +1030,16 @@ mod tests {
 
     #[test]
     fn test_resolve_link_non_md_unchanged() {
-        assert_eq!(
-            resolve_link("./image.png", "base/path"),
-            "./image.png"
-        );
+        assert_eq!(resolve_link("./image.png", "base/path"), "./image.png");
     }
 
     #[test]
     fn test_resolve_link_absolute() {
         // Absolute paths should not produce double slashes
-        assert_eq!(resolve_link("/absolute/path.md", "base/path"), "/docs/absolute/path");
+        assert_eq!(
+            resolve_link("/absolute/path.md", "base/path"),
+            "/docs/absolute/path"
+        );
     }
 
     #[test]
@@ -1060,9 +1063,11 @@ mod tests {
             "[ADR 101](adr-101/index.md)",
             "domains/billing/systems/payment-gateway/adr",
         );
-        assert!(result.html.contains(
-            r#"<a href="/docs/domains/billing/systems/payment-gateway/adr/adr-101">"#
-        ));
+        assert!(
+            result.html.contains(
+                r#"<a href="/docs/domains/billing/systems/payment-gateway/adr/adr-101">"#
+            )
+        );
     }
 
     #[test]

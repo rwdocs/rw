@@ -668,9 +668,8 @@ fn strip_google_fonts_import(svg: &str) -> String {
 
 fn replace_placeholder_with_png(html: &mut String, index: usize, data_uri: &str) {
     let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-    let figure = format!(
-        r#"<figure class="diagram"><img src="{data_uri}" alt="diagram"></figure>"#
-    );
+    let figure =
+        format!(r#"<figure class="diagram"><img src="{data_uri}" alt="diagram"></figure>"#);
     *html = html.replace(&placeholder, &figure);
 }
 

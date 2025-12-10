@@ -24,7 +24,9 @@ def client(
     aiohttp_client,
 ) -> TestClient:
     """Create test client with configured app."""
-    config = test_config.with_overrides(source_dir=docs_dir, cache_dir=tmp_path / ".cache")
+    config = test_config.with_overrides(
+        source_dir=docs_dir, cache_dir=tmp_path / ".cache"
+    )
     app = create_app(config)
     return aiohttp_client(app)
 
