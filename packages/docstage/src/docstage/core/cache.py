@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
+from docstage.core.types import URLPath
+
 if TYPE_CHECKING:
     from docstage.core.site import Site
 
@@ -199,7 +201,11 @@ class FileCache:
         # Reconstruct Site from cached data
         source_dir = Path(data["source_dir"])
         pages = [
-            Page(title=p["title"], path=p["path"], source_path=p["source_path"])
+            Page(
+                title=p["title"],
+                path=URLPath(p["path"]),
+                source_path=Path(p["source_path"]),
+            )
             for p in data["pages"]
         ]
         return Site(
@@ -223,7 +229,7 @@ class FileCache:
         data = {
             "source_dir": str(site.source_dir),
             "pages": [
-                {"title": p.title, "path": p.path, "source_path": p.source_path}
+                {"title": p.title, "path": p.path, "source_path": str(p.source_path)}
                 for p in site._pages
             ],
             "children": site._children,

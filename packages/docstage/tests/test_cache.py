@@ -228,11 +228,11 @@ class TestFileCacheSite:
         assert result.source_dir == source_dir
         assert result.get_page("/domain-a") is not None
         assert result.get_page("/domain-a").title == "Domain A"
-        assert result.get_page("/domain-a").source_path == "domain-a/index.md"
+        assert result.get_page("/domain-a").source_path == Path("domain-a/index.md")
         children = result.get_children("/domain-a")
         assert len(children) == 1
         assert children[0].title == "Guide"
-        assert children[0].source_path == "domain-a/guide.md"
+        assert children[0].source_path == Path("domain-a/guide.md")
 
     def test_invalidate_site(self, tmp_path: Path) -> None:
         """Remove cached site structure."""

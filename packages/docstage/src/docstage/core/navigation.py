@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import TypedDict
 
 from docstage.core.site import Page, Site
+from docstage.core.types import URLPath
 
 
 class NavItemDict(TypedDict, total=False):
@@ -23,7 +24,7 @@ class NavItem:
     """Navigation item with children for UI tree."""
 
     title: str
-    path: str
+    path: URLPath
     children: list[NavItem] = field(default_factory=list)
 
     def to_dict(self) -> NavItemDict:

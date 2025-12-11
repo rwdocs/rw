@@ -22,7 +22,7 @@ class TestSite:
     def test__get_page__returns_page(self, source_dir: Path) -> None:
         """Get page by path."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Guide", "/guide", "guide.md")
+        builder.add_page("Guide", "/guide", Path("guide.md"))
         site = builder.build()
 
         page = site.get_page("/guide")
@@ -30,7 +30,7 @@ class TestSite:
         assert page is not None
         assert page.title == "Guide"
         assert page.path == "/guide"
-        assert page.source_path == "guide.md"
+        assert page.source_path == Path("guide.md")
 
     def test__get_page__not_found__returns_none(self, source_dir: Path) -> None:
         """Return None when page not found."""
@@ -43,7 +43,7 @@ class TestSite:
     def test__get_page__normalizes_path(self, source_dir: Path) -> None:
         """Normalize path without leading slash."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Guide", "/guide", "guide.md")
+        builder.add_page("Guide", "/guide", Path("guide.md"))
         site = builder.build()
 
         page = site.get_page("guide")
@@ -54,8 +54,8 @@ class TestSite:
     def test__get_children__returns_children(self, source_dir: Path) -> None:
         """Get children of a page."""
         builder = SiteBuilder(source_dir)
-        parent_idx = builder.add_page("Parent", "/parent", "parent/index.md")
-        builder.add_page("Child", "/parent/child", "parent/child.md", parent_idx)
+        parent_idx = builder.add_page("Parent", "/parent", Path("parent/index.md"))
+        builder.add_page("Child", "/parent/child", Path("parent/child.md"), parent_idx)
         site = builder.build()
 
         children = site.get_children("/parent")
@@ -74,7 +74,7 @@ class TestSite:
     def test__get_children__no_children__returns_empty(self, source_dir: Path) -> None:
         """Return empty list when page has no children."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Guide", "/guide", "guide.md")
+        builder.add_page("Guide", "/guide", Path("guide.md"))
         site = builder.build()
 
         children = site.get_children("/guide")
@@ -94,7 +94,7 @@ class TestSite:
     def test__get_breadcrumbs__root_page__returns_home(self, source_dir: Path) -> None:
         """Return Home for root-level page."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Guide", "/guide", "guide.md")
+        builder.add_page("Guide", "/guide", Path("guide.md"))
         site = builder.build()
 
         breadcrumbs = site.get_breadcrumbs("/guide")
@@ -108,8 +108,8 @@ class TestSite:
     ) -> None:
         """Return Home and ancestors for nested page."""
         builder = SiteBuilder(source_dir)
-        parent_idx = builder.add_page("Parent", "/parent", "parent/index.md")
-        builder.add_page("Child", "/parent/child", "parent/child.md", parent_idx)
+        parent_idx = builder.add_page("Parent", "/parent", Path("parent/index.md"))
+        builder.add_page("Child", "/parent/child", Path("parent/child.md"), parent_idx)
         site = builder.build()
 
         breadcrumbs = site.get_breadcrumbs("/parent/child")
@@ -131,8 +131,8 @@ class TestSite:
     def test__get_root_pages__returns_roots(self, source_dir: Path) -> None:
         """Get root-level pages."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("A", "/a", "a.md")
-        builder.add_page("B", "/b", "b.md")
+        builder.add_page("A", "/a", Path("a.md"))
+        builder.add_page("B", "/b", Path("b.md"))
         site = builder.build()
 
         roots = site.get_root_pages()
@@ -152,7 +152,7 @@ class TestSite:
     ) -> None:
         """Resolve URL path to absolute source file path."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Guide", "/guide", "guide.md")
+        builder.add_page("Guide", "/guide", Path("guide.md"))
         site = builder.build()
 
         result = site.resolve_source_path("/guide")
@@ -162,7 +162,7 @@ class TestSite:
     def test__resolve_source_path__nested_page(self, source_dir: Path) -> None:
         """Resolve nested page path."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Deep", "/domain/subdomain/page", "domain/subdomain/page.md")
+        builder.add_page("Deep", "/domain/subdomain/page", Path("domain/subdomain/page.md"))
         site = builder.build()
 
         result = site.resolve_source_path("/domain/subdomain/page")
@@ -182,12 +182,56 @@ class TestSite:
     def test__resolve_source_path__normalizes_path(self, source_dir: Path) -> None:
         """Normalize path without leading slash."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Guide", "/guide", "guide.md")
+        builder.add_page("Guide", "/guide", Path("guide.md"))
         site = builder.build()
 
         result = site.resolve_source_path("guide")
 
         assert result == source_dir / "guide.md"
+
+    def test__get_page_by_source__returns_page(self, source_dir: Path) -> None:
+        """Get page by source file path."""
+        builder = SiteBuilder(source_dir)
+        builder.add_page("Guide", "/guide", Path("guide.md"))
+        site = builder.build()
+
+        page = site.get_page_by_source(Path("guide.md"))
+
+        assert page is not None
+        assert page.title == "Guide"
+        assert page.path == "/guide"
+
+    def test__get_page_by_source__nested_path(self, source_dir: Path) -> None:
+        """Get page by nested source file path."""
+        builder = SiteBuilder(source_dir)
+        builder.add_page("Deep", "/domain/page", Path("domain/page.md"))
+        site = builder.build()
+
+        page = site.get_page_by_source(Path("domain/page.md"))
+
+        assert page is not None
+        assert page.path == "/domain/page"
+
+    def test__get_page_by_source__index_file(self, source_dir: Path) -> None:
+        """Get page by index.md source path."""
+        builder = SiteBuilder(source_dir)
+        builder.add_page("Section", "/section", Path("section/index.md"))
+        site = builder.build()
+
+        page = site.get_page_by_source(Path("section/index.md"))
+
+        assert page is not None
+        assert page.path == "/section"
+
+    def test__get_page_by_source__not_found__returns_none(
+        self, source_dir: Path
+    ) -> None:
+        """Return None when source file not found."""
+        site = SiteBuilder(source_dir).build()
+
+        page = site.get_page_by_source(Path("nonexistent.md"))
+
+        assert page is None
 
 
 class TestSiteBuilder:
@@ -201,7 +245,7 @@ class TestSiteBuilder:
         """Add page returns its index."""
         builder = SiteBuilder(source_dir)
 
-        idx = builder.add_page("Guide", "/guide", "guide.md")
+        idx = builder.add_page("Guide", "/guide", Path("guide.md"))
 
         assert idx == 0
 
@@ -209,8 +253,8 @@ class TestSiteBuilder:
         """Each page gets a unique index."""
         builder = SiteBuilder(source_dir)
 
-        idx1 = builder.add_page("A", "/a", "a.md")
-        idx2 = builder.add_page("B", "/b", "b.md")
+        idx1 = builder.add_page("A", "/a", Path("a.md"))
+        idx2 = builder.add_page("B", "/b", Path("b.md"))
 
         assert idx1 == 0
         assert idx2 == 1
@@ -218,8 +262,8 @@ class TestSiteBuilder:
     def test__add_page__with_parent__links_child(self, source_dir: Path) -> None:
         """Child page is linked to parent."""
         builder = SiteBuilder(source_dir)
-        parent_idx = builder.add_page("Parent", "/parent", "parent/index.md")
-        builder.add_page("Child", "/parent/child", "parent/child.md", parent_idx)
+        parent_idx = builder.add_page("Parent", "/parent", Path("parent/index.md"))
+        builder.add_page("Child", "/parent/child", Path("parent/child.md"), parent_idx)
         site = builder.build()
 
         children = site.get_children("/parent")
@@ -230,7 +274,7 @@ class TestSiteBuilder:
     def test__build__creates_site(self, source_dir: Path) -> None:
         """Build creates Site instance."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Guide", "/guide", "guide.md")
+        builder.add_page("Guide", "/guide", Path("guide.md"))
 
         site = builder.build()
 
@@ -243,15 +287,15 @@ class TestPage:
 
     def test__creation__stores_values(self) -> None:
         """Page stores title, path, and source_path."""
-        page = Page(title="Guide", path="/guide", source_path="guide.md")
+        page = Page(title="Guide", path="/guide", source_path=Path("guide.md"))
 
         assert page.title == "Guide"
         assert page.path == "/guide"
-        assert page.source_path == "guide.md"
+        assert page.source_path == Path("guide.md")
 
     def test__frozen__immutable(self) -> None:
         """Page is frozen/immutable."""
-        page = Page(title="Guide", path="/guide", source_path="guide.md")
+        page = Page(title="Guide", path="/guide", source_path=Path("guide.md"))
 
         with pytest.raises(AttributeError):
             page.title = "New Title"  # type: ignore[misc]
@@ -302,7 +346,7 @@ class TestSiteLoader:
         """Build site from flat directory with markdown files."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# User Guide\n\nContent.")
+        (source_dir / Path("guide.md")).write_text("# User Guide\n\nContent.")
         (source_dir / "api.md").write_text("# API Reference\n\nDocs.")
 
         loader = SiteLoader(source_dir)
@@ -319,7 +363,7 @@ class TestSiteLoader:
         domain_dir = source_dir / "domain-a"
         domain_dir.mkdir(parents=True)
         (domain_dir / "index.md").write_text("# Domain A\n\nOverview.")
-        (domain_dir / "guide.md").write_text("# Setup Guide\n\nSteps.")
+        (domain_dir / Path("guide.md")).write_text("# Setup Guide\n\nSteps.")
 
         loader = SiteLoader(source_dir)
 
@@ -328,18 +372,18 @@ class TestSiteLoader:
         domain = site.get_page("/domain-a")
         assert domain is not None
         assert domain.title == "Domain A"
-        assert domain.source_path == "domain-a/index.md"
+        assert domain.source_path == Path("domain-a/index.md")
 
         children = site.get_children("/domain-a")
         assert len(children) == 1
         assert children[0].title == "Setup Guide"
-        assert children[0].source_path == "domain-a/guide.md"
+        assert children[0].source_path == Path("domain-a/guide.md")
 
     def test__load__extracts_title_from_h1(self, tmp_path: Path) -> None:
         """Extract title from first H1 heading."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# My Custom Title\n\nContent.")
+        (source_dir / Path("guide.md")).write_text("# My Custom Title\n\nContent.")
 
         loader = SiteLoader(source_dir)
 
@@ -362,6 +406,22 @@ class TestSiteLoader:
         page = site.get_page("/setup-guide")
         assert page is not None
         assert page.title == "Setup Guide"
+
+    def test__load__cyrillic_filename(self, tmp_path: Path) -> None:
+        """Handle Cyrillic (non-ASCII) filenames."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "руководство.md").write_text("# Руководство\n\nСодержимое.")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        page = site.get_page("/руководство")
+        assert page is not None
+        assert page.title == "Руководство"
+        assert page.path == "/руководство"
+        assert page.source_path == Path("руководство.md")
 
     def test__load__skips_hidden_files(self, tmp_path: Path) -> None:
         """Skip files starting with dot."""
@@ -409,13 +469,13 @@ class TestSiteLoader:
         roots = site.get_root_pages()
         assert len(roots) == 1
         assert roots[0].path == "/no-index/child"
-        assert roots[0].source_path == "no-index/child.md"
+        assert roots[0].source_path == Path("no-index/child.md")
 
     def test__load__caches_site_instance(self, tmp_path: Path) -> None:
         """Site instance is cached and reused on subsequent calls."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide")
+        (source_dir / Path("guide.md")).write_text("# Guide")
 
         loader = SiteLoader(source_dir)
 
@@ -428,7 +488,7 @@ class TestSiteLoader:
         """Invalidate clears cached Site instance."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide")
+        (source_dir / Path("guide.md")).write_text("# Guide")
 
         loader = SiteLoader(source_dir)
 
@@ -444,7 +504,7 @@ class TestSiteLoader:
         """Loaded site has correct source_dir."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide")
+        (source_dir / Path("guide.md")).write_text("# Guide")
 
         loader = SiteLoader(source_dir)
 
@@ -460,7 +520,7 @@ class TestSiteLoaderWithCache:
         """Use cached site on subsequent loads."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide")
+        (source_dir / Path("guide.md")).write_text("# Guide")
 
         cache = _MockSiteCache()
         loader = SiteLoader(source_dir, cache)
@@ -477,7 +537,7 @@ class TestSiteLoaderWithCache:
         """Bypass cache when use_cache=False."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide")
+        (source_dir / Path("guide.md")).write_text("# Guide")
 
         cache = _MockSiteCache()
         loader = SiteLoader(source_dir, cache)
@@ -492,7 +552,7 @@ class TestSiteLoaderWithCache:
         """Invalidate clears external cache."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "guide.md").write_text("# Guide")
+        (source_dir / Path("guide.md")).write_text("# Guide")
 
         cache = _MockSiteCache()
         loader = SiteLoader(source_dir, cache)

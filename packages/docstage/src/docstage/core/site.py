@@ -10,14 +10,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from docstage.core.types import URLPath
+
 
 @dataclass(frozen=True)
 class Page:
     """Document page data."""
 
     title: str
-    path: str
-    source_path: str  # Relative path to source .md file (e.g., "guide.md")
+    path: URLPath
+    source_path: Path  # Relative path to source .md file (e.g., Path("guide.md"))
 
 
 @dataclass(frozen=True)
@@ -25,7 +27,7 @@ class BreadcrumbItem:
     """Breadcrumb navigation item."""
 
     title: str
-    path: str
+    path: URLPath
 
     def to_dict(self) -> dict[str, str]:
         """Convert to dictionary for JSON serialization."""
@@ -78,11 +80,11 @@ class Site:
         """Root directory containing markdown sources."""
         return self._source_dir
 
-    def get_page(self, path: str) -> Page | None:
+    def get_page(self, path: URLPath) -> Page | None:
         """Get page by path.
 
         Args:
-            path: Page path (e.g., "domain/page" or "/domain/page")
+            path: Page path (e.g., URLPath("domain/page") or URLPath("/domain/page"))
 
         Returns:
             Page if found, None otherwise
@@ -93,11 +95,11 @@ class Site:
             return None
         return self._pages[idx]
 
-    def get_children(self, path: str) -> list[Page]:
+    def get_children(self, path: URLPath) -> list[Page]:
         """Get children of a page.
 
         Args:
-            path: Page path (e.g., "domain/page" or "/domain/page")
+            path: Page path (e.g., URLPath("domain/page") or URLPath("/domain/page"))
 
         Returns:
             List of child Pages, empty if not found or no children
@@ -108,7 +110,7 @@ class Site:
             return []
         return [self._pages[i] for i in self._children[idx]]
 
-    def get_breadcrumbs(self, path: str) -> list[BreadcrumbItem]:
+    def get_breadcrumbs(self, path: URLPath) -> list[BreadcrumbItem]:
         """Build breadcrumbs for a given path.
 
         Returns breadcrumbs starting with "Home" for non-root pages,
@@ -120,7 +122,7 @@ class Site:
             This differs from get_page() which returns None for unknown paths.
 
         Args:
-            path: Page path (e.g., "domain/page" or "/domain/page")
+            path: Page path (e.g., URLPath("domain/page") or URLPath("/domain/page"))
 
         Returns:
             List of BreadcrumbItem for ancestor navigation
@@ -131,7 +133,7 @@ class Site:
         normalized = self._normalize_path(path)
         idx = self._path_index.get(normalized)
         if idx is None:
-            return [BreadcrumbItem(title="Home", path="/")]
+            return [BreadcrumbItem(title="Home", path=URLPath("/"))]
 
         # Walk up parent chain
         ancestors: list[Page] = []
@@ -142,7 +144,7 @@ class Site:
 
         # Reverse to root-first, exclude current page
         ancestors.reverse()
-        breadcrumbs = [BreadcrumbItem(title="Home", path="/")]
+        breadcrumbs = [BreadcrumbItem(title="Home", path=URLPath("/"))]
         for page in ancestors[:-1]:
             breadcrumbs.append(BreadcrumbItem(title=page.title, path=page.path))
 
@@ -152,7 +154,7 @@ class Site:
         """Get root-level pages."""
         return [self._pages[i] for i in self._roots]
 
-    def resolve_source_path(self, path: str) -> Path | None:
+    def resolve_source_path(self, path: URLPath) -> Path | None:
         """Resolve URL path to absolute source file path.
 
         Args:
@@ -166,9 +168,23 @@ class Site:
             return None
         return self._source_dir / page.source_path
 
-    def _normalize_path(self, path: str) -> str:
+    def get_page_by_source(self, source_path: Path) -> Page | None:
+        """Get page by source file path.
+
+        Args:
+            source_path: Relative path to source file (e.g., Path("guide.md"))
+
+        Returns:
+            Page if found, None otherwise
+        """
+        for page in self._pages:
+            if page.source_path == source_path:
+                return page
+        return None
+
+    def _normalize_path(self, path: URLPath) -> URLPath:
         """Normalize path to have leading slash."""
-        return path if path.startswith("/") else f"/{path}"
+        return path if path.startswith("/") else URLPath(f"/{path}")
 
 
 class SiteBuilder:
@@ -184,8 +200,8 @@ class SiteBuilder:
     def add_page(
         self,
         title: str,
-        path: str,
-        source_path: str,
+        path: URLPath,
+        source_path: Path,
         parent_idx: int | None = None,
     ) -> int:
         """Add a page to the site.
@@ -193,7 +209,7 @@ class SiteBuilder:
         Args:
             title: Page title
             path: URL path (e.g., "/guide")
-            source_path: Relative path to source file (e.g., "guide.md")
+            source_path: Relative path to source file (e.g., Path("guide.md"))
             parent_idx: Index of parent page, None for root
 
         Returns:
@@ -363,8 +379,8 @@ class SiteLoader:
 
         # Create page for this directory
         title = self._extract_title(index_file) or self._title_from_name(dir_name)
-        source_path = str(index_file.relative_to(self._source_dir))
-        page_idx = builder.add_page(title, item_path, source_path, parent_idx)
+        source_path = index_file.relative_to(self._source_dir)
+        page_idx = builder.add_page(title, URLPath(item_path), source_path, parent_idx)
 
         # Scan children with this page as parent
         self._scan_directory(dir_path, item_path, builder, page_idx)
@@ -383,8 +399,8 @@ class SiteLoader:
         item_path = f"{base_path}/{file_name}" if base_path else f"/{file_name}"
 
         title = self._extract_title(file_path) or self._title_from_name(file_name)
-        source_path = str(file_path.relative_to(self._source_dir))
-        return builder.add_page(title, item_path, source_path, parent_idx)
+        source_path = file_path.relative_to(self._source_dir)
+        return builder.add_page(title, URLPath(item_path), source_path, parent_idx)
 
     def _extract_title(self, file_path: Path) -> str | None:
         """Extract title from first H1 heading in markdown file."""

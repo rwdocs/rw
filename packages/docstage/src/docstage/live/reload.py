@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from aiohttp import WSMsgType, web
 from watchfiles import Change, awatch
 
+from docstage.core.types import URLPath
+
 if TYPE_CHECKING:
     from docstage.core.site import SiteLoader
 
@@ -97,10 +99,12 @@ class LiveReloadManager:
                 if not self._matches_patterns(path):
                     continue
 
-                doc_path = self._to_doc_path(path)
-
+                # Invalidate first so we get fresh site data
                 self._invalidate_caches()
-                await self._broadcast_reload(doc_path)
+
+                doc_path = self._resolve_doc_path(path)
+                if doc_path is not None:
+                    await self._broadcast_reload(doc_path)
 
     def _invalidate_caches(self) -> None:
         """Invalidate site cache.
@@ -131,24 +135,28 @@ class LiveReloadManager:
                 return True
         return False
 
-    def _to_doc_path(self, file_path: Path) -> str:
-        """Convert a file system path to a documentation path.
+    def _resolve_doc_path(self, file_path: Path) -> URLPath | None:
+        """Resolve file system path to documentation URL path using Site.
 
         Args:
             file_path: Absolute file path
 
         Returns:
-            Documentation path (e.g., "/docs/guide/setup")
+            Documentation path (e.g., URLPath("/guide/setup")) or None if not found
         """
+        if self._site_loader is None:
+            return None
+
+        site = self._site_loader.load()
         relative = file_path.relative_to(self._source_dir)
-        doc_path = str(relative.with_suffix(""))
+        page = site.get_page_by_source(relative)
 
-        if doc_path.endswith("/index") or doc_path == "index":
-            doc_path = doc_path.rsplit("/index", 1)[0] or ""
+        if page is None:
+            return None
 
-        return f"/docs/{doc_path}" if doc_path else "/docs"
+        return page.path
 
-    async def _broadcast_reload(self, path: str) -> None:
+    async def _broadcast_reload(self, path: URLPath) -> None:
         """Broadcast reload event to all connected clients.
 
         Args:

@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### 2025-12-11
+- Fix live reload not triggering page refresh
+  - `LiveReloadManager` now uses `Site.get_page_by_source()` for path resolution
+  - Previously sent `/docs/...` paths but frontend expects `/...` paths (after `/docs` prefix removal)
+  - Add `Site.get_page_by_source()` method for reverse lookup (source file → page)
+- Improve type safety for paths
+  - Change `Page.source_path` from `str` to `Path` for filesystem paths
+  - Add `URLPath` NewType for URL routing paths (e.g., "/guide", "/domain/page")
+  - `Page.path`, `BreadcrumbItem.path`, `NavItem.path` now typed as `URLPath`
+  - Add test for Cyrillic (non-ASCII) filenames
+
 ### 2025-12-10
 - Separate document structure (Site) from navigation (NavItem)
   - Add `Site` class for document hierarchy with O(1) path lookups
