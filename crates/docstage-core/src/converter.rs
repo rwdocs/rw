@@ -376,7 +376,7 @@ impl MarkdownConverter {
     ///
     /// * `markdown_text` - Markdown source text
     /// * `base_path` - Optional base path for resolving relative links (e.g., "domains/billing/guide").
-    ///   When provided, relative `.md` links are transformed to absolute `/docs/...` paths.
+    ///   When provided, relative `.md` links are transformed to absolute paths (e.g., `/domains/billing/page`).
     #[must_use]
     pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> HtmlConvertResult {
         let options = self.get_parser_options();

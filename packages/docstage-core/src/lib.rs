@@ -231,7 +231,7 @@ impl PyMarkdownConverter {
     /// Args:
     ///     markdown_text: Markdown source text
     ///     base_path: Optional base path for resolving relative links (e.g., "domains/billing/guide").
-    ///                When provided, relative `.md` links are transformed to absolute `/docs/...` paths.
+    ///                When provided, relative `.md` links are transformed to absolute paths (e.g., `/domains/billing/page`).
     ///
     /// Returns:
     ///     HtmlConvertResult with HTML, optional title, and table of contents

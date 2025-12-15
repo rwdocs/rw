@@ -256,7 +256,7 @@ impl HtmlRenderer {
     /// Set base path for resolving relative links.
     ///
     /// When set, relative markdown links (e.g., `./sibling.md`, `../parent.md`)
-    /// are resolved to absolute paths (e.g., `/docs/path/to/sibling`).
+    /// are resolved to absolute paths (e.g., `/path/to/sibling`).
     /// The `.md` extension and `/index` suffix are stripped for clean URLs.
     #[must_use]
     pub fn with_base_path(mut self, path: impl Into<String>) -> Self {
@@ -664,10 +664,10 @@ pub fn escape_html(s: &str) -> String {
 /// Resolve a markdown link URL relative to a base path.
 ///
 /// Transforms relative `.md` links to absolute paths suitable for SPA navigation:
-/// - `./sibling.md` → `/docs/base/path/sibling`
-/// - `../parent.md` → `/docs/base/parent`
-/// - `subdir/page.md` → `/docs/base/path/subdir/page`
-/// - `adr-101/index.md` → `/docs/base/path/adr-101`
+/// - `./sibling.md` → `/base/path/sibling`
+/// - `../parent.md` → `/base/parent`
+/// - `subdir/page.md` → `/base/path/subdir/page`
+/// - `adr-101/index.md` → `/base/path/adr-101`
 ///
 /// External links, fragment-only links, and non-markdown links are returned unchanged.
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
@@ -708,8 +708,8 @@ fn resolve_link(url: &str, base_path: &str) -> String {
     let clean = resolved.strip_suffix(".md").unwrap_or(&resolved);
     let clean = clean.strip_suffix("/index").unwrap_or(clean);
 
-    // Add /docs prefix and fragment
-    let with_prefix = format!("/docs/{clean}");
+    // Add leading slash and fragment
+    let with_prefix = format!("/{clean}");
     match fragment {
         Some(frag) => format!("{with_prefix}{frag}"),
         None => with_prefix,
@@ -983,7 +983,7 @@ mod tests {
                 "adr-101/index.md",
                 "domains/billing/systems/payment-gateway/adr"
             ),
-            "/docs/domains/billing/systems/payment-gateway/adr/adr-101"
+            "/domains/billing/systems/payment-gateway/adr/adr-101"
         );
     }
 
@@ -991,7 +991,7 @@ mod tests {
     fn test_resolve_link_parent() {
         assert_eq!(
             resolve_link("../other.md", "domains/billing/guide"),
-            "/docs/domains/billing/other"
+            "/domains/billing/other"
         );
     }
 
@@ -999,7 +999,7 @@ mod tests {
     fn test_resolve_link_current_dir() {
         assert_eq!(
             resolve_link("./sibling.md", "domains/billing/guide"),
-            "/docs/domains/billing/guide/sibling"
+            "/domains/billing/guide/sibling"
         );
     }
 
@@ -1024,7 +1024,7 @@ mod tests {
     fn test_resolve_link_with_fragment() {
         assert_eq!(
             resolve_link("./page.md#section", "base/path"),
-            "/docs/base/path/page#section"
+            "/base/path/page#section"
         );
     }
 
@@ -1038,17 +1038,14 @@ mod tests {
         // Absolute paths should not produce double slashes
         assert_eq!(
             resolve_link("/absolute/path.md", "base/path"),
-            "/docs/absolute/path"
+            "/absolute/path"
         );
     }
 
     #[test]
     fn test_resolve_link_traversal_clamped() {
         // Excessive parent traversal should clamp at root, not go negative
-        assert_eq!(
-            resolve_link("../../../etc/passwd.md", "a/b"),
-            "/docs/etc/passwd"
-        );
+        assert_eq!(resolve_link("../../../etc/passwd.md", "a/b"), "/etc/passwd");
     }
 
     fn render_with_base_path(markdown: &str, base_path: &str) -> HtmlRenderResult {
@@ -1064,9 +1061,9 @@ mod tests {
             "domains/billing/systems/payment-gateway/adr",
         );
         assert!(
-            result.html.contains(
-                r#"<a href="/docs/domains/billing/systems/payment-gateway/adr/adr-101">"#
-            )
+            result
+                .html
+                .contains(r#"<a href="/domains/billing/systems/payment-gateway/adr/adr-101">"#)
         );
     }
 
@@ -1228,7 +1225,7 @@ mod tests {
     fn test_heading_in_link_context() {
         // Link inside a heading
         let result = render_with_base_path("## [Docs](./page.md)", "base/path");
-        assert!(result.html.contains(r#"<a href="/docs/base/path/page">"#));
+        assert!(result.html.contains(r#"<a href="/base/path/page">"#));
     }
 
     #[test]
