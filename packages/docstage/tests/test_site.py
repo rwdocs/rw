@@ -411,7 +411,7 @@ class TestSiteLoader:
         """Handle Cyrillic (non-ASCII) filenames."""
         source_dir = tmp_path / "docs"
         source_dir.mkdir()
-        (source_dir / "руководство.md").write_text("# Руководство\n\nСодержимое.")
+        (source_dir / "руководство.md").write_text("# Руководство\n\nСодержимое.")  # noqa: RUF001
 
         loader = SiteLoader(source_dir)
 
