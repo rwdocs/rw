@@ -369,6 +369,7 @@ class CommentMarkerTransfer:
             Modified new tree with transferred markers
         """
         transferred_count = 0
+        transferred_refs: set[str] = set()
 
         # Build reverse lookup: id -> old_node
         def get_all_nodes(node: TreeNode) -> list[TreeNode]:
@@ -391,24 +392,62 @@ class CommentMarkerTransfer:
                     f"Transferring {len(markers)} markers from {old_node.tag}",
                 )
                 for marker in markers:
-                    self._transfer_marker(old_node, new_node, marker)
+                    ref = self._get_marker_ref(marker)
+                    if self._transfer_marker(old_node, new_node, marker):
+                        transferred_refs.add(ref)
                     transferred_count += 1
+
+        # Find all markers in old tree that were not transferred
+        all_old_markers = self._find_all_markers(old_tree)
+        for marker in all_old_markers:
+            ref = self._get_marker_ref(marker)
+            if ref not in transferred_refs and not self._is_ref_in_unmatched(ref):
+                # This marker's parent node was not matched, so it was never processed
+                logger.warning(
+                    f'Parent node not matched for marker text: "{marker.text[:50]}..."',
+                )
+                self.unmatched_comments.append(
+                    UnmatchedComment(ref=ref, text=marker.text)
+                )
 
         logger.info(f"Transferred {transferred_count} comment markers")
         return new_tree
+
+    def _get_marker_ref(self, marker: TreeNode) -> str:
+        """Get the reference ID from a marker node."""
+        return marker.attrs.get(
+            "{http://www.atlassian.com/schema/confluence/4/ac/}ref",
+            marker.attrs.get("ac:ref", ""),
+        )
+
+    def _is_ref_in_unmatched(self, ref: str) -> bool:
+        """Check if a ref is already in unmatched comments."""
+        return any(c.ref == ref for c in self.unmatched_comments)
+
+    def _find_all_markers(self, node: TreeNode) -> list[TreeNode]:
+        """Find all comment markers in a tree."""
+        markers = []
+        if node.is_comment_marker():
+            markers.append(node)
+        for child in node.children:
+            markers.extend(self._find_all_markers(child))
+        return markers
 
     def _transfer_marker(
         self,
         old_node: TreeNode,
         new_node: TreeNode,
         marker: TreeNode,
-    ) -> None:
+    ) -> bool:
         """Transfer a specific marker to new node.
 
         Args:
             old_node: Original node containing the marker
             new_node: New node to receive the marker
             marker: The comment marker node to transfer
+
+        Returns:
+            True if marker was successfully transferred, False otherwise
         """
         # Clone the marker node
         new_marker = TreeNode(
@@ -426,10 +465,10 @@ class CommentMarkerTransfer:
 
         if not marker_text:
             logger.warning("Empty comment marker text, skipping")
-            return
+            return False
 
         # Try to insert marker at the right position
-        self._insert_marker_by_text(new_node, new_marker, marker_text)
+        return self._insert_marker_by_text(new_node, new_marker, marker_text)
 
     def _insert_marker_by_text(
         self,
@@ -463,12 +502,37 @@ class CommentMarkerTransfer:
             logger.debug(f"Inserted marker in {node.tag} direct text")
             return True
 
-        # Check children for matching text
-        for child in node.children:
-            if (
-                not child.is_comment_marker()
-                and marker_text in child.get_text_signature()
-                and self._insert_marker_by_text(child, marker, marker_text)
+        # Check children for matching text (in their content or tail)
+        for i, child in enumerate(node.children):
+            if child.is_comment_marker():
+                continue
+
+            # Check if marker text appears in this child's tail FIRST
+            # (text that comes after the child element but still within the parent)
+            # This must be checked before recursing, because get_text_signature()
+            # includes tail text, but the recursive call won't find it in child.text
+            if marker_text in child.tail:
+                idx = child.tail.index(marker_text)
+                before = child.tail[:idx]
+                after = child.tail[idx + len(marker_text) :]
+
+                # Update child's tail to only have text before the marker
+                child.tail = before
+                marker.tail = after
+
+                # Insert marker right after this child
+                node.children.insert(i + 1, marker)
+                logger.debug(f"Inserted marker in {child.tag} tail")
+                return True
+
+            # Check if marker text is in this child's subtree (excluding tail)
+            # Use child.text + children's signatures, not get_text_signature()
+            # which includes tail
+            child_content = child.text
+            for grandchild in child.children:
+                child_content += grandchild.get_text_signature()
+            if marker_text in child_content and self._insert_marker_by_text(
+                child, marker, marker_text
             ):
                 return True
 
