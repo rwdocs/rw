@@ -2,7 +2,20 @@
 
 ## [Unreleased]
 
+### 2025-12-13
+- Fix article links incorrectly prefixed with `/docs/`
+  - Link resolution in HTML renderer was still using old `/docs/` prefix
+  - Remove prefix to match URL scheme change from 2025-12-09
+
 ### 2025-12-11
+- Fix comment preservation not finding marker text in element tails
+  - When marker text was in a child element's tail (e.g., `<code>x</code> marked text`),
+    the marker was incorrectly reported as unmatched
+  - Now checks child tails before recursing into child subtrees
+- Fix unmatched comments not reported when parent node doesn't match
+  - Previously, markers whose parent nodes had <80% text similarity were silently dropped
+  - Now all markers that can't be preserved are reported in the dry-run output
+- Add 24 tests for comment preservation module (84% coverage)
 - Fix live reload not triggering page refresh
   - `LiveReloadManager` now uses `Site.get_page_by_source()` for path resolution
   - Previously sent `/docs/...` paths but frontend expects `/...` paths (after `/docs` prefix removal)
