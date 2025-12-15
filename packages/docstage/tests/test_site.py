@@ -162,7 +162,9 @@ class TestSite:
     def test__resolve_source_path__nested_page(self, source_dir: Path) -> None:
         """Resolve nested page path."""
         builder = SiteBuilder(source_dir)
-        builder.add_page("Deep", "/domain/subdomain/page", Path("domain/subdomain/page.md"))
+        builder.add_page(
+            "Deep", "/domain/subdomain/page", Path("domain/subdomain/page.md")
+        )
         site = builder.build()
 
         result = site.resolve_source_path("/domain/subdomain/page")
