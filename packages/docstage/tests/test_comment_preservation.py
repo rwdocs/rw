@@ -308,3 +308,27 @@ class TestCommentPreserver:
         assert len(result.unmatched_comments) == 1
         assert result.unmatched_comments[0].ref == "xyz"
         assert result.unmatched_comments[0].text == "Original sentence here"
+
+    def test__preserve_comments__fallback_global_search(self) -> None:
+        """Should preserve marker via global search when parent doesn't match."""
+        # Table with two rows - old has different text in one row, but marker text exists
+        old_html = """<table><tbody>
+            <tr><td><code>old-text</code></td><td><code>changed-value</code></td></tr>
+            <tr><td><code><ac:inline-comment-marker ac:ref="marker-id">keep-this</ac:inline-comment-marker></code></td><td><code>same</code></td></tr>
+        </tbody></table>"""
+
+        # New table has different text in first row (causing <80% table match),
+        # but second row text is still present
+        new_html = """<table><tbody>
+            <tr><td><code>old-text</code></td><td><code>completely-different-value-here</code></td></tr>
+            <tr><td><code>keep-this</code></td><td><code>same</code></td></tr>
+        </tbody></table>"""
+
+        preserver = CommentPreserver()
+        result = preserver.preserve_comments(old_html, new_html)
+
+        # Marker should be preserved via global fallback search
+        assert len(result.unmatched_comments) == 0
+        assert "inline-comment-marker" in result.html
+        assert 'ac:ref="marker-id"' in result.html
+        assert "keep-this" in result.html

@@ -403,12 +403,23 @@ class CommentMarkerTransfer:
             ref = self._get_marker_ref(marker)
             if ref not in transferred_refs and not self._is_ref_in_unmatched(ref):
                 # This marker's parent node was not matched, so it was never processed
-                logger.warning(
+                # Try fallback: search for the marker text anywhere in the new tree
+                logger.debug(
                     f'Parent node not matched for marker text: "{marker.text[:50]}..."',
                 )
-                self.unmatched_comments.append(
-                    UnmatchedComment(ref=ref, text=marker.text)
-                )
+                if self._try_global_insert(new_tree, marker):
+                    logger.info(
+                        f'Fallback: inserted marker "{marker.text[:30]}..." via global search',
+                    )
+                    transferred_refs.add(ref)
+                    transferred_count += 1
+                else:
+                    logger.warning(
+                        f'Could not place marker text: "{marker.text[:50]}..."',
+                    )
+                    self.unmatched_comments.append(
+                        UnmatchedComment(ref=ref, text=marker.text)
+                    )
 
         logger.info(f"Transferred {transferred_count} comment markers")
         return new_tree
@@ -536,14 +547,96 @@ class CommentMarkerTransfer:
             ):
                 return True
 
-        logger.warning(
+        logger.debug(
             f'Could not find position for marker text: "{marker_text[:50]}..."',
         )
-        ref = marker.attrs.get(
-            "{http://www.atlassian.com/schema/confluence/4/ac/}ref",
-            marker.attrs.get("ac:ref", ""),
+        return False
+
+    def _try_global_insert(
+        self,
+        tree: TreeNode,
+        marker: TreeNode,
+    ) -> bool:
+        """Try to insert marker by searching the entire tree for matching text.
+
+        This is a fallback when the parent node matching fails (e.g., when
+        surrounding content changed significantly but the marker text is still present).
+
+        Args:
+            tree: Root of the tree to search
+            marker: The comment marker node to insert
+
+        Returns:
+            True if marker was inserted, False otherwise
+        """
+        marker_text = marker.text.strip()
+        if not marker_text:
+            return False
+
+        # Clone the marker for insertion
+        new_marker = TreeNode(
+            tag=marker.tag,
+            text=marker.text,
+            tail=marker.tail,
+            attrs=marker.attrs.copy(),
+            children=[],
+            element=None,
         )
-        self.unmatched_comments.append(UnmatchedComment(ref=ref, text=marker_text))
+
+        # Search the entire tree for the marker text
+        return self._search_and_insert(tree, new_marker, marker_text)
+
+    def _search_and_insert(
+        self,
+        node: TreeNode,
+        marker: TreeNode,
+        marker_text: str,
+    ) -> bool:
+        """Recursively search tree and insert marker when text is found.
+
+        Args:
+            node: Current node to search
+            marker: Marker to insert
+            marker_text: Text to search for
+
+        Returns:
+            True if marker was inserted
+        """
+        # Skip comment markers themselves
+        if node.is_comment_marker():
+            return False
+
+        # Check if marker text appears in this node's direct text
+        if marker_text in node.text:
+            idx = node.text.index(marker_text)
+            before = node.text[:idx]
+            after = node.text[idx + len(marker_text) :]
+
+            node.text = before
+            marker.tail = after
+            node.children.insert(0, marker)
+            return True
+
+        # Check children's tails first (text after child elements)
+        for i, child in enumerate(node.children):
+            if child.is_comment_marker():
+                continue
+
+            if marker_text in child.tail:
+                idx = child.tail.index(marker_text)
+                before = child.tail[:idx]
+                after = child.tail[idx + len(marker_text) :]
+
+                child.tail = before
+                marker.tail = after
+                node.children.insert(i + 1, marker)
+                return True
+
+        # Recurse into children
+        for child in node.children:
+            if self._search_and_insert(child, marker, marker_text):
+                return True
+
         return False
 
 
