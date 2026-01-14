@@ -16,6 +16,8 @@
   - Extract `render_all_partial()` generic helper in Rust kroki.rs to consolidate duplicate parallel rendering code
   - Add `create_html_renderer()` helper method in Rust converter.rs to eliminate repeated HtmlRenderer builder pattern
   - Extract `_require_kroki_url()` helper in Python cli.py to consolidate repeated kroki_url validation
+  - Extract `heading_level_to_num()` to shared `util.rs` module (was duplicated in confluence.rs and html.rs)
+  - Replace `unreachable!()` with defensive `continue` in plantuml_filter.rs for consistency with diagram_filter.rs
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes

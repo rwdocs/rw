@@ -59,6 +59,7 @@ mod html;
 mod kroki;
 mod plantuml;
 mod plantuml_filter;
+mod util;
 
 pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use converter::{

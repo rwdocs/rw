@@ -101,15 +101,18 @@ impl<'a, I: Iterator<Item = Event<'a>>> Iterator for PlantUmlFilter<'a, I> {
                 (FilterState::InPlantUml { .. }, Event::End(TagEnd::CodeBlock)) => {
                     // Take the state and reset to Normal
                     let old_state = std::mem::take(&mut self.state);
-                    if let FilterState::InPlantUml { source } = old_state {
-                        let index = self.diagrams.len();
-                        self.diagrams.push(ExtractedDiagram { source, index });
+                    let FilterState::InPlantUml { source } = old_state else {
+                        // Should not happen - state machine invariant violated
+                        // Continue without emitting anything rather than panicking
+                        continue;
+                    };
 
-                        // Emit placeholder as Html event (passes through unchanged)
-                        let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-                        return Some(Event::Html(CowStr::Boxed(placeholder.into_boxed_str())));
-                    }
-                    unreachable!()
+                    let index = self.diagrams.len();
+                    self.diagrams.push(ExtractedDiagram { source, index });
+
+                    // Emit placeholder as Html event (passes through unchanged)
+                    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
+                    return Some(Event::Html(CowStr::Boxed(placeholder.into_boxed_str())));
                 }
 
                 // Any other event while in plantuml block (shouldn't happen normally)

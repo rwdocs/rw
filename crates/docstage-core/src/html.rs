@@ -16,7 +16,9 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, Tag, TagEnd};
+
+use crate::util::heading_level_to_num;
 
 /// Table of contents entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -603,18 +605,6 @@ impl HtmlRenderer {
 impl Default for HtmlRenderer {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Convert heading level enum to number.
-fn heading_level_to_num(level: HeadingLevel) -> u8 {
-    match level {
-        HeadingLevel::H1 => 1,
-        HeadingLevel::H2 => 2,
-        HeadingLevel::H3 => 3,
-        HeadingLevel::H4 => 4,
-        HeadingLevel::H5 => 5,
-        HeadingLevel::H6 => 6,
     }
 }
 

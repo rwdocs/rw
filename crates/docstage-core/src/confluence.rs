@@ -27,6 +27,8 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use std::fmt::Write;
 
+use crate::util::heading_level_to_num;
+
 /// Information about an extracted `PlantUML` diagram.
 #[derive(Debug, Clone)]
 pub struct DiagramInfo {
@@ -432,17 +434,6 @@ impl ConfluenceRenderer {
 impl Default for ConfluenceRenderer {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-fn heading_level_to_num(level: HeadingLevel) -> u8 {
-    match level {
-        HeadingLevel::H1 => 1,
-        HeadingLevel::H2 => 2,
-        HeadingLevel::H3 => 3,
-        HeadingLevel::H4 => 4,
-        HeadingLevel::H5 => 5,
-        HeadingLevel::H6 => 6,
     }
 }
 
