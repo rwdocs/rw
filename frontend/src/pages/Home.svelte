@@ -3,11 +3,11 @@
   import { page } from "../stores/page";
   import { liveReload } from "../stores/liveReload";
 
-  // Load index page at root
+  // Load root index page
   onMount(() => {
-    page.load("index");
+    page.load("");
     return liveReload.onReload(() => {
-      page.load("index", { bypassCache: true });
+      page.load("", { bypassCache: true });
     });
   });
 </script>

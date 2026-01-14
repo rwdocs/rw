@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### 2026-01-14
+- Fix 404 error when accessing root index.md
+  - Root `docs/index.md` was never added to site structure
+  - `SiteLoader._scan_directory` skipped `index.md` files, only processing them as
+    part of subdirectories via `_process_directory`
+  - Now `_load_from_filesystem` explicitly adds root `index.md` with path `/`
+  - Update frontend Home component to load empty path (root) instead of `"index"`
+
+### 2025-12-15
+- Fix comment preservation failing when table content changes
+  - When parent node similarity dropped below 80% (e.g., one table row changed),
+    all markers in that subtree were lost even if their specific text still existed
+  - Add fallback global search: if parent doesn't match, search entire new tree
+  - Now markers are preserved as long as their text exists anywhere in the new content
+
 ### 2025-12-13
 - Fix article links incorrectly prefixed with `/docs/`
   - Link resolution in HTML renderer was still using old `/docs/` prefix

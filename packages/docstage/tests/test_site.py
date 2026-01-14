@@ -359,6 +359,23 @@ class TestSiteLoader:
         assert site.get_page("/guide") is not None
         assert site.get_page("/api") is not None
 
+    def test__load__root_index__adds_home_page(self, tmp_path: Path) -> None:
+        """Add root index.md as home page with path /."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "index.md").write_text("# Welcome\n\nHome page content.")
+
+        loader = SiteLoader(source_dir)
+
+        site = loader.load()
+
+        page = site.get_page("/")
+        assert page is not None
+        assert page.title == "Welcome"
+        assert page.path == "/"
+        assert page.source_path == Path("index.md")
+        assert site.resolve_source_path("/") == source_dir / "index.md"
+
     def test__load__nested_structure__builds_site(self, tmp_path: Path) -> None:
         """Build site from nested directory structure."""
         source_dir = tmp_path / "docs"

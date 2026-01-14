@@ -314,7 +314,15 @@ class SiteLoader:
         builder = SiteBuilder(self._source_dir)
 
         if self._source_dir.exists():
-            self._scan_directory(self._source_dir, "", builder, None)
+            # Handle root index.md specially
+            root_index = self._source_dir / "index.md"
+            root_idx: int | None = None
+            if root_index.exists():
+                title = self._extract_title(root_index) or "Home"
+                source_path = root_index.relative_to(self._source_dir)
+                root_idx = builder.add_page(title, URLPath("/"), source_path, None)
+
+            self._scan_directory(self._source_dir, "", builder, root_idx)
 
         return builder.build()
 
