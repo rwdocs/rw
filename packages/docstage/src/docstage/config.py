@@ -399,36 +399,26 @@ class Config:
         Returns:
             New Config instance with overrides applied
         """
-        server = self.server
-        if host is not None or port is not None:
-            server = replace(
+        return replace(
+            self,
+            server=replace(
                 self.server,
                 host=host if host is not None else self.server.host,
                 port=port if port is not None else self.server.port,
-            )
-
-        docs = self.docs
-        if source_dir is not None or cache_dir is not None:
-            docs = replace(
+            ),
+            docs=replace(
                 self.docs,
-                source_dir=source_dir
-                if source_dir is not None
-                else self.docs.source_dir,
+                source_dir=source_dir if source_dir is not None else self.docs.source_dir,
                 cache_dir=cache_dir if cache_dir is not None else self.docs.cache_dir,
-            )
-
-        diagrams = self.diagrams
-        if kroki_url is not None:
-            diagrams = replace(self.diagrams, kroki_url=kroki_url)
-
-        live_reload = self.live_reload
-        if live_reload_enabled is not None:
-            live_reload = replace(self.live_reload, enabled=live_reload_enabled)
-
-        return replace(
-            self,
-            server=server,
-            docs=docs,
-            diagrams=diagrams,
-            live_reload=live_reload,
+            ),
+            diagrams=replace(
+                self.diagrams,
+                kroki_url=kroki_url if kroki_url is not None else self.diagrams.kroki_url,
+            ),
+            live_reload=replace(
+                self.live_reload,
+                enabled=live_reload_enabled
+                if live_reload_enabled is not None
+                else self.live_reload.enabled,
+            ),
         )

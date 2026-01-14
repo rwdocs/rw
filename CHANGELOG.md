@@ -29,6 +29,10 @@
   - Remove duplicate `escape_xml()` in confluence.rs, now uses shared `escape_html()` from html.rs
   - Extract `_require_space_key()` helper in Python cli.py to consolidate repeated space key validation
   - Add `buildRequestInit()` helper and `FetchOptions` interface in frontend client.ts to consolidate fetch options pattern
+  - Simplify `Site._normalize_path()` using `lstrip` pattern instead of conditional
+  - Simplify `_extract_comment_contexts()` in cli.py using `re.sub` with callback instead of manual iteration
+  - Simplify `Config.with_overrides()` to single return statement with inline replace calls
+  - Consolidate `FileCache._read_meta()` validation checks into single condition
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes

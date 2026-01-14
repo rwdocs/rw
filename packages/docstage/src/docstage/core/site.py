@@ -184,7 +184,7 @@ class Site:
 
     def _normalize_path(self, path: URLPath) -> URLPath:
         """Normalize path to have leading slash."""
-        return path if path.startswith("/") else URLPath(f"/{path}")
+        return URLPath(f"/{path.lstrip('/')}")
 
 
 class SiteBuilder:

@@ -1252,42 +1252,33 @@ def _extract_comment_contexts(html: str, context_chars: int = 100) -> dict[str, 
     """
     import re
 
-    contexts: dict[str, str] = {}
-
     marker_pattern = re.compile(
         r'<ac:inline-comment-marker[^>]*ac:ref="([^"]+)"[^>]*>(.*?)</ac:inline-comment-marker>',
         re.DOTALL,
     )
 
-    placeholder_map: dict[str, str] = {}
-    html_with_placeholders = html
+    # Collect markers and create placeholders in single pass
+    markers: list[tuple[str, str]] = []
 
-    for match in marker_pattern.finditer(html):
-        ref = match.group(1)
-        marker_text = match.group(2)
-        placeholder = f"[[[MARKER:{ref}:{marker_text}]]]"
-        placeholder_map[ref] = marker_text
-        html_with_placeholders = html_with_placeholders.replace(
-            match.group(0),
-            placeholder,
-            1,
-        )
+    def replace_with_placeholder(match: re.Match[str]) -> str:
+        ref, text = match.group(1), match.group(2)
+        markers.append((ref, text))
+        return f"[[[MARKER:{len(markers) - 1}]]]"
 
+    html_with_placeholders = marker_pattern.sub(replace_with_placeholder, html)
     plain_text = _strip_html_tags(html_with_placeholders)
 
-    for ref, marker_text in placeholder_map.items():
-        placeholder = f"[[[MARKER:{ref}:{marker_text}]]]"
+    # Build context map
+    contexts: dict[str, str] = {}
+    for idx, (ref, marker_text) in enumerate(markers):
+        placeholder = f"[[[MARKER:{idx}]]]"
         pos = plain_text.find(placeholder)
         if pos == -1:
             continue
 
         start = max(0, pos - context_chars)
         end = min(len(plain_text), pos + len(placeholder) + context_chars)
-
-        context = plain_text[start:end]
-        context = context.replace(placeholder, f">>>{marker_text}<<<")
-
-        context = context.strip()
+        context = plain_text[start:end].replace(placeholder, f">>>{marker_text}<<<").strip()
         contexts[ref] = context
 
     return contexts
