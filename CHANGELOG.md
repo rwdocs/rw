@@ -39,6 +39,7 @@
   - Simplify `clear()` method in frontend page.ts store to reuse `initialState` constant
   - Simplify `Config.with_overrides()` string/Path overrides using `or` pattern where safe
   - Simplify `create_html_renderer()` in converter.rs to use consistent conditional builder pattern
+  - Extract `scale_dim` helper in Rust `scale_svg_dimensions()` to consolidate dimension scaling logic
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes

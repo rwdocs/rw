@@ -95,38 +95,26 @@ fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
 
     let scale = f64::from(STANDARD_DPI) / f64::from(dpi);
 
-    // Scale width attribute
+    // Helper to scale a dimension value and format the result
+    let scale_dim = |caps: &regex::Captures| {
+        let value: f64 = caps[2].parse().unwrap_or(0.0);
+        (value * scale).round() as u32
+    };
+
+    // Scale XML attributes (width="136", height="210")
     let result = SVG_WIDTH_RE.replace(svg, |caps: &regex::Captures| {
-        let prefix = &caps[1];
-        let width: f64 = caps[2].parse().unwrap_or(0.0);
-        let scaled = (width * scale).round() as u32;
-        format!(r#"{prefix}width="{scaled}""#)
+        format!(r#"{}width="{}""#, &caps[1], scale_dim(caps))
     });
-
-    // Scale height attribute
     let result = SVG_HEIGHT_RE.replace(&result, |caps: &regex::Captures| {
-        let prefix = &caps[1];
-        let height: f64 = caps[2].parse().unwrap_or(0.0);
-        let scaled = (height * scale).round() as u32;
-        format!(r#"{prefix}height="{scaled}""#)
+        format!(r#"{}height="{}""#, &caps[1], scale_dim(caps))
     });
 
-    // Scale width in style attribute
+    // Scale inline style properties (width:136px, height:210px)
     let result = STYLE_WIDTH_RE.replace_all(&result, |caps: &regex::Captures| {
-        let prefix = &caps[1];
-        let width: f64 = caps[2].parse().unwrap_or(0.0);
-        let suffix = &caps[3];
-        let scaled = (width * scale).round() as u32;
-        format!("{prefix}{scaled}{suffix}")
+        format!("{}{}{}", &caps[1], scale_dim(caps), &caps[3])
     });
-
-    // Scale height in style attribute
     let result = STYLE_HEIGHT_RE.replace_all(&result, |caps: &regex::Captures| {
-        let prefix = &caps[1];
-        let height: f64 = caps[2].parse().unwrap_or(0.0);
-        let suffix = &caps[3];
-        let scaled = (height * scale).round() as u32;
-        format!("{prefix}{scaled}{suffix}")
+        format!("{}{}{}", &caps[1], scale_dim(caps), &caps[3])
     });
 
     result.into_owned()
