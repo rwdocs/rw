@@ -49,7 +49,7 @@ function createPageStore() {
 
     /** Clear the current page */
     clear() {
-      set({ data: null, loading: false, error: null, notFound: false });
+      set(initialState);
     },
   };
 }

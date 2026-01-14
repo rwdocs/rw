@@ -399,17 +399,17 @@ class Config:
             self,
             server=replace(
                 self.server,
-                host=host if host is not None else self.server.host,
+                host=host or self.server.host,
                 port=port if port is not None else self.server.port,
             ),
             docs=replace(
                 self.docs,
-                source_dir=source_dir if source_dir is not None else self.docs.source_dir,
-                cache_dir=cache_dir if cache_dir is not None else self.docs.cache_dir,
+                source_dir=source_dir or self.docs.source_dir,
+                cache_dir=cache_dir or self.docs.cache_dir,
             ),
             diagrams=replace(
                 self.diagrams,
-                kroki_url=kroki_url if kroki_url is not None else self.diagrams.kroki_url,
+                kroki_url=kroki_url or self.diagrams.kroki_url,
             ),
             live_reload=replace(
                 self.live_reload,

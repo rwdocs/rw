@@ -1278,7 +1278,9 @@ def _extract_comment_contexts(html: str, context_chars: int = 100) -> dict[str, 
 
         start = max(0, pos - context_chars)
         end = min(len(plain_text), pos + len(placeholder) + context_chars)
-        context = plain_text[start:end].replace(placeholder, f">>>{marker_text}<<<").strip()
+        context = (
+            plain_text[start:end].replace(placeholder, f">>>{marker_text}<<<").strip()
+        )
         contexts[ref] = context
 
     return contexts

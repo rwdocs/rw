@@ -283,16 +283,13 @@ impl MarkdownConverter {
 
     /// Create an `HtmlRenderer` with the converter's settings.
     fn create_html_renderer(&self, base_path: Option<&str>) -> HtmlRenderer {
-        let mut renderer = if self.extract_title {
-            HtmlRenderer::new().with_title_extraction()
-        } else {
-            HtmlRenderer::new()
-        };
-
+        let mut renderer = HtmlRenderer::new();
+        if self.extract_title {
+            renderer = renderer.with_title_extraction();
+        }
         if let Some(path) = base_path {
             renderer = renderer.with_base_path(path);
         }
-
         renderer
     }
 

@@ -290,7 +290,11 @@ class FileCache:
         except (OSError, json.JSONDecodeError):
             return None
 
-        if not isinstance(data, dict) or "source_mtime" not in data or "toc" not in data:
+        if (
+            not isinstance(data, dict)
+            or "source_mtime" not in data
+            or "toc" not in data
+        ):
             return None
 
         return CachedMetadata(

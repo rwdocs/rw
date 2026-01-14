@@ -36,6 +36,9 @@
   - Add `initialState` constant in frontend page.ts store for consistency with navigation.ts pattern
   - Simplify `_parse_live_reload()` watch_patterns list validation using `all()` and `list()`
   - Simplify `_parse_diagrams()` include_dirs list building using `all()` check and list comprehension
+  - Simplify `clear()` method in frontend page.ts store to reuse `initialState` constant
+  - Simplify `Config.with_overrides()` string/Path overrides using `or` pattern where safe
+  - Simplify `create_html_renderer()` in converter.rs to use consistent conditional builder pattern
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes
