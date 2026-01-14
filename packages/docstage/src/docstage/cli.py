@@ -222,19 +222,7 @@ def convert(
     from docstage.confluence import MarkdownConverter
 
     config = Config.load(config_path)
-    effective_kroki_url = (
-        kroki_url if kroki_url is not None else config.diagrams.kroki_url
-    )
-
-    if not effective_kroki_url:
-        click.echo(
-            click.style(
-                "Error: kroki_url required (via --kroki-url or config)",
-                fg="red",
-            ),
-            err=True,
-        )
-        sys.exit(1)
+    effective_kroki_url = _require_kroki_url(kroki_url, config)
 
     converter = MarkdownConverter()
     markdown_text = markdown_file.read_text(encoding="utf-8")
@@ -536,6 +524,32 @@ def _require_confluence_config(config: Config) -> ConfluenceConfig:
     return config.confluence
 
 
+def _require_kroki_url(kroki_url: str | None, config: Config) -> str:
+    """Get effective kroki_url or exit with error.
+
+    Args:
+        kroki_url: CLI-provided kroki_url (overrides config if set)
+        config: Application config
+
+    Returns:
+        Effective kroki_url
+
+    Raises:
+        SystemExit: If kroki_url is not provided
+    """
+    effective = kroki_url if kroki_url is not None else config.diagrams.kroki_url
+    if not effective:
+        click.echo(
+            click.style(
+                "Error: kroki_url required (via --kroki-url or config)",
+                fg="red",
+            ),
+            err=True,
+        )
+        sys.exit(1)
+    return effective
+
+
 async def _test_auth(config_path: Path | None, key_file: Path) -> None:
     """Test authentication with Confluence API.
 
@@ -737,19 +751,7 @@ async def _create(
         conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
-
-        effective_kroki_url = (
-            kroki_url if kroki_url is not None else config.diagrams.kroki_url
-        )
-        if not effective_kroki_url:
-            click.echo(
-                click.style(
-                    "Error: kroki_url required (via --kroki-url or config)",
-                    fg="red",
-                ),
-                err=True,
-            )
-            sys.exit(1)
+        effective_kroki_url = _require_kroki_url(kroki_url, config)
 
         if not space:
             if not config.confluence_test or not config.confluence_test.space_key:
@@ -829,19 +831,7 @@ async def _update(
         conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
-
-        effective_kroki_url = (
-            kroki_url if kroki_url is not None else config.diagrams.kroki_url
-        )
-        if not effective_kroki_url:
-            click.echo(
-                click.style(
-                    "Error: kroki_url required (via --kroki-url or config)",
-                    fg="red",
-                ),
-                err=True,
-            )
-            sys.exit(1)
+        effective_kroki_url = _require_kroki_url(kroki_url, config)
 
         click.echo(f"Converting {markdown_file}...")
         converter = MarkdownConverter()
@@ -949,19 +939,7 @@ async def _upload_mkdocs(
         conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
-
-        effective_kroki_url = (
-            kroki_url if kroki_url is not None else config.diagrams.kroki_url
-        )
-        if not effective_kroki_url:
-            click.echo(
-                click.style(
-                    "Error: kroki_url required (via --kroki-url or config)",
-                    fg="red",
-                ),
-                err=True,
-            )
-            sys.exit(1)
+        effective_kroki_url = _require_kroki_url(kroki_url, config)
 
         include_dirs = [
             mkdocs_root / "includes",

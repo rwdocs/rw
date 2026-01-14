@@ -281,6 +281,21 @@ impl MarkdownConverter {
         options
     }
 
+    /// Create an HtmlRenderer with the converter's settings.
+    fn create_html_renderer(&self, base_path: Option<&str>) -> HtmlRenderer {
+        let mut renderer = if self.extract_title {
+            HtmlRenderer::new().with_title_extraction()
+        } else {
+            HtmlRenderer::new()
+        };
+
+        if let Some(path) = base_path {
+            renderer = renderer.with_base_path(path);
+        }
+
+        renderer
+    }
+
     /// Convert markdown to Confluence storage format.
     ///
     /// `PlantUML` diagrams are rendered via Kroki and placeholders replaced with
@@ -381,18 +396,7 @@ impl MarkdownConverter {
     pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> HtmlConvertResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
-
-        let mut renderer = if self.extract_title {
-            HtmlRenderer::new().with_title_extraction()
-        } else {
-            HtmlRenderer::new()
-        };
-
-        if let Some(path) = base_path {
-            renderer = renderer.with_base_path(path);
-        }
-
-        let result = renderer.render(parser);
+        let result = self.create_html_renderer(base_path).render(parser);
 
         HtmlConvertResult {
             html: result.html,
@@ -428,19 +432,7 @@ impl MarkdownConverter {
 
         // Filter diagram code blocks, replacing them with placeholders
         let mut filter = DiagramFilter::new(parser);
-
-        // Render to HTML format
-        let mut renderer = if self.extract_title {
-            HtmlRenderer::new().with_title_extraction()
-        } else {
-            HtmlRenderer::new()
-        };
-
-        if let Some(path) = base_path {
-            renderer = renderer.with_base_path(path);
-        }
-
-        let result = renderer.render(&mut filter);
+        let result = self.create_html_renderer(base_path).render(&mut filter);
         let (extracted_diagrams, filter_warnings) = filter.into_parts();
 
         let mut warnings = filter_warnings;
@@ -518,19 +510,7 @@ impl MarkdownConverter {
 
         // Filter diagram code blocks, replacing them with placeholders
         let mut filter = DiagramFilter::new(parser);
-
-        // Render to HTML format
-        let mut renderer = if self.extract_title {
-            HtmlRenderer::new().with_title_extraction()
-        } else {
-            HtmlRenderer::new()
-        };
-
-        if let Some(path) = base_path {
-            renderer = renderer.with_base_path(path);
-        }
-
-        let result = renderer.render(&mut filter);
+        let result = self.create_html_renderer(base_path).render(&mut filter);
         let (extracted_diagrams, filter_warnings) = filter.into_parts();
 
         let mut html = result.html;

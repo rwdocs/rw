@@ -13,6 +13,9 @@
   - Extract shared `PageContent.svelte` component from duplicate markup in `Home.svelte` and `Page.svelte`
   - Simplify `scale_svg_dimensions()` in diagrams.py by consolidating four similar helper functions into two
   - Simplify `generate_tokens` CLI command cascading default logic using `or` chains
+  - Extract `render_all_partial()` generic helper in Rust kroki.rs to consolidate duplicate parallel rendering code
+  - Add `create_html_renderer()` helper method in Rust converter.rs to eliminate repeated HtmlRenderer builder pattern
+  - Extract `_require_kroki_url()` helper in Python cli.py to consolidate repeated kroki_url validation
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes

@@ -393,6 +393,57 @@ pub struct PartialRenderResult<T> {
     pub errors: Vec<DiagramError>,
 }
 
+/// Generic parallel rendering with partial failure support.
+///
+/// Executes the render function for each diagram in parallel using rayon,
+/// collecting both successes and failures.
+fn render_all_partial<T: Send>(
+    diagrams: &[DiagramRequest],
+    server_url: &str,
+    pool_size: usize,
+    render_fn: fn(&Agent, &DiagramRequest, &str) -> Result<T, DiagramError>,
+) -> Result<PartialRenderResult<T>, RenderError> {
+    if diagrams.is_empty() {
+        return Ok(PartialRenderResult {
+            rendered: Vec::new(),
+            errors: Vec::new(),
+        });
+    }
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(pool_size)
+        .build()
+        .map_err(|e| RenderError::Io {
+            index: 0,
+            message: format!("Failed to create thread pool: {e}"),
+        })?;
+
+    let agent: Agent = Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .into();
+
+    let server_url = server_url.trim_end_matches('/');
+    let results: Vec<Result<T, DiagramError>> = pool.install(|| {
+        diagrams
+            .par_iter()
+            .map(|d| render_fn(&agent, d, server_url))
+            .collect()
+    });
+
+    let mut rendered = Vec::with_capacity(diagrams.len());
+    let mut errors = Vec::new();
+
+    for result in results {
+        match result {
+            Ok(item) => rendered.push(item),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    Ok(PartialRenderResult { rendered, errors })
+}
+
 /// Render all diagrams to SVG in parallel using Kroki service.
 ///
 /// Unlike [`render_all`], this returns SVG strings directly without writing files.
@@ -444,45 +495,7 @@ pub fn render_all_svg_partial(
     server_url: &str,
     pool_size: usize,
 ) -> Result<PartialRenderResult<RenderedSvg>, RenderError> {
-    if diagrams.is_empty() {
-        return Ok(PartialRenderResult {
-            rendered: Vec::new(),
-            errors: Vec::new(),
-        });
-    }
-
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(pool_size)
-        .build()
-        .map_err(|e| RenderError::Io {
-            index: 0,
-            message: format!("Failed to create thread pool: {e}"),
-        })?;
-
-    let agent: Agent = Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .build()
-        .into();
-
-    let server_url = server_url.trim_end_matches('/');
-    let results: Vec<Result<RenderedSvg, DiagramError>> = pool.install(|| {
-        diagrams
-            .par_iter()
-            .map(|d| render_one_svg(&agent, d, server_url))
-            .collect()
-    });
-
-    let mut rendered = Vec::with_capacity(diagrams.len());
-    let mut errors = Vec::new();
-
-    for result in results {
-        match result {
-            Ok(svg) => rendered.push(svg),
-            Err(error) => errors.push(error),
-        }
-    }
-
-    Ok(PartialRenderResult { rendered, errors })
+    render_all_partial(diagrams, server_url, pool_size, render_one_svg)
 }
 
 /// Render all diagrams to PNG as base64 data URIs in parallel.
@@ -529,45 +542,7 @@ pub fn render_all_png_data_uri_partial(
     server_url: &str,
     pool_size: usize,
 ) -> Result<PartialRenderResult<RenderedPngDataUri>, RenderError> {
-    if diagrams.is_empty() {
-        return Ok(PartialRenderResult {
-            rendered: Vec::new(),
-            errors: Vec::new(),
-        });
-    }
-
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(pool_size)
-        .build()
-        .map_err(|e| RenderError::Io {
-            index: 0,
-            message: format!("Failed to create thread pool: {e}"),
-        })?;
-
-    let agent: Agent = Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .build()
-        .into();
-
-    let server_url = server_url.trim_end_matches('/');
-    let results: Vec<Result<RenderedPngDataUri, DiagramError>> = pool.install(|| {
-        diagrams
-            .par_iter()
-            .map(|d| render_one_png_data_uri(&agent, d, server_url))
-            .collect()
-    });
-
-    let mut rendered = Vec::with_capacity(diagrams.len());
-    let mut errors = Vec::new();
-
-    for result in results {
-        match result {
-            Ok(png) => rendered.push(png),
-            Err(error) => errors.push(error),
-        }
-    }
-
-    Ok(PartialRenderResult { rendered, errors })
+    render_all_partial(diagrams, server_url, pool_size, render_one_png_data_uri)
 }
 
 #[cfg(test)]
