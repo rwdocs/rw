@@ -256,11 +256,9 @@ class Config:
         include_dirs_raw = data.get("include_dirs", [])
         if not isinstance(include_dirs_raw, list):
             raise ValueError("diagrams.include_dirs must be a list")
-        include_dirs: list[Path] = []
-        for item in include_dirs_raw:
-            if not isinstance(item, str):
-                raise ValueError("diagrams.include_dirs items must be strings")
-            include_dirs.append(config_dir / item)
+        if not all(isinstance(item, str) for item in include_dirs_raw):
+            raise ValueError("diagrams.include_dirs items must be strings")
+        include_dirs = [config_dir / item for item in include_dirs_raw]
 
         config_file = data.get("config_file")
         if config_file is not None and not isinstance(config_file, str):
@@ -302,11 +300,9 @@ class Config:
         if watch_patterns_raw is not None:
             if not isinstance(watch_patterns_raw, list):
                 raise ValueError("live_reload.watch_patterns must be a list")
-            watch_patterns = []
-            for item in watch_patterns_raw:
-                if not isinstance(item, str):
-                    raise ValueError("live_reload.watch_patterns items must be strings")
-                watch_patterns.append(item)
+            if not all(isinstance(item, str) for item in watch_patterns_raw):
+                raise ValueError("live_reload.watch_patterns items must be strings")
+            watch_patterns = list(watch_patterns_raw)
 
         return LiveReloadConfig(enabled=enabled, watch_patterns=watch_patterns)
 

@@ -33,6 +33,9 @@
   - Simplify `_extract_comment_contexts()` in cli.py using `re.sub` with callback instead of manual iteration
   - Simplify `Config.with_overrides()` to single return statement with inline replace calls
   - Consolidate `FileCache._read_meta()` validation checks into single condition
+  - Add `initialState` constant in frontend page.ts store for consistency with navigation.ts pattern
+  - Simplify `_parse_live_reload()` watch_patterns list validation using `all()` and `list()`
+  - Simplify `_parse_diagrams()` include_dirs list building using `all()` check and list comprehension
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes

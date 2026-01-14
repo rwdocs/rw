@@ -9,13 +9,15 @@ interface PageState {
   notFound: boolean;
 }
 
+const initialState: PageState = {
+  data: null,
+  loading: false,
+  error: null,
+  notFound: false,
+};
+
 function createPageStore() {
-  const { subscribe, set, update } = writable<PageState>({
-    data: null,
-    loading: false,
-    error: null,
-    notFound: false,
-  });
+  const { subscribe, set, update } = writable<PageState>(initialState);
 
   return {
     subscribe,
