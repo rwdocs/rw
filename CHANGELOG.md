@@ -9,6 +9,10 @@
     part of subdirectories via `_process_directory`
   - Now `_load_from_filesystem` explicitly adds root `index.md` with path `/`
   - Update frontend Home component to load empty path (root) instead of `"index"`
+- Code simplification refactoring
+  - Extract shared `PageContent.svelte` component from duplicate markup in `Home.svelte` and `Page.svelte`
+  - Simplify `scale_svg_dimensions()` in diagrams.py by consolidating four similar helper functions into two
+  - Simplify `generate_tokens` CLI command cascading default logic using `or` chains
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes

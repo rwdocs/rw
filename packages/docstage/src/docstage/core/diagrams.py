@@ -258,35 +258,19 @@ def scale_svg_dimensions(svg: str, dpi: int) -> str:
 
     scale = STANDARD_DPI / dpi
 
-    def scale_width_attr(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        value = int(match.group(2))
-        scaled = round(value * scale)
-        return f'{prefix}width="{scaled}"'
+    def scale_value(match: re.Match[str], attr_format: str) -> str:
+        """Scale dimension value and format with attribute name."""
+        prefix, value = match.group(1), int(match.group(2))
+        return f'{prefix}{attr_format}"{round(value * scale)}"'
 
-    def scale_height_attr(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        value = int(match.group(2))
-        scaled = round(value * scale)
-        return f'{prefix}height="{scaled}"'
+    def scale_style(match: re.Match[str]) -> str:
+        """Scale dimension in CSS style property."""
+        prefix, value, suffix = match.group(1), int(match.group(2)), match.group(3)
+        return f"{prefix}{round(value * scale)}{suffix}"
 
-    def scale_style_width(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        value = int(match.group(2))
-        suffix = match.group(3)
-        scaled = round(value * scale)
-        return f"{prefix}{scaled}{suffix}"
-
-    def scale_style_height(match: re.Match[str]) -> str:
-        prefix = match.group(1)
-        value = int(match.group(2))
-        suffix = match.group(3)
-        scaled = round(value * scale)
-        return f"{prefix}{scaled}{suffix}"
-
-    result = SVG_WIDTH_RE.sub(scale_width_attr, svg)
-    result = SVG_HEIGHT_RE.sub(scale_height_attr, result)
-    result = STYLE_WIDTH_RE.sub(scale_style_width, result)
-    result = STYLE_HEIGHT_RE.sub(scale_style_height, result)
+    result = SVG_WIDTH_RE.sub(lambda m: scale_value(m, "width="), svg)
+    result = SVG_HEIGHT_RE.sub(lambda m: scale_value(m, "height="), result)
+    result = STYLE_WIDTH_RE.sub(scale_style, result)
+    result = STYLE_HEIGHT_RE.sub(scale_style, result)
 
     return result

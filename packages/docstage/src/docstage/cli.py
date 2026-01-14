@@ -483,15 +483,15 @@ def generate_tokens(
     """
     config = Config.load(config_path)
 
-    effective_consumer_key = consumer_key
-    if effective_consumer_key is None and config.confluence is not None:
-        effective_consumer_key = config.confluence.consumer_key
-    if effective_consumer_key is None:
-        effective_consumer_key = "docstage"
+    effective_consumer_key = (
+        consumer_key
+        or (config.confluence.consumer_key if config.confluence else None)
+        or "docstage"
+    )
 
-    effective_base_url = base_url
-    if effective_base_url is None and config.confluence is not None:
-        effective_base_url = config.confluence.base_url
+    effective_base_url = base_url or (
+        config.confluence.base_url if config.confluence else None
+    )
     if effective_base_url is None:
         click.echo(
             click.style(
