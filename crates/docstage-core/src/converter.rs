@@ -281,7 +281,7 @@ impl MarkdownConverter {
         options
     }
 
-    /// Create an HtmlRenderer with the converter's settings.
+    /// Create an `HtmlRenderer` with the converter's settings.
     fn create_html_renderer(&self, base_path: Option<&str>) -> HtmlRenderer {
         let mut renderer = if self.extract_title {
             HtmlRenderer::new().with_title_extraction()

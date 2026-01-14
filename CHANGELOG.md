@@ -23,6 +23,9 @@
   - Add `current_alignment_style()` helper to `TableState` in html.rs to centralize alignment logic
   - Simplify `task_list_marker()` in confluence.rs using single format call
   - Add `adjusted_heading_level()` helper method in confluence.rs to eliminate duplicate level adjustment code
+  - Add `push_inline()` helper method in html.rs to consolidate heading-aware output
+  - Simplify list/table cell tag close using conditional expressions in html.rs and confluence.rs
+  - Consolidate inline formatting tags (Emphasis, Strong, Strikethrough, Link) using `push_inline()` helper
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes

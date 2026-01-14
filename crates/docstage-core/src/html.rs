@@ -271,6 +271,18 @@ impl HtmlRenderer {
         self
     }
 
+    /// Push content to output or heading buffer based on context.
+    ///
+    /// When inside a heading, pushes to the heading HTML buffer.
+    /// Otherwise, pushes to the main output.
+    fn push_inline(&mut self, content: &str) {
+        if self.heading.is_active() {
+            self.heading.html.push_str(content);
+        } else {
+            self.output.push_str(content);
+        }
+    }
+
     /// Render markdown events and return HTML, extracted title, and table of contents.
     pub fn render<'a, I>(mut self, events: I) -> HtmlRenderResult
     where
@@ -365,37 +377,16 @@ impl HtmlRenderer {
                 let tag = if self.table.in_head { "th" } else { "td" };
                 write!(self.output, "<{tag}{align}>").unwrap();
             }
-            Tag::Emphasis => {
-                if self.heading.is_active() {
-                    self.heading.html.push_str("<em>");
-                } else {
-                    self.output.push_str("<em>");
-                }
-            }
-            Tag::Strong => {
-                if self.heading.is_active() {
-                    self.heading.html.push_str("<strong>");
-                } else {
-                    self.output.push_str("<strong>");
-                }
-            }
-            Tag::Strikethrough => {
-                if self.heading.is_active() {
-                    self.heading.html.push_str("<del>");
-                } else {
-                    self.output.push_str("<del>");
-                }
-            }
+            Tag::Emphasis => self.push_inline("<em>"),
+            Tag::Strong => self.push_inline("<strong>"),
+            Tag::Strikethrough => self.push_inline("<del>"),
             Tag::Link { dest_url, .. } => {
                 let href = match &self.base_path {
                     Some(base) => resolve_link(&dest_url, base),
                     None => dest_url.to_string(),
                 };
-                if self.heading.is_active() {
-                    write!(self.heading.html, r#"<a href="{}">"#, escape_html(&href)).unwrap();
-                } else {
-                    write!(self.output, r#"<a href="{}">"#, escape_html(&href)).unwrap();
-                }
+                let link_tag = format!(r#"<a href="{}">"#, escape_html(&href));
+                self.push_inline(&link_tag);
             }
             Tag::Image {
                 dest_url, title, ..
@@ -457,11 +448,8 @@ impl HtmlRenderer {
             }
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
-                if ordered {
-                    self.output.push_str("</ol>");
-                } else {
-                    self.output.push_str("</ul>");
-                }
+                self.output
+                    .push_str(if ordered { "</ol>" } else { "</ul>" });
             }
             TagEnd::Item => {
                 self.output.push_str("</li>");
@@ -492,41 +480,14 @@ impl HtmlRenderer {
                 self.output.push_str("</tr>");
             }
             TagEnd::TableCell => {
-                if self.table.in_head {
-                    self.output.push_str("</th>");
-                } else {
-                    self.output.push_str("</td>");
-                }
+                self.output
+                    .push_str(if self.table.in_head { "</th>" } else { "</td>" });
                 self.table.next_cell();
             }
-            TagEnd::Emphasis => {
-                if self.heading.is_active() {
-                    self.heading.html.push_str("</em>");
-                } else {
-                    self.output.push_str("</em>");
-                }
-            }
-            TagEnd::Strong => {
-                if self.heading.is_active() {
-                    self.heading.html.push_str("</strong>");
-                } else {
-                    self.output.push_str("</strong>");
-                }
-            }
-            TagEnd::Strikethrough => {
-                if self.heading.is_active() {
-                    self.heading.html.push_str("</del>");
-                } else {
-                    self.output.push_str("</del>");
-                }
-            }
-            TagEnd::Link => {
-                if self.heading.is_active() {
-                    self.heading.html.push_str("</a>");
-                } else {
-                    self.output.push_str("</a>");
-                }
-            }
+            TagEnd::Emphasis => self.push_inline("</em>"),
+            TagEnd::Strong => self.push_inline("</strong>"),
+            TagEnd::Strikethrough => self.push_inline("</del>"),
+            TagEnd::Link => self.push_inline("</a>"),
         }
     }
 
@@ -579,7 +540,11 @@ impl HtmlRenderer {
 
     fn task_list_marker(&mut self, checked: bool) {
         let checked_attr = if checked { " checked" } else { "" };
-        write!(self.output, r#"<input type="checkbox"{checked_attr} disabled> "#).unwrap();
+        write!(
+            self.output,
+            r#"<input type="checkbox"{checked_attr} disabled> "#
+        )
+        .unwrap();
     }
 }
 

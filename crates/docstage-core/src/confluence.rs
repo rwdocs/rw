@@ -223,11 +223,7 @@ impl ConfluenceRenderer {
             Tag::List(start) => {
                 let ordered = start.is_some();
                 self.list_stack.push(ordered);
-                if ordered {
-                    self.output.push_str("<ol>");
-                } else {
-                    self.output.push_str("<ul>");
-                }
+                self.output.push_str(if ordered { "<ol>" } else { "<ul>" });
             }
             Tag::Item => {
                 self.output.push_str("<li>");
@@ -253,11 +249,8 @@ impl ConfluenceRenderer {
                 self.output.push_str("<tr>");
             }
             Tag::TableCell => {
-                if self.in_table_head {
-                    self.output.push_str("<th>");
-                } else {
-                    self.output.push_str("<td>");
-                }
+                self.output
+                    .push_str(if self.in_table_head { "<th>" } else { "<td>" });
             }
             Tag::Emphasis => {
                 self.output.push_str("<em>");
@@ -335,11 +328,8 @@ impl ConfluenceRenderer {
             }
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
-                if ordered {
-                    self.output.push_str("</ol>");
-                } else {
-                    self.output.push_str("</ul>");
-                }
+                self.output
+                    .push_str(if ordered { "</ol>" } else { "</ul>" });
             }
             TagEnd::Item => {
                 self.output.push_str("</li>");
@@ -368,11 +358,8 @@ impl ConfluenceRenderer {
                 self.output.push_str("</tr>");
             }
             TagEnd::TableCell => {
-                if self.in_table_head {
-                    self.output.push_str("</th>");
-                } else {
-                    self.output.push_str("</td>");
-                }
+                self.output
+                    .push_str(if self.in_table_head { "</th>" } else { "</td>" });
             }
             TagEnd::Emphasis => {
                 self.output.push_str("</em>");
