@@ -26,6 +26,9 @@
   - Add `push_inline()` helper method in html.rs to consolidate heading-aware output
   - Simplify list/table cell tag close using conditional expressions in html.rs and confluence.rs
   - Consolidate inline formatting tags (Emphasis, Strong, Strikethrough, Link) using `push_inline()` helper
+  - Remove duplicate `escape_xml()` in confluence.rs, now uses shared `escape_html()` from html.rs
+  - Extract `_require_space_key()` helper in Python cli.py to consolidate repeated space key validation
+  - Add `buildRequestInit()` helper and `FetchOptions` interface in frontend client.ts to consolidate fetch options pattern
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes

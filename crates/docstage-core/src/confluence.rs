@@ -27,6 +27,7 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use std::fmt::Write;
 
+use crate::html::escape_html;
 use crate::util::heading_level_to_num;
 
 /// Information about an extracted `PlantUML` diagram.
@@ -211,7 +212,7 @@ impl ConfluenceRenderer {
                         write!(
                             self.output,
                             r#"<ac:parameter ac:name="language">{}</ac:parameter>"#,
-                            escape_xml(lang)
+                            escape_html(lang)
                         )
                         .unwrap();
                     }
@@ -262,7 +263,7 @@ impl ConfluenceRenderer {
                 self.output.push_str("<s>");
             }
             Tag::Link { dest_url, .. } => {
-                write!(self.output, r#"<a href="{}">"#, escape_xml(&dest_url)).unwrap();
+                write!(self.output, r#"<a href="{}">"#, escape_html(&dest_url)).unwrap();
             }
             Tag::Image { dest_url, .. } => {
                 // Confluence image macro for attachments or external URLs
@@ -270,7 +271,7 @@ impl ConfluenceRenderer {
                     write!(
                         self.output,
                         r#"<ac:image><ri:url ri:value="{}" /></ac:image>"#,
-                        escape_xml(&dest_url)
+                        escape_html(&dest_url)
                     )
                     .unwrap();
                 } else {
@@ -279,7 +280,7 @@ impl ConfluenceRenderer {
                     write!(
                         self.output,
                         r#"<ac:image><ri:attachment ri:filename="{}" /></ac:image>"#,
-                        escape_xml(filename)
+                        escape_html(filename)
                     )
                     .unwrap();
                 }
@@ -387,12 +388,12 @@ impl ConfluenceRenderer {
             // Don't escape text in code blocks (CDATA)
             self.output.push_str(text);
         } else {
-            self.output.push_str(&escape_xml(text));
+            self.output.push_str(&escape_html(text));
         }
     }
 
     fn inline_code(&mut self, code: &str) {
-        write!(self.output, "<code>{}</code>", escape_xml(code)).unwrap();
+        write!(self.output, "<code>{}</code>", escape_html(code)).unwrap();
     }
 
     fn html(&mut self, html: &str) {
@@ -417,21 +418,6 @@ impl Default for ConfluenceRenderer {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn escape_xml(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => result.push_str("&amp;"),
-            '<' => result.push_str("&lt;"),
-            '>' => result.push_str("&gt;"),
-            '"' => result.push_str("&quot;"),
-            '\'' => result.push_str("&#39;"),
-            _ => result.push(c),
-        }
-    }
-    result
 }
 
 #[cfg(test)]
@@ -617,15 +603,7 @@ mod tests {
         let result = render("Use & \"quotes\" and 'apostrophes'");
         assert!(result.contains("&amp;"));
         assert!(result.contains("&quot;quotes&quot;"));
-        assert!(result.contains("&#39;apostrophes&#39;"));
-    }
-
-    #[test]
-    fn test_escape_xml_function() {
-        assert_eq!(escape_xml("<tag>"), "&lt;tag&gt;");
-        assert_eq!(escape_xml("a & b"), "a &amp; b");
-        assert_eq!(escape_xml("\"quoted\""), "&quot;quoted&quot;");
-        assert_eq!(escape_xml("it's"), "it&#39;s");
+        assert!(result.contains("&#x27;apostrophes&#x27;"));
     }
 
     #[test]

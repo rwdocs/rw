@@ -550,6 +550,33 @@ def _require_kroki_url(kroki_url: str | None, config: Config) -> str:
     return effective
 
 
+def _require_space_key(space: str | None, config: Config) -> str:
+    """Get effective space key or exit with error.
+
+    Args:
+        space: CLI-provided space key (overrides config if set)
+        config: Application config
+
+    Returns:
+        Effective space key
+
+    Raises:
+        SystemExit: If space key is not provided
+    """
+    if space:
+        return space
+    if config.confluence_test and config.confluence_test.space_key:
+        return config.confluence_test.space_key
+    click.echo(
+        click.style(
+            "Error: No space key provided and confluence.test.space_key not in config",
+            fg="red",
+        ),
+        err=True,
+    )
+    sys.exit(1)
+
+
 async def _test_auth(config_path: Path | None, key_file: Path) -> None:
     """Test authentication with Confluence API.
 
@@ -681,18 +708,7 @@ async def _test_create(
         conf_config = _require_confluence_config(config)
 
         private_key = read_private_key(key_file)
-
-        if not space:
-            if not config.confluence_test or not config.confluence_test.space_key:
-                click.echo(
-                    click.style(
-                        "Error: No space key provided and confluence.test.space_key not in config",
-                        fg="red",
-                    ),
-                    err=True,
-                )
-                sys.exit(1)
-            space = config.confluence_test.space_key
+        space = _require_space_key(space, config)
 
         async with create_confluence_client(
             conf_config.access_token,
@@ -752,18 +768,7 @@ async def _create(
 
         private_key = read_private_key(key_file)
         effective_kroki_url = _require_kroki_url(kroki_url, config)
-
-        if not space:
-            if not config.confluence_test or not config.confluence_test.space_key:
-                click.echo(
-                    click.style(
-                        "Error: No space key provided and confluence.test.space_key not in config",
-                        fg="red",
-                    ),
-                    err=True,
-                )
-                sys.exit(1)
-            space = config.confluence_test.space_key
+        space = _require_space_key(space, config)
 
         click.echo(f"Converting {markdown_file}...")
         converter = MarkdownConverter()

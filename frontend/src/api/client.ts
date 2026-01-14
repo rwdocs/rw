@@ -2,6 +2,16 @@ import type { NavigationTree, PageResponse } from "../types";
 
 const API_BASE = "/api";
 
+/** Options for API fetch functions */
+interface FetchOptions {
+  bypassCache?: boolean;
+}
+
+/** Build RequestInit from fetch options */
+function buildRequestInit(options?: FetchOptions): RequestInit {
+  return options?.bypassCache ? { cache: "no-store" } : {};
+}
+
 /** Error thrown when a page is not found */
 export class NotFoundError extends Error {
   constructor(public path: string) {
@@ -11,11 +21,8 @@ export class NotFoundError extends Error {
 }
 
 /** Fetch the navigation tree */
-export async function fetchNavigation(options?: {
-  bypassCache?: boolean;
-}): Promise<NavigationTree> {
-  const fetchOptions: RequestInit = options?.bypassCache ? { cache: "no-store" } : {};
-  const response = await fetch(`${API_BASE}/navigation`, fetchOptions);
+export async function fetchNavigation(options?: FetchOptions): Promise<NavigationTree> {
+  const response = await fetch(`${API_BASE}/navigation`, buildRequestInit(options));
   if (!response.ok) {
     throw new Error(`Failed to fetch navigation: ${response.status} ${response.statusText}`);
   }
@@ -23,12 +30,8 @@ export async function fetchNavigation(options?: {
 }
 
 /** Fetch a page by path */
-export async function fetchPage(
-  path: string,
-  options?: { bypassCache?: boolean },
-): Promise<PageResponse> {
-  const fetchOptions: RequestInit = options?.bypassCache ? { cache: "no-store" } : {};
-  const response = await fetch(`${API_BASE}/pages/${path}`, fetchOptions);
+export async function fetchPage(path: string, options?: FetchOptions): Promise<PageResponse> {
+  const response = await fetch(`${API_BASE}/pages/${path}`, buildRequestInit(options));
   if (!response.ok) {
     if (response.status === 404) {
       throw new NotFoundError(path);
