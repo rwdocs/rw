@@ -107,6 +107,18 @@ impl ConfluenceRenderer {
         self
     }
 
+    /// Compute adjusted heading level for Confluence output.
+    ///
+    /// When title extraction is enabled and we've seen the first H1,
+    /// all subsequent headings are leveled up (H2→H1, H3→H2, etc.).
+    fn adjusted_heading_level(&self, level_num: u8) -> u8 {
+        if self.extract_title && self.seen_first_h1 && level_num > 1 {
+            level_num - 1
+        } else {
+            level_num
+        }
+    }
+
     /// Render markdown events to Confluence storage format.
     pub fn render<'a, I>(mut self, events: I) -> String
     where
@@ -144,11 +156,8 @@ impl ConfluenceRenderer {
             Event::HardBreak => self.hard_break(),
             Event::Rule => self.horizontal_rule(),
             Event::TaskListMarker(checked) => {
-                if checked {
-                    self.output.push_str("[x] ");
-                } else {
-                    self.output.push_str("[ ] ");
-                }
+                let marker = if checked { "[x]" } else { "[ ]" };
+                write!(self.output, "{marker} ").unwrap();
             }
             Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
                 // Not supported in Confluence
@@ -170,15 +179,8 @@ impl ConfluenceRenderer {
                     self.in_first_h1 = true;
                     self.h1_text.clear();
                 } else {
-                    let level_num = heading_level_to_num(level);
-                    // Level up if we extracted a title
-                    let adjusted_level =
-                        if self.extract_title && self.seen_first_h1 && level_num > 1 {
-                            level_num - 1
-                        } else {
-                            level_num
-                        };
-                    write!(self.output, "<h{adjusted_level}>").unwrap();
+                    let level = self.adjusted_heading_level(heading_level_to_num(level));
+                    write!(self.output, "<h{level}>").unwrap();
                 }
             }
             Tag::BlockQuote(_) => {
@@ -306,15 +308,8 @@ impl ConfluenceRenderer {
                     self.in_first_h1 = false;
                     self.seen_first_h1 = true;
                 } else {
-                    let level_num = heading_level_to_num(level);
-                    // Level up if we extracted a title
-                    let adjusted_level =
-                        if self.extract_title && self.seen_first_h1 && level_num > 1 {
-                            level_num - 1
-                        } else {
-                            level_num
-                        };
-                    write!(self.output, "</h{adjusted_level}>").unwrap();
+                    let level = self.adjusted_heading_level(heading_level_to_num(level));
+                    write!(self.output, "</h{level}>").unwrap();
                 }
             }
             TagEnd::BlockQuote(_) => {

@@ -101,8 +101,13 @@ impl TableState {
         self.cell_index += 1;
     }
 
-    fn current_alignment(&self) -> Option<&Alignment> {
-        self.alignments.get(self.cell_index)
+    fn current_alignment_style(&self) -> &'static str {
+        match self.alignments.get(self.cell_index) {
+            Some(Alignment::Left) => r#" style="text-align:left""#,
+            Some(Alignment::Center) => r#" style="text-align:center""#,
+            Some(Alignment::Right) => r#" style="text-align:right""#,
+            Some(Alignment::None) | None => "",
+        }
     }
 }
 
@@ -323,18 +328,11 @@ impl HtmlRenderer {
                 self.code.start(lang);
             }
             Tag::List(start) => {
-                let ordered = start.is_some();
-                self.list_stack.push(ordered);
-                if ordered {
-                    if let Some(n) = start {
-                        if n == 1 {
-                            self.output.push_str("<ol>");
-                        } else {
-                            write!(self.output, r#"<ol start="{n}">"#).unwrap();
-                        }
-                    }
-                } else {
-                    self.output.push_str("<ul>");
+                self.list_stack.push(start.is_some());
+                match start {
+                    Some(1) => self.output.push_str("<ol>"),
+                    Some(n) => write!(self.output, r#"<ol start="{n}">"#).unwrap(),
+                    None => self.output.push_str("<ul>"),
                 }
             }
             Tag::Item => {
@@ -363,22 +361,9 @@ impl HtmlRenderer {
                 self.output.push_str("<tr>");
             }
             Tag::TableCell => {
-                let align_style = self
-                    .table
-                    .current_alignment()
-                    .and_then(|a| match a {
-                        Alignment::Left => Some(" style=\"text-align:left\""),
-                        Alignment::Center => Some(" style=\"text-align:center\""),
-                        Alignment::Right => Some(" style=\"text-align:right\""),
-                        Alignment::None => None,
-                    })
-                    .unwrap_or("");
-
-                if self.table.in_head {
-                    write!(self.output, "<th{align_style}>").unwrap();
-                } else {
-                    write!(self.output, "<td{align_style}>").unwrap();
-                }
+                let align = self.table.current_alignment_style();
+                let tag = if self.table.in_head { "th" } else { "td" };
+                write!(self.output, "<{tag}{align}>").unwrap();
             }
             Tag::Emphasis => {
                 if self.heading.is_active() {
@@ -593,12 +578,8 @@ impl HtmlRenderer {
     }
 
     fn task_list_marker(&mut self, checked: bool) {
-        if checked {
-            self.output
-                .push_str(r#"<input type="checkbox" checked disabled> "#);
-        } else {
-            self.output.push_str(r#"<input type="checkbox" disabled> "#);
-        }
+        let checked_attr = if checked { " checked" } else { "" };
+        write!(self.output, r#"<input type="checkbox"{checked_attr} disabled> "#).unwrap();
     }
 }
 

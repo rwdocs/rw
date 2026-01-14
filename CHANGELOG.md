@@ -18,6 +18,11 @@
   - Extract `_require_kroki_url()` helper in Python cli.py to consolidate repeated kroki_url validation
   - Extract `heading_level_to_num()` to shared `util.rs` module (was duplicated in confluence.rs and html.rs)
   - Replace `unreachable!()` with defensive `continue` in plantuml_filter.rs for consistency with diagram_filter.rs
+  - Simplify `task_list_marker()` in html.rs using single format call with conditional attribute
+  - Consolidate ordered list start rendering in html.rs using match expression
+  - Add `current_alignment_style()` helper to `TableState` in html.rs to centralize alignment logic
+  - Simplify `task_list_marker()` in confluence.rs using single format call
+  - Add `adjusted_heading_level()` helper method in confluence.rs to eliminate duplicate level adjustment code
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes
