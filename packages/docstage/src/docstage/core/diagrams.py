@@ -226,13 +226,12 @@ def replace_diagram_placeholders(html: str, diagrams: list[RenderedDiagram]) -> 
     """
     for diagram in diagrams:
         placeholder = f"{{{{DIAGRAM_{diagram.index}}}}}"
-
-        if diagram.format == "svg":
-            figure = f'<figure class="diagram">{diagram.content}</figure>'
-        else:
-            figure = f'<figure class="diagram"><img src="{diagram.content}" alt="diagram"></figure>'
-
-        html = html.replace(placeholder, figure)
+        content = (
+            diagram.content
+            if diagram.format == "svg"
+            else f'<img src="{diagram.content}" alt="diagram">'
+        )
+        html = html.replace(placeholder, f'<figure class="diagram">{content}</figure>')
 
     return html
 
@@ -258,19 +257,16 @@ def scale_svg_dimensions(svg: str, dpi: int) -> str:
 
     scale = STANDARD_DPI / dpi
 
-    def scale_value(match: re.Match[str], attr_format: str) -> str:
-        """Scale dimension value and format with attribute name."""
-        prefix, value = match.group(1), int(match.group(2))
-        return f'{prefix}{attr_format}"{round(value * scale)}"'
+    def scale_dim(match: re.Match[str]) -> int:
+        """Scale the dimension value from group 2."""
+        return round(int(match.group(2)) * scale)
 
-    def scale_style(match: re.Match[str]) -> str:
-        """Scale dimension in CSS style property."""
-        prefix, value, suffix = match.group(1), int(match.group(2)), match.group(3)
-        return f"{prefix}{round(value * scale)}{suffix}"
+    # Scale XML attributes (width="136", height="210")
+    result = SVG_WIDTH_RE.sub(lambda m: f'{m.group(1)}width="{scale_dim(m)}"', svg)
+    result = SVG_HEIGHT_RE.sub(lambda m: f'{m.group(1)}height="{scale_dim(m)}"', result)
 
-    result = SVG_WIDTH_RE.sub(lambda m: scale_value(m, "width="), svg)
-    result = SVG_HEIGHT_RE.sub(lambda m: scale_value(m, "height="), result)
-    result = STYLE_WIDTH_RE.sub(scale_style, result)
-    result = STYLE_HEIGHT_RE.sub(scale_style, result)
+    # Scale inline style properties (width:136px, height:210px)
+    result = STYLE_WIDTH_RE.sub(lambda m: f"{m.group(1)}{scale_dim(m)}{m.group(3)}", result)
+    result = STYLE_HEIGHT_RE.sub(lambda m: f"{m.group(1)}{scale_dim(m)}{m.group(3)}", result)
 
     return result

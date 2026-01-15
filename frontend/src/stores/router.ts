@@ -16,6 +16,19 @@ export function goto(newPath: string) {
   window.scrollTo(0, 0);
 }
 
+/** Check if a link should be handled externally (not by SPA router) */
+function isExternalLink(href: string, anchor: HTMLAnchorElement): boolean {
+  return (
+    href.startsWith("http") ||
+    href.startsWith("//") ||
+    href.startsWith("mailto:") ||
+    href.startsWith("tel:") ||
+    href.startsWith("#") ||
+    anchor.hasAttribute("target") ||
+    anchor.hasAttribute("download")
+  );
+}
+
 /** Initialize router - call once on app mount */
 export function initRouter() {
   // Handle browser back/forward navigation
@@ -27,31 +40,16 @@ export function initRouter() {
   document.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
     const anchor = target.closest("a");
-
     if (!anchor) return;
 
     const href = anchor.getAttribute("href");
     if (!href) return;
 
     // Skip if modifier key pressed (allow Cmd/Ctrl+click to open in new tab)
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
-      return;
-    }
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 
-    // Skip non-local links
-    const isExternal =
-      href.startsWith("http") ||
-      href.startsWith("//") ||
-      href.startsWith("mailto:") ||
-      href.startsWith("tel:");
-    if (
-      isExternal ||
-      href.startsWith("#") ||
-      anchor.hasAttribute("target") ||
-      anchor.hasAttribute("download")
-    ) {
-      return;
-    }
+    // Skip external links, fragment links, and links with target/download
+    if (isExternalLink(href, anchor)) return;
 
     // Handle internal navigation (links are already resolved by backend)
     e.preventDefault();

@@ -40,6 +40,9 @@
   - Simplify `Config.with_overrides()` string/Path overrides using `or` pattern where safe
   - Simplify `create_html_renderer()` in converter.rs to use consistent conditional builder pattern
   - Extract `scale_dim` helper in Rust `scale_svg_dimensions()` to consolidate dimension scaling logic
+  - Simplify `scale_svg_dimensions()` in Python diagrams.py with single `scale_dim` helper (replaces two similar functions)
+  - Extract `isExternalLink()` helper in frontend router.ts to consolidate link type checking logic
+  - Simplify `replace_diagram_placeholders()` in diagrams.py using conditional expression for content
 
 ### 2025-12-15
 - Fix comment preservation failing when table content changes
