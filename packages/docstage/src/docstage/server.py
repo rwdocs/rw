@@ -19,7 +19,7 @@ from docstage.app_keys import (
 )
 from docstage.assets import get_static_dir
 from docstage.config import Config
-from docstage.core.cache import FileCache, NullCache, PageCache
+from docstage.core.cache import FileCache, NullCache
 from docstage.core.renderer import PageRenderer
 from docstage.core.site import SiteLoader
 
@@ -46,7 +46,7 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
     """
     app = web.Application()
 
-    cache: PageCache
+    cache: FileCache | NullCache
     if config.docs.cache_enabled:
         cache = FileCache(config.docs.cache_dir)
     else:
