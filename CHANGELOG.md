@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-01-16
+- Enable source maps in frontend production builds
+  - Add `build.sourcemap: true` to Vite config
+  - Browser DevTools now show original TypeScript/Svelte source code
+  - Makes debugging frontend issues easier while keeping code optimized
 - Address PR review feedback for config fetch error handling
   - Define `defaultConfig` with sensible defaults for all config values
   - On fetch failure, use defaults instead of skipping config-dependent features
