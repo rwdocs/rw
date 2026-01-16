@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-01-16
+- Address PR feedback: improve cache type annotation
+  - Use union type `FileCache | NullCache` instead of abstract `PageCache` protocol
+  - Clearer since it shows exact concrete types assigned
+  - Remove unused `PageCache` import from server.py
 - Add option to disable caching for development
   - Add `cache_enabled` setting in `[docs]` config section (default: true)
   - Add `--cache/--no-cache` CLI flag to `serve` command
