@@ -9,7 +9,7 @@
   - Tests now use port 8081 to avoid conflicts with development server
   - Update Playwright config to use test fixtures instead of production docs
   - Rewrite all E2E tests with predictable test content
-  - Tests cover: navigation (12 tests), page content (15 tests), mobile (11 tests)
+  - Tests cover: navigation (11 tests), page content (13 tests), mobile (11 tests)
   - Test docs include multi-level navigation, code blocks, tables, internal links
 - Enable source maps in frontend production builds
   - Add `build.sourcemap: true` to Vite config

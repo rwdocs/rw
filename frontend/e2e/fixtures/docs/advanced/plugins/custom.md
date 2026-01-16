@@ -32,7 +32,7 @@ export default {
 
   async destroy() {
     console.log("Plugin destroyed");
-  }
+  },
 };
 ```
 

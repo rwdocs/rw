@@ -17,8 +17,8 @@ Returns a list of all users.
 ```json
 {
   "users": [
-    {"id": 1, "name": "Alice"},
-    {"id": 2, "name": "Bob"}
+    { "id": 1, "name": "Alice" },
+    { "id": 2, "name": "Bob" }
   ]
 }
 ```
@@ -43,19 +43,19 @@ Creates a new resource.
 
 **Request Body:**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Resource name |
-| `type` | string | Yes | Resource type |
-| `metadata` | object | No | Additional metadata |
+| Field      | Type   | Required | Description         |
+| ---------- | ------ | -------- | ------------------- |
+| `name`     | string | Yes      | Resource name       |
+| `type`     | string | Yes      | Resource type       |
+| `metadata` | object | No       | Additional metadata |
 
 ## Rate Limits
 
-| Tier | Requests/min | Requests/day |
-|------|--------------|--------------|
-| Free | 60 | 1,000 |
-| Pro | 300 | 10,000 |
-| Enterprise | 1,000 | Unlimited |
+| Tier       | Requests/min | Requests/day |
+| ---------- | ------------ | ------------ |
+| Free       | 60           | 1,000        |
+| Pro        | 300          | 10,000       |
+| Enterprise | 1,000        | Unlimited    |
 
 ## Error Codes
 

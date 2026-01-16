@@ -83,10 +83,11 @@ test.describe("Mobile Navigation", () => {
     const drawer = page.locator("aside.fixed");
     await expect(drawer).toBeVisible();
 
-    // Click overlay at a position outside the drawer (drawer is 280px wide from left)
-    // Using force: true to bypass the drawer intercepting clicks
-    const overlay = page.getByRole("button", { name: "Close menu" }).first();
-    await overlay.click({ position: { x: 350, y: 400 }, force: true });
+    // Click outside the drawer on the backdrop overlay
+    // Drawer is 280px wide on left, so click to the right of it
+    const drawerBox = await drawer.boundingBox();
+    expect(drawerBox).not.toBeNull();
+    await page.mouse.click(drawerBox!.x + drawerBox!.width + 50, drawerBox!.y + 100);
 
     // Drawer should close
     await expect(drawer).toBeHidden();

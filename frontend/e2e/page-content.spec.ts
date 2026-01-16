@@ -40,7 +40,7 @@ test.describe("Page Content", () => {
     // Should also have Python code block
     const pythonBlock = page.locator('pre code[class*="language-python"]');
     await expect(pythonBlock).toBeVisible();
-    await expect(pythonBlock).toContainText('def greet');
+    await expect(pythonBlock).toContainText("def greet");
   });
 
   test("renders internal links correctly", async ({ page }) => {

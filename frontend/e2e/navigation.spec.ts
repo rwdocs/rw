@@ -148,7 +148,9 @@ test.describe("Navigation", () => {
 
     // Should navigate to deep nested page
     await expect(page).toHaveURL(/\/advanced\/plugins\/custom$/);
-    await expect(page.locator("article")).toContainText("Step-by-step guide to creating a custom plugin");
+    await expect(page.locator("article")).toContainText(
+      "Step-by-step guide to creating a custom plugin",
+    );
   });
 
   test("auto-expands navigation to current page", async ({ page }) => {

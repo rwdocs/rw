@@ -18,8 +18,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "cd .. && uv run docstage serve -c frontend/e2e/fixtures/docstage.toml -p 8081",
+    command: "uv run docstage serve -c frontend/e2e/fixtures/docstage.toml",
     url: "http://127.0.0.1:8081",
+    cwd: "..",
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },

@@ -20,12 +20,12 @@ pool_size = 10
 
 You can also use environment variables:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `HOST` | Server host | `127.0.0.1` |
-| `PORT` | Server port | `8080` |
-| `DATABASE_URL` | Database connection string | - |
-| `LOG_LEVEL` | Logging level | `info` |
+| Variable       | Description                | Default     |
+| -------------- | -------------------------- | ----------- |
+| `HOST`         | Server host                | `127.0.0.1` |
+| `PORT`         | Server port                | `8080`      |
+| `DATABASE_URL` | Database connection string | -           |
+| `LOG_LEVEL`    | Logging level              | `info`      |
 
 ## Configuration Priority
 
