@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from docstage.core.navigation import NavItem, build_navigation
-from docstage.core.site import SiteBuilder
+from docstage.core.site import SiteBuilder, SiteLoader
 
 
 class TestBuildNavigation:
@@ -86,19 +86,29 @@ class TestBuildNavigation:
         assert "Usage" in titles
         assert "Home" not in titles
 
-    def test__no_root_page__shows_all_root_pages(self, source_dir: Path) -> None:
-        """When no root page exists, show all root pages in navigation."""
+    def test__root_page_with_file_siblings__shows_siblings(
+        self, source_dir: Path
+    ) -> None:
+        """Siblings of root index.md are shown as navigation items.
+
+        When root index.md exists, files at the same directory level become
+        children of the root page in the Site model. Navigation shows these
+        children, so filesystem siblings of index.md ARE included.
+        """
         builder = SiteBuilder(source_dir)
-        builder.add_page("Guide", "/guide", "guide.md")
-        builder.add_page("API", "/api", "api.md")
+        root_idx = builder.add_page("Home", "/", "index.md")
+        builder.add_page("About", "/about", "about.md", root_idx)
+        builder.add_page("Domains", "/domains", "domains/index.md", root_idx)
         site = builder.build()
 
         nav = build_navigation(site)
 
         assert len(nav) == 2
         titles = [item.title for item in nav]
-        assert "Guide" in titles
-        assert "API" in titles
+        # Both the sibling file and the subdirectory should appear
+        assert "About" in titles
+        assert "Domains" in titles
+        assert "Home" not in titles
 
 
 class TestNavItem:
@@ -140,3 +150,33 @@ class TestNavItem:
             "path": "/parent",
             "children": [{"title": "Child", "path": "/parent/child"}],
         }
+
+
+class TestBuildNavigationWithSiteLoader:
+    """Integration tests for build_navigation with SiteLoader."""
+
+    def test__root_index_with_file_siblings__shows_siblings(
+        self, tmp_path: Path
+    ) -> None:
+        """Siblings of root index.md are shown via SiteLoader.
+
+        Verifies full path from filesystem files to navigation includes
+        files at the same level as root index.md.
+        """
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        (source_dir / "index.md").write_text("# Home\n\nWelcome.")
+        (source_dir / "about.md").write_text("# About\n\nAbout us.")
+        domain_dir = source_dir / "domains"
+        domain_dir.mkdir()
+        (domain_dir / "index.md").write_text("# Domains\n\nDomain list.")
+
+        loader = SiteLoader(source_dir)
+        site = loader.load()
+        nav = build_navigation(site)
+
+        assert len(nav) == 2
+        titles = [item.title for item in nav]
+        assert "About" in titles
+        assert "Domains" in titles
+        assert "Home" not in titles

@@ -2,24 +2,31 @@
   import { onMount, onDestroy } from "svelte";
   import { path, initRouter } from "./stores/router";
   import { liveReload } from "./stores/liveReload";
+  import type { ConfigResponse } from "./types";
   import { fetchConfig } from "./api/client";
   import Layout from "./components/Layout.svelte";
   import Home from "./pages/Home.svelte";
   import Page from "./pages/Page.svelte";
   import NotFound from "./pages/NotFound.svelte";
 
+  const defaultConfig: ConfigResponse = {
+    liveReloadEnabled: false,
+  };
+
   onMount(async () => {
     initRouter();
+
+    let config = defaultConfig;
     try {
-      const config = await fetchConfig();
-      if (config.liveReloadEnabled) {
-        liveReload.start();
-      }
+      config = await fetchConfig();
     } catch (e) {
-      // Live reload is optional - fail silently in production
       if (import.meta.env.DEV) {
-        console.warn("[App] Failed to fetch config, live reload disabled:", e);
+        console.warn("[App] Failed to fetch config, using defaults:", e);
       }
+    }
+
+    if (config.liveReloadEnabled) {
+      liveReload.start();
     }
   });
 

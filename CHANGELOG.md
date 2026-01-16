@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### 2026-01-16
+- Address PR review feedback for config fetch error handling
+  - Define `defaultConfig` with sensible defaults for all config values
+  - On fetch failure, use defaults instead of skipping config-dependent features
+  - Config is applied regardless of fetch success, ensuring consistent behavior
+- Add tests for navigation sibling behavior
+  - Add unit test verifying siblings of root `index.md` appear in navigation
+  - Add integration test with `SiteLoader` for full filesystem-to-navigation path
+- Code simplification refactoring
+  - Remove redundant `test__no_root_page__shows_all_root_pages` test that duplicated `test__flat_site__builds_navigation`
 - Address PR review feedback for live reload config fetch
   - Add error handling for `fetchConfig()` to prevent app crash on network errors
   - Log warning only in development mode when config fetch fails
