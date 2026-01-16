@@ -133,6 +133,8 @@ class TestFileCacheSet:
 
     def test_writes_metadata_json(self, tmp_path: Path) -> None:
         """Write metadata as JSON to meta directory."""
+        from docstage import __version__
+
         cache = FileCache(tmp_path / ".cache")
 
         cache.set(
@@ -151,6 +153,7 @@ class TestFileCacheSet:
             "title": "Test Title",
             "source_mtime": 1234567890.123,
             "toc": [{"level": 2, "title": "Heading", "id": "heading"}],
+            "build_version": __version__,
         }
 
 
@@ -439,3 +442,98 @@ class TestFileCacheReadMetaEdgeCases:
         result = cache.get("page", 1234567890.0)
 
         assert result is None
+
+
+class TestFileCacheVersionValidation:
+    """Tests for build version validation in cache."""
+
+    def test_returns_none_when_build_version_missing(self, tmp_path: Path) -> None:
+        """Return None when cached meta is missing build_version (old cache)."""
+        cache = FileCache(tmp_path / ".cache")
+        meta_dir = tmp_path / ".cache" / "meta"
+        meta_dir.mkdir(parents=True)
+        meta_file = meta_dir / "page.json"
+        # Old cache format without build_version
+        meta_file.write_text(
+            json.dumps({
+                "title": "Test",
+                "source_mtime": 1234567890.0,
+                "toc": [],
+            }),
+            encoding="utf-8",
+        )
+
+        pages_dir = tmp_path / ".cache" / "pages"
+        pages_dir.mkdir(parents=True)
+        html_file = pages_dir / "page.html"
+        html_file.write_text("<p>Test</p>")
+
+        result = cache.get("page", 1234567890.0)
+
+        assert result is None
+
+    def test_returns_none_when_build_version_mismatches(self, tmp_path: Path) -> None:
+        """Return None when cached build_version doesn't match current version."""
+        cache = FileCache(tmp_path / ".cache")
+        meta_dir = tmp_path / ".cache" / "meta"
+        meta_dir.mkdir(parents=True)
+        meta_file = meta_dir / "page.json"
+        meta_file.write_text(
+            json.dumps({
+                "title": "Test",
+                "source_mtime": 1234567890.0,
+                "toc": [],
+                "build_version": "0.0.1.dev1+gdeadbeef",  # Different version
+            }),
+            encoding="utf-8",
+        )
+
+        pages_dir = tmp_path / ".cache" / "pages"
+        pages_dir.mkdir(parents=True)
+        html_file = pages_dir / "page.html"
+        html_file.write_text("<p>Test</p>")
+
+        result = cache.get("page", 1234567890.0)
+
+        assert result is None
+
+    def test_returns_entry_when_build_version_matches(self, tmp_path: Path) -> None:
+        """Return CacheEntry when build_version matches current version."""
+        from docstage import __version__
+
+        cache = FileCache(tmp_path / ".cache")
+        meta_dir = tmp_path / ".cache" / "meta"
+        meta_dir.mkdir(parents=True)
+        meta_file = meta_dir / "page.json"
+        meta_file.write_text(
+            json.dumps({
+                "title": "Test",
+                "source_mtime": 1234567890.0,
+                "toc": [],
+                "build_version": __version__,
+            }),
+            encoding="utf-8",
+        )
+
+        pages_dir = tmp_path / ".cache" / "pages"
+        pages_dir.mkdir(parents=True)
+        html_file = pages_dir / "page.html"
+        html_file.write_text("<p>Test</p>")
+
+        result = cache.get("page", 1234567890.0)
+
+        assert result is not None
+        assert result.html == "<p>Test</p>"
+        assert result.meta["build_version"] == __version__
+
+    def test_set_includes_build_version(self, tmp_path: Path) -> None:
+        """Verify set() stores build_version in metadata."""
+        from docstage import __version__
+
+        cache = FileCache(tmp_path / ".cache")
+
+        cache.set("page", "<p>Test</p>", "Title", 1234567890.0, [])
+
+        meta_path = tmp_path / ".cache" / "meta" / "page.json"
+        meta = json.loads(meta_path.read_text())
+        assert meta["build_version"] == __version__

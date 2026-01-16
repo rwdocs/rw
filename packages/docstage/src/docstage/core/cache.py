@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
+from docstage import __version__
 from docstage.core.types import URLPath
 
 if TYPE_CHECKING:
@@ -36,6 +37,7 @@ class CachedMetadata(TypedDict):
     title: str | None
     source_mtime: float
     toc: list[dict[str, str | int]]
+    build_version: str
 
 
 @dataclass
@@ -155,6 +157,7 @@ class FileCache:
             "title": title,
             "source_mtime": source_mtime,
             "toc": toc,
+            "build_version": __version__,
         }
         meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
@@ -297,8 +300,13 @@ class FileCache:
         ):
             return None
 
+        # Check build version matches (cache miss for old or mismatched versions)
+        if data.get("build_version") != __version__:
+            return None
+
         return CachedMetadata(
             title=data.get("title"),
             source_mtime=data["source_mtime"],
             toc=data["toc"],
+            build_version=data["build_version"],
         )

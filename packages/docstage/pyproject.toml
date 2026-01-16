@@ -1,6 +1,6 @@
 [project]
 name = "docstage"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Documentation engine for Backstage"
 readme = "../../README.md"
 authors = [
@@ -21,8 +21,15 @@ dependencies = [
 docstage = "docstage.cli:cli"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "../.." }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/docstage/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/docstage"]

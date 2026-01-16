@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### 2026-01-16
+- Add cache version-based invalidation
+  - Cache now stores `build_version` in page metadata
+  - On cache read, version mismatch causes cache miss (auto-invalidation)
+  - Old cache files without `build_version` are treated as cache misses (graceful upgrade)
+  - Use hatch-vcs for dynamic version embedding from git
+  - Development versions include git commit hash (e.g., `0.1.dev162+g4e556ee`)
+  - This fixes issues where code changes (like URL prefix fixes) don't invalidate stale cached content
+
 ### 2026-01-14
 - Fix 404 error when accessing root index.md
   - Root `docs/index.md` was never added to site structure
