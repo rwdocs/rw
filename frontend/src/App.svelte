@@ -2,14 +2,18 @@
   import { onMount, onDestroy } from "svelte";
   import { path, initRouter } from "./stores/router";
   import { liveReload } from "./stores/liveReload";
+  import { fetchConfig } from "./api/client";
   import Layout from "./components/Layout.svelte";
   import Home from "./pages/Home.svelte";
   import Page from "./pages/Page.svelte";
   import NotFound from "./pages/NotFound.svelte";
 
-  onMount(() => {
+  onMount(async () => {
     initRouter();
-    liveReload.start();
+    const config = await fetchConfig();
+    if (config.liveReloadEnabled) {
+      liveReload.start();
+    }
   });
 
   onDestroy(() => {

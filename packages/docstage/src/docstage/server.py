@@ -7,9 +7,16 @@ from pathlib import Path
 
 from aiohttp import web
 
+from docstage.api.config import create_config_routes
 from docstage.api.navigation import create_navigation_routes
 from docstage.api.pages import create_pages_routes
-from docstage.app_keys import cache_key, renderer_key, site_loader_key, verbose_key
+from docstage.app_keys import (
+    cache_key,
+    live_reload_enabled_key,
+    renderer_key,
+    site_loader_key,
+    verbose_key,
+)
 from docstage.assets import get_static_dir
 from docstage.config import Config
 from docstage.core.cache import FileCache
@@ -54,8 +61,10 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
     app[site_loader_key] = site_loader
     app[cache_key] = cache
     app[verbose_key] = verbose
+    app[live_reload_enabled_key] = config.live_reload.enabled
 
     # API routes (must be registered first to take precedence over SPA fallback)
+    app.router.add_routes(create_config_routes())
     app.router.add_routes(create_pages_routes())
     app.router.add_routes(create_navigation_routes())
 

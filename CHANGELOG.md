@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-01-16
+- Fix frontend WebSocket connection when live reload is disabled
+  - Frontend now checks `/api/config` endpoint before connecting to WebSocket
+  - Add `/api/config` endpoint returning server configuration including `liveReloadEnabled`
+  - When running with `--no-live-reload`, frontend no longer attempts WebSocket connection
 - Fix root page appearing in navigation sidebar
   - Root `index.md` (path "/") is now excluded from navigation
   - Navigation shows children of root (top-level sections like domains, usage)

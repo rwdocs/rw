@@ -266,7 +266,11 @@ def scale_svg_dimensions(svg: str, dpi: int) -> str:
     result = SVG_HEIGHT_RE.sub(lambda m: f'{m.group(1)}height="{scale_dim(m)}"', result)
 
     # Scale inline style properties (width:136px, height:210px)
-    result = STYLE_WIDTH_RE.sub(lambda m: f"{m.group(1)}{scale_dim(m)}{m.group(3)}", result)
-    result = STYLE_HEIGHT_RE.sub(lambda m: f"{m.group(1)}{scale_dim(m)}{m.group(3)}", result)
+    result = STYLE_WIDTH_RE.sub(
+        lambda m: f"{m.group(1)}{scale_dim(m)}{m.group(3)}", result
+    )
+    result = STYLE_HEIGHT_RE.sub(
+        lambda m: f"{m.group(1)}{scale_dim(m)}{m.group(3)}", result
+    )
 
     return result

@@ -455,11 +455,13 @@ class TestFileCacheVersionValidation:
         meta_file = meta_dir / "page.json"
         # Old cache format without build_version
         meta_file.write_text(
-            json.dumps({
-                "title": "Test",
-                "source_mtime": 1234567890.0,
-                "toc": [],
-            }),
+            json.dumps(
+                {
+                    "title": "Test",
+                    "source_mtime": 1234567890.0,
+                    "toc": [],
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -479,12 +481,14 @@ class TestFileCacheVersionValidation:
         meta_dir.mkdir(parents=True)
         meta_file = meta_dir / "page.json"
         meta_file.write_text(
-            json.dumps({
-                "title": "Test",
-                "source_mtime": 1234567890.0,
-                "toc": [],
-                "build_version": "0.0.1.dev1+gdeadbeef",  # Different version
-            }),
+            json.dumps(
+                {
+                    "title": "Test",
+                    "source_mtime": 1234567890.0,
+                    "toc": [],
+                    "build_version": "0.0.1.dev1+gdeadbeef",  # Different version
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -506,12 +510,14 @@ class TestFileCacheVersionValidation:
         meta_dir.mkdir(parents=True)
         meta_file = meta_dir / "page.json"
         meta_file.write_text(
-            json.dumps({
-                "title": "Test",
-                "source_mtime": 1234567890.0,
-                "toc": [],
-                "build_version": __version__,
-            }),
+            json.dumps(
+                {
+                    "title": "Test",
+                    "source_mtime": 1234567890.0,
+                    "toc": [],
+                    "build_version": __version__,
+                }
+            ),
             encoding="utf-8",
         )
 

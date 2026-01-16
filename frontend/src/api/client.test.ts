@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchNavigation, fetchPage, NotFoundError } from "./client";
-import type { NavigationTree, PageResponse } from "../types";
+import { fetchConfig, fetchNavigation, fetchPage, NotFoundError } from "./client";
+import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 
 const mockNavTree: NavigationTree = {
   items: [{ title: "Home", path: "/" }],
@@ -144,5 +144,51 @@ describe("NotFoundError", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect(error).toBeInstanceOf(NotFoundError);
+  });
+});
+
+const mockConfig: ConfigResponse = {
+  liveReloadEnabled: true,
+};
+
+describe("fetchConfig", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockConfig),
+        }),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches config from API", async () => {
+    const result = await fetchConfig();
+
+    expect(fetch).toHaveBeenCalledWith("/api/config");
+    expect(result).toEqual(mockConfig);
+  });
+
+  it("throws error on non-ok response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+        }),
+      ),
+    );
+
+    await expect(fetchConfig()).rejects.toThrow(
+      "Failed to fetch config: 500 Internal Server Error",
+    );
   });
 });

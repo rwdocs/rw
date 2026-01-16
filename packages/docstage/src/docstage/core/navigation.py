@@ -54,7 +54,9 @@ def build_navigation(site: Site) -> list[NavItem]:
 
     if root_page:
         # Root page exists - navigation shows its children (top-level sections)
-        return [_build_nav_item(site, page) for page in site.get_children(root_page.path)]
+        return [
+            _build_nav_item(site, page) for page in site.get_children(root_page.path)
+        ]
 
     # No root page - navigation shows all root pages
     return [_build_nav_item(site, page) for page in root_pages]

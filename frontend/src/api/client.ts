@@ -1,4 +1,4 @@
-import type { NavigationTree, PageResponse } from "../types";
+import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 
 const API_BASE = "/api";
 
@@ -37,6 +37,15 @@ export async function fetchPage(path: string, options?: FetchOptions): Promise<P
       throw new NotFoundError(path);
     }
     throw new Error(`Failed to fetch page: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/** Fetch server config */
+export async function fetchConfig(): Promise<ConfigResponse> {
+  const response = await fetch(`${API_BASE}/config`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`);
   }
   return response.json();
 }

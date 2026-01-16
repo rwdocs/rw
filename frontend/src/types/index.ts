@@ -44,3 +44,8 @@ export interface ApiError {
   error: string;
   path?: string;
 }
+
+/** Server config from GET /api/config */
+export interface ConfigResponse {
+  liveReloadEnabled: boolean;
+}
