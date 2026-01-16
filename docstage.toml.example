@@ -10,6 +10,7 @@ port = 8080             # Port to bind to (default: 8080)
 [docs]
 source_dir = "docs"     # Directory containing markdown files (default: docs)
 cache_dir = ".cache"    # Cache directory for rendered content (default: .cache)
+cache_enabled = true    # Enable/disable caching (default: true)
 
 # Diagram rendering via Kroki
 [diagrams]

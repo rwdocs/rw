@@ -22,7 +22,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
 from docstage import __version__
 from docstage.core.types import URLPath
@@ -48,6 +48,40 @@ class CacheEntry:
     meta: CachedMetadata
 
 
+class PageCache(Protocol):
+    """Protocol for page caching.
+
+    Implemented by both FileCache (stores data) and NullCache (no-op).
+    """
+
+    def get(self, path: str, source_mtime: float) -> CacheEntry | None:
+        """Retrieve cached entry if valid."""
+        ...
+
+    def set(
+        self,
+        path: str,
+        html: str,
+        title: str | None,
+        source_mtime: float,
+        toc: list[dict[str, str | int]],
+    ) -> None:
+        """Store entry in cache."""
+        ...
+
+    def invalidate(self, path: str) -> None:
+        """Remove entry from cache."""
+        ...
+
+    def get_diagram(self, content_hash: str, fmt: str) -> str | None:
+        """Retrieve cached diagram."""
+        ...
+
+    def set_diagram(self, content_hash: str, fmt: str, content: str) -> None:
+        """Store diagram in cache."""
+        ...
+
+
 def compute_diagram_hash(source: str, endpoint: str, fmt: str, dpi: int = 192) -> str:
     """Compute a content hash for diagram caching.
 
@@ -62,6 +96,51 @@ def compute_diagram_hash(source: str, endpoint: str, fmt: str, dpi: int = 192) -
     """
     content = f"{endpoint}:{fmt}:{dpi}:{source}"
     return hashlib.sha256(content.encode()).hexdigest()
+
+
+class NullCache:
+    """No-op cache that never stores or retrieves data.
+
+    Used when caching is disabled. Implements the same interface as FileCache
+    but all operations are no-ops.
+    """
+
+    def get(self, path: str, source_mtime: float) -> CacheEntry | None:
+        """Always returns None (cache miss)."""
+        return None
+
+    def set(
+        self,
+        path: str,
+        html: str,
+        title: str | None,
+        source_mtime: float,
+        toc: list[dict[str, str | int]],
+    ) -> None:
+        """No-op."""
+
+    def invalidate(self, path: str) -> None:
+        """No-op."""
+
+    def clear(self) -> None:
+        """No-op."""
+
+    def get_site(self) -> Site | None:
+        """Always returns None (cache miss)."""
+        return None
+
+    def set_site(self, site: Site) -> None:
+        """No-op."""
+
+    def invalidate_site(self) -> None:
+        """No-op."""
+
+    def get_diagram(self, content_hash: str, fmt: str) -> str | None:
+        """Always returns None (cache miss)."""
+        return None
+
+    def set_diagram(self, content_hash: str, fmt: str, content: str) -> None:
+        """No-op."""
 
 
 class FileCache:

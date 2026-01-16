@@ -24,6 +24,7 @@ class DocsConfig:
 
     source_dir: Path = field(default_factory=lambda: Path("docs"))
     cache_dir: Path = field(default_factory=lambda: Path(".cache"))
+    cache_enabled: bool = True
 
 
 @dataclass
@@ -230,7 +231,15 @@ class Config:
             raise ValueError("docs.cache_dir must be a string")
         cache_path = config_dir / cache_dir
 
-        return DocsConfig(source_dir=source_path, cache_dir=cache_path)
+        cache_enabled = data.get("cache_enabled", True)
+        if not isinstance(cache_enabled, bool):
+            raise ValueError("docs.cache_enabled must be a boolean")
+
+        return DocsConfig(
+            source_dir=source_path,
+            cache_dir=cache_path,
+            cache_enabled=cache_enabled,
+        )
 
     @classmethod
     def _parse_diagrams(cls, data: object, config_dir: Path) -> DiagramsConfig:
@@ -376,6 +385,7 @@ class Config:
         port: int | None = None,
         source_dir: Path | None = None,
         cache_dir: Path | None = None,
+        cache_enabled: bool | None = None,
         kroki_url: str | None = None,
         live_reload_enabled: bool | None = None,
     ) -> Config:
@@ -389,6 +399,7 @@ class Config:
             port: Override server.port
             source_dir: Override docs.source_dir
             cache_dir: Override docs.cache_dir
+            cache_enabled: Override docs.cache_enabled
             kroki_url: Override diagrams.kroki_url
             live_reload_enabled: Override live_reload.enabled
 
@@ -406,6 +417,9 @@ class Config:
                 self.docs,
                 source_dir=source_dir or self.docs.source_dir,
                 cache_dir=cache_dir or self.docs.cache_dir,
+                cache_enabled=cache_enabled
+                if cache_enabled is not None
+                else self.docs.cache_enabled,
             ),
             diagrams=replace(
                 self.diagrams,

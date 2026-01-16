@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from docstage.core.cache import FileCache, compute_diagram_hash
+from docstage.core.cache import FileCache, NullCache, compute_diagram_hash
 
 
 class TestFileCacheGet:
@@ -543,3 +543,95 @@ class TestFileCacheVersionValidation:
         meta_path = tmp_path / ".cache" / "meta" / "page.json"
         meta = json.loads(meta_path.read_text())
         assert meta["build_version"] == __version__
+
+
+class TestNullCache:
+    """Tests for NullCache (no-op cache for disabled caching)."""
+
+    def test_get_always_returns_none(self) -> None:
+        """NullCache.get() always returns None (cache miss)."""
+        cache = NullCache()
+
+        result = cache.get("domain/page", 1234567890.0)
+
+        assert result is None
+
+    def test_set_is_noop(self) -> None:
+        """NullCache.set() does nothing but doesn't raise."""
+        cache = NullCache()
+
+        # Should not raise
+        cache.set(
+            "domain/page",
+            "<p>Test</p>",
+            "Test Title",
+            1234567890.0,
+            [{"level": 2, "title": "Heading", "id": "heading"}],
+        )
+
+        # Still returns None after set
+        result = cache.get("domain/page", 1234567890.0)
+        assert result is None
+
+    def test_invalidate_is_noop(self) -> None:
+        """NullCache.invalidate() does nothing but doesn't raise."""
+        cache = NullCache()
+
+        # Should not raise
+        cache.invalidate("domain/page")
+
+    def test_clear_is_noop(self) -> None:
+        """NullCache.clear() does nothing but doesn't raise."""
+        cache = NullCache()
+
+        # Should not raise
+        cache.clear()
+
+    def test_get_site_always_returns_none(self) -> None:
+        """NullCache.get_site() always returns None."""
+        cache = NullCache()
+
+        result = cache.get_site()
+
+        assert result is None
+
+    def test_set_site_is_noop(self, tmp_path: Path) -> None:
+        """NullCache.set_site() does nothing but doesn't raise."""
+        from docstage.core.site import SiteBuilder
+
+        cache = NullCache()
+        source_dir = tmp_path / "docs"
+        site = SiteBuilder(source_dir).build()
+
+        # Should not raise
+        cache.set_site(site)
+
+        # Still returns None after set
+        result = cache.get_site()
+        assert result is None
+
+    def test_invalidate_site_is_noop(self) -> None:
+        """NullCache.invalidate_site() does nothing but doesn't raise."""
+        cache = NullCache()
+
+        # Should not raise
+        cache.invalidate_site()
+
+    def test_get_diagram_always_returns_none(self) -> None:
+        """NullCache.get_diagram() always returns None."""
+        cache = NullCache()
+
+        result = cache.get_diagram("abc123", "svg")
+
+        assert result is None
+
+    def test_set_diagram_is_noop(self) -> None:
+        """NullCache.set_diagram() does nothing but doesn't raise."""
+        cache = NullCache()
+
+        # Should not raise
+        cache.set_diagram("abc123", "svg", "<svg/>")
+
+        # Still returns None after set
+        result = cache.get_diagram("abc123", "svg")
+        assert result is None

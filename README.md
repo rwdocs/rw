@@ -30,6 +30,7 @@ port = 8080             # Server port
 [docs]
 source_dir = "docs"     # Markdown source directory
 cache_dir = ".cache"    # Cache directory
+cache_enabled = true    # Enable/disable caching (default: true)
 
 [diagrams]
 kroki_url = "https://kroki.io"  # Enables diagram rendering
@@ -72,6 +73,9 @@ uv run docstage serve
 
 # Start server without live reload
 uv run docstage serve --no-live-reload
+
+# Start server without caching (useful for development)
+uv run docstage serve --no-cache
 ```
 
 ## Confluence Publishing

@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### 2026-01-16
+- Add option to disable caching for development
+  - Add `cache_enabled` setting in `[docs]` config section (default: true)
+  - Add `--cache/--no-cache` CLI flag to `serve` command
+  - When disabled, `NullCache` (no-op) is used instead of `FileCache`
+  - Add `PageCache` protocol for type-safe cache interface abstraction
+  - Useful for development when cache invalidation issues occur
 - Add proper E2E test fixtures with dedicated test documentation
   - Create `frontend/e2e/fixtures/docs/` with structured test markdown files
   - Create `frontend/e2e/fixtures/docstage.toml` test configuration

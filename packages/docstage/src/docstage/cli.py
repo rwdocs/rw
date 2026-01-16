@@ -77,6 +77,11 @@ cli.add_command(confluence)
     default=None,
     help="Enable/disable live reload (overrides config, default: enabled)",
 )
+@click.option(
+    "--cache/--no-cache",
+    default=None,
+    help="Enable/disable caching (overrides config, default: enabled)",
+)
 def serve(
     config_path: Path | None,
     source_dir: Path | None,
@@ -86,6 +91,7 @@ def serve(
     kroki_url: str | None,
     verbose: bool,
     live_reload: bool | None,
+    cache: bool | None,
 ) -> None:
     """Start the documentation server."""
     from docstage.server import run_server
@@ -95,13 +101,17 @@ def serve(
         port=port,
         source_dir=source_dir,
         cache_dir=cache_dir,
+        cache_enabled=cache,
         kroki_url=kroki_url,
         live_reload_enabled=live_reload,
     )
 
     click.echo(f"Starting server on {config.server.host}:{config.server.port}")
     click.echo(f"Source directory: {config.docs.source_dir}")
-    click.echo(f"Cache directory: {config.docs.cache_dir}")
+    if config.docs.cache_enabled:
+        click.echo(f"Cache directory: {config.docs.cache_dir}")
+    else:
+        click.echo("Cache: disabled")
     if config.diagrams.kroki_url:
         click.echo(f"Kroki URL: {config.diagrams.kroki_url}")
     else:

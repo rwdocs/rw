@@ -10,7 +10,7 @@ import urllib.request
 import zlib
 from dataclasses import dataclass
 
-from docstage.core.cache import FileCache, compute_diagram_hash
+from docstage.core.cache import PageCache, compute_diagram_hash
 
 GOOGLE_FONTS_RE = re.compile(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?")
 
@@ -47,7 +47,7 @@ class RenderedDiagram:
 def render_diagrams_with_cache(
     diagrams: list[tuple[int, str, str, str]],
     kroki_url: str,
-    cache: FileCache,
+    cache: PageCache,
     dpi: int = 192,
 ) -> list[RenderedDiagram]:
     """Render diagrams via Kroki with caching.

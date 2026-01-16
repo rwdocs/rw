@@ -410,11 +410,12 @@ class TestDocsConfig:
     """Tests for DocsConfig dataclass."""
 
     def test__defaults__returns_docs_and_cache(self) -> None:
-        """Default source_dir is docs, cache_dir is .cache."""
+        """Default source_dir is docs, cache_dir is .cache, cache_enabled is True."""
         config = DocsConfig()
 
         assert config.source_dir == Path("docs")
         assert config.cache_dir == Path(".cache")
+        assert config.cache_enabled is True
 
 
 class TestDiagramsConfig:
@@ -744,3 +745,72 @@ class TestConfigWithOverrides:
 
         assert original.server.host == original_host
         assert original.server.port == original_port
+
+    def test__override_cache_enabled__changes_cache_enabled(self) -> None:
+        """Override cache_enabled changes docs.cache_enabled."""
+        original = Config._default()
+        assert original.docs.cache_enabled is True
+
+        result = original.with_overrides(cache_enabled=False)
+
+        assert result.docs.cache_enabled is False
+
+    def test__override_cache_enabled_true__changes_cache_enabled(self) -> None:
+        """Override cache_enabled=True changes docs.cache_enabled."""
+        original = Config._default()
+        # First disable it
+        disabled = original.with_overrides(cache_enabled=False)
+        assert disabled.docs.cache_enabled is False
+
+        # Then re-enable it
+        result = disabled.with_overrides(cache_enabled=True)
+
+        assert result.docs.cache_enabled is True
+
+
+class TestCacheEnabledConfigParsing:
+    """Tests for docs.cache_enabled config parsing."""
+
+    def test__cache_enabled_defaults_to_true(self, tmp_path: Path) -> None:
+        """Cache enabled defaults to True when not specified."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("")
+
+        config = Config.load(config_file)
+
+        assert config.docs.cache_enabled is True
+
+    def test__cache_enabled_false__parses_correctly(self, tmp_path: Path) -> None:
+        """Parse cache_enabled = false correctly."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[docs]
+cache_enabled = false
+""")
+
+        config = Config.load(config_file)
+
+        assert config.docs.cache_enabled is False
+
+    def test__cache_enabled_true__parses_correctly(self, tmp_path: Path) -> None:
+        """Parse cache_enabled = true correctly."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[docs]
+cache_enabled = true
+""")
+
+        config = Config.load(config_file)
+
+        assert config.docs.cache_enabled is True
+
+    def test__invalid_cache_enabled_type__raises_error(self, tmp_path: Path) -> None:
+        """Raise ValueError when cache_enabled is not a boolean."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[docs]
+cache_enabled = "yes"
+""")
+
+        with pytest.raises(ValueError, match="docs.cache_enabled must be a boolean"):
+            Config.load(config_file)

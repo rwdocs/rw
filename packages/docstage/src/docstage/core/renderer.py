@@ -9,7 +9,7 @@ from typing import Protocol
 
 from docstage_core import MarkdownConverter
 
-from docstage.core.cache import CacheEntry, FileCache
+from docstage.core.cache import CacheEntry, PageCache
 from docstage.core.diagrams import (
     render_diagrams_with_cache,
     replace_diagram_placeholders,
@@ -56,7 +56,7 @@ class PageRenderer:
 
     def __init__(
         self,
-        cache: FileCache,
+        cache: PageCache,
         *,
         extract_title: bool = True,
         kroki_url: str | None = None,
@@ -67,7 +67,7 @@ class PageRenderer:
         """Initialize renderer.
 
         Args:
-            cache: FileCache instance for caching rendered content
+            cache: Cache instance for caching rendered content (FileCache or NullCache)
             extract_title: Whether to extract title from first H1
             kroki_url: Kroki server URL for diagram rendering (e.g., "https://kroki.io").
                        If None, diagrams are rendered as code blocks.
