@@ -73,13 +73,15 @@ class FileCache:
 
     _GITIGNORE_CONTENT = "# Ignore everything in this directory\n*\n"
 
-    def __init__(self, cache_dir: Path) -> None:
+    def __init__(self, cache_dir: Path, version: str = __version__) -> None:
         """Initialize cache with directory path.
 
         Args:
             cache_dir: Root directory for cache files (e.g., .cache/)
+            version: Build version for cache invalidation (default: current package version)
         """
         self._cache_dir = cache_dir
+        self._version = version
         self._pages_dir = cache_dir / "pages"
         self._meta_dir = cache_dir / "meta"
         self._diagrams_dir = cache_dir / "diagrams"
@@ -157,7 +159,7 @@ class FileCache:
             "title": title,
             "source_mtime": source_mtime,
             "toc": toc,
-            "build_version": __version__,
+            "build_version": self._version,
         }
         meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
@@ -301,7 +303,7 @@ class FileCache:
             return None
 
         # Check build version matches (cache miss for old or mismatched versions)
-        if data.get("build_version") != __version__:
+        if data.get("build_version") != self._version:
             return None
 
         return CachedMetadata(

@@ -10,9 +10,16 @@
 
   onMount(async () => {
     initRouter();
-    const config = await fetchConfig();
-    if (config.liveReloadEnabled) {
-      liveReload.start();
+    try {
+      const config = await fetchConfig();
+      if (config.liveReloadEnabled) {
+        liveReload.start();
+      }
+    } catch (e) {
+      // Live reload is optional - fail silently in production
+      if (import.meta.env.DEV) {
+        console.warn("[App] Failed to fetch config, live reload disabled:", e);
+      }
     }
   });
 
