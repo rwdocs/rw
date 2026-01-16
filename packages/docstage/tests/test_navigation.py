@@ -69,6 +69,37 @@ class TestBuildNavigation:
         assert nav[0].children[0].title == "B"
         assert nav[0].children[0].children[0].title == "C"
 
+    def test__root_page__excluded_from_navigation(self, source_dir: Path) -> None:
+        """Root page at '/' is excluded from navigation, showing its children."""
+        builder = SiteBuilder(source_dir)
+        root_idx = builder.add_page("Home", "/", "index.md")
+        builder.add_page("Domains", "/domains", "domains/index.md", root_idx)
+        builder.add_page("Usage", "/usage", "usage/index.md", root_idx)
+        site = builder.build()
+
+        nav = build_navigation(site)
+
+        # Navigation should show children of root, not root itself
+        assert len(nav) == 2
+        titles = [item.title for item in nav]
+        assert "Domains" in titles
+        assert "Usage" in titles
+        assert "Home" not in titles
+
+    def test__no_root_page__shows_all_root_pages(self, source_dir: Path) -> None:
+        """When no root page exists, show all root pages in navigation."""
+        builder = SiteBuilder(source_dir)
+        builder.add_page("Guide", "/guide", "guide.md")
+        builder.add_page("API", "/api", "api.md")
+        site = builder.build()
+
+        nav = build_navigation(site)
+
+        assert len(nav) == 2
+        titles = [item.title for item in nav]
+        assert "Guide" in titles
+        assert "API" in titles
+
 
 class TestNavItem:
     """Tests for NavItem dataclass."""

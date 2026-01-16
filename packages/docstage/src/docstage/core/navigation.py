@@ -38,13 +38,26 @@ class NavItem:
 def build_navigation(site: Site) -> list[NavItem]:
     """Build navigation tree from site structure.
 
+    The root page (path="/") is excluded from navigation as it serves
+    as the home page content. Navigation shows only top-level sections.
+
     Args:
         site: Site structure to build navigation from
 
     Returns:
         List of NavItem trees for navigation UI
     """
-    return [_build_nav_item(site, page) for page in site.get_root_pages()]
+    root_pages = site.get_root_pages()
+
+    # Check if there's a root page at "/"
+    root_page = next((p for p in root_pages if p.path == "/"), None)
+
+    if root_page:
+        # Root page exists - navigation shows its children (top-level sections)
+        return [_build_nav_item(site, page) for page in site.get_children(root_page.path)]
+
+    # No root page - navigation shows all root pages
+    return [_build_nav_item(site, page) for page in root_pages]
 
 
 def _build_nav_item(site: Site, page: Page) -> NavItem:

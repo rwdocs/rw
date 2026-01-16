@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-01-16
+- Fix root page appearing in navigation sidebar
+  - Root `index.md` (path "/") is now excluded from navigation
+  - Navigation shows children of root (top-level sections like domains, usage)
+  - Root page still renders as home page content at "/"
 - Add cache version-based invalidation
   - Cache now stores `build_version` in page metadata
   - On cache read, version mismatch causes cache miss (auto-invalidation)
