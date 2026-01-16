@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### 2026-01-16
+- Add proper E2E test fixtures with dedicated test documentation
+  - Create `frontend/e2e/fixtures/docs/` with structured test markdown files
+  - Create `frontend/e2e/fixtures/docstage.toml` test configuration
+  - Tests now use port 8081 to avoid conflicts with development server
+  - Update Playwright config to use test fixtures instead of production docs
+  - Rewrite all E2E tests with predictable test content
+  - Tests cover: navigation (12 tests), page content (15 tests), mobile (11 tests)
+  - Test docs include multi-level navigation, code blocks, tables, internal links
 - Enable source maps in frontend production builds
   - Add `build.sourcemap: true` to Vite config
   - Browser DevTools now show original TypeScript/Svelte source code

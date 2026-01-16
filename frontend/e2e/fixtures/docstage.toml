@@ -1,0 +1,13 @@
+# Test configuration for E2E tests
+# Used by Playwright to start the test server
+
+[server]
+host = "127.0.0.1"
+port = 8081
+
+[docs]
+source_dir = "docs"
+cache_dir = ".cache"
+
+[live_reload]
+enabled = false

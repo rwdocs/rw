@@ -8,7 +8,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: "html",
   use: {
-    baseURL: "http://127.0.0.1:8080",
+    baseURL: "http://127.0.0.1:8081",
     trace: "on-first-retry",
   },
   projects: [
@@ -18,8 +18,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "cd .. && uv run docstage serve --no-live-reload",
-    url: "http://127.0.0.1:8080",
+    command: "cd .. && uv run docstage serve -c frontend/e2e/fixtures/docstage.toml -p 8081",
+    url: "http://127.0.0.1:8081",
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },
