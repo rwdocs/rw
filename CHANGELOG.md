@@ -8,7 +8,7 @@
   - Compatible with MkDocs Kroki plugin markdown format
   - Both `mermaid` and `kroki-mermaid` code fences now render diagrams
 - Add logging for diagram rendering failures
-  - Warning messages now printed to stdout when Kroki requests fail
+  - Warning messages now printed to stderr when Kroki requests fail
   - Shows endpoint name and error details for debugging
   - Configure logging level with `--verbose` flag (DEBUG) or default (WARNING)
 - Code simplification refactoring

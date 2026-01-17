@@ -30,7 +30,7 @@ impl DiagramLanguage {
     /// Parse language from code fence info string.
     ///
     /// Supports both direct language names (`mermaid`) and `kroki-` prefixed names
-    /// (`kroki-mermaid`) for compatibility with MkDocs Kroki plugin.
+    /// (`kroki-mermaid`) for compatibility with `MkDocs` Kroki plugin.
     ///
     /// Returns None if the language is not a supported diagram type.
     #[must_use]
