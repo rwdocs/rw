@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Update pulldown-cmark from 0.12 to 0.13
+  - Add support for superscript (`<sup>`) and subscript (`<sub>`) tags in both HTML and Confluence renderers
 - Migrate to Tailwind CSS v4
   - Replace JS config with CSS-based configuration using `@theme` directive
   - Use `@tailwindcss/vite` plugin instead of PostCSS integration

@@ -398,6 +398,8 @@ impl HtmlRenderer {
                     write!(self.output, r#" title="{}""#, escape_html(&title)).unwrap();
                 }
             }
+            Tag::Superscript => self.push_inline("<sup>"),
+            Tag::Subscript => self.push_inline("<sub>"),
         }
     }
 
@@ -488,6 +490,8 @@ impl HtmlRenderer {
             TagEnd::Strong => self.push_inline("</strong>"),
             TagEnd::Strikethrough => self.push_inline("</del>"),
             TagEnd::Link => self.push_inline("</a>"),
+            TagEnd::Superscript => self.push_inline("</sup>"),
+            TagEnd::Subscript => self.push_inline("</sub>"),
         }
     }
 
