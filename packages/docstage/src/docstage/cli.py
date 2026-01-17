@@ -6,6 +6,7 @@ Command-line tool for converting markdown to Confluence pages.
 import asyncio
 import sys
 from pathlib import Path
+from typing import cast
 
 import click
 
@@ -499,7 +500,7 @@ def generate_tokens(
             err=True,
         )
         sys.exit(1)
-    assert effective_base_url is not None  # noqa: S101 - for type narrowing
+    effective_base_url = cast(str, effective_base_url)  # narrowing after sys.exit
 
     asyncio.run(
         _generate_tokens(private_key, effective_consumer_key, effective_base_url, port),
@@ -532,8 +533,7 @@ def _require_confluence_config(config: Config) -> ConfluenceConfig:
         click.echo('access_token = "your-token"')
         click.echo('access_secret = "your-secret"')
         sys.exit(1)
-    assert config.confluence is not None  # noqa: S101 - for type narrowing
-    return config.confluence
+    return cast(ConfluenceConfig, config.confluence)  # narrowing after sys.exit
 
 
 def _require_kroki_url(kroki_url: str | None, config: Config) -> str:
@@ -559,8 +559,7 @@ def _require_kroki_url(kroki_url: str | None, config: Config) -> str:
             err=True,
         )
         sys.exit(1)
-    assert effective is not None  # noqa: S101 - for type narrowing
-    return effective
+    return cast(str, effective)  # narrowing after sys.exit
 
 
 def _require_space_key(space: str | None, config: Config) -> str:

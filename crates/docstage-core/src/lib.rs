@@ -52,6 +52,7 @@
 //! - [`render_all`]: Parallel PNG diagram rendering via Kroki
 //! - [`render_all_svg`]: Parallel SVG diagram rendering via Kroki
 
+pub mod config;
 mod confluence;
 mod converter;
 mod diagram_filter;

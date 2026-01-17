@@ -2,6 +2,168 @@
 
 from pathlib import Path
 
+# Config classes
+
+class ServerConfig:
+    """Server configuration."""
+
+    @property
+    def host(self) -> str:
+        """Server host address."""
+        ...
+
+    @property
+    def port(self) -> int:
+        """Server port."""
+        ...
+
+class DocsConfig:
+    """Documentation configuration."""
+
+    @property
+    def source_dir(self) -> Path:
+        """Source directory for markdown files."""
+        ...
+
+    @property
+    def cache_dir(self) -> Path:
+        """Cache directory for rendered pages."""
+        ...
+
+    @property
+    def cache_enabled(self) -> bool:
+        """Whether caching is enabled."""
+        ...
+
+class DiagramsConfig:
+    """Diagram rendering configuration."""
+
+    @property
+    def kroki_url(self) -> str | None:
+        """Kroki server URL."""
+        ...
+
+    @property
+    def include_dirs(self) -> list[Path]:
+        """Directories to search for PlantUML includes."""
+        ...
+
+    @property
+    def config_file(self) -> str | None:
+        """PlantUML config filename."""
+        ...
+
+    @property
+    def dpi(self) -> int:
+        """DPI for diagram rendering."""
+        ...
+
+class LiveReloadConfig:
+    """Live reload configuration."""
+
+    @property
+    def enabled(self) -> bool:
+        """Whether live reload is enabled."""
+        ...
+
+    @property
+    def watch_patterns(self) -> list[str] | None:
+        """File patterns to watch for changes."""
+        ...
+
+class ConfluenceTestConfig:
+    """Confluence test configuration."""
+
+    @property
+    def space_key(self) -> str:
+        """Space key for testing."""
+        ...
+
+class ConfluenceConfig:
+    """Confluence configuration."""
+
+    @property
+    def base_url(self) -> str:
+        """Confluence server base URL."""
+        ...
+
+    @property
+    def access_token(self) -> str:
+        """OAuth access token."""
+        ...
+
+    @property
+    def access_secret(self) -> str:
+        """OAuth access token secret."""
+        ...
+
+    @property
+    def consumer_key(self) -> str:
+        """OAuth consumer key."""
+        ...
+
+    @property
+    def test(self) -> ConfluenceTestConfig | None:
+        """Test configuration."""
+        ...
+
+class Config:
+    """Application configuration."""
+
+    @staticmethod
+    def load(config_path: Path | None = None) -> Config:
+        """Load configuration from file.
+
+        If config_path is provided, loads from that file.
+        Otherwise, searches for docstage.toml in current directory and parents.
+
+        Args:
+            config_path: Optional explicit path to config file
+
+        Returns:
+            Config instance with defaults for missing sections
+
+        Raises:
+            FileNotFoundError: If explicit config_path doesn't exist
+            ValueError: If configuration is invalid
+        """
+        ...
+
+    @property
+    def server(self) -> ServerConfig:
+        """Server configuration."""
+        ...
+
+    @property
+    def docs(self) -> DocsConfig:
+        """Documentation configuration."""
+        ...
+
+    @property
+    def diagrams(self) -> DiagramsConfig:
+        """Diagram rendering configuration."""
+        ...
+
+    @property
+    def live_reload(self) -> LiveReloadConfig:
+        """Live reload configuration."""
+        ...
+
+    @property
+    def confluence(self) -> ConfluenceConfig | None:
+        """Confluence configuration (None if not configured)."""
+        ...
+
+    @property
+    def confluence_test(self) -> ConfluenceTestConfig | None:
+        """Confluence test configuration (None if not configured)."""
+        ...
+
+    @property
+    def config_path(self) -> Path | None:
+        """Path to the config file (None if using defaults)."""
+        ...
+
 class DiagramInfo:
     """Rendered diagram info (file written to output_dir)."""
 

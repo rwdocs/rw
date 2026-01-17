@@ -3,28 +3,24 @@
 from pathlib import Path
 
 import pytest
-from docstage.config import (
-    Config,
-    DiagramsConfig,
-    DocsConfig,
-    LiveReloadConfig,
-    ServerConfig,
-)
+from docstage.config import Config
 from docstage.server import create_app
 
 
 def _make_config(
-    source_dir: Path, cache_dir: Path, live_reload_enabled: bool
+    source_dir: Path, cache_dir: Path, live_reload_enabled: bool, config_dir: Path
 ) -> Config:
-    """Create a Config for testing."""
-    return Config(
-        server=ServerConfig(),
-        docs=DocsConfig(source_dir=source_dir, cache_dir=cache_dir),
-        diagrams=DiagramsConfig(),
-        live_reload=LiveReloadConfig(enabled=live_reload_enabled),
-        confluence=None,
-        confluence_test=None,
-    )
+    """Create a Config for testing by writing a temp TOML file."""
+    config_file = config_dir / "docstage.toml"
+    config_file.write_text(f"""
+[docs]
+source_dir = "{source_dir.name}"
+cache_dir = "{cache_dir.name}"
+
+[live_reload]
+enabled = {str(live_reload_enabled).lower()}
+""")
+    return Config.load(config_file)
 
 
 class TestGetConfig:
@@ -39,7 +35,9 @@ class TestGetConfig:
         """Return liveReloadEnabled: true when live reload is enabled."""
         docs = tmp_path / "docs"
         docs.mkdir()
-        config = _make_config(docs, tmp_path / ".cache", live_reload_enabled=True)
+        config = _make_config(
+            docs, tmp_path / ".cache", live_reload_enabled=True, config_dir=tmp_path
+        )
         app = create_app(config)
         test_client = await aiohttp_client(app)
 
@@ -58,7 +56,9 @@ class TestGetConfig:
         """Return liveReloadEnabled: false when live reload is disabled."""
         docs = tmp_path / "docs"
         docs.mkdir()
-        config = _make_config(docs, tmp_path / ".cache", live_reload_enabled=False)
+        config = _make_config(
+            docs, tmp_path / ".cache", live_reload_enabled=False, config_dir=tmp_path
+        )
         app = create_app(config)
         test_client = await aiohttp_client(app)
 

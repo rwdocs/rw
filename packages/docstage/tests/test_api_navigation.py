@@ -4,13 +4,7 @@ from pathlib import Path
 
 import pytest
 from aiohttp.test_utils import TestClient
-from docstage.config import (
-    Config,
-    DiagramsConfig,
-    DocsConfig,
-    LiveReloadConfig,
-    ServerConfig,
-)
+from docstage.config import Config
 from docstage.server import create_app
 
 
@@ -37,22 +31,25 @@ def docs_dir(tmp_path: Path) -> Path:
     return docs
 
 
-def _make_config(source_dir: Path, cache_dir: Path) -> Config:
-    """Create a Config for testing."""
-    return Config(
-        server=ServerConfig(),
-        docs=DocsConfig(source_dir=source_dir, cache_dir=cache_dir),
-        diagrams=DiagramsConfig(),
-        live_reload=LiveReloadConfig(enabled=False),
-        confluence=None,
-        confluence_test=None,
-    )
+def _make_config(source_dir: Path, cache_dir: Path, config_dir: Path) -> Config:
+    """Create a Config for testing by writing a temp TOML file."""
+    config_file = config_dir / "docstage.toml"
+    # Use relative paths for source_dir and cache_dir
+    config_file.write_text(f"""
+[docs]
+source_dir = "{source_dir.relative_to(config_dir)}"
+cache_dir = "{cache_dir.name}"
+
+[live_reload]
+enabled = false
+""")
+    return Config.load(config_file)
 
 
 @pytest.fixture
 def client(tmp_path: Path, docs_dir: Path, aiohttp_client) -> TestClient:
     """Create test client with configured app."""
-    config = _make_config(docs_dir, tmp_path / ".cache")
+    config = _make_config(docs_dir, tmp_path / ".cache", tmp_path)
     app = create_app(config)
     return aiohttp_client(app)
 
@@ -110,7 +107,7 @@ class TestGetNavigation:
         """Return empty items for empty docs directory."""
         docs = tmp_path / "empty-docs"
         docs.mkdir()
-        config = _make_config(docs, tmp_path / ".cache")
+        config = _make_config(docs, tmp_path / ".cache", tmp_path)
         app = create_app(config)
         test_client = await aiohttp_client(app)
 

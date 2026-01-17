@@ -36,7 +36,6 @@ branch = true
 [tool.ty.src]
 exclude = [
     "packages/docstage/tests/",
-    "packages/docstage-core/python/",  # PyO3 bindings (compiled module)
 ]
 
 [tool.ruff]
