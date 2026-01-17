@@ -285,6 +285,12 @@ impl ConfluenceRenderer {
                     .unwrap();
                 }
             }
+            Tag::Superscript => {
+                self.output.push_str("<sup>");
+            }
+            Tag::Subscript => {
+                self.output.push_str("<sub>");
+            }
         }
     }
 
@@ -373,6 +379,12 @@ impl ConfluenceRenderer {
             }
             TagEnd::Link => {
                 self.output.push_str("</a>");
+            }
+            TagEnd::Superscript => {
+                self.output.push_str("</sup>");
+            }
+            TagEnd::Subscript => {
+                self.output.push_str("</sub>");
             }
         }
     }
