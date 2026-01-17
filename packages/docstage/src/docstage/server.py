@@ -37,7 +37,7 @@ async def security_headers_middleware(
         "default-src 'self'; "
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
-        "font-src 'self'; "
+        "font-src 'self' data:; "
         "img-src 'self' data:; "
         "connect-src 'self' ws: wss:; "
         "frame-ancestors 'none'"

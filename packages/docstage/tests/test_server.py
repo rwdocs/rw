@@ -37,7 +37,7 @@ class TestSecurityHeaders:
             assert "default-src 'self'" in csp
             assert "script-src 'self'" in csp
             assert "style-src 'self' 'unsafe-inline'" in csp
-            assert "font-src 'self'" in csp
+            assert "font-src 'self' data:" in csp
             assert "img-src 'self' data:" in csp
             assert "connect-src 'self' ws: wss:" in csp
             assert "frame-ancestors 'none'" in csp
