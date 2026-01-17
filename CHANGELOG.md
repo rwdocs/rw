@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Add GitHub Actions CI workflow
+  - Lint job: Rust formatting and clippy, Ruff check and format, mypy, svelte-check, Prettier
+  - Test job: Cargo tests, pytest, Vitest frontend tests
+  - E2E job: Playwright tests with artifact upload on failure
+  - Uses uv for Python dependency management
+  - Caches Cargo and npm dependencies for faster runs
 - Add reverse source_path index for O(1) lookups (PERF-002)
   - `Site.get_page_by_source()` now uses O(1) dict lookup instead of O(n) linear search
   - Improves live reload performance when resolving file paths to URL paths
