@@ -142,11 +142,13 @@ class Site:
             ancestors.append(self._pages[current])
             current = self._parents[current]
 
-        # Reverse to root-first, exclude current page
+        # Reverse to root-first, exclude current page and root index.md
+        # (Home breadcrumb already represents "/" so root page would be duplicate)
         ancestors.reverse()
         breadcrumbs = [BreadcrumbItem(title="Home", path=URLPath("/"))]
         for page in ancestors[:-1]:
-            breadcrumbs.append(BreadcrumbItem(title=page.title, path=page.path))
+            if page.path != "/":
+                breadcrumbs.append(BreadcrumbItem(title=page.title, path=page.path))
 
         return breadcrumbs
 

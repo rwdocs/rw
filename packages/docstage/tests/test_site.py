@@ -128,6 +128,26 @@ class TestSite:
         assert len(breadcrumbs) == 1
         assert breadcrumbs[0].title == "Home"
 
+    def test__get_breadcrumbs__with_root_index__excludes_root(
+        self, source_dir: Path
+    ) -> None:
+        """Root index.md should not appear in breadcrumbs, only Home."""
+        builder = SiteBuilder(source_dir)
+        root_idx = builder.add_page("Welcome", "/", Path("index.md"))
+        domain_idx = builder.add_page(
+            "Domain", "/domain", Path("domain/index.md"), root_idx
+        )
+        builder.add_page("Page", "/domain/page", Path("domain/page.md"), domain_idx)
+        site = builder.build()
+
+        breadcrumbs = site.get_breadcrumbs("/domain/page")
+
+        assert len(breadcrumbs) == 2
+        assert breadcrumbs[0].title == "Home"
+        assert breadcrumbs[0].path == "/"
+        assert breadcrumbs[1].title == "Domain"
+        assert breadcrumbs[1].path == "/domain"
+
     def test__get_root_pages__returns_roots(self, source_dir: Path) -> None:
         """Get root-level pages."""
         builder = SiteBuilder(source_dir)

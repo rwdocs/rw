@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Fix root index.md appearing in breadcrumbs after Home
+  - Root page at path "/" was included in ancestor chain when building breadcrumbs
+  - Now filtered out since "Home" breadcrumb already represents the root path
 - Fix navigation not updating page content on consecutive clicks
   - Implement AbortController pattern in page store to cancel in-flight requests
   - Page store `load()` now atomically resets state and cancels previous requests
