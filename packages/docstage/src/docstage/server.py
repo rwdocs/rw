@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from aiohttp import web
+from aiohttp.typedefs import Handler
 
 from docstage.api.config import create_config_routes
 from docstage.api.navigation import create_navigation_routes
@@ -23,6 +24,24 @@ from docstage.config import Config
 from docstage.core.cache import FileCache, NullCache
 from docstage.core.renderer import PageRenderer
 from docstage.core.site import SiteLoader
+
+
+@web.middleware
+async def security_headers_middleware(
+    request: web.Request,
+    handler: Handler,
+) -> web.StreamResponse:
+    """Add security headers to all responses."""
+    response = await handler(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self' ws: wss:"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 
 async def spa_fallback(request: web.Request) -> web.FileResponse:
@@ -45,7 +64,7 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
     Returns:
         Configured aiohttp application
     """
-    app = web.Application()
+    app = web.Application(middlewares=[security_headers_middleware])
 
     cache: FileCache | NullCache
     if config.docs.cache_enabled:

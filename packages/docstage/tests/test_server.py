@@ -13,6 +13,48 @@ from tests.test_assets import requires_bundled_assets
 
 
 @requires_bundled_assets
+class TestSecurityHeaders:
+    """Tests for security headers middleware."""
+
+    @pytest.fixture
+    def app(self, test_config: Config) -> web.Application:
+        """Create app for testing."""
+        return create_app(test_config)
+
+    @pytest.mark.asyncio
+    async def test__any_response__has_security_headers(
+        self,
+        aiohttp_client: Any,
+        app: web.Application,
+    ) -> None:
+        """All responses include security headers."""
+        client = await aiohttp_client(app)
+        response = await client.get("/")
+
+        csp = response.headers["Content-Security-Policy"]
+        assert "default-src 'self'" in csp
+        assert "style-src 'self' 'unsafe-inline'" in csp
+        assert "img-src 'self' data:" in csp
+        assert "connect-src 'self' ws: wss:" in csp
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+    @pytest.mark.asyncio
+    async def test__api_response__has_security_headers(
+        self,
+        aiohttp_client: Any,
+        app: web.Application,
+    ) -> None:
+        """API responses also include security headers."""
+        client = await aiohttp_client(app)
+        response = await client.get("/api/navigation")
+
+        assert "Content-Security-Policy" in response.headers
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"
+
+
+@requires_bundled_assets
 class TestCreateApp:
     """Tests for create_app()."""
 
