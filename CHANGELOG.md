@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### 2026-01-17
+- Fix navigation not updating page content on consecutive clicks
+  - Remove `{#key $path}` from App.svelte that caused race condition with Page.svelte subscription
+  - Page.svelte now uses store subscription pattern to load pages when path changes
+  - Previous pattern with both `{#key}` and subscription caused duplicate `page.load()` calls
+
 ### 2026-01-16
 - Address PR feedback: improve cache type annotation
   - Use union type `FileCache | NullCache` instead of abstract `PageCache` protocol
