@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Switch from mypy to ty for Python type checking
+  - ty is 10-100x faster than mypy, written in Rust by Astral (creators of ruff)
+  - Update dev dependencies in pyproject.toml
+  - Update Makefile and CI workflow to use `ty check`
+  - Change config parsing methods to use `Any` parameter type (matches `dict.get()` return)
+  - Add type narrowing asserts after `sys.exit()` calls in CLI
 - Update pulldown-cmark from 0.12 to 0.13
   - Add support for superscript (`<sup>`) and subscript (`<sub>`) tags in both HTML and Confluence renderers
 - Migrate to Tailwind CSS v4
@@ -12,7 +18,7 @@
   - Use `@layer base` and `@layer components` for proper CSS cascade
   - Remove `tailwind.config.js` in favor of inline CSS configuration
 - Add GitHub Actions CI workflow
-  - Lint job: Rust formatting and clippy, Ruff check and format, mypy, svelte-check, Prettier
+  - Lint job: Rust formatting and clippy, Ruff check and format, ty, svelte-check, Prettier
   - Test job: Cargo tests, pytest, Vitest frontend tests
   - E2E job: Playwright tests with artifact upload on failure
   - Uses uv for Python dependency management

@@ -6,6 +6,7 @@ Supports TOML configuration format with auto-discovery.
 import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 CONFIG_FILENAME = "docstage.toml"
 
@@ -176,7 +177,7 @@ class Config:
         )
 
     @classmethod
-    def _parse_server(cls, data: object) -> ServerConfig:
+    def _parse_server(cls, data: Any) -> ServerConfig:
         """Parse server configuration section.
 
         Args:
@@ -202,7 +203,7 @@ class Config:
         return ServerConfig(host=host, port=port)
 
     @classmethod
-    def _parse_docs(cls, data: object, config_dir: Path) -> DocsConfig:
+    def _parse_docs(cls, data: Any, config_dir: Path) -> DocsConfig:
         """Parse docs configuration section.
 
         Args:
@@ -242,7 +243,7 @@ class Config:
         )
 
     @classmethod
-    def _parse_diagrams(cls, data: object, config_dir: Path) -> DiagramsConfig:
+    def _parse_diagrams(cls, data: Any, config_dir: Path) -> DiagramsConfig:
         """Parse diagrams configuration section.
 
         Args:
@@ -285,7 +286,7 @@ class Config:
         )
 
     @classmethod
-    def _parse_live_reload(cls, data: object) -> LiveReloadConfig:
+    def _parse_live_reload(cls, data: Any) -> LiveReloadConfig:
         """Parse live_reload configuration section.
 
         Args:
@@ -316,7 +317,7 @@ class Config:
         return LiveReloadConfig(enabled=enabled, watch_patterns=watch_patterns)
 
     @classmethod
-    def _parse_confluence(cls, data: object) -> ConfluenceConfig | None:
+    def _parse_confluence(cls, data: Any) -> ConfluenceConfig | None:
         """Parse confluence configuration section.
 
         Args:
@@ -357,7 +358,7 @@ class Config:
         )
 
     @classmethod
-    def _parse_confluence_test(cls, data: object) -> ConfluenceTestConfig | None:
+    def _parse_confluence_test(cls, data: Any) -> ConfluenceTestConfig | None:
         """Parse confluence.test configuration section.
 
         Args:
