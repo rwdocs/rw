@@ -38,8 +38,8 @@ class Site:
     """Document site structure with efficient path lookups.
 
     Stores pages in a flat list with parent/children relationships
-    tracked by indices. Provides O(1) path lookups and O(d) breadcrumb
-    building where d is the page depth.
+    tracked by indices. Provides O(1) URL path and source path lookups,
+    and O(d) breadcrumb building where d is the page depth.
     """
 
     __slots__ = (
@@ -49,6 +49,7 @@ class Site:
         "_path_index",
         "_roots",
         "_source_dir",
+        "_source_path_index",
     )
 
     def __init__(
@@ -74,6 +75,7 @@ class Site:
         self._parents = parents
         self._roots = roots
         self._path_index = {page.path: i for i, page in enumerate(pages)}
+        self._source_path_index = {page.source_path: i for i, page in enumerate(pages)}
 
     @property
     def source_dir(self) -> Path:
@@ -179,10 +181,10 @@ class Site:
         Returns:
             Page if found, None otherwise
         """
-        for page in self._pages:
-            if page.source_path == source_path:
-                return page
-        return None
+        idx = self._source_path_index.get(source_path)
+        if idx is None:
+            return None
+        return self._pages[idx]
 
     def _normalize_path(self, path: URLPath) -> URLPath:
         """Normalize path to have leading slash."""

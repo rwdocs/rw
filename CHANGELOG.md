@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Add reverse source_path index for O(1) lookups (PERF-002)
+  - `Site.get_page_by_source()` now uses O(1) dict lookup instead of O(n) linear search
+  - Improves live reload performance when resolving file paths to URL paths
+  - Index built during Site construction alongside existing URL path index
 - Add security headers middleware (SEC-001)
   - Add Content-Security-Policy header with explicit directives for self-documenting policy
   - CSP includes: default-src, script-src, style-src, font-src, img-src, connect-src, frame-ancestors
