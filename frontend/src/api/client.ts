@@ -3,13 +3,21 @@ import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 const API_BASE = "/api";
 
 /** Options for API fetch functions */
-interface FetchOptions {
+export interface FetchOptions {
   bypassCache?: boolean;
+  signal?: AbortSignal;
 }
 
 /** Build RequestInit from fetch options */
 function buildRequestInit(options?: FetchOptions): RequestInit {
-  return options?.bypassCache ? { cache: "no-store" } : {};
+  const init: RequestInit = {};
+  if (options?.bypassCache) {
+    init.cache = "no-store";
+  }
+  if (options?.signal) {
+    init.signal = options.signal;
+  }
+  return init;
 }
 
 /** Error thrown when a page is not found */

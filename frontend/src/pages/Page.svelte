@@ -10,7 +10,6 @@
   // Load page when path changes using store subscription
   const unsubscribePath = path.subscribe((currentPath) => {
     const apiPath = extractDocPath(currentPath);
-    page.clear();
     page.load(apiPath);
     navigation.expandOnlyTo(currentPath);
   });

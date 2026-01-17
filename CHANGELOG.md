@@ -4,8 +4,9 @@
 
 ### 2026-01-17
 - Fix navigation not updating page content on consecutive clicks
+  - Implement AbortController pattern in page store to cancel in-flight requests
+  - Page store `load()` now atomically resets state and cancels previous requests
   - Replace `$effect` with `path.subscribe()` in Page.svelte for reactive path handling
-  - Add `page.clear()` before `page.load()` to reset state on navigation
   - Previous pattern with `$effect` and `previousPath` tracking conflicted with Svelte 5's reactivity
   - Add E2E regression test for consecutive navigation clicks
 

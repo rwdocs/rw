@@ -115,7 +115,21 @@ describe("page store", () => {
 
       await page.load("test", { bypassCache: true });
 
-      expect(mockFetchPage).toHaveBeenCalledWith("test", { bypassCache: true });
+      expect(mockFetchPage).toHaveBeenCalledWith(
+        "test",
+        expect.objectContaining({ bypassCache: true }),
+      );
+    });
+
+    it("passes AbortSignal to fetch", async () => {
+      mockFetchPage.mockResolvedValue(mockPageResponse);
+
+      await page.load("test");
+
+      expect(mockFetchPage).toHaveBeenCalledWith(
+        "test",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
 
     it("clears previous error on new load", async () => {
@@ -140,6 +154,59 @@ describe("page store", () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
       await page.load("test");
       expect(get(page).notFound).toBe(false);
+    });
+
+    it("ignores AbortError when request is cancelled", async () => {
+      const abortError = new DOMException("Aborted", "AbortError");
+      mockFetchPage.mockRejectedValue(abortError);
+
+      await page.load("test");
+
+      // State should remain in loading since AbortError is ignored
+      // and no set() is called after the error
+      const state = get(page);
+      expect(state.loading).toBe(true);
+      expect(state.error).toBeNull();
+    });
+
+    it("cancels previous request when new load is called", async () => {
+      let capturedSignal: AbortSignal | undefined;
+      mockFetchPage.mockImplementation((_path, options) => {
+        capturedSignal = options?.signal;
+        return new Promise((resolve) => setTimeout(() => resolve(mockPageResponse), 100));
+      });
+
+      // Start first load
+      const firstLoad = page.load("first");
+
+      // Capture the signal from first request
+      const firstSignal = capturedSignal;
+      expect(firstSignal?.aborted).toBe(false);
+
+      // Start second load immediately
+      page.load("second");
+
+      // First signal should now be aborted
+      expect(firstSignal?.aborted).toBe(true);
+
+      // Wait for loads to complete
+      await firstLoad;
+    });
+
+    it("resets state to loading when load is called", async () => {
+      // First load succeeds
+      mockFetchPage.mockResolvedValue(mockPageResponse);
+      await page.load("first");
+      expect(get(page).data).not.toBeNull();
+
+      // Set up a slow second load
+      mockFetchPage.mockReturnValue(new Promise(() => {}));
+      page.load("second");
+
+      // State should be reset with data cleared
+      const state = get(page);
+      expect(state.data).toBeNull();
+      expect(state.loading).toBe(true);
     });
   });
 

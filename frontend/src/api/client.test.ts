@@ -96,6 +96,23 @@ describe("fetchPage", () => {
     expect(fetch).toHaveBeenCalledWith("/api/pages/test", { cache: "no-store" });
   });
 
+  it("passes signal when provided", async () => {
+    const controller = new AbortController();
+    await fetchPage("test", { signal: controller.signal });
+
+    expect(fetch).toHaveBeenCalledWith("/api/pages/test", { signal: controller.signal });
+  });
+
+  it("passes both cache and signal when provided", async () => {
+    const controller = new AbortController();
+    await fetchPage("test", { bypassCache: true, signal: controller.signal });
+
+    expect(fetch).toHaveBeenCalledWith("/api/pages/test", {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  });
+
   it("throws NotFoundError on 404 response", async () => {
     vi.stubGlobal(
       "fetch",
