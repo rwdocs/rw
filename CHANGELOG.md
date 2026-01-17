@@ -3,12 +3,18 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Address PR feedback: fix E2E test for consecutive navigation
+  - Test was broken: starting from `/getting-started` auto-expands navigation,
+    so clicking expand button collapsed it instead of expanding
+  - Fix test to start from home page where navigation is collapsed
+  - Update test comment: it's a smoke test, not a true regression test
+    (the Svelte 5 reactivity bug is not reliably reproducible in E2E tests)
 - Fix navigation not updating page content on consecutive clicks
   - Implement AbortController pattern in page store to cancel in-flight requests
   - Page store `load()` now atomically resets state and cancels previous requests
   - Replace `$effect` with `path.subscribe()` in Page.svelte for reactive path handling
   - Previous pattern with `$effect` and `previousPath` tracking conflicted with Svelte 5's reactivity
-  - Add E2E regression test for consecutive navigation clicks
+  - Add E2E smoke test for consecutive navigation clicks
 
 ### 2026-01-16
 - Address PR feedback: improve cache type annotation
