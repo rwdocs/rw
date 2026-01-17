@@ -35,9 +35,12 @@ async def security_headers_middleware(
     response = await handler(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
+        "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
         "img-src 'self' data:; "
-        "connect-src 'self' ws: wss:"
+        "connect-src 'self' ws: wss:; "
+        "frame-ancestors 'none'"
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"

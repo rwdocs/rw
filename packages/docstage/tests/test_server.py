@@ -27,31 +27,22 @@ class TestSecurityHeaders:
         aiohttp_client: Any,
         app: web.Application,
     ) -> None:
-        """All responses include security headers."""
+        """All responses include security headers (both HTML and API)."""
         client = await aiohttp_client(app)
-        response = await client.get("/")
 
-        csp = response.headers["Content-Security-Policy"]
-        assert "default-src 'self'" in csp
-        assert "style-src 'self' 'unsafe-inline'" in csp
-        assert "img-src 'self' data:" in csp
-        assert "connect-src 'self' ws: wss:" in csp
-        assert response.headers["X-Content-Type-Options"] == "nosniff"
-        assert response.headers["X-Frame-Options"] == "DENY"
+        for path in ["/", "/api/navigation"]:
+            response = await client.get(path)
 
-    @pytest.mark.asyncio
-    async def test__api_response__has_security_headers(
-        self,
-        aiohttp_client: Any,
-        app: web.Application,
-    ) -> None:
-        """API responses also include security headers."""
-        client = await aiohttp_client(app)
-        response = await client.get("/api/navigation")
-
-        assert "Content-Security-Policy" in response.headers
-        assert response.headers["X-Content-Type-Options"] == "nosniff"
-        assert response.headers["X-Frame-Options"] == "DENY"
+            csp = response.headers["Content-Security-Policy"]
+            assert "default-src 'self'" in csp
+            assert "script-src 'self'" in csp
+            assert "style-src 'self' 'unsafe-inline'" in csp
+            assert "font-src 'self'" in csp
+            assert "img-src 'self' data:" in csp
+            assert "connect-src 'self' ws: wss:" in csp
+            assert "frame-ancestors 'none'" in csp
+            assert response.headers["X-Content-Type-Options"] == "nosniff"
+            assert response.headers["X-Frame-Options"] == "DENY"
 
 
 @requires_bundled_assets

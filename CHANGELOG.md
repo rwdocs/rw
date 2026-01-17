@@ -4,7 +4,8 @@
 
 ### 2026-01-17
 - Add security headers middleware (SEC-001)
-  - Add Content-Security-Policy header with self, inline styles, data URIs for images, WebSocket connections
+  - Add Content-Security-Policy header with explicit directives for self-documenting policy
+  - CSP includes: default-src, script-src, style-src, font-src, img-src, connect-src, frame-ancestors
   - Add X-Content-Type-Options: nosniff to prevent MIME sniffing
   - Add X-Frame-Options: DENY to prevent clickjacking
   - Headers applied to all HTTP responses including API endpoints
