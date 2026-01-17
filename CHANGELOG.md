@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Migrate to Tailwind CSS v4
+  - Replace JS config with CSS-based configuration using `@theme` directive
+  - Use `@tailwindcss/vite` plugin instead of PostCSS integration
+  - Migrate typography styles from `@tailwindcss/typography` plugin to custom CSS in app.css
+  - Use `@layer base` and `@layer components` for proper CSS cascade (utilities can override)
+  - Remove `tailwind.config.js` in favor of inline CSS configuration
 - Add GitHub Actions CI workflow
   - Lint job: Rust formatting and clippy, Ruff check and format, mypy, svelte-check, Prettier
   - Test job: Cargo tests, pytest, Vitest frontend tests
