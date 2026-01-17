@@ -8,6 +8,7 @@ port = 8081
 [docs]
 source_dir = "docs"
 cache_dir = ".cache"
+cache_enabled = false
 
 [live_reload]
 enabled = false
