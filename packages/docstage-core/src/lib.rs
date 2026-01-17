@@ -2,11 +2,15 @@
 
 use std::path::PathBuf;
 
+use ::docstage_core::config::{
+    Config, ConfigError, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig, DocsConfig,
+    LiveReloadConfig, ServerConfig,
+};
 use ::docstage_core::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
     PreparedDiagram, TocEntry, DEFAULT_DPI,
 };
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyFileNotFoundError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 /// Rendered diagram info (file written to output_dir).
@@ -305,6 +309,208 @@ impl PyMarkdownConverter {
     }
 }
 
+// ============================================================================
+// Config bindings
+// ============================================================================
+
+/// Server configuration.
+#[pyclass(name = "ServerConfig")]
+#[derive(Clone)]
+pub struct PyServerConfig {
+    #[pyo3(get)]
+    pub host: String,
+    #[pyo3(get)]
+    pub port: u16,
+}
+
+impl From<&ServerConfig> for PyServerConfig {
+    fn from(c: &ServerConfig) -> Self {
+        Self {
+            host: c.host.clone(),
+            port: c.port,
+        }
+    }
+}
+
+/// Documentation configuration.
+#[pyclass(name = "DocsConfig")]
+#[derive(Clone)]
+pub struct PyDocsConfig {
+    #[pyo3(get)]
+    pub source_dir: PathBuf,
+    #[pyo3(get)]
+    pub cache_dir: PathBuf,
+    #[pyo3(get)]
+    pub cache_enabled: bool,
+}
+
+impl From<&DocsConfig> for PyDocsConfig {
+    fn from(c: &DocsConfig) -> Self {
+        Self {
+            source_dir: c.source_dir.clone(),
+            cache_dir: c.cache_dir.clone(),
+            cache_enabled: c.cache_enabled,
+        }
+    }
+}
+
+/// Diagram rendering configuration.
+#[pyclass(name = "DiagramsConfig")]
+#[derive(Clone)]
+pub struct PyDiagramsConfig {
+    #[pyo3(get)]
+    pub kroki_url: Option<String>,
+    #[pyo3(get)]
+    pub include_dirs: Vec<PathBuf>,
+    #[pyo3(get)]
+    pub config_file: Option<String>,
+    #[pyo3(get)]
+    pub dpi: u32,
+}
+
+impl From<&DiagramsConfig> for PyDiagramsConfig {
+    fn from(c: &DiagramsConfig) -> Self {
+        Self {
+            kroki_url: c.kroki_url.clone(),
+            include_dirs: c.include_dirs.clone(),
+            config_file: c.config_file.clone(),
+            dpi: c.dpi,
+        }
+    }
+}
+
+/// Live reload configuration.
+#[pyclass(name = "LiveReloadConfig")]
+#[derive(Clone)]
+pub struct PyLiveReloadConfig {
+    #[pyo3(get)]
+    pub enabled: bool,
+    #[pyo3(get)]
+    pub watch_patterns: Option<Vec<String>>,
+}
+
+impl From<&LiveReloadConfig> for PyLiveReloadConfig {
+    fn from(c: &LiveReloadConfig) -> Self {
+        Self {
+            enabled: c.enabled,
+            watch_patterns: c.watch_patterns.clone(),
+        }
+    }
+}
+
+/// Confluence test configuration.
+#[pyclass(name = "ConfluenceTestConfig")]
+#[derive(Clone)]
+pub struct PyConfluenceTestConfig {
+    #[pyo3(get)]
+    pub space_key: String,
+}
+
+impl From<&ConfluenceTestConfig> for PyConfluenceTestConfig {
+    fn from(c: &ConfluenceTestConfig) -> Self {
+        Self {
+            space_key: c.space_key.clone(),
+        }
+    }
+}
+
+/// Confluence configuration.
+#[pyclass(name = "ConfluenceConfig")]
+#[derive(Clone)]
+pub struct PyConfluenceConfig {
+    #[pyo3(get)]
+    pub base_url: String,
+    #[pyo3(get)]
+    pub access_token: String,
+    #[pyo3(get)]
+    pub access_secret: String,
+    #[pyo3(get)]
+    pub consumer_key: String,
+    #[pyo3(get)]
+    pub test: Option<PyConfluenceTestConfig>,
+}
+
+impl From<&ConfluenceConfig> for PyConfluenceConfig {
+    fn from(c: &ConfluenceConfig) -> Self {
+        Self {
+            base_url: c.base_url.clone(),
+            access_token: c.access_token.clone(),
+            access_secret: c.access_secret.clone(),
+            consumer_key: c.consumer_key.clone(),
+            test: c.test.as_ref().map(Into::into),
+        }
+    }
+}
+
+/// Application configuration.
+#[pyclass(name = "Config")]
+pub struct PyConfig {
+    inner: Config,
+}
+
+#[pymethods]
+impl PyConfig {
+    /// Load configuration from file.
+    ///
+    /// If config_path is provided, loads from that file.
+    /// Otherwise, searches for docstage.toml in current directory and parents.
+    #[staticmethod]
+    #[pyo3(signature = (config_path = None))]
+    pub fn load(config_path: Option<PathBuf>) -> PyResult<Self> {
+        Config::load(config_path.as_deref())
+            .map(|inner| Self { inner })
+            .map_err(|e| match e {
+                ConfigError::NotFound(path) => {
+                    PyFileNotFoundError::new_err(format!("Configuration file not found: {}", path.display()))
+                }
+                ConfigError::Io(err) => PyRuntimeError::new_err(format!("IO error: {err}")),
+                ConfigError::Parse(err) => PyValueError::new_err(format!("TOML parse error: {err}")),
+            })
+    }
+
+    /// Server configuration.
+    #[getter]
+    pub fn server(&self) -> PyServerConfig {
+        (&self.inner.server).into()
+    }
+
+    /// Documentation configuration.
+    #[getter]
+    pub fn docs(&self) -> PyDocsConfig {
+        (&self.inner.docs_resolved).into()
+    }
+
+    /// Diagram rendering configuration.
+    #[getter]
+    pub fn diagrams(&self) -> PyDiagramsConfig {
+        (&self.inner.diagrams_resolved).into()
+    }
+
+    /// Live reload configuration.
+    #[getter]
+    pub fn live_reload(&self) -> PyLiveReloadConfig {
+        (&self.inner.live_reload).into()
+    }
+
+    /// Confluence configuration (None if not configured).
+    #[getter]
+    pub fn confluence(&self) -> Option<PyConfluenceConfig> {
+        self.inner.confluence.as_ref().map(Into::into)
+    }
+
+    /// Confluence test configuration (None if not configured).
+    #[getter]
+    pub fn confluence_test(&self) -> Option<PyConfluenceTestConfig> {
+        self.inner.confluence_test().map(Into::into)
+    }
+
+    /// Path to the config file (None if using defaults).
+    #[getter]
+    pub fn config_path(&self) -> Option<PathBuf> {
+        self.inner.config_path.clone()
+    }
+}
+
 /// Python module definition.
 #[pymodule]
 pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -315,5 +521,13 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMarkdownConverter>()?;
     m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyTocEntry>()?;
+    // Config classes
+    m.add_class::<PyConfig>()?;
+    m.add_class::<PyServerConfig>()?;
+    m.add_class::<PyDocsConfig>()?;
+    m.add_class::<PyDiagramsConfig>()?;
+    m.add_class::<PyLiveReloadConfig>()?;
+    m.add_class::<PyConfluenceConfig>()?;
+    m.add_class::<PyConfluenceTestConfig>()?;
     Ok(())
 }

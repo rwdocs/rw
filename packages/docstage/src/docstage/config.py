@@ -1,79 +1,83 @@
 """Configuration management for Docstage.
 
-Supports TOML configuration format with auto-discovery.
+This module provides a thin Python wrapper around the Rust config parser,
+adding CLI override functionality.
 """
 
-import tomllib
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-CONFIG_FILENAME = "docstage.toml"
+from docstage_core import Config as RustConfig
+from docstage_core import (
+    ConfluenceConfig,
+    ConfluenceTestConfig,
+    DiagramsConfig,
+    DocsConfig,
+    LiveReloadConfig,
+    ServerConfig,
+)
 
-
-@dataclass
-class ServerConfig:
-    """Server configuration."""
-
-    host: str = "127.0.0.1"
-    port: int = 8080
-
-
-@dataclass
-class DocsConfig:
-    """Documentation configuration."""
-
-    source_dir: Path = field(default_factory=lambda: Path("docs"))
-    cache_dir: Path = field(default_factory=lambda: Path(".cache"))
-    cache_enabled: bool = True
-
-
-@dataclass
-class DiagramsConfig:
-    """Diagram rendering configuration."""
-
-    kroki_url: str | None = None
-    include_dirs: list[Path] = field(default_factory=list)
-    config_file: str | None = None
-    dpi: int = 192
+__all__ = [
+    "Config",
+    "ConfluenceConfig",
+    "ConfluenceTestConfig",
+    "DiagramsConfig",
+    "DocsConfig",
+    "LiveReloadConfig",
+    "ServerConfig",
+]
 
 
 @dataclass
-class ConfluenceConfig:
-    """Confluence configuration."""
+class _OverriddenServerConfig:
+    """Server config with overridden values."""
 
-    base_url: str
-    access_token: str
-    access_secret: str
-    consumer_key: str = "docstage"
+    host: str
+    port: int
 
 
 @dataclass
-class LiveReloadConfig:
-    """Live reload configuration."""
+class _OverriddenDocsConfig:
+    """Docs config with overridden values."""
 
-    enabled: bool = True
-    watch_patterns: list[str] | None = None
+    source_dir: Path
+    cache_dir: Path
+    cache_enabled: bool
 
 
 @dataclass
-class ConfluenceTestConfig:
-    """Confluence test configuration."""
+class _OverriddenDiagramsConfig:
+    """Diagrams config with overridden values."""
 
-    space_key: str
+    kroki_url: str | None
+    include_dirs: list[Path]
+    config_file: str | None
+    dpi: int
+
+
+@dataclass
+class _OverriddenLiveReloadConfig:
+    """Live reload config with overridden values."""
+
+    enabled: bool
+    watch_patterns: list[str] | None
 
 
 @dataclass
 class Config:
-    """Application configuration."""
+    """Application configuration with CLI override support.
 
-    server: ServerConfig
-    docs: DocsConfig
-    diagrams: DiagramsConfig
-    live_reload: LiveReloadConfig
+    This is a thin wrapper around the Rust config that adds the ability
+    to apply CLI overrides via `with_overrides()`.
+    """
+
+    server: ServerConfig | _OverriddenServerConfig
+    docs: DocsConfig | _OverriddenDocsConfig
+    diagrams: DiagramsConfig | _OverriddenDiagramsConfig
+    live_reload: LiveReloadConfig | _OverriddenLiveReloadConfig
     confluence: ConfluenceConfig | None
     confluence_test: ConfluenceTestConfig | None
-    config_path: Path | None = None
+    config_path: Path | None
 
     @classmethod
     def load(cls, config_path: Path | None = None) -> Config:
@@ -92,292 +96,16 @@ class Config:
             FileNotFoundError: If explicit config_path doesn't exist
             ValueError: If configuration is invalid
         """
-        if config_path is not None:
-            if not config_path.exists():
-                raise FileNotFoundError(f"Configuration file not found: {config_path}")
-            return cls._load_from_file(config_path)
-
-        discovered_path = cls._discover_config()
-        if discovered_path is None:
-            return cls._default()
-
-        return cls._load_from_file(discovered_path)
-
-    @classmethod
-    def _discover_config(cls) -> Path | None:
-        """Search for config file in current directory and parents.
-
-        Returns:
-            Path to config file or None if not found
-        """
-        current = Path.cwd()
-        while True:
-            candidate = current / CONFIG_FILENAME
-            if candidate.exists():
-                return candidate
-            parent = current.parent
-            if parent == current:
-                return None
-            current = parent
-
-    @classmethod
-    def _default(cls) -> Config:
-        """Create config with all defaults.
-
-        Returns:
-            Config instance with default values
-        """
+        rust_config = RustConfig.load(config_path)
         return cls(
-            server=ServerConfig(),
-            docs=DocsConfig(),
-            diagrams=DiagramsConfig(),
-            live_reload=LiveReloadConfig(),
-            confluence=None,
-            confluence_test=None,
+            server=rust_config.server,
+            docs=rust_config.docs,
+            diagrams=rust_config.diagrams,
+            live_reload=rust_config.live_reload,
+            confluence=rust_config.confluence,
+            confluence_test=rust_config.confluence_test,
+            config_path=rust_config.config_path,
         )
-
-    @classmethod
-    def _load_from_file(cls, path: Path) -> Config:
-        """Load configuration from a specific file.
-
-        Args:
-            path: Path to TOML configuration file
-
-        Returns:
-            Config instance
-
-        Raises:
-            ValueError: If configuration is invalid
-        """
-        with path.open("rb") as f:
-            data = tomllib.load(f)
-
-        if not isinstance(data, dict):
-            raise ValueError("Configuration must be a dictionary")
-
-        config_dir = path.parent
-
-        server = cls._parse_server(data.get("server"))
-        docs = cls._parse_docs(data.get("docs"), config_dir)
-        diagrams = cls._parse_diagrams(data.get("diagrams"), config_dir)
-        live_reload = cls._parse_live_reload(data.get("live_reload"))
-        confluence = cls._parse_confluence(data.get("confluence"))
-        confluence_test = cls._parse_confluence_test(
-            data.get("confluence", {}).get("test"),
-        )
-
-        return cls(
-            server=server,
-            docs=docs,
-            diagrams=diagrams,
-            live_reload=live_reload,
-            confluence=confluence,
-            confluence_test=confluence_test,
-            config_path=path,
-        )
-
-    @classmethod
-    def _parse_server(cls, data: Any) -> ServerConfig:
-        """Parse server configuration section.
-
-        Args:
-            data: Raw server section data
-
-        Returns:
-            ServerConfig instance
-        """
-        if data is None:
-            return ServerConfig()
-
-        if not isinstance(data, dict):
-            raise ValueError("server section must be a dictionary")
-
-        host = data.get("host", "127.0.0.1")
-        if not isinstance(host, str):
-            raise ValueError("server.host must be a string")
-
-        port = data.get("port", 8080)
-        if not isinstance(port, int):
-            raise ValueError("server.port must be an integer")
-
-        return ServerConfig(host=host, port=port)
-
-    @classmethod
-    def _parse_docs(cls, data: Any, config_dir: Path) -> DocsConfig:
-        """Parse docs configuration section.
-
-        Args:
-            data: Raw docs section data
-            config_dir: Directory containing config file (for relative paths)
-
-        Returns:
-            DocsConfig instance
-        """
-        if data is None:
-            return DocsConfig(
-                source_dir=config_dir / "docs",
-                cache_dir=config_dir / ".cache",
-            )
-
-        if not isinstance(data, dict):
-            raise ValueError("docs section must be a dictionary")
-
-        source_dir = data.get("source_dir", "docs")
-        if not isinstance(source_dir, str):
-            raise ValueError("docs.source_dir must be a string")
-        source_path = config_dir / source_dir
-
-        cache_dir = data.get("cache_dir", ".cache")
-        if not isinstance(cache_dir, str):
-            raise ValueError("docs.cache_dir must be a string")
-        cache_path = config_dir / cache_dir
-
-        cache_enabled = data.get("cache_enabled", True)
-        if not isinstance(cache_enabled, bool):
-            raise ValueError("docs.cache_enabled must be a boolean")
-
-        return DocsConfig(
-            source_dir=source_path,
-            cache_dir=cache_path,
-            cache_enabled=cache_enabled,
-        )
-
-    @classmethod
-    def _parse_diagrams(cls, data: Any, config_dir: Path) -> DiagramsConfig:
-        """Parse diagrams configuration section.
-
-        Args:
-            data: Raw diagrams section data
-            config_dir: Directory containing config file (for relative paths)
-
-        Returns:
-            DiagramsConfig instance
-        """
-        if data is None:
-            return DiagramsConfig()
-
-        if not isinstance(data, dict):
-            raise ValueError("diagrams section must be a dictionary")
-
-        kroki_url = data.get("kroki_url")
-        if kroki_url is not None and not isinstance(kroki_url, str):
-            raise ValueError("diagrams.kroki_url must be a string")
-
-        include_dirs_raw = data.get("include_dirs", [])
-        if not isinstance(include_dirs_raw, list):
-            raise ValueError("diagrams.include_dirs must be a list")
-        if not all(isinstance(item, str) for item in include_dirs_raw):
-            raise ValueError("diagrams.include_dirs items must be strings")
-        include_dirs = [config_dir / item for item in include_dirs_raw]
-
-        config_file = data.get("config_file")
-        if config_file is not None and not isinstance(config_file, str):
-            raise ValueError("diagrams.config_file must be a string")
-
-        dpi = data.get("dpi", 192)
-        if not isinstance(dpi, int):
-            raise ValueError("diagrams.dpi must be an integer")
-
-        return DiagramsConfig(
-            kroki_url=kroki_url,
-            include_dirs=include_dirs,
-            config_file=config_file,
-            dpi=dpi,
-        )
-
-    @classmethod
-    def _parse_live_reload(cls, data: Any) -> LiveReloadConfig:
-        """Parse live_reload configuration section.
-
-        Args:
-            data: Raw live_reload section data
-
-        Returns:
-            LiveReloadConfig instance
-        """
-        if data is None:
-            return LiveReloadConfig()
-
-        if not isinstance(data, dict):
-            raise ValueError("live_reload section must be a dictionary")
-
-        enabled = data.get("enabled", True)
-        if not isinstance(enabled, bool):
-            raise ValueError("live_reload.enabled must be a boolean")
-
-        watch_patterns_raw = data.get("watch_patterns")
-        watch_patterns: list[str] | None = None
-        if watch_patterns_raw is not None:
-            if not isinstance(watch_patterns_raw, list):
-                raise ValueError("live_reload.watch_patterns must be a list")
-            if not all(isinstance(item, str) for item in watch_patterns_raw):
-                raise ValueError("live_reload.watch_patterns items must be strings")
-            watch_patterns = list(watch_patterns_raw)
-
-        return LiveReloadConfig(enabled=enabled, watch_patterns=watch_patterns)
-
-    @classmethod
-    def _parse_confluence(cls, data: Any) -> ConfluenceConfig | None:
-        """Parse confluence configuration section.
-
-        Args:
-            data: Raw confluence section data
-
-        Returns:
-            ConfluenceConfig instance or None if section not present
-        """
-        if data is None:
-            return None
-
-        if not isinstance(data, dict):
-            raise ValueError("confluence section must be a dictionary")
-
-        base_url = data.get("base_url")
-        if base_url is None:
-            return None
-        if not isinstance(base_url, str):
-            raise ValueError("confluence.base_url must be a string")
-
-        access_token = data.get("access_token")
-        if not isinstance(access_token, str):
-            raise ValueError("confluence.access_token must be a string")
-
-        access_secret = data.get("access_secret")
-        if not isinstance(access_secret, str):
-            raise ValueError("confluence.access_secret must be a string")
-
-        consumer_key = data.get("consumer_key", "docstage")
-        if not isinstance(consumer_key, str):
-            raise ValueError("confluence.consumer_key must be a string")
-
-        return ConfluenceConfig(
-            base_url=base_url,
-            access_token=access_token,
-            access_secret=access_secret,
-            consumer_key=consumer_key,
-        )
-
-    @classmethod
-    def _parse_confluence_test(cls, data: Any) -> ConfluenceTestConfig | None:
-        """Parse confluence.test configuration section.
-
-        Args:
-            data: Raw confluence.test section data
-
-        Returns:
-            ConfluenceTestConfig instance or None if section not present
-        """
-        if data is None:
-            return None
-
-        if not isinstance(data, dict):
-            raise ValueError("confluence.test section must be a dictionary")
-
-        space_key = data.get("space_key")
-        if not isinstance(space_key, str):
-            raise ValueError("confluence.test.space_key must be a string")
-
-        return ConfluenceTestConfig(space_key=space_key)
 
     def with_overrides(
         self,
@@ -407,29 +135,31 @@ class Config:
         Returns:
             New Config instance with overrides applied
         """
-        return replace(
-            self,
-            server=replace(
-                self.server,
+        return Config(
+            server=_OverriddenServerConfig(
                 host=host or self.server.host,
                 port=port if port is not None else self.server.port,
             ),
-            docs=replace(
-                self.docs,
+            docs=_OverriddenDocsConfig(
                 source_dir=source_dir or self.docs.source_dir,
                 cache_dir=cache_dir or self.docs.cache_dir,
                 cache_enabled=cache_enabled
                 if cache_enabled is not None
                 else self.docs.cache_enabled,
             ),
-            diagrams=replace(
-                self.diagrams,
+            diagrams=_OverriddenDiagramsConfig(
                 kroki_url=kroki_url or self.diagrams.kroki_url,
+                include_dirs=list(self.diagrams.include_dirs),
+                config_file=self.diagrams.config_file,
+                dpi=self.diagrams.dpi,
             ),
-            live_reload=replace(
-                self.live_reload,
+            live_reload=_OverriddenLiveReloadConfig(
                 enabled=live_reload_enabled
                 if live_reload_enabled is not None
                 else self.live_reload.enabled,
+                watch_patterns=self.live_reload.watch_patterns,
             ),
+            confluence=self.confluence,
+            confluence_test=self.confluence_test,
+            config_path=self.config_path,
         )

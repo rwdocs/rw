@@ -3,12 +3,23 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Move TOML config parsing from Python to Rust using serde
+  - Add `config.rs` module to docstage-core with serde structs for all config sections
+  - Config types: `Config`, `ServerConfig`, `DocsConfig`, `DiagramsConfig`, `LiveReloadConfig`, `ConfluenceConfig`, `ConfluenceTestConfig`
+  - Path resolution (source_dir, cache_dir, include_dirs) handled in Rust relative to config directory
+  - Add PyO3 bindings exposing all config types to Python
+  - Python `Config` class is now a thin wrapper adding `with_overrides()` for CLI overrides
+  - Consistent error messages via serde's TOML parser
+  - Type-safe config autodiscovery searching parent directories
+- Code simplification refactoring
+  - Simplify `Config::default()` in Rust to delegate to `default_with_base(Path::new("."))`
+  - Move `_Overridden*` dataclasses before `Config` class in Python config.py for proper forward reference
+  - Use union types in `Config` fields to accept both Rust and overridden config types
 - Switch from mypy to ty for Python type checking
   - ty is 10-100x faster than mypy, written in Rust by Astral (creators of ruff)
   - Update dev dependencies in pyproject.toml
   - Update Makefile and CI workflow to use `ty check`
-  - Change config parsing methods to use `Any` parameter type (matches `dict.get()` return)
-  - Add type narrowing asserts after `sys.exit()` calls in CLI
+  - Replace type narrowing asserts with `cast()` calls after `sys.exit()` in CLI
 - Update pulldown-cmark from 0.12 to 0.13
   - Add support for superscript (`<sup>`) and subscript (`<sub>`) tags in both HTML and Confluence renderers
 - Migrate to Tailwind CSS v4

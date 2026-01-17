@@ -3,13 +3,7 @@
 from pathlib import Path
 
 import pytest
-from docstage.config import (
-    Config,
-    DiagramsConfig,
-    DocsConfig,
-    LiveReloadConfig,
-    ServerConfig,
-)
+from docstage.config import Config
 
 
 @pytest.fixture
@@ -21,13 +15,15 @@ def test_config(tmp_path: Path) -> Config:
     """
     source_dir = tmp_path / "docs"
     source_dir.mkdir(exist_ok=True)
-    cache_dir = tmp_path / ".cache"
 
-    return Config(
-        server=ServerConfig(),
-        docs=DocsConfig(source_dir=source_dir, cache_dir=cache_dir),
-        diagrams=DiagramsConfig(),
-        live_reload=LiveReloadConfig(enabled=False),
-        confluence=None,
-        confluence_test=None,
-    )
+    config_file = tmp_path / "docstage.toml"
+    config_file.write_text("""
+[docs]
+source_dir = "docs"
+cache_dir = ".cache"
+
+[live_reload]
+enabled = false
+""")
+
+    return Config.load(config_file)
