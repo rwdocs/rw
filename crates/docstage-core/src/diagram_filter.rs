@@ -29,10 +29,16 @@ pub enum DiagramLanguage {
 impl DiagramLanguage {
     /// Parse language from code fence info string.
     ///
+    /// Supports both direct language names (`mermaid`) and `kroki-` prefixed names
+    /// (`kroki-mermaid`) for compatibility with MkDocs Kroki plugin.
+    ///
     /// Returns None if the language is not a supported diagram type.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
-        match s {
+        // Support both "mermaid" and "kroki-mermaid" formats
+        let lang = s.strip_prefix("kroki-").unwrap_or(s);
+
+        match lang {
             "plantuml" => Some(Self::PlantUml),
             "c4plantuml" => Some(Self::C4PlantUml),
             "mermaid" => Some(Self::Mermaid),
@@ -586,13 +592,13 @@ graph TD
 
     #[test]
     fn test_all_diagram_languages() {
-        // Test all supported languages
+        // Test all supported languages, both direct and kroki- prefixed forms
         let languages = [
             ("plantuml", DiagramLanguage::PlantUml),
             ("c4plantuml", DiagramLanguage::C4PlantUml),
             ("mermaid", DiagramLanguage::Mermaid),
             ("graphviz", DiagramLanguage::GraphViz),
-            ("dot", DiagramLanguage::GraphViz),
+            ("dot", DiagramLanguage::GraphViz), // alias, no kroki- form
             ("ditaa", DiagramLanguage::Ditaa),
             ("blockdiag", DiagramLanguage::BlockDiag),
             ("seqdiag", DiagramLanguage::SeqDiag),
@@ -609,9 +615,40 @@ graph TD
         ];
 
         for (name, expected) in languages {
+            // Test direct form
             let parsed = DiagramLanguage::parse(name);
             assert_eq!(parsed, Some(expected), "Failed to parse: {name}");
+
+            // Test kroki- prefixed form (MkDocs Kroki plugin format)
+            let kroki_name = format!("kroki-{name}");
+            let kroki_parsed = DiagramLanguage::parse(&kroki_name);
+            assert_eq!(
+                kroki_parsed,
+                Some(expected),
+                "Failed to parse: {kroki_name}"
+            );
         }
+    }
+
+    #[test]
+    fn test_kroki_prefix_extraction() {
+        let markdown = "```kroki-mermaid\ngraph TD\n  A --> B\n```";
+        let parser = Parser::new(markdown);
+        let mut filter = DiagramFilter::new(parser);
+
+        let _events: Vec<_> = filter.by_ref().collect();
+
+        let diagrams = filter.into_diagrams();
+        assert_eq!(diagrams.len(), 1);
+        assert_eq!(diagrams[0].language, DiagramLanguage::Mermaid);
+        assert!(diagrams[0].source.contains("graph TD"));
+    }
+
+    #[test]
+    fn test_kroki_prefix_unknown_language() {
+        // kroki-unknown should not be recognized
+        assert!(DiagramLanguage::parse("kroki-unknown").is_none());
+        assert!(DiagramLanguage::parse("kroki-").is_none());
     }
 
     #[test]

@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Add support for `kroki-` prefixed diagram languages
+  - Diagram filter now recognizes `kroki-mermaid`, `kroki-plantuml`, etc.
+  - Compatible with MkDocs Kroki plugin markdown format
+  - Both `mermaid` and `kroki-mermaid` code fences now render diagrams
+- Add logging for diagram rendering failures
+  - Warning messages now printed to stdout when Kroki requests fail
+  - Shows endpoint name and error details for debugging
+  - Configure logging level with `--verbose` flag (DEBUG) or default (WARNING)
+- Code simplification refactoring
+  - Consolidate `test_all_diagram_languages` and `test_kroki_prefix_support` tests in diagram_filter.rs
+  - Single test now verifies both direct and `kroki-` prefixed forms for each language
 - Include package version in HTTP ETag for browser cache invalidation
   - ETag now computed from version + content instead of content only
   - Browser caches automatically invalidate when server is upgraded

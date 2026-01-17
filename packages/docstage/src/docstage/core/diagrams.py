@@ -4,6 +4,7 @@ Renders diagrams via Kroki with content-based caching to avoid redundant request
 """
 
 import base64
+import logging
 import re
 import urllib.error
 import urllib.request
@@ -11,6 +12,8 @@ import zlib
 from dataclasses import dataclass
 
 from docstage.core.cache import PageCache, compute_diagram_hash
+
+logger = logging.getLogger(__name__)
 
 GOOGLE_FONTS_RE = re.compile(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?")
 
@@ -134,6 +137,11 @@ def _render_via_kroki(
             OSError,
             TimeoutError,
         ) as e:
+            logger.warning(
+                "Diagram rendering failed for %s: %s",
+                diagram.endpoint,
+                e,
+            )
             error_content = (
                 f'<pre class="diagram-error">Diagram rendering failed: {e}</pre>'
             )

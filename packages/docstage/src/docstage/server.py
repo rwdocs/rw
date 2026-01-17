@@ -3,6 +3,7 @@
 Application factory and route registration for standalone server mode.
 """
 
+import logging
 from pathlib import Path
 
 from aiohttp import web
@@ -135,5 +136,11 @@ def run_server(config: Config, *, verbose: bool = False) -> None:
         config: Application configuration
         verbose: Enable verbose output (show diagram warnings)
     """
+    # Configure logging to show warnings (including diagram rendering failures)
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s",
+    )
+
     app = create_app(config, verbose=verbose)
     web.run_app(app, host=config.server.host, port=config.server.port)
