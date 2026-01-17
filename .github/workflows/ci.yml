@@ -33,8 +33,8 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Build frontend
-        run: npm run build
+      - name: Build frontend bundle
+        run: npm run build:bundle
         working-directory: frontend
 
       - name: Install uv
@@ -102,8 +102,8 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Build frontend
-        run: npm run build
+      - name: Build frontend bundle
+        run: npm run build:bundle
         working-directory: frontend
 
       - name: Install uv
