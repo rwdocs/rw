@@ -164,4 +164,27 @@ test.describe("Navigation", () => {
     await expect(aside.getByRole("link", { name: "Plugin Development" })).toBeVisible();
     await expect(aside.getByRole("link", { name: "Advanced Topics" })).toBeVisible();
   });
+
+  test("consecutive navigation clicks update page content", async ({ page }) => {
+    // Regression test: consecutive clicks on same/different nav items should update content
+    await page.goto("/getting-started");
+    await expect(page.locator("article h1")).toContainText("Getting Started");
+
+    const aside = page.locator("aside").first();
+
+    // Navigate to different page
+    const gettingStartedLink = aside.getByRole("link", { name: "Getting Started" });
+    const expandButton = gettingStartedLink.locator("..").getByRole("button");
+    await expandButton.click();
+    await aside.getByRole("link", { name: "Installation" }).click();
+    await expect(page.locator("article h1")).toContainText("Installation");
+
+    // Navigate back to Getting Started
+    await aside.getByRole("link", { name: "Getting Started" }).click();
+    await expect(page.locator("article h1")).toContainText("Getting Started");
+
+    // Navigate again to Installation
+    await aside.getByRole("link", { name: "Installation" }).click();
+    await expect(page.locator("article h1")).toContainText("Installation");
+  });
 });

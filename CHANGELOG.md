@@ -4,9 +4,10 @@
 
 ### 2026-01-17
 - Fix navigation not updating page content on consecutive clicks
-  - Remove `{#key $path}` from App.svelte that caused race condition with Page.svelte subscription
-  - Page.svelte now uses store subscription pattern to load pages when path changes
-  - Previous pattern with both `{#key}` and subscription caused duplicate `page.load()` calls
+  - Replace `$effect` with `path.subscribe()` in Page.svelte for reactive path handling
+  - Add `page.clear()` before `page.load()` to reset state on navigation
+  - Previous pattern with `$effect` and `previousPath` tracking conflicted with Svelte 5's reactivity
+  - Add E2E regression test for consecutive navigation clicks
 
 ### 2026-01-16
 - Address PR feedback: improve cache type annotation
