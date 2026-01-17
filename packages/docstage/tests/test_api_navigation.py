@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-from aiohttp.test_utils import TestClient
 from docstage.config import Config
 from docstage.server import create_app
 
@@ -31,25 +30,17 @@ def docs_dir(tmp_path: Path) -> Path:
     return docs
 
 
-def _make_config(source_dir: Path, cache_dir: Path, config_dir: Path) -> Config:
-    """Create a Config for testing by writing a temp TOML file."""
-    config_file = config_dir / "docstage.toml"
-    # Use relative paths for source_dir and cache_dir
-    config_file.write_text(f"""
-[docs]
-source_dir = "{source_dir.relative_to(config_dir)}"
-cache_dir = "{cache_dir.name}"
-
-[live_reload]
-enabled = false
-""")
-    return Config.load(config_file)
-
-
 @pytest.fixture
-def client(tmp_path: Path, docs_dir: Path, aiohttp_client) -> TestClient:
+def client(
+    tmp_path: Path,
+    docs_dir: Path,
+    test_config: Config,
+    aiohttp_client,
+):
     """Create test client with configured app."""
-    config = _make_config(docs_dir, tmp_path / ".cache", tmp_path)
+    config = test_config.with_overrides(
+        source_dir=docs_dir, cache_dir=tmp_path / ".cache"
+    )
     app = create_app(config)
     return aiohttp_client(app)
 
@@ -58,11 +49,7 @@ class TestGetNavigation:
     """Tests for GET /api/navigation."""
 
     @pytest.mark.asyncio
-    async def test__populated_docs__returns_full_tree(
-        self,
-        docs_dir: Path,
-        client,
-    ) -> None:
+    async def test__populated_docs__returns_full_tree(self, client) -> None:
         """Return complete navigation tree."""
         test_client = await client
         response = await test_client.get("/api/navigation")
@@ -73,11 +60,7 @@ class TestGetNavigation:
         assert len(data["items"]) == 2
 
     @pytest.mark.asyncio
-    async def test__tree_structure__includes_nested_items(
-        self,
-        docs_dir: Path,
-        client,
-    ) -> None:
+    async def test__tree_structure__includes_nested_items(self, client) -> None:
         """Include nested navigation items."""
         test_client = await client
         response = await test_client.get("/api/navigation")
@@ -88,7 +71,7 @@ class TestGetNavigation:
         assert len(domain_a["children"]) >= 2
 
     @pytest.mark.asyncio
-    async def test__items__include_title_and_path(self, docs_dir: Path, client) -> None:
+    async def test__items__include_title_and_path(self, client) -> None:
         """Each item has title and path."""
         test_client = await client
         response = await test_client.get("/api/navigation")
@@ -102,12 +85,15 @@ class TestGetNavigation:
     async def test__empty_docs__returns_empty_items(
         self,
         tmp_path: Path,
+        test_config: Config,
         aiohttp_client,
     ) -> None:
         """Return empty items for empty docs directory."""
         docs = tmp_path / "empty-docs"
         docs.mkdir()
-        config = _make_config(docs, tmp_path / ".cache", tmp_path)
+        config = test_config.with_overrides(
+            source_dir=docs, cache_dir=tmp_path / ".cache"
+        )
         app = create_app(config)
         test_client = await aiohttp_client(app)
 

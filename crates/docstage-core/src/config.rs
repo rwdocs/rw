@@ -97,9 +97,9 @@ struct DiagramsConfigRaw {
 pub struct DiagramsConfig {
     /// Kroki server URL for diagram rendering.
     pub kroki_url: Option<String>,
-    /// Directories to search for PlantUML includes.
+    /// Directories to search for `PlantUML` includes.
     pub include_dirs: Vec<PathBuf>,
-    /// PlantUML config filename.
+    /// `PlantUML` config filename.
     pub config_file: Option<String>,
     /// DPI for diagram rendering.
     pub dpi: u32,
@@ -194,7 +194,7 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// Returns error if explicit config_path doesn't exist or parsing fails.
+    /// Returns error if explicit `config_path` doesn't exist or parsing fails.
     pub fn load(config_path: Option<&Path>) -> Result<Self, ConfigError> {
         if let Some(path) = config_path {
             if !path.exists() {
