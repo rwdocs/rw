@@ -52,7 +52,7 @@ def make_config(tmp_path: Path) -> Callable[..., Config]:
         config_file.write_text(f"""
 [docs]
 source_dir = "{source_dir.relative_to(tmp_path)}"
-cache_dir = "{cache_dir.name}"
+cache_dir = "{cache_dir.relative_to(tmp_path)}"
 
 [live_reload]
 enabled = {str(live_reload_enabled).lower()}

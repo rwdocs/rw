@@ -23,6 +23,10 @@
   - Update dev dependencies in pyproject.toml
   - Update Makefile and CI workflow to use `ty check`
   - Replace type narrowing asserts with `cast()` calls after `sys.exit()` in CLI
+- Address PR review feedback for ty migration
+  - Remove backticks from PlantUML in doc comments (proper noun, not code)
+  - Use explicit None checks instead of `or` operator in `with_overrides()` to correctly handle empty string/Path overrides
+  - Use consistent `relative_to()` for both source_dir and cache_dir in test fixtures
 - Update pulldown-cmark from 0.12 to 0.13
   - Add support for superscript (`<sup>`) and subscript (`<sub>`) tags in both HTML and Confluence renderers
 - Migrate to Tailwind CSS v4
