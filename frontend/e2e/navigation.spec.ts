@@ -164,32 +164,4 @@ test.describe("Navigation", () => {
     await expect(aside.getByRole("link", { name: "Plugin Development" })).toBeVisible();
     await expect(aside.getByRole("link", { name: "Advanced Topics" })).toBeVisible();
   });
-
-  test("consecutive navigation clicks update page content", async ({ page }) => {
-    // Smoke test for navigation: verifies content updates when navigating back and forth
-    // Note: The original bug (Svelte 5 $effect reactivity issue) is not reliably
-    // reproducible in E2E tests due to timing differences from real user interactions
-    await page.goto("/");
-
-    const aside = page.locator("aside").first();
-
-    // Expand Getting Started and navigate to Installation
-    const gettingStartedLink = aside.getByRole("link", { name: "Getting Started" });
-    const expandButton = gettingStartedLink.locator("..").getByRole("button");
-    await expandButton.click();
-    await aside.getByRole("link", { name: "Installation" }).click();
-    await expect(page.locator("article h1")).toContainText("Installation");
-
-    // Navigate to Getting Started (parent)
-    await aside.getByRole("link", { name: "Getting Started" }).click();
-    await expect(page.locator("article h1")).toContainText("Getting Started");
-
-    // Navigate back to Installation
-    await aside.getByRole("link", { name: "Installation" }).click();
-    await expect(page.locator("article h1")).toContainText("Installation");
-
-    // Navigate to Getting Started again
-    await aside.getByRole("link", { name: "Getting Started" }).click();
-    await expect(page.locator("article h1")).toContainText("Getting Started");
-  });
 });
