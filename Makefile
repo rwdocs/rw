@@ -20,5 +20,5 @@ format:
 lint:
 	cargo clippy --all-targets -- -W clippy::pedantic
 	uv run ruff check .
-	uv run mypy .
+	uv run ty check
 	cd frontend && npm run check

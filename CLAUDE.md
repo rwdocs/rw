@@ -20,7 +20,7 @@ format output with PlantUML diagram support.
 make build                # Build frontend and reinstall Python package
 make test                 # Run all tests with coverage (Rust, Python, Frontend)
 make format               # Format all code (Rust, Python, Frontend)
-make lint                 # Lint all code (clippy, ruff, mypy, svelte-check)
+make lint                 # Lint all code (clippy, ruff, ty, svelte-check)
 
 # Frontend dev server
 cd frontend && npm run dev

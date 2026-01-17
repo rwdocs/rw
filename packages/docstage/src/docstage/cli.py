@@ -499,6 +499,7 @@ def generate_tokens(
             err=True,
         )
         sys.exit(1)
+    assert effective_base_url is not None  # noqa: S101 - for type narrowing
 
     asyncio.run(
         _generate_tokens(private_key, effective_consumer_key, effective_base_url, port),
@@ -531,6 +532,7 @@ def _require_confluence_config(config: Config) -> ConfluenceConfig:
         click.echo('access_token = "your-token"')
         click.echo('access_secret = "your-secret"')
         sys.exit(1)
+    assert config.confluence is not None  # noqa: S101 - for type narrowing
     return config.confluence
 
 
@@ -557,6 +559,7 @@ def _require_kroki_url(kroki_url: str | None, config: Config) -> str:
             err=True,
         )
         sys.exit(1)
+    assert effective is not None  # noqa: S101 - for type narrowing
     return effective
 
 
