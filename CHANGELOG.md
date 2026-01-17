@@ -15,6 +15,9 @@
   - Simplify `Config::default()` in Rust to delegate to `default_with_base(Path::new("."))`
   - Move `_Overridden*` dataclasses before `Config` class in Python config.py for proper forward reference
   - Use union types in `Config` fields to accept both Rust and overridden config types
+  - Consolidate `test__live_reload_enabled__returns_true` and `test__live_reload_disabled__returns_false` into single parametrized test
+  - Use `test_config.with_overrides()` pattern consistently across API tests
+  - Remove redundant fixture parameters from test methods (unused `docs_dir` parameters)
 - Switch from mypy to ty for Python type checking
   - ty is 10-100x faster than mypy, written in Rust by Astral (creators of ruff)
   - Update dev dependencies in pyproject.toml

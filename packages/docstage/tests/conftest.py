@@ -1,5 +1,6 @@
 """Shared test fixtures."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -27,3 +28,35 @@ enabled = false
 """)
 
     return Config.load(config_file)
+
+
+@pytest.fixture
+def make_config(tmp_path: Path) -> Callable[..., Config]:
+    """Factory fixture for creating test configurations.
+
+    Returns a function that creates Config instances with customizable options.
+    Source and cache directories are created relative to tmp_path.
+    """
+
+    def _make_config(
+        *,
+        source_dir: Path | None = None,
+        cache_dir: Path | None = None,
+        live_reload_enabled: bool = False,
+    ) -> Config:
+        source_dir = source_dir or (tmp_path / "docs")
+        cache_dir = cache_dir or (tmp_path / ".cache")
+        source_dir.mkdir(exist_ok=True)
+
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text(f"""
+[docs]
+source_dir = "{source_dir.relative_to(tmp_path)}"
+cache_dir = "{cache_dir.name}"
+
+[live_reload]
+enabled = {str(live_reload_enabled).lower()}
+""")
+        return Config.load(config_file)
+
+    return _make_config

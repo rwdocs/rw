@@ -12,7 +12,7 @@ dev = [
     "pytest-aiohttp>=1.0.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.8",
-    "ty",
+    "ty>=0.0.12",
 ]
 
 [tool.uv.workspace]
