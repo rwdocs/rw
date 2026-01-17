@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from aiohttp.test_utils import TestClient
+from docstage.api.pages import _compute_etag
 from docstage.config import Config
 from docstage.server import create_app
 
@@ -229,3 +230,33 @@ class TestGetPage:
         data = await response.json()
         assert "last_modified" in data["meta"]
         assert data["meta"]["last_modified"].endswith("+00:00")
+
+
+class TestComputeEtag:
+    """Tests for _compute_etag function."""
+
+    def test__same_content_same_version__same_etag(self) -> None:
+        """Same content and version produces same ETag."""
+        etag1 = _compute_etag("Hello, world!", "1.0.0")
+        etag2 = _compute_etag("Hello, world!", "1.0.0")
+        assert etag1 == etag2
+
+    def test__different_content__different_etag(self) -> None:
+        """Different content produces different ETag."""
+        etag1 = _compute_etag("Hello, world!", "1.0.0")
+        etag2 = _compute_etag("Goodbye, world!", "1.0.0")
+        assert etag1 != etag2
+
+    def test__different_version__different_etag(self) -> None:
+        """Different version produces different ETag even with same content."""
+        etag1 = _compute_etag("Hello, world!", "1.0.0")
+        etag2 = _compute_etag("Hello, world!", "2.0.0")
+        assert etag1 != etag2
+
+    def test__etag_format(self) -> None:
+        """ETag is quoted string with 16 hex characters."""
+        etag = _compute_etag("content", "1.0.0")
+        assert etag.startswith('"')
+        assert etag.endswith('"')
+        # 16 hex chars + 2 quotes = 18 total
+        assert len(etag) == 18

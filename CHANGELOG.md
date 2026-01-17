@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-01-17
+- Include package version in HTTP ETag for browser cache invalidation
+  - ETag now computed from version + content instead of content only
+  - Browser caches automatically invalidate when server is upgraded
+  - Prevents stale content being served after deployments
 - Fix root index.md appearing in breadcrumbs after Home
   - Root page at path "/" was included in ancestor chain when building breadcrumbs
   - Now filtered out since "Home" breadcrumb already represents the root path

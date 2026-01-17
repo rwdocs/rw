@@ -11,6 +11,7 @@ from time import mktime
 
 from aiohttp import web
 
+from docstage import __version__
 from docstage.app_keys import renderer_key, site_loader_key, verbose_key
 from docstage.core.types import URLPath
 
@@ -77,8 +78,11 @@ async def get_page(request: web.Request) -> web.Response:
     )
 
 
-def _compute_etag(content: str) -> str:
+def _compute_etag(content: str, version: str = __version__) -> str:
+    # Include version so ETags change when server is upgraded.
     # Use first 16 hex chars (64 bits) - sufficient for cache invalidation,
-    # collision probability is negligible for this use case
-    content_hash = md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+    # collision probability is negligible for this use case.
+    content_hash = md5(
+        f"{version}:{content}".encode(), usedforsecurity=False
+    ).hexdigest()[:16]
     return f'"{content_hash}"'
