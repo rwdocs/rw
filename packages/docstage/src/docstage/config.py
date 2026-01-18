@@ -141,14 +141,18 @@ class Config:
                 port=port if port is not None else self.server.port,
             ),
             docs=_OverriddenDocsConfig(
-                source_dir=source_dir if source_dir is not None else self.docs.source_dir,
+                source_dir=source_dir
+                if source_dir is not None
+                else self.docs.source_dir,
                 cache_dir=cache_dir if cache_dir is not None else self.docs.cache_dir,
                 cache_enabled=cache_enabled
                 if cache_enabled is not None
                 else self.docs.cache_enabled,
             ),
             diagrams=_OverriddenDiagramsConfig(
-                kroki_url=kroki_url if kroki_url is not None else self.diagrams.kroki_url,
+                kroki_url=kroki_url
+                if kroki_url is not None
+                else self.diagrams.kroki_url,
                 include_dirs=list(self.diagrams.include_dirs),
                 config_file=self.diagrams.config_file,
                 dpi=self.diagrams.dpi,
