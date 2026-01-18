@@ -270,14 +270,14 @@ impl Config {
 
     /// Resolve relative paths to absolute paths based on config directory.
     fn resolve_paths(&mut self, config_dir: &Path) {
-        // Resolve docs paths
+        let resolve = |path: Option<&str>, default: &str| config_dir.join(path.unwrap_or(default));
+
         self.docs_resolved = DocsConfig {
-            source_dir: config_dir.join(self.docs.source_dir.as_deref().unwrap_or("docs")),
-            cache_dir: config_dir.join(self.docs.cache_dir.as_deref().unwrap_or(".cache")),
+            source_dir: resolve(self.docs.source_dir.as_deref(), "docs"),
+            cache_dir: resolve(self.docs.cache_dir.as_deref(), ".cache"),
             cache_enabled: self.docs.cache_enabled.unwrap_or(true),
         };
 
-        // Resolve diagrams paths
         self.diagrams_resolved = DiagramsConfig {
             kroki_url: self.diagrams.kroki_url.clone(),
             include_dirs: self
