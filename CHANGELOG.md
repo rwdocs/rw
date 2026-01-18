@@ -7,8 +7,11 @@
   - Create new `docstage-config` crate in `crates/docstage-config/`
   - Move all config types: `Config`, `ServerConfig`, `DocsConfig`, `DiagramsConfig`, `LiveReloadConfig`, `ConfluenceConfig`, `ConfluenceTestConfig`, `ConfigError`
   - Python bindings depend on `docstage-config` directly
-  - Config types now available at `docstage_core.config` submodule
+  - Config types available at `docstage_core.config` submodule (created by Rust/PyO3)
   - `docstage-core` no longer depends on config (removes `serde` and `toml` dependencies)
+- Code simplification refactoring
+  - Add `pick` helper in Python `with_overrides()` to simplify conditional override logic
+  - Add `resolve` closure in Rust `resolve_paths()` to consolidate path resolution pattern
 
 ### 2026-01-17
 - Move TOML config parsing from Python to Rust using serde

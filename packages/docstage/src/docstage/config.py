@@ -137,32 +137,28 @@ class Config:
         Returns:
             New Config instance with overrides applied
         """
+
+        def pick[T](override: T | None, current: T) -> T:
+            return current if override is None else override
+
         return Config(
             server=_OverriddenServerConfig(
-                host=host if host is not None else self.server.host,
-                port=port if port is not None else self.server.port,
+                host=pick(host, self.server.host),
+                port=pick(port, self.server.port),
             ),
             docs=_OverriddenDocsConfig(
-                source_dir=source_dir
-                if source_dir is not None
-                else self.docs.source_dir,
-                cache_dir=cache_dir if cache_dir is not None else self.docs.cache_dir,
-                cache_enabled=cache_enabled
-                if cache_enabled is not None
-                else self.docs.cache_enabled,
+                source_dir=pick(source_dir, self.docs.source_dir),
+                cache_dir=pick(cache_dir, self.docs.cache_dir),
+                cache_enabled=pick(cache_enabled, self.docs.cache_enabled),
             ),
             diagrams=_OverriddenDiagramsConfig(
-                kroki_url=kroki_url
-                if kroki_url is not None
-                else self.diagrams.kroki_url,
+                kroki_url=pick(kroki_url, self.diagrams.kroki_url),
                 include_dirs=list(self.diagrams.include_dirs),
                 config_file=self.diagrams.config_file,
                 dpi=self.diagrams.dpi,
             ),
             live_reload=_OverriddenLiveReloadConfig(
-                enabled=live_reload_enabled
-                if live_reload_enabled is not None
-                else self.live_reload.enabled,
+                enabled=pick(live_reload_enabled, self.live_reload.enabled),
                 watch_patterns=self.live_reload.watch_patterns,
             ),
             confluence=self.confluence,
