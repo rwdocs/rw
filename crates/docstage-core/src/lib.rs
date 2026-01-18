@@ -61,9 +61,6 @@ mod plantuml;
 mod plantuml_filter;
 mod util;
 
-/// Re-export config module from docstage-config crate.
-pub use docstage_config as config;
-
 pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use converter::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use ::docstage_core::config::{
+use ::docstage_config::{
     Config, ConfigError, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig, DocsConfig,
     LiveReloadConfig, ServerConfig,
 };
