@@ -16,7 +16,6 @@ from .docstage_core import (
 )
 
 __all__ = [
-    "config",
     "ConvertResult",
     "DiagramInfo",
     "ExtractResult",
@@ -24,4 +23,5 @@ __all__ = [
     "MarkdownConverter",
     "PreparedDiagram",
     "TocEntry",
+    "config",
 ]
