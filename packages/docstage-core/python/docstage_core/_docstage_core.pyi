@@ -59,26 +59,17 @@ class PreparedDiagram:
     """Output format ("svg" or "png")."""
 
 class ExtractResult:
-    """Result of extracting diagrams from markdown (HTML format)."""
+    """Result of extracting diagrams from markdown.
+
+    Used by both HTML and Confluence output formats.
+    """
 
     html: str
-    """HTML with diagram placeholders ({{DIAGRAM_0}}, {{DIAGRAM_1}}, etc.)."""
+    """HTML/XHTML with diagram placeholders ({{DIAGRAM_0}}, {{DIAGRAM_1}}, etc.)."""
     title: str | None
     """Title extracted from first H1 heading (if extract_title was enabled)."""
     toc: list[TocEntry]
     """Table of contents entries."""
-    diagrams: list[PreparedDiagram]
-    """Prepared diagrams ready for rendering."""
-    warnings: list[str]
-    """Warnings generated during conversion."""
-
-class ExtractConfluenceResult:
-    """Result of extracting diagrams from markdown (Confluence format)."""
-
-    html: str
-    """Confluence XHTML with diagram placeholders ({{DIAGRAM_0}}, etc.)."""
-    title: str | None
-    """Title extracted from first H1 heading (if extract_title was enabled)."""
     diagrams: list[PreparedDiagram]
     """Prepared diagrams ready for rendering."""
     warnings: list[str]
@@ -121,7 +112,7 @@ class MarkdownConverter:
     def extract_confluence_with_diagrams(
         self,
         markdown_text: str,
-    ) -> ExtractConfluenceResult: ...
+    ) -> ExtractResult: ...
 
 # Config classes
 

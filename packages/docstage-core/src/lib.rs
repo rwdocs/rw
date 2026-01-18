@@ -7,8 +7,8 @@ use ::docstage_config::{
     DocsConfig, LiveReloadConfig, ServerConfig,
 };
 use ::docstage_core::{
-    ConvertResult, DiagramInfo, ExtractConfluenceResult, ExtractResult, HtmlConvertResult,
-    MarkdownConverter, PreparedDiagram, TocEntry, DEFAULT_DPI,
+    ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
+    PreparedDiagram, TocEntry, DEFAULT_DPI,
 };
 use pyo3::exceptions::{PyFileNotFoundError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -174,38 +174,6 @@ impl From<ExtractResult> for PyExtractResult {
     }
 }
 
-/// Result of extracting diagrams from markdown (Confluence format).
-#[pyclass(name = "ExtractConfluenceResult")]
-pub struct PyExtractConfluenceResult {
-    /// Confluence XHTML with diagram placeholders ({{DIAGRAM_0}}, {{DIAGRAM_1}}, etc.).
-    #[pyo3(get)]
-    pub html: String,
-    /// Title extracted from first H1 heading (if `extract_title` was enabled).
-    #[pyo3(get)]
-    pub title: Option<String>,
-    /// Table of contents entries.
-    #[pyo3(get)]
-    pub toc: Vec<PyTocEntry>,
-    /// Prepared diagrams ready for rendering.
-    #[pyo3(get)]
-    pub diagrams: Vec<PyPreparedDiagram>,
-    /// Warnings generated during conversion.
-    #[pyo3(get)]
-    pub warnings: Vec<String>,
-}
-
-impl From<ExtractConfluenceResult> for PyExtractConfluenceResult {
-    fn from(result: ExtractConfluenceResult) -> Self {
-        Self {
-            html: result.html,
-            title: result.title,
-            toc: result.toc.into_iter().map(Into::into).collect(),
-            diagrams: result.diagrams.into_iter().map(Into::into).collect(),
-            warnings: result.warnings,
-        }
-    }
-}
-
 /// Markdown converter with multiple output formats.
 #[pyclass(name = "MarkdownConverter")]
 pub struct PyMarkdownConverter {
@@ -358,11 +326,8 @@ impl PyMarkdownConverter {
     ///     markdown_text: Markdown source text
     ///
     /// Returns:
-    ///     ExtractConfluenceResult with XHTML placeholders and prepared diagrams
-    pub fn extract_confluence_with_diagrams(
-        &self,
-        markdown_text: &str,
-    ) -> PyExtractConfluenceResult {
+    ///     ExtractResult with XHTML placeholders and prepared diagrams
+    pub fn extract_confluence_with_diagrams(&self, markdown_text: &str) -> PyExtractResult {
         self.inner
             .extract_confluence_with_diagrams(markdown_text)
             .into()
@@ -656,7 +621,6 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConvertResult>()?;
     m.add_class::<PyHtmlConvertResult>()?;
     m.add_class::<PyExtractResult>()?;
-    m.add_class::<PyExtractConfluenceResult>()?;
     m.add_class::<PyPreparedDiagram>()?;
     m.add_class::<PyMarkdownConverter>()?;
     m.add_class::<PyDiagramInfo>()?;
