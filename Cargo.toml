@@ -10,6 +10,7 @@ license = "MIT"
 
 [workspace.dependencies]
 # Internal crates
+docstage-config = { path = "crates/docstage-config" }
 docstage-core = { path = "crates/docstage-core" }
 
 # External dependencies
