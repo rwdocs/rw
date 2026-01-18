@@ -515,6 +515,7 @@ impl PyConfig {
 #[pymodule]
 #[pyo3(name = "_docstage_core")]
 pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Converter classes
     m.add_class::<PyConvertResult>()?;
     m.add_class::<PyHtmlConvertResult>()?;
     m.add_class::<PyExtractResult>()?;
@@ -523,22 +524,14 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyTocEntry>()?;
 
-    // Create config submodule
-    let config = PyModule::new(m.py(), "config")?;
-    config.add_class::<PyConfig>()?;
-    config.add_class::<PyServerConfig>()?;
-    config.add_class::<PyDocsConfig>()?;
-    config.add_class::<PyDiagramsConfig>()?;
-    config.add_class::<PyLiveReloadConfig>()?;
-    config.add_class::<PyConfluenceConfig>()?;
-    config.add_class::<PyConfluenceTestConfig>()?;
-    m.add_submodule(&config)?;
-
-    // Register submodule in sys.modules for "from docstage_core.config import X" to work
-    m.py()
-        .import("sys")?
-        .getattr("modules")?
-        .set_item("docstage_core.config", &config)?;
+    // Config classes
+    m.add_class::<PyConfig>()?;
+    m.add_class::<PyServerConfig>()?;
+    m.add_class::<PyDocsConfig>()?;
+    m.add_class::<PyDiagramsConfig>()?;
+    m.add_class::<PyLiveReloadConfig>()?;
+    m.add_class::<PyConfluenceConfig>()?;
+    m.add_class::<PyConfluenceTestConfig>()?;
 
     Ok(())
 }
