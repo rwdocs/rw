@@ -313,6 +313,74 @@ impl PyMarkdownConverter {
 // Config bindings
 // ============================================================================
 
+/// CLI override options for configuration.
+#[pyclass(name = "ConfigOverrides")]
+#[derive(Clone, Default)]
+pub struct PyConfigOverrides {
+    #[pyo3(get, set)]
+    pub host: Option<String>,
+    #[pyo3(get, set)]
+    pub port: Option<u16>,
+    #[pyo3(get, set)]
+    pub source_dir: Option<PathBuf>,
+    #[pyo3(get, set)]
+    pub cache_dir: Option<PathBuf>,
+    #[pyo3(get, set)]
+    pub cache_enabled: Option<bool>,
+    #[pyo3(get, set)]
+    pub kroki_url: Option<String>,
+    #[pyo3(get, set)]
+    pub live_reload_enabled: Option<bool>,
+}
+
+#[pymethods]
+impl PyConfigOverrides {
+    #[new]
+    #[pyo3(signature = (
+        host = None,
+        port = None,
+        source_dir = None,
+        cache_dir = None,
+        cache_enabled = None,
+        kroki_url = None,
+        live_reload_enabled = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        host: Option<String>,
+        port: Option<u16>,
+        source_dir: Option<PathBuf>,
+        cache_dir: Option<PathBuf>,
+        cache_enabled: Option<bool>,
+        kroki_url: Option<String>,
+        live_reload_enabled: Option<bool>,
+    ) -> Self {
+        Self {
+            host,
+            port,
+            source_dir,
+            cache_dir,
+            cache_enabled,
+            kroki_url,
+            live_reload_enabled,
+        }
+    }
+}
+
+impl From<&PyConfigOverrides> for ConfigOverrides {
+    fn from(py: &PyConfigOverrides) -> Self {
+        Self {
+            host: py.host.clone(),
+            port: py.port,
+            source_dir: py.source_dir.clone(),
+            cache_dir: py.cache_dir.clone(),
+            cache_enabled: py.cache_enabled,
+            kroki_url: py.kroki_url.clone(),
+            live_reload_enabled: py.live_reload_enabled,
+        }
+    }
+}
+
 /// Server configuration.
 #[pyclass(name = "ServerConfig")]
 #[derive(Clone)]
@@ -455,50 +523,20 @@ impl PyConfig {
     /// If config_path is provided, loads from that file.
     /// Otherwise, searches for docstage.toml in current directory and parents.
     ///
-    /// Override parameters take precedence over config file values:
-    /// - host: Override server.host
-    /// - port: Override server.port
-    /// - source_dir: Override docs.source_dir
-    /// - cache_dir: Override docs.cache_dir
-    /// - cache_enabled: Override docs.cache_enabled
-    /// - kroki_url: Override diagrams.kroki_url
-    /// - live_reload_enabled: Override live_reload.enabled
+    /// Args:
+    ///     config_path: Path to configuration file (auto-discovers if None)
+    ///     overrides: CLI override options (ConfigOverrides instance)
     #[staticmethod]
-    #[pyo3(signature = (
-        config_path = None,
-        *,
-        host = None,
-        port = None,
-        source_dir = None,
-        cache_dir = None,
-        cache_enabled = None,
-        kroki_url = None,
-        live_reload_enabled = None
-    ))]
-    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (config_path = None, overrides = None))]
     pub fn load(
         config_path: Option<PathBuf>,
-        host: Option<String>,
-        port: Option<u16>,
-        source_dir: Option<PathBuf>,
-        cache_dir: Option<PathBuf>,
-        cache_enabled: Option<bool>,
-        kroki_url: Option<String>,
-        live_reload_enabled: Option<bool>,
+        overrides: Option<&PyConfigOverrides>,
     ) -> PyResult<Self> {
-        let overrides = ConfigOverrides {
-            host,
-            port,
-            source_dir,
-            cache_dir,
-            cache_enabled,
-            kroki_url,
-            live_reload_enabled,
-        };
+        let rust_overrides = overrides.map(ConfigOverrides::from);
 
         Config::load(
             config_path.as_deref(),
-            if overrides.is_empty() { None } else { Some(&overrides) },
+            rust_overrides.as_ref(),
         )
             .map(|inner| Self { inner })
             .map_err(|e| match e {
@@ -568,6 +606,7 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Config classes
     m.add_class::<PyConfig>()?;
+    m.add_class::<PyConfigOverrides>()?;
     m.add_class::<PyServerConfig>()?;
     m.add_class::<PyDocsConfig>()?;
     m.add_class::<PyDiagramsConfig>()?;

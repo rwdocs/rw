@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 
 import click
-from docstage_core.config import Config, ConfluenceConfig
+from docstage_core.config import Config, ConfigOverrides, ConfluenceConfig
 
 
 @click.group()
@@ -96,8 +96,7 @@ def serve(
     """Start the documentation server."""
     from docstage.server import run_server
 
-    config = Config.load(
-        config_path,
+    overrides = ConfigOverrides(
         host=host,
         port=port,
         source_dir=source_dir,
@@ -106,6 +105,7 @@ def serve(
         kroki_url=kroki_url,
         live_reload_enabled=live_reload,
     )
+    config = Config.load(config_path, overrides)
 
     click.echo(f"Starting server on {config.server.host}:{config.server.port}")
     click.echo(f"Source directory: {config.docs.source_dir}")

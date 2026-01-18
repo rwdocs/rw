@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### 2026-01-18
+- Expose `ConfigOverrides` to Python for explicit override handling
+  - `Config.load()` now accepts `ConfigOverrides` object instead of individual kwargs
+  - CLI constructs `ConfigOverrides` and passes to `Config.load()`
+  - PyO3 bindings contain no conversion logic, just type passthrough
 - Remove redundant `docstage/config.py` module
   - Python code now imports directly from `docstage_core.config`
   - Eliminates unnecessary re-export layer
@@ -10,7 +14,6 @@
   - Add `ConfigOverrides` struct to hold CLI override values
   - Extend `Config::load()` to accept optional overrides parameter
   - Overrides applied after loading and path resolution in Rust
-  - `Config.load()` Python binding now accepts keyword args for overrides: `host`, `port`, `source_dir`, `cache_dir`, `cache_enabled`, `kroki_url`, `live_reload_enabled`
   - Remove Python `Config.with_overrides()` method and `_Overridden*` dataclasses
   - All config logic now consolidated in Rust
 - Split config module from docstage-core to docstage-config crate
@@ -24,7 +27,7 @@
   - Rust `docstage-config` crate already has comprehensive tests (15 tests)
 - Code simplification refactoring
   - Add `resolve` closure in Rust `resolve_paths()` to consolidate path resolution pattern
-  - Add `ConfigOverrides::is_empty()` method to simplify override detection in PyO3 bindings
+  - Add `ConfigOverrides::is_empty()` method for override detection
 
 ### 2026-01-17
 - Move TOML config parsing from Python to Rust using serde
