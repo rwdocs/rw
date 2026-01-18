@@ -41,9 +41,8 @@ use docstage_confluence_renderer::ConfluenceBackend;
 use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 
 use docstage_diagrams::{
-    DEFAULT_DPI, DiagramFormat, DiagramProcessor, DiagramRequest, ExtractedDiagram, RenderError,
-    load_config_file, prepare_diagram_source, render_all, replace_png_diagrams,
-    replace_svg_diagrams, to_extracted_diagrams,
+    DEFAULT_DPI, DiagramProcessor, DiagramRequest, ExtractedDiagram, RenderError, load_config_file,
+    prepare_diagram_source, render_all, to_extracted_diagrams,
 };
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
@@ -498,32 +497,24 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        let mut renderer = self.create_html_renderer(base_path, true);
-        let result = renderer.render(parser);
+        let processor = DiagramProcessor::new()
+            .kroki_url(kroki_url)
+            .include_dirs(&self.include_dirs)
+            .config_content(self.config_content.as_deref())
+            .dpi(self.dpi);
 
-        let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
-        let mut warnings = renderer.processor_warnings();
-
-        let mut html = result.html;
-
-        if !extracted_diagrams.is_empty() {
-            // Group diagrams by format
-            let mut svg_diagrams = Vec::new();
-            let mut png_diagrams = Vec::new();
-
-            for d in &extracted_diagrams {
-                let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
-                let request = DiagramRequest::new(d.index, source, d.language);
-
-                match d.format {
-                    DiagramFormat::Svg => svg_diagrams.push((d.index, request)),
-                    DiagramFormat::Png => png_diagrams.push((d.index, request)),
-                }
-            }
-
-            replace_svg_diagrams(&mut html, &svg_diagrams, kroki_url, self.dpi);
-            replace_png_diagrams(&mut html, &png_diagrams, kroki_url);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        if self.extract_title {
+            renderer = renderer.with_title_extraction();
         }
+        if let Some(path) = base_path {
+            renderer = renderer.with_base_path(path);
+        }
+        renderer = renderer.with_processor(processor);
+
+        let result = renderer.render(parser);
+        let html = renderer.finalize(result.html);
+        let warnings = renderer.processor_warnings();
 
         HtmlConvertResult {
             html,

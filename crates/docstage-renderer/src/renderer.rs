@@ -151,6 +151,28 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self.processors.iter().flat_map(|p| p.warnings()).collect()
     }
 
+    /// Finalize rendering by calling post_process on all processors.
+    ///
+    /// This method should be called after [`render`](Self::render) to replace
+    /// placeholders with actual content. Each processor's `post_process` method
+    /// is called in registration order.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+    ///     .with_processor(DiagramProcessor::new().kroki_url("https://kroki.io"));
+    ///
+    /// let result = renderer.render(parser);
+    /// let html = renderer.finalize(result.html);
+    /// ```
+    pub fn finalize(&mut self, mut html: String) -> String {
+        for processor in &mut self.processors {
+            processor.post_process(&mut html);
+        }
+        html
+    }
+
     /// Push content to output or heading buffer based on context.
     fn push_inline(&mut self, content: &str) {
         if self.heading.is_active() {
