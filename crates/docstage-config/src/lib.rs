@@ -3,16 +3,16 @@
 //! Parses `docstage.toml` configuration files with serde and provides
 //! auto-discovery of config files in parent directories.
 //!
-//! CLI overrides can be applied during load via [`ConfigOverrides`].
+//! CLI settings can be applied during load via [`CliSettings`].
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// CLI overrides for configuration values.
+/// CLI settings that override configuration file values.
 ///
 /// All fields are optional. Only non-None values override the loaded config.
 #[derive(Debug, Clone, Default)]
-pub struct ConfigOverrides {
+pub struct CliSettings {
     /// Override server host.
     pub host: Option<String>,
     /// Override server port.
@@ -29,7 +29,7 @@ pub struct ConfigOverrides {
     pub live_reload_enabled: Option<bool>,
 }
 
-impl ConfigOverrides {
+impl CliSettings {
     /// Check if all override fields are None (no overrides specified).
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -224,12 +224,12 @@ impl From<toml::de::Error> for ConfigError {
 }
 
 impl Config {
-    /// Load configuration from file with optional CLI overrides.
+    /// Load configuration from file with optional CLI settings.
     ///
     /// If `config_path` is provided, loads from that file.
     /// Otherwise, searches for `docstage.toml` in current directory and parents.
     ///
-    /// Overrides are applied after loading and path resolution, allowing CLI
+    /// CLI settings are applied after loading and path resolution, allowing CLI
     /// arguments to take precedence over config file values.
     ///
     /// # Errors
@@ -237,7 +237,7 @@ impl Config {
     /// Returns error if explicit `config_path` doesn't exist or parsing fails.
     pub fn load(
         config_path: Option<&Path>,
-        overrides: Option<&ConfigOverrides>,
+        cli_settings: Option<&CliSettings>,
     ) -> Result<Self, ConfigError> {
         let mut config = if let Some(path) = config_path {
             if !path.exists() {
@@ -250,34 +250,34 @@ impl Config {
             Self::default_with_cwd()
         };
 
-        if let Some(ovr) = overrides {
-            config.apply_overrides(ovr);
+        if let Some(settings) = cli_settings {
+            config.apply_cli_settings(settings);
         }
 
         Ok(config)
     }
 
-    /// Apply CLI overrides to the configuration.
-    fn apply_overrides(&mut self, overrides: &ConfigOverrides) {
-        if let Some(host) = &overrides.host {
+    /// Apply CLI settings to the configuration.
+    fn apply_cli_settings(&mut self, settings: &CliSettings) {
+        if let Some(host) = &settings.host {
             self.server.host.clone_from(host);
         }
-        if let Some(port) = overrides.port {
+        if let Some(port) = settings.port {
             self.server.port = port;
         }
-        if let Some(source_dir) = &overrides.source_dir {
+        if let Some(source_dir) = &settings.source_dir {
             self.docs_resolved.source_dir.clone_from(source_dir);
         }
-        if let Some(cache_dir) = &overrides.cache_dir {
+        if let Some(cache_dir) = &settings.cache_dir {
             self.docs_resolved.cache_dir.clone_from(cache_dir);
         }
-        if let Some(cache_enabled) = overrides.cache_enabled {
+        if let Some(cache_enabled) = settings.cache_enabled {
             self.docs_resolved.cache_enabled = cache_enabled;
         }
-        if let Some(kroki_url) = &overrides.kroki_url {
+        if let Some(kroki_url) = &settings.kroki_url {
             self.diagrams_resolved.kroki_url = Some(kroki_url.clone());
         }
-        if let Some(live_reload_enabled) = overrides.live_reload_enabled {
+        if let Some(live_reload_enabled) = settings.live_reload_enabled {
             self.live_reload.enabled = live_reload_enabled;
         }
     }
@@ -476,42 +476,42 @@ include_dirs = ["diagrams", "shared/diagrams"]
     }
 
     #[test]
-    fn test_apply_overrides_host() {
+    fn test_apply_cli_settings_host() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        let overrides = ConfigOverrides {
+        let overrides = CliSettings {
             host: Some("0.0.0.0".to_string()),
             ..Default::default()
         };
 
-        config.apply_overrides(&overrides);
+        config.apply_cli_settings(&overrides);
 
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 8080); // Unchanged
     }
 
     #[test]
-    fn test_apply_overrides_port() {
+    fn test_apply_cli_settings_port() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        let overrides = ConfigOverrides {
+        let overrides = CliSettings {
             port: Some(9000),
             ..Default::default()
         };
 
-        config.apply_overrides(&overrides);
+        config.apply_cli_settings(&overrides);
 
         assert_eq!(config.server.port, 9000);
         assert_eq!(config.server.host, "127.0.0.1"); // Unchanged
     }
 
     #[test]
-    fn test_apply_overrides_source_dir() {
+    fn test_apply_cli_settings_source_dir() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        let overrides = ConfigOverrides {
+        let overrides = CliSettings {
             source_dir: Some(PathBuf::from("/custom/docs")),
             ..Default::default()
         };
 
-        config.apply_overrides(&overrides);
+        config.apply_cli_settings(&overrides);
 
         assert_eq!(
             config.docs_resolved.source_dir,
@@ -524,31 +524,31 @@ include_dirs = ["diagrams", "shared/diagrams"]
     }
 
     #[test]
-    fn test_apply_overrides_cache_enabled() {
+    fn test_apply_cli_settings_cache_enabled() {
         let mut config = Config::default_with_base(Path::new("/test"));
         assert!(config.docs_resolved.cache_enabled);
 
-        let overrides = ConfigOverrides {
+        let overrides = CliSettings {
             cache_enabled: Some(false),
             ..Default::default()
         };
 
-        config.apply_overrides(&overrides);
+        config.apply_cli_settings(&overrides);
 
         assert!(!config.docs_resolved.cache_enabled);
     }
 
     #[test]
-    fn test_apply_overrides_kroki_url() {
+    fn test_apply_cli_settings_kroki_url() {
         let mut config = Config::default_with_base(Path::new("/test"));
         assert!(config.diagrams_resolved.kroki_url.is_none());
 
-        let overrides = ConfigOverrides {
+        let overrides = CliSettings {
             kroki_url: Some("https://kroki.example.com".to_string()),
             ..Default::default()
         };
 
-        config.apply_overrides(&overrides);
+        config.apply_cli_settings(&overrides);
 
         assert_eq!(
             config.diagrams_resolved.kroki_url,
@@ -557,25 +557,25 @@ include_dirs = ["diagrams", "shared/diagrams"]
     }
 
     #[test]
-    fn test_apply_overrides_live_reload() {
+    fn test_apply_cli_settings_live_reload() {
         let mut config = Config::default_with_base(Path::new("/test"));
         assert!(config.live_reload.enabled);
 
-        let overrides = ConfigOverrides {
+        let overrides = CliSettings {
             live_reload_enabled: Some(false),
             ..Default::default()
         };
 
-        config.apply_overrides(&overrides);
+        config.apply_cli_settings(&overrides);
 
         assert!(!config.live_reload.enabled);
     }
 
     #[test]
-    fn test_apply_overrides_multiple() {
+    fn test_apply_cli_settings_multiple() {
         let mut config = Config::default_with_base(Path::new("/test"));
 
-        let overrides = ConfigOverrides {
+        let overrides = CliSettings {
             host: Some("0.0.0.0".to_string()),
             port: Some(9000),
             kroki_url: Some("https://kroki.io".to_string()),
@@ -583,7 +583,7 @@ include_dirs = ["diagrams", "shared/diagrams"]
             ..Default::default()
         };
 
-        config.apply_overrides(&overrides);
+        config.apply_cli_settings(&overrides);
 
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 9000);
@@ -595,11 +595,11 @@ include_dirs = ["diagrams", "shared/diagrams"]
     }
 
     #[test]
-    fn test_apply_overrides_empty() {
+    fn test_apply_cli_settings_empty() {
         let config_before = Config::default_with_base(Path::new("/test"));
         let mut config = Config::default_with_base(Path::new("/test"));
 
-        config.apply_overrides(&ConfigOverrides::default());
+        config.apply_cli_settings(&CliSettings::default());
 
         assert_eq!(config.server.host, config_before.server.host);
         assert_eq!(config.server.port, config_before.server.port);
@@ -610,11 +610,11 @@ include_dirs = ["diagrams", "shared/diagrams"]
     }
 
     #[test]
-    fn test_config_overrides_is_empty() {
-        assert!(ConfigOverrides::default().is_empty());
+    fn test_cli_settings_is_empty() {
+        assert!(CliSettings::default().is_empty());
 
         assert!(
-            !ConfigOverrides {
+            !CliSettings {
                 host: Some("0.0.0.0".to_string()),
                 ..Default::default()
             }
@@ -622,7 +622,7 @@ include_dirs = ["diagrams", "shared/diagrams"]
         );
 
         assert!(
-            !ConfigOverrides {
+            !CliSettings {
                 port: Some(9000),
                 ..Default::default()
             }
@@ -630,7 +630,7 @@ include_dirs = ["diagrams", "shared/diagrams"]
         );
 
         assert!(
-            !ConfigOverrides {
+            !CliSettings {
                 live_reload_enabled: Some(false),
                 ..Default::default()
             }

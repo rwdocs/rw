@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use ::docstage_config::{
-    Config, ConfigError, ConfigOverrides, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig,
+    Config, ConfigError, CliSettings, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig,
     DocsConfig, LiveReloadConfig, ServerConfig,
 };
 use ::docstage_core::{
@@ -313,10 +313,10 @@ impl PyMarkdownConverter {
 // Config bindings
 // ============================================================================
 
-/// CLI override options for configuration.
-#[pyclass(name = "ConfigOverrides")]
+/// CLI settings that override configuration file values.
+#[pyclass(name = "CliSettings")]
 #[derive(Clone, Default)]
-pub struct PyConfigOverrides {
+pub struct PyCliSettings {
     #[pyo3(get, set)]
     pub host: Option<String>,
     #[pyo3(get, set)]
@@ -334,7 +334,7 @@ pub struct PyConfigOverrides {
 }
 
 #[pymethods]
-impl PyConfigOverrides {
+impl PyCliSettings {
     #[new]
     #[pyo3(signature = (
         host = None,
@@ -367,8 +367,8 @@ impl PyConfigOverrides {
     }
 }
 
-impl From<&PyConfigOverrides> for ConfigOverrides {
-    fn from(py: &PyConfigOverrides) -> Self {
+impl From<&PyCliSettings> for CliSettings {
+    fn from(py: &PyCliSettings) -> Self {
         Self {
             host: py.host.clone(),
             port: py.port,
@@ -518,25 +518,25 @@ pub struct PyConfig {
 
 #[pymethods]
 impl PyConfig {
-    /// Load configuration from file with optional CLI overrides.
+    /// Load configuration from file with optional CLI settings.
     ///
     /// If config_path is provided, loads from that file.
     /// Otherwise, searches for docstage.toml in current directory and parents.
     ///
     /// Args:
     ///     config_path: Path to configuration file (auto-discovers if None)
-    ///     overrides: CLI override options (ConfigOverrides instance)
+    ///     cli_settings: CLI settings that override config file values
     #[staticmethod]
-    #[pyo3(signature = (config_path = None, overrides = None))]
+    #[pyo3(signature = (config_path = None, cli_settings = None))]
     pub fn load(
         config_path: Option<PathBuf>,
-        overrides: Option<&PyConfigOverrides>,
+        cli_settings: Option<&PyCliSettings>,
     ) -> PyResult<Self> {
-        let rust_overrides = overrides.map(ConfigOverrides::from);
+        let rust_settings = cli_settings.map(CliSettings::from);
 
         Config::load(
             config_path.as_deref(),
-            rust_overrides.as_ref(),
+            rust_settings.as_ref(),
         )
             .map(|inner| Self { inner })
             .map_err(|e| match e {
@@ -606,7 +606,7 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Config classes
     m.add_class::<PyConfig>()?;
-    m.add_class::<PyConfigOverrides>()?;
+    m.add_class::<PyCliSettings>()?;
     m.add_class::<PyServerConfig>()?;
     m.add_class::<PyDocsConfig>()?;
     m.add_class::<PyDiagramsConfig>()?;

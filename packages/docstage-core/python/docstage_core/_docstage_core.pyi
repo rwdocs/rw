@@ -107,8 +107,8 @@ class MarkdownConverter:
 
 # Config classes
 
-class ConfigOverrides:
-    """CLI override options for configuration."""
+class CliSettings:
+    """CLI settings that override configuration file values."""
 
     host: str | None
     port: int | None
@@ -184,5 +184,5 @@ class Config:
     @staticmethod
     def load(
         config_path: Path | None = None,
-        overrides: ConfigOverrides | None = None,
+        cli_settings: CliSettings | None = None,
     ) -> Config: ...
