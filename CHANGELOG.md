@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Unified HTML and Confluence renderers** via trait-based `RenderBackend` abstraction
 - **Config parsing moved to Rust** for better performance and type safety
 - **Unified configuration** via `docstage.toml` with auto-discovery
 - **Confluence commands** moved to `docstage confluence <command>` subgroup

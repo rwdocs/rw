@@ -41,14 +41,13 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::confluence::ConfluenceRenderer;
 use crate::diagram_filter::{DiagramFilter, DiagramFormat};
-use crate::html::{HtmlRenderer, TocEntry, escape_html};
 use crate::kroki::{
     DiagramError, DiagramRequest, RenderError, render_all, render_all_png_data_uri_partial,
     render_all_svg_partial,
 };
 use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
+use crate::renderer::{ConfluenceBackend, HtmlBackend, MarkdownRenderer, TocEntry, escape_html};
 
 static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()
@@ -275,9 +274,9 @@ impl MarkdownConverter {
         options
     }
 
-    /// Create an `HtmlRenderer` with the converter's settings.
-    fn create_html_renderer(&self, base_path: Option<&str>) -> HtmlRenderer {
-        let mut renderer = HtmlRenderer::new();
+    /// Create an HTML renderer with the converter's settings.
+    fn create_html_renderer(&self, base_path: Option<&str>) -> MarkdownRenderer<HtmlBackend> {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
@@ -287,9 +286,9 @@ impl MarkdownConverter {
         renderer
     }
 
-    /// Create a `ConfluenceRenderer` with the converter's settings.
-    fn create_confluence_renderer(&self) -> ConfluenceRenderer {
-        let renderer = ConfluenceRenderer::new();
+    /// Create a Confluence renderer with the converter's settings.
+    fn create_confluence_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
+        let renderer = MarkdownRenderer::<ConfluenceBackend>::new();
         if self.extract_title {
             renderer.with_title_extraction()
         } else {
@@ -361,9 +360,7 @@ impl MarkdownConverter {
 
         // Filter diagram code blocks, replacing them with placeholders
         let mut filter = DiagramFilter::new(parser);
-        let result = self
-            .create_confluence_renderer()
-            .render_with_title(&mut filter);
+        let result = self.create_confluence_renderer().render(&mut filter);
 
         // Get extracted diagrams and filter warnings
         let (extracted_diagrams, filter_warnings) = filter.into_parts();
@@ -442,9 +439,7 @@ impl MarkdownConverter {
 
         // Filter diagram code blocks, replacing them with placeholders
         let mut filter = DiagramFilter::new(parser);
-        let result = self
-            .create_confluence_renderer()
-            .render_with_title(&mut filter);
+        let result = self.create_confluence_renderer().render(&mut filter);
         let (extracted_diagrams, filter_warnings) = filter.into_parts();
 
         let mut warnings = filter_warnings;
