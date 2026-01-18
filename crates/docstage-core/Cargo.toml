@@ -11,7 +11,6 @@ docstage-confluence-renderer = { workspace = true }
 docstage-diagrams = { workspace = true }
 docstage-renderer = { workspace = true }
 pulldown-cmark = { workspace = true }
-regex = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

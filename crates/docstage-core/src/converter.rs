@@ -34,88 +34,19 @@
 //! ```
 
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 
 use pulldown_cmark::{Options, Parser};
-use regex::Regex;
 
 use docstage_confluence_renderer::ConfluenceBackend;
-use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry, escape_html};
+use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 
 use docstage_diagrams::{
-    DEFAULT_DPI, DiagramError, DiagramFormat, DiagramProcessor, DiagramRequest, ExtractedDiagram,
-    RenderError, load_config_file, prepare_diagram_source, render_all,
-    render_all_png_data_uri_partial, render_all_svg_partial, to_extracted_diagrams,
+    DEFAULT_DPI, DiagramFormat, DiagramProcessor, DiagramRequest, ExtractedDiagram, RenderError,
+    load_config_file, prepare_diagram_source, render_all, replace_png_diagrams,
+    replace_svg_diagrams, to_extracted_diagrams,
 };
 
-static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()
-});
-
-/// Regex to match SVG width attribute with pixel value.
-static SVG_WIDTH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)width="(\d+)(?:px)?""#).unwrap());
-
-/// Regex to match SVG height attribute with pixel value.
-static SVG_HEIGHT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)height="(\d+)(?:px)?""#).unwrap());
-
-/// Regex to match width in style attribute (e.g., `width:136px`).
-static STYLE_WIDTH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(width:\s*)(\d+)(px)").unwrap());
-
-/// Regex to match height in style attribute (e.g., `height:210px`).
-static STYLE_HEIGHT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(height:\s*)(\d+)(px)").unwrap());
-
-/// Standard display DPI (96) used as baseline for scaling calculations.
-const STANDARD_DPI: u32 = 96;
-
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
-
-/// Scale SVG width and height based on DPI.
-///
-/// Diagrams are rendered at a configured DPI (e.g., 192 for retina displays).
-/// This function scales the SVG dimensions down so that the diagram displays
-/// at its intended physical size. For example, a diagram rendered at 192 DPI
-/// will have its dimensions halved to display correctly on standard 96 DPI displays.
-///
-/// Scales both XML attributes (`width="136"`) and inline style properties (`width:136px`).
-///
-/// The scaling factor is `STANDARD_DPI / dpi`. At 192 DPI, this is 0.5 (halved).
-/// At 96 DPI, dimensions are unchanged.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
-    if dpi == STANDARD_DPI {
-        return svg.to_string();
-    }
-
-    let scale = f64::from(STANDARD_DPI) / f64::from(dpi);
-
-    // Helper to scale a dimension value and format the result
-    let scale_dim = |caps: &regex::Captures| {
-        let value: f64 = caps[2].parse().unwrap_or(0.0);
-        (value * scale).round() as u32
-    };
-
-    // Scale XML attributes (width="136", height="210")
-    let result = SVG_WIDTH_RE.replace(svg, |caps: &regex::Captures| {
-        format!(r#"{}width="{}""#, &caps[1], scale_dim(caps))
-    });
-    let result = SVG_HEIGHT_RE.replace(&result, |caps: &regex::Captures| {
-        format!(r#"{}height="{}""#, &caps[1], scale_dim(caps))
-    });
-
-    // Scale inline style properties (width:136px, height:210px)
-    let result = STYLE_WIDTH_RE.replace_all(&result, |caps: &regex::Captures| {
-        format!("{}{}{}", &caps[1], scale_dim(caps), &caps[3])
-    });
-    let result = STYLE_HEIGHT_RE.replace_all(&result, |caps: &regex::Captures| {
-        format!("{}{}{}", &caps[1], scale_dim(caps), &caps[3])
-    });
-
-    result.into_owned()
-}
 
 /// Create Confluence image macro for an attachment.
 #[must_use]
@@ -274,7 +205,11 @@ impl MarkdownConverter {
     }
 
     /// Create an HTML renderer with the converter's settings.
-    fn create_html_renderer(&self, base_path: Option<&str>) -> MarkdownRenderer<HtmlBackend> {
+    fn create_html_renderer(
+        &self,
+        base_path: Option<&str>,
+        with_diagrams: bool,
+    ) -> MarkdownRenderer<HtmlBackend> {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
         if self.extract_title {
             renderer = renderer.with_title_extraction();
@@ -282,14 +217,23 @@ impl MarkdownConverter {
         if let Some(path) = base_path {
             renderer = renderer.with_base_path(path);
         }
+        if with_diagrams {
+            renderer = renderer.with_processor(DiagramProcessor::new());
+        }
         renderer
     }
 
     /// Create a Confluence renderer with the converter's settings.
-    fn create_confluence_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
+    fn create_confluence_renderer(
+        &self,
+        with_diagrams: bool,
+    ) -> MarkdownRenderer<ConfluenceBackend> {
         let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
         if self.extract_title {
             renderer = renderer.with_title_extraction();
+        }
+        if with_diagrams {
+            renderer = renderer.with_processor(DiagramProcessor::new());
         }
         renderer
     }
@@ -325,21 +269,6 @@ impl MarkdownConverter {
         }
     }
 
-    /// Create a Confluence renderer with DiagramProcessor.
-    fn create_confluence_renderer_with_processor(&self) -> MarkdownRenderer<ConfluenceBackend> {
-        self.create_confluence_renderer()
-            .with_processor(DiagramProcessor::new())
-    }
-
-    /// Create an HTML renderer with DiagramProcessor.
-    fn create_html_renderer_with_processor(
-        &self,
-        base_path: Option<&str>,
-    ) -> MarkdownRenderer<HtmlBackend> {
-        self.create_html_renderer(base_path)
-            .with_processor(DiagramProcessor::new())
-    }
-
     /// Convert markdown to Confluence storage format.
     ///
     /// Diagrams are rendered via Kroki and placeholders replaced with
@@ -358,11 +287,9 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Render with DiagramProcessor to extract diagrams
-        let mut renderer = self.create_confluence_renderer_with_processor();
+        let mut renderer = self.create_confluence_renderer(true);
         let result = renderer.render(parser);
 
-        // Get extracted diagrams and processor warnings
         let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
         let mut warnings = renderer.processor_warnings();
 
@@ -437,11 +364,9 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Render with DiagramProcessor to extract diagrams
-        let mut renderer = self.create_confluence_renderer_with_processor();
+        let mut renderer = self.create_confluence_renderer(true);
         let result = renderer.render(parser);
 
-        // Get extracted diagrams and processor warnings
         let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
         let mut warnings = renderer.processor_warnings();
 
@@ -485,7 +410,7 @@ impl MarkdownConverter {
     pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> HtmlConvertResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
-        let result = self.create_html_renderer(base_path).render(parser);
+        let result = self.create_html_renderer(base_path, false).render(parser);
 
         HtmlConvertResult {
             html: result.html,
@@ -519,11 +444,9 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Render with DiagramProcessor to extract diagrams
-        let mut renderer = self.create_html_renderer_with_processor(base_path);
+        let mut renderer = self.create_html_renderer(base_path, true);
         let result = renderer.render(parser);
 
-        // Get extracted diagrams and processor warnings
         let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
         let mut warnings = renderer.processor_warnings();
 
@@ -575,11 +498,9 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Render with DiagramProcessor to extract diagrams
-        let mut renderer = self.create_html_renderer_with_processor(base_path);
+        let mut renderer = self.create_html_renderer(base_path, true);
         let result = renderer.render(parser);
 
-        // Get extracted diagrams and processor warnings
         let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
         let mut warnings = renderer.processor_warnings();
 
@@ -613,169 +534,9 @@ impl MarkdownConverter {
     }
 }
 
-/// Replace diagram placeholders with rendered SVG content.
-///
-/// Attempts to render all diagrams via Kroki. On success, replaces placeholders
-/// with `<figure class="diagram">` containing the SVG. On failure, replaces
-/// with an error message in `<figure class="diagram diagram-error">`.
-///
-/// SVG dimensions are scaled based on DPI to display at correct physical size.
-/// For example, at 192 DPI (2x retina), dimensions are halved so diagrams
-/// appear at their intended size on standard displays.
-fn replace_svg_diagrams(
-    html: &mut String,
-    diagrams: &[(usize, DiagramRequest)],
-    kroki_url: &str,
-    dpi: u32,
-) {
-    if diagrams.is_empty() {
-        return;
-    }
-
-    let requests: Vec<_> = diagrams.iter().map(|(_, r)| r.clone()).collect();
-    match render_all_svg_partial(&requests, kroki_url, 4) {
-        Ok(result) => {
-            for r in result.rendered {
-                replace_placeholder_with_svg(html, r.index, r.svg.trim(), dpi);
-            }
-            for e in &result.errors {
-                replace_placeholder_with_error(html, e);
-            }
-        }
-        Err(e) => {
-            let error_msg = e.to_string();
-            for (idx, _) in diagrams {
-                replace_placeholder_with_error_msg(html, *idx, &error_msg);
-            }
-        }
-    }
-}
-
-/// Replace diagram placeholders with rendered PNG content as data URIs.
-///
-/// Attempts to render all diagrams via Kroki. On success, replaces placeholders
-/// with `<figure class="diagram">` containing an `<img>` tag with base64 data URI.
-/// On failure, replaces with an error message in `<figure class="diagram diagram-error">`.
-fn replace_png_diagrams(html: &mut String, diagrams: &[(usize, DiagramRequest)], kroki_url: &str) {
-    if diagrams.is_empty() {
-        return;
-    }
-
-    let requests: Vec<_> = diagrams.iter().map(|(_, r)| r.clone()).collect();
-    match render_all_png_data_uri_partial(&requests, kroki_url, 4) {
-        Ok(result) => {
-            for r in result.rendered {
-                replace_placeholder_with_png(html, r.index, &r.data_uri);
-            }
-            for e in &result.errors {
-                replace_placeholder_with_error(html, e);
-            }
-        }
-        Err(e) => {
-            let error_msg = e.to_string();
-            for (idx, _) in diagrams {
-                replace_placeholder_with_error_msg(html, *idx, &error_msg);
-            }
-        }
-    }
-}
-
-fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str, dpi: u32) {
-    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-    let clean_svg = strip_google_fonts_import(svg);
-    let scaled_svg = scale_svg_dimensions(&clean_svg, dpi);
-    let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
-    *html = html.replace(&placeholder, &figure);
-}
-
-/// Strip Google Fonts @import from SVG to avoid external requests.
-///
-/// `PlantUML` embeds `@import url('https://fonts.googleapis.com/...')` in SVG
-/// when using Roboto font. We remove this since Roboto is bundled locally.
-fn strip_google_fonts_import(svg: &str) -> String {
-    GOOGLE_FONTS_RE.replace_all(svg, "").to_string()
-}
-
-fn replace_placeholder_with_png(html: &mut String, index: usize, data_uri: &str) {
-    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-    let figure =
-        format!(r#"<figure class="diagram"><img src="{data_uri}" alt="diagram"></figure>"#);
-    *html = html.replace(&placeholder, &figure);
-}
-
-fn replace_placeholder_with_error(html: &mut String, error: &DiagramError) {
-    replace_placeholder_with_error_msg(html, error.index, &error.to_string());
-}
-
-fn replace_placeholder_with_error_msg(html: &mut String, index: usize, error_msg: &str) {
-    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-    let error_figure = format!(
-        r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
-        escape_html(error_msg)
-    );
-    *html = html.replace(&placeholder, &error_figure);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_scale_svg_dimensions_at_192_dpi() {
-        // At 192 DPI (2x retina), dimensions should be halved
-        let svg = r#"<svg width="400" height="200" viewBox="0 0 400 200"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
-        assert_eq!(
-            result,
-            r#"<svg width="200" height="100" viewBox="0 0 400 200"></svg>"#
-        );
-    }
-
-    #[test]
-    fn test_scale_svg_dimensions_at_96_dpi() {
-        // At 96 DPI (standard), dimensions should be unchanged
-        let svg = r#"<svg width="400" height="200"></svg>"#;
-        let result = scale_svg_dimensions(svg, 96);
-        assert_eq!(result, r#"<svg width="400" height="200"></svg>"#);
-    }
-
-    #[test]
-    fn test_scale_svg_dimensions_with_px_suffix() {
-        // Handle width/height with "px" suffix
-        let svg = r#"<svg width="400px" height="200px"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
-        assert_eq!(result, r#"<svg width="200" height="100"></svg>"#);
-    }
-
-    #[test]
-    fn test_scale_svg_dimensions_preserves_other_attributes() {
-        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" class="diagram"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
-        assert_eq!(
-            result,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" class="diagram"></svg>"#
-        );
-    }
-
-    #[test]
-    fn test_scale_svg_dimensions_at_144_dpi() {
-        // At 144 DPI (1.5x), dimensions should be scaled to 2/3
-        let svg = r#"<svg width="300" height="150"></svg>"#;
-        let result = scale_svg_dimensions(svg, 144);
-        // 300 * (96/144) = 200, 150 * (96/144) = 100
-        assert_eq!(result, r#"<svg width="200" height="100"></svg>"#);
-    }
-
-    #[test]
-    fn test_scale_svg_dimensions_with_style_attribute() {
-        // Handle width/height in style attribute (as Kroki returns)
-        let svg = r#"<svg width="136" height="210" style="width:136px;height:210px;background:#FFFFFF;"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
-        assert_eq!(
-            result,
-            r#"<svg width="68" height="105" style="width:68px;height:105px;background:#FFFFFF;"></svg>"#
-        );
-    }
 
     #[test]
     fn test_extract_confluence_with_plantuml() {
