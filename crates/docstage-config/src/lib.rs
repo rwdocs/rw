@@ -2,9 +2,46 @@
 //!
 //! Parses `docstage.toml` configuration files with serde and provides
 //! auto-discovery of config files in parent directories.
+//!
+//! CLI overrides can be applied during load via [`ConfigOverrides`].
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
+
+/// CLI overrides for configuration values.
+///
+/// All fields are optional. Only non-None values override the loaded config.
+#[derive(Debug, Clone, Default)]
+pub struct ConfigOverrides {
+    /// Override server host.
+    pub host: Option<String>,
+    /// Override server port.
+    pub port: Option<u16>,
+    /// Override docs source directory.
+    pub source_dir: Option<PathBuf>,
+    /// Override docs cache directory.
+    pub cache_dir: Option<PathBuf>,
+    /// Override cache enabled flag.
+    pub cache_enabled: Option<bool>,
+    /// Override Kroki URL for diagram rendering.
+    pub kroki_url: Option<String>,
+    /// Override live reload enabled flag.
+    pub live_reload_enabled: Option<bool>,
+}
+
+impl ConfigOverrides {
+    /// Check if all override fields are None (no overrides specified).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.host.is_none()
+            && self.port.is_none()
+            && self.source_dir.is_none()
+            && self.cache_dir.is_none()
+            && self.cache_enabled.is_none()
+            && self.kroki_url.is_none()
+            && self.live_reload_enabled.is_none()
+    }
+}
 
 /// Configuration filename to search for.
 pub const CONFIG_FILENAME: &str = "docstage.toml";
@@ -187,27 +224,62 @@ impl From<toml::de::Error> for ConfigError {
 }
 
 impl Config {
-    /// Load configuration from file.
+    /// Load configuration from file with optional CLI overrides.
     ///
     /// If `config_path` is provided, loads from that file.
     /// Otherwise, searches for `docstage.toml` in current directory and parents.
     ///
+    /// Overrides are applied after loading and path resolution, allowing CLI
+    /// arguments to take precedence over config file values.
+    ///
     /// # Errors
     ///
     /// Returns error if explicit `config_path` doesn't exist or parsing fails.
-    pub fn load(config_path: Option<&Path>) -> Result<Self, ConfigError> {
-        if let Some(path) = config_path {
+    pub fn load(
+        config_path: Option<&Path>,
+        overrides: Option<&ConfigOverrides>,
+    ) -> Result<Self, ConfigError> {
+        let mut config = if let Some(path) = config_path {
             if !path.exists() {
                 return Err(ConfigError::NotFound(path.to_path_buf()));
             }
-            return Self::load_from_file(path);
+            Self::load_from_file(path)?
+        } else if let Some(discovered) = Self::discover_config() {
+            Self::load_from_file(&discovered)?
+        } else {
+            Self::default_with_cwd()
+        };
+
+        if let Some(ovr) = overrides {
+            config.apply_overrides(ovr);
         }
 
-        if let Some(discovered) = Self::discover_config() {
-            return Self::load_from_file(&discovered);
-        }
+        Ok(config)
+    }
 
-        Ok(Self::default_with_cwd())
+    /// Apply CLI overrides to the configuration.
+    fn apply_overrides(&mut self, overrides: &ConfigOverrides) {
+        if let Some(host) = &overrides.host {
+            self.server.host.clone_from(host);
+        }
+        if let Some(port) = overrides.port {
+            self.server.port = port;
+        }
+        if let Some(source_dir) = &overrides.source_dir {
+            self.docs_resolved.source_dir.clone_from(source_dir);
+        }
+        if let Some(cache_dir) = &overrides.cache_dir {
+            self.docs_resolved.cache_dir.clone_from(cache_dir);
+        }
+        if let Some(cache_enabled) = overrides.cache_enabled {
+            self.docs_resolved.cache_enabled = cache_enabled;
+        }
+        if let Some(kroki_url) = &overrides.kroki_url {
+            self.diagrams_resolved.kroki_url = Some(kroki_url.clone());
+        }
+        if let Some(live_reload_enabled) = overrides.live_reload_enabled {
+            self.live_reload.enabled = live_reload_enabled;
+        }
     }
 
     /// Search for config file in current directory and parents.
@@ -400,6 +472,169 @@ include_dirs = ["diagrams", "shared/diagrams"]
                 PathBuf::from("/project/diagrams"),
                 PathBuf::from("/project/shared/diagrams")
             ]
+        );
+    }
+
+    #[test]
+    fn test_apply_overrides_host() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        let overrides = ConfigOverrides {
+            host: Some("0.0.0.0".to_string()),
+            ..Default::default()
+        };
+
+        config.apply_overrides(&overrides);
+
+        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.port, 8080); // Unchanged
+    }
+
+    #[test]
+    fn test_apply_overrides_port() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        let overrides = ConfigOverrides {
+            port: Some(9000),
+            ..Default::default()
+        };
+
+        config.apply_overrides(&overrides);
+
+        assert_eq!(config.server.port, 9000);
+        assert_eq!(config.server.host, "127.0.0.1"); // Unchanged
+    }
+
+    #[test]
+    fn test_apply_overrides_source_dir() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        let overrides = ConfigOverrides {
+            source_dir: Some(PathBuf::from("/custom/docs")),
+            ..Default::default()
+        };
+
+        config.apply_overrides(&overrides);
+
+        assert_eq!(
+            config.docs_resolved.source_dir,
+            PathBuf::from("/custom/docs")
+        );
+        assert_eq!(
+            config.docs_resolved.cache_dir,
+            PathBuf::from("/test/.cache")
+        ); // Unchanged
+    }
+
+    #[test]
+    fn test_apply_overrides_cache_enabled() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        assert!(config.docs_resolved.cache_enabled);
+
+        let overrides = ConfigOverrides {
+            cache_enabled: Some(false),
+            ..Default::default()
+        };
+
+        config.apply_overrides(&overrides);
+
+        assert!(!config.docs_resolved.cache_enabled);
+    }
+
+    #[test]
+    fn test_apply_overrides_kroki_url() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        assert!(config.diagrams_resolved.kroki_url.is_none());
+
+        let overrides = ConfigOverrides {
+            kroki_url: Some("https://kroki.example.com".to_string()),
+            ..Default::default()
+        };
+
+        config.apply_overrides(&overrides);
+
+        assert_eq!(
+            config.diagrams_resolved.kroki_url,
+            Some("https://kroki.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_apply_overrides_live_reload() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        assert!(config.live_reload.enabled);
+
+        let overrides = ConfigOverrides {
+            live_reload_enabled: Some(false),
+            ..Default::default()
+        };
+
+        config.apply_overrides(&overrides);
+
+        assert!(!config.live_reload.enabled);
+    }
+
+    #[test]
+    fn test_apply_overrides_multiple() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+
+        let overrides = ConfigOverrides {
+            host: Some("0.0.0.0".to_string()),
+            port: Some(9000),
+            kroki_url: Some("https://kroki.io".to_string()),
+            live_reload_enabled: Some(false),
+            ..Default::default()
+        };
+
+        config.apply_overrides(&overrides);
+
+        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.port, 9000);
+        assert_eq!(
+            config.diagrams_resolved.kroki_url,
+            Some("https://kroki.io".to_string())
+        );
+        assert!(!config.live_reload.enabled);
+    }
+
+    #[test]
+    fn test_apply_overrides_empty() {
+        let config_before = Config::default_with_base(Path::new("/test"));
+        let mut config = Config::default_with_base(Path::new("/test"));
+
+        config.apply_overrides(&ConfigOverrides::default());
+
+        assert_eq!(config.server.host, config_before.server.host);
+        assert_eq!(config.server.port, config_before.server.port);
+        assert_eq!(
+            config.docs_resolved.source_dir,
+            config_before.docs_resolved.source_dir
+        );
+    }
+
+    #[test]
+    fn test_config_overrides_is_empty() {
+        assert!(ConfigOverrides::default().is_empty());
+
+        assert!(
+            !ConfigOverrides {
+                host: Some("0.0.0.0".to_string()),
+                ..Default::default()
+            }
+            .is_empty()
+        );
+
+        assert!(
+            !ConfigOverrides {
+                port: Some(9000),
+                ..Default::default()
+            }
+            .is_empty()
+        );
+
+        assert!(
+            !ConfigOverrides {
+                live_reload_enabled: Some(false),
+                ..Default::default()
+            }
+            .is_empty()
         );
     }
 }

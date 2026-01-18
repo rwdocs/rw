@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use ::docstage_config::{
-    Config, ConfigError, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig, DocsConfig,
-    LiveReloadConfig, ServerConfig,
+    Config, ConfigError, ConfigOverrides, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig,
+    DocsConfig, LiveReloadConfig, ServerConfig,
 };
 use ::docstage_core::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
@@ -450,14 +450,56 @@ pub struct PyConfig {
 
 #[pymethods]
 impl PyConfig {
-    /// Load configuration from file.
+    /// Load configuration from file with optional CLI overrides.
     ///
     /// If config_path is provided, loads from that file.
     /// Otherwise, searches for docstage.toml in current directory and parents.
+    ///
+    /// Override parameters take precedence over config file values:
+    /// - host: Override server.host
+    /// - port: Override server.port
+    /// - source_dir: Override docs.source_dir
+    /// - cache_dir: Override docs.cache_dir
+    /// - cache_enabled: Override docs.cache_enabled
+    /// - kroki_url: Override diagrams.kroki_url
+    /// - live_reload_enabled: Override live_reload.enabled
     #[staticmethod]
-    #[pyo3(signature = (config_path = None))]
-    pub fn load(config_path: Option<PathBuf>) -> PyResult<Self> {
-        Config::load(config_path.as_deref())
+    #[pyo3(signature = (
+        config_path = None,
+        *,
+        host = None,
+        port = None,
+        source_dir = None,
+        cache_dir = None,
+        cache_enabled = None,
+        kroki_url = None,
+        live_reload_enabled = None
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn load(
+        config_path: Option<PathBuf>,
+        host: Option<String>,
+        port: Option<u16>,
+        source_dir: Option<PathBuf>,
+        cache_dir: Option<PathBuf>,
+        cache_enabled: Option<bool>,
+        kroki_url: Option<String>,
+        live_reload_enabled: Option<bool>,
+    ) -> PyResult<Self> {
+        let overrides = ConfigOverrides {
+            host,
+            port,
+            source_dir,
+            cache_dir,
+            cache_enabled,
+            kroki_url,
+            live_reload_enabled,
+        };
+
+        Config::load(
+            config_path.as_deref(),
+            if overrides.is_empty() { None } else { Some(&overrides) },
+        )
             .map(|inner| Self { inner })
             .map_err(|e| match e {
                 ConfigError::NotFound(path) => {

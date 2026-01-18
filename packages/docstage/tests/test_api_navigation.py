@@ -34,12 +34,16 @@ def docs_dir(tmp_path: Path) -> Path:
 def client(
     tmp_path: Path,
     docs_dir: Path,
-    test_config: Config,
     aiohttp_client,
 ):
     """Create test client with configured app."""
-    config = test_config.with_overrides(
-        source_dir=docs_dir, cache_dir=tmp_path / ".cache"
+    config_file = tmp_path / "docstage.toml"
+    config_file.write_text("")
+    config = Config.load(
+        config_file,
+        source_dir=docs_dir,
+        cache_dir=tmp_path / ".cache",
+        live_reload_enabled=False,
     )
     app = create_app(config)
     return aiohttp_client(app)
@@ -85,14 +89,18 @@ class TestGetNavigation:
     async def test__empty_docs__returns_empty_items(
         self,
         tmp_path: Path,
-        test_config: Config,
         aiohttp_client,
     ) -> None:
         """Return empty items for empty docs directory."""
         docs = tmp_path / "empty-docs"
         docs.mkdir()
-        config = test_config.with_overrides(
-            source_dir=docs, cache_dir=tmp_path / ".cache"
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("")
+        config = Config.load(
+            config_file,
+            source_dir=docs,
+            cache_dir=tmp_path / ".cache",
+            live_reload_enabled=False,
         )
         app = create_app(config)
         test_client = await aiohttp_client(app)

@@ -326,45 +326,41 @@ enabled = "yes"
             Config.load(config_file)
 
 
-class TestConfigWithOverrides:
-    """Tests for Config.with_overrides method."""
+class TestConfigLoadWithOverrides:
+    """Tests for Config.load() with CLI override parameters."""
 
-    def test__no_overrides__returns_same_values(self, tmp_path: Path) -> None:
-        """When no overrides are provided, values remain unchanged."""
+    def test__no_overrides__returns_config_values(self, tmp_path: Path) -> None:
+        """When no overrides are provided, values come from config file."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("")
-        original = Config.load(config_file)
 
-        result = original.with_overrides()
+        config = Config.load(config_file)
 
-        assert result.server.host == original.server.host
-        assert result.server.port == original.server.port
-        assert result.docs.source_dir == original.docs.source_dir
-        assert result.docs.cache_dir == original.docs.cache_dir
-        assert result.diagrams.kroki_url == original.diagrams.kroki_url
-        assert result.live_reload.enabled == original.live_reload.enabled
+        assert config.server.host == "127.0.0.1"
+        assert config.server.port == 8080
+        assert config.docs.source_dir == tmp_path / "docs"
+        assert config.diagrams.kroki_url is None
+        assert config.live_reload.enabled is True
 
     def test__override_host__changes_only_host(self, tmp_path: Path) -> None:
         """Override host changes only server.host."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("")
-        original = Config.load(config_file)
 
-        result = original.with_overrides(host="0.0.0.0")
+        config = Config.load(config_file, host="0.0.0.0")
 
-        assert result.server.host == "0.0.0.0"
-        assert result.server.port == original.server.port
+        assert config.server.host == "0.0.0.0"
+        assert config.server.port == 8080  # Default unchanged
 
     def test__override_port__changes_only_port(self, tmp_path: Path) -> None:
         """Override port changes only server.port."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("")
-        original = Config.load(config_file)
 
-        result = original.with_overrides(port=9000)
+        config = Config.load(config_file, port=9000)
 
-        assert result.server.port == 9000
-        assert result.server.host == original.server.host
+        assert config.server.port == 9000
+        assert config.server.host == "127.0.0.1"  # Default unchanged
 
     def test__override_source_dir__changes_only_source_dir(
         self, tmp_path: Path
@@ -372,13 +368,12 @@ class TestConfigWithOverrides:
         """Override source_dir changes only docs.source_dir."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("")
-        original = Config.load(config_file)
         new_path = Path("/custom/docs")
 
-        result = original.with_overrides(source_dir=new_path)
+        config = Config.load(config_file, source_dir=new_path)
 
-        assert result.docs.source_dir == new_path
-        assert result.docs.cache_dir == original.docs.cache_dir
+        assert config.docs.source_dir == new_path
+        assert config.docs.cache_dir == tmp_path / ".cache"  # Default unchanged
 
     def test__override_kroki_url__changes_diagrams_kroki_url(
         self, tmp_path: Path
@@ -386,11 +381,10 @@ class TestConfigWithOverrides:
         """Override kroki_url changes diagrams.kroki_url."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("")
-        original = Config.load(config_file)
 
-        result = original.with_overrides(kroki_url="https://kroki.example.com")
+        config = Config.load(config_file, kroki_url="https://kroki.example.com")
 
-        assert result.diagrams.kroki_url == "https://kroki.example.com"
+        assert config.diagrams.kroki_url == "https://kroki.example.com"
 
     def test__override_live_reload_enabled__changes_live_reload(
         self, tmp_path: Path
@@ -398,30 +392,28 @@ class TestConfigWithOverrides:
         """Override live_reload_enabled changes live_reload.enabled."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("")
-        original = Config.load(config_file)
-        assert original.live_reload.enabled is True
 
-        result = original.with_overrides(live_reload_enabled=False)
+        config = Config.load(config_file, live_reload_enabled=False)
 
-        assert result.live_reload.enabled is False
+        assert config.live_reload.enabled is False
 
     def test__multiple_overrides__changes_all_specified(self, tmp_path: Path) -> None:
         """Multiple overrides change all specified values."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("")
-        original = Config.load(config_file)
 
-        result = original.with_overrides(
+        config = Config.load(
+            config_file,
             host="0.0.0.0",
             port=9000,
             kroki_url="https://kroki.io",
             live_reload_enabled=False,
         )
 
-        assert result.server.host == "0.0.0.0"
-        assert result.server.port == 9000
-        assert result.diagrams.kroki_url == "https://kroki.io"
-        assert result.live_reload.enabled is False
+        assert config.server.host == "0.0.0.0"
+        assert config.server.port == 9000
+        assert config.diagrams.kroki_url == "https://kroki.io"
+        assert config.live_reload.enabled is False
 
     def test__override_cache_enabled__changes_cache_enabled(
         self, tmp_path: Path
@@ -429,12 +421,24 @@ class TestConfigWithOverrides:
         """Override cache_enabled changes docs.cache_enabled."""
         config_file = tmp_path / "docstage.toml"
         config_file.write_text("")
-        original = Config.load(config_file)
-        assert original.docs.cache_enabled is True
 
-        result = original.with_overrides(cache_enabled=False)
+        config = Config.load(config_file, cache_enabled=False)
 
-        assert result.docs.cache_enabled is False
+        assert config.docs.cache_enabled is False
+
+    def test__overrides_take_precedence_over_config_file(self, tmp_path: Path) -> None:
+        """CLI overrides take precedence over config file values."""
+        config_file = tmp_path / "docstage.toml"
+        config_file.write_text("""
+[server]
+host = "192.168.1.1"
+port = 3000
+""")
+
+        config = Config.load(config_file, host="0.0.0.0", port=9000)
+
+        assert config.server.host == "0.0.0.0"
+        assert config.server.port == 9000
 
 
 class TestCacheEnabledConfigParsing:
