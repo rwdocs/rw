@@ -1,17 +1,19 @@
 [package]
-name = "docstage-core"
-description = "High-performance markdown renderer for Docstage"
+name = "docstage-diagrams"
+description = "Diagram rendering via Kroki for docstage"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-docstage-confluence-renderer = { workspace = true }
-docstage-diagrams = { workspace = true }
+base64 = { workspace = true }
 docstage-renderer = { workspace = true }
-pulldown-cmark = { workspace = true }
+hex = { workspace = true }
+rayon = { workspace = true }
 regex = { workspace = true }
+sha2 = { workspace = true }
+ureq = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

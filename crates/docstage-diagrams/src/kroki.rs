@@ -19,7 +19,7 @@ use std::path::Path;
 use std::time::Duration;
 use ureq::Agent;
 
-use crate::diagram_filter::DiagramLanguage;
+use crate::language::DiagramLanguage;
 
 /// Result of rendering a single diagram to PNG.
 #[derive(Debug, Clone)]
@@ -444,6 +444,15 @@ fn render_all_partial<T: Send>(
     Ok(PartialRenderResult { rendered, errors })
 }
 
+/// Convert a partial result to a strict result that fails on any errors.
+fn partial_to_strict<T>(result: PartialRenderResult<T>) -> Result<Vec<T>, RenderError> {
+    if result.errors.is_empty() {
+        Ok(result.rendered)
+    } else {
+        Err(RenderError::Multiple(result.errors))
+    }
+}
+
 /// Render all diagrams to SVG in parallel using Kroki service.
 ///
 /// Unlike [`render_all`], this returns SVG strings directly without writing files.
@@ -465,12 +474,7 @@ pub fn render_all_svg(
     server_url: &str,
     pool_size: usize,
 ) -> Result<Vec<RenderedSvg>, RenderError> {
-    let result = render_all_svg_partial(diagrams, server_url, pool_size)?;
-    if result.errors.is_empty() {
-        Ok(result.rendered)
-    } else {
-        Err(RenderError::Multiple(result.errors))
-    }
+    render_all_svg_partial(diagrams, server_url, pool_size).and_then(partial_to_strict)
 }
 
 /// Render all diagrams to SVG in parallel, returning partial results on failure.
@@ -516,12 +520,7 @@ pub fn render_all_png_data_uri(
     server_url: &str,
     pool_size: usize,
 ) -> Result<Vec<RenderedPngDataUri>, RenderError> {
-    let result = render_all_png_data_uri_partial(diagrams, server_url, pool_size)?;
-    if result.errors.is_empty() {
-        Ok(result.rendered)
-    } else {
-        Err(RenderError::Multiple(result.errors))
-    }
+    render_all_png_data_uri_partial(diagrams, server_url, pool_size).and_then(partial_to_strict)
 }
 
 /// Render all diagrams to PNG as base64 data URIs, returning partial results on failure.

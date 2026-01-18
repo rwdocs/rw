@@ -148,11 +148,20 @@ dependencies = [
 name = "docstage-core"
 version = "0.1.0"
 dependencies = [
- "base64",
  "docstage-confluence-renderer",
+ "docstage-diagrams",
+ "docstage-renderer",
+ "pulldown-cmark",
+ "regex",
+]
+
+[[package]]
+name = "docstage-diagrams"
+version = "0.1.0"
+dependencies = [
+ "base64",
  "docstage-renderer",
  "hex",
- "pulldown-cmark",
  "rayon",
  "regex",
  "sha2",
