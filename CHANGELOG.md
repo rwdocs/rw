@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed unimplemented `img` diagram format option (use `svg` or `png`)
 - `MarkdownRenderer::render()` now takes `&mut self` instead of `self` to allow accessing extracted code blocks after rendering
 - **Diagram extraction migrated to `DiagramProcessor`** implementing `CodeBlockProcessor` trait (internal refactoring, no API changes)
+- **Removed reexports from `docstage-core`** crate; consumers should import directly from `docstage-renderer`, `docstage-diagrams`, and `docstage-confluence-renderer`
 
 ### Fixed
 
