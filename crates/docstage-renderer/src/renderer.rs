@@ -1,48 +1,12 @@
-//! Unified markdown renderer with pluggable backends.
-//!
-//! This module provides a generic [`MarkdownRenderer`] that can produce either
-//! HTML or Confluence XHTML output using the [`RenderBackend`] trait.
-//!
-//! # Architecture
-//!
-//! The renderer uses a trait-based abstraction to handle format-specific differences:
-//! - [`HtmlBackend`]: Produces semantic HTML5 with relative link resolution
-//! - [`ConfluenceBackend`]: Produces Confluence XHTML storage format
-//!
-//! Shared functionality (tables, lists, inline formatting) is handled by the
-//! generic renderer, while format-specific elements (code blocks, blockquotes,
-//! images) are delegated to the backend.
-//!
-//! # Example
-//!
-//! ```ignore
-//! use pulldown_cmark::Parser;
-//! use docstage_core::renderer::{MarkdownRenderer, HtmlBackend};
-//!
-//! let markdown = "# Hello\n\n**Bold** text";
-//! let parser = Parser::new(markdown);
-//! let result = MarkdownRenderer::<HtmlBackend>::new()
-//!     .with_title_extraction()
-//!     .render(parser);
-//! ```
-
-mod backend;
-mod confluence;
-mod html;
-mod state;
+//! Generic markdown renderer with pluggable backend.
 
 use std::fmt::Write;
 use std::marker::PhantomData;
 
 use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
 
-pub use backend::RenderBackend;
-pub use confluence::ConfluenceBackend;
-pub use html::HtmlBackend;
-pub use state::{TocEntry, escape_html, slugify};
-
-use state::{CodeBlockState, HeadingState, ImageState, TableState};
-
+use crate::backend::RenderBackend;
+use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
 
 /// Result of rendering markdown.
@@ -389,6 +353,7 @@ impl<B: RenderBackend> Default for MarkdownRenderer<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ConfluenceBackend, HtmlBackend};
     use pulldown_cmark::{Options, Parser};
 
     fn render_html(markdown: &str) -> RenderResult {

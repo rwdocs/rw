@@ -5,8 +5,8 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use super::backend::RenderBackend;
-use super::state::escape_html;
+use crate::backend::RenderBackend;
+use crate::state::escape_html;
 
 /// HTML render backend.
 ///

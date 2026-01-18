@@ -57,8 +57,6 @@ mod converter;
 mod diagram_filter;
 mod kroki;
 mod plantuml;
-pub mod renderer;
-mod util;
 
 pub use converter::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
@@ -73,7 +71,7 @@ pub use kroki::{
 pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 
 // Re-export commonly used types from renderer for backwards compatibility
-pub use renderer::{
+pub use docstage_renderer::{
     ConfluenceBackend, HtmlBackend, MarkdownRenderer, RenderBackend, RenderResult, TocEntry,
-    escape_html,
+    escape_html, heading_level_to_num,
 };

@@ -30,16 +30,20 @@ cd frontend && npm run dev
 
 ```
 crates/
+├── docstage-renderer/     # Reusable markdown renderer library
+│   └── src/
+│       ├── lib.rs            # Public API exports
+│       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend>
+│       ├── backend.rs        # RenderBackend trait definition
+│       ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
+│       ├── html.rs           # HtmlBackend implementation
+│       ├── confluence.rs     # ConfluenceBackend implementation
+│       └── util.rs           # heading_level_to_num()
+│
 └── docstage-core/         # Pure Rust library (no PyO3)
     └── src/
-        ├── lib.rs                # Module exports
+        ├── lib.rs                # Module exports (re-exports docstage-renderer types)
         ├── converter.rs          # MarkdownConverter with convert() and convert_html() methods
-        ├── renderer/             # Unified markdown renderer with pluggable backends
-        │   ├── mod.rs            # Generic MarkdownRenderer<B: RenderBackend>
-        │   ├── backend.rs        # RenderBackend trait definition
-        │   ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
-        │   ├── html.rs           # HtmlBackend implementation
-        │   └── confluence.rs     # ConfluenceBackend implementation
         ├── kroki.rs              # Parallel diagram rendering via Kroki service
         ├── diagram_filter.rs     # Iterator adapter: extracts diagrams, returns placeholders
         └── plantuml.rs           # !include resolution, DPI configuration

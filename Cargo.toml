@@ -12,6 +12,7 @@ license = "MIT"
 # Internal crates
 docstage-config = { path = "crates/docstage-config" }
 docstage-core = { path = "crates/docstage-core" }
+docstage-renderer = { path = "crates/docstage-renderer" }
 
 # External dependencies
 base64 = "0.22"

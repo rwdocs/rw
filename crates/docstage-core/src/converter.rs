@@ -41,13 +41,14 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use docstage_renderer::{ConfluenceBackend, HtmlBackend, MarkdownRenderer, TocEntry, escape_html};
+
 use crate::diagram_filter::{DiagramFilter, DiagramFormat};
 use crate::kroki::{
     DiagramError, DiagramRequest, RenderError, render_all, render_all_png_data_uri_partial,
     render_all_svg_partial,
 };
 use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
-use crate::renderer::{ConfluenceBackend, HtmlBackend, MarkdownRenderer, TocEntry, escape_html};
 
 static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()

@@ -4,8 +4,8 @@
 
 use std::fmt::Write;
 
-use super::backend::RenderBackend;
-use super::state::escape_html;
+use crate::backend::RenderBackend;
+use crate::state::escape_html;
 
 /// Confluence render backend.
 ///
@@ -71,8 +71,7 @@ impl RenderBackend for ConfluenceBackend {
     }
 
     fn task_list_marker(checked: bool, out: &mut String) {
-        let marker = if checked { "[x]" } else { "[ ]" };
-        write!(out, "{marker} ").unwrap();
+        out.push_str(if checked { "[x] " } else { "[ ] " });
     }
 }
 

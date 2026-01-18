@@ -1,0 +1,13 @@
+[package]
+name = "docstage-renderer"
+description = "Trait-based markdown renderer with pluggable backends"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pulldown-cmark = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

@@ -278,10 +278,9 @@ impl HeadingState {
     fn generate_id(&mut self, text: &str) -> String {
         let base_id = slugify(text);
         let count = self.id_counts.entry(base_id.clone()).or_default();
-        let id = if *count == 0 {
-            base_id.clone()
-        } else {
-            format!("{base_id}-{count}")
+        let id = match *count {
+            0 => base_id,
+            n => format!("{base_id}-{n}"),
         };
         *count += 1;
         id

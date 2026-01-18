@@ -143,6 +143,7 @@ name = "docstage-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "docstage-renderer",
  "hex",
  "pretty_assertions",
  "pulldown-cmark",
@@ -150,6 +151,14 @@ dependencies = [
  "regex",
  "sha2",
  "ureq",
+]
+
+[[package]]
+name = "docstage-renderer"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "pulldown-cmark",
 ]
 
 [[package]]
