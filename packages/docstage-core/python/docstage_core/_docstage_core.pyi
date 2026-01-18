@@ -160,4 +160,14 @@ class Config:
     config_path: Path | None
 
     @staticmethod
-    def load(config_path: Path | None = None) -> Config: ...
+    def load(
+        config_path: Path | None = None,
+        *,
+        host: str | None = None,
+        port: int | None = None,
+        source_dir: Path | None = None,
+        cache_dir: Path | None = None,
+        cache_enabled: bool | None = None,
+        kroki_url: str | None = None,
+        live_reload_enabled: bool | None = None,
+    ) -> Config: ...

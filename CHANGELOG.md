@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### 2026-01-18
+- Move CLI override logic from Python to Rust
+  - Add `ConfigOverrides` struct to hold CLI override values
+  - Extend `Config::load()` to accept optional overrides parameter
+  - Overrides applied after loading and path resolution in Rust
+  - `Config.load()` Python binding now accepts keyword args for overrides: `host`, `port`, `source_dir`, `cache_dir`, `cache_enabled`, `kroki_url`, `live_reload_enabled`
+  - Remove Python `Config.with_overrides()` method and `_Overridden*` dataclasses
+  - Python `config.py` simplified to pure re-exports from `docstage_core.config`
+  - All config logic now consolidated in Rust
 - Split config module from docstage-core to docstage-config crate
   - Create new `docstage-config` crate in `crates/docstage-config/`
   - Move all config types: `Config`, `ServerConfig`, `DocsConfig`, `DiagramsConfig`, `LiveReloadConfig`, `ConfluenceConfig`, `ConfluenceTestConfig`, `ConfigError`
@@ -10,8 +18,8 @@
   - Config types available at `docstage_core.config` submodule (created by Rust/PyO3)
   - `docstage-core` no longer depends on config (removes `serde` and `toml` dependencies)
 - Code simplification refactoring
-  - Add `pick` helper in Python `with_overrides()` to simplify conditional override logic
   - Add `resolve` closure in Rust `resolve_paths()` to consolidate path resolution pattern
+  - Add `ConfigOverrides::is_empty()` method to simplify override detection in PyO3 bindings
 
 ### 2026-01-17
 - Move TOML config parsing from Python to Rust using serde
@@ -19,15 +27,11 @@
   - Config types: `Config`, `ServerConfig`, `DocsConfig`, `DiagramsConfig`, `LiveReloadConfig`, `ConfluenceConfig`, `ConfluenceTestConfig`
   - Path resolution (source_dir, cache_dir, include_dirs) handled in Rust relative to config directory
   - Add PyO3 bindings exposing all config types to Python
-  - Python `Config` class is now a thin wrapper adding `with_overrides()` for CLI overrides
   - Consistent error messages via serde's TOML parser
   - Type-safe config autodiscovery searching parent directories
 - Code simplification refactoring
   - Simplify `Config::default()` in Rust to delegate to `default_with_base(Path::new("."))`
-  - Move `_Overridden*` dataclasses before `Config` class in Python config.py for proper forward reference
-  - Use union types in `Config` fields to accept both Rust and overridden config types
   - Consolidate `test__live_reload_enabled__returns_true` and `test__live_reload_disabled__returns_false` into single parametrized test
-  - Use `test_config.with_overrides()` pattern consistently across API tests
   - Remove redundant fixture parameters from test methods (unused `docs_dir` parameters)
 - Switch from mypy to ty for Python type checking
   - ty is 10-100x faster than mypy, written in Rust by Astral (creators of ruff)

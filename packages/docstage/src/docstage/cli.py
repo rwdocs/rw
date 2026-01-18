@@ -97,7 +97,8 @@ def serve(
     """Start the documentation server."""
     from docstage.server import run_server
 
-    config = Config.load(config_path).with_overrides(
+    config = Config.load(
+        config_path,
         host=host,
         port=port,
         source_dir=source_dir,
