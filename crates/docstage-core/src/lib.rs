@@ -58,13 +58,12 @@ mod diagram_filter;
 mod html;
 mod kroki;
 mod plantuml;
-mod plantuml_filter;
 mod util;
 
 pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use converter::{
-    ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
-    PreparedDiagram, create_image_tag,
+    ConvertResult, DiagramInfo, ExtractConfluenceResult, ExtractResult, HtmlConvertResult,
+    MarkdownConverter, PreparedDiagram, create_image_tag,
 };
 pub use diagram_filter::{DiagramFilter, DiagramFormat, DiagramLanguage, ExtractedDiagram};
 pub use html::{HtmlRenderResult, HtmlRenderer, TocEntry, escape_html};
@@ -74,5 +73,3 @@ pub use kroki::{
     render_all_png_data_uri_partial, render_all_svg, render_all_svg_partial,
 };
 pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
-// Re-export for backwards compatibility (deprecated)
-pub use plantuml_filter::PlantUmlFilter;

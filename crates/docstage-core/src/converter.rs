@@ -49,7 +49,6 @@ use crate::kroki::{
     render_all_svg_partial,
 };
 use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
-use crate::plantuml_filter::PlantUmlFilter;
 
 static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()
@@ -168,7 +167,7 @@ pub struct PreparedDiagram {
     pub format: String,
 }
 
-/// Result of extracting diagrams from markdown.
+/// Result of extracting diagrams from markdown (HTML format).
 #[derive(Clone, Debug)]
 pub struct ExtractResult {
     /// HTML with diagram placeholders ({{`DIAGRAM_0`}}, {{`DIAGRAM_1`}}, etc.).
@@ -177,6 +176,19 @@ pub struct ExtractResult {
     pub title: Option<String>,
     /// Table of contents entries.
     pub toc: Vec<TocEntry>,
+    /// Prepared diagrams ready for rendering.
+    pub diagrams: Vec<PreparedDiagram>,
+    /// Warnings generated during conversion.
+    pub warnings: Vec<String>,
+}
+
+/// Result of extracting diagrams from markdown (Confluence format).
+#[derive(Clone, Debug)]
+pub struct ExtractConfluenceResult {
+    /// Confluence XHTML with diagram placeholders ({{`DIAGRAM_0`}}, etc.).
+    pub html: String,
+    /// Title extracted from first H1 heading (if `extract_title` was enabled).
+    pub title: Option<String>,
     /// Prepared diagrams ready for rendering.
     pub diagrams: Vec<PreparedDiagram>,
     /// Warnings generated during conversion.
@@ -281,10 +293,78 @@ impl MarkdownConverter {
         renderer
     }
 
+    /// Create a `ConfluenceRenderer` with the converter's settings.
+    fn create_confluence_renderer(&self) -> ConfluenceRenderer {
+        let renderer = ConfluenceRenderer::new();
+        if self.extract_title {
+            renderer.with_title_extraction()
+        } else {
+            renderer
+        }
+    }
+
+    /// Prepare diagram source for Kroki rendering.
+    ///
+    /// PlantUML diagrams need preprocessing (include resolution, config injection).
+    /// Other diagram types pass through unchanged.
+    fn prepare_diagram_source(&self, diagram: &crate::diagram_filter::ExtractedDiagram) -> String {
+        if diagram.language.needs_plantuml_preprocessing() {
+            prepare_diagram_source(
+                &diagram.source,
+                &self.include_dirs,
+                self.config_content.as_deref(),
+                self.dpi,
+            )
+            .source
+        } else {
+            diagram.source.clone()
+        }
+    }
+
+    /// Prepare diagram source and collect warnings.
+    fn prepare_diagram_source_with_warnings(
+        &self,
+        diagram: &crate::diagram_filter::ExtractedDiagram,
+        warnings: &mut Vec<String>,
+    ) -> String {
+        if diagram.language.needs_plantuml_preprocessing() {
+            let prepare_result = prepare_diagram_source(
+                &diagram.source,
+                &self.include_dirs,
+                self.config_content.as_deref(),
+                self.dpi,
+            );
+            warnings.extend(prepare_result.warnings);
+            prepare_result.source
+        } else {
+            diagram.source.clone()
+        }
+    }
+
+    /// Resolve diagram format, emitting a warning for unsupported formats.
+    fn resolve_diagram_format(
+        &self,
+        diagram: &crate::diagram_filter::ExtractedDiagram,
+        warnings: &mut Vec<String>,
+    ) -> String {
+        match diagram.format {
+            DiagramFormat::Svg => "svg".to_string(),
+            DiagramFormat::Img => {
+                warnings.push(format!(
+                    "diagram {}: format=img is not yet implemented, falling back to inline SVG",
+                    diagram.index
+                ));
+                "svg".to_string()
+            }
+            DiagramFormat::Png => "png".to_string(),
+        }
+    }
+
     /// Convert markdown to Confluence storage format.
     ///
-    /// `PlantUML` diagrams are rendered via Kroki and placeholders replaced with
-    /// Confluence image macros.
+    /// Diagrams are rendered via Kroki and placeholders replaced with
+    /// Confluence image macros. Supports all diagram types: `PlantUML`,
+    /// Mermaid, `GraphViz`, and 14+ other Kroki-supported formats.
     ///
     /// # Errors
     ///
@@ -298,20 +378,14 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Filter plantuml code blocks, replacing them with placeholders
-        let mut filter = PlantUmlFilter::new(parser);
-
-        // Render to Confluence format
-        let renderer = if self.extract_title {
-            ConfluenceRenderer::new().with_title_extraction()
-        } else {
-            ConfluenceRenderer::new()
-        };
-
-        let result = renderer.render_with_title(&mut filter);
+        // Filter diagram code blocks, replacing them with placeholders
+        let mut filter = DiagramFilter::new(parser);
+        let result = self
+            .create_confluence_renderer()
+            .render_with_title(&mut filter);
 
         // Get extracted diagrams
-        let extracted_diagrams = filter.into_diagrams();
+        let (extracted_diagrams, _warnings) = filter.into_parts();
 
         let mut html = if self.prepend_toc {
             format!("{}{}", TOC_MACRO, result.html)
@@ -323,18 +397,12 @@ impl MarkdownConverter {
         let diagrams = if extracted_diagrams.is_empty() {
             Vec::new()
         } else {
-            // Resolve diagram sources (PlantUML filter only extracts PlantUML)
-            // Note: warnings are ignored for Confluence output (used for legacy support)
+            // Prepare diagram sources (PlantUML needs preprocessing, others pass through)
             let diagram_requests: Vec<_> = extracted_diagrams
-                .into_iter()
+                .iter()
                 .map(|d| {
-                    let prepare_result = prepare_diagram_source(
-                        &d.source,
-                        &self.include_dirs,
-                        self.config_content.as_deref(),
-                        self.dpi,
-                    );
-                    DiagramRequest::plantuml(d.index, prepare_result.source)
+                    let source = self.prepare_diagram_source(d);
+                    DiagramRequest::new(d.index, source, d.language)
                 })
                 .collect();
 
@@ -364,6 +432,60 @@ impl MarkdownConverter {
             title: result.title,
             diagrams,
         })
+    }
+
+    /// Extract diagrams from markdown and return Confluence XHTML with placeholders.
+    ///
+    /// This method is used for diagram caching. It returns:
+    /// - Confluence XHTML with `{{DIAGRAM_N}}` placeholders
+    /// - Prepared diagrams with source ready for Kroki
+    ///
+    /// Supports all diagram types: `PlantUML`, Mermaid, `GraphViz`, and 14+
+    /// other Kroki-supported formats.
+    ///
+    /// The caller is responsible for:
+    /// 1. Checking the cache for each diagram by content hash
+    /// 2. Rendering uncached diagrams via Kroki
+    /// 3. Replacing placeholders with rendered content (e.g., image macros)
+    #[must_use]
+    pub fn extract_confluence_with_diagrams(&self, markdown_text: &str) -> ExtractConfluenceResult {
+        let options = self.get_parser_options();
+        let parser = Parser::new_ext(markdown_text, options);
+
+        // Filter diagram code blocks, replacing them with placeholders
+        let mut filter = DiagramFilter::new(parser);
+        let result = self
+            .create_confluence_renderer()
+            .render_with_title(&mut filter);
+        let (extracted_diagrams, filter_warnings) = filter.into_parts();
+
+        let mut warnings = filter_warnings;
+        let diagrams: Vec<_> = extracted_diagrams
+            .iter()
+            .map(|d| {
+                let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
+                PreparedDiagram {
+                    index: d.index,
+                    source,
+                    endpoint: d.language.kroki_endpoint().to_string(),
+                    // Confluence always uses PNG format for attachments
+                    format: "png".to_string(),
+                }
+            })
+            .collect();
+
+        let html = if self.prepend_toc {
+            format!("{}{}", TOC_MACRO, result.html)
+        } else {
+            result.html
+        };
+
+        ExtractConfluenceResult {
+            html,
+            title: result.title,
+            diagrams,
+            warnings,
+        }
     }
 
     /// Convert markdown to HTML format.
@@ -421,41 +543,19 @@ impl MarkdownConverter {
         let (extracted_diagrams, filter_warnings) = filter.into_parts();
 
         let mut warnings = filter_warnings;
-        let mut diagrams = Vec::with_capacity(extracted_diagrams.len());
-
-        for d in extracted_diagrams {
-            let source = if d.language.needs_plantuml_preprocessing() {
-                let prepare_result = prepare_diagram_source(
-                    &d.source,
-                    &self.include_dirs,
-                    self.config_content.as_deref(),
-                    self.dpi,
-                );
-                warnings.extend(prepare_result.warnings);
-                prepare_result.source
-            } else {
-                d.source
-            };
-
-            let format = match d.format {
-                DiagramFormat::Svg => "svg".to_string(),
-                DiagramFormat::Img => {
-                    warnings.push(format!(
-                        "diagram {}: format=img is not yet implemented, falling back to inline SVG",
-                        d.index
-                    ));
-                    "svg".to_string()
+        let diagrams: Vec<_> = extracted_diagrams
+            .iter()
+            .map(|d| {
+                let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
+                let format = self.resolve_diagram_format(d, &mut warnings);
+                PreparedDiagram {
+                    index: d.index,
+                    source,
+                    endpoint: d.language.kroki_endpoint().to_string(),
+                    format,
                 }
-                DiagramFormat::Png => "png".to_string(),
-            };
-
-            diagrams.push(PreparedDiagram {
-                index: d.index,
-                source,
-                endpoint: d.language.kroki_endpoint().to_string(),
-                format,
-            });
-        }
+            })
+            .collect();
 
         ExtractResult {
             html: result.html,
@@ -507,19 +607,7 @@ impl MarkdownConverter {
             let mut png_diagrams = Vec::new();
 
             for d in &extracted_diagrams {
-                let source = if d.language.needs_plantuml_preprocessing() {
-                    let prepare_result = prepare_diagram_source(
-                        &d.source,
-                        &self.include_dirs,
-                        self.config_content.as_deref(),
-                        self.dpi,
-                    );
-                    warnings.extend(prepare_result.warnings);
-                    prepare_result.source
-                } else {
-                    d.source.clone()
-                };
-
+                let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
                 let request = DiagramRequest::new(d.index, source, d.language);
 
                 match d.format {
@@ -710,5 +798,105 @@ mod tests {
             result,
             r#"<svg width="68" height="105" style="width:68px;height:105px;background:#FFFFFF;"></svg>"#
         );
+    }
+
+    #[test]
+    fn test_extract_confluence_with_plantuml() {
+        let markdown = "# Title\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```";
+        let converter = MarkdownConverter::new().extract_title(true);
+        let result = converter.extract_confluence_with_diagrams(markdown);
+
+        assert_eq!(result.title, Some("Title".to_string()));
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert_eq!(result.diagrams.len(), 1);
+        assert_eq!(result.diagrams[0].index, 0);
+        assert_eq!(result.diagrams[0].endpoint, "plantuml");
+        assert_eq!(result.diagrams[0].format, "png");
+        assert!(result.diagrams[0].source.contains("A -> B"));
+    }
+
+    #[test]
+    fn test_extract_confluence_with_mermaid() {
+        let markdown = "```mermaid\ngraph TD\n  A --> B\n```";
+        let converter = MarkdownConverter::new();
+        let result = converter.extract_confluence_with_diagrams(markdown);
+
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert_eq!(result.diagrams.len(), 1);
+        assert_eq!(result.diagrams[0].endpoint, "mermaid");
+        assert_eq!(result.diagrams[0].format, "png");
+        assert!(result.diagrams[0].source.contains("graph TD"));
+    }
+
+    #[test]
+    fn test_extract_confluence_with_graphviz() {
+        let markdown = "```graphviz\ndigraph G { A -> B }\n```";
+        let converter = MarkdownConverter::new();
+        let result = converter.extract_confluence_with_diagrams(markdown);
+
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert_eq!(result.diagrams.len(), 1);
+        assert_eq!(result.diagrams[0].endpoint, "graphviz");
+        assert_eq!(result.diagrams[0].format, "png");
+    }
+
+    #[test]
+    fn test_extract_confluence_with_multiple_diagram_types() {
+        let markdown = r"
+```plantuml
+@startuml
+A -> B
+@enduml
+```
+
+Text
+
+```mermaid
+graph TD
+  C --> D
+```
+
+More text
+
+```ditaa
++---+
+| A |
++---+
+```
+";
+        let converter = MarkdownConverter::new();
+        let result = converter.extract_confluence_with_diagrams(markdown);
+
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert!(result.html.contains("{{DIAGRAM_1}}"));
+        assert!(result.html.contains("{{DIAGRAM_2}}"));
+        assert_eq!(result.diagrams.len(), 3);
+        assert_eq!(result.diagrams[0].endpoint, "plantuml");
+        assert_eq!(result.diagrams[1].endpoint, "mermaid");
+        assert_eq!(result.diagrams[2].endpoint, "ditaa");
+        // All diagrams use PNG for Confluence
+        assert!(result.diagrams.iter().all(|d| d.format == "png"));
+    }
+
+    #[test]
+    fn test_extract_confluence_no_diagrams() {
+        let markdown = "# Title\n\nNo diagrams here.";
+        let converter = MarkdownConverter::new();
+        let result = converter.extract_confluence_with_diagrams(markdown);
+
+        assert!(result.diagrams.is_empty());
+        assert!(result.html.contains("No diagrams here"));
+    }
+
+    #[test]
+    fn test_extract_confluence_with_kroki_prefix() {
+        // Test kroki- prefixed language names (MkDocs compatibility)
+        let markdown = "```kroki-mermaid\ngraph TD\n  A --> B\n```";
+        let converter = MarkdownConverter::new();
+        let result = converter.extract_confluence_with_diagrams(markdown);
+
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert_eq!(result.diagrams.len(), 1);
+        assert_eq!(result.diagrams[0].endpoint, "mermaid");
     }
 }

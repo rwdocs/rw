@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Live reload** for development mode with WebSocket-based file watching
 - **Diagram rendering** via Kroki (PlantUML, Mermaid, GraphViz, and 14+ other formats)
+- **Confluence diagram support** for all 17 diagram types (previously PlantUML only)
 - **GitHub Actions CI** with lint, test, and E2E jobs
 - **Security headers** (CSP, X-Content-Type-Options, X-Frame-Options)
 - **Cache version invalidation** to prevent stale content after upgrades
