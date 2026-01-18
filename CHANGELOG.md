@@ -19,6 +19,9 @@
   - Python bindings depend on `docstage-config` directly
   - Config types available at `docstage_core.config` submodule (created by Rust/PyO3)
   - `docstage-core` no longer depends on config (removes `serde` and `toml` dependencies)
+- Remove redundant Python config tests
+  - Tests in `docstage/tests/test_config.py` duplicated coverage from Rust tests
+  - Rust `docstage-config` crate already has comprehensive tests (15 tests)
 - Code simplification refactoring
   - Add `resolve` closure in Rust `resolve_paths()` to consolidate path resolution pattern
   - Add `ConfigOverrides::is_empty()` method to simplify override detection in PyO3 bindings
