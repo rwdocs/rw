@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Extracted renderer to separate crate** (`docstage-renderer`) for reusability and smaller dependency tree
 - **Extracted Confluence renderer to separate crate** (`docstage-confluence-renderer`) for cleaner separation and smaller dependency tree
+- **Extracted diagram rendering to separate crate** (`docstage-diagrams`) for reusability, optional dependencies, and plugin architecture
 - **Unified HTML and Confluence renderers** via trait-based `RenderBackend` abstraction
 - **Config parsing moved to Rust** for better performance and type safety
 - **Unified configuration** via `docstage.toml` with auto-discovery

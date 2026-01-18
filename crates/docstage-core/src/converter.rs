@@ -42,13 +42,11 @@ use regex::Regex;
 use docstage_confluence_renderer::ConfluenceBackend;
 use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry, escape_html};
 
-use crate::diagram_filter::DiagramFormat;
-use crate::diagram_processor::{DiagramProcessor, to_extracted_diagrams};
-use crate::kroki::{
-    DiagramError, DiagramRequest, RenderError, render_all, render_all_png_data_uri_partial,
-    render_all_svg_partial,
+use docstage_diagrams::{
+    DEFAULT_DPI, DiagramError, DiagramFormat, DiagramProcessor, DiagramRequest, ExtractedDiagram,
+    RenderError, load_config_file, prepare_diagram_source, render_all,
+    render_all_png_data_uri_partial, render_all_svg_partial, to_extracted_diagrams,
 };
-use crate::plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 
 static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()
@@ -310,7 +308,7 @@ impl MarkdownConverter {
     /// Prepare diagram source and collect warnings.
     fn prepare_diagram_source_with_warnings(
         &self,
-        diagram: &crate::diagram_filter::ExtractedDiagram,
+        diagram: &ExtractedDiagram,
         warnings: &mut Vec<String>,
     ) -> String {
         if diagram.language.needs_plantuml_preprocessing() {

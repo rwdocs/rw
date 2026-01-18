@@ -54,23 +54,20 @@
 //! - [`render_all_svg`]: Parallel SVG diagram rendering via Kroki
 
 mod converter;
-mod diagram_filter;
-mod diagram_processor;
-mod kroki;
-mod plantuml;
 
 pub use converter::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
     PreparedDiagram, create_image_tag,
 };
-pub use diagram_filter::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
-pub use diagram_processor::{DiagramProcessor, to_extracted_diagram, to_extracted_diagrams};
-pub use kroki::{
-    DiagramError, DiagramErrorKind, DiagramRequest, PartialRenderResult, RenderError,
-    RenderedDiagram, RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri,
-    render_all_png_data_uri_partial, render_all_svg, render_all_svg_partial,
+
+// Re-export diagram types from docstage-diagrams for backwards compatibility
+pub use docstage_diagrams::{
+    DEFAULT_DPI, DiagramError, DiagramErrorKind, DiagramFormat, DiagramLanguage, DiagramProcessor,
+    DiagramRequest, ExtractedDiagram, PartialRenderResult, RenderError, RenderedDiagram,
+    RenderedPngDataUri, RenderedSvg, load_config_file, prepare_diagram_source, render_all,
+    render_all_png_data_uri, render_all_png_data_uri_partial, render_all_svg,
+    render_all_svg_partial, to_extracted_diagram, to_extracted_diagrams,
 };
-pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 
 // Re-export commonly used types from renderer for backwards compatibility
 pub use docstage_confluence_renderer::ConfluenceBackend;

@@ -13,6 +13,24 @@ use std::sync::LazyLock;
 static INCLUDE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^(\s*)!include\s+(.+)$").unwrap());
 
+/// Indent content with the given whitespace prefix, preserving empty lines.
+fn indent_content(content: &str, indent: &str) -> String {
+    if indent.is_empty() {
+        return content.to_string();
+    }
+    content
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("{indent}{line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Default DPI for `PlantUML` diagram rendering (192 = 2x for retina displays).
 pub const DEFAULT_DPI: u32 = 192;
 
@@ -57,21 +75,7 @@ fn resolve_includes(
                 let resolved_content =
                     resolve_includes(&content, include_dirs, depth + 1, warnings);
                 // Indent included content to match the !include directive
-                let indented_content = if leading_whitespace.is_empty() {
-                    resolved_content
-                } else {
-                    resolved_content
-                        .lines()
-                        .map(|line| {
-                            if line.is_empty() {
-                                String::new()
-                            } else {
-                                format!("{leading_whitespace}{line}")
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                };
+                let indented_content = indent_content(&resolved_content, leading_whitespace);
                 result = result.replace(full_match, &indented_content);
                 resolved = true;
                 break;

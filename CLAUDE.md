@@ -35,6 +35,7 @@ crates/
 │       ├── lib.rs            # Public API exports
 │       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend>
 │       ├── backend.rs        # RenderBackend trait definition
+│       ├── code_block.rs     # CodeBlockProcessor trait for extensible code block handling
 │       ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
 │       ├── html.rs           # HtmlBackend implementation
 │       └── util.rs           # heading_level_to_num()
@@ -43,13 +44,18 @@ crates/
 │   └── src/
 │       └── lib.rs            # ConfluenceBackend implementation
 │
+├── docstage-diagrams/     # Diagram rendering via Kroki
+│   └── src/
+│       ├── lib.rs            # Public API exports
+│       ├── language.rs       # DiagramLanguage, DiagramFormat, ExtractedDiagram
+│       ├── processor.rs      # DiagramProcessor (implements CodeBlockProcessor)
+│       ├── kroki.rs          # Parallel Kroki HTTP rendering
+│       └── plantuml.rs       # !include resolution, DPI configuration
+│
 └── docstage-core/         # Pure Rust library (no PyO3)
     └── src/
-        ├── lib.rs                # Module exports (re-exports docstage-renderer types)
-        ├── converter.rs          # MarkdownConverter with convert() and convert_html() methods
-        ├── kroki.rs              # Parallel diagram rendering via Kroki service
-        ├── diagram_filter.rs     # Iterator adapter: extracts diagrams, returns placeholders
-        └── plantuml.rs           # !include resolution, DPI configuration
+        ├── lib.rs            # Module exports (re-exports from sub-crates)
+        └── converter.rs      # MarkdownConverter with convert() and convert_html() methods
 
 packages/
 ├── docstage/              # Python CLI package (Click)

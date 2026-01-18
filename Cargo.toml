@@ -13,6 +13,7 @@ license = "MIT"
 docstage-config = { path = "crates/docstage-config" }
 docstage-confluence-renderer = { path = "crates/docstage-confluence-renderer" }
 docstage-core = { path = "crates/docstage-core" }
+docstage-diagrams = { path = "crates/docstage-diagrams" }
 docstage-renderer = { path = "crates/docstage-renderer" }
 
 # External dependencies

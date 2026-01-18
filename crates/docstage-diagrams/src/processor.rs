@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use docstage_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 
-use crate::diagram_filter::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
+use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 
 /// Code block processor for diagram languages.
 ///
@@ -20,7 +20,7 @@ use crate::diagram_filter::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 ///
 /// ```ignore
 /// use pulldown_cmark::Parser;
-/// use docstage_core::{DiagramProcessor, to_extracted_diagrams};
+/// use docstage_diagrams::{DiagramProcessor, to_extracted_diagrams};
 /// use docstage_renderer::{MarkdownRenderer, HtmlBackend};
 ///
 /// let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
@@ -54,32 +54,25 @@ impl CodeBlockProcessor for DiagramProcessor {
         source: &str,
         index: usize,
     ) -> ProcessResult {
-        // Check if this is a diagram language
         let Some(diagram_language) = DiagramLanguage::parse(language) else {
             return ProcessResult::PassThrough;
         };
 
-        // Parse and validate format attribute
-        let mut format = DiagramFormat::default();
-        if let Some(format_value) = attrs.get("format") {
-            if let Some(f) = DiagramFormat::parse(format_value) {
-                format = f;
-            } else {
+        // Parse format attribute with validation
+        let format = attrs.get("format").map_or(DiagramFormat::default(), |value| {
+            DiagramFormat::parse(value).unwrap_or_else(|| {
                 self.warnings.push(format!(
-                    "diagram {index}: unknown format value '{}', using default 'svg' (valid: svg, png)",
-                    format_value
+                    "diagram {index}: unknown format value '{value}', using default 'svg' (valid: svg, png)"
                 ));
-            }
-        }
+                DiagramFormat::default()
+            })
+        });
 
         // Warn about unknown attributes
-        for key in attrs.keys() {
-            if key != "format" {
-                self.warnings.push(format!(
-                    "diagram {index}: unknown attribute '{}' ignored (valid: format)",
-                    key
-                ));
-            }
+        for key in attrs.keys().filter(|k| *k != "format") {
+            self.warnings.push(format!(
+                "diagram {index}: unknown attribute '{key}' ignored (valid: format)"
+            ));
         }
 
         // Store the format in attrs for later use
@@ -117,7 +110,7 @@ impl CodeBlockProcessor for DiagramProcessor {
 /// # Example
 ///
 /// ```ignore
-/// use docstage_core::{DiagramProcessor, to_extracted_diagram};
+/// use docstage_diagrams::{DiagramProcessor, to_extracted_diagram};
 /// use docstage_renderer::{MarkdownRenderer, HtmlBackend};
 ///
 /// // After rendering with DiagramProcessor...
@@ -152,7 +145,7 @@ pub fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<ExtractedDiagr
 /// # Example
 ///
 /// ```ignore
-/// use docstage_core::{DiagramProcessor, to_extracted_diagrams};
+/// use docstage_diagrams::{DiagramProcessor, to_extracted_diagrams};
 /// use docstage_renderer::{MarkdownRenderer, HtmlBackend};
 ///
 /// // After rendering with DiagramProcessor...
