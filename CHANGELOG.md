@@ -7,7 +7,7 @@
   - Create new `docstage-config` crate in `crates/docstage-config/`
   - Move all config types: `Config`, `ServerConfig`, `DocsConfig`, `DiagramsConfig`, `LiveReloadConfig`, `ConfluenceConfig`, `ConfluenceTestConfig`, `ConfigError`
   - Python bindings depend on `docstage-config` directly
-  - Removes `serde` and `toml` dependencies from `docstage-core` (now in `docstage-config`)
+  - `docstage-core` no longer depends on config (removes `serde` and `toml` dependencies)
 
 ### 2026-01-17
 - Move TOML config parsing from Python to Rust using serde
