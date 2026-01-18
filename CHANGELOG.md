@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tailwind CSS v4** with CSS-based configuration
 - **ty** replaces mypy for faster Python type checking
 - Update pulldown-cmark from 0.12 to 0.13
+- `ConvertResult` now includes `warnings` field for API consistency
 
 ### Fixed
 
