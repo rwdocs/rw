@@ -101,8 +101,6 @@ pub enum DiagramFormat {
     Svg,
     /// Inline PNG as base64 data URI (smaller for complex diagrams, no interactivity).
     Png,
-    /// External SVG via `<img>` tag (cacheable separately, but no links).
-    Img,
 }
 
 impl DiagramFormat {
@@ -112,7 +110,6 @@ impl DiagramFormat {
         match s {
             "svg" => Some(Self::Svg),
             "png" => Some(Self::Png),
-            "img" => Some(Self::Img),
             _ => None,
         }
     }
@@ -157,7 +154,7 @@ fn parse_info_string(info: &str) -> Option<ParsedInfoString> {
                     format = f;
                 } else {
                     warnings.push(format!(
-                        "unknown format value '{value}', using default 'svg' (valid: svg, png, img)"
+                        "unknown format value '{value}', using default 'svg' (valid: svg, png)"
                     ));
                 }
             } else {
@@ -400,19 +397,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parses_img_format() {
-        let markdown = "```mermaid format=img\ngraph TD\n  A --> B\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(diagrams[0].format, DiagramFormat::Img);
-    }
-
-    #[test]
     fn test_extracts_multiple_diagrams() {
         let markdown = r"
 ```plantuml
@@ -506,11 +490,6 @@ graph TD
         let result = parse_info_string("plantuml format=png").unwrap();
         assert_eq!(result.language, DiagramLanguage::PlantUml);
         assert_eq!(result.format, DiagramFormat::Png);
-        assert!(result.warnings.is_empty());
-
-        let result = parse_info_string("mermaid format=img").unwrap();
-        assert_eq!(result.language, DiagramLanguage::Mermaid);
-        assert_eq!(result.format, DiagramFormat::Img);
         assert!(result.warnings.is_empty());
 
         assert!(parse_info_string("rust").is_none());
@@ -693,7 +672,7 @@ graph TD
     fn test_diagram_format_parse() {
         assert_eq!(DiagramFormat::parse("svg"), Some(DiagramFormat::Svg));
         assert_eq!(DiagramFormat::parse("png"), Some(DiagramFormat::Png));
-        assert_eq!(DiagramFormat::parse("img"), Some(DiagramFormat::Img));
+        assert_eq!(DiagramFormat::parse("img"), None);
         assert_eq!(DiagramFormat::parse("jpeg"), None);
         assert_eq!(DiagramFormat::parse(""), None);
     }

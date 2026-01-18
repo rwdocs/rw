@@ -189,14 +189,17 @@ pub struct ExtractResult {
 
 /// Result of extracting diagrams from markdown (Confluence format).
 ///
-/// Similar to [`ExtractResult`] but without `toc` field since Confluence
-/// generates its own `ToC` via the `<ac:structured-macro ac:name="toc">` macro.
+/// Contains the same fields as [`ExtractResult`] for API consistency.
+/// Confluence generates its own `ToC` via `<ac:structured-macro ac:name="toc">`,
+/// but the `toc` field is included for uniformity and potential client-side use.
 #[derive(Clone, Debug)]
 pub struct ExtractConfluenceResult {
     /// Confluence XHTML with diagram placeholders (`{{DIAGRAM_0}}`, etc.).
     pub html: String,
     /// Title extracted from first H1 heading (if `extract_title` was enabled).
     pub title: Option<String>,
+    /// Table of contents entries.
+    pub toc: Vec<TocEntry>,
     /// Prepared diagrams ready for rendering.
     pub diagrams: Vec<PreparedDiagram>,
     /// Warnings generated during conversion.
@@ -331,31 +334,17 @@ impl MarkdownConverter {
         }
     }
 
-    /// Resolve diagram format for HTML output, emitting a warning for unsupported formats.
+    /// Resolve diagram format for HTML output.
     ///
     /// Returns the Kroki output format string ("svg" or "png").
     /// Used by [`Self::extract_html_with_diagrams`] to determine the format for each diagram.
     ///
     /// Note: Confluence always uses PNG (see [`Self::extract_confluence_with_diagrams`]).
-    fn resolve_diagram_format(
-        diagram: &crate::diagram_filter::ExtractedDiagram,
-        warnings: &mut Vec<String>,
-    ) -> String {
+    fn resolve_diagram_format(diagram: &crate::diagram_filter::ExtractedDiagram) -> String {
         match diagram.format {
             DiagramFormat::Svg => "svg".to_string(),
-            DiagramFormat::Img => {
-                Self::warn_img_not_implemented(diagram.index, warnings);
-                "svg".to_string()
-            }
             DiagramFormat::Png => "png".to_string(),
         }
-    }
-
-    /// Emit warning for unsupported format=img.
-    fn warn_img_not_implemented(index: usize, warnings: &mut Vec<String>) {
-        warnings.push(format!(
-            "diagram {index}: format=img is not yet implemented, falling back to inline SVG"
-        ));
     }
 
     /// Convert markdown to Confluence storage format.
@@ -492,6 +481,7 @@ impl MarkdownConverter {
         ExtractConfluenceResult {
             html,
             title: result.title,
+            toc: result.toc,
             diagrams,
             warnings,
         }
@@ -556,7 +546,7 @@ impl MarkdownConverter {
             .iter()
             .map(|d| {
                 let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
-                let format = Self::resolve_diagram_format(d, &mut warnings);
+                let format = Self::resolve_diagram_format(d);
                 PreparedDiagram {
                     index: d.index,
                     source,
@@ -581,7 +571,6 @@ impl MarkdownConverter {
     /// Diagrams are rendered based on their format attribute:
     /// - `svg` (default): Inline SVG (supports links and interactivity)
     /// - `png`: Inline PNG as base64 data URI
-    /// - `img`: External SVG via `<img>` tag (not yet implemented, falls back to inline SVG)
     ///
     /// If diagram rendering fails, the diagram is replaced with an error message
     /// wrapped in `<figure class="diagram diagram-error">`. This allows the page
@@ -621,10 +610,6 @@ impl MarkdownConverter {
 
                 match d.format {
                     DiagramFormat::Svg => svg_diagrams.push((d.index, request)),
-                    DiagramFormat::Img => {
-                        Self::warn_img_not_implemented(d.index, &mut warnings);
-                        svg_diagrams.push((d.index, request));
-                    }
                     DiagramFormat::Png => png_diagrams.push((d.index, request)),
                 }
             }
