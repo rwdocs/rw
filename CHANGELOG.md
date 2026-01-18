@@ -7,6 +7,7 @@
   - Create new `docstage-config` crate in `crates/docstage-config/`
   - Move all config types: `Config`, `ServerConfig`, `DocsConfig`, `DiagramsConfig`, `LiveReloadConfig`, `ConfluenceConfig`, `ConfluenceTestConfig`, `ConfigError`
   - Python bindings depend on `docstage-config` directly
+  - Config types now available at `docstage_core.config` submodule
   - `docstage-core` no longer depends on config (removes `serde` and `toml` dependencies)
 
 ### 2026-01-17
