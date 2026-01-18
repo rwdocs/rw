@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from docstage.config import Config
+from docstage_core.config import Config
 
 
 class TestConfigLoad:

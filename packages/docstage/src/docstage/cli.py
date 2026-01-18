@@ -9,8 +9,7 @@ from pathlib import Path
 from typing import cast
 
 import click
-
-from docstage.config import Config, ConfluenceConfig
+from docstage_core.config import Config, ConfluenceConfig
 
 
 @click.group()

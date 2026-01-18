@@ -3,8 +3,8 @@
 from collections.abc import Callable
 
 import pytest
-from docstage.config import Config
 from docstage.server import create_app
+from docstage_core.config import Config
 
 
 class TestGetConfig:

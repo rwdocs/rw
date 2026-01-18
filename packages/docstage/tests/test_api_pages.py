@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 from aiohttp.test_utils import TestClient
 from docstage.api.pages import _compute_etag
-from docstage.config import Config
 from docstage.server import create_app
+from docstage_core.config import Config
 
 
 @pytest.fixture

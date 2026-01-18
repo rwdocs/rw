@@ -3,13 +3,15 @@
 ## [Unreleased]
 
 ### 2026-01-18
+- Remove redundant `docstage/config.py` module
+  - Python code now imports directly from `docstage_core.config`
+  - Eliminates unnecessary re-export layer
 - Move CLI override logic from Python to Rust
   - Add `ConfigOverrides` struct to hold CLI override values
   - Extend `Config::load()` to accept optional overrides parameter
   - Overrides applied after loading and path resolution in Rust
   - `Config.load()` Python binding now accepts keyword args for overrides: `host`, `port`, `source_dir`, `cache_dir`, `cache_enabled`, `kroki_url`, `live_reload_enabled`
   - Remove Python `Config.with_overrides()` method and `_Overridden*` dataclasses
-  - Python `config.py` simplified to pure re-exports from `docstage_core.config`
   - All config logic now consolidated in Rust
 - Split config module from docstage-core to docstage-config crate
   - Create new `docstage-config` crate in `crates/docstage-config/`
