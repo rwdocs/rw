@@ -314,6 +314,17 @@ impl MarkdownConverter {
         }
     }
 
+    /// Optionally prepend TOC macro to HTML content.
+    ///
+    /// Only prepends when `prepend_toc` is enabled AND there are headings.
+    fn maybe_prepend_toc(&self, html: String, toc: &[TocEntry]) -> String {
+        if self.prepend_toc && !toc.is_empty() {
+            format!("{TOC_MACRO}{html}")
+        } else {
+            html
+        }
+    }
+
     /// Prepare diagram source and collect warnings.
     fn prepare_diagram_source_with_warnings(
         &self,
@@ -375,11 +386,7 @@ impl MarkdownConverter {
         let (extracted_diagrams, filter_warnings) = filter.into_parts();
         let mut warnings = filter_warnings;
 
-        let mut html = if self.prepend_toc {
-            format!("{}{}", TOC_MACRO, result.html)
-        } else {
-            result.html
-        };
+        let mut html = self.maybe_prepend_toc(result.html, &result.toc);
 
         // Render diagrams if any
         let diagrams = if extracted_diagrams.is_empty() {
@@ -472,11 +479,7 @@ impl MarkdownConverter {
             })
             .collect();
 
-        let html = if self.prepend_toc {
-            format!("{}{}", TOC_MACRO, result.html)
-        } else {
-            result.html
-        };
+        let html = self.maybe_prepend_toc(result.html, &result.toc);
 
         ExtractConfluenceResult {
             html,
