@@ -33,11 +33,15 @@ crates/
 └── docstage-core/         # Pure Rust library (no PyO3)
     └── src/
         ├── lib.rs                # Module exports
-        ├── confluence.rs         # Event-based pulldown-cmark → Confluence XHTML renderer
-        ├── html.rs               # Event-based pulldown-cmark → semantic HTML5 with syntect
         ├── converter.rs          # MarkdownConverter with convert() and convert_html() methods
+        ├── renderer/             # Unified markdown renderer with pluggable backends
+        │   ├── mod.rs            # Generic MarkdownRenderer<B: RenderBackend>
+        │   ├── backend.rs        # RenderBackend trait definition
+        │   ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
+        │   ├── html.rs           # HtmlBackend implementation
+        │   └── confluence.rs     # ConfluenceBackend implementation
         ├── kroki.rs              # Parallel diagram rendering via Kroki service
-        ├── plantuml_filter.rs    # Iterator adapter: extracts PlantUML, returns placeholders
+        ├── diagram_filter.rs     # Iterator adapter: extracts diagrams, returns placeholders
         └── plantuml.rs           # !include resolution, DPI configuration
 
 packages/

@@ -46,30 +46,34 @@
 //! # Architecture
 //!
 //! - [`MarkdownConverter`]: Main entry point with builder pattern
-//! - [`HtmlRenderer`]: Event-based HTML5 renderer
-//! - [`ConfluenceRenderer`]: Event-based Confluence XHTML renderer
+//! - [`renderer::MarkdownRenderer`]: Generic renderer with pluggable backends
+//! - [`renderer::HtmlBackend`]: HTML5 backend
+//! - [`renderer::ConfluenceBackend`]: Confluence XHTML backend
 //! - [`DiagramFilter`]: Iterator adapter for diagram extraction
 //! - [`render_all`]: Parallel PNG diagram rendering via Kroki
 //! - [`render_all_svg`]: Parallel SVG diagram rendering via Kroki
 
-mod confluence;
 mod converter;
 mod diagram_filter;
-mod html;
 mod kroki;
 mod plantuml;
+pub mod renderer;
 mod util;
 
-pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use converter::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
     PreparedDiagram, create_image_tag,
 };
 pub use diagram_filter::{DiagramFilter, DiagramFormat, DiagramLanguage, ExtractedDiagram};
-pub use html::{HtmlRenderResult, HtmlRenderer, TocEntry, escape_html};
 pub use kroki::{
     DiagramError, DiagramErrorKind, DiagramRequest, PartialRenderResult, RenderError,
     RenderedDiagram, RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri,
     render_all_png_data_uri_partial, render_all_svg, render_all_svg_partial,
 };
 pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
+
+// Re-export commonly used types from renderer for backwards compatibility
+pub use renderer::{
+    ConfluenceBackend, HtmlBackend, MarkdownRenderer, RenderBackend, RenderResult, TocEntry,
+    escape_html,
+};
