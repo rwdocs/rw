@@ -42,7 +42,8 @@ use regex::Regex;
 use docstage_confluence_renderer::ConfluenceBackend;
 use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry, escape_html};
 
-use crate::diagram_filter::{DiagramFilter, DiagramFormat};
+use crate::diagram_filter::DiagramFormat;
+use crate::diagram_processor::{DiagramProcessor, to_extracted_diagrams};
 use crate::kroki::{
     DiagramError, DiagramRequest, RenderError, render_all, render_all_png_data_uri_partial,
     render_all_svg_partial,
@@ -326,17 +327,19 @@ impl MarkdownConverter {
         }
     }
 
-    /// Resolve diagram format for HTML output.
-    ///
-    /// Returns the Kroki output format string ("svg" or "png").
-    /// Used by [`Self::extract_html_with_diagrams`] to determine the format for each diagram.
-    ///
-    /// Note: Confluence always uses PNG (see [`Self::extract_confluence_with_diagrams`]).
-    fn resolve_diagram_format(diagram: &crate::diagram_filter::ExtractedDiagram) -> &'static str {
-        match diagram.format {
-            DiagramFormat::Svg => "svg",
-            DiagramFormat::Png => "png",
-        }
+    /// Create a Confluence renderer with DiagramProcessor.
+    fn create_confluence_renderer_with_processor(&self) -> MarkdownRenderer<ConfluenceBackend> {
+        self.create_confluence_renderer()
+            .with_processor(DiagramProcessor::new())
+    }
+
+    /// Create an HTML renderer with DiagramProcessor.
+    fn create_html_renderer_with_processor(
+        &self,
+        base_path: Option<&str>,
+    ) -> MarkdownRenderer<HtmlBackend> {
+        self.create_html_renderer(base_path)
+            .with_processor(DiagramProcessor::new())
     }
 
     /// Convert markdown to Confluence storage format.
@@ -357,13 +360,13 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Filter diagram code blocks, replacing them with placeholders
-        let mut filter = DiagramFilter::new(parser);
-        let result = self.create_confluence_renderer().render(&mut filter);
+        // Render with DiagramProcessor to extract diagrams
+        let mut renderer = self.create_confluence_renderer_with_processor();
+        let result = renderer.render(parser);
 
-        // Get extracted diagrams and filter warnings
-        let (extracted_diagrams, filter_warnings) = filter.into_parts();
-        let mut warnings = filter_warnings;
+        // Get extracted diagrams and processor warnings
+        let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
+        let mut warnings = renderer.processor_warnings();
 
         let mut html = self.maybe_prepend_toc(result.html, &result.toc);
 
@@ -436,12 +439,14 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Filter diagram code blocks, replacing them with placeholders
-        let mut filter = DiagramFilter::new(parser);
-        let result = self.create_confluence_renderer().render(&mut filter);
-        let (extracted_diagrams, filter_warnings) = filter.into_parts();
+        // Render with DiagramProcessor to extract diagrams
+        let mut renderer = self.create_confluence_renderer_with_processor();
+        let result = renderer.render(parser);
 
-        let mut warnings = filter_warnings;
+        // Get extracted diagrams and processor warnings
+        let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
+        let mut warnings = renderer.processor_warnings();
+
         let diagrams: Vec<_> = extracted_diagrams
             .iter()
             .map(|d| {
@@ -516,12 +521,14 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Filter diagram code blocks, replacing them with placeholders
-        let mut filter = DiagramFilter::new(parser);
-        let result = self.create_html_renderer(base_path).render(&mut filter);
-        let (extracted_diagrams, filter_warnings) = filter.into_parts();
+        // Render with DiagramProcessor to extract diagrams
+        let mut renderer = self.create_html_renderer_with_processor(base_path);
+        let result = renderer.render(parser);
 
-        let mut warnings = filter_warnings;
+        // Get extracted diagrams and processor warnings
+        let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
+        let mut warnings = renderer.processor_warnings();
+
         let diagrams: Vec<_> = extracted_diagrams
             .iter()
             .map(|d| {
@@ -530,7 +537,7 @@ impl MarkdownConverter {
                     index: d.index,
                     source,
                     endpoint: d.language.kroki_endpoint().to_string(),
-                    format: Self::resolve_diagram_format(d).to_string(),
+                    format: d.format.as_str().to_string(),
                 }
             })
             .collect();
@@ -570,13 +577,15 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        // Filter diagram code blocks, replacing them with placeholders
-        let mut filter = DiagramFilter::new(parser);
-        let result = self.create_html_renderer(base_path).render(&mut filter);
-        let (extracted_diagrams, filter_warnings) = filter.into_parts();
+        // Render with DiagramProcessor to extract diagrams
+        let mut renderer = self.create_html_renderer_with_processor(base_path);
+        let result = renderer.render(parser);
+
+        // Get extracted diagrams and processor warnings
+        let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
+        let mut warnings = renderer.processor_warnings();
 
         let mut html = result.html;
-        let mut warnings = filter_warnings;
 
         if !extracted_diagrams.is_empty() {
             // Group diagrams by format

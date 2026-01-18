@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ExtractConfluenceResult` removed; use `ExtractResult` for both HTML and Confluence
 - Removed unimplemented `img` diagram format option (use `svg` or `png`)
 - `MarkdownRenderer::render()` now takes `&mut self` instead of `self` to allow accessing extracted code blocks after rendering
+- **Diagram extraction migrated to `DiagramProcessor`** implementing `CodeBlockProcessor` trait (internal refactoring, no API changes)
 
 ### Fixed
 

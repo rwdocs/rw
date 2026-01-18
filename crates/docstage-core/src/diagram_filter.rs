@@ -1,8 +1,6 @@
-//! Diagram extraction as an iterator adapter over pulldown-cmark events.
+//! Diagram types for supported diagram languages.
 //!
 //! Supports multiple diagram languages via Kroki: `PlantUML`, Mermaid, `GraphViz`, etc.
-
-use pulldown_cmark::{CodeBlockKind, CowStr, Event, Tag, TagEnd};
 
 /// Supported diagram languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +111,15 @@ impl DiagramFormat {
             _ => None,
         }
     }
+
+    /// Return format as string representation.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Svg => "svg",
+            Self::Png => "png",
+        }
+    }
 }
 
 /// Information about an extracted diagram.
@@ -124,345 +131,13 @@ pub struct ExtractedDiagram {
     pub index: usize,
     /// Diagram language (plantuml, mermaid, etc.).
     pub language: DiagramLanguage,
-    /// Output format (svg, png, img).
+    /// Output format (svg, png).
     pub format: DiagramFormat,
-}
-
-/// Result of parsing a code fence info string.
-struct ParsedInfoString {
-    language: DiagramLanguage,
-    format: DiagramFormat,
-    warnings: Vec<String>,
-}
-
-/// Parse code fence info string into language and attributes.
-///
-/// Format: `language [key=value ...]`
-///
-/// Example: `plantuml format=png` → `(PlantUml, Png)`
-fn parse_info_string(info: &str) -> Option<ParsedInfoString> {
-    let mut parts = info.split_whitespace();
-    let language = DiagramLanguage::parse(parts.next()?)?;
-
-    let mut format = DiagramFormat::default();
-    let mut warnings = Vec::new();
-
-    for part in parts {
-        if let Some((key, value)) = part.split_once('=') {
-            if key == "format" {
-                if let Some(f) = DiagramFormat::parse(value) {
-                    format = f;
-                } else {
-                    warnings.push(format!(
-                        "unknown format value '{value}', using default 'svg' (valid: svg, png)"
-                    ));
-                }
-            } else {
-                warnings.push(format!("unknown attribute '{key}' ignored (valid: format)"));
-            }
-        } else {
-            warnings.push(format!(
-                "malformed attribute '{part}' ignored (expected key=value)"
-            ));
-        }
-    }
-
-    Some(ParsedInfoString {
-        language,
-        format,
-        warnings,
-    })
-}
-
-/// Iterator adapter that extracts diagrams from a pulldown-cmark event stream.
-///
-/// This filter:
-/// - Intercepts code blocks with supported diagram languages
-/// - Collects their source code into `ExtractedDiagram` structs
-/// - Emits `{{DIAGRAM_N}}` placeholder as `Event::Html`
-/// - Passes through all other events unchanged
-/// - Collects warnings for unknown attributes or format values
-pub struct DiagramFilter<'a, I: Iterator<Item = Event<'a>>> {
-    iter: I,
-    diagrams: Vec<ExtractedDiagram>,
-    warnings: Vec<String>,
-    state: FilterState,
-}
-
-#[derive(Debug, Default)]
-enum FilterState {
-    #[default]
-    Normal,
-    InDiagram {
-        source: String,
-        language: DiagramLanguage,
-        format: DiagramFormat,
-    },
-}
-
-impl<'a, I: Iterator<Item = Event<'a>>> DiagramFilter<'a, I> {
-    /// Create a new diagram filter wrapping the given event iterator.
-    pub fn new(iter: I) -> Self {
-        Self {
-            iter,
-            diagrams: Vec::new(),
-            warnings: Vec::new(),
-            state: FilterState::Normal,
-        }
-    }
-
-    /// Get a reference to the diagrams extracted so far.
-    #[must_use]
-    pub fn diagrams(&self) -> &[ExtractedDiagram] {
-        &self.diagrams
-    }
-
-    /// Consume the filter and return the collected diagrams.
-    #[must_use]
-    pub fn into_diagrams(self) -> Vec<ExtractedDiagram> {
-        self.diagrams
-    }
-
-    /// Get a reference to the warnings collected so far.
-    #[must_use]
-    pub fn warnings(&self) -> &[String] {
-        &self.warnings
-    }
-
-    /// Consume the filter and return both diagrams and warnings.
-    #[must_use]
-    pub fn into_parts(self) -> (Vec<ExtractedDiagram>, Vec<String>) {
-        (self.diagrams, self.warnings)
-    }
-}
-
-impl<'a, I: Iterator<Item = Event<'a>>> Iterator for DiagramFilter<'a, I> {
-    type Item = Event<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let event = self.iter.next()?;
-
-            match (&mut self.state, event) {
-                // Start of a diagram code block
-                (
-                    FilterState::Normal,
-                    Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))),
-                ) => {
-                    if let Some(parsed) = parse_info_string(&info) {
-                        // Collect any warnings from parsing with diagram context
-                        let diagram_index = self.diagrams.len();
-                        for w in parsed.warnings {
-                            self.warnings.push(format!("diagram {diagram_index}: {w}"));
-                        }
-                        self.state = FilterState::InDiagram {
-                            source: String::new(),
-                            language: parsed.language,
-                            format: parsed.format,
-                        };
-                        // Don't emit the Start event, continue to collect content
-                    } else {
-                        // Not a diagram, pass through
-                        return Some(Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))));
-                    }
-                }
-
-                // Text inside diagram block - collect it
-                (FilterState::InDiagram { source, .. }, Event::Text(text)) => {
-                    source.push_str(&text);
-                }
-
-                // End of diagram block - emit placeholder
-                (FilterState::InDiagram { .. }, Event::End(TagEnd::CodeBlock)) => {
-                    // Take the state and reset to Normal
-                    let old_state = std::mem::take(&mut self.state);
-                    let FilterState::InDiagram {
-                        source,
-                        language,
-                        format,
-                    } = old_state
-                    else {
-                        // Should not happen - state machine invariant violated
-                        // Continue without emitting anything rather than panicking
-                        continue;
-                    };
-
-                    let index = self.diagrams.len();
-                    self.diagrams.push(ExtractedDiagram {
-                        source,
-                        index,
-                        language,
-                        format,
-                    });
-
-                    // Emit placeholder as Html event (passes through unchanged)
-                    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-                    return Some(Event::Html(CowStr::Boxed(placeholder.into_boxed_str())));
-                }
-
-                // Any other event while in diagram block (shouldn't happen normally)
-                (FilterState::InDiagram { source, .. }, other) => {
-                    // Handle unexpected events - just collect text representation
-                    if let Event::SoftBreak | Event::HardBreak = other {
-                        source.push('\n');
-                    }
-                }
-
-                // Normal event - pass through
-                (FilterState::Normal, event) => {
-                    return Some(event);
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pulldown_cmark::Parser;
-
-    #[test]
-    fn test_extracts_plantuml_diagram() {
-        let markdown = "# Title\n\n```plantuml\n@startuml\nAlice -> Bob\n@enduml\n```\n\nText";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(diagrams[0].index, 0);
-        assert_eq!(diagrams[0].language, DiagramLanguage::PlantUml);
-        assert_eq!(diagrams[0].format, DiagramFormat::Svg);
-        assert!(diagrams[0].source.contains("Alice -> Bob"));
-
-        let has_placeholder = events
-            .iter()
-            .any(|e| matches!(e, Event::Html(s) if s.contains("{{DIAGRAM_0}}")));
-        assert!(has_placeholder);
-    }
-
-    #[test]
-    fn test_extracts_mermaid_diagram() {
-        let markdown = "```mermaid\ngraph TD\n  A --> B\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(diagrams[0].language, DiagramLanguage::Mermaid);
-        assert!(diagrams[0].source.contains("graph TD"));
-    }
-
-    #[test]
-    fn test_extracts_graphviz_diagram() {
-        let markdown = "```graphviz\ndigraph G { A -> B }\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(diagrams[0].language, DiagramLanguage::GraphViz);
-    }
-
-    #[test]
-    fn test_extracts_dot_alias() {
-        let markdown = "```dot\ndigraph G { A -> B }\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(diagrams[0].language, DiagramLanguage::GraphViz);
-    }
-
-    #[test]
-    fn test_parses_format_attribute() {
-        let markdown = "```plantuml format=png\n@startuml\nA -> B\n@enduml\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(diagrams[0].format, DiagramFormat::Png);
-    }
-
-    #[test]
-    fn test_extracts_multiple_diagrams() {
-        let markdown = r"
-```plantuml
-@startuml
-A -> B
-@enduml
-```
-
-Some text
-
-```mermaid
-graph TD
-  C --> D
-```
-";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 2);
-        assert_eq!(diagrams[0].language, DiagramLanguage::PlantUml);
-        assert_eq!(diagrams[1].language, DiagramLanguage::Mermaid);
-
-        let placeholder_count = events
-            .iter()
-            .filter(|e| matches!(e, Event::Html(s) if s.contains("DIAGRAM_")))
-            .count();
-        assert_eq!(placeholder_count, 2);
-    }
-
-    #[test]
-    fn test_passes_through_other_code_blocks() {
-        let markdown = "```rust\nfn main() {}\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert!(diagrams.is_empty());
-
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, Event::Start(Tag::CodeBlock(_))))
-        );
-        assert!(
-            events
-                .iter()
-                .any(|e| matches!(e, Event::Text(s) if s.contains("fn main")))
-        );
-    }
-
-    #[test]
-    fn test_no_diagrams() {
-        let markdown = "# Just text\n\nNo diagrams here.";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert!(diagrams.is_empty());
-    }
 
     #[test]
     fn test_kroki_endpoints() {
@@ -478,95 +153,6 @@ graph TD
         assert!(DiagramLanguage::C4PlantUml.needs_plantuml_preprocessing());
         assert!(!DiagramLanguage::Mermaid.needs_plantuml_preprocessing());
         assert!(!DiagramLanguage::GraphViz.needs_plantuml_preprocessing());
-    }
-
-    #[test]
-    fn test_parse_info_string() {
-        let result = parse_info_string("plantuml").unwrap();
-        assert_eq!(result.language, DiagramLanguage::PlantUml);
-        assert_eq!(result.format, DiagramFormat::Svg);
-        assert!(result.warnings.is_empty());
-
-        let result = parse_info_string("plantuml format=png").unwrap();
-        assert_eq!(result.language, DiagramLanguage::PlantUml);
-        assert_eq!(result.format, DiagramFormat::Png);
-        assert!(result.warnings.is_empty());
-
-        assert!(parse_info_string("rust").is_none());
-        assert!(parse_info_string("").is_none());
-    }
-
-    #[test]
-    fn test_parse_info_string_unknown_format() {
-        let result = parse_info_string("plantuml format=jpeg").unwrap();
-        assert_eq!(result.language, DiagramLanguage::PlantUml);
-        assert_eq!(result.format, DiagramFormat::Svg); // fallback
-        assert_eq!(result.warnings.len(), 1);
-        assert!(result.warnings[0].contains("unknown format value 'jpeg'"));
-    }
-
-    #[test]
-    fn test_parse_info_string_unknown_attribute() {
-        let result = parse_info_string("plantuml size=large").unwrap();
-        assert_eq!(result.language, DiagramLanguage::PlantUml);
-        assert_eq!(result.format, DiagramFormat::Svg);
-        assert_eq!(result.warnings.len(), 1);
-        assert!(result.warnings[0].contains("unknown attribute 'size'"));
-    }
-
-    #[test]
-    fn test_parse_info_string_malformed_attribute() {
-        let result = parse_info_string("plantuml nope").unwrap();
-        assert_eq!(result.language, DiagramLanguage::PlantUml);
-        assert_eq!(result.warnings.len(), 1);
-        assert!(result.warnings[0].contains("malformed attribute 'nope'"));
-    }
-
-    #[test]
-    fn test_filter_collects_warnings() {
-        let markdown = "```plantuml formt=png\n@startuml\nA -> B\n@enduml\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let (diagrams, warnings) = filter.into_parts();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("diagram 0"));
-        assert!(warnings[0].contains("unknown attribute 'formt'"));
-    }
-
-    #[test]
-    fn test_diagrams_ref_during_iteration() {
-        let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        // Diagrams empty before iteration
-        assert!(filter.diagrams().is_empty());
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        // Diagrams available via reference after iteration
-        assert_eq!(filter.diagrams().len(), 1);
-        assert!(filter.diagrams()[0].source.contains("A -> B"));
-    }
-
-    #[test]
-    fn test_warnings_ref_during_iteration() {
-        let markdown = "```plantuml bad=attr\n@startuml\nA -> B\n@enduml\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        // Warnings empty before iteration
-        assert!(filter.warnings().is_empty());
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        // Warnings available via reference after iteration
-        assert_eq!(filter.warnings().len(), 1);
-        assert!(filter.warnings()[0].contains("unknown attribute"));
     }
 
     #[test]
@@ -607,20 +193,6 @@ graph TD
                 "Failed to parse: {kroki_name}"
             );
         }
-    }
-
-    #[test]
-    fn test_kroki_prefix_extraction() {
-        let markdown = "```kroki-mermaid\ngraph TD\n  A --> B\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(diagrams[0].language, DiagramLanguage::Mermaid);
-        assert!(diagrams[0].source.contains("graph TD"));
     }
 
     #[test]
@@ -678,6 +250,12 @@ graph TD
     }
 
     #[test]
+    fn test_diagram_format_as_str() {
+        assert_eq!(DiagramFormat::Svg.as_str(), "svg");
+        assert_eq!(DiagramFormat::Png.as_str(), "png");
+    }
+
+    #[test]
     fn test_extracted_diagram_clone() {
         let diagram = ExtractedDiagram {
             source: "test".to_string(),
@@ -720,64 +298,5 @@ graph TD
         let copied = fmt;
         assert_eq!(fmt, DiagramFormat::Png);
         assert_eq!(copied, DiagramFormat::Png);
-    }
-
-    #[test]
-    fn test_empty_diagram_block() {
-        let markdown = "```plantuml\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert!(diagrams[0].source.is_empty());
-
-        let has_placeholder = events
-            .iter()
-            .any(|e| matches!(e, Event::Html(s) if s.contains("{{DIAGRAM_0}}")));
-        assert!(has_placeholder);
-    }
-
-    #[test]
-    fn test_diagram_preserves_whitespace() {
-        let markdown = "```plantuml\n  @startuml\n    A -> B\n  @enduml\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert!(diagrams[0].source.contains("  @startuml"));
-        assert!(diagrams[0].source.contains("    A -> B"));
-    }
-
-    #[test]
-    fn test_multiple_warnings_in_single_diagram() {
-        let markdown = "```plantuml format=bad size=huge\n@startuml\nA\n@enduml\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let warnings = filter.warnings();
-        assert_eq!(warnings.len(), 2);
-        assert!(warnings[0].contains("format value 'bad'"));
-        assert!(warnings[1].contains("unknown attribute 'size'"));
-    }
-
-    #[test]
-    fn test_c4plantuml_extraction() {
-        let markdown = "```c4plantuml\n@startuml\nSystem(sys, \"System\")\n@enduml\n```";
-        let parser = Parser::new(markdown);
-        let mut filter = DiagramFilter::new(parser);
-
-        let _events: Vec<_> = filter.by_ref().collect();
-
-        let diagrams = filter.into_diagrams();
-        assert_eq!(diagrams.len(), 1);
-        assert_eq!(diagrams[0].language, DiagramLanguage::C4PlantUml);
-        assert!(diagrams[0].language.needs_plantuml_preprocessing());
     }
 }
