@@ -353,7 +353,7 @@ impl<B: RenderBackend> Default for MarkdownRenderer<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ConfluenceBackend, HtmlBackend};
+    use crate::HtmlBackend;
     use pulldown_cmark::{Options, Parser};
 
     fn render_html(markdown: &str) -> RenderResult {
@@ -369,20 +369,6 @@ mod tests {
             .with_title_extraction()
             .render(parser)
     }
-
-    fn render_confluence(markdown: &str) -> RenderResult {
-        let parser = Parser::new(markdown);
-        MarkdownRenderer::<ConfluenceBackend>::new().render(parser)
-    }
-
-    fn render_confluence_with_title(markdown: &str) -> RenderResult {
-        let parser = Parser::new(markdown);
-        MarkdownRenderer::<ConfluenceBackend>::new()
-            .with_title_extraction()
-            .render(parser)
-    }
-
-    // HTML backend tests
 
     #[test]
     fn test_html_basic_paragraph() {
@@ -457,86 +443,6 @@ mod tests {
         assert!(result.html.contains(r#"href="/base/path/page""#));
     }
 
-    // Confluence backend tests
-
-    #[test]
-    fn test_confluence_basic_paragraph() {
-        let result = render_confluence("Hello, world!");
-        assert_eq!(result.html, "<p>Hello, world!</p>");
-    }
-
-    #[test]
-    fn test_confluence_heading() {
-        let result = render_confluence("## Title");
-        assert!(result.html.contains("<h2"));
-        assert!(result.html.contains("</h2>"));
-    }
-
-    #[test]
-    fn test_confluence_title_extraction() {
-        let markdown = "# My Title\n\nSome content\n\n## Section\n\n### Subsection";
-        let result = render_confluence_with_title(markdown);
-
-        assert_eq!(result.title, Some("My Title".to_string()));
-        // H1 is NOT rendered in Confluence mode
-        assert!(!result.html.contains("My Title"));
-        // Levels are shifted: H2→H1, H3→H2
-        assert!(result.html.contains("<h1"));
-        assert!(result.html.contains("Section"));
-        assert!(result.html.contains("<h2"));
-        assert!(result.html.contains("Subsection"));
-    }
-
-    #[test]
-    fn test_confluence_code_block() {
-        let result = render_confluence("```python\nprint('hello')\n```");
-        assert!(result.html.contains(r#"ac:name="code""#));
-        assert!(result.html.contains(r#"ac:name="language">python"#));
-        assert!(result.html.contains("<![CDATA["));
-    }
-
-    #[test]
-    fn test_confluence_blockquote() {
-        let result = render_confluence("> Note");
-        assert!(result.html.contains(r#"ac:name="info""#));
-    }
-
-    #[test]
-    fn test_confluence_external_image() {
-        let result = render_confluence("![alt](https://example.com/image.png)");
-        assert!(result.html.contains(r"<ac:image>"));
-        assert!(
-            result
-                .html
-                .contains(r#"ri:url ri:value="https://example.com/image.png""#)
-        );
-    }
-
-    #[test]
-    fn test_confluence_local_image() {
-        let result = render_confluence("![alt](./images/diagram.png)");
-        assert!(result.html.contains(r"<ac:image>"));
-        assert!(
-            result
-                .html
-                .contains(r#"ri:attachment ri:filename="diagram.png""#)
-        );
-    }
-
-    #[test]
-    fn test_confluence_hard_break() {
-        let result = render_confluence("Line one  \nLine two");
-        assert!(result.html.contains("<br />"));
-    }
-
-    #[test]
-    fn test_confluence_horizontal_rule() {
-        let result = render_confluence("---");
-        assert!(result.html.contains("<hr />"));
-    }
-
-    // Common functionality tests
-
     #[test]
     fn test_duplicate_heading_ids() {
         let result = render_html("## FAQ\n\n## FAQ\n\n## FAQ");
@@ -589,15 +495,6 @@ mod tests {
                 .html
                 .contains(r#"<input type="checkbox" checked disabled>"#)
         );
-    }
-
-    #[test]
-    fn test_task_list_confluence() {
-        let options = Options::ENABLE_TASKLISTS;
-        let parser = Parser::new_ext("- [ ] Unchecked\n- [x] Checked", options);
-        let result = MarkdownRenderer::<ConfluenceBackend>::new().render(parser);
-        assert!(result.html.contains("[ ] Unchecked"));
-        assert!(result.html.contains("[x] Checked"));
     }
 
     #[test]

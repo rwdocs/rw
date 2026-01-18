@@ -37,8 +37,11 @@ crates/
 │       ├── backend.rs        # RenderBackend trait definition
 │       ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
 │       ├── html.rs           # HtmlBackend implementation
-│       ├── confluence.rs     # ConfluenceBackend implementation
 │       └── util.rs           # heading_level_to_num()
+│
+├── docstage-confluence-renderer/  # Confluence XHTML backend
+│   └── src/
+│       └── lib.rs            # ConfluenceBackend implementation
 │
 └── docstage-core/         # Pure Rust library (no PyO3)
     └── src/
