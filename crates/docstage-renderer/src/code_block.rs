@@ -86,6 +86,12 @@ pub struct ExtractedCodeBlock {
 ///
 /// Implementations can handle one or more code block languages, transforming
 /// them into placeholders (for deferred processing) or inline HTML.
+///
+/// # Post-Processing
+///
+/// Processors that use placeholders can implement [`post_process`](Self::post_process)
+/// to replace them after rendering. Call [`MarkdownRenderer::finalize`] to trigger
+/// post-processing on all registered processors.
 pub trait CodeBlockProcessor {
     /// Process a code block and return the result.
     ///
@@ -108,6 +114,14 @@ pub trait CodeBlockProcessor {
         source: &str,
         index: usize,
     ) -> ProcessResult;
+
+    /// Post-process rendered HTML to replace placeholders.
+    ///
+    /// Called by [`MarkdownRenderer::finalize`] after rendering completes.
+    /// Use this to replace placeholders with actual content (e.g., rendered diagrams).
+    ///
+    /// Default implementation is a no-op.
+    fn post_process(&mut self, _html: &mut String) {}
 
     /// Get all extracted code blocks after rendering.
     ///

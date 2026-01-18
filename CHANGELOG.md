@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Post-processing hooks** for `CodeBlockProcessor` trait via `post_process` method; enables processors to replace placeholders after rendering
+- **Renderer finalize method** (`MarkdownRenderer::finalize`) to trigger post-processing on all registered processors
+- **DiagramProcessor configuration** via builder pattern: `kroki_url()`, `include_dirs()`, `config_file()`, `config_content()`, `dpi()`
 - **Code block processor trait** (`CodeBlockProcessor`) in `docstage-renderer` for extensible code block handling (diagrams, YAML tables, embeds, etc.)
 - **Live reload** for development mode with WebSocket-based file watching
 - **Diagram rendering** via Kroki (PlantUML, Mermaid, GraphViz, and 14+ other formats)
@@ -41,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Diagram extraction migrated to `DiagramProcessor`** implementing `CodeBlockProcessor` trait (internal refactoring, no API changes)
 - **Removed reexports from `docstage-core`** crate; consumers should import directly from `docstage-renderer`, `docstage-diagrams`, and `docstage-confluence-renderer`
 - **Moved diagram HTML embedding logic to `docstage-diagrams`** crate (SVG scaling, Google Fonts stripping, placeholder replacement); `docstage-core` no longer depends on `regex`
+- **Simplified `convert_html_with_diagrams`** in `docstage-core` to use `DiagramProcessor` configuration and `renderer.finalize()`
 
 ### Fixed
 
