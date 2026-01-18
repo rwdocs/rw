@@ -1,4 +1,4 @@
-"""Type stubs for the compiled docstage_core extension module."""
+"""Type stubs for the compiled _docstage_core extension module."""
 
 from pathlib import Path
 
