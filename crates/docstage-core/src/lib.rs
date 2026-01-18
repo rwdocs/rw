@@ -49,12 +49,13 @@
 //! - [`renderer::MarkdownRenderer`]: Generic renderer with pluggable backends
 //! - [`renderer::HtmlBackend`]: HTML5 backend
 //! - [`renderer::ConfluenceBackend`]: Confluence XHTML backend
-//! - [`DiagramFilter`]: Iterator adapter for diagram extraction
+//! - [`DiagramProcessor`]: Code block processor for diagram extraction
 //! - [`render_all`]: Parallel PNG diagram rendering via Kroki
 //! - [`render_all_svg`]: Parallel SVG diagram rendering via Kroki
 
 mod converter;
 mod diagram_filter;
+mod diagram_processor;
 mod kroki;
 mod plantuml;
 
@@ -62,7 +63,8 @@ pub use converter::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
     PreparedDiagram, create_image_tag,
 };
-pub use diagram_filter::{DiagramFilter, DiagramFormat, DiagramLanguage, ExtractedDiagram};
+pub use diagram_filter::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
+pub use diagram_processor::{DiagramProcessor, to_extracted_diagram, to_extracted_diagrams};
 pub use kroki::{
     DiagramError, DiagramErrorKind, DiagramRequest, PartialRenderResult, RenderError,
     RenderedDiagram, RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri,
