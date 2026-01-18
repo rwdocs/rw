@@ -42,36 +42,10 @@
 //! )?;
 //! // Result contains inline SVG diagrams
 //! ```
-//!
-//! # Architecture
-//!
-//! - [`MarkdownConverter`]: Main entry point with builder pattern
-//! - [`renderer::MarkdownRenderer`]: Generic renderer with pluggable backends
-//! - [`renderer::HtmlBackend`]: HTML5 backend
-//! - [`renderer::ConfluenceBackend`]: Confluence XHTML backend
-//! - [`DiagramProcessor`]: Code block processor for diagram extraction
-//! - [`render_all`]: Parallel PNG diagram rendering via Kroki
-//! - [`render_all_svg`]: Parallel SVG diagram rendering via Kroki
 
 mod converter;
 
 pub use converter::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
     PreparedDiagram, create_image_tag,
-};
-
-// Re-export diagram types from docstage-diagrams for backwards compatibility
-pub use docstage_diagrams::{
-    DEFAULT_DPI, DiagramError, DiagramErrorKind, DiagramFormat, DiagramLanguage, DiagramProcessor,
-    DiagramRequest, ExtractedDiagram, PartialRenderResult, RenderError, RenderedDiagram,
-    RenderedPngDataUri, RenderedSvg, load_config_file, prepare_diagram_source, render_all,
-    render_all_png_data_uri, render_all_png_data_uri_partial, render_all_svg,
-    render_all_svg_partial, to_extracted_diagram, to_extracted_diagrams,
-};
-
-// Re-export commonly used types from renderer for backwards compatibility
-pub use docstage_confluence_renderer::ConfluenceBackend;
-pub use docstage_renderer::{
-    HtmlBackend, MarkdownRenderer, RenderBackend, RenderResult, TocEntry, escape_html,
-    heading_level_to_num,
 };

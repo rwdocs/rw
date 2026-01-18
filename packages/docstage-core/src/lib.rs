@@ -2,16 +2,19 @@
 
 use std::path::PathBuf;
 
+use pyo3::exceptions::{PyFileNotFoundError, PyRuntimeError, PyValueError};
+use pyo3::prelude::*;
+
 use ::docstage_config::{
-    Config, ConfigError, CliSettings, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig,
+    CliSettings, Config, ConfigError, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig,
     DocsConfig, LiveReloadConfig, ServerConfig,
 };
 use ::docstage_core::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
-    PreparedDiagram, TocEntry, DEFAULT_DPI,
+    PreparedDiagram,
 };
-use pyo3::exceptions::{PyFileNotFoundError, PyRuntimeError, PyValueError};
-use pyo3::prelude::*;
+use ::docstage_diagrams::DEFAULT_DPI;
+use ::docstage_renderer::TocEntry;
 
 /// Rendered diagram info (file written to output_dir).
 #[pyclass(name = "DiagramInfo")]
@@ -562,11 +565,14 @@ impl PyConfig {
         Config::load(config_path.as_deref(), rust_settings.as_ref())
             .map(|inner| Self { inner })
             .map_err(|e| match e {
-                ConfigError::NotFound(path) => {
-                    PyFileNotFoundError::new_err(format!("Configuration file not found: {}", path.display()))
-                }
+                ConfigError::NotFound(path) => PyFileNotFoundError::new_err(format!(
+                    "Configuration file not found: {}",
+                    path.display()
+                )),
                 ConfigError::Io(err) => PyRuntimeError::new_err(format!("IO error: {err}")),
-                ConfigError::Parse(err) => PyValueError::new_err(format!("TOML parse error: {err}")),
+                ConfigError::Parse(err) => {
+                    PyValueError::new_err(format!("TOML parse error: {err}"))
+                }
             })
     }
 

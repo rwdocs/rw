@@ -174,6 +174,8 @@ version = "0.1.0"
 dependencies = [
  "docstage-config",
  "docstage-core",
+ "docstage-diagrams",
+ "docstage-renderer",
  "pyo3",
 ]
 
