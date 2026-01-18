@@ -139,6 +139,8 @@ pub struct ConvertResult {
     pub html: String,
     pub title: Option<String>,
     pub diagrams: Vec<DiagramInfo>,
+    /// Warnings generated during conversion (e.g., unresolved includes).
+    pub warnings: Vec<String>,
 }
 
 /// Result of converting markdown to HTML format.
@@ -303,24 +305,6 @@ impl MarkdownConverter {
         }
     }
 
-    /// Prepare diagram source for Kroki rendering.
-    ///
-    /// PlantUML diagrams need preprocessing (include resolution, config injection).
-    /// Other diagram types pass through unchanged.
-    fn prepare_diagram_source(&self, diagram: &crate::diagram_filter::ExtractedDiagram) -> String {
-        if diagram.language.needs_plantuml_preprocessing() {
-            prepare_diagram_source(
-                &diagram.source,
-                &self.include_dirs,
-                self.config_content.as_deref(),
-                self.dpi,
-            )
-            .source
-        } else {
-            diagram.source.clone()
-        }
-    }
-
     /// Prepare diagram source and collect warnings.
     fn prepare_diagram_source_with_warnings(
         &self,
@@ -343,7 +327,6 @@ impl MarkdownConverter {
 
     /// Resolve diagram format, emitting a warning for unsupported formats.
     fn resolve_diagram_format(
-        &self,
         diagram: &crate::diagram_filter::ExtractedDiagram,
         warnings: &mut Vec<String>,
     ) -> String {
@@ -384,8 +367,9 @@ impl MarkdownConverter {
             .create_confluence_renderer()
             .render_with_title(&mut filter);
 
-        // Get extracted diagrams
-        let (extracted_diagrams, _warnings) = filter.into_parts();
+        // Get extracted diagrams and filter warnings
+        let (extracted_diagrams, filter_warnings) = filter.into_parts();
+        let mut warnings = filter_warnings;
 
         let mut html = if self.prepend_toc {
             format!("{}{}", TOC_MACRO, result.html)
@@ -401,7 +385,7 @@ impl MarkdownConverter {
             let diagram_requests: Vec<_> = extracted_diagrams
                 .iter()
                 .map(|d| {
-                    let source = self.prepare_diagram_source(d);
+                    let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
                     DiagramRequest::new(d.index, source, d.language)
                 })
                 .collect();
@@ -431,6 +415,7 @@ impl MarkdownConverter {
             html,
             title: result.title,
             diagrams,
+            warnings,
         })
     }
 
@@ -547,7 +532,7 @@ impl MarkdownConverter {
             .iter()
             .map(|d| {
                 let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
-                let format = self.resolve_diagram_format(d, &mut warnings);
+                let format = Self::resolve_diagram_format(d, &mut warnings);
                 PreparedDiagram {
                     index: d.index,
                     source,

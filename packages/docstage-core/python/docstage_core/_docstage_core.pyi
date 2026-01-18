@@ -21,6 +21,8 @@ class ConvertResult:
     """Title extracted from first H1 heading (if extract_title was enabled)."""
     diagrams: list[DiagramInfo]
     """Rendered diagrams (empty if kroki_url/output_dir not provided)."""
+    warnings: list[str]
+    """Warnings generated during conversion (e.g., unresolved includes)."""
 
 class TocEntry:
     """Table of contents entry."""

@@ -44,6 +44,9 @@ pub struct PyConvertResult {
     pub title: Option<String>,
     #[pyo3(get)]
     pub diagrams: Vec<PyDiagramInfo>,
+    /// Warnings generated during conversion (e.g., unresolved includes).
+    #[pyo3(get)]
+    pub warnings: Vec<String>,
 }
 
 impl From<ConvertResult> for PyConvertResult {
@@ -52,6 +55,7 @@ impl From<ConvertResult> for PyConvertResult {
             html: result.html,
             title: result.title,
             diagrams: result.diagrams.into_iter().map(Into::into).collect(),
+            warnings: result.warnings,
         }
     }
 }
