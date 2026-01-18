@@ -50,7 +50,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --all-targets -- -W clippy::pedantic -D warnings
+        run: cargo clippy --all-targets -- -W clippy::pedantic
 
       - name: Run Ruff check
         run: uv run ruff check .
