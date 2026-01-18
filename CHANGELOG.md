@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Code block processor trait** (`CodeBlockProcessor`) in `docstage-renderer` for extensible code block handling (diagrams, YAML tables, embeds, etc.)
 - **Live reload** for development mode with WebSocket-based file watching
 - **Diagram rendering** via Kroki (PlantUML, Mermaid, GraphViz, and 14+ other formats)
 - **Confluence diagram support** for all 17 diagram types (previously PlantUML only)
@@ -35,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ConvertResult` now includes `warnings` field for API consistency
 - `ExtractConfluenceResult` removed; use `ExtractResult` for both HTML and Confluence
 - Removed unimplemented `img` diagram format option (use `svg` or `png`)
+- `MarkdownRenderer::render()` now takes `&mut self` instead of `self` to allow accessing extracted code blocks after rendering
 
 ### Fixed
 

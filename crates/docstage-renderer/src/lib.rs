@@ -28,12 +28,14 @@
 //! ```
 
 mod backend;
+mod code_block;
 mod html;
 mod renderer;
 mod state;
 mod util;
 
 pub use backend::RenderBackend;
+pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult, parse_fence_info};
 pub use html::HtmlBackend;
 pub use renderer::{MarkdownRenderer, RenderResult};
 pub use state::{TocEntry, escape_html, slugify};
