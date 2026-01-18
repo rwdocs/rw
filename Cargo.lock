@@ -155,7 +155,6 @@ dependencies = [
  "docstage-renderer",
  "pretty_assertions",
  "pulldown-cmark",
- "regex",
 ]
 
 [[package]]

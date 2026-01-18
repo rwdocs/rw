@@ -4,6 +4,7 @@
 //! - `DiagramProcessor` implements `CodeBlockProcessor` for extracting diagrams
 //! - Parallel rendering via Kroki service (PlantUML, Mermaid, GraphViz, etc.)
 //! - PlantUML preprocessing with `!include` resolution and DPI configuration
+//! - HTML embedding with SVG scaling and placeholder replacement
 //!
 //! # Architecture
 //!
@@ -12,6 +13,7 @@
 //! - [`processor`]: `DiagramProcessor` implementing `CodeBlockProcessor` trait
 //! - [`kroki`]: Parallel HTTP rendering via Kroki service
 //! - [`plantuml`]: PlantUML-specific preprocessing
+//! - [`html_embed`]: HTML embedding with SVG scaling and placeholder replacement
 //!
 //! # Example
 //!
@@ -29,11 +31,16 @@
 //! let diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
 //! ```
 
+mod html_embed;
 mod kroki;
 mod language;
 mod plantuml;
 mod processor;
 
+pub use html_embed::{
+    STANDARD_DPI, replace_png_diagrams, replace_svg_diagrams, scale_svg_dimensions,
+    strip_google_fonts_import,
+};
 pub use kroki::{
     DiagramError, DiagramErrorKind, DiagramRequest, PartialRenderResult, RenderError,
     RenderedDiagram, RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri,

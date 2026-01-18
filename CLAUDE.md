@@ -50,7 +50,8 @@ crates/
 │       ├── language.rs       # DiagramLanguage, DiagramFormat, ExtractedDiagram
 │       ├── processor.rs      # DiagramProcessor (implements CodeBlockProcessor)
 │       ├── kroki.rs          # Parallel Kroki HTTP rendering
-│       └── plantuml.rs       # !include resolution, DPI configuration
+│       ├── plantuml.rs       # !include resolution, DPI configuration
+│       └── html_embed.rs     # SVG scaling, placeholder replacement
 │
 └── docstage-core/         # Pure Rust library (no PyO3)
     └── src/
