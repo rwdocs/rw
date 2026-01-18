@@ -4,7 +4,6 @@ This module provides Python bindings to the Rust pulldown-cmark parser
 with custom renderers for Confluence and HTML5 formats.
 """
 
-from . import config
 from .docstage_core import (
     ConvertResult,
     DiagramInfo,
@@ -23,5 +22,4 @@ __all__ = [
     "MarkdownConverter",
     "PreparedDiagram",
     "TocEntry",
-    "config",
 ]
