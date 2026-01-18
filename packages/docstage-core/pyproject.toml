@@ -16,4 +16,4 @@ classifiers = [
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "docstage_core"
+module-name = "docstage_core._docstage_core"

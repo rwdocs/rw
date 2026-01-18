@@ -1,33 +1,81 @@
-"""Type stubs for docstage_core.config."""
+"""Type stubs for docstage_core.config submodule."""
 
-from .docstage_core import (
-    Config as Config,
-)
-from .docstage_core import (
-    ConfluenceConfig as ConfluenceConfig,
-)
-from .docstage_core import (
-    ConfluenceTestConfig as ConfluenceTestConfig,
-)
-from .docstage_core import (
-    DiagramsConfig as DiagramsConfig,
-)
-from .docstage_core import (
-    DocsConfig as DocsConfig,
-)
-from .docstage_core import (
-    LiveReloadConfig as LiveReloadConfig,
-)
-from .docstage_core import (
-    ServerConfig as ServerConfig,
-)
+from pathlib import Path
 
-__all__ = [
-    "Config",
-    "ConfluenceConfig",
-    "ConfluenceTestConfig",
-    "DiagramsConfig",
-    "DocsConfig",
-    "LiveReloadConfig",
-    "ServerConfig",
-]
+class ServerConfig:
+    """Server configuration."""
+
+    @property
+    def host(self) -> str: ...
+    @property
+    def port(self) -> int: ...
+
+class DocsConfig:
+    """Documentation configuration."""
+
+    @property
+    def source_dir(self) -> Path: ...
+    @property
+    def cache_dir(self) -> Path: ...
+    @property
+    def cache_enabled(self) -> bool: ...
+
+class DiagramsConfig:
+    """Diagram rendering configuration."""
+
+    @property
+    def kroki_url(self) -> str | None: ...
+    @property
+    def include_dirs(self) -> list[Path]: ...
+    @property
+    def config_file(self) -> str | None: ...
+    @property
+    def dpi(self) -> int: ...
+
+class LiveReloadConfig:
+    """Live reload configuration."""
+
+    @property
+    def enabled(self) -> bool: ...
+    @property
+    def watch_patterns(self) -> list[str] | None: ...
+
+class ConfluenceTestConfig:
+    """Confluence test configuration."""
+
+    @property
+    def space_key(self) -> str: ...
+
+class ConfluenceConfig:
+    """Confluence configuration."""
+
+    @property
+    def base_url(self) -> str: ...
+    @property
+    def access_token(self) -> str: ...
+    @property
+    def access_secret(self) -> str: ...
+    @property
+    def consumer_key(self) -> str: ...
+    @property
+    def test(self) -> ConfluenceTestConfig | None: ...
+
+class Config:
+    """Application configuration."""
+
+    @staticmethod
+    def load(config_path: Path | None = None) -> Config: ...
+    @property
+    def server(self) -> ServerConfig: ...
+    @property
+    def docs(self) -> DocsConfig: ...
+    @property
+    def diagrams(self) -> DiagramsConfig: ...
+    @property
+    def live_reload(self) -> LiveReloadConfig: ...
+    @property
+    def confluence(self) -> ConfluenceConfig | None: ...
+    @property
+    def confluence_test(self) -> ConfluenceTestConfig | None: ...
+    @property
+    def config_path(self) -> Path | None: ...
