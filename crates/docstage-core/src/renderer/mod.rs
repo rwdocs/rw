@@ -223,7 +223,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             }
             Tag::Emphasis => self.push_inline("<em>"),
             Tag::Strong => self.push_inline("<strong>"),
-            Tag::Strikethrough => self.push_inline("<del>"),
+            Tag::Strikethrough => self.push_inline("<s>"),
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
                 let link_tag = format!(r#"<a href="{}">"#, escape_html(&href));
@@ -315,7 +315,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             }
             TagEnd::Emphasis => self.push_inline("</em>"),
             TagEnd::Strong => self.push_inline("</strong>"),
-            TagEnd::Strikethrough => self.push_inline("</del>"),
+            TagEnd::Strikethrough => self.push_inline("</s>"),
             TagEnd::Link => self.push_inline("</a>"),
             TagEnd::Superscript => self.push_inline("</sup>"),
             TagEnd::Subscript => self.push_inline("</sub>"),
@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn test_strikethrough() {
         let result = render_html("~~deleted~~");
-        assert!(result.html.contains("<del>deleted</del>"));
+        assert!(result.html.contains("<s>deleted</s>"));
     }
 
     #[test]
