@@ -142,7 +142,6 @@ name = "docstage-core"
 version = "0.1.0"
 dependencies = [
  "base64",
- "docstage-config",
  "hex",
  "pulldown-cmark",
  "rayon",
@@ -155,6 +154,7 @@ dependencies = [
 name = "docstage-py"
 version = "0.1.0"
 dependencies = [
+ "docstage-config",
  "docstage-core",
  "pyo3",
 ]

@@ -9,6 +9,8 @@ from pathlib import Path
 
 from docstage_core.config import (
     Config as RustConfig,
+)
+from docstage_core.config import (
     ConfluenceConfig,
     ConfluenceTestConfig,
     DiagramsConfig,
