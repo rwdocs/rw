@@ -8,13 +8,12 @@ license.workspace = true
 
 [dependencies]
 base64 = { workspace = true }
+docstage-config = { workspace = true }
 hex = { workspace = true }
 pulldown-cmark = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
-serde = { workspace = true }
 sha2 = { workspace = true }
-toml = { workspace = true }
 ureq = { workspace = true }
 
 [dev-dependencies]

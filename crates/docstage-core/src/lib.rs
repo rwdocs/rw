@@ -52,7 +52,6 @@
 //! - [`render_all`]: Parallel PNG diagram rendering via Kroki
 //! - [`render_all_svg`]: Parallel SVG diagram rendering via Kroki
 
-pub mod config;
 mod confluence;
 mod converter;
 mod diagram_filter;
@@ -61,6 +60,9 @@ mod kroki;
 mod plantuml;
 mod plantuml_filter;
 mod util;
+
+/// Re-export config module from docstage-config crate.
+pub use docstage_config as config;
 
 pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use converter::{

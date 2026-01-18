@@ -130,17 +130,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "docstage-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "docstage-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "docstage-config",
  "hex",
  "pulldown-cmark",
  "rayon",
  "regex",
- "serde",
  "sha2",
- "toml",
  "ureq",
 ]
 

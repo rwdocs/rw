@@ -130,18 +130,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "docstage-config"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "docstage-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "docstage-config",
  "hex",
  "pretty_assertions",
  "pulldown-cmark",
  "rayon",
  "regex",
- "serde",
  "sha2",
- "toml",
  "ureq",
 ]
 
