@@ -1,11 +1,13 @@
 //! Generic markdown renderer with pluggable backend.
 
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::marker::PhantomData;
 
 use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
 
 use crate::backend::RenderBackend;
+use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult, parse_fence_info};
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
 
@@ -24,6 +26,11 @@ pub struct RenderResult {
 ///
 /// Uses the [`RenderBackend`] trait to delegate format-specific rendering
 /// while handling common elements (tables, lists, inline formatting) generically.
+///
+/// # Code Block Processors
+///
+/// Custom code block processing can be added via [`with_processor`](Self::with_processor).
+/// Processors are checked in order; the first returning a non-`PassThrough` result wins.
 pub struct MarkdownRenderer<B: RenderBackend> {
     output: String,
     /// Stack of nested list types (true = ordered, false = unordered).
@@ -40,6 +47,12 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     base_path: Option<String>,
     /// Pending image data (src, title) waiting for alt text.
     pending_image: Option<(String, String)>,
+    /// Registered code block processors.
+    processors: Vec<Box<dyn CodeBlockProcessor>>,
+    /// Current code block index for processor callbacks.
+    code_block_index: usize,
+    /// Pending code block attrs from fence info.
+    pending_attrs: HashMap<String, String>,
     /// Phantom data for the backend type.
     _backend: PhantomData<B>,
 }
@@ -57,6 +70,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             heading: HeadingState::new(false, B::TITLE_AS_METADATA),
             base_path: None,
             pending_image: None,
+            processors: Vec::new(),
+            code_block_index: 0,
+            pending_attrs: HashMap::new(),
             _backend: PhantomData,
         }
     }
@@ -81,6 +97,60 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
+    /// Add a code block processor.
+    ///
+    /// Processors are checked in order when a code block is encountered.
+    /// The first processor returning a non-`PassThrough` result wins.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use docstage_renderer::{
+    ///     CodeBlockProcessor, ExtractedCodeBlock, HtmlBackend,
+    ///     MarkdownRenderer, ProcessResult,
+    /// };
+    ///
+    /// struct TestProcessor;
+    ///
+    /// impl CodeBlockProcessor for TestProcessor {
+    ///     fn process(
+    ///         &mut self,
+    ///         language: &str,
+    ///         _attrs: &HashMap<String, String>,
+    ///         _source: &str,
+    ///         index: usize,
+    ///     ) -> ProcessResult {
+    ///         if language == "test" {
+    ///             ProcessResult::Placeholder(format!("{{{{TEST_{index}}}}}"))
+    ///         } else {
+    ///             ProcessResult::PassThrough
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let renderer = MarkdownRenderer::<HtmlBackend>::new()
+    ///     .with_processor(TestProcessor);
+    /// ```
+    #[must_use]
+    pub fn with_processor<P: CodeBlockProcessor + 'static>(mut self, processor: P) -> Self {
+        self.processors.push(Box::new(processor));
+        self
+    }
+
+    /// Get all extracted code blocks from all processors.
+    ///
+    /// Returns blocks that were processed with `ProcessResult::Placeholder`.
+    /// Use this after rendering to get the extracted data for deferred processing.
+    pub fn extracted_code_blocks(&self) -> Vec<ExtractedCodeBlock> {
+        self.processors.iter().flat_map(|p| p.extracted()).collect()
+    }
+
+    /// Get all warnings from all processors.
+    pub fn processor_warnings(&self) -> Vec<String> {
+        self.processors.iter().flat_map(|p| p.warnings()).collect()
+    }
+
     /// Push content to output or heading buffer based on context.
     fn push_inline(&mut self, content: &str) {
         if self.heading.is_active() {
@@ -91,7 +161,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     /// Render markdown events and return the result.
-    pub fn render<'a, I>(mut self, events: I) -> RenderResult
+    ///
+    /// After calling this method, you can use [`extracted_code_blocks`](Self::extracted_code_blocks)
+    /// to get data from processors that returned `ProcessResult::Placeholder`.
+    pub fn render<'a, I>(&mut self, events: I) -> RenderResult
     where
         I: Iterator<Item = Event<'a>>,
     {
@@ -99,7 +172,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             self.process_event(event);
         }
         RenderResult {
-            html: self.output,
+            html: std::mem::take(&mut self.output),
             title: self.heading.take_title(),
             toc: self.heading.take_toc(),
         }
@@ -139,12 +212,14 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 B::blockquote_start(&mut self.output);
             }
             Tag::CodeBlock(kind) => {
-                let lang = match kind {
-                    CodeBlockKind::Fenced(ref lang) if !lang.is_empty() => {
-                        lang.split_whitespace().next().map(str::to_string)
+                let (lang, attrs) = match kind {
+                    CodeBlockKind::Fenced(ref info) if !info.is_empty() => {
+                        let (lang, attrs) = parse_fence_info(info);
+                        (if lang.is_empty() { None } else { Some(lang) }, attrs)
                     }
-                    _ => None,
+                    _ => (None, HashMap::new()),
                 };
+                self.pending_attrs = attrs;
                 self.code.start(lang);
             }
             Tag::List(start) => {
@@ -232,7 +307,30 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             }
             TagEnd::CodeBlock => {
                 let (lang, content) = self.code.end();
-                B::code_block(lang.as_deref(), &content, &mut self.output);
+                let attrs = std::mem::take(&mut self.pending_attrs);
+                let index = self.code_block_index;
+                self.code_block_index += 1;
+
+                // Try processors in order, fall back to normal code block rendering
+                let processed = lang.as_ref().is_some_and(|lang_str| {
+                    self.processors.iter_mut().any(|processor| {
+                        match processor.process(lang_str, &attrs, &content, index) {
+                            ProcessResult::Placeholder(placeholder) => {
+                                self.output.push_str(&placeholder);
+                                true
+                            }
+                            ProcessResult::Inline(html) => {
+                                self.output.push_str(&html);
+                                true
+                            }
+                            ProcessResult::PassThrough => false,
+                        }
+                    })
+                });
+
+                if !processed {
+                    B::code_block(lang.as_deref(), &content, &mut self.output);
+                }
             }
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
@@ -287,22 +385,29 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     fn text(&mut self, text: &str) {
+        // Priority: code > image > first H1 > heading > normal text
         if self.code.is_active() {
-            // Buffer code content
             self.code.push_str(text);
-        } else if self.image.is_active() {
-            // Capture alt text
+            return;
+        }
+
+        if self.image.is_active() {
             self.image.push_str(text);
-        } else if self.heading.is_in_first_h1() {
-            // Capture first H1 text for title (Confluence mode)
+            return;
+        }
+
+        if self.heading.is_in_first_h1() {
             self.heading.push_text(text);
-        } else if self.heading.is_active() {
-            // Capture heading text and HTML
+            return;
+        }
+
+        if self.heading.is_active() {
             self.heading.push_text(text);
             self.heading.push_html(&escape_html(text));
-        } else {
-            self.output.push_str(&escape_html(text));
+            return;
         }
+
+        self.output.push_str(&escape_html(text));
     }
 
     fn inline_code(&mut self, code: &str) {
@@ -370,6 +475,20 @@ mod tests {
             .render(parser)
     }
 
+    fn render_with_base_path(markdown: &str, base_path: &str) -> RenderResult {
+        let options = Options::ENABLE_TABLES;
+        let parser = Parser::new_ext(markdown, options);
+        MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path(base_path)
+            .render(parser)
+    }
+
+    fn render_with_tasklists(markdown: &str) -> RenderResult {
+        let options = Options::ENABLE_TASKLISTS;
+        let parser = Parser::new_ext(markdown, options);
+        MarkdownRenderer::<HtmlBackend>::new().render(parser)
+    }
+
     #[test]
     fn test_html_basic_paragraph() {
         let result = render_html("Hello, world!");
@@ -435,11 +554,7 @@ mod tests {
 
     #[test]
     fn test_html_link_with_base_path() {
-        let options = Options::ENABLE_TABLES;
-        let parser = Parser::new_ext("[Link](./page.md)", options);
-        let result = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("base/path")
-            .render(parser);
+        let result = render_with_base_path("[Link](./page.md)", "base/path");
         assert!(result.html.contains(r#"href="/base/path/page""#));
     }
 
@@ -486,9 +601,7 @@ mod tests {
 
     #[test]
     fn test_task_list_html() {
-        let options = Options::ENABLE_TASKLISTS;
-        let parser = Parser::new_ext("- [ ] Unchecked\n- [x] Checked", options);
-        let result = MarkdownRenderer::<HtmlBackend>::new().render(parser);
+        let result = render_with_tasklists("- [ ] Unchecked\n- [x] Checked");
         assert!(result.html.contains(r#"<input type="checkbox" disabled>"#));
         assert!(
             result
@@ -500,7 +613,176 @@ mod tests {
     #[test]
     fn test_default_renderer() {
         let parser = Parser::new("Hello");
-        let result = MarkdownRenderer::<HtmlBackend>::default().render(parser);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::default();
+        let result = renderer.render(parser);
         assert_eq!(result.html, "<p>Hello</p>");
+    }
+
+    // Code block processor tests
+
+    struct PlaceholderProcessor {
+        extracted: Vec<ExtractedCodeBlock>,
+    }
+
+    impl PlaceholderProcessor {
+        fn new() -> Self {
+            Self {
+                extracted: Vec::new(),
+            }
+        }
+    }
+
+    impl CodeBlockProcessor for PlaceholderProcessor {
+        fn process(
+            &mut self,
+            language: &str,
+            attrs: &HashMap<String, String>,
+            source: &str,
+            index: usize,
+        ) -> ProcessResult {
+            if language == "diagram" {
+                self.extracted.push(ExtractedCodeBlock {
+                    index,
+                    language: language.to_string(),
+                    source: source.to_string(),
+                    attrs: attrs.clone(),
+                });
+                ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
+            } else {
+                ProcessResult::PassThrough
+            }
+        }
+
+        fn extracted(&self) -> Vec<ExtractedCodeBlock> {
+            self.extracted.clone()
+        }
+    }
+
+    struct InlineProcessor;
+
+    impl CodeBlockProcessor for InlineProcessor {
+        fn process(
+            &mut self,
+            language: &str,
+            _attrs: &HashMap<String, String>,
+            source: &str,
+            _index: usize,
+        ) -> ProcessResult {
+            if language == "inline-test" {
+                ProcessResult::Inline(format!("<div class=\"inline\">{source}</div>"))
+            } else {
+                ProcessResult::PassThrough
+            }
+        }
+    }
+
+    #[test]
+    fn test_processor_passthrough() {
+        let markdown = "```rust\nfn main() {}\n```";
+        let parser = Parser::new(markdown);
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_processor(PlaceholderProcessor::new());
+        let result = renderer.render(parser);
+
+        // Should render as normal code block
+        assert!(result.html.contains(r#"class="language-rust""#));
+        assert!(result.html.contains("fn main() {}"));
+    }
+
+    #[test]
+    fn test_processor_placeholder() {
+        let markdown = "```diagram\nA -> B\n```";
+        let parser = Parser::new(markdown);
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_processor(PlaceholderProcessor::new());
+        let result = renderer.render(parser);
+
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert!(!result.html.contains("<pre>"));
+
+        let extracted = renderer.extracted_code_blocks();
+        assert_eq!(extracted.len(), 1);
+        assert_eq!(extracted[0].language, "diagram");
+        assert_eq!(extracted[0].source, "A -> B\n");
+        assert_eq!(extracted[0].index, 0);
+    }
+
+    #[test]
+    fn test_processor_inline() {
+        let markdown = "```inline-test\ncontent\n```";
+        let parser = Parser::new(markdown);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_processor(InlineProcessor);
+        let result = renderer.render(parser);
+
+        assert!(result.html.contains(r#"<div class="inline">content"#));
+        assert!(!result.html.contains("<pre>"));
+    }
+
+    #[test]
+    fn test_processor_with_attrs() {
+        let markdown = "```diagram format=png theme=dark\nA -> B\n```";
+        let parser = Parser::new(markdown);
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_processor(PlaceholderProcessor::new());
+        let result = renderer.render(parser);
+
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+
+        let extracted = renderer.extracted_code_blocks();
+        assert_eq!(extracted.len(), 1);
+        assert_eq!(extracted[0].attrs.get("format"), Some(&"png".to_string()));
+        assert_eq!(extracted[0].attrs.get("theme"), Some(&"dark".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_processors() {
+        let markdown =
+            "```diagram\nA -> B\n```\n\n```inline-test\nhello\n```\n\n```rust\nfn main() {}\n```";
+        let parser = Parser::new(markdown);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_processor(PlaceholderProcessor::new())
+            .with_processor(InlineProcessor);
+        let result = renderer.render(parser);
+
+        // First processor handles diagram
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        // Second processor handles inline-test
+        assert!(result.html.contains(r#"<div class="inline">hello"#));
+        // Neither handles rust, so normal code block
+        assert!(result.html.contains(r#"class="language-rust""#));
+
+        let extracted = renderer.extracted_code_blocks();
+        assert_eq!(extracted.len(), 1);
+        assert_eq!(extracted[0].language, "diagram");
+    }
+
+    #[test]
+    fn test_processor_multiple_code_blocks() {
+        let markdown = "```diagram\nA -> B\n```\n\n```diagram\nC -> D\n```";
+        let parser = Parser::new(markdown);
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_processor(PlaceholderProcessor::new());
+        let result = renderer.render(parser);
+
+        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert!(result.html.contains("{{DIAGRAM_1}}"));
+
+        let extracted = renderer.extracted_code_blocks();
+        assert_eq!(extracted.len(), 2);
+        assert_eq!(extracted[0].index, 0);
+        assert_eq!(extracted[1].index, 1);
+    }
+
+    #[test]
+    fn test_processor_code_block_without_language() {
+        let markdown = "```\nplain text\n```";
+        let parser = Parser::new(markdown);
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_processor(PlaceholderProcessor::new());
+        let result = renderer.render(parser);
+
+        // Should render as normal code block without language class
+        assert!(result.html.contains("<pre><code>"));
+        assert!(result.html.contains("plain text"));
     }
 }

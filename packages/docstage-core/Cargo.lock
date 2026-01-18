@@ -138,10 +138,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "docstage-confluence-renderer"
+version = "0.1.0"
+dependencies = [
+ "docstage-renderer",
+]
+
+[[package]]
 name = "docstage-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "docstage-confluence-renderer",
+ "docstage-renderer",
  "hex",
  "pulldown-cmark",
  "rayon",
@@ -157,6 +166,13 @@ dependencies = [
  "docstage-config",
  "docstage-core",
  "pyo3",
+]
+
+[[package]]
+name = "docstage-renderer"
+version = "0.1.0"
+dependencies = [
+ "pulldown-cmark",
 ]
 
 [[package]]

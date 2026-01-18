@@ -75,9 +75,10 @@ pub trait RenderBackend {
     ///
     /// Default uses HTML checkbox. Override for format-specific rendering.
     fn task_list_marker(checked: bool, out: &mut String) {
-        let checked_attr = if checked { " checked" } else { "" };
-        out.push_str(&format!(
-            r#"<input type="checkbox"{checked_attr} disabled> "#
-        ));
+        if checked {
+            out.push_str(r#"<input type="checkbox" checked disabled> "#);
+        } else {
+            out.push_str(r#"<input type="checkbox" disabled> "#);
+        }
     }
 }
