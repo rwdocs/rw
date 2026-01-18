@@ -1,570 +1,67 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
-### 2026-01-18
-- Rename `ConfigOverrides` to `CliSettings` for clarity
-  - Name better reflects purpose: settings passed via CLI that override config file
-  - `Config.load()` now accepts `cli_settings` parameter instead of `overrides`
-  - Rename `apply_overrides()` to `apply_cli_settings()` in Rust
-- Expose `CliSettings` to Python for explicit override handling
-  - `Config.load()` now accepts `CliSettings` object instead of individual kwargs
-  - CLI constructs `CliSettings` and passes to `Config.load()`
-  - PyO3 bindings contain no conversion logic, just type passthrough
-- Remove redundant `docstage/config.py` module
-  - Python code now imports directly from `docstage_core.config`
-  - Eliminates unnecessary re-export layer
-- Move CLI override logic from Python to Rust
-  - Add `CliSettings` struct to hold CLI option values
-  - Extend `Config::load()` to accept optional cli_settings parameter
-  - Settings applied after loading and path resolution in Rust
-  - Remove Python `Config.with_overrides()` method and `_Overridden*` dataclasses
-  - All config logic now consolidated in Rust
-- Split config module from docstage-core to docstage-config crate
-  - Create new `docstage-config` crate in `crates/docstage-config/`
-  - Move all config types: `Config`, `ServerConfig`, `DocsConfig`, `DiagramsConfig`, `LiveReloadConfig`, `ConfluenceConfig`, `ConfluenceTestConfig`, `ConfigError`
-  - Python bindings depend on `docstage-config` directly
-  - Config types available at `docstage_core.config` submodule (created by Rust/PyO3)
-  - `docstage-core` no longer depends on config (removes `serde` and `toml` dependencies)
-- Remove redundant Python config tests
-  - Tests in `docstage/tests/test_config.py` duplicated coverage from Rust tests
-  - Rust `docstage-config` crate already has comprehensive tests (15 tests)
-- Code simplification refactoring
-  - Add `resolve` closure in Rust `resolve_paths()` to consolidate path resolution pattern
-  - Add `CliSettings::is_empty()` method for settings detection
+### Added
 
-### 2026-01-17
-- Move TOML config parsing from Python to Rust using serde
-  - Add `config.rs` module to docstage-core with serde structs for all config sections
-  - Config types: `Config`, `ServerConfig`, `DocsConfig`, `DiagramsConfig`, `LiveReloadConfig`, `ConfluenceConfig`, `ConfluenceTestConfig`
-  - Path resolution (source_dir, cache_dir, include_dirs) handled in Rust relative to config directory
-  - Add PyO3 bindings exposing all config types to Python
-  - Consistent error messages via serde's TOML parser
-  - Type-safe config autodiscovery searching parent directories
-- Code simplification refactoring
-  - Simplify `Config::default()` in Rust to delegate to `default_with_base(Path::new("."))`
-  - Consolidate `test__live_reload_enabled__returns_true` and `test__live_reload_disabled__returns_false` into single parametrized test
-  - Remove redundant fixture parameters from test methods (unused `docs_dir` parameters)
-- Switch from mypy to ty for Python type checking
-  - ty is 10-100x faster than mypy, written in Rust by Astral (creators of ruff)
-  - Update dev dependencies in pyproject.toml
-  - Update Makefile and CI workflow to use `ty check`
-  - Replace type narrowing asserts with `cast()` calls after `sys.exit()` in CLI
-- Address PR review feedback for ty migration
-  - Remove backticks from PlantUML in doc comments (proper noun, not code)
-  - Use explicit None checks instead of `or` operator in `with_overrides()` to correctly handle empty string/Path overrides
-  - Use consistent `relative_to()` for both source_dir and cache_dir in test fixtures
+- **Live reload** for development mode with WebSocket-based file watching
+- **Diagram rendering** via Kroki (PlantUML, Mermaid, GraphViz, and 14+ other formats)
+- **GitHub Actions CI** with lint, test, and E2E jobs
+- **Security headers** (CSP, X-Content-Type-Options, X-Frame-Options)
+- **Cache version invalidation** to prevent stale content after upgrades
+- **Configurable caching** with `--cache/--no-cache` CLI flag
+- **Verbose mode** (`--verbose`) for diagram rendering warnings
+- Support for `kroki-` prefixed diagram languages (MkDocs compatibility)
+- Support for superscript and subscript in markdown
+
+### Changed
+
+- **Config parsing moved to Rust** for better performance and type safety
+- **Unified configuration** via `docstage.toml` with auto-discovery
+- **Confluence commands** moved to `docstage confluence <command>` subgroup
+- **Clean URLs** without `/docs` prefix (e.g., `/guide` instead of `/docs/guide`)
+- **Tailwind CSS v4** with CSS-based configuration
+- **ty** replaces mypy for faster Python type checking
 - Update pulldown-cmark from 0.12 to 0.13
-  - Add support for superscript (`<sup>`) and subscript (`<sub>`) tags in both HTML and Confluence renderers
-- Migrate to Tailwind CSS v4
-  - Replace JS config with CSS-based configuration using `@theme` directive
-  - Use `@tailwindcss/vite` plugin instead of PostCSS integration
-  - Use `@plugin` directive to load `@tailwindcss/typography` in CSS
-  - Use `@layer base` and `@layer components` for proper CSS cascade
-  - Remove `tailwind.config.js` in favor of inline CSS configuration
-- Add GitHub Actions CI workflow
-  - Lint job: Rust formatting and clippy, Ruff check and format, ty, svelte-check, Prettier
-  - Test job: Cargo tests, pytest, Vitest frontend tests
-  - E2E job: Playwright tests with artifact upload on failure
-  - Uses uv for Python dependency management
-  - Caches Cargo and npm dependencies for faster runs
-- Add reverse source_path index for O(1) lookups (PERF-002)
-  - `Site.get_page_by_source()` now uses O(1) dict lookup instead of O(n) linear search
-  - Improves live reload performance when resolving file paths to URL paths
-  - Index built during Site construction alongside existing URL path index
-- Add security headers middleware (SEC-001)
-  - Add Content-Security-Policy header with explicit directives for self-documenting policy
-  - CSP includes: default-src, script-src, style-src, font-src, img-src, connect-src, frame-ancestors
-  - Add X-Content-Type-Options: nosniff to prevent MIME sniffing
-  - Add X-Frame-Options: DENY to prevent clickjacking
-  - Headers applied to all HTTP responses including API endpoints
-- Add support for `kroki-` prefixed diagram languages
-  - Diagram filter now recognizes `kroki-mermaid`, `kroki-plantuml`, etc.
-  - Compatible with MkDocs Kroki plugin markdown format
-  - Both `mermaid` and `kroki-mermaid` code fences now render diagrams
-- Add logging for diagram rendering failures
-  - Warning messages now printed to stderr when Kroki requests fail
-  - Shows endpoint name and error details for debugging
-  - Configure logging level with `--verbose` flag (DEBUG) or default (WARNING)
-- Code simplification refactoring
-  - Consolidate `test_all_diagram_languages` and `test_kroki_prefix_support` tests in diagram_filter.rs
-  - Single test now verifies both direct and `kroki-` prefixed forms for each language
-  - Consolidate three separate security header tests into single `test__any_response__has_security_headers`
-  - Tests now verify CSP, X-Content-Type-Options, and X-Frame-Options in one request
-- Include package version in HTTP ETag for browser cache invalidation
-  - ETag now computed from version + content instead of content only
-  - Browser caches automatically invalidate when server is upgraded
-  - Prevents stale content being served after deployments
-- Fix root index.md appearing in breadcrumbs after Home
-  - Root page at path "/" was included in ancestor chain when building breadcrumbs
-  - Now filtered out since "Home" breadcrumb already represents the root path
-- Fix navigation not updating page content on consecutive clicks
-  - Implement AbortController pattern in page store to cancel in-flight requests
-  - Page store `load()` now atomically resets state and cancels previous requests
-  - Replace `$effect` with `path.subscribe()` in Page.svelte for reactive path handling
-  - Previous pattern with `$effect` and `previousPath` tracking conflicted with Svelte 5's reactivity
-  - No E2E test added: the bug is not reproducible in E2E due to timing differences
 
-### 2026-01-16
-- Address PR feedback: improve cache type annotation
-  - Use union type `FileCache | NullCache` instead of abstract `PageCache` protocol
-  - Clearer since it shows exact concrete types assigned
-  - Remove unused `PageCache` import from server.py
-- Add option to disable caching for development
-  - Add `cache_enabled` setting in `[docs]` config section (default: true)
-  - Add `--cache/--no-cache` CLI flag to `serve` command
-  - When disabled, `NullCache` (no-op) is used instead of `FileCache`
-  - Add `PageCache` protocol for type-safe cache interface abstraction
-  - Useful for development when cache invalidation issues occur
-- Add proper E2E test fixtures with dedicated test documentation
-  - Create `frontend/e2e/fixtures/docs/` with structured test markdown files
-  - Create `frontend/e2e/fixtures/docstage.toml` test configuration
-  - Tests now use port 8081 to avoid conflicts with development server
-  - Update Playwright config to use test fixtures instead of production docs
-  - Rewrite all E2E tests with predictable test content
-  - Tests cover: navigation (11 tests), page content (13 tests), mobile (11 tests)
-  - Test docs include multi-level navigation, code blocks, tables, internal links
-- Enable source maps in frontend production builds
-  - Add `build.sourcemap: true` to Vite config
-  - Browser DevTools now show original TypeScript/Svelte source code
-  - Makes debugging frontend issues easier while keeping code optimized
-- Address PR review feedback for config fetch error handling
-  - Define `defaultConfig` with sensible defaults for all config values
-  - On fetch failure, use defaults instead of skipping config-dependent features
-  - Config is applied regardless of fetch success, ensuring consistent behavior
-- Add tests for navigation sibling behavior
-  - Add unit test verifying siblings of root `index.md` appear in navigation
-  - Add integration test with `SiteLoader` for full filesystem-to-navigation path
-- Code simplification refactoring
-  - Remove redundant `test__no_root_page__shows_all_root_pages` test that duplicated `test__flat_site__builds_navigation`
-- Address PR review feedback for live reload config fetch
-  - Add error handling for `fetchConfig()` to prevent app crash on network errors
-  - Log warning only in development mode when config fetch fails
-  - Make `FileCache` version injectable via constructor parameter for improved testability
-- Fix root page appearing in navigation sidebar
-  - Root `index.md` (path "/") is now excluded from navigation
-  - Navigation shows children of root (top-level sections like domains, usage)
-  - Root page still renders as home page content at "/"
-- Add cache version-based invalidation
-  - Cache now stores `build_version` in page metadata
-  - On cache read, version mismatch causes cache miss (auto-invalidation)
-  - Old cache files without `build_version` are treated as cache misses (graceful upgrade)
-  - Use hatch-vcs for dynamic version embedding from git
-  - Development versions include git commit hash (e.g., `0.1.dev162+g4e556ee`)
-  - This fixes issues where code changes (like URL prefix fixes) don't invalidate stale cached content
+### Fixed
 
-### 2026-01-14
-- Fix 404 error when accessing root index.md
-  - Root `docs/index.md` was never added to site structure
-  - `SiteLoader._scan_directory` skipped `index.md` files, only processing them as
-    part of subdirectories via `_process_directory`
-  - Now `_load_from_filesystem` explicitly adds root `index.md` with path `/`
-  - Update frontend Home component to load empty path (root) instead of `"index"`
-- Code simplification refactoring
-  - Extract shared `PageContent.svelte` component from duplicate markup in `Home.svelte` and `Page.svelte`
-  - Simplify `scale_svg_dimensions()` in diagrams.py by consolidating four similar helper functions into two
-  - Simplify `generate_tokens` CLI command cascading default logic using `or` chains
-  - Extract `render_all_partial()` generic helper in Rust kroki.rs to consolidate duplicate parallel rendering code
-  - Add `create_html_renderer()` helper method in Rust converter.rs to eliminate repeated HtmlRenderer builder pattern
-  - Extract `_require_kroki_url()` helper in Python cli.py to consolidate repeated kroki_url validation
-  - Extract `heading_level_to_num()` to shared `util.rs` module (was duplicated in confluence.rs and html.rs)
-  - Replace `unreachable!()` with defensive `continue` in plantuml_filter.rs for consistency with diagram_filter.rs
-  - Simplify `task_list_marker()` in html.rs using single format call with conditional attribute
-  - Consolidate ordered list start rendering in html.rs using match expression
-  - Add `current_alignment_style()` helper to `TableState` in html.rs to centralize alignment logic
-  - Simplify `task_list_marker()` in confluence.rs using single format call
-  - Add `adjusted_heading_level()` helper method in confluence.rs to eliminate duplicate level adjustment code
-  - Add `push_inline()` helper method in html.rs to consolidate heading-aware output
-  - Simplify list/table cell tag close using conditional expressions in html.rs and confluence.rs
-  - Consolidate inline formatting tags (Emphasis, Strong, Strikethrough, Link) using `push_inline()` helper
-  - Remove duplicate `escape_xml()` in confluence.rs, now uses shared `escape_html()` from html.rs
-  - Extract `_require_space_key()` helper in Python cli.py to consolidate repeated space key validation
-  - Add `buildRequestInit()` helper and `FetchOptions` interface in frontend client.ts to consolidate fetch options pattern
-  - Simplify `Site._normalize_path()` using `lstrip` pattern instead of conditional
-  - Simplify `_extract_comment_contexts()` in cli.py using `re.sub` with callback instead of manual iteration
-  - Simplify `Config.with_overrides()` to single return statement with inline replace calls
-  - Consolidate `FileCache._read_meta()` validation checks into single condition
-  - Add `initialState` constant in frontend page.ts store for consistency with navigation.ts pattern
-  - Simplify `_parse_live_reload()` watch_patterns list validation using `all()` and `list()`
-  - Simplify `_parse_diagrams()` include_dirs list building using `all()` check and list comprehension
-  - Simplify `clear()` method in frontend page.ts store to reuse `initialState` constant
-  - Simplify `Config.with_overrides()` string/Path overrides using `or` pattern where safe
-  - Simplify `create_html_renderer()` in converter.rs to use consistent conditional builder pattern
-  - Extract `scale_dim` helper in Rust `scale_svg_dimensions()` to consolidate dimension scaling logic
-  - Simplify `scale_svg_dimensions()` in Python diagrams.py with single `scale_dim` helper (replaces two similar functions)
-  - Extract `isExternalLink()` helper in frontend router.ts to consolidate link type checking logic
-  - Simplify `replace_diagram_placeholders()` in diagrams.py using conditional expression for content
+- Root `index.md` now correctly renders as home page
+- Article links resolve correctly without `/docs/` prefix
+- Comment preservation works when table content changes
+- Live reload triggers page refresh correctly
+- Navigation updates on consecutive clicks
+- Breadcrumbs exclude non-navigable paths and current page
+- Diagram sizing displays at correct physical size
+- Indented `!include` directives resolve in PlantUML
 
-### 2025-12-15
-- Fix comment preservation failing when table content changes
-  - When parent node similarity dropped below 80% (e.g., one table row changed),
-    all markers in that subtree were lost even if their specific text still existed
-  - Add fallback global search: if parent doesn't match, search entire new tree
-  - Now markers are preserved as long as their text exists anywhere in the new content
+## [0.1.0] - 2025-12-05
 
-### 2025-12-13
-- Fix article links incorrectly prefixed with `/docs/`
-  - Link resolution in HTML renderer was still using old `/docs/` prefix
-  - Remove prefix to match URL scheme change from 2025-12-09
+Initial release as Docstage (renamed from md2conf).
 
-### 2025-12-11
-- Fix comment preservation not finding marker text in element tails
-  - When marker text was in a child element's tail (e.g., `<code>x</code> marked text`),
-    the marker was incorrectly reported as unmatched
-  - Now checks child tails before recursing into child subtrees
-- Fix unmatched comments not reported when parent node doesn't match
-  - Previously, markers whose parent nodes had <80% text similarity were silently dropped
-  - Now all markers that can't be preserved are reported in the dry-run output
-- Add 24 tests for comment preservation module (84% coverage)
-- Fix live reload not triggering page refresh
-  - `LiveReloadManager` now uses `Site.get_page_by_source()` for path resolution
-  - Previously sent `/docs/...` paths but frontend expects `/...` paths (after `/docs` prefix removal)
-  - Add `Site.get_page_by_source()` method for reverse lookup (source file → page)
-- Improve type safety for paths
-  - Change `Page.source_path` from `str` to `Path` for filesystem paths
-  - Add `URLPath` NewType for URL routing paths (e.g., "/guide", "/domain/page")
-  - `Page.path`, `BreadcrumbItem.path`, `NavItem.path` now typed as `URLPath`
-  - Add test for Cyrillic (non-ASCII) filenames
+### Added
 
-### 2025-12-10
-- Separate document structure (Site) from navigation (NavItem)
-  - Add `Site` class for document hierarchy with O(1) path lookups
-  - Add `Page` dataclass for document metadata (title, path)
-  - Add `SiteBuilder` for constructing Site instances
-  - Site handles breadcrumbs via `get_breadcrumbs()` method
-  - `NavItem` restored to simple tree structure with children for UI
-  - `build_navigation()` function creates NavItem tree from Site
-  - NavigationBuilder.build() returns `list[NavItem]` for navigation UI
-  - NavigationBuilder.build_site() returns `Site` for page operations
-- Add pytest-cov (>=7.0.0) to dev dependencies for test coverage reports
-  - Configure pytest to auto-run coverage with `--cov=docstage --cov-report=term-missing`
-- Add cargo-llvm-cov for Rust code coverage (`cargo llvm-cov --lib`)
-- Add Vitest + @testing-library/svelte for frontend testing
-  - Configure coverage with v8 provider
-  - Add `npm run test` and `npm run test:watch` scripts
-  - Add 64 tests: router (25), navigation store (16), page store (10), API client (9), ui store (4)
-  - All TypeScript stores and API client at 100% coverage
-  - Frontend coverage improved from 0.8% to 40%
-- Fix breadcrumb tests to expect Home link at start of breadcrumbs
-- Add Makefile with `build`, `test`, `format`, and `lint` commands
-- Set Prettier printWidth to 100 (matching Rust rustfmt default)
-- Fix lint issues: remove needless raw string hashes, remove unused imports
-- Add 16 tests for Python cache.py (diagram cache, hash function, edge cases)
-  - Cache coverage improved from 78% to 97%
-- Add 25 tests for Rust confluence.rs renderer
-  - Coverage improved from 53% to 95%
-  - Tests for lists, tables, links, images, code blocks, diagrams, escaping
-- Add 22 tests for Rust html.rs renderer
-  - Coverage improved from 85% to 95%
-  - Tests for lists, breaks, escaping, task lists, link resolution, headings
-- Add 10 tests for Python navigation.py
-  - Coverage improved from 97% to 100%
-  - Tests for source_dir property, unreadable files, get_subtree edge cases, sorting
-- Add 10 tests for Rust plantuml.rs
-  - Coverage improved from 92% to 100%
-  - Tests for load_config_file, include depth limit, nested includes, fallback paths
-- Add 9 tests for Rust plantuml_filter.rs
-  - Coverage improved from 92% to 97%
-  - Tests for diagrams() ref, is_plantuml edge cases, empty blocks, whitespace preservation
-- Add 9 tests for Python renderer.py
-  - Coverage improved from 85% to 100%
-  - Tests for source_dir property, Kroki path, options (extract_title, dpi, include_dirs)
-- Add 16 tests for Python config.py
-  - Coverage improved from 81% to 99%
-  - Tests for live_reload parsing, invalid section types, validation edge cases
-- Add 14 tests for Rust diagram_filter.rs
-  - Coverage improved from 93% to 99%
-  - Tests for all diagram languages, format parsing, warnings, clone/copy traits
-- Add 13 tests for Python diagrams.py
-  - Coverage improved from 87% to 100%
-  - Tests for cache hit/miss, PNG rendering, error handling, placeholder replacement
-- Add 20 tests for frontend liveReload.ts
-  - Coverage improved from 0% to 98%
-  - Tests for WebSocket connection, reconnect logic, message handling, onReload callback
-- Add Playwright E2E tests for frontend (19 tests)
-  - Tests for navigation: sidebar, expand/collapse, page navigation, breadcrumbs
-  - Tests for page content: markdown rendering, code highlighting, internal links, ToC
-  - Tests for mobile: hamburger menu, drawer open/close, escape key, content visibility
-  - Uses webServer config to auto-start docstage backend during tests
-- Improve breadcrumb generation in pages API
-  - Skip non-navigable paths (directories without index.md) in breadcrumbs
-  - Use navigation tree to look up titles instead of generating from path
-  - Breadcrumbs show only ancestor paths, excluding current page
-- Create RD-006: Structured Documentation and Generated Artifacts
-  - Three-phase problem: Metadata Schema + Entity Discovery + Artifact Generation
-  - Phase 1 (Metadata): Implicit, Frontmatter, Schema definition, Open schema
-  - Phase 2 (Discovery): Convention-based, Metadata-based, Schema-based
-  - Phase 3 (Generation): Plugin system, Template engine, Built-in generators
+- **Documentation server** with Svelte 5 frontend (Stripe-inspired design)
+- **Markdown to HTML** conversion with syntax highlighting
+- **Markdown to Confluence** conversion with XHTML output
+- **Navigation sidebar** with collapsible tree structure
+- **Table of contents** with scroll spy
+- **Breadcrumbs** for page hierarchy
+- **Mobile responsive** layout with hamburger menu
+- **File-based caching** with mtime invalidation
+- **PlantUML support** with `!include` resolution
+- **Confluence publishing** via REST API with OAuth 1.0 RSA-SHA1
+- **Comment preservation** when updating Confluence pages
+- CLI commands: `serve`, `confluence convert|create|update|get-page|test-auth|generate-tokens`
 
-### 2025-12-09
-- Move Confluence CLI commands to `confluence` subcommand
-  - Commands now use `docstage confluence <command>` instead of `docstage <command>`
-  - Affected commands: `convert`, `create`, `update`, `get-page`, `test-auth`, `test-create`, `generate-tokens`, `comments`, `upload-mkdocs`
-  - The `serve` command remains at root level
-- Remove `/docs` prefix from URL paths
-  - Navigation paths now use clean URLs (e.g., `/domain/page` instead of `/docs/domain/page`)
-  - Frontend router updated to treat any non-root path as a document page
-  - Home page redirects to `/index` instead of `/docs/index`
-- Refactor server to accept `Config` directly instead of dict
-  - Remove `ServerConfig` TypedDict from `server.py`
-  - `run_server()` and `create_app()` now accept `Config` dataclass
-  - Eliminates dict conversion in CLI, cleaner type-safe API
-  - Add `test_config` fixture in conftest.py for test reuse
-- Add `Config.with_overrides()` method for immutable CLI option handling
-  - Replace `effective_*` variables in serve command with cleaner pattern
-  - Uses `dataclasses.replace()` for type-safe nested updates
-  - Add 8 unit tests for override functionality
-- Fix 42 ruff COM812 (trailing comma) violations
-- Replace `dict[str, object]` with TypedDict for navigation tree type safety
-  - Add `NavItemDict` and `NavigationTreeDict` TypedDicts in navigation module
-  - Update `FileCache.get_navigation()` and `set_navigation()` to use `NavigationTreeDict`
-  - Simplify `_from_cached()` and `_dict_to_nav_item()` with typed access
-- Fix all mypy strict mode errors in Python code
-  - Add return type annotations to comment preservation methods
-  - Add generic type parameters to dict/list annotations
-  - Fix `MarkdownConverter` type stub to accept `Sequence[str | PathLike]` for `include_dirs`
-  - Add isinstance checks for safer dict access from JSON
-  - Configure mypy to exclude test files and external examples
-  - Ignore authlib import stubs (no typed stubs available)
-- Fix all clippy pedantic warnings in Rust core
-  - Remove needless raw string hashes in regex patterns
-  - Inline format string arguments
-  - Add backticks to doc comments for code references
-  - Add `#[must_use]` attributes to pure functions
-  - Fix doc list item over-indentation
-  - Change `DiagramError` parameter to reference to avoid unnecessary clone
-  - Allow intentional cast truncation in SVG dimension scaling
-  - Allow case-sensitive `.md` extension comparison (intentional)
-- Document caching strategy in architecture docs
-  - Page cache: mtime-based invalidation for fast, simple cache misses
-  - Diagram cache: content-hash based for cross-page reuse and live reload efficiency
-- Remove unused `load_config_file_with_warning` function from Rust core
-- Add documentation for docstage using docstage itself
-  - Usage guide: server, diagrams, Confluence publishing
-  - Architecture docs: Rust core, Python backend, frontend
-- Fix root page redirect: `/` now redirects to `/docs/index` instead of first nav item
-- Fix indented `!include` directives not being resolved in PlantUML diagrams
-  - Now handles `!include` with leading whitespace (e.g., inside `System_Boundary`)
-  - Included content is indented to match the `!include` directive
-- Allow Cmd/Ctrl+click to open article links in new tab
-- Auto-create .gitignore in cache directory to prevent accidental commits
-- Address PR review feedback for link resolution
-  - Fix absolute paths to avoid double slashes (`/absolute/path.md` → `/docs/absolute/path`)
-  - Simplify `.md` and `/index` suffix stripping with sequential strip calls
-  - Document path traversal behavior with tests (excessive `..` clamped at root)
-- Fix broken article links in rendered markdown (backend-side resolution)
-  - Add `base_path` parameter to `HtmlRenderer` and converter methods
-  - Resolve relative .md links (./page.md, ../other.md) to absolute `/docs/...` paths during rendering
-  - Strip .md extensions and /index suffix for clean URLs
-  - Links work correctly even without JavaScript
-  - Simplify frontend router (no longer needs link resolution)
-- Fix diagram sizing to display at correct physical size
-  - Scale SVG width/height attributes based on configured DPI
-  - Diagrams rendered at 192 DPI now display at half their pixel size (matching standard 96 DPI displays)
-  - Small diagrams show at their intended size, large diagrams still fit within container
-- Add fade transition when navigating between pages to reduce visual jarring
-- Remove background highlight on hover for navigation items
-- Style article links with blue color and underline on hover only
-- Address PR review feedback for layout improvements
-  - Extract `extractDocPath()` helper function in router.ts to deduplicate path extraction logic
-  - Add comment explaining magic number in NavItem spacer width calculation
-  - Fix ToC filter to explicitly exclude H1 headings (`entry.level >= 2 && entry.level <= 3`)
-  - Add early return optimization to `expandOnlyTo()` to avoid unnecessary re-renders
-  - Add clarification comment for early return optimization behavior
-  - Add unit tests for Python `scale_svg_dimensions` function
-- Improve navigation sidebar styling
-  - Use consistent text size (text-sm) for all navigation items regardless of depth
-  - Reduce vertical padding from py-1.5 to py-1
-  - Reduce horizontal padding from px-2 to px-1.5
-  - Reduce indentation for nested items from ml-4 to ml-3
-  - Reduce arrow button size and spacing (w-5 to w-4, mr-1 to mr-0.5)
-  - Remove background highlight from active navigation item
-  - Stylize logo: uppercase with "STAGE" in lighter gray
-  - Fix code block readability by adding explicit dark text color
-  - Limit table of contents to two levels deep (h2 and h3 only)
-- Auto-collapse navigation items except the path to current page
-  - All navigation items with children are collapsed by default
-  - Only the path to the currently viewed page is expanded
-  - Navigation auto-expands when navigating to a new page
-  - Collapsed state is no longer persisted to localStorage
-- Add bottom padding to main content container for consistent spacing
+### Technical
 
-### 2025-12-08
-- Address PR review feedback for live reload
-  - Fix `onReload` callback capturing stale path by reading current path from store
-  - Fix potential memory leak by returning unsubscribe function from `onReload`
-  - Rename `format` variable to `fmt` to avoid shadowing builtin in diagrams module
-  - Replace broad `Exception` catch with specific network exceptions
-  - Fix unused `path.relative_to()` call in pattern matching logic
-  - Move `json` import to module level for consistency
-  - Add explanatory comment for `ConnectionResetError` handling
-- Fix browser cache preventing live reload from showing updated content
-  - Add `bypassCache` option to `fetchNavigation` and `fetchPage` API client functions
-  - Use `cache: "no-store"` fetch option when bypassCache is true
-  - Navigation store passes bypassCache to API on live reload
-  - Page store passes bypassCache to API on live reload
-- Implement separate diagram caching for efficient live reload
-  - Add content-based diagram caching using SHA-256 hash of source + endpoint + format
-  - Add `docstage.core.diagrams` module for diagram rendering with caching
-  - Add `FileCache.get_diagram()` and `FileCache.set_diagram()` methods
-  - Add `compute_diagram_hash()` utility function
-  - Add `MarkdownConverter.extract_html_with_diagrams()` to extract diagrams without rendering
-  - Diagrams are only re-rendered when their source code changes
-  - Text-only edits to markdown files no longer trigger Kroki requests
-- Implement live reload for development mode (RD-001 Phase 5)
-  - Add WebSocket endpoint `/ws/live-reload` for real-time file change notifications
-  - Add `docstage.live` module with `LiveReloadManager` class
-  - Integrate `watchfiles` library for efficient file system monitoring
-  - Add `[live_reload]` configuration section with `enabled` and `watch_patterns` options
-  - Add `--live-reload/--no-live-reload` CLI flag to `serve` command (enabled by default)
-  - Invalidate navigation cache when source files change (page cache uses mtime-based invalidation)
-  - Frontend automatically reconnects on connection loss with 2-second retry
-  - Navigation tree reloads when any markdown file changes
-  - Current page reloads when its source file changes
-- Use Roboto font for diagrams with bundled web fonts via `@fontsource/roboto`
-  - Strip Google Fonts `@import` from PlantUML SVG output (PlantUML adds it automatically for Roboto)
-- Refactor `convert_html_with_diagrams` for better testability
-  - Extract `replace_svg_diagrams` and `replace_png_diagrams` helper functions
-  - Add `replace_placeholder_with_svg`, `replace_placeholder_with_png`, and `replace_placeholder_with_error` helpers
-- Improve diagram rendering robustness and error handling
-  - Add per-diagram error handling: failed diagrams show errors while successful ones render
-  - Add warning when `format=img` is used (not yet implemented, falls back to inline SVG)
-  - Add warnings for unknown attributes (e.g., `formt=png` typo) and invalid format values
-  - Replace `unreachable!()` with defensive handling in diagram filter
-  - Normalize URL trimming consistently in all Kroki render functions
-  - Add `render_all_svg_partial` and `render_all_png_data_uri_partial` for partial success handling
-- Add typed `verbose_key` app key for type-safe access
-- Simplify `include_dirs` default logic in `PageRenderer`
-- Add verbose mode for diagram rendering warnings
-  - Add `--verbose` / `-v` flag to `serve` command
-  - Log warnings for unresolved `!include` files to stderr
-  - Warnings show searched paths for easier debugging
-  - `HtmlConvertResult.warnings` property exposes warnings in Python API
-- Implement unified configuration file (RD-005)
-  - Replace `config.toml` with `docstage.toml` for all settings
-  - Add auto-discovery: search for `docstage.toml` in current and parent directories
-  - Consolidate server, docs, diagrams, and confluence settings in single file
-  - CLI options override config file values when specified
-  - Add `--config` option to all commands for explicit config file path
-  - Add diagram configuration: `include_dirs`, `config_file`, `dpi`
-  - Create `docstage.toml.example` with documented options
-- Implement diagram rendering for HTML output (RD-004)
-  - Add `DiagramFilter` iterator adapter supporting PlantUML, Mermaid, GraphViz, and 14 other Kroki-supported formats
-  - Add `render_all_svg` and `render_all_png_data_uri` functions for SVG and PNG output
-  - Add `convert_html_with_diagrams` method to `MarkdownConverter` for HTML with rendered diagrams
-  - Diagrams are wrapped in `<figure class="diagram">` for styling
-  - Support format attribute in code fence: `plantuml format=png` for PNG instead of default SVG
-  - Add `--kroki-url` CLI option to `serve` command to enable diagram rendering
-  - Add `kroki_url` parameter to `PageRenderer` for conditional diagram rendering
-  - Add frontend CSS for diagram styling (centered, responsive)
-  - PlantUML filter retained for backwards compatibility (used by Confluence output)
-  - Graceful error handling: failed diagrams show error message instead of causing 500
-- Skip non-navigable directories in left navigation
-  - Directories without index.md are now excluded from navigation tree
-  - Children of such directories are promoted to parent level
-  - Prevents 404 errors when clicking navigation items
-- Use "/" separator in breadcrumbs via CSS ::after pseudo-element (Stripe-style)
-- Skip non-navigable paths in breadcrumbs
-  - Breadcrumbs now only include paths with index.md files
-  - Prevents 404 errors when clicking breadcrumb links for directories without index.md
-- Remove current page from breadcrumbs
-  - Breadcrumbs now show only the path to the current page, not including it
-  - Backend `_build_breadcrumbs` excludes last path segment
-  - Frontend simplified to render all breadcrumb items as links
-- Improve ToC sidebar styling
-  - Remove left border
-  - Position ToC at page H1 level instead of top
-  - Article takes full width when ToC is empty, centered when ToC present
-- Fix HTML renderer to preserve H1 title and heading levels
-  - Title extraction now extracts first H1 without removing it from output
-  - Header levels are no longer shifted (H2 stays H2, not H1)
-  - ToC excludes page title (first H1) but includes all other headings
-  - This differs from Confluence renderer which removes H1 and shifts headers
-- Address PR review feedback for bundled assets
-  - Fix error message to reference correct build command (`npm run build:bundle`)
-  - Add `requires_bundled_assets` skip marker for tests depending on bundled assets
-- Fix outdated docstring on `with_title_extraction()` method
-- Add test for empty breadcrumbs when parent directory has no index.md
-
-### 2025-12-07
-- Bundle frontend assets into Python package (RD-003)
-  - Add `docstage.assets` module with `get_static_dir()` for bundled asset discovery
-  - Remove `--static-dir` CLI option from `serve` command
-  - Server always uses bundled assets from `docstage/static/`
-  - Add `npm run build:bundle` script to build and copy frontend to backend
-  - Configure hatchling `force-include` to bundle assets in wheel
-- Create RD-003: Bundled Frontend Assets requirements document
-- Create RD-002: Docstage Frontend requirements document
-- Implement Frontend Phase 1: Project Setup
-  - Initialize Vite + Svelte 5 project with TypeScript
-  - Implement native SPA router using History API (no external library)
-  - Configure Tailwind CSS with Typography plugin
-  - Create base layout structure (navigation sidebar, content area, ToC sidebar)
-  - Set up API client with TypeScript interfaces
-  - Add page and navigation Svelte stores
-  - Design inspired by Stripe documentation
-- Complete Frontend Phase 2: Navigation
-  - Add mobile responsive drawer with hamburger menu
-  - Auto-close drawer on route change and Escape key
-- Complete Frontend Phase 4: Table of Contents
-  - Add scroll spy with IntersectionObserver to highlight active heading
-- Complete Backend Phase 5: Static File Serving
-  - Implement SPA fallback route serving index.html for client-side routing
-  - Serve static assets from `/assets` directory
-  - Add favicon route at `/favicon.png`
-  - API routes take precedence over SPA fallback
-
-### 2025-12-06
-- Implement Phase 4: Python Backend - HTTP API
-  - Add `docstage.server` module with aiohttp application factory
-  - Add `docstage.api.pages` module with `/api/pages/{path}` endpoint
-  - Add `docstage.api.navigation` module with `/api/navigation` and `/api/navigation/{path}` endpoints
-  - Add `serve` CLI command to start documentation server
-  - Add aiohttp and pytest-aiohttp dependencies
-  - Implement cache headers (ETag, Last-Modified, Cache-Control) for page responses
-  - Add 17 tests for HTTP API endpoints
-- Implement Phase 3: Python Backend - Core Library
-  - Add `docstage.core.cache` module with file-based caching and mtime invalidation
-  - Add `docstage.core.renderer` module wrapping Rust converter with caching
-  - Add `docstage.core.navigation` module for building navigation trees from directories
-  - Export `HtmlConvertResult` and `TocEntry` from `docstage_core` Python bindings
-  - Add 26 tests for core modules (cache, renderer, navigation)
-- Pre-Phase 3 code review and improvements
-  - Add Python tests for config and CLI (16 tests)
-  - Extract `HtmlRenderer` state into dedicated structs (`CodeBlockState`, `TableState`, `ImageState`, `HeadingState`)
-  - Collect all Kroki diagram errors via `RenderError::Multiple` instead of failing on first
-  - Make DPI configurable via `MarkdownConverter::dpi()` builder method
-  - Add comprehensive module-level rustdoc comments
-  - Add pytest as dev dependency group
-- Implement Phase 2: Rust Core - HTML Renderer
-  - Add `HtmlRenderer` module producing semantic HTML5
-  - Generate heading IDs for anchor links
-  - Create `TocEntry` struct for table of contents
-  - Add `MarkdownConverter::convert_html()` method
-  - Update Python bindings with `HtmlConvertResult` and `TocEntry` classes
-  - Preserve inline formatting in headings (code, emphasis, strong, links)
-  - Add table column alignment support via inline styles
-  - Code blocks output `language-*` class for client-side highlighting
-- Create RD-001: Docstage Backend requirements document
-- Define API design for page rendering and navigation endpoints
-- Plan implementation phases for HTML renderer, core library, HTTP API, and live reload
-
-### 2025-12-05
-- Rename project from md2conf to Docstage ("Where documentation takes the stage")
-- Rename packages: md2conf → docstage, md2conf-core → docstage-core
-- Update CLI entrypoint: `md2conf` → `docstage`
-- Restructure Rust code into Cargo workspace:
-  - `crates/docstage-core`: Pure Rust library (no PyO3)
-  - `packages/docstage-core`: Python package with PyO3 bindings (maturin)
-- Move conversion logic from PyO3 bindings to `docstage-core::MarkdownConverter`
-
-### 2025-12-04
-- Merge `convert_with_diagrams` into `convert` method (kroki_url/output_dir now required)
-- Move Kroki diagram rendering from Python to Rust with parallel requests (rayon + ureq)
-
-### 2025-12-01
-- Comment preservation for inline comments on page updates
-- OAuth signature fix: `force_include_body=True` for POST/PUT
-- Markdown to Confluence converter via Rust core
-- Confluence REST API client with OAuth 1.0 RSA-SHA1
-- CLI: `convert`, `create`, `update`, `get-page`, `generate-tokens`, `test-auth`
+- Rust core library (`docstage-core`) for markdown conversion
+- Python CLI package (`docstage`) with aiohttp server
+- PyO3 bindings for Rust/Python interop
+- Parallel diagram rendering via rayon
