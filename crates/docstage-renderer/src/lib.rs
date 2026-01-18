@@ -1,0 +1,41 @@
+//! Trait-based markdown renderer with pluggable backends.
+//!
+//! This crate provides a generic [`MarkdownRenderer`] that can produce either
+//! HTML or Confluence XHTML output using the [`RenderBackend`] trait.
+//!
+//! # Architecture
+//!
+//! The renderer uses a trait-based abstraction to handle format-specific differences:
+//! - [`HtmlBackend`]: Produces semantic HTML5 with relative link resolution
+//! - [`ConfluenceBackend`]: Produces Confluence XHTML storage format
+//!
+//! Shared functionality (tables, lists, inline formatting) is handled by the
+//! generic renderer, while format-specific elements (code blocks, blockquotes,
+//! images) are delegated to the backend.
+//!
+//! # Example
+//!
+//! ```
+//! use pulldown_cmark::Parser;
+//! use docstage_renderer::{MarkdownRenderer, HtmlBackend};
+//!
+//! let markdown = "# Hello\n\n**Bold** text";
+//! let parser = Parser::new(markdown);
+//! let result = MarkdownRenderer::<HtmlBackend>::new()
+//!     .with_title_extraction()
+//!     .render(parser);
+//! ```
+
+mod backend;
+mod confluence;
+mod html;
+mod renderer;
+mod state;
+mod util;
+
+pub use backend::RenderBackend;
+pub use confluence::ConfluenceBackend;
+pub use html::HtmlBackend;
+pub use renderer::{MarkdownRenderer, RenderResult};
+pub use state::{TocEntry, escape_html, slugify};
+pub use util::heading_level_to_num;

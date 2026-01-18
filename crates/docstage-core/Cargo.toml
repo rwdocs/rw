@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 base64 = { workspace = true }
+docstage-renderer = { workspace = true }
 hex = { workspace = true }
 pulldown-cmark = { workspace = true }
 rayon = { workspace = true }
