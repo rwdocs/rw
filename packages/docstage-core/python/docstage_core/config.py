@@ -2,6 +2,7 @@
 
 from ._docstage_core import (
     Config,
+    ConfigOverrides,
     ConfluenceConfig,
     ConfluenceTestConfig,
     DiagramsConfig,
@@ -12,6 +13,7 @@ from ._docstage_core import (
 
 __all__ = [
     "Config",
+    "ConfigOverrides",
     "ConfluenceConfig",
     "ConfluenceTestConfig",
     "DiagramsConfig",

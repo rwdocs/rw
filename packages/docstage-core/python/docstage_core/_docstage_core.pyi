@@ -107,6 +107,28 @@ class MarkdownConverter:
 
 # Config classes
 
+class ConfigOverrides:
+    """CLI override options for configuration."""
+
+    host: str | None
+    port: int | None
+    source_dir: Path | None
+    cache_dir: Path | None
+    cache_enabled: bool | None
+    kroki_url: str | None
+    live_reload_enabled: bool | None
+
+    def __init__(
+        self,
+        host: str | None = None,
+        port: int | None = None,
+        source_dir: Path | None = None,
+        cache_dir: Path | None = None,
+        cache_enabled: bool | None = None,
+        kroki_url: str | None = None,
+        live_reload_enabled: bool | None = None,
+    ) -> None: ...
+
 class ServerConfig:
     """Server configuration."""
 
@@ -162,12 +184,5 @@ class Config:
     @staticmethod
     def load(
         config_path: Path | None = None,
-        *,
-        host: str | None = None,
-        port: int | None = None,
-        source_dir: Path | None = None,
-        cache_dir: Path | None = None,
-        cache_enabled: bool | None = None,
-        kroki_url: str | None = None,
-        live_reload_enabled: bool | None = None,
+        overrides: ConfigOverrides | None = None,
     ) -> Config: ...
