@@ -27,7 +27,7 @@
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag, TagEnd};
 use std::fmt::Write;
 
-use crate::html::escape_html;
+use crate::html::{TocEntry, escape_html, slugify};
 use crate::util::heading_level_to_num;
 
 /// Result of rendering markdown to Confluence format.
@@ -36,6 +36,8 @@ pub struct RenderResult {
     pub html: String,
     /// Title extracted from first H1 heading (if `extract_title` was enabled)
     pub title: Option<String>,
+    /// Table of contents entries.
+    pub toc: Vec<TocEntry>,
 }
 
 /// Renders pulldown-cmark events to Confluence XHTML storage format.
@@ -60,6 +62,12 @@ pub struct ConfluenceRenderer {
     in_first_h1: bool,
     /// Buffer for first H1 text
     h1_text: String,
+    /// Table of contents entries
+    toc: Vec<TocEntry>,
+    /// Current heading level (0 = not in heading)
+    current_heading_level: u8,
+    /// Buffer for current heading text
+    heading_text: String,
 }
 
 impl ConfluenceRenderer {
@@ -76,6 +84,9 @@ impl ConfluenceRenderer {
             seen_first_h1: false,
             in_first_h1: false,
             h1_text: String::new(),
+            toc: Vec::new(),
+            current_heading_level: 0,
+            heading_text: String::new(),
         }
     }
 
@@ -122,6 +133,7 @@ impl ConfluenceRenderer {
         RenderResult {
             html: self.output,
             title: self.title,
+            toc: self.toc,
         }
     }
 
@@ -161,6 +173,9 @@ impl ConfluenceRenderer {
                 } else {
                     let level = self.adjusted_heading_level(heading_level_to_num(level));
                     write!(self.output, "<h{level}>").unwrap();
+                    // Track heading for ToC
+                    self.current_heading_level = level;
+                    self.heading_text.clear();
                 }
             }
             Tag::BlockQuote(_) => {
@@ -283,6 +298,17 @@ impl ConfluenceRenderer {
                 } else {
                     let level = self.adjusted_heading_level(heading_level_to_num(level));
                     write!(self.output, "</h{level}>").unwrap();
+                    // Add ToC entry
+                    if self.current_heading_level > 0 {
+                        let title = self.heading_text.trim().to_string();
+                        let id = slugify(&title);
+                        self.toc.push(TocEntry {
+                            level: self.current_heading_level,
+                            title,
+                            id,
+                        });
+                        self.current_heading_level = 0;
+                    }
                 }
             }
             TagEnd::BlockQuote(_) => {
@@ -359,6 +385,10 @@ impl ConfluenceRenderer {
             // Don't escape text in code blocks (CDATA)
             self.output.push_str(text);
         } else {
+            // Capture text for ToC if inside a heading
+            if self.current_heading_level > 0 {
+                self.heading_text.push_str(text);
+            }
             self.output.push_str(&escape_html(text));
         }
     }

@@ -183,6 +183,9 @@ pub struct PyExtractConfluenceResult {
     /// Title extracted from first H1 heading (if `extract_title` was enabled).
     #[pyo3(get)]
     pub title: Option<String>,
+    /// Table of contents entries.
+    #[pyo3(get)]
+    pub toc: Vec<PyTocEntry>,
     /// Prepared diagrams ready for rendering.
     #[pyo3(get)]
     pub diagrams: Vec<PyPreparedDiagram>,
@@ -196,6 +199,7 @@ impl From<ExtractConfluenceResult> for PyExtractConfluenceResult {
         Self {
             html: result.html,
             title: result.title,
+            toc: result.toc.into_iter().map(Into::into).collect(),
             diagrams: result.diagrams.into_iter().map(Into::into).collect(),
             warnings: result.warnings,
         }
@@ -288,7 +292,6 @@ impl PyMarkdownConverter {
     /// Diagrams are rendered based on their format attribute:
     /// - `svg` (default): Inline SVG (supports links and interactivity)
     /// - `png`: Inline PNG as base64 data URI
-    /// - `img`: External SVG via `<img>` tag (falls back to inline SVG)
     ///
     /// If diagram rendering fails, the diagram is replaced with an error message.
     /// This allows the page to still render even when Kroki is unavailable.
