@@ -34,14 +34,13 @@
 //! ```
 
 use std::path::{Path, PathBuf};
-
-use pulldown_cmark::{Options, Parser};
-
 use std::sync::LazyLock;
 
+use pulldown_cmark::{Options, Parser};
 use regex::Regex;
 
-use docstage_renderer::{ConfluenceBackend, HtmlBackend, MarkdownRenderer, TocEntry, escape_html};
+use docstage_confluence_renderer::ConfluenceBackend;
+use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry, escape_html};
 
 use crate::diagram_filter::{DiagramFilter, DiagramFormat};
 use crate::kroki::{
@@ -289,12 +288,11 @@ impl MarkdownConverter {
 
     /// Create a Confluence renderer with the converter's settings.
     fn create_confluence_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
-        let renderer = MarkdownRenderer::<ConfluenceBackend>::new();
+        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
         if self.extract_title {
-            renderer.with_title_extraction()
-        } else {
-            renderer
+            renderer = renderer.with_title_extraction();
         }
+        renderer
     }
 
     /// Optionally prepend TOC macro to HTML content.
@@ -334,10 +332,10 @@ impl MarkdownConverter {
     /// Used by [`Self::extract_html_with_diagrams`] to determine the format for each diagram.
     ///
     /// Note: Confluence always uses PNG (see [`Self::extract_confluence_with_diagrams`]).
-    fn resolve_diagram_format(diagram: &crate::diagram_filter::ExtractedDiagram) -> String {
+    fn resolve_diagram_format(diagram: &crate::diagram_filter::ExtractedDiagram) -> &'static str {
         match diagram.format {
-            DiagramFormat::Svg => "svg".to_string(),
-            DiagramFormat::Png => "png".to_string(),
+            DiagramFormat::Svg => "svg",
+            DiagramFormat::Png => "png",
         }
     }
 
@@ -528,12 +526,11 @@ impl MarkdownConverter {
             .iter()
             .map(|d| {
                 let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
-                let format = Self::resolve_diagram_format(d);
                 PreparedDiagram {
                     index: d.index,
                     source,
                     endpoint: d.language.kroki_endpoint().to_string(),
-                    format,
+                    format: Self::resolve_diagram_format(d).to_string(),
                 }
             })
             .collect();

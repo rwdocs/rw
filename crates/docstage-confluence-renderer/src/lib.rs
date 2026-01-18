@@ -4,8 +4,7 @@
 
 use std::fmt::Write;
 
-use crate::backend::RenderBackend;
-use crate::state::escape_html;
+use docstage_renderer::{RenderBackend, escape_html};
 
 /// Confluence render backend.
 ///

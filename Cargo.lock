@@ -139,10 +139,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "docstage-confluence-renderer"
+version = "0.1.0"
+dependencies = [
+ "docstage-renderer",
+ "pretty_assertions",
+]
+
+[[package]]
 name = "docstage-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "docstage-confluence-renderer",
  "docstage-renderer",
  "hex",
  "pretty_assertions",

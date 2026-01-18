@@ -71,7 +71,8 @@ pub use kroki::{
 pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 
 // Re-export commonly used types from renderer for backwards compatibility
+pub use docstage_confluence_renderer::ConfluenceBackend;
 pub use docstage_renderer::{
-    ConfluenceBackend, HtmlBackend, MarkdownRenderer, RenderBackend, RenderResult, TocEntry,
-    escape_html, heading_level_to_num,
+    HtmlBackend, MarkdownRenderer, RenderBackend, RenderResult, TocEntry, escape_html,
+    heading_level_to_num,
 };
