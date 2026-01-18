@@ -6,8 +6,8 @@ import pytest
 from aiohttp import web
 from docstage.app_keys import cache_key, renderer_key, site_loader_key
 from docstage.assets import get_static_dir
-from docstage.config import Config
 from docstage.server import create_app
+from docstage_core.config import Config
 
 from tests.test_assets import requires_bundled_assets
 

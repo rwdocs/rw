@@ -8,6 +8,7 @@ from pathlib import Path
 
 from aiohttp import web
 from aiohttp.typedefs import Handler
+from docstage_core.config import Config
 
 from docstage.api.config import create_config_routes
 from docstage.api.navigation import create_navigation_routes
@@ -20,7 +21,6 @@ from docstage.app_keys import (
     verbose_key,
 )
 from docstage.assets import get_static_dir
-from docstage.config import Config
 from docstage.core.cache import FileCache, NullCache
 from docstage.core.renderer import PageRenderer
 from docstage.core.site import SiteLoader
