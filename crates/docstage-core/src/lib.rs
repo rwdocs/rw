@@ -62,8 +62,8 @@ mod util;
 
 pub use confluence::{ConfluenceRenderer, RenderResult};
 pub use converter::{
-    ConvertResult, DiagramInfo, ExtractConfluenceResult, ExtractResult, HtmlConvertResult,
-    MarkdownConverter, PreparedDiagram, create_image_tag,
+    ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
+    PreparedDiagram, create_image_tag,
 };
 pub use diagram_filter::{DiagramFilter, DiagramFormat, DiagramLanguage, ExtractedDiagram};
 pub use html::{HtmlRenderResult, HtmlRenderer, TocEntry, escape_html};

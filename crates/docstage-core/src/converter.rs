@@ -170,31 +170,14 @@ pub struct PreparedDiagram {
     pub format: String,
 }
 
-/// Result of extracting diagrams from markdown (HTML format).
+/// Result of extracting diagrams from markdown.
 ///
-/// See also [`ExtractConfluenceResult`] for the Confluence variant (without `ToC`).
+/// Used by both HTML and Confluence output formats. Contains placeholders
+/// (`{{DIAGRAM_0}}`, `{{DIAGRAM_1}}`, etc.) that should be replaced with
+/// rendered diagram content.
 #[derive(Clone, Debug)]
 pub struct ExtractResult {
-    /// HTML with diagram placeholders (`{{DIAGRAM_0}}`, `{{DIAGRAM_1}}`, etc.).
-    pub html: String,
-    /// Title extracted from first H1 heading (if `extract_title` was enabled).
-    pub title: Option<String>,
-    /// Table of contents entries for client-side `ToC` rendering.
-    pub toc: Vec<TocEntry>,
-    /// Prepared diagrams ready for rendering.
-    pub diagrams: Vec<PreparedDiagram>,
-    /// Warnings generated during conversion.
-    pub warnings: Vec<String>,
-}
-
-/// Result of extracting diagrams from markdown (Confluence format).
-///
-/// Contains the same fields as [`ExtractResult`] for API consistency.
-/// Confluence generates its own `ToC` via `<ac:structured-macro ac:name="toc">`,
-/// but the `toc` field is included for uniformity and potential client-side use.
-#[derive(Clone, Debug)]
-pub struct ExtractConfluenceResult {
-    /// Confluence XHTML with diagram placeholders (`{{DIAGRAM_0}}`, etc.).
+    /// HTML/XHTML with diagram placeholders (`{{DIAGRAM_0}}`, `{{DIAGRAM_1}}`, etc.).
     pub html: String,
     /// Title extracted from first H1 heading (if `extract_title` was enabled).
     pub title: Option<String>,
@@ -445,7 +428,7 @@ impl MarkdownConverter {
     /// |--------|------------|------|
     /// | Renderer | Confluence XHTML | Semantic HTML5 |
     /// | Diagram format | Always PNG (attachments) | SVG or PNG (inline) |
-    /// | `ToC` | Uses Confluence macro | Returns `ToC` entries |
+    /// | `ToC` | Generates Confluence macro | For client-side rendering |
     /// | Link resolution | Not supported | Supports `base_path` |
     ///
     /// The caller is responsible for:
@@ -453,7 +436,7 @@ impl MarkdownConverter {
     /// 2. Rendering uncached diagrams via Kroki
     /// 3. Replacing placeholders with rendered content (e.g., image macros)
     #[must_use]
-    pub fn extract_confluence_with_diagrams(&self, markdown_text: &str) -> ExtractConfluenceResult {
+    pub fn extract_confluence_with_diagrams(&self, markdown_text: &str) -> ExtractResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
@@ -481,7 +464,7 @@ impl MarkdownConverter {
 
         let html = self.maybe_prepend_toc(result.html, &result.toc);
 
-        ExtractConfluenceResult {
+        ExtractResult {
             html,
             title: result.title,
             toc: result.toc,
