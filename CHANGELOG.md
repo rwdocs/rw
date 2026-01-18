@@ -3,17 +3,21 @@
 ## [Unreleased]
 
 ### 2026-01-18
-- Expose `ConfigOverrides` to Python for explicit override handling
-  - `Config.load()` now accepts `ConfigOverrides` object instead of individual kwargs
-  - CLI constructs `ConfigOverrides` and passes to `Config.load()`
+- Rename `ConfigOverrides` to `CliSettings` for clarity
+  - Name better reflects purpose: settings passed via CLI that override config file
+  - `Config.load()` now accepts `cli_settings` parameter instead of `overrides`
+  - Rename `apply_overrides()` to `apply_cli_settings()` in Rust
+- Expose `CliSettings` to Python for explicit override handling
+  - `Config.load()` now accepts `CliSettings` object instead of individual kwargs
+  - CLI constructs `CliSettings` and passes to `Config.load()`
   - PyO3 bindings contain no conversion logic, just type passthrough
 - Remove redundant `docstage/config.py` module
   - Python code now imports directly from `docstage_core.config`
   - Eliminates unnecessary re-export layer
 - Move CLI override logic from Python to Rust
-  - Add `ConfigOverrides` struct to hold CLI override values
-  - Extend `Config::load()` to accept optional overrides parameter
-  - Overrides applied after loading and path resolution in Rust
+  - Add `CliSettings` struct to hold CLI option values
+  - Extend `Config::load()` to accept optional cli_settings parameter
+  - Settings applied after loading and path resolution in Rust
   - Remove Python `Config.with_overrides()` method and `_Overridden*` dataclasses
   - All config logic now consolidated in Rust
 - Split config module from docstage-core to docstage-config crate
@@ -27,7 +31,7 @@
   - Rust `docstage-config` crate already has comprehensive tests (15 tests)
 - Code simplification refactoring
   - Add `resolve` closure in Rust `resolve_paths()` to consolidate path resolution pattern
-  - Add `ConfigOverrides::is_empty()` method for override detection
+  - Add `CliSettings::is_empty()` method for settings detection
 
 ### 2026-01-17
 - Move TOML config parsing from Python to Rust using serde

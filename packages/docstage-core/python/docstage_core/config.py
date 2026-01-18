@@ -1,8 +1,8 @@
 """Configuration classes for Docstage."""
 
 from ._docstage_core import (
+    CliSettings,
     Config,
-    ConfigOverrides,
     ConfluenceConfig,
     ConfluenceTestConfig,
     DiagramsConfig,
@@ -12,8 +12,8 @@ from ._docstage_core import (
 )
 
 __all__ = [
+    "CliSettings",
     "Config",
-    "ConfigOverrides",
     "ConfluenceConfig",
     "ConfluenceTestConfig",
     "DiagramsConfig",

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from docstage.server import create_app
-from docstage_core.config import Config
+from docstage_core.config import CliSettings, Config
 
 
 @pytest.fixture
@@ -41,9 +41,11 @@ def client(
     config_file.write_text("")
     config = Config.load(
         config_file,
-        source_dir=docs_dir,
-        cache_dir=tmp_path / ".cache",
-        live_reload_enabled=False,
+        CliSettings(
+            source_dir=docs_dir,
+            cache_dir=tmp_path / ".cache",
+            live_reload_enabled=False,
+        ),
     )
     app = create_app(config)
     return aiohttp_client(app)
@@ -98,9 +100,11 @@ class TestGetNavigation:
         config_file.write_text("")
         config = Config.load(
             config_file,
-            source_dir=docs,
-            cache_dir=tmp_path / ".cache",
-            live_reload_enabled=False,
+            CliSettings(
+                source_dir=docs,
+                cache_dir=tmp_path / ".cache",
+                live_reload_enabled=False,
+            ),
         )
         app = create_app(config)
         test_client = await aiohttp_client(app)
