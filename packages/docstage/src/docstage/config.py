@@ -7,8 +7,8 @@ adding CLI override functionality.
 from dataclasses import dataclass
 from pathlib import Path
 
-from docstage_core import Config as RustConfig
-from docstage_core import (
+from docstage_core.config import (
+    Config as RustConfig,
     ConfluenceConfig,
     ConfluenceTestConfig,
     DiagramsConfig,
