@@ -140,6 +140,7 @@ pub struct ConvertResult {
     pub title: Option<String>,
     pub diagrams: Vec<DiagramInfo>,
     /// Warnings generated during conversion (e.g., unresolved includes).
+    /// Used by Python CLI in verbose mode to log diagnostic info to stderr.
     pub warnings: Vec<String>,
 }
 
@@ -170,13 +171,15 @@ pub struct PreparedDiagram {
 }
 
 /// Result of extracting diagrams from markdown (HTML format).
+///
+/// See also [`ExtractConfluenceResult`] for the Confluence variant (without `ToC`).
 #[derive(Clone, Debug)]
 pub struct ExtractResult {
-    /// HTML with diagram placeholders ({{`DIAGRAM_0`}}, {{`DIAGRAM_1`}}, etc.).
+    /// HTML with diagram placeholders (`{{DIAGRAM_0}}`, `{{DIAGRAM_1}}`, etc.).
     pub html: String,
     /// Title extracted from first H1 heading (if `extract_title` was enabled).
     pub title: Option<String>,
-    /// Table of contents entries.
+    /// Table of contents entries for client-side `ToC` rendering.
     pub toc: Vec<TocEntry>,
     /// Prepared diagrams ready for rendering.
     pub diagrams: Vec<PreparedDiagram>,
@@ -185,9 +188,12 @@ pub struct ExtractResult {
 }
 
 /// Result of extracting diagrams from markdown (Confluence format).
+///
+/// Similar to [`ExtractResult`] but without `toc` field since Confluence
+/// generates its own `ToC` via the `<ac:structured-macro ac:name="toc">` macro.
 #[derive(Clone, Debug)]
 pub struct ExtractConfluenceResult {
-    /// Confluence XHTML with diagram placeholders ({{`DIAGRAM_0`}}, etc.).
+    /// Confluence XHTML with diagram placeholders (`{{DIAGRAM_0}}`, etc.).
     pub html: String,
     /// Title extracted from first H1 heading (if `extract_title` was enabled).
     pub title: Option<String>,
@@ -325,7 +331,12 @@ impl MarkdownConverter {
         }
     }
 
-    /// Resolve diagram format, emitting a warning for unsupported formats.
+    /// Resolve diagram format for HTML output, emitting a warning for unsupported formats.
+    ///
+    /// Returns the Kroki output format string ("svg" or "png").
+    /// Used by [`Self::extract_html_with_diagrams`] to determine the format for each diagram.
+    ///
+    /// Note: Confluence always uses PNG (see [`Self::extract_confluence_with_diagrams`]).
     fn resolve_diagram_format(
         diagram: &crate::diagram_filter::ExtractedDiagram,
         warnings: &mut Vec<String>,
@@ -333,14 +344,18 @@ impl MarkdownConverter {
         match diagram.format {
             DiagramFormat::Svg => "svg".to_string(),
             DiagramFormat::Img => {
-                warnings.push(format!(
-                    "diagram {}: format=img is not yet implemented, falling back to inline SVG",
-                    diagram.index
-                ));
+                Self::warn_img_not_implemented(diagram.index, warnings);
                 "svg".to_string()
             }
             DiagramFormat::Png => "png".to_string(),
         }
+    }
+
+    /// Emit warning for unsupported format=img.
+    fn warn_img_not_implemented(index: usize, warnings: &mut Vec<String>) {
+        warnings.push(format!(
+            "diagram {index}: format=img is not yet implemented, falling back to inline SVG"
+        ));
     }
 
     /// Convert markdown to Confluence storage format.
@@ -427,6 +442,15 @@ impl MarkdownConverter {
     ///
     /// Supports all diagram types: `PlantUML`, Mermaid, `GraphViz`, and 14+
     /// other Kroki-supported formats.
+    ///
+    /// # Differences from [`Self::extract_html_with_diagrams`]
+    ///
+    /// | Aspect | Confluence | HTML |
+    /// |--------|------------|------|
+    /// | Renderer | Confluence XHTML | Semantic HTML5 |
+    /// | Diagram format | Always PNG (attachments) | SVG or PNG (inline) |
+    /// | `ToC` | Uses Confluence macro | Returns `ToC` entries |
+    /// | Link resolution | Not supported | Supports `base_path` |
     ///
     /// The caller is responsible for:
     /// 1. Checking the cache for each diagram by content hash
@@ -598,10 +622,7 @@ impl MarkdownConverter {
                 match d.format {
                     DiagramFormat::Svg => svg_diagrams.push((d.index, request)),
                     DiagramFormat::Img => {
-                        warnings.push(format!(
-                            "diagram {}: format=img is not yet implemented, falling back to inline SVG",
-                            d.index
-                        ));
+                        Self::warn_img_not_implemented(d.index, &mut warnings);
                         svg_diagrams.push((d.index, request));
                     }
                     DiagramFormat::Png => png_diagrams.push((d.index, request)),
