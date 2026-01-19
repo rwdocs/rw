@@ -44,7 +44,7 @@ use std::sync::Arc;
 
 use docstage_diagrams::{
     DiagramCache, DiagramProcessor, DiagramRequest, ExtractedDiagram, FileCache, NullCache,
-    RenderError, load_config_file, prepare_diagram_source, render_all, to_extracted_diagrams,
+    RenderError, prepare_diagram_source, render_all, to_extracted_diagrams,
 };
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
@@ -126,7 +126,8 @@ pub struct MarkdownConverter {
     prepend_toc: bool,
     extract_title: bool,
     include_dirs: Vec<PathBuf>,
-    config_content: Option<String>,
+    /// PlantUML config file name (loaded from include_dirs when needed).
+    config_file: Option<String>,
     /// DPI for `PlantUML` diagram rendering (None = default 192).
     dpi: Option<u32>,
 }
@@ -146,7 +147,7 @@ impl MarkdownConverter {
             prepend_toc: false,
             extract_title: false,
             include_dirs: Vec::new(),
-            config_content: None,
+            config_file: None,
             dpi: None,
         }
     }
@@ -179,10 +180,10 @@ impl MarkdownConverter {
         self
     }
 
-    /// Load `PlantUML` config from a file.
+    /// Set `PlantUML` config file (loaded from include_dirs when needed).
     #[must_use]
     pub fn config_file(mut self, config_file: Option<&str>) -> Self {
-        self.config_content = config_file.and_then(|cf| load_config_file(&self.include_dirs, cf));
+        self.config_file = config_file.map(String::from);
         self
     }
 
@@ -246,6 +247,16 @@ impl MarkdownConverter {
         renderer
     }
 
+    /// Load config file content from include directories.
+    fn load_config_content(&self) -> Option<String> {
+        self.config_file.as_ref().and_then(|cf| {
+            self.include_dirs.iter().find_map(|dir| {
+                let path = dir.join(cf);
+                std::fs::read_to_string(&path).ok()
+            })
+        })
+    }
+
     /// Optionally prepend TOC macro to HTML content.
     ///
     /// Only prepends when `prepend_toc` is enabled AND there are headings.
@@ -262,12 +273,13 @@ impl MarkdownConverter {
         &self,
         diagram: &ExtractedDiagram,
         warnings: &mut Vec<String>,
+        config_content: Option<&str>,
     ) -> String {
         if diagram.language.needs_plantuml_preprocessing() {
             let prepare_result = prepare_diagram_source(
                 &diagram.source,
                 &self.include_dirs,
-                self.config_content.as_deref(),
+                config_content,
                 self.dpi,
             );
             warnings.extend(prepare_result.warnings);
@@ -290,10 +302,12 @@ impl MarkdownConverter {
             return Ok(Vec::new());
         }
 
+        let config_content = self.load_config_content();
         let diagram_requests: Vec<_> = extracted_diagrams
             .iter()
             .map(|d| {
-                let source = self.prepare_diagram_source_with_warnings(d, warnings);
+                let source =
+                    self.prepare_diagram_source_with_warnings(d, warnings, config_content.as_deref());
                 DiagramRequest::new(d.index, source, d.language)
             })
             .collect();
@@ -392,11 +406,13 @@ impl MarkdownConverter {
 
         let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
         let mut warnings = renderer.processor_warnings();
+        let config_content = self.load_config_content();
 
         let diagrams: Vec<_> = extracted_diagrams
             .iter()
             .map(|d| {
-                let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
+                let source =
+                    self.prepare_diagram_source_with_warnings(d, &mut warnings, config_content.as_deref());
                 PreparedDiagram {
                     index: d.index,
                     source,
@@ -472,11 +488,13 @@ impl MarkdownConverter {
 
         let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
         let mut warnings = renderer.processor_warnings();
+        let config_content = self.load_config_content();
 
         let diagrams: Vec<_> = extracted_diagrams
             .iter()
             .map(|d| {
-                let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
+                let source =
+                    self.prepare_diagram_source_with_warnings(d, &mut warnings, config_content.as_deref());
                 PreparedDiagram {
                     index: d.index,
                     source,
@@ -569,7 +587,7 @@ impl MarkdownConverter {
         let mut processor = DiagramProcessor::new()
             .kroki_url(kroki_url)
             .include_dirs(&self.include_dirs)
-            .config_content(self.config_content.as_deref());
+            .config_file(self.config_file.as_deref());
 
         if let Some(dpi) = self.dpi {
             processor = processor.dpi(dpi);
