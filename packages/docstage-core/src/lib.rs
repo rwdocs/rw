@@ -1,7 +1,6 @@
 //! Python bindings for docstage-core via PyO3.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use pyo3::exceptions::{PyFileNotFoundError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -10,10 +9,7 @@ use ::docstage_config::{
     CliSettings, Config, ConfigError, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig,
     DocsConfig, LiveReloadConfig, ServerConfig,
 };
-use ::docstage_core::{
-    ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
-    PreparedDiagram,
-};
+use ::docstage_core::{ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter};
 use ::docstage_renderer::TocEntry;
 
 /// Rendered diagram info (file written to output_dir).
@@ -116,66 +112,6 @@ impl From<HtmlConvertResult> for PyHtmlConvertResult {
     }
 }
 
-/// A prepared diagram ready for rendering via Kroki.
-#[pyclass(name = "PreparedDiagram")]
-#[derive(Clone)]
-pub struct PyPreparedDiagram {
-    /// Zero-based index of this diagram in the document.
-    #[pyo3(get)]
-    pub index: usize,
-    /// Prepared source ready for Kroki (with !include resolved, config injected).
-    #[pyo3(get)]
-    pub source: String,
-    /// Kroki endpoint for this diagram type (e.g., "plantuml", "mermaid").
-    #[pyo3(get)]
-    pub endpoint: String,
-    /// Output format ("svg" or "png").
-    #[pyo3(get)]
-    pub format: String,
-}
-
-impl From<PreparedDiagram> for PyPreparedDiagram {
-    fn from(d: PreparedDiagram) -> Self {
-        Self {
-            index: d.index,
-            source: d.source,
-            endpoint: d.endpoint,
-            format: d.format,
-        }
-    }
-}
-
-/// Result of extracting diagrams from markdown.
-#[pyclass(name = "ExtractResult")]
-pub struct PyExtractResult {
-    /// HTML with diagram placeholders ({{DIAGRAM_0}}, {{DIAGRAM_1}}, etc.).
-    #[pyo3(get)]
-    pub html: String,
-    /// Title extracted from first H1 heading (if `extract_title` was enabled).
-    #[pyo3(get)]
-    pub title: Option<String>,
-    /// Table of contents entries.
-    #[pyo3(get)]
-    pub toc: Vec<PyTocEntry>,
-    /// Prepared diagrams ready for rendering.
-    #[pyo3(get)]
-    pub diagrams: Vec<PyPreparedDiagram>,
-    /// Warnings generated during conversion.
-    #[pyo3(get)]
-    pub warnings: Vec<String>,
-}
-
-impl From<ExtractResult> for PyExtractResult {
-    fn from(result: ExtractResult) -> Self {
-        Self {
-            html: result.html,
-            title: result.title,
-            toc: result.toc.into_iter().map(Into::into).collect(),
-            diagrams: result.diagrams.into_iter().map(Into::into).collect(),
-            warnings: result.warnings,
-        }
-    }
-}
 
 /// Markdown converter with multiple output formats.
 #[pyclass(name = "MarkdownConverter")]
@@ -333,52 +269,6 @@ impl PyMarkdownConverter {
         })
     }
 
-    /// Extract diagrams from markdown without rendering.
-    ///
-    /// Returns HTML with `{{DIAGRAM_N}}` placeholders and prepared diagrams.
-    /// This method is used for diagram caching - the caller should:
-    /// 1. Check the cache for each diagram by content hash
-    /// 2. Render only uncached diagrams via Kroki
-    /// 3. Replace placeholders with rendered content
-    ///
-    /// Args:
-    ///     markdown_text: Markdown source text
-    ///     base_path: Optional base path for resolving relative links
-    ///
-    /// Returns:
-    ///     ExtractResult with HTML placeholders and prepared diagrams
-    #[pyo3(signature = (markdown_text, base_path = None))]
-    pub fn extract_html_with_diagrams(
-        &self,
-        markdown_text: &str,
-        base_path: Option<&str>,
-    ) -> PyExtractResult {
-        self.inner
-            .extract_html_with_diagrams(markdown_text, base_path)
-            .into()
-    }
-
-    /// Extract diagrams from markdown for Confluence format.
-    ///
-    /// Returns Confluence XHTML with `{{DIAGRAM_N}}` placeholders and prepared diagrams.
-    /// Supports all diagram types: PlantUML, Mermaid, GraphViz, and 14+ other
-    /// Kroki-supported formats.
-    ///
-    /// This method is used for diagram caching - the caller should:
-    /// 1. Check the cache for each diagram by content hash
-    /// 2. Render only uncached diagrams via Kroki
-    /// 3. Replace placeholders with image macros
-    ///
-    /// Args:
-    ///     markdown_text: Markdown source text
-    ///
-    /// Returns:
-    ///     ExtractResult with XHTML placeholders and prepared diagrams
-    pub fn extract_confluence_with_diagrams(&self, markdown_text: &str) -> PyExtractResult {
-        self.inner
-            .extract_confluence_with_diagrams(markdown_text)
-            .into()
-    }
 }
 
 // ============================================================================
@@ -670,8 +560,6 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Converter classes
     m.add_class::<PyConvertResult>()?;
     m.add_class::<PyHtmlConvertResult>()?;
-    m.add_class::<PyExtractResult>()?;
-    m.add_class::<PyPreparedDiagram>()?;
     m.add_class::<PyMarkdownConverter>()?;
     m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyTocEntry>()?;

@@ -40,8 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ty** replaces mypy for faster Python type checking
 - Update pulldown-cmark from 0.12 to 0.13
 - `ConvertResult` now includes `warnings` field for API consistency
-- `ExtractConfluenceResult` removed; use `ExtractResult` for both HTML and Confluence
 - Removed unimplemented `img` diagram format option (use `svg` or `png`)
+- **Removed extract methods** (`extract_html_with_diagrams`, `extract_confluence_with_diagrams`) and related types (`ExtractResult`, `PreparedDiagram`) from public API; use `convert_html_with_diagrams_cached` for HTML rendering with caching
+- **Made internal constants private** (`DEFAULT_DPI`, `load_config_file`); DPI configuration uses `Option<u32>` throughout with defaults handled internally
 - `MarkdownRenderer::render()` now takes `&mut self` instead of `self` to allow accessing extracted code blocks after rendering
 - **Diagram extraction migrated to `DiagramProcessor`** implementing `CodeBlockProcessor` trait (internal refactoring, no API changes)
 - **Removed reexports from `docstage-core`** crate; consumers should import directly from `docstage-renderer`, `docstage-diagrams`, and `docstage-confluence-renderer`

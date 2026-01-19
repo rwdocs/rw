@@ -46,6 +46,5 @@
 mod converter;
 
 pub use converter::{
-    ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
-    PreparedDiagram, create_image_tag,
+    ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter, create_image_tag,
 };

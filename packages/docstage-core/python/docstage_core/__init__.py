@@ -7,19 +7,15 @@ with custom renderers for Confluence and HTML5 formats.
 from ._docstage_core import (
     ConvertResult,
     DiagramInfo,
-    ExtractResult,
     HtmlConvertResult,
     MarkdownConverter,
-    PreparedDiagram,
     TocEntry,
 )
 
 __all__ = [
     "ConvertResult",
     "DiagramInfo",
-    "ExtractResult",
     "HtmlConvertResult",
     "MarkdownConverter",
-    "PreparedDiagram",
     "TocEntry",
 ]
