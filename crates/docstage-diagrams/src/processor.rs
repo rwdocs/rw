@@ -11,11 +11,13 @@ use docstage_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 
 use crate::DiagramRequest;
 use crate::cache::{DiagramCache, compute_diagram_hash};
+use crate::consts::DEFAULT_DPI;
 use crate::html_embed::{
     replace_png_diagrams, replace_svg_diagrams, scale_svg_dimensions, strip_google_fonts_import,
 };
-use crate::kroki::{render_all_png_data_uri_partial, render_all_svg_partial};
+use crate::kroki::{render_all, render_all_png_data_uri_partial, render_all_svg_partial};
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
+use crate::output::{DiagramOutput, RenderedDiagramInfo};
 use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
 
 /// Code block processor for diagram languages.
@@ -52,6 +54,7 @@ use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
 /// let result = renderer.render(parser);
 /// let html = renderer.finalize(result.html);
 /// ```
+#[derive(Default)]
 pub struct DiagramProcessor {
     extracted: Vec<ExtractedCodeBlock>,
     warnings: Vec<String>,
@@ -65,20 +68,8 @@ pub struct DiagramProcessor {
     dpi: Option<u32>,
     /// Optional cache for diagram rendering.
     cache: Option<Arc<dyn DiagramCache>>,
-}
-
-impl Default for DiagramProcessor {
-    fn default() -> Self {
-        Self {
-            extracted: Vec::new(),
-            warnings: Vec::new(),
-            kroki_url: None,
-            include_dirs: Vec::new(),
-            config_content: None,
-            dpi: None,
-            cache: None,
-        }
-    }
+    /// Output mode for diagram rendering.
+    output: DiagramOutput,
 }
 
 impl DiagramProcessor {
@@ -192,6 +183,29 @@ impl DiagramProcessor {
         self
     }
 
+    /// Set the output mode for diagram rendering.
+    ///
+    /// Default is [`DiagramOutput::Inline`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use docstage_diagrams::{DiagramProcessor, DiagramOutput, ImgTagGenerator};
+    ///
+    /// let processor = DiagramProcessor::new()
+    ///     .kroki_url("https://kroki.io")
+    ///     .output(DiagramOutput::Files {
+    ///         output_dir: "public/diagrams".into(),
+    ///         tag_generator: Arc::new(ImgTagGenerator::new("/diagrams/")),
+    ///     });
+    /// ```
+    #[must_use]
+    pub fn output(mut self, output: DiagramOutput) -> Self {
+        self.output = output;
+        self
+    }
+
     /// Prepare diagram source for rendering.
     ///
     /// For PlantUML diagrams, this resolves `!include` directives and injects config.
@@ -271,11 +285,21 @@ impl CodeBlockProcessor for DiagramProcessor {
             return;
         }
 
-        // Use cache-aware rendering if cache is available
-        if let Some(cache) = self.cache.clone() {
-            self.post_process_with_cache(html, &diagrams, &kroki_url, &cache);
-        } else {
-            self.post_process_no_cache(html, &diagrams, &kroki_url);
+        match self.output.clone() {
+            DiagramOutput::Inline => {
+                // Use cache-aware rendering if cache is available
+                if let Some(cache) = self.cache.clone() {
+                    self.post_process_with_cache(html, &diagrams, &kroki_url, &cache);
+                } else {
+                    self.post_process_no_cache(html, &diagrams, &kroki_url);
+                }
+            }
+            DiagramOutput::Files {
+                output_dir,
+                tag_generator,
+            } => {
+                self.post_process_files(html, &diagrams, &kroki_url, &output_dir, &tag_generator);
+            }
         }
     }
 
@@ -416,7 +440,6 @@ impl DiagramProcessor {
     }
 
     /// Render PNG diagrams, cache results, and replace placeholders.
-    #[allow(clippy::unused_self)] // Kept as method for consistency with render_and_cache_svg
     fn render_and_cache_png(
         &self,
         html: &mut String,
@@ -446,6 +469,51 @@ impl DiagramProcessor {
                 handle_render_errors(html, result.errors);
             }
             Err(e) => replace_all_with_error(html, to_render, &e.to_string()),
+        }
+    }
+
+    /// Post-process with file-based output mode.
+    ///
+    /// Renders diagrams to PNG files and replaces placeholders with custom tags.
+    fn post_process_files(
+        &mut self,
+        html: &mut String,
+        diagrams: &[ExtractedDiagram],
+        kroki_url: &str,
+        output_dir: &std::path::Path,
+        tag_generator: &Arc<dyn crate::output::DiagramTagGenerator>,
+    ) {
+        // Prepare all diagrams
+        let diagram_requests: Vec<_> = diagrams
+            .iter()
+            .map(|d| {
+                let prepare_result = self.prepare_source(d);
+                self.warnings.extend(prepare_result.warnings);
+                DiagramRequest::new(d.index, prepare_result.source, d.language)
+            })
+            .collect();
+
+        let server_url = kroki_url.trim_end_matches('/');
+        let dpi = self.dpi.unwrap_or(DEFAULT_DPI);
+
+        match render_all(&diagram_requests, server_url, output_dir, 4) {
+            Ok(rendered_diagrams) => {
+                for r in rendered_diagrams {
+                    let info = RenderedDiagramInfo {
+                        filename: r.filename,
+                        width: r.width,
+                        height: r.height,
+                    };
+                    let tag = tag_generator.generate_tag(&info, dpi);
+                    replace_placeholder(html, r.index, &tag);
+                }
+            }
+            Err(e) => {
+                // Replace all placeholders with error
+                for d in diagrams {
+                    replace_with_error(html, d.index, &e.to_string());
+                }
+            }
         }
     }
 }

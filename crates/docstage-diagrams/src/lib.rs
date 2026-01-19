@@ -36,11 +36,16 @@ mod consts;
 mod html_embed;
 mod kroki;
 mod language;
+mod output;
 mod plantuml;
 mod processor;
 
 pub use cache::{DiagramCache, FileCache, NullCache};
+pub use html_embed::STANDARD_DPI;
 pub use kroki::{DiagramRequest, RenderError, render_all};
 pub use language::ExtractedDiagram;
+pub use output::{
+    DiagramOutput, DiagramTagGenerator, FigureImgTagGenerator, ImgTagGenerator, RenderedDiagramInfo,
+};
 pub use plantuml::prepare_diagram_source;
 pub use processor::{DiagramProcessor, to_extracted_diagram, to_extracted_diagrams};

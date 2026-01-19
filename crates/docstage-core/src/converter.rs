@@ -34,25 +34,19 @@
 //! ```
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use pulldown_cmark::{Options, Parser};
 
 use docstage_confluence_renderer::ConfluenceBackend;
+use docstage_diagrams::{
+    DiagramCache, DiagramOutput, DiagramProcessor, FileCache, NullCache, RenderError,
+};
 use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 
-use std::sync::Arc;
-
-use docstage_diagrams::{
-    DiagramCache, DiagramProcessor, DiagramRequest, ExtractedDiagram, FileCache, NullCache,
-    RenderError, prepare_diagram_source, render_all, to_extracted_diagrams,
-};
+use crate::ConfluenceTagGenerator;
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
-
-/// Create Confluence image macro for an attachment.
-fn create_image_tag(filename: &str, width: u32) -> String {
-    format!(r#"<ac:image ac:width="{width}"><ri:attachment ri:filename="{filename}" /></ac:image>"#)
-}
 
 /// Result of converting markdown to Confluence format.
 #[derive(Clone, Debug)]
@@ -164,57 +158,6 @@ impl MarkdownConverter {
         options
     }
 
-    /// Create an HTML renderer with the converter's settings.
-    fn create_html_renderer(
-        &self,
-        base_path: Option<&str>,
-        with_diagrams: bool,
-    ) -> MarkdownRenderer<HtmlBackend> {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
-
-        if let Some(path) = base_path {
-            renderer = renderer.with_base_path(path);
-        }
-
-        if with_diagrams {
-            renderer = renderer.with_processor(DiagramProcessor::new());
-        }
-
-        renderer
-    }
-
-    /// Create a Confluence renderer with the converter's settings.
-    fn create_confluence_renderer(
-        &self,
-        with_diagrams: bool,
-    ) -> MarkdownRenderer<ConfluenceBackend> {
-        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
-
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
-
-        if with_diagrams {
-            renderer = renderer.with_processor(DiagramProcessor::new());
-        }
-
-        renderer
-    }
-
-    /// Load config file content from include directories.
-    fn load_config_content(&self) -> Option<String> {
-        self.config_file.as_ref().and_then(|cf| {
-            self.include_dirs.iter().find_map(|dir| {
-                let path = dir.join(cf);
-                std::fs::read_to_string(&path).ok()
-            })
-        })
-    }
-
     /// Optionally prepend TOC macro to HTML content.
     ///
     /// Only prepends when `prepend_toc` is enabled AND there are headings.
@@ -224,66 +167,6 @@ impl MarkdownConverter {
         } else {
             html
         }
-    }
-
-    /// Prepare diagram source and collect warnings.
-    fn prepare_diagram_source_with_warnings(
-        &self,
-        diagram: &ExtractedDiagram,
-        warnings: &mut Vec<String>,
-        config_content: Option<&str>,
-    ) -> String {
-        if diagram.language.needs_plantuml_preprocessing() {
-            let prepare_result = prepare_diagram_source(
-                &diagram.source,
-                &self.include_dirs,
-                config_content,
-                self.dpi,
-            );
-            warnings.extend(prepare_result.warnings);
-            prepare_result.source
-        } else {
-            diagram.source.clone()
-        }
-    }
-
-    /// Render diagrams and replace placeholders in HTML.
-    fn render_and_replace_diagrams(
-        &self,
-        extracted_diagrams: &[ExtractedDiagram],
-        warnings: &mut Vec<String>,
-        html: &mut String,
-        kroki_url: &str,
-        output_dir: &Path,
-    ) -> Result<(), RenderError> {
-        if extracted_diagrams.is_empty() {
-            return Ok(());
-        }
-
-        let config_content = self.load_config_content();
-        let diagram_requests: Vec<_> = extracted_diagrams
-            .iter()
-            .map(|d| {
-                let source = self.prepare_diagram_source_with_warnings(
-                    d,
-                    warnings,
-                    config_content.as_deref(),
-                );
-                DiagramRequest::new(d.index, source, d.language)
-            })
-            .collect();
-
-        let server_url = kroki_url.trim_end_matches('/');
-        let rendered_diagrams = render_all(&diagram_requests, server_url, output_dir, 4)?;
-
-        for r in rendered_diagrams {
-            let display_width = r.width / 2;
-            let image_tag = create_image_tag(&r.filename, display_width);
-            let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
-            *html = html.replace(&placeholder, &image_tag);
-        }
-
-        Ok(())
     }
 
     /// Convert markdown to Confluence storage format.
@@ -304,21 +187,31 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        let mut renderer = self.create_confluence_renderer(true);
+        // Create DiagramProcessor with file-based output
+        let mut processor = DiagramProcessor::new()
+            .kroki_url(kroki_url)
+            .include_dirs(&self.include_dirs)
+            .config_file(self.config_file.as_deref())
+            .output(DiagramOutput::Files {
+                output_dir: output_dir.to_path_buf(),
+                tag_generator: Arc::new(ConfluenceTagGenerator),
+            });
+
+        if let Some(dpi) = self.dpi {
+            processor = processor.dpi(dpi);
+        }
+
+        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
+        if self.extract_title {
+            renderer = renderer.with_title_extraction();
+        }
+        renderer = renderer.with_processor(processor);
+
         let result = renderer.render(parser);
+        let html = renderer.finalize(result.html);
+        let warnings = renderer.processor_warnings();
 
-        let extracted_diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
-        let mut warnings = renderer.processor_warnings();
-
-        let mut html = self.maybe_prepend_toc(result.html, &result.toc);
-
-        self.render_and_replace_diagrams(
-            &extracted_diagrams,
-            &mut warnings,
-            &mut html,
-            kroki_url,
-            output_dir,
-        )?;
+        let html = self.maybe_prepend_toc(html, &result.toc);
 
         Ok(ConvertResult {
             html,
@@ -342,7 +235,16 @@ impl MarkdownConverter {
     pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> HtmlConvertResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
-        let result = self.create_html_renderer(base_path, false).render(parser);
+
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        if self.extract_title {
+            renderer = renderer.with_title_extraction();
+        }
+        if let Some(path) = base_path {
+            renderer = renderer.with_base_path(path);
+        }
+
+        let result = renderer.render(parser);
 
         HtmlConvertResult {
             html: result.html,
