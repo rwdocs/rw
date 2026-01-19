@@ -183,15 +183,17 @@ fn diagram_hash(diagram_type: &str, source: &str) -> String {
     hex::encode(&result[..6])
 }
 
-/// Render a single diagram to PNG via Kroki.
-fn render_one_png(
+/// Send a diagram to Kroki and return the response body as bytes.
+///
+/// Handles HTTP errors by reading the response body for error details.
+fn send_diagram_request(
     agent: &Agent,
     diagram: &DiagramRequest,
     server_url: &str,
-    output_dir: &Path,
-) -> Result<RenderedDiagram, DiagramError> {
+    format: &str,
+) -> Result<Vec<u8>, DiagramError> {
     let endpoint = diagram.language.kroki_endpoint();
-    let url = format!("{server_url}/{endpoint}/png");
+    let url = format!("{server_url}/{endpoint}/{format}");
 
     let response = agent
         .post(&url)
@@ -202,19 +204,40 @@ fn render_one_png(
             kind: DiagramErrorKind::Http(e.to_string()),
         })?;
 
-    let data = response
-        .into_body()
-        .read_to_vec()
-        .map_err(|e| DiagramError {
+    let status = response.status().as_u16();
+    let mut body = response.into_body();
+
+    if status >= 400 {
+        let error_body = body
+            .read_to_string()
+            .unwrap_or_else(|_| String::from("(unable to read error body)"));
+        return Err(DiagramError {
             index: diagram.index,
-            kind: DiagramErrorKind::Io(e.to_string()),
-        })?;
+            kind: DiagramErrorKind::Http(format!("HTTP {status}: {error_body}")),
+        });
+    }
+
+    body.read_to_vec().map_err(|e| DiagramError {
+        index: diagram.index,
+        kind: DiagramErrorKind::Io(e.to_string()),
+    })
+}
+
+/// Render a single diagram to PNG via Kroki.
+fn render_one_png(
+    agent: &Agent,
+    diagram: &DiagramRequest,
+    server_url: &str,
+    output_dir: &Path,
+) -> Result<RenderedDiagram, DiagramError> {
+    let data = send_diagram_request(agent, diagram, server_url, "png")?;
 
     let (width, height) = get_png_dimensions(&data).ok_or(DiagramError {
         index: diagram.index,
         kind: DiagramErrorKind::InvalidPng,
     })?;
 
+    let endpoint = diagram.language.kroki_endpoint();
     let hash = diagram_hash(endpoint, &diagram.source);
     let filename = format!("diagram_{hash}.png");
     let filepath = output_dir.join(&filename);
@@ -267,6 +290,7 @@ pub fn render_all(
 
     let agent: Agent = Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(30)))
+        .http_status_as_error(false)
         .build()
         .into();
 
@@ -302,38 +326,11 @@ fn render_one_svg(
     diagram: &DiagramRequest,
     server_url: &str,
 ) -> Result<RenderedSvg, DiagramError> {
-    let endpoint = diagram.language.kroki_endpoint();
-    let url = format!("{server_url}/{endpoint}/svg");
-
-    let response = agent
-        .post(&url)
-        .header("Content-Type", "text/plain")
-        .send(diagram.source.as_bytes());
-
-    let response = match response {
-        Ok(r) => r,
-        Err(ureq::Error::StatusCode(status)) => {
-            // Try to read error body for more details
-            return Err(DiagramError {
-                index: diagram.index,
-                kind: DiagramErrorKind::Http(format!("HTTP {status} from {url}")),
-            });
-        }
-        Err(e) => {
-            return Err(DiagramError {
-                index: diagram.index,
-                kind: DiagramErrorKind::Http(e.to_string()),
-            });
-        }
-    };
-
-    let svg = response
-        .into_body()
-        .read_to_string()
-        .map_err(|e| DiagramError {
-            index: diagram.index,
-            kind: DiagramErrorKind::Io(e.to_string()),
-        })?;
+    let data = send_diagram_request(agent, diagram, server_url, "svg")?;
+    let svg = String::from_utf8(data).map_err(|e| DiagramError {
+        index: diagram.index,
+        kind: DiagramErrorKind::Io(format!("invalid UTF-8 in SVG: {e}")),
+    })?;
 
     Ok(RenderedSvg {
         index: diagram.index,
@@ -347,27 +344,8 @@ fn render_one_png_data_uri(
     diagram: &DiagramRequest,
     server_url: &str,
 ) -> Result<RenderedPngDataUri, DiagramError> {
-    let endpoint = diagram.language.kroki_endpoint();
-    let url = format!("{server_url}/{endpoint}/png");
+    let data = send_diagram_request(agent, diagram, server_url, "png")?;
 
-    let response = agent
-        .post(&url)
-        .header("Content-Type", "text/plain")
-        .send(diagram.source.as_bytes())
-        .map_err(|e| DiagramError {
-            index: diagram.index,
-            kind: DiagramErrorKind::Http(e.to_string()),
-        })?;
-
-    let data = response
-        .into_body()
-        .read_to_vec()
-        .map_err(|e| DiagramError {
-            index: diagram.index,
-            kind: DiagramErrorKind::Io(e.to_string()),
-        })?;
-
-    // Validate PNG
     if get_png_dimensions(&data).is_none() {
         return Err(DiagramError {
             index: diagram.index,
@@ -420,6 +398,7 @@ fn render_all_partial<T: Send>(
 
     let agent: Agent = Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(30)))
+        .http_status_as_error(false)
         .build()
         .into();
 

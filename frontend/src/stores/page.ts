@@ -24,20 +24,24 @@ function createPageStore() {
     subscribe,
 
     /** Load a page by path, cancelling any in-flight request */
-    async load(path: string, options?: { bypassCache?: boolean }) {
+    async load(path: string, options?: { bypassCache?: boolean; silent?: boolean }) {
       // Cancel any in-flight request
       if (abortController) {
         abortController.abort();
       }
       abortController = new AbortController();
 
-      // Atomic reset to loading state
-      set({ ...initialState, loading: true });
+      // Silent mode skips loading state (used for live reload to preserve scroll)
+      if (!options?.silent) {
+        set({ ...initialState, loading: true });
+      }
 
       try {
-        const data = await fetchPage(path, { ...options, signal: abortController.signal });
+        const data = await fetchPage(path, {
+          bypassCache: options?.bypassCache,
+          signal: abortController.signal,
+        });
         set({ data, loading: false, error: null, notFound: false });
-        // Update document title
         if (data.meta.title) {
           document.title = `${data.meta.title} - Docstage`;
         }
