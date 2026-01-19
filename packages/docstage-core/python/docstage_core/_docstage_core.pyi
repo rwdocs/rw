@@ -9,8 +9,6 @@ class ConvertResult:
     """Confluence XHTML storage format."""
     title: str | None
     """Title extracted from first H1 heading (if extract_title was enabled)."""
-    diagrams: list[str]
-    """Filenames of rendered diagram images in output_dir."""
     warnings: list[str]
     """Warnings generated during conversion (e.g., unresolved includes)."""
 
