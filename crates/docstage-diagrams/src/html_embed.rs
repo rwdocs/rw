@@ -15,10 +15,7 @@ use crate::kroki::{
     DiagramError, DiagramRequest, render_all_png_data_uri_partial, render_all_svg_partial,
 };
 
-use crate::consts::DEFAULT_DPI;
-
-/// Standard display DPI (96) used as baseline for scaling calculations.
-pub const STANDARD_DPI: u32 = 96;
+use crate::consts::{DEFAULT_DPI, STANDARD_DPI};
 
 static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()

@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::html_embed::STANDARD_DPI;
+use crate::consts::STANDARD_DPI;
 
 /// Information about a rendered diagram for tag generation.
 #[derive(Debug, Clone)]
