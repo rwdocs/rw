@@ -1,6 +1,7 @@
 //! Python bindings for docstage-core via PyO3.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use pyo3::exceptions::{PyFileNotFoundError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -13,7 +14,7 @@ use ::docstage_core::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
     PreparedDiagram,
 };
-use ::docstage_diagrams::DEFAULT_DPI;
+use ::docstage_diagrams::{DEFAULT_DPI, DiagramCache};
 use ::docstage_renderer::TocEntry;
 
 /// Rendered diagram info (file written to output_dir).
@@ -177,6 +178,55 @@ impl From<ExtractResult> for PyExtractResult {
     }
 }
 
+/// Python wrapper for diagram caching.
+///
+/// Bridges a Python cache object to the Rust `DiagramCache` trait.
+/// The Python object must implement `get_diagram(hash, format) -> str | None`
+/// and `set_diagram(hash, format, content) -> None`.
+#[pyclass(name = "DiagramCache")]
+pub struct PyDiagramCache {
+    /// Python object implementing the cache protocol.
+    cache: Py<PyAny>,
+}
+
+#[pymethods]
+impl PyDiagramCache {
+    /// Create a new PyDiagramCache wrapping a Python cache object.
+    ///
+    /// The Python object must have:
+    /// - `get_diagram(hash: str, format: str) -> str | None`
+    /// - `set_diagram(hash: str, format: str, content: str) -> None`
+    #[new]
+    pub fn new(cache: Py<PyAny>) -> Self {
+        Self { cache }
+    }
+}
+
+impl DiagramCache for PyDiagramCache {
+    fn get(&self, hash: &str, format: &str) -> Option<String> {
+        Python::attach(|py| {
+            self.cache
+                .call_method1(py, "get_diagram", (hash, format))
+                .ok()
+                .and_then(|result| result.extract::<Option<String>>(py).ok())
+                .flatten()
+        })
+    }
+
+    fn set(&self, hash: &str, format: &str, content: &str) {
+        Python::attach(|py| {
+            let _ = self
+                .cache
+                .call_method1(py, "set_diagram", (hash, format, content));
+        });
+    }
+}
+
+// SAFETY: PyDiagramCache is Send + Sync because Python object access is
+// protected by GIL acquisition via Python::attach().
+unsafe impl Send for PyDiagramCache {}
+unsafe impl Sync for PyDiagramCache {}
+
 /// Markdown converter with multiple output formats.
 #[pyclass(name = "MarkdownConverter")]
 pub struct PyMarkdownConverter {
@@ -285,6 +335,44 @@ impl PyMarkdownConverter {
         py.detach(|| {
             self.inner
                 .convert_html_with_diagrams(markdown_text, kroki_url, base_path)
+                .into()
+        })
+    }
+
+    /// Convert markdown to HTML format with cached diagram rendering.
+    ///
+    /// Like `convert_html_with_diagrams`, but uses a cache to avoid re-rendering
+    /// diagrams with the same content. The cache key is computed from:
+    /// - Diagram source (after preprocessing)
+    /// - Kroki endpoint
+    /// - Output format (svg/png)
+    /// - DPI setting
+    ///
+    /// Args:
+    ///     markdown_text: Markdown source text
+    ///     kroki_url: Kroki server URL (e.g., "https://kroki.io")
+    ///     cache: DiagramCache wrapper for Python cache object
+    ///     base_path: Optional base path for resolving relative links
+    ///
+    /// Returns:
+    ///     HtmlConvertResult with HTML containing rendered diagrams
+    #[pyo3(signature = (markdown_text, kroki_url, cache, base_path = None))]
+    pub fn convert_html_with_diagrams_cached(
+        &self,
+        py: Python<'_>,
+        markdown_text: &str,
+        kroki_url: &str,
+        cache: &PyDiagramCache,
+        base_path: Option<&str>,
+    ) -> PyHtmlConvertResult {
+        // Clone the cache into an Arc for the Rust API
+        let cache_arc: Arc<dyn DiagramCache> = Arc::new(PyDiagramCache {
+            cache: cache.cache.clone_ref(py),
+        });
+
+        py.detach(|| {
+            self.inner
+                .convert_html_with_diagrams_cached(markdown_text, kroki_url, cache_arc, base_path)
                 .into()
         })
     }
@@ -631,6 +719,7 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMarkdownConverter>()?;
     m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyTocEntry>()?;
+    m.add_class::<PyDiagramCache>()?;
 
     // Config classes
     m.add_class::<PyConfig>()?;

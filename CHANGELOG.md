@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Diagram caching in Rust** via `DiagramCache` trait with `FileCache` and `NullCache` implementations; enables content-based caching with hash keys matching Python implementation
+- **Cached diagram conversion** via `convert_html_with_diagrams_cached()` method and `DiagramProcessor::with_cache()` builder
 - **Post-processing hooks** for `CodeBlockProcessor` trait via `post_process` method; enables processors to replace placeholders after rendering
 - **Renderer finalize method** (`MarkdownRenderer::finalize`) to trigger post-processing on all registered processors
 - **DiagramProcessor configuration** via builder pattern: `kroki_url()`, `include_dirs()`, `config_file()`, `config_content()`, `dpi()`
@@ -45,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Removed reexports from `docstage-core`** crate; consumers should import directly from `docstage-renderer`, `docstage-diagrams`, and `docstage-confluence-renderer`
 - **Moved diagram HTML embedding logic to `docstage-diagrams`** crate (SVG scaling, Google Fonts stripping, placeholder replacement); `docstage-core` no longer depends on `regex`
 - **Simplified `convert_html_with_diagrams`** in `docstage-core` to use `DiagramProcessor` configuration and `renderer.finalize()`
+- **Unified diagram rendering path** via Rust `DiagramProcessor.post_process()` with caching; removes ~150 lines of duplicated Python diagram rendering logic
+- **PageRenderer uses single Rust call** for diagram rendering with caching instead of extract+render+replace Python logic
 
 ### Fixed
 

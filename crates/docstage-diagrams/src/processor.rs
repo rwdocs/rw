@@ -5,11 +5,16 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use docstage_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 
 use crate::DiagramRequest;
-use crate::html_embed::{replace_png_diagrams, replace_svg_diagrams};
+use crate::cache::{DiagramCache, compute_diagram_hash};
+use crate::html_embed::{
+    replace_png_diagrams, replace_svg_diagrams, scale_svg_dimensions, strip_google_fonts_import,
+};
+use crate::kroki::{render_all_png_data_uri_partial, render_all_svg_partial};
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::plantuml::{DEFAULT_DPI, PrepareResult, load_config_file, prepare_diagram_source};
 
@@ -58,6 +63,8 @@ pub struct DiagramProcessor {
     config_content: Option<String>,
     /// DPI for diagram rendering.
     dpi: u32,
+    /// Optional cache for diagram rendering.
+    cache: Option<Arc<dyn DiagramCache>>,
 }
 
 impl Default for DiagramProcessor {
@@ -69,6 +76,7 @@ impl Default for DiagramProcessor {
             include_dirs: Vec::new(),
             config_content: None,
             dpi: DEFAULT_DPI,
+            cache: None,
         }
     }
 }
@@ -160,6 +168,30 @@ impl DiagramProcessor {
         self
     }
 
+    /// Set the diagram cache for content-based caching.
+    ///
+    /// When a cache is provided, [`post_process`](Self::post_process) will:
+    /// 1. Compute a content hash for each diagram
+    /// 2. Check the cache for a hit before rendering via Kroki
+    /// 3. Store newly rendered diagrams in the cache
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use docstage_diagrams::{DiagramProcessor, FileCache};
+    ///
+    /// let cache = Arc::new(FileCache::new(".cache/diagrams".into()));
+    /// let processor = DiagramProcessor::new()
+    ///     .kroki_url("https://kroki.io")
+    ///     .with_cache(cache);
+    /// ```
+    #[must_use]
+    pub fn with_cache(mut self, cache: Arc<dyn DiagramCache>) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
     /// Prepare diagram source for rendering.
     ///
     /// For PlantUML diagrams, this resolves `!include` directives and injects config.
@@ -239,11 +271,36 @@ impl CodeBlockProcessor for DiagramProcessor {
             return;
         }
 
-        // Build requests grouped by format
+        // Use cache-aware rendering if cache is available
+        if let Some(cache) = self.cache.clone() {
+            self.post_process_with_cache(html, &diagrams, &kroki_url, &cache);
+        } else {
+            self.post_process_no_cache(html, &diagrams, &kroki_url);
+        }
+    }
+
+    fn extracted(&self) -> Vec<ExtractedCodeBlock> {
+        self.extracted.clone()
+    }
+
+    fn warnings(&self) -> Vec<String> {
+        self.warnings.clone()
+    }
+}
+
+/// Cache-aware diagram rendering implementation.
+impl DiagramProcessor {
+    /// Post-process without caching (original behavior).
+    fn post_process_no_cache(
+        &mut self,
+        html: &mut String,
+        diagrams: &[ExtractedDiagram],
+        kroki_url: &str,
+    ) {
         let mut svg_requests = Vec::new();
         let mut png_requests = Vec::new();
 
-        for diagram in &diagrams {
+        for diagram in diagrams {
             let prepare_result = self.prepare_source(diagram);
             self.warnings.extend(prepare_result.warnings);
 
@@ -257,16 +314,186 @@ impl CodeBlockProcessor for DiagramProcessor {
             }
         }
 
-        replace_svg_diagrams(html, &svg_requests, &kroki_url, self.dpi);
-        replace_png_diagrams(html, &png_requests, &kroki_url);
+        replace_svg_diagrams(html, &svg_requests, kroki_url, self.dpi);
+        replace_png_diagrams(html, &png_requests, kroki_url);
     }
 
-    fn extracted(&self) -> Vec<ExtractedCodeBlock> {
-        self.extracted.clone()
+    /// Post-process with caching: check cache first, render only misses.
+    fn post_process_with_cache(
+        &mut self,
+        html: &mut String,
+        diagrams: &[ExtractedDiagram],
+        kroki_url: &str,
+        cache: &Arc<dyn DiagramCache>,
+    ) {
+        // Prepare all diagrams and compute hashes
+        let prepared: Vec<_> = diagrams
+            .iter()
+            .map(|diagram| {
+                let prepare_result = self.prepare_source(diagram);
+                self.warnings.extend(prepare_result.warnings);
+
+                let endpoint = diagram.language.kroki_endpoint();
+                let format_str = diagram.format.as_str();
+                let hash =
+                    compute_diagram_hash(&prepare_result.source, endpoint, format_str, self.dpi);
+
+                (diagram, prepare_result.source, hash)
+            })
+            .collect();
+
+        // Separate cache hits from misses
+        let mut svg_to_render: Vec<(usize, DiagramRequest, String)> = Vec::new();
+        let mut png_to_render: Vec<(usize, DiagramRequest, String)> = Vec::new();
+
+        for (diagram, source, hash) in &prepared {
+            let format_str = diagram.format.as_str();
+
+            if let Some(cached_content) = cache.get(hash, format_str) {
+                // Cache hit: replace placeholder directly
+                let figure = match diagram.format {
+                    DiagramFormat::Svg => {
+                        format!(r#"<figure class="diagram">{cached_content}</figure>"#)
+                    }
+                    DiagramFormat::Png => {
+                        format!(
+                            r#"<figure class="diagram"><img src="{cached_content}" alt="diagram"></figure>"#
+                        )
+                    }
+                };
+                replace_placeholder(html, diagram.index, &figure);
+            } else {
+                // Cache miss: add to render queue
+                let request = DiagramRequest::new(diagram.index, source.clone(), diagram.language);
+
+                match diagram.format {
+                    DiagramFormat::Svg => {
+                        svg_to_render.push((diagram.index, request, hash.clone()))
+                    }
+                    DiagramFormat::Png => {
+                        png_to_render.push((diagram.index, request, hash.clone()))
+                    }
+                }
+            }
+        }
+
+        // Render cache misses
+        self.render_and_cache_svg(html, &svg_to_render, kroki_url, cache);
+        self.render_and_cache_png(html, &png_to_render, kroki_url, cache);
     }
 
-    fn warnings(&self) -> Vec<String> {
-        self.warnings.clone()
+    /// Render SVG diagrams, cache results, and replace placeholders.
+    fn render_and_cache_svg(
+        &mut self,
+        html: &mut String,
+        to_render: &[(usize, DiagramRequest, String)],
+        kroki_url: &str,
+        cache: &Arc<dyn DiagramCache>,
+    ) {
+        if to_render.is_empty() {
+            return;
+        }
+
+        let (requests, hash_map) = extract_requests_and_hashes(to_render);
+
+        match render_all_svg_partial(&requests, kroki_url, 4) {
+            Ok(result) => {
+                for r in result.rendered {
+                    let clean_svg = strip_google_fonts_import(r.svg.trim());
+                    let scaled_svg = scale_svg_dimensions(&clean_svg, self.dpi);
+
+                    if let Some(hash) = hash_map.get(&r.index) {
+                        cache.set(hash, "svg", &scaled_svg);
+                    }
+
+                    let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
+                    replace_placeholder(html, r.index, &figure);
+                }
+                handle_render_errors(html, result.errors);
+            }
+            Err(e) => replace_all_with_error(html, to_render, &e.to_string()),
+        }
+    }
+
+    /// Render PNG diagrams, cache results, and replace placeholders.
+    #[allow(clippy::unused_self)] // Kept as method for consistency with render_and_cache_svg
+    fn render_and_cache_png(
+        &self,
+        html: &mut String,
+        to_render: &[(usize, DiagramRequest, String)],
+        kroki_url: &str,
+        cache: &Arc<dyn DiagramCache>,
+    ) {
+        if to_render.is_empty() {
+            return;
+        }
+
+        let (requests, hash_map) = extract_requests_and_hashes(to_render);
+
+        match render_all_png_data_uri_partial(&requests, kroki_url, 4) {
+            Ok(result) => {
+                for r in result.rendered {
+                    if let Some(hash) = hash_map.get(&r.index) {
+                        cache.set(hash, "png", &r.data_uri);
+                    }
+
+                    let figure = format!(
+                        r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
+                        r.data_uri
+                    );
+                    replace_placeholder(html, r.index, &figure);
+                }
+                handle_render_errors(html, result.errors);
+            }
+            Err(e) => replace_all_with_error(html, to_render, &e.to_string()),
+        }
+    }
+}
+
+/// Extract requests and build index-to-hash mapping from render queue.
+fn extract_requests_and_hashes(
+    to_render: &[(usize, DiagramRequest, String)],
+) -> (Vec<DiagramRequest>, HashMap<usize, &str>) {
+    let requests = to_render.iter().map(|(_, r, _)| r.clone()).collect();
+    let hash_map = to_render
+        .iter()
+        .map(|(idx, _, hash)| (*idx, hash.as_str()))
+        .collect();
+    (requests, hash_map)
+}
+
+/// Replace a diagram placeholder with content.
+fn replace_placeholder(html: &mut String, index: usize, content: &str) {
+    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
+    *html = html.replace(&placeholder, content);
+}
+
+/// Replace a diagram placeholder with an error message.
+fn replace_with_error(html: &mut String, index: usize, error_msg: &str) {
+    use docstage_renderer::escape_html;
+
+    let error_figure = format!(
+        r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
+        escape_html(error_msg)
+    );
+    replace_placeholder(html, index, &error_figure);
+}
+
+/// Handle render errors by replacing placeholders with error messages.
+fn handle_render_errors(html: &mut String, errors: Vec<crate::kroki::DiagramError>) {
+    for e in errors {
+        replace_with_error(html, e.index, &e.to_string());
+    }
+}
+
+/// Replace all placeholders with the same error message.
+fn replace_all_with_error(
+    html: &mut String,
+    to_render: &[(usize, DiagramRequest, String)],
+    error_msg: &str,
+) {
+    for (idx, _, _) in to_render {
+        replace_with_error(html, *idx, error_msg);
     }
 }
 
