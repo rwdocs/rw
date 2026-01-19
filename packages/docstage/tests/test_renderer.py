@@ -1,5 +1,6 @@
 """Tests for page renderer."""
 
+import time
 from pathlib import Path
 
 import pytest
@@ -70,8 +71,6 @@ class TestPageRendererRender:
         assert "Original content" in result1.html
 
         # Modify file (changes mtime)
-        import time
-
         time.sleep(0.01)  # Ensure mtime differs
         source_path.write_text("# Guide\n\nUpdated content.")
 
@@ -214,6 +213,43 @@ class TestPageRendererWithKroki:
         assert result.title == "Guide"
         # Verify diagram extraction was attempted (error HTML contains diagram placeholder)
         assert "diagram" in result.html.lower()
+
+    def test__diagram_cache_bridge__calls_python_cache(self, tmp_path: Path) -> None:
+        """Verify Python-Rust cache bridge calls Python cache methods."""
+        source_dir = tmp_path / "docs"
+        source_dir.mkdir()
+        source_path = source_dir / "guide.md"
+        source_path.write_text(
+            "# Guide\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```\n"
+        )
+
+        # Create a spy cache that tracks method calls
+        class SpyCache(FileCache):
+            def __init__(self, cache_dir: Path) -> None:
+                super().__init__(cache_dir)
+                self.get_diagram_calls: list[tuple[str, str]] = []
+                self.set_diagram_calls: list[tuple[str, str]] = []
+
+            def get_diagram(self, content_hash: str, fmt: str) -> str | None:
+                self.get_diagram_calls.append((content_hash, fmt))
+                return super().get_diagram(content_hash, fmt)
+
+            def set_diagram(self, content_hash: str, fmt: str, content: str) -> None:
+                self.set_diagram_calls.append((content_hash, fmt))
+                super().set_diagram(content_hash, fmt, content)
+
+        cache = SpyCache(tmp_path / ".cache")
+        renderer = PageRenderer(
+            cache,
+            kroki_url="https://kroki.io",
+        )
+
+        # Render will call Kroki (which fails) but should use cache bridge
+        renderer.render(source_path, "guide")
+
+        # Verify cache methods were called via Rust bridge
+        assert len(cache.get_diagram_calls) > 0, "get_diagram should be called"
+        # set_diagram is called only if Kroki succeeds, so may be empty
 
 
 class TestPageRendererOptions:

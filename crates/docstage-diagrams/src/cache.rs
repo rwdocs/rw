@@ -81,6 +81,8 @@ impl DiagramCache for FileCache {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
+        // Silently ignore write errors - caching is non-critical and cache
+        // misses are handled gracefully by re-rendering via Kroki.
         let _ = fs::write(path, content);
     }
 }

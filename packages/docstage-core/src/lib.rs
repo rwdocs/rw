@@ -222,8 +222,14 @@ impl DiagramCache for PyDiagramCache {
     }
 }
 
-// SAFETY: PyDiagramCache is Send + Sync because Python object access is
-// protected by GIL acquisition via Python::attach().
+// SAFETY: PyDiagramCache is Send + Sync because:
+// 1. The inner `Py<PyAny>` is a reference-counted handle to a Python object
+// 2. All access to the Python object (get/set methods) acquires the GIL via Python::attach()
+// 3. The GIL acquisition ensures exclusive access to the Python interpreter state
+// 4. No Python object references escape without GIL protection
+//
+// Note: `Py<T>` itself is `Send` (GIL-protected handle), so we're primarily
+// asserting `Sync` is safe due to interior synchronization via the GIL.
 unsafe impl Send for PyDiagramCache {}
 unsafe impl Sync for PyDiagramCache {}
 
