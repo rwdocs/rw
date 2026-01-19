@@ -43,9 +43,8 @@ use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 use std::sync::Arc;
 
 use docstage_diagrams::{
-    DEFAULT_DPI, DiagramCache, DiagramProcessor, DiagramRequest, ExtractedDiagram, FileCache,
-    NullCache, RenderError, load_config_file, prepare_diagram_source, render_all,
-    to_extracted_diagrams,
+    DiagramCache, DiagramProcessor, DiagramRequest, ExtractedDiagram, FileCache, NullCache,
+    RenderError, load_config_file, prepare_diagram_source, render_all, to_extracted_diagrams,
 };
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
@@ -128,8 +127,8 @@ pub struct MarkdownConverter {
     extract_title: bool,
     include_dirs: Vec<PathBuf>,
     config_content: Option<String>,
-    /// DPI for `PlantUML` diagram rendering.
-    dpi: u32,
+    /// DPI for `PlantUML` diagram rendering (None = default 192).
+    dpi: Option<u32>,
 }
 
 impl Default for MarkdownConverter {
@@ -148,7 +147,7 @@ impl MarkdownConverter {
             extract_title: false,
             include_dirs: Vec::new(),
             config_content: None,
-            dpi: DEFAULT_DPI,
+            dpi: None,
         }
     }
 
@@ -192,7 +191,7 @@ impl MarkdownConverter {
     /// Default is 192 (2x for retina displays). Set to 96 for standard resolution.
     #[must_use]
     pub fn dpi(mut self, dpi: u32) -> Self {
-        self.dpi = dpi;
+        self.dpi = Some(dpi);
         self
     }
 
@@ -570,9 +569,11 @@ impl MarkdownConverter {
         let mut processor = DiagramProcessor::new()
             .kroki_url(kroki_url)
             .include_dirs(&self.include_dirs)
-            .config_content(self.config_content.as_deref())
-            .dpi(self.dpi);
+            .config_content(self.config_content.as_deref());
 
+        if let Some(dpi) = self.dpi {
+            processor = processor.dpi(dpi);
+        }
         if let Some(c) = cache {
             processor = processor.with_cache(c);
         }

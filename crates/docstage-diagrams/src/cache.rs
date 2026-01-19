@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 
+use crate::consts::DEFAULT_DPI;
+
 /// Trait for diagram caching implementations.
 ///
 /// Implementations must be thread-safe (`Send + Sync`) for use with parallel rendering.
@@ -112,12 +114,13 @@ impl DiagramCache for Arc<dyn DiagramCache> {
 /// * `source` - Diagram source code (after preprocessing)
 /// * `endpoint` - Kroki endpoint (e.g., "plantuml", "mermaid")
 /// * `format` - Output format ("svg" or "png")
-/// * `dpi` - DPI used for rendering (affects SVG scaling)
+/// * `dpi` - DPI used for rendering (None = default 192)
 ///
 /// # Returns
 /// Hex-encoded SHA-256 hash string.
 #[must_use]
-pub fn compute_diagram_hash(source: &str, endpoint: &str, format: &str, dpi: u32) -> String {
+pub fn compute_diagram_hash(source: &str, endpoint: &str, format: &str, dpi: Option<u32>) -> String {
+    let dpi = dpi.unwrap_or(DEFAULT_DPI);
     let content = format!("{endpoint}:{format}:{dpi}:{source}");
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
@@ -164,9 +167,9 @@ mod tests {
 
     #[test]
     fn test_compute_diagram_hash() {
-        let hash1 = compute_diagram_hash("@startuml\nA -> B\n@enduml", "plantuml", "svg", 192);
-        let hash2 = compute_diagram_hash("@startuml\nA -> B\n@enduml", "plantuml", "svg", 192);
-        let hash3 = compute_diagram_hash("@startuml\nC -> D\n@enduml", "plantuml", "svg", 192);
+        let hash1 = compute_diagram_hash("@startuml\nA -> B\n@enduml", "plantuml", "svg", None);
+        let hash2 = compute_diagram_hash("@startuml\nA -> B\n@enduml", "plantuml", "svg", None);
+        let hash3 = compute_diagram_hash("@startuml\nC -> D\n@enduml", "plantuml", "svg", None);
 
         // Same inputs produce same hash
         assert_eq!(hash1, hash2);
@@ -178,16 +181,16 @@ mod tests {
 
     #[test]
     fn test_compute_diagram_hash_dpi_matters() {
-        let hash_192 = compute_diagram_hash("source", "plantuml", "svg", 192);
-        let hash_96 = compute_diagram_hash("source", "plantuml", "svg", 96);
+        let hash_192 = compute_diagram_hash("source", "plantuml", "svg", Some(192));
+        let hash_96 = compute_diagram_hash("source", "plantuml", "svg", Some(96));
 
         assert_ne!(hash_192, hash_96);
     }
 
     #[test]
     fn test_compute_diagram_hash_format_matters() {
-        let hash_svg = compute_diagram_hash("source", "plantuml", "svg", 192);
-        let hash_png = compute_diagram_hash("source", "plantuml", "png", 192);
+        let hash_svg = compute_diagram_hash("source", "plantuml", "svg", None);
+        let hash_png = compute_diagram_hash("source", "plantuml", "png", None);
 
         assert_ne!(hash_svg, hash_png);
     }
@@ -197,7 +200,7 @@ mod tests {
         // Verify hash format: hex-encoded SHA-256 (64 characters)
         // Hash algorithm: sha256("{endpoint}:{format}:{dpi}:{source}")
         // This matches Python's implementation for cache compatibility
-        let hash = compute_diagram_hash("test source", "plantuml", "svg", 192);
+        let hash = compute_diagram_hash("test source", "plantuml", "svg", None);
 
         assert_eq!(hash.len(), 64, "SHA-256 hash should be 64 hex characters");
         assert!(
