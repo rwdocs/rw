@@ -204,10 +204,9 @@ impl MarkdownConverter {
         renderer = renderer.with_processor(processor);
 
         let result = renderer.render(parser);
-        let html = renderer.finalize(result.html);
         let warnings = renderer.processor_warnings();
 
-        let html = self.maybe_prepend_toc(html, &result.toc);
+        let html = self.maybe_prepend_toc(result.html, &result.toc);
 
         ConvertResult {
             html,
@@ -343,11 +342,10 @@ impl MarkdownConverter {
         renderer = renderer.with_processor(processor);
 
         let result = renderer.render(parser);
-        let html = renderer.finalize(result.html);
         let warnings = renderer.processor_warnings();
 
         HtmlConvertResult {
-            html,
+            html: result.html,
             title: result.title,
             toc: result.toc,
             warnings,

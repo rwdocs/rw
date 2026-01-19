@@ -151,28 +151,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self.processors.iter().flat_map(|p| p.warnings()).collect()
     }
 
-    /// Finalize rendering by calling post_process on all processors.
-    ///
-    /// This method should be called after [`render`](Self::render) to replace
-    /// placeholders with actual content. Each processor's `post_process` method
-    /// is called in registration order.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-    ///     .with_processor(DiagramProcessor::new().kroki_url("https://kroki.io"));
-    ///
-    /// let result = renderer.render(parser);
-    /// let html = renderer.finalize(result.html);
-    /// ```
-    pub fn finalize(&mut self, mut html: String) -> String {
-        for processor in &mut self.processors {
-            processor.post_process(&mut html);
-        }
-        html
-    }
-
     /// Push content to output or heading buffer based on context.
     fn push_inline(&mut self, content: &str) {
         if self.heading.is_active() {
@@ -184,8 +162,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
     /// Render markdown events and return the result.
     ///
-    /// After calling this method, you can use [`extracted_code_blocks`](Self::extracted_code_blocks)
-    /// to get data from processors that returned `ProcessResult::Placeholder`.
+    /// When processors are registered, this method automatically calls their
+    /// `post_process` methods to replace placeholders with rendered content.
     pub fn render<'a, I>(&mut self, events: I) -> RenderResult
     where
         I: Iterator<Item = Event<'a>>,
@@ -193,8 +171,16 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         for event in events {
             self.process_event(event);
         }
+
+        let mut html = std::mem::take(&mut self.output);
+
+        // Auto-finalize: call post_process on all processors
+        for processor in &mut self.processors {
+            processor.post_process(&mut html);
+        }
+
         RenderResult {
-            html: std::mem::take(&mut self.output),
+            html,
             title: self.heading.take_title(),
             toc: self.heading.take_toc(),
         }
