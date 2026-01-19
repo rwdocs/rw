@@ -119,7 +119,12 @@ impl DiagramCache for Arc<dyn DiagramCache> {
 /// # Returns
 /// Hex-encoded SHA-256 hash string.
 #[must_use]
-pub fn compute_diagram_hash(source: &str, endpoint: &str, format: &str, dpi: Option<u32>) -> String {
+pub fn compute_diagram_hash(
+    source: &str,
+    endpoint: &str,
+    format: &str,
+    dpi: Option<u32>,
+) -> String {
     let dpi = dpi.unwrap_or(DEFAULT_DPI);
     let content = format!("{endpoint}:{format}:{dpi}:{source}");
     let mut hasher = Sha256::new();
