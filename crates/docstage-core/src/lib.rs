@@ -45,6 +45,4 @@
 
 mod converter;
 
-pub use converter::{
-    ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter, create_image_tag,
-};
+pub use converter::{ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter};
