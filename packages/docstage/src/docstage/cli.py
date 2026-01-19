@@ -803,13 +803,10 @@ async def _create(
 
             # Collect diagram attachment data before temp dir is deleted
             attachment_data: list[tuple[str, bytes]] = []
-            for diagram in result.diagrams:
-                display_width = diagram.width // 2
-                filepath = Path(tmpdir) / diagram.filename
-                attachment_data.append((diagram.filename, filepath.read_bytes()))
-                click.echo(
-                    f"  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)",
-                )
+            for filename in result.diagrams:
+                filepath = Path(tmpdir) / filename
+                attachment_data.append((filename, filepath.read_bytes()))
+                click.echo(f"  -> {filename}")
 
             async with create_confluence_client(
                 conf_config.access_token,
@@ -899,13 +896,10 @@ async def _update(
 
             # Collect diagram attachment data before temp dir is deleted
             attachment_data: list[tuple[str, bytes]] = []
-            for diagram in result.diagrams:
-                display_width = diagram.width // 2
-                filepath = Path(tmpdir) / diagram.filename
-                attachment_data.append((diagram.filename, filepath.read_bytes()))
-                click.echo(
-                    f"  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)",
-                )
+            for filename in result.diagrams:
+                filepath = Path(tmpdir) / filename
+                attachment_data.append((filename, filepath.read_bytes()))
+                click.echo(f"  -> {filename}")
 
             async with create_confluence_client(
                 conf_config.access_token,
@@ -1048,13 +1042,10 @@ async def _upload_mkdocs(
                 click.echo(f"Title: {result.title}")
 
             attachment_data: list[tuple[str, bytes]] = []
-            for diagram in result.diagrams:
-                display_width = diagram.width // 2
-                filepath = Path(tmpdir) / diagram.filename
-                attachment_data.append((diagram.filename, filepath.read_bytes()))
-                click.echo(
-                    f"  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)",
-                )
+            for filename in result.diagrams:
+                filepath = Path(tmpdir) / filename
+                attachment_data.append((filename, filepath.read_bytes()))
+                click.echo(f"  -> {filename}")
 
             async with create_confluence_client(
                 conf_config.access_token,

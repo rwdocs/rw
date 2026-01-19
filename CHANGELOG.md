@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Simplified `convert_html_with_diagrams`** in `docstage-core` to use `DiagramProcessor` configuration and `renderer.finalize()`
 - **Unified diagram rendering path** via Rust `DiagramProcessor.post_process()` with caching; removes ~150 lines of duplicated Python diagram rendering logic
 - **PageRenderer uses single Rust call** for diagram rendering with caching instead of extract+render+replace Python logic
+- **Removed `DiagramInfo` struct** from Confluence conversion; `ConvertResult.diagrams` now returns `Vec<String>` (filenames only) instead of `Vec<DiagramInfo>`
 
 ### Fixed
 

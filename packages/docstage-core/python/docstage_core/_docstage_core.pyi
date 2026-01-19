@@ -2,16 +2,6 @@
 
 from pathlib import Path
 
-class DiagramInfo:
-    """Rendered diagram info (file written to output_dir)."""
-
-    filename: str
-    """Output filename (e.g., "diagram_abc123.png")."""
-    width: int
-    """Image width in pixels."""
-    height: int
-    """Image height in pixels."""
-
 class ConvertResult:
     """Result of converting markdown to Confluence format."""
 
@@ -19,8 +9,8 @@ class ConvertResult:
     """Confluence XHTML storage format."""
     title: str | None
     """Title extracted from first H1 heading (if extract_title was enabled)."""
-    diagrams: list[DiagramInfo]
-    """Rendered diagrams (empty if kroki_url/output_dir not provided)."""
+    diagrams: list[str]
+    """Filenames of rendered diagram images in output_dir."""
     warnings: list[str]
     """Warnings generated during conversion (e.g., unresolved includes)."""
 
@@ -81,29 +71,7 @@ class MarkdownConverter:
         kroki_url: str,
         cache_dir: Path | None = None,
         base_path: str | None = None,
-    ) -> HtmlConvertResult:
-        """Convert markdown to HTML format with cached diagram rendering.
-
-        Like `convert_html_with_diagrams`, but uses a file-based cache to avoid
-        re-rendering diagrams with the same content. The cache key is computed from:
-        - Diagram source (after preprocessing)
-        - Kroki endpoint
-        - Output format (svg/png)
-        - DPI setting
-
-        Cache files are stored as `{cache_dir}/{hash}.{format}` (e.g., `abc123.svg`).
-        Rust owns the cache entirely, eliminating Python-to-Rust callbacks.
-
-        Args:
-            markdown_text: Markdown source text
-            kroki_url: Kroki server URL (e.g., "https://kroki.io")
-            cache_dir: Directory for cached diagrams (caching disabled if None)
-            base_path: Optional base path for resolving relative links
-
-        Returns:
-            HtmlConvertResult with HTML containing rendered diagrams
-        """
-        ...
+    ) -> HtmlConvertResult: ...
 
 # Config classes
 

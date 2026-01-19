@@ -9,30 +9,8 @@ use ::docstage_config::{
     CliSettings, Config, ConfigError, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig,
     DocsConfig, LiveReloadConfig, ServerConfig,
 };
-use ::docstage_core::{ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter};
+use ::docstage_core::{ConvertResult, HtmlConvertResult, MarkdownConverter};
 use ::docstage_renderer::TocEntry;
-
-/// Rendered diagram info (file written to output_dir).
-#[pyclass(name = "DiagramInfo")]
-#[derive(Clone)]
-pub struct PyDiagramInfo {
-    #[pyo3(get)]
-    pub filename: String,
-    #[pyo3(get)]
-    pub width: u32,
-    #[pyo3(get)]
-    pub height: u32,
-}
-
-impl From<DiagramInfo> for PyDiagramInfo {
-    fn from(info: DiagramInfo) -> Self {
-        Self {
-            filename: info.filename,
-            width: info.width,
-            height: info.height,
-        }
-    }
-}
 
 /// Result of converting markdown to Confluence format.
 #[pyclass(name = "ConvertResult")]
@@ -41,8 +19,9 @@ pub struct PyConvertResult {
     pub html: String,
     #[pyo3(get)]
     pub title: Option<String>,
+    /// Filenames of rendered diagram images in output_dir.
     #[pyo3(get)]
-    pub diagrams: Vec<PyDiagramInfo>,
+    pub diagrams: Vec<String>,
     /// Warnings generated during conversion (e.g., unresolved includes).
     #[pyo3(get)]
     pub warnings: Vec<String>,
@@ -53,7 +32,7 @@ impl From<ConvertResult> for PyConvertResult {
         Self {
             html: result.html,
             title: result.title,
-            diagrams: result.diagrams.into_iter().map(Into::into).collect(),
+            diagrams: result.diagrams,
             warnings: result.warnings,
         }
     }
@@ -111,7 +90,6 @@ impl From<HtmlConvertResult> for PyHtmlConvertResult {
         }
     }
 }
-
 
 /// Markdown converter with multiple output formats.
 #[pyclass(name = "MarkdownConverter")]
@@ -268,7 +246,6 @@ impl PyMarkdownConverter {
                 .into()
         })
     }
-
 }
 
 // ============================================================================
@@ -561,7 +538,6 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConvertResult>()?;
     m.add_class::<PyHtmlConvertResult>()?;
     m.add_class::<PyMarkdownConverter>()?;
-    m.add_class::<PyDiagramInfo>()?;
     m.add_class::<PyTocEntry>()?;
 
     // Config classes

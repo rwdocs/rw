@@ -45,4 +45,4 @@
 
 mod converter;
 
-pub use converter::{ConvertResult, DiagramInfo, HtmlConvertResult, MarkdownConverter};
+pub use converter::{ConvertResult, HtmlConvertResult, MarkdownConverter};
