@@ -40,9 +40,11 @@ use pulldown_cmark::{Options, Parser};
 use docstage_confluence_renderer::ConfluenceBackend;
 use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 
+use std::sync::Arc;
+
 use docstage_diagrams::{
-    DEFAULT_DPI, DiagramProcessor, DiagramRequest, ExtractedDiagram, RenderError, load_config_file,
-    prepare_diagram_source, render_all, to_extracted_diagrams,
+    DEFAULT_DPI, DiagramCache, DiagramProcessor, DiagramRequest, ExtractedDiagram, RenderError,
+    load_config_file, prepare_diagram_source, render_all, to_extracted_diagrams,
 };
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
@@ -494,14 +496,60 @@ impl MarkdownConverter {
         kroki_url: &str,
         base_path: Option<&str>,
     ) -> HtmlConvertResult {
+        self.render_html_with_diagrams(markdown_text, kroki_url, None, base_path)
+    }
+
+    /// Convert markdown to HTML format with cached diagram rendering.
+    ///
+    /// Like [`convert_html_with_diagrams`](Self::convert_html_with_diagrams), but uses
+    /// a cache to avoid re-rendering diagrams with the same content.
+    ///
+    /// The cache key is computed from:
+    /// - Diagram source (after preprocessing)
+    /// - Kroki endpoint
+    /// - Output format (svg/png)
+    /// - DPI setting
+    ///
+    /// This enables seamless migration from Python-based caching since the hash
+    /// algorithm matches.
+    ///
+    /// # Arguments
+    ///
+    /// * `markdown_text` - Markdown source text
+    /// * `kroki_url` - Kroki server URL
+    /// * `cache` - Diagram cache implementation (e.g., `FileCache` or Python wrapper)
+    /// * `base_path` - Optional base path for resolving relative links
+    #[must_use]
+    pub fn convert_html_with_diagrams_cached(
+        &self,
+        markdown_text: &str,
+        kroki_url: &str,
+        cache: Arc<dyn DiagramCache>,
+        base_path: Option<&str>,
+    ) -> HtmlConvertResult {
+        self.render_html_with_diagrams(markdown_text, kroki_url, Some(cache), base_path)
+    }
+
+    /// Internal helper for HTML rendering with optional diagram caching.
+    fn render_html_with_diagrams(
+        &self,
+        markdown_text: &str,
+        kroki_url: &str,
+        cache: Option<Arc<dyn DiagramCache>>,
+        base_path: Option<&str>,
+    ) -> HtmlConvertResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        let processor = DiagramProcessor::new()
+        let mut processor = DiagramProcessor::new()
             .kroki_url(kroki_url)
             .include_dirs(&self.include_dirs)
             .config_content(self.config_content.as_deref())
             .dpi(self.dpi);
+
+        if let Some(c) = cache {
+            processor = processor.with_cache(c);
+        }
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
         if self.extract_title {

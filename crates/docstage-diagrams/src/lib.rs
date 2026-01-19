@@ -31,12 +31,14 @@
 //! let diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
 //! ```
 
+mod cache;
 mod html_embed;
 mod kroki;
 mod language;
 mod plantuml;
 mod processor;
 
+pub use cache::{DiagramCache, FileCache, NullCache, compute_diagram_hash};
 pub use html_embed::{
     STANDARD_DPI, replace_png_diagrams, replace_svg_diagrams, scale_svg_dimensions,
     strip_google_fonts_import,

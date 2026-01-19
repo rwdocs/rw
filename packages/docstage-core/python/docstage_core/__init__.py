@@ -6,6 +6,7 @@ with custom renderers for Confluence and HTML5 formats.
 
 from ._docstage_core import (
     ConvertResult,
+    DiagramCache,
     DiagramInfo,
     ExtractResult,
     HtmlConvertResult,
@@ -16,6 +17,7 @@ from ._docstage_core import (
 
 __all__ = [
     "ConvertResult",
+    "DiagramCache",
     "DiagramInfo",
     "ExtractResult",
     "HtmlConvertResult",

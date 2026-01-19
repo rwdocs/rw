@@ -7,13 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from docstage_core import MarkdownConverter
+from docstage_core import DiagramCache, MarkdownConverter
 
 from docstage.core.cache import CacheEntry, PageCache
-from docstage.core.diagrams import (
-    render_diagrams_with_cache,
-    replace_diagram_placeholders,
-)
 
 
 class TocEntryProtocol(Protocol):
@@ -148,34 +144,19 @@ class PageRenderer:
         markdown_text = source_path.read_text(encoding="utf-8")
 
         if self._kroki_url:
-            extract_result = self._converter.extract_html_with_diagrams(
+            # Use Rust's cached diagram rendering
+            cache_wrapper = DiagramCache(self._cache)
+            result = self._converter.convert_html_with_diagrams_cached(
                 markdown_text,
+                self._kroki_url,
+                cache_wrapper,
                 base_path,
             )
-
-            if extract_result.diagrams:
-                diagrams_input = [
-                    (d.index, d.source, d.endpoint, d.format)
-                    for d in extract_result.diagrams
-                ]
-                rendered_diagrams = render_diagrams_with_cache(
-                    diagrams_input,
-                    self._kroki_url,
-                    self._cache,
-                    self._dpi,
-                )
-                html = replace_diagram_placeholders(
-                    extract_result.html,
-                    rendered_diagrams,
-                )
-            else:
-                html = extract_result.html
-
             return _FreshRenderResult(
-                html=html,
-                title=extract_result.title,
-                toc=list(extract_result.toc),
-                warnings=list(extract_result.warnings),
+                html=result.html,
+                title=result.title,
+                toc=list(result.toc),
+                warnings=list(result.warnings),
             )
 
         result = self._converter.convert_html(markdown_text, base_path)
