@@ -16,7 +16,7 @@
 
   onMount(() => {
     return liveReload.onReload(() => {
-      page.load(extractDocPath(get(path)), { bypassCache: true });
+      page.load(extractDocPath(get(path)), { bypassCache: true, silent: true });
     });
   });
 
