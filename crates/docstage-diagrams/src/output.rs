@@ -20,6 +20,23 @@ pub struct RenderedDiagramInfo {
     pub height: u32,
 }
 
+impl RenderedDiagramInfo {
+    /// Calculate display width for a given rendering DPI.
+    ///
+    /// High-DPI diagrams (e.g., 192 DPI) should be displayed at half their
+    /// physical size to appear crisp on retina displays.
+    #[must_use]
+    pub fn display_width(&self, dpi: u32) -> u32 {
+        self.width * STANDARD_DPI / dpi
+    }
+
+    /// Calculate display height for a given rendering DPI.
+    #[must_use]
+    pub fn display_height(&self, dpi: u32) -> u32 {
+        self.height * STANDARD_DPI / dpi
+    }
+}
+
 /// Trait for generating HTML tags from rendered diagram info.
 ///
 /// Implement this trait to customize how diagrams are embedded in HTML.
@@ -80,10 +97,9 @@ impl ImgTagGenerator {
 
 impl DiagramTagGenerator for ImgTagGenerator {
     fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
-        let display_width = info.width * STANDARD_DPI / dpi;
         format!(
-            r#"<img src="{}{}" width="{display_width}" alt="diagram">"#,
-            self.path_prefix, info.filename
+            r#"<img src="{}{}" width="{}" alt="diagram">"#,
+            self.path_prefix, info.filename, info.display_width(dpi)
         )
     }
 }
@@ -109,10 +125,9 @@ impl FigureImgTagGenerator {
 
 impl DiagramTagGenerator for FigureImgTagGenerator {
     fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
-        let display_width = info.width * STANDARD_DPI / dpi;
         format!(
-            r#"<figure class="diagram"><img src="{}{}" width="{display_width}" alt="diagram"></figure>"#,
-            self.path_prefix, info.filename
+            r#"<figure class="diagram"><img src="{}{}" width="{}" alt="diagram"></figure>"#,
+            self.path_prefix, info.filename, info.display_width(dpi)
         )
     }
 }
@@ -185,5 +200,38 @@ mod tests {
         assert_eq!(cloned.filename, "test.png");
         assert_eq!(cloned.width, 100);
         assert_eq!(cloned.height, 50);
+    }
+
+    #[test]
+    fn test_display_width_192_dpi() {
+        let info = RenderedDiagramInfo {
+            filename: "test.png".to_string(),
+            width: 400,
+            height: 200,
+        };
+        // At 192 DPI (2x), width should be halved: 400 * 96 / 192 = 200
+        assert_eq!(info.display_width(192), 200);
+    }
+
+    #[test]
+    fn test_display_width_96_dpi() {
+        let info = RenderedDiagramInfo {
+            filename: "test.png".to_string(),
+            width: 300,
+            height: 150,
+        };
+        // At 96 DPI, width unchanged: 300 * 96 / 96 = 300
+        assert_eq!(info.display_width(96), 300);
+    }
+
+    #[test]
+    fn test_display_height_192_dpi() {
+        let info = RenderedDiagramInfo {
+            filename: "test.png".to_string(),
+            width: 400,
+            height: 200,
+        };
+        // At 192 DPI (2x), height should be halved: 200 * 96 / 192 = 100
+        assert_eq!(info.display_height(192), 100);
     }
 }
