@@ -423,44 +423,10 @@ fn render_all_partial<T: Send>(
     Ok(PartialRenderResult { rendered, errors })
 }
 
-/// Convert a partial result to a strict result that fails on any errors.
-fn partial_to_strict<T>(result: PartialRenderResult<T>) -> Result<Vec<T>, RenderError> {
-    if result.errors.is_empty() {
-        Ok(result.rendered)
-    } else {
-        Err(RenderError::Multiple(result.errors))
-    }
-}
-
-/// Render all diagrams to SVG in parallel using Kroki service.
-///
-/// Unlike [`render_all`], this returns SVG strings directly without writing files.
-/// SVG is ideal for HTML output as it scales perfectly and can be inlined.
-///
-/// # Arguments
-/// * `diagrams` - List of diagrams to render
-/// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
-/// * `pool_size` - Number of parallel threads
-///
-/// # Returns
-/// Vector of rendered SVG content, or all errors collected during rendering.
-///
-/// # Errors
-///
-/// Returns `RenderError::Multiple` if any diagrams fail to render.
-pub fn render_all_svg(
-    diagrams: &[DiagramRequest],
-    server_url: &str,
-    pool_size: usize,
-) -> Result<Vec<RenderedSvg>, RenderError> {
-    render_all_svg_partial(diagrams, server_url, pool_size).and_then(partial_to_strict)
-}
-
 /// Render all diagrams to SVG in parallel, returning partial results on failure.
 ///
-/// Unlike [`render_all_svg`], this returns successfully rendered diagrams even when
-/// some diagrams fail. Use this when you want to show partial results rather than
-/// failing completely.
+/// Returns successfully rendered diagrams even when some diagrams fail.
+/// Use this when you want to show partial results rather than failing completely.
 ///
 /// # Arguments
 /// * `diagrams` - List of diagrams to render
@@ -481,31 +447,9 @@ pub fn render_all_svg_partial(
     render_all_partial(diagrams, server_url, pool_size, render_one_svg)
 }
 
-/// Render all diagrams to PNG as base64 data URIs in parallel.
-///
-/// Returns PNG images encoded as data URIs, suitable for embedding in HTML.
-/// Use this when SVG is not desired (e.g., for simpler rendering or smaller files).
-///
-/// # Arguments
-/// * `diagrams` - List of diagrams to render
-/// * `server_url` - Kroki server URL
-/// * `pool_size` - Number of parallel threads
-///
-/// # Errors
-///
-/// Returns `RenderError::Multiple` if any diagrams fail to render.
-pub fn render_all_png_data_uri(
-    diagrams: &[DiagramRequest],
-    server_url: &str,
-    pool_size: usize,
-) -> Result<Vec<RenderedPngDataUri>, RenderError> {
-    render_all_png_data_uri_partial(diagrams, server_url, pool_size).and_then(partial_to_strict)
-}
-
 /// Render all diagrams to PNG as base64 data URIs, returning partial results on failure.
 ///
-/// Unlike [`render_all_png_data_uri`], this returns successfully rendered diagrams even when
-/// some diagrams fail.
+/// Returns successfully rendered diagrams even when some diagrams fail.
 ///
 /// # Arguments
 /// * `diagrams` - List of diagrams to render

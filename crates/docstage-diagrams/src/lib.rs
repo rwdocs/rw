@@ -38,16 +38,8 @@ mod language;
 mod plantuml;
 mod processor;
 
-pub use cache::{DiagramCache, FileCache, NullCache, compute_diagram_hash};
-pub use html_embed::{
-    STANDARD_DPI, replace_png_diagrams, replace_svg_diagrams, scale_svg_dimensions,
-    strip_google_fonts_import,
-};
-pub use kroki::{
-    DiagramError, DiagramErrorKind, DiagramRequest, PartialRenderResult, RenderError,
-    RenderedDiagram, RenderedPngDataUri, RenderedSvg, render_all, render_all_png_data_uri,
-    render_all_png_data_uri_partial, render_all_svg, render_all_svg_partial,
-};
-pub use language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
-pub use plantuml::{DEFAULT_DPI, PrepareResult, load_config_file, prepare_diagram_source};
+pub use cache::{DiagramCache, FileCache, NullCache};
+pub use kroki::{DiagramRequest, RenderError, render_all};
+pub use language::ExtractedDiagram;
+pub use plantuml::{DEFAULT_DPI, load_config_file, prepare_diagram_source};
 pub use processor::{DiagramProcessor, to_extracted_diagram, to_extracted_diagrams};
