@@ -42,6 +42,6 @@ mod processor;
 
 pub use cache::{DiagramCache, FileCache, NullCache};
 pub use output::{
-    DiagramOutput, DiagramTagGenerator, FigureImgTagGenerator, ImgTagGenerator, RenderedDiagramInfo,
+    DiagramOutput, DiagramTagGenerator, FigureTagGenerator, ImgTagGenerator, RenderedDiagramInfo,
 };
 pub use processor::DiagramProcessor;
