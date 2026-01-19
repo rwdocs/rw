@@ -50,17 +50,8 @@ use docstage_diagrams::{
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
 /// Create Confluence image macro for an attachment.
-#[must_use]
-pub fn create_image_tag(filename: &str, width: u32) -> String {
+fn create_image_tag(filename: &str, width: u32) -> String {
     format!(r#"<ac:image ac:width="{width}"><ri:attachment ri:filename="{filename}" /></ac:image>"#)
-}
-
-/// Information about a rendered diagram.
-#[derive(Clone, Debug)]
-pub struct DiagramInfo {
-    pub filename: String,
-    pub width: u32,
-    pub height: u32,
 }
 
 /// Result of converting markdown to Confluence format.
@@ -68,7 +59,8 @@ pub struct DiagramInfo {
 pub struct ConvertResult {
     pub html: String,
     pub title: Option<String>,
-    pub diagrams: Vec<DiagramInfo>,
+    /// Filenames of rendered diagram images in `output_dir`.
+    pub diagrams: Vec<String>,
     /// Warnings generated during conversion (e.g., unresolved includes).
     /// Used by Python CLI in verbose mode to log diagnostic info to stderr.
     pub warnings: Vec<String>,
@@ -265,7 +257,7 @@ impl MarkdownConverter {
         html: &mut String,
         kroki_url: &str,
         output_dir: &Path,
-    ) -> Result<Vec<DiagramInfo>, RenderError> {
+    ) -> Result<Vec<String>, RenderError> {
         if extracted_diagrams.is_empty() {
             return Ok(Vec::new());
         }
@@ -286,21 +278,17 @@ impl MarkdownConverter {
         let server_url = kroki_url.trim_end_matches('/');
         let rendered_diagrams = render_all(&diagram_requests, server_url, output_dir, 4)?;
 
-        let mut diagram_infos = Vec::with_capacity(rendered_diagrams.len());
+        let mut filenames = Vec::with_capacity(rendered_diagrams.len());
         for r in rendered_diagrams {
             let display_width = r.width / 2;
             let image_tag = create_image_tag(&r.filename, display_width);
             let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
             *html = html.replace(&placeholder, &image_tag);
 
-            diagram_infos.push(DiagramInfo {
-                filename: r.filename,
-                width: r.width,
-                height: r.height,
-            });
+            filenames.push(r.filename);
         }
 
-        Ok(diagram_infos)
+        Ok(filenames)
     }
 
     /// Convert markdown to Confluence storage format.
