@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from docstage_core import DiagramCache, MarkdownConverter
+from docstage_core import MarkdownConverter
 
 from docstage.core.cache import CacheEntry, PageCache
 
@@ -143,23 +143,17 @@ class PageRenderer:
         """
         markdown_text = source_path.read_text(encoding="utf-8")
 
-        if self._kroki_url:
-            # Use Rust's cached diagram rendering
-            cache_wrapper = DiagramCache(self._cache)
-            result = self._converter.convert_html_with_diagrams_cached(
+        result = (
+            self._converter.convert_html_with_diagrams_cached(
                 markdown_text,
                 self._kroki_url,
-                cache_wrapper,
+                self._cache.diagrams_dir,
                 base_path,
             )
-            return _FreshRenderResult(
-                html=result.html,
-                title=result.title,
-                toc=list(result.toc),
-                warnings=list(result.warnings),
-            )
+            if self._kroki_url
+            else self._converter.convert_html(markdown_text, base_path)
+        )
 
-        result = self._converter.convert_html(markdown_text, base_path)
         return _FreshRenderResult(
             html=result.html,
             title=result.title,
