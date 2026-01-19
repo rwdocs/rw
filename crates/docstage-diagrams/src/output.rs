@@ -104,17 +104,17 @@ impl DiagramTagGenerator for ImgTagGenerator {
     }
 }
 
-/// Figure-wrapped img tag generator.
+/// Figure-wrapped tag generator.
 ///
 /// Generates: `<figure class="diagram"><img src="..." width="..." alt="diagram"></figure>`
 #[derive(Debug, Clone)]
-pub struct FigureImgTagGenerator {
+pub struct FigureTagGenerator {
     /// Path prefix (e.g., "/assets/diagrams/").
     pub path_prefix: String,
 }
 
-impl FigureImgTagGenerator {
-    /// Create a new figure img tag generator with the given path prefix.
+impl FigureTagGenerator {
+    /// Create a new figure tag generator with the given path prefix.
     #[must_use]
     pub fn new(path_prefix: impl Into<String>) -> Self {
         Self {
@@ -123,7 +123,7 @@ impl FigureImgTagGenerator {
     }
 }
 
-impl DiagramTagGenerator for FigureImgTagGenerator {
+impl DiagramTagGenerator for FigureTagGenerator {
     fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
         format!(
             r#"<figure class="diagram"><img src="{}{}" width="{}" alt="diagram"></figure>"#,
@@ -169,8 +169,8 @@ mod tests {
     }
 
     #[test]
-    fn test_figure_img_tag_generator() {
-        let generator = FigureImgTagGenerator::new("/diagrams/");
+    fn test_figure_tag_generator() {
+        let generator = FigureTagGenerator::new("/diagrams/");
         let info = RenderedDiagramInfo {
             filename: "test.png".to_string(),
             width: 400,
