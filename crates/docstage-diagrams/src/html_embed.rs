@@ -11,7 +11,7 @@ use regex::Regex;
 
 use docstage_renderer::escape_html;
 
-use crate::{
+use crate::kroki::{
     DiagramError, DiagramRequest, render_all_png_data_uri_partial, render_all_svg_partial,
 };
 
