@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Article links resolve correctly without `/docs/` prefix
 - Comment preservation works when table content changes
 - Live reload triggers page refresh correctly
+- Live reload preserves scroll position when content updates
 - Navigation updates on consecutive clicks
 - Breadcrumbs exclude non-navigable paths and current page
 - Diagram sizing displays at correct physical size

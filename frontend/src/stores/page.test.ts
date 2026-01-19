@@ -208,6 +208,65 @@ describe("page store", () => {
       expect(state.data).toBeNull();
       expect(state.loading).toBe(true);
     });
+
+    it("skips loading state when silent option is true", async () => {
+      // First load succeeds
+      mockFetchPage.mockResolvedValue(mockPageResponse);
+      await page.load("first");
+
+      // Set up a slow second load with silent option
+      let resolvePromise: (value: PageResponse) => void;
+      mockFetchPage.mockReturnValue(
+        new Promise((resolve) => {
+          resolvePromise = resolve;
+        }),
+      );
+
+      const loadPromise = page.load("second", { silent: true });
+
+      // Loading should still be false, data should be preserved
+      const stateWhileFetching = get(page);
+      expect(stateWhileFetching.loading).toBe(false);
+      expect(stateWhileFetching.data).toEqual(mockPageResponse);
+
+      // Complete the load
+      const newResponse = { ...mockPageResponse, content: "<h1>Updated</h1>" };
+      resolvePromise!(newResponse);
+      await loadPromise;
+
+      // Data should be updated
+      expect(get(page).data).toEqual(newResponse);
+    });
+
+    it("preserves existing data during silent load", async () => {
+      // First load succeeds
+      mockFetchPage.mockResolvedValue(mockPageResponse);
+      await page.load("first");
+      const originalData = get(page).data;
+
+      // Start silent load that doesn't resolve
+      mockFetchPage.mockReturnValue(new Promise(() => {}));
+      page.load("second", { silent: true });
+
+      // Original data should still be present
+      expect(get(page).data).toBe(originalData);
+    });
+
+    it("updates data after silent load completes", async () => {
+      // First load succeeds
+      mockFetchPage.mockResolvedValue(mockPageResponse);
+      await page.load("first");
+
+      // Second load with silent option
+      const updatedResponse = { ...mockPageResponse, content: "<h1>New Content</h1>" };
+      mockFetchPage.mockResolvedValue(updatedResponse);
+      await page.load("second", { silent: true, bypassCache: true });
+
+      // Data should be updated without going through loading state
+      const state = get(page);
+      expect(state.data).toEqual(updatedResponse);
+      expect(state.loading).toBe(false);
+    });
   });
 
   describe("clear", () => {
