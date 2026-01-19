@@ -19,16 +19,16 @@
 //!
 //! ```ignore
 //! use pulldown_cmark::Parser;
-//! use docstage_diagrams::{DiagramProcessor, to_extracted_diagrams};
+//! use docstage_diagrams::DiagramProcessor;
 //! use docstage_renderer::{MarkdownRenderer, HtmlBackend};
 //!
 //! let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
 //! let parser = Parser::new(markdown);
 //! let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-//!     .with_processor(DiagramProcessor::new());
+//!     .with_processor(DiagramProcessor::new().kroki_url("https://kroki.io"));
 //!
 //! let result = renderer.render(parser);
-//! let diagrams = to_extracted_diagrams(&renderer.extracted_code_blocks());
+//! let html = renderer.finalize(result.html); // Renders diagrams inline
 //! ```
 
 mod cache;
@@ -41,10 +41,8 @@ mod plantuml;
 mod processor;
 
 pub use cache::{DiagramCache, FileCache, NullCache};
-pub use kroki::{DiagramRequest, RenderError, render_all};
-pub use language::ExtractedDiagram;
+pub use kroki::RenderError;
 pub use output::{
     DiagramOutput, DiagramTagGenerator, FigureImgTagGenerator, ImgTagGenerator, RenderedDiagramInfo,
 };
-pub use plantuml::prepare_diagram_source;
-pub use processor::{DiagramProcessor, to_extracted_diagram, to_extracted_diagrams};
+pub use processor::DiagramProcessor;
