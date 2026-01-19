@@ -39,9 +39,7 @@ use std::sync::Arc;
 use pulldown_cmark::{Options, Parser};
 
 use docstage_confluence_renderer::ConfluenceBackend;
-use docstage_diagrams::{
-    DiagramCache, DiagramOutput, DiagramProcessor, FileCache, NullCache, RenderError,
-};
+use docstage_diagrams::{DiagramCache, DiagramOutput, DiagramProcessor, FileCache, NullCache};
 use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 
 use crate::ConfluenceTagGenerator;
@@ -175,15 +173,13 @@ impl MarkdownConverter {
     /// Confluence image macros. Supports all diagram types: `PlantUML`,
     /// Mermaid, `GraphViz`, and 14+ other Kroki-supported formats.
     ///
-    /// # Errors
-    ///
-    /// Returns `RenderError` if diagram rendering fails.
+    #[must_use]
     pub fn convert(
         &self,
         markdown_text: &str,
         kroki_url: &str,
         output_dir: &Path,
-    ) -> Result<ConvertResult, RenderError> {
+    ) -> ConvertResult {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
@@ -213,11 +209,11 @@ impl MarkdownConverter {
 
         let html = self.maybe_prepend_toc(html, &result.toc);
 
-        Ok(ConvertResult {
+        ConvertResult {
             html,
             title: result.title,
             warnings,
-        })
+        }
     }
 
     /// Convert markdown to HTML format.

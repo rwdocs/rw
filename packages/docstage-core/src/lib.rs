@@ -137,12 +137,11 @@ impl PyMarkdownConverter {
         markdown_text: &str,
         kroki_url: &str,
         output_dir: PathBuf,
-    ) -> PyResult<PyConvertResult> {
+    ) -> PyConvertResult {
         py.detach(|| {
             self.inner
                 .convert(markdown_text, kroki_url, &output_dir)
-                .map(Into::into)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+                .into()
         })
     }
 

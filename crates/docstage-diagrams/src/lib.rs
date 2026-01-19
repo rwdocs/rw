@@ -41,7 +41,6 @@ mod plantuml;
 mod processor;
 
 pub use cache::{DiagramCache, FileCache, NullCache};
-pub use kroki::RenderError;
 pub use output::{
     DiagramOutput, DiagramTagGenerator, FigureImgTagGenerator, ImgTagGenerator, RenderedDiagramInfo,
 };
