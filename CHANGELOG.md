@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Diagram caching in Rust** via `DiagramCache` trait with `FileCache` and `NullCache` implementations; enables content-based caching with hash keys matching Python implementation
-- **Cached diagram conversion** via `convert_html_with_diagrams_cached()` method and `DiagramProcessor::with_cache()` builder
+- **Diagram caching in Rust** via `FileCache` implementation; Rust owns the cache entirely via `cache_dir` path parameter, eliminating Python-to-Rust callbacks
+- **Cached diagram conversion** via `convert_html_with_diagrams_cached(cache_dir)` method that creates `FileCache` internally
 - **Post-processing hooks** for `CodeBlockProcessor` trait via `post_process` method; enables processors to replace placeholders after rendering
 - **Renderer finalize method** (`MarkdownRenderer::finalize`) to trigger post-processing on all registered processors
 - **DiagramProcessor configuration** via builder pattern: `kroki_url()`, `include_dirs()`, `config_file()`, `config_content()`, `dpi()`

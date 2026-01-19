@@ -113,22 +113,25 @@ class MarkdownConverter:
         self,
         markdown_text: str,
         kroki_url: str,
-        cache: DiagramCache,
+        cache_dir: Path | None = None,
         base_path: str | None = None,
     ) -> HtmlConvertResult:
         """Convert markdown to HTML format with cached diagram rendering.
 
-        Like `convert_html_with_diagrams`, but uses a cache to avoid re-rendering
-        diagrams with the same content. The cache key is computed from:
+        Like `convert_html_with_diagrams`, but uses a file-based cache to avoid
+        re-rendering diagrams with the same content. The cache key is computed from:
         - Diagram source (after preprocessing)
         - Kroki endpoint
         - Output format (svg/png)
         - DPI setting
 
+        Cache files are stored as `{cache_dir}/{hash}.{format}` (e.g., `abc123.svg`).
+        Rust owns the cache entirely, eliminating Python-to-Rust callbacks.
+
         Args:
             markdown_text: Markdown source text
             kroki_url: Kroki server URL (e.g., "https://kroki.io")
-            cache: DiagramCache wrapper for Python cache object
+            cache_dir: Directory for cached diagrams (caching disabled if None)
             base_path: Optional base path for resolving relative links
 
         Returns:
@@ -139,24 +142,6 @@ class MarkdownConverter:
         self,
         markdown_text: str,
     ) -> ExtractResult: ...
-
-class DiagramCache:
-    """Python wrapper for diagram caching.
-
-    Bridges a Python cache object to the Rust DiagramCache trait.
-    The wrapped object must implement:
-    - get_diagram(hash: str, format: str) -> str | None
-    - set_diagram(hash: str, format: str, content: str) -> None
-    """
-
-    def __init__(self, cache: object) -> None:
-        """Create a new DiagramCache wrapping a Python cache object.
-
-        Args:
-            cache: Python object implementing the cache protocol with
-                   `get_diagram(hash, format)` and `set_diagram(hash, format, content)`
-        """
-        ...
 
 # Config classes
 

@@ -43,8 +43,9 @@ use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 use std::sync::Arc;
 
 use docstage_diagrams::{
-    DEFAULT_DPI, DiagramCache, DiagramProcessor, DiagramRequest, ExtractedDiagram, RenderError,
-    load_config_file, prepare_diagram_source, render_all, to_extracted_diagrams,
+    DEFAULT_DPI, DiagramCache, DiagramProcessor, DiagramRequest, ExtractedDiagram, FileCache,
+    NullCache, RenderError, load_config_file, prepare_diagram_source, render_all,
+    to_extracted_diagrams,
 };
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
@@ -212,15 +213,19 @@ impl MarkdownConverter {
         with_diagrams: bool,
     ) -> MarkdownRenderer<HtmlBackend> {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
+
         if let Some(path) = base_path {
             renderer = renderer.with_base_path(path);
         }
+
         if with_diagrams {
             renderer = renderer.with_processor(DiagramProcessor::new());
         }
+
         renderer
     }
 
@@ -230,12 +235,15 @@ impl MarkdownConverter {
         with_diagrams: bool,
     ) -> MarkdownRenderer<ConfluenceBackend> {
         let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
+
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
+
         if with_diagrams {
             renderer = renderer.with_processor(DiagramProcessor::new());
         }
+
         renderer
     }
 
@@ -270,6 +278,47 @@ impl MarkdownConverter {
         }
     }
 
+    /// Render diagrams and replace placeholders in HTML.
+    fn render_and_replace_diagrams(
+        &self,
+        extracted_diagrams: &[ExtractedDiagram],
+        warnings: &mut Vec<String>,
+        html: &mut String,
+        kroki_url: &str,
+        output_dir: &Path,
+    ) -> Result<Vec<DiagramInfo>, RenderError> {
+        if extracted_diagrams.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let diagram_requests: Vec<_> = extracted_diagrams
+            .iter()
+            .map(|d| {
+                let source = self.prepare_diagram_source_with_warnings(d, warnings);
+                DiagramRequest::new(d.index, source, d.language)
+            })
+            .collect();
+
+        let server_url = kroki_url.trim_end_matches('/');
+        let rendered_diagrams = render_all(&diagram_requests, server_url, output_dir, 4)?;
+
+        let mut diagram_infos = Vec::with_capacity(rendered_diagrams.len());
+        for r in rendered_diagrams {
+            let display_width = r.width / 2;
+            let image_tag = create_image_tag(&r.filename, display_width);
+            let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
+            *html = html.replace(&placeholder, &image_tag);
+
+            diagram_infos.push(DiagramInfo {
+                filename: r.filename,
+                width: r.width,
+                height: r.height,
+            });
+        }
+
+        Ok(diagram_infos)
+    }
+
     /// Convert markdown to Confluence storage format.
     ///
     /// Diagrams are rendered via Kroki and placeholders replaced with
@@ -296,39 +345,13 @@ impl MarkdownConverter {
 
         let mut html = self.maybe_prepend_toc(result.html, &result.toc);
 
-        // Render diagrams if any
-        let diagrams = if extracted_diagrams.is_empty() {
-            Vec::new()
-        } else {
-            // Prepare diagram sources (PlantUML needs preprocessing, others pass through)
-            let diagram_requests: Vec<_> = extracted_diagrams
-                .iter()
-                .map(|d| {
-                    let source = self.prepare_diagram_source_with_warnings(d, &mut warnings);
-                    DiagramRequest::new(d.index, source, d.language)
-                })
-                .collect();
-
-            let server_url = kroki_url.trim_end_matches('/');
-            let rendered_diagrams = render_all(&diagram_requests, server_url, output_dir, 4)?;
-
-            // Replace placeholders with image tags
-            let mut diagram_infos = Vec::with_capacity(rendered_diagrams.len());
-            for r in rendered_diagrams {
-                // Display width is half the actual width (for retina displays)
-                let display_width = r.width / 2;
-                let image_tag = create_image_tag(&r.filename, display_width);
-                let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
-                html = html.replace(&placeholder, &image_tag);
-
-                diagram_infos.push(DiagramInfo {
-                    filename: r.filename,
-                    width: r.width,
-                    height: r.height,
-                });
-            }
-            diagram_infos
-        };
+        let diagrams = self.render_and_replace_diagrams(
+            &extracted_diagrams,
+            &mut warnings,
+            &mut html,
+            kroki_url,
+            output_dir,
+        )?;
 
         Ok(ConvertResult {
             html,
@@ -502,7 +525,7 @@ impl MarkdownConverter {
     /// Convert markdown to HTML format with cached diagram rendering.
     ///
     /// Like [`convert_html_with_diagrams`](Self::convert_html_with_diagrams), but uses
-    /// a cache to avoid re-rendering diagrams with the same content.
+    /// a file-based cache to avoid re-rendering diagrams with the same content.
     ///
     /// The cache key is computed from:
     /// - Diagram source (after preprocessing)
@@ -510,23 +533,26 @@ impl MarkdownConverter {
     /// - Output format (svg/png)
     /// - DPI setting
     ///
-    /// This enables seamless migration from Python-based caching since the hash
-    /// algorithm matches.
+    /// Cache files are stored as `{cache_dir}/{hash}.{format}` (e.g., `abc123.svg`).
     ///
     /// # Arguments
     ///
     /// * `markdown_text` - Markdown source text
     /// * `kroki_url` - Kroki server URL
-    /// * `cache` - Diagram cache implementation (e.g., `FileCache` or Python wrapper)
+    /// * `cache_dir` - Directory for cached diagrams (caching disabled if None)
     /// * `base_path` - Optional base path for resolving relative links
     #[must_use]
     pub fn convert_html_with_diagrams_cached(
         &self,
         markdown_text: &str,
         kroki_url: &str,
-        cache: Arc<dyn DiagramCache>,
+        cache_dir: Option<&Path>,
         base_path: Option<&str>,
     ) -> HtmlConvertResult {
+        let cache: Arc<dyn DiagramCache> = match cache_dir {
+            Some(dir) => Arc::new(FileCache::new(dir.to_path_buf())),
+            None => Arc::new(NullCache),
+        };
         self.render_html_with_diagrams(markdown_text, kroki_url, Some(cache), base_path)
     }
 

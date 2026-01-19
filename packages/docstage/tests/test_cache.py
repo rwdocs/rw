@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from docstage.core.cache import FileCache, NullCache, compute_diagram_hash
+from docstage.core.cache import FileCache, NullCache
 
 
 class TestFileCacheGet:
@@ -269,94 +269,6 @@ class TestFileCacheSite:
         assert result is None
 
 
-class TestFileCacheDiagram:
-    """Tests for diagram cache methods."""
-
-    def test_get_diagram_returns_none_when_missing(self, tmp_path: Path) -> None:
-        """Return None when diagram doesn't exist in cache."""
-        cache = FileCache(tmp_path / ".cache")
-
-        result = cache.get_diagram("abc123", "svg")
-
-        assert result is None
-
-    def test_set_and_get_diagram_svg(self, tmp_path: Path) -> None:
-        """Store and retrieve SVG diagram."""
-        cache = FileCache(tmp_path / ".cache")
-        svg_content = "<svg><circle r='10'/></svg>"
-
-        cache.set_diagram("abc123", "svg", svg_content)
-        result = cache.get_diagram("abc123", "svg")
-
-        assert result == svg_content
-
-    def test_set_and_get_diagram_png(self, tmp_path: Path) -> None:
-        """Store and retrieve PNG diagram (as data URI)."""
-        cache = FileCache(tmp_path / ".cache")
-        png_data_uri = "data:image/png;base64,iVBORw0KGgo="
-
-        cache.set_diagram("def456", "png", png_data_uri)
-        result = cache.get_diagram("def456", "png")
-
-        assert result == png_data_uri
-
-    def test_diagrams_stored_in_diagrams_directory(self, tmp_path: Path) -> None:
-        """Store diagrams in the diagrams subdirectory."""
-        cache = FileCache(tmp_path / ".cache")
-
-        cache.set_diagram("hash123", "svg", "<svg/>")
-
-        diagram_path = tmp_path / ".cache" / "diagrams" / "hash123.svg"
-        assert diagram_path.exists()
-        assert diagram_path.read_text() == "<svg/>"
-
-
-class TestComputeDiagramHash:
-    """Tests for compute_diagram_hash function."""
-
-    def test_returns_sha256_hash(self) -> None:
-        """Return a SHA-256 hex digest."""
-        result = compute_diagram_hash("@startuml\nA -> B\n@enduml", "plantuml", "svg")
-
-        assert len(result) == 64  # SHA-256 produces 64 hex characters
-        assert all(c in "0123456789abcdef" for c in result)
-
-    def test_same_input_same_hash(self) -> None:
-        """Return same hash for identical inputs."""
-        hash1 = compute_diagram_hash("source", "plantuml", "svg")
-        hash2 = compute_diagram_hash("source", "plantuml", "svg")
-
-        assert hash1 == hash2
-
-    def test_different_source_different_hash(self) -> None:
-        """Return different hash for different source."""
-        hash1 = compute_diagram_hash("source1", "plantuml", "svg")
-        hash2 = compute_diagram_hash("source2", "plantuml", "svg")
-
-        assert hash1 != hash2
-
-    def test_different_endpoint_different_hash(self) -> None:
-        """Return different hash for different endpoint."""
-        hash1 = compute_diagram_hash("source", "plantuml", "svg")
-        hash2 = compute_diagram_hash("source", "mermaid", "svg")
-
-        assert hash1 != hash2
-
-    def test_different_format_different_hash(self) -> None:
-        """Return different hash for different format."""
-        hash1 = compute_diagram_hash("source", "plantuml", "svg")
-        hash2 = compute_diagram_hash("source", "plantuml", "png")
-
-        assert hash1 != hash2
-
-    def test_different_dpi_different_hash(self) -> None:
-        """Return different hash for different DPI."""
-        hash1 = compute_diagram_hash("source", "plantuml", "svg", dpi=96)
-        hash2 = compute_diagram_hash("source", "plantuml", "svg", dpi=192)
-
-        assert hash1 != hash2
-
-
 class TestFileCacheProperty:
     """Tests for FileCache properties."""
 
@@ -367,23 +279,30 @@ class TestFileCacheProperty:
 
         assert cache.cache_dir == cache_path
 
+    def test_diagrams_dir_property(self, tmp_path: Path) -> None:
+        """Return the diagrams cache directory path."""
+        cache_path = tmp_path / ".cache"
+        cache = FileCache(cache_path)
+
+        assert cache.diagrams_dir == cache_path / "diagrams"
+
 
 class TestFileCacheReadMetaEdgeCases:
     """Tests for _read_meta edge cases."""
+
+    def _setup_html_file(self, tmp_path: Path) -> None:
+        """Helper to create HTML file so meta reading is reached."""
+        pages_dir = tmp_path / ".cache" / "pages"
+        pages_dir.mkdir(parents=True)
+        (pages_dir / "page.html").write_text("<p>Test</p>")
 
     def test_returns_none_for_invalid_json(self, tmp_path: Path) -> None:
         """Return None when meta file contains invalid JSON."""
         cache = FileCache(tmp_path / ".cache")
         meta_dir = tmp_path / ".cache" / "meta"
         meta_dir.mkdir(parents=True)
-        meta_file = meta_dir / "page.json"
-        meta_file.write_text("not valid json", encoding="utf-8")
-
-        # Also create HTML file so we reach the meta reading code
-        pages_dir = tmp_path / ".cache" / "pages"
-        pages_dir.mkdir(parents=True)
-        html_file = pages_dir / "page.html"
-        html_file.write_text("<p>Test</p>")
+        (meta_dir / "page.json").write_text("not valid json", encoding="utf-8")
+        self._setup_html_file(tmp_path)
 
         result = cache.get("page", 1234567890.0)
 
@@ -394,13 +313,8 @@ class TestFileCacheReadMetaEdgeCases:
         cache = FileCache(tmp_path / ".cache")
         meta_dir = tmp_path / ".cache" / "meta"
         meta_dir.mkdir(parents=True)
-        meta_file = meta_dir / "page.json"
-        meta_file.write_text('"just a string"', encoding="utf-8")
-
-        pages_dir = tmp_path / ".cache" / "pages"
-        pages_dir.mkdir(parents=True)
-        html_file = pages_dir / "page.html"
-        html_file.write_text("<p>Test</p>")
+        (meta_dir / "page.json").write_text('"just a string"', encoding="utf-8")
+        self._setup_html_file(tmp_path)
 
         result = cache.get("page", 1234567890.0)
 
@@ -411,13 +325,10 @@ class TestFileCacheReadMetaEdgeCases:
         cache = FileCache(tmp_path / ".cache")
         meta_dir = tmp_path / ".cache" / "meta"
         meta_dir.mkdir(parents=True)
-        meta_file = meta_dir / "page.json"
-        meta_file.write_text(json.dumps({"title": "Test", "toc": []}), encoding="utf-8")
-
-        pages_dir = tmp_path / ".cache" / "pages"
-        pages_dir.mkdir(parents=True)
-        html_file = pages_dir / "page.html"
-        html_file.write_text("<p>Test</p>")
+        (meta_dir / "page.json").write_text(
+            json.dumps({"title": "Test", "toc": []}), encoding="utf-8"
+        )
+        self._setup_html_file(tmp_path)
 
         result = cache.get("page", 1234567890.0)
 
@@ -428,16 +339,11 @@ class TestFileCacheReadMetaEdgeCases:
         cache = FileCache(tmp_path / ".cache")
         meta_dir = tmp_path / ".cache" / "meta"
         meta_dir.mkdir(parents=True)
-        meta_file = meta_dir / "page.json"
-        meta_file.write_text(
+        (meta_dir / "page.json").write_text(
             json.dumps({"title": "Test", "source_mtime": 1234567890.0}),
             encoding="utf-8",
         )
-
-        pages_dir = tmp_path / ".cache" / "pages"
-        pages_dir.mkdir(parents=True)
-        html_file = pages_dir / "page.html"
-        html_file.write_text("<p>Test</p>")
+        self._setup_html_file(tmp_path)
 
         result = cache.get("page", 1234567890.0)
 
@@ -617,21 +523,8 @@ class TestNullCache:
         # Should not raise
         cache.invalidate_site()
 
-    def test_get_diagram_always_returns_none(self) -> None:
-        """NullCache.get_diagram() always returns None."""
+    def test_diagrams_dir_returns_none(self) -> None:
+        """NullCache.diagrams_dir returns None (caching disabled)."""
         cache = NullCache()
 
-        result = cache.get_diagram("abc123", "svg")
-
-        assert result is None
-
-    def test_set_diagram_is_noop(self) -> None:
-        """NullCache.set_diagram() does nothing but doesn't raise."""
-        cache = NullCache()
-
-        # Should not raise
-        cache.set_diagram("abc123", "svg", "<svg/>")
-
-        # Still returns None after set
-        result = cache.get_diagram("abc123", "svg")
-        assert result is None
+        assert cache.diagrams_dir is None

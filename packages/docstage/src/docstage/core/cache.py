@@ -18,7 +18,6 @@ Cache structure:
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +53,11 @@ class PageCache(Protocol):
     Implemented by both FileCache (stores data) and NullCache (no-op).
     """
 
+    @property
+    def diagrams_dir(self) -> Path | None:
+        """Directory for cached diagrams (None if caching disabled)."""
+        ...
+
     def get(self, path: str, source_mtime: float) -> CacheEntry | None:
         """Retrieve cached entry if valid."""
         ...
@@ -73,30 +77,6 @@ class PageCache(Protocol):
         """Remove entry from cache."""
         ...
 
-    def get_diagram(self, content_hash: str, fmt: str) -> str | None:
-        """Retrieve cached diagram."""
-        ...
-
-    def set_diagram(self, content_hash: str, fmt: str, content: str) -> None:
-        """Store diagram in cache."""
-        ...
-
-
-def compute_diagram_hash(source: str, endpoint: str, fmt: str, dpi: int = 192) -> str:
-    """Compute a content hash for diagram caching.
-
-    Args:
-        source: Diagram source code
-        endpoint: Kroki endpoint (e.g., "plantuml", "mermaid")
-        fmt: Output format ("svg" or "png")
-        dpi: DPI used for rendering (affects SVG scaling)
-
-    Returns:
-        SHA-256 hash of the combined inputs
-    """
-    content = f"{endpoint}:{fmt}:{dpi}:{source}"
-    return hashlib.sha256(content.encode()).hexdigest()
-
 
 class NullCache:
     """No-op cache that never stores or retrieves data.
@@ -104,6 +84,11 @@ class NullCache:
     Used when caching is disabled. Implements the same interface as FileCache
     but all operations are no-ops.
     """
+
+    @property
+    def diagrams_dir(self) -> Path | None:
+        """Returns None (caching disabled)."""
+        return None
 
     def get(self, path: str, source_mtime: float) -> CacheEntry | None:
         """Always returns None (cache miss)."""
@@ -135,13 +120,6 @@ class NullCache:
     def invalidate_site(self) -> None:
         """No-op."""
 
-    def get_diagram(self, content_hash: str, fmt: str) -> str | None:
-        """Always returns None (cache miss)."""
-        return None
-
-    def set_diagram(self, content_hash: str, fmt: str, content: str) -> None:
-        """No-op."""
-
 
 class FileCache:
     """File-based cache for rendered HTML and metadata.
@@ -169,6 +147,11 @@ class FileCache:
     def cache_dir(self) -> Path:
         """Root cache directory."""
         return self._cache_dir
+
+    @property
+    def diagrams_dir(self) -> Path:
+        """Directory for cached diagrams."""
+        return self._diagrams_dir
 
     def _ensure_cache_dir(self) -> None:
         """Create cache directory with .gitignore if it doesn't exist."""
@@ -328,38 +311,6 @@ class FileCache:
         if site_path.exists():
             site_path.unlink()
 
-    def get_diagram(self, content_hash: str, fmt: str) -> str | None:
-        """Retrieve cached diagram by content hash.
-
-        Args:
-            content_hash: SHA-256 hash of diagram content
-            fmt: Output format ("svg" or "png")
-
-        Returns:
-            Cached diagram content (SVG string or PNG data URI), or None if not cached
-        """
-        diagram_path = self._diagrams_dir / f"{content_hash}.{fmt}"
-        if not diagram_path.exists():
-            return None
-
-        try:
-            return diagram_path.read_text(encoding="utf-8")
-        except OSError:
-            return None
-
-    def set_diagram(self, content_hash: str, fmt: str, content: str) -> None:
-        """Store rendered diagram in cache.
-
-        Args:
-            content_hash: SHA-256 hash of diagram content
-            fmt: Output format ("svg" or "png")
-            content: Rendered diagram (SVG string or PNG data URI)
-        """
-        self._ensure_cache_dir()
-        self._diagrams_dir.mkdir(parents=True, exist_ok=True)
-        diagram_path = self._diagrams_dir / f"{content_hash}.{fmt}"
-        diagram_path.write_text(content, encoding="utf-8")
-
     def _read_meta(self, meta_path: Path) -> CachedMetadata | None:
         """Read and validate metadata file.
 
@@ -381,7 +332,6 @@ class FileCache:
         ):
             return None
 
-        # Check build version matches (cache miss for old or mismatched versions)
         if data.get("build_version") != self._version:
             return None
 
