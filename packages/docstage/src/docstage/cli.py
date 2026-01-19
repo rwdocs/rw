@@ -798,15 +798,15 @@ async def _create(
         markdown_text = markdown_file.read_text(encoding="utf-8")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
+            tmpdir_path = Path(tmpdir)
+            result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
             confluence_body = result.html
 
             # Collect diagram attachment data before temp dir is deleted
             attachment_data: list[tuple[str, bytes]] = []
-            for filename in result.diagrams:
-                filepath = Path(tmpdir) / filename
-                attachment_data.append((filename, filepath.read_bytes()))
-                click.echo(f"  -> {filename}")
+            for filepath in sorted(tmpdir_path.glob("*.png")):
+                attachment_data.append((filepath.name, filepath.read_bytes()))
+                click.echo(f"  -> {filepath.name}")
 
             async with create_confluence_client(
                 conf_config.access_token,
@@ -891,15 +891,15 @@ async def _update(
         markdown_text = markdown_file.read_text(encoding="utf-8")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
+            tmpdir_path = Path(tmpdir)
+            result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
             new_html = result.html
 
             # Collect diagram attachment data before temp dir is deleted
             attachment_data: list[tuple[str, bytes]] = []
-            for filename in result.diagrams:
-                filepath = Path(tmpdir) / filename
-                attachment_data.append((filename, filepath.read_bytes()))
-                click.echo(f"  -> {filename}")
+            for filepath in sorted(tmpdir_path.glob("*.png")):
+                attachment_data.append((filepath.name, filepath.read_bytes()))
+                click.echo(f"  -> {filepath.name}")
 
             async with create_confluence_client(
                 conf_config.access_token,
@@ -1032,20 +1032,21 @@ async def _upload_mkdocs(
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
             click.echo(f"Rendering diagrams via Kroki ({effective_kroki_url})...")
-            result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
+            result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
             new_html = result.html
 
-            click.echo(f"Rendered {len(result.diagrams)} diagrams")
+            # Collect diagram attachment data before temp dir is deleted
+            attachment_data: list[tuple[str, bytes]] = []
+            for filepath in sorted(tmpdir_path.glob("*.png")):
+                attachment_data.append((filepath.name, filepath.read_bytes()))
+                click.echo(f"  -> {filepath.name}")
+
+            click.echo(f"Rendered {len(attachment_data)} diagrams")
 
             if result.title:
                 click.echo(f"Title: {result.title}")
-
-            attachment_data: list[tuple[str, bytes]] = []
-            for filename in result.diagrams:
-                filepath = Path(tmpdir) / filename
-                attachment_data.append((filename, filepath.read_bytes()))
-                click.echo(f"  -> {filename}")
 
             async with create_confluence_client(
                 conf_config.access_token,

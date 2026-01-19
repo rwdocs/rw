@@ -59,8 +59,6 @@ fn create_image_tag(filename: &str, width: u32) -> String {
 pub struct ConvertResult {
     pub html: String,
     pub title: Option<String>,
-    /// Filenames of rendered diagram images in `output_dir`.
-    pub diagrams: Vec<String>,
     /// Warnings generated during conversion (e.g., unresolved includes).
     /// Used by Python CLI in verbose mode to log diagnostic info to stderr.
     pub warnings: Vec<String>,
@@ -257,9 +255,9 @@ impl MarkdownConverter {
         html: &mut String,
         kroki_url: &str,
         output_dir: &Path,
-    ) -> Result<Vec<String>, RenderError> {
+    ) -> Result<(), RenderError> {
         if extracted_diagrams.is_empty() {
-            return Ok(Vec::new());
+            return Ok(());
         }
 
         let config_content = self.load_config_content();
@@ -278,17 +276,14 @@ impl MarkdownConverter {
         let server_url = kroki_url.trim_end_matches('/');
         let rendered_diagrams = render_all(&diagram_requests, server_url, output_dir, 4)?;
 
-        let mut filenames = Vec::with_capacity(rendered_diagrams.len());
         for r in rendered_diagrams {
             let display_width = r.width / 2;
             let image_tag = create_image_tag(&r.filename, display_width);
             let placeholder = format!("{{{{DIAGRAM_{}}}}}", r.index);
             *html = html.replace(&placeholder, &image_tag);
-
-            filenames.push(r.filename);
         }
 
-        Ok(filenames)
+        Ok(())
     }
 
     /// Convert markdown to Confluence storage format.
@@ -317,7 +312,7 @@ impl MarkdownConverter {
 
         let mut html = self.maybe_prepend_toc(result.html, &result.toc);
 
-        let diagrams = self.render_and_replace_diagrams(
+        self.render_and_replace_diagrams(
             &extracted_diagrams,
             &mut warnings,
             &mut html,
@@ -328,7 +323,6 @@ impl MarkdownConverter {
         Ok(ConvertResult {
             html,
             title: result.title,
-            diagrams,
             warnings,
         })
     }

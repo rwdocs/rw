@@ -19,9 +19,6 @@ pub struct PyConvertResult {
     pub html: String,
     #[pyo3(get)]
     pub title: Option<String>,
-    /// Filenames of rendered diagram images in output_dir.
-    #[pyo3(get)]
-    pub diagrams: Vec<String>,
     /// Warnings generated during conversion (e.g., unresolved includes).
     #[pyo3(get)]
     pub warnings: Vec<String>,
@@ -32,7 +29,6 @@ impl From<ConvertResult> for PyConvertResult {
         Self {
             html: result.html,
             title: result.title,
-            diagrams: result.diagrams,
             warnings: result.warnings,
         }
     }
