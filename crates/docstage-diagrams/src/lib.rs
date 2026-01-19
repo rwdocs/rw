@@ -41,7 +41,6 @@ mod plantuml;
 mod processor;
 
 pub use cache::{DiagramCache, FileCache, NullCache};
-pub use html_embed::STANDARD_DPI;
 pub use kroki::{DiagramRequest, RenderError, render_all};
 pub use language::ExtractedDiagram;
 pub use output::{

@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PageRenderer uses single Rust call** for diagram rendering with caching instead of extract+render+replace Python logic
 - **Removed `diagrams` field** from `ConvertResult`; Python CLI now lists PNG files directly from output directory
 - **Unified Confluence diagram rendering** via `DiagramProcessor` with `DiagramOutput::Files` mode; removes ~40 lines of duplicated orchestration code from `converter.rs`
+- **Encapsulated DPI scaling in `RenderedDiagramInfo`** via `display_width(dpi)` and `display_height(dpi)` methods; removed `STANDARD_DPI` from public exports
 
 ### Fixed
 

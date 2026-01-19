@@ -3,7 +3,7 @@
 //! This module provides [`ConfluenceTagGenerator`] for generating Confluence
 //! image macros from rendered diagrams.
 
-use docstage_diagrams::{DiagramTagGenerator, RenderedDiagramInfo, STANDARD_DPI};
+use docstage_diagrams::{DiagramTagGenerator, RenderedDiagramInfo};
 
 /// Confluence image macro tag generator.
 ///
@@ -13,9 +13,9 @@ pub struct ConfluenceTagGenerator;
 
 impl DiagramTagGenerator for ConfluenceTagGenerator {
     fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
-        let display_width = info.width * STANDARD_DPI / dpi;
         format!(
-            r#"<ac:image ac:width="{display_width}"><ri:attachment ri:filename="{}" /></ac:image>"#,
+            r#"<ac:image ac:width="{}"><ri:attachment ri:filename="{}" /></ac:image>"#,
+            info.display_width(dpi),
             info.filename
         )
     }
