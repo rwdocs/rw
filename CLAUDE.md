@@ -49,6 +49,7 @@ crates/
 │       ├── lib.rs            # Public API exports
 │       ├── language.rs       # DiagramLanguage, DiagramFormat, ExtractedDiagram
 │       ├── processor.rs      # DiagramProcessor (implements CodeBlockProcessor)
+│       ├── output.rs         # DiagramOutput, DiagramTagGenerator, tag generators
 │       ├── kroki.rs          # Parallel Kroki HTTP rendering
 │       ├── plantuml.rs       # !include resolution, DPI configuration
 │       └── html_embed.rs     # SVG scaling, placeholder replacement
@@ -56,7 +57,8 @@ crates/
 └── docstage-core/         # Pure Rust library (no PyO3)
     └── src/
         ├── lib.rs            # Module exports (re-exports from sub-crates)
-        └── converter.rs      # MarkdownConverter with convert() and convert_html() methods
+        ├── converter.rs      # MarkdownConverter with convert() and convert_html() methods
+        └── confluence_tags.rs # ConfluenceTagGenerator for Confluence image macros
 
 packages/
 ├── docstage/              # Python CLI package (Click)

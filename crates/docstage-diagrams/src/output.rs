@@ -1,0 +1,189 @@
+//! Output mode abstraction for diagram rendering.
+//!
+//! This module provides [`DiagramOutput`] for controlling how diagrams are rendered:
+//! - [`Inline`](DiagramOutput::Inline): Embed diagrams directly in HTML (default)
+//! - [`Files`](DiagramOutput::Files): Save diagrams to files with custom tag generation
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::html_embed::STANDARD_DPI;
+
+/// Information about a rendered diagram for tag generation.
+#[derive(Debug, Clone)]
+pub struct RenderedDiagramInfo {
+    /// Filename of the diagram (e.g., "diagram_abc123.png").
+    pub filename: String,
+    /// Physical width in pixels.
+    pub width: u32,
+    /// Physical height in pixels.
+    pub height: u32,
+}
+
+/// Trait for generating HTML tags from rendered diagram info.
+///
+/// Implement this trait to customize how diagrams are embedded in HTML.
+/// The generated tag replaces the diagram placeholder in the output.
+pub trait DiagramTagGenerator: Send + Sync {
+    /// Generate an HTML tag for a rendered diagram.
+    ///
+    /// # Arguments
+    ///
+    /// - `info` - Information about the rendered diagram
+    /// - `dpi` - DPI used for rendering (for display width calculation)
+    ///
+    /// # Returns
+    ///
+    /// HTML string to replace the diagram placeholder.
+    fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String;
+}
+
+/// Output mode for diagram rendering.
+#[derive(Clone, Default)]
+pub enum DiagramOutput {
+    /// Embed diagrams inline in HTML (default).
+    ///
+    /// - SVG: Inline SVG content with dimension scaling
+    /// - PNG: Base64 data URI in `<img>` tag
+    ///
+    /// Both wrapped in `<figure class="diagram">`.
+    #[default]
+    Inline,
+
+    /// Save diagrams to files and use custom tag generator.
+    Files {
+        /// Directory to save rendered diagram files.
+        output_dir: PathBuf,
+        /// Function to generate HTML tag from rendered diagram info.
+        tag_generator: Arc<dyn DiagramTagGenerator>,
+    },
+}
+
+/// Simple `<img>` tag generator for static sites.
+///
+/// Generates: `<img src="{prefix}{filename}" width="{display_width}" alt="diagram">`
+#[derive(Debug, Clone)]
+pub struct ImgTagGenerator {
+    /// Path prefix (e.g., "/assets/diagrams/").
+    pub path_prefix: String,
+}
+
+impl ImgTagGenerator {
+    /// Create a new img tag generator with the given path prefix.
+    #[must_use]
+    pub fn new(path_prefix: impl Into<String>) -> Self {
+        Self {
+            path_prefix: path_prefix.into(),
+        }
+    }
+}
+
+impl DiagramTagGenerator for ImgTagGenerator {
+    fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
+        let display_width = info.width * STANDARD_DPI / dpi;
+        format!(
+            r#"<img src="{}{}" width="{display_width}" alt="diagram">"#,
+            self.path_prefix, info.filename
+        )
+    }
+}
+
+/// Figure-wrapped img tag generator.
+///
+/// Generates: `<figure class="diagram"><img src="..." width="..." alt="diagram"></figure>`
+#[derive(Debug, Clone)]
+pub struct FigureImgTagGenerator {
+    /// Path prefix (e.g., "/assets/diagrams/").
+    pub path_prefix: String,
+}
+
+impl FigureImgTagGenerator {
+    /// Create a new figure img tag generator with the given path prefix.
+    #[must_use]
+    pub fn new(path_prefix: impl Into<String>) -> Self {
+        Self {
+            path_prefix: path_prefix.into(),
+        }
+    }
+}
+
+impl DiagramTagGenerator for FigureImgTagGenerator {
+    fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
+        let display_width = info.width * STANDARD_DPI / dpi;
+        format!(
+            r#"<figure class="diagram"><img src="{}{}" width="{display_width}" alt="diagram"></figure>"#,
+            self.path_prefix, info.filename
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_img_tag_generator() {
+        let generator = ImgTagGenerator::new("/diagrams/");
+        let info = RenderedDiagramInfo {
+            filename: "test.png".to_string(),
+            width: 400,
+            height: 200,
+        };
+        // At 192 DPI (2x), width should be halved: 400 * 96 / 192 = 200
+        let tag = generator.generate_tag(&info, 192);
+        assert_eq!(
+            tag,
+            r#"<img src="/diagrams/test.png" width="200" alt="diagram">"#
+        );
+    }
+
+    #[test]
+    fn test_img_tag_generator_96_dpi() {
+        let generator = ImgTagGenerator::new("/assets/");
+        let info = RenderedDiagramInfo {
+            filename: "diagram.png".to_string(),
+            width: 300,
+            height: 150,
+        };
+        // At 96 DPI, width unchanged: 300 * 96 / 96 = 300
+        let tag = generator.generate_tag(&info, 96);
+        assert_eq!(
+            tag,
+            r#"<img src="/assets/diagram.png" width="300" alt="diagram">"#
+        );
+    }
+
+    #[test]
+    fn test_figure_img_tag_generator() {
+        let generator = FigureImgTagGenerator::new("/diagrams/");
+        let info = RenderedDiagramInfo {
+            filename: "test.png".to_string(),
+            width: 400,
+            height: 200,
+        };
+        let tag = generator.generate_tag(&info, 192);
+        assert_eq!(
+            tag,
+            r#"<figure class="diagram"><img src="/diagrams/test.png" width="200" alt="diagram"></figure>"#
+        );
+    }
+
+    #[test]
+    fn test_diagram_output_default() {
+        let output = DiagramOutput::default();
+        assert!(matches!(output, DiagramOutput::Inline));
+    }
+
+    #[test]
+    fn test_rendered_diagram_info_clone() {
+        let info = RenderedDiagramInfo {
+            filename: "test.png".to_string(),
+            width: 100,
+            height: 50,
+        };
+        let cloned = info.clone();
+        assert_eq!(cloned.filename, "test.png");
+        assert_eq!(cloned.width, 100);
+        assert_eq!(cloned.height, 50);
+    }
+}

@@ -43,6 +43,8 @@
 //! // Result contains inline SVG diagrams
 //! ```
 
+mod confluence_tags;
 mod converter;
 
+pub use confluence_tags::ConfluenceTagGenerator;
 pub use converter::{ConvertResult, HtmlConvertResult, MarkdownConverter};
