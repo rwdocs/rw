@@ -16,7 +16,7 @@ use crate::html_embed::{
 };
 use crate::kroki::{render_all_png_data_uri_partial, render_all_svg_partial};
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
-use crate::plantuml::{DEFAULT_DPI, PrepareResult, load_config_file, prepare_diagram_source};
+use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
 
 /// Code block processor for diagram languages.
 ///
@@ -61,8 +61,8 @@ pub struct DiagramProcessor {
     include_dirs: Vec<PathBuf>,
     /// PlantUML config content (loaded from config file).
     config_content: Option<String>,
-    /// DPI for diagram rendering.
-    dpi: u32,
+    /// DPI for diagram rendering (None = default 192).
+    dpi: Option<u32>,
     /// Optional cache for diagram rendering.
     cache: Option<Arc<dyn DiagramCache>>,
 }
@@ -75,7 +75,7 @@ impl Default for DiagramProcessor {
             kroki_url: None,
             include_dirs: Vec::new(),
             config_content: None,
-            dpi: DEFAULT_DPI,
+            dpi: None,
             cache: None,
         }
     }
@@ -164,7 +164,7 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn dpi(mut self, dpi: u32) -> Self {
-        self.dpi = dpi;
+        self.dpi = Some(dpi);
         self
     }
 

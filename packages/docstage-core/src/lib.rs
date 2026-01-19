@@ -14,7 +14,6 @@ use ::docstage_core::{
     ConvertResult, DiagramInfo, ExtractResult, HtmlConvertResult, MarkdownConverter,
     PreparedDiagram,
 };
-use ::docstage_diagrams::DEFAULT_DPI;
 use ::docstage_renderer::TocEntry;
 
 /// Rendered diagram info (file written to output_dir).
@@ -196,13 +195,16 @@ impl PyMarkdownConverter {
         config_file: Option<&str>,
         dpi: Option<u32>,
     ) -> Self {
-        let inner = MarkdownConverter::new()
+        let mut inner = MarkdownConverter::new()
             .gfm(gfm)
             .prepend_toc(prepend_toc)
             .extract_title(extract_title)
             .include_dirs(include_dirs.unwrap_or_default())
-            .config_file(config_file)
-            .dpi(dpi.unwrap_or(DEFAULT_DPI));
+            .config_file(config_file);
+
+        if let Some(dpi) = dpi {
+            inner = inner.dpi(dpi);
+        }
 
         Self { inner }
     }

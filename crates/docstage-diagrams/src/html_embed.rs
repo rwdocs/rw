@@ -15,6 +15,8 @@ use crate::kroki::{
     DiagramError, DiagramRequest, render_all_png_data_uri_partial, render_all_svg_partial,
 };
 
+use crate::consts::DEFAULT_DPI;
+
 /// Standard display DPI (96) used as baseline for scaling calculations.
 pub const STANDARD_DPI: u32 = 96;
 
@@ -51,7 +53,8 @@ static STYLE_HEIGHT_RE: LazyLock<Regex> =
 /// At 96 DPI, dimensions are unchanged.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 #[must_use]
-pub fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
+pub fn scale_svg_dimensions(svg: &str, dpi: Option<u32>) -> String {
+    let dpi = dpi.unwrap_or(DEFAULT_DPI);
     if dpi == STANDARD_DPI {
         return svg.to_string();
     }
@@ -105,7 +108,7 @@ pub fn replace_svg_diagrams(
     html: &mut String,
     diagrams: &[(usize, DiagramRequest)],
     kroki_url: &str,
-    dpi: u32,
+    dpi: Option<u32>,
 ) {
     if diagrams.is_empty() {
         return;
@@ -149,7 +152,7 @@ pub fn replace_png_diagrams(
     }
 }
 
-fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str, dpi: u32) {
+fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str, dpi: Option<u32>) {
     let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
     let clean_svg = strip_google_fonts_import(svg);
     let scaled_svg = scale_svg_dimensions(&clean_svg, dpi);
@@ -197,7 +200,7 @@ mod tests {
     fn test_scale_svg_dimensions_at_192_dpi() {
         // At 192 DPI (2x retina), dimensions should be halved
         let svg = r#"<svg width="400" height="200" viewBox="0 0 400 200"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let result = scale_svg_dimensions(svg, Some(192));
         assert_eq!(
             result,
             r#"<svg width="200" height="100" viewBox="0 0 400 200"></svg>"#
@@ -208,7 +211,7 @@ mod tests {
     fn test_scale_svg_dimensions_at_96_dpi() {
         // At 96 DPI (standard), dimensions should be unchanged
         let svg = r#"<svg width="400" height="200"></svg>"#;
-        let result = scale_svg_dimensions(svg, 96);
+        let result = scale_svg_dimensions(svg, Some(96));
         assert_eq!(result, r#"<svg width="400" height="200"></svg>"#);
     }
 
@@ -216,14 +219,14 @@ mod tests {
     fn test_scale_svg_dimensions_with_px_suffix() {
         // Handle width/height with "px" suffix
         let svg = r#"<svg width="400px" height="200px"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let result = scale_svg_dimensions(svg, Some(192));
         assert_eq!(result, r#"<svg width="200" height="100"></svg>"#);
     }
 
     #[test]
     fn test_scale_svg_dimensions_preserves_other_attributes() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" class="diagram"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let result = scale_svg_dimensions(svg, Some(192));
         assert_eq!(
             result,
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" class="diagram"></svg>"#
@@ -234,7 +237,7 @@ mod tests {
     fn test_scale_svg_dimensions_at_144_dpi() {
         // At 144 DPI (1.5x), dimensions should be scaled to 2/3
         let svg = r#"<svg width="300" height="150"></svg>"#;
-        let result = scale_svg_dimensions(svg, 144);
+        let result = scale_svg_dimensions(svg, Some(144));
         // 300 * (96/144) = 200, 150 * (96/144) = 100
         assert_eq!(result, r#"<svg width="200" height="100"></svg>"#);
     }
@@ -243,7 +246,7 @@ mod tests {
     fn test_scale_svg_dimensions_with_style_attribute() {
         // Handle width/height in style attribute (as Kroki returns)
         let svg = r#"<svg width="136" height="210" style="width:136px;height:210px;background:#FFFFFF;"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let result = scale_svg_dimensions(svg, Some(192));
         assert_eq!(
             result,
             r#"<svg width="68" height="105" style="width:68px;height:105px;background:#FFFFFF;"></svg>"#
