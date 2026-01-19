@@ -99,7 +99,9 @@ impl DiagramTagGenerator for ImgTagGenerator {
     fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
         format!(
             r#"<img src="{}{}" width="{}" alt="diagram">"#,
-            self.path_prefix, info.filename, info.display_width(dpi)
+            self.path_prefix,
+            info.filename,
+            info.display_width(dpi)
         )
     }
 }
@@ -127,7 +129,9 @@ impl DiagramTagGenerator for FigureTagGenerator {
     fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
         format!(
             r#"<figure class="diagram"><img src="{}{}" width="{}" alt="diagram"></figure>"#,
-            self.path_prefix, info.filename, info.display_width(dpi)
+            self.path_prefix,
+            info.filename,
+            info.display_width(dpi)
         )
     }
 }
