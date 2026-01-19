@@ -42,7 +42,7 @@ use docstage_confluence_renderer::ConfluenceBackend;
 use docstage_diagrams::{DiagramCache, DiagramOutput, DiagramProcessor, FileCache, NullCache};
 use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 
-use crate::ConfluenceTagGenerator;
+use crate::confluence_tags::ConfluenceTagGenerator;
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
