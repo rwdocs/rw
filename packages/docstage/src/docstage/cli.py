@@ -235,7 +235,12 @@ def convert(
     config = Config.load(config_path)
     effective_kroki_url = _require_kroki_url(kroki_url, config)
 
-    converter = MarkdownConverter()
+    diagrams = config.diagrams
+    converter = MarkdownConverter(
+        include_dirs=diagrams.include_dirs,
+        config_file=diagrams.config_file,
+        dpi=diagrams.dpi,
+    )
     markdown_text = markdown_file.read_text(encoding="utf-8")
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -782,34 +787,62 @@ async def _create(
         effective_kroki_url = _require_kroki_url(kroki_url, config)
         space = _require_space_key(space, config)
 
+        diagrams_config = config.diagrams
         click.echo(f"Converting {markdown_file}...")
-        converter = MarkdownConverter()
+        converter = MarkdownConverter(
+            prepend_toc=True,
+            include_dirs=diagrams_config.include_dirs,
+            config_file=diagrams_config.config_file,
+            dpi=diagrams_config.dpi,
+        )
         markdown_text = markdown_file.read_text(encoding="utf-8")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
-        confluence_body = result.html
+            confluence_body = result.html
 
-        async with create_confluence_client(
-            conf_config.access_token,
-            conf_config.access_secret,
-            private_key,
-            conf_config.consumer_key,
-        ) as http_client:
-            confluence = ConfluenceClient(http_client, conf_config.base_url)
+            # Collect diagram attachment data before temp dir is deleted
+            attachment_data: list[tuple[str, bytes]] = []
+            for diagram in result.diagrams:
+                display_width = diagram.width // 2
+                filepath = Path(tmpdir) / diagram.filename
+                attachment_data.append((diagram.filename, filepath.read_bytes()))
+                click.echo(
+                    f"  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)",
+                )
 
-            click.echo(f'Creating page "{title}" in space {space}...')
-            page = await confluence.create_page(space, title, confluence_body)
+            async with create_confluence_client(
+                conf_config.access_token,
+                conf_config.access_secret,
+                private_key,
+                conf_config.consumer_key,
+            ) as http_client:
+                confluence = ConfluenceClient(http_client, conf_config.base_url)
 
-            click.echo(
-                click.style("\nPage created successfully!", fg="green", bold=True),
-            )
-            click.echo(f"ID: {page['id']}")
-            click.echo(f"Title: {page['title']}")
-            click.echo(f"Version: {page['version']['number']}")
+                click.echo(f'Creating page "{title}" in space {space}...')
+                page = await confluence.create_page(space, title, confluence_body)
 
-            url = await confluence.get_page_url(page["id"])
-            click.echo(f"URL: {url}")
+                # Upload diagram attachments after creating page
+                if attachment_data:
+                    click.echo(f"Uploading {len(attachment_data)} attachments...")
+                    for filename, image_data in attachment_data:
+                        click.echo(f"  Uploading {filename}...")
+                        await confluence.upload_attachment(
+                            page["id"],
+                            filename,
+                            image_data,
+                            "image/png",
+                        )
+
+                click.echo(
+                    click.style("\nPage created successfully!", fg="green", bold=True),
+                )
+                click.echo(f"ID: {page['id']}")
+                click.echo(f"Title: {page['title']}")
+                click.echo(f"Version: {page['version']['number']}")
+
+                url = await confluence.get_page_url(page["id"])
+                click.echo(f"URL: {url}")
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
@@ -850,58 +883,86 @@ async def _update(
         private_key = read_private_key(key_file)
         effective_kroki_url = _require_kroki_url(kroki_url, config)
 
+        diagrams_config = config.diagrams
         click.echo(f"Converting {markdown_file}...")
-        converter = MarkdownConverter()
+        converter = MarkdownConverter(
+            prepend_toc=True,
+            include_dirs=diagrams_config.include_dirs,
+            config_file=diagrams_config.config_file,
+            dpi=diagrams_config.dpi,
+        )
         markdown_text = markdown_file.read_text(encoding="utf-8")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
-        new_html = result.html
+            new_html = result.html
 
-        async with create_confluence_client(
-            conf_config.access_token,
-            conf_config.access_secret,
-            private_key,
-            conf_config.consumer_key,
-        ) as http_client:
-            confluence = ConfluenceClient(http_client, conf_config.base_url)
+            # Collect diagram attachment data before temp dir is deleted
+            attachment_data: list[tuple[str, bytes]] = []
+            for diagram in result.diagrams:
+                display_width = diagram.width // 2
+                filepath = Path(tmpdir) / diagram.filename
+                attachment_data.append((diagram.filename, filepath.read_bytes()))
+                click.echo(
+                    f"  -> {diagram.filename} ({diagram.width}x{diagram.height} -> {display_width}px)",
+                )
 
-            click.echo(f"Fetching current page {page_id}...")
-            current_page = await confluence.get_page(
-                page_id,
-                expand=["body.storage", "version"],
-            )
-            current_version = current_page["version"]["number"]
-            title = current_page["title"]
-            old_html = current_page["body"]["storage"]["value"]
+            async with create_confluence_client(
+                conf_config.access_token,
+                conf_config.access_secret,
+                private_key,
+                conf_config.consumer_key,
+            ) as http_client:
+                confluence = ConfluenceClient(http_client, conf_config.base_url)
 
-            click.echo("Preserving comment markers...")
-            preserver = CommentPreserver()
-            preserve_result = preserver.preserve_comments(old_html, new_html)
+                click.echo(f"Fetching current page {page_id}...")
+                current_page = await confluence.get_page(
+                    page_id,
+                    expand=["body.storage", "version"],
+                )
+                current_version = current_page["version"]["number"]
+                title = current_page["title"]
+                old_html = current_page["body"]["storage"]["value"]
 
-            click.echo(
-                f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
-            )
-            updated_page = await confluence.update_page(
-                page_id,
-                title,
-                preserve_result.html,
-                current_version,
-                message,
-            )
+                click.echo("Preserving comment markers...")
+                preserver = CommentPreserver()
+                preserve_result = preserver.preserve_comments(old_html, new_html)
 
-            click.echo(
-                click.style("\nPage updated successfully!", fg="green", bold=True),
-            )
-            click.echo(f"ID: {updated_page['id']}")
-            click.echo(f"Title: {updated_page['title']}")
-            click.echo(f"Version: {updated_page['version']['number']}")
+                # Upload diagram attachments before updating page
+                if attachment_data:
+                    click.echo(f"Uploading {len(attachment_data)} attachments...")
+                    for filename, image_data in attachment_data:
+                        click.echo(f"  Uploading {filename}...")
+                        await confluence.upload_attachment(
+                            page_id,
+                            filename,
+                            image_data,
+                            "image/png",
+                        )
 
-            url = await confluence.get_page_url(page_id)
-            click.echo(f"URL: {url}")
+                click.echo(
+                    f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
+                )
+                updated_page = await confluence.update_page(
+                    page_id,
+                    title,
+                    preserve_result.html,
+                    current_version,
+                    message,
+                )
 
-            comments = await confluence.get_comments(page_id)
-            click.echo(f"\nComments on page: {comments['size']}")
+                click.echo(
+                    click.style("\nPage updated successfully!", fg="green", bold=True),
+                )
+                click.echo(f"ID: {updated_page['id']}")
+                click.echo(f"Title: {updated_page['title']}")
+                click.echo(f"Version: {updated_page['version']['number']}")
+
+                url = await confluence.get_page_url(page_id)
+                click.echo(f"URL: {url}")
+
+                comments = await confluence.get_comments(page_id)
+                click.echo(f"\nComments on page: {comments['size']}")
 
             if preserve_result.unmatched_comments:
                 click.echo(
