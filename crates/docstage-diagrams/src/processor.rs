@@ -9,13 +9,12 @@ use std::sync::Arc;
 
 use docstage_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 
-use crate::DiagramRequest;
 use crate::cache::{DiagramCache, compute_diagram_hash};
 use crate::consts::DEFAULT_DPI;
 use crate::html_embed::{
     replace_png_diagrams, replace_svg_diagrams, scale_svg_dimensions, strip_google_fonts_import,
 };
-use crate::kroki::{render_all, render_all_png_data_uri_partial, render_all_svg_partial};
+use crate::kroki::{DiagramRequest, render_all, render_all_png_data_uri_partial, render_all_svg_partial};
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::output::{DiagramOutput, RenderedDiagramInfo};
 use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
