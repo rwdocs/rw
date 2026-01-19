@@ -202,6 +202,19 @@ fn render_one_png(
             kind: DiagramErrorKind::Http(e.to_string()),
         })?;
 
+    // Check for error status and read body for error details
+    let status = response.status().as_u16();
+    if status >= 400 {
+        let body = response
+            .into_body()
+            .read_to_string()
+            .unwrap_or_else(|_| String::from("(unable to read error body)"));
+        return Err(DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::Http(format!("HTTP {status}: {body}")),
+        });
+    }
+
     let data = response
         .into_body()
         .read_to_vec()
@@ -267,6 +280,7 @@ pub fn render_all(
 
     let agent: Agent = Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(30)))
+        .http_status_as_error(false)
         .build()
         .into();
 
@@ -308,24 +322,24 @@ fn render_one_svg(
     let response = agent
         .post(&url)
         .header("Content-Type", "text/plain")
-        .send(diagram.source.as_bytes());
+        .send(diagram.source.as_bytes())
+        .map_err(|e| DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::Http(e.to_string()),
+        })?;
 
-    let response = match response {
-        Ok(r) => r,
-        Err(ureq::Error::StatusCode(status)) => {
-            // Try to read error body for more details
-            return Err(DiagramError {
-                index: diagram.index,
-                kind: DiagramErrorKind::Http(format!("HTTP {status} from {url}")),
-            });
-        }
-        Err(e) => {
-            return Err(DiagramError {
-                index: diagram.index,
-                kind: DiagramErrorKind::Http(e.to_string()),
-            });
-        }
-    };
+    // Check for error status and read body for error details
+    let status = response.status().as_u16();
+    if status >= 400 {
+        let body = response
+            .into_body()
+            .read_to_string()
+            .unwrap_or_else(|_| String::from("(unable to read error body)"));
+        return Err(DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::Http(format!("HTTP {status}: {body}")),
+        });
+    }
 
     let svg = response
         .into_body()
@@ -358,6 +372,19 @@ fn render_one_png_data_uri(
             index: diagram.index,
             kind: DiagramErrorKind::Http(e.to_string()),
         })?;
+
+    // Check for error status and read body for error details
+    let status = response.status().as_u16();
+    if status >= 400 {
+        let body = response
+            .into_body()
+            .read_to_string()
+            .unwrap_or_else(|_| String::from("(unable to read error body)"));
+        return Err(DiagramError {
+            index: diagram.index,
+            kind: DiagramErrorKind::Http(format!("HTTP {status}: {body}")),
+        });
+    }
 
     let data = response
         .into_body()
@@ -420,6 +447,7 @@ fn render_all_partial<T: Send>(
 
     let agent: Agent = Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(30)))
+        .http_status_as_error(false)
         .build()
         .into();
 

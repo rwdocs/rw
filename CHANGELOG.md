@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Kroki error messages now include the actual error response body (e.g., syntax errors)
+- Confluence CLI commands (`convert`, `create`, `update`) now use `include_dirs`, `config_file`, and `dpi` from config
+- Confluence `create` and `update` commands now upload diagram attachments to the page
+- Confluence `create` and `update` commands now prepend table of contents
 - Root `index.md` now correctly renders as home page
 - Article links resolve correctly without `/docs/` prefix
 - Comment preservation works when table content changes
