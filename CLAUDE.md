@@ -57,8 +57,7 @@ crates/
 └── docstage-core/         # Pure Rust library (no PyO3)
     └── src/
         ├── lib.rs            # Module exports (re-exports from sub-crates)
-        ├── converter.rs      # MarkdownConverter with convert() and convert_html() methods
-        └── confluence_tags.rs # ConfluenceTagGenerator for Confluence image macros
+        └── converter.rs      # MarkdownConverter with convert() and convert_html() methods
 
 packages/
 ├── docstage/              # Python CLI package (Click)
