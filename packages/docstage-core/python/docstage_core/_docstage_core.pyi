@@ -46,35 +46,6 @@ class HtmlConvertResult:
     warnings: list[str]
     """Warnings generated during conversion (e.g., unresolved includes)."""
 
-class PreparedDiagram:
-    """A prepared diagram ready for rendering via Kroki."""
-
-    index: int
-    """Zero-based index of this diagram in the document."""
-    source: str
-    """Prepared source ready for Kroki (with !include resolved, config injected)."""
-    endpoint: str
-    """Kroki endpoint for this diagram type (e.g., "plantuml", "mermaid")."""
-    format: str
-    """Output format ("svg" or "png")."""
-
-class ExtractResult:
-    """Result of extracting diagrams from markdown.
-
-    Used by both HTML and Confluence output formats.
-    """
-
-    html: str
-    """HTML/XHTML with diagram placeholders ({{DIAGRAM_0}}, {{DIAGRAM_1}}, etc.)."""
-    title: str | None
-    """Title extracted from first H1 heading (if extract_title was enabled)."""
-    toc: list[TocEntry]
-    """Table of contents entries."""
-    diagrams: list[PreparedDiagram]
-    """Prepared diagrams ready for rendering."""
-    warnings: list[str]
-    """Warnings generated during conversion."""
-
 class MarkdownConverter:
     """Markdown converter with multiple output formats."""
 
@@ -104,11 +75,6 @@ class MarkdownConverter:
         kroki_url: str,
         base_path: str | None = None,
     ) -> HtmlConvertResult: ...
-    def extract_html_with_diagrams(
-        self,
-        markdown_text: str,
-        base_path: str | None = None,
-    ) -> ExtractResult: ...
     def convert_html_with_diagrams_cached(
         self,
         markdown_text: str,
@@ -138,10 +104,6 @@ class MarkdownConverter:
             HtmlConvertResult with HTML containing rendered diagrams
         """
         ...
-    def extract_confluence_with_diagrams(
-        self,
-        markdown_text: str,
-    ) -> ExtractResult: ...
 
 # Config classes
 
