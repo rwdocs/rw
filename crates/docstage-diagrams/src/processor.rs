@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use docstage_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 
-use crate::cache::{DiagramCache, NullCache, compute_diagram_hash};
+use crate::cache::{DiagramCache, DiagramKey, NullCache};
 use crate::consts::DEFAULT_DPI;
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
@@ -90,6 +90,11 @@ impl DiagramProcessor {
             cache: Arc::new(NullCache),
             output: DiagramOutput::default(),
         }
+    }
+
+    /// Get the effective DPI for diagram rendering.
+    fn effective_dpi(&self) -> u32 {
+        self.dpi.unwrap_or(DEFAULT_DPI)
     }
 
     /// Set the Kroki server URL for rendering diagrams.
@@ -321,6 +326,25 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 }
 
+/// Data needed to cache a rendered diagram.
+struct CacheInfo {
+    index: usize,
+    source: String,
+    endpoint: &'static str,
+    format: &'static str,
+}
+
+impl CacheInfo {
+    fn key(&self, dpi: u32) -> DiagramKey<'_> {
+        DiagramKey {
+            source: &self.source,
+            endpoint: self.endpoint,
+            format: self.format,
+            dpi,
+        }
+    }
+}
+
 /// Inline diagram rendering implementation.
 impl DiagramProcessor {
     /// Post-process with inline output mode.
@@ -333,30 +357,29 @@ impl DiagramProcessor {
         kroki_url: &str,
         cache: &Arc<dyn DiagramCache>,
     ) {
-        // Prepare all diagrams and compute hashes
+        // Prepare all diagrams
         let prepared: Vec<_> = diagrams
             .iter()
             .map(|diagram| {
                 let prepare_result = self.prepare_source(diagram);
                 self.warnings.extend(prepare_result.warnings);
-
-                let endpoint = diagram.language.kroki_endpoint();
-                let format_str = diagram.format.as_str();
-                let hash =
-                    compute_diagram_hash(&prepare_result.source, endpoint, format_str, self.dpi);
-
-                (diagram, prepare_result.source, hash)
+                (diagram, prepare_result.source)
             })
             .collect();
 
         // Separate cache hits from misses
-        let mut svg_to_render: Vec<(usize, DiagramRequest, String)> = Vec::new();
-        let mut png_to_render: Vec<(usize, DiagramRequest, String)> = Vec::new();
+        let mut svg_to_render: Vec<(DiagramRequest, CacheInfo)> = Vec::new();
+        let mut png_to_render: Vec<(DiagramRequest, CacheInfo)> = Vec::new();
 
-        for (diagram, source, hash) in &prepared {
-            let format_str = diagram.format.as_str();
+        for (diagram, source) in &prepared {
+            let cache_info = CacheInfo {
+                index: diagram.index,
+                source: source.clone(),
+                endpoint: diagram.language.kroki_endpoint(),
+                format: diagram.format.as_str(),
+            };
 
-            if let Some(cached_content) = cache.get(hash, format_str) {
+            if let Some(cached_content) = cache.get(cache_info.key(self.effective_dpi())) {
                 // Cache hit: replace placeholder directly
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
@@ -374,26 +397,22 @@ impl DiagramProcessor {
                 let request = DiagramRequest::new(diagram.index, source.clone(), diagram.language);
 
                 match diagram.format {
-                    DiagramFormat::Svg => {
-                        svg_to_render.push((diagram.index, request, hash.clone()))
-                    }
-                    DiagramFormat::Png => {
-                        png_to_render.push((diagram.index, request, hash.clone()))
-                    }
+                    DiagramFormat::Svg => svg_to_render.push((request, cache_info)),
+                    DiagramFormat::Png => png_to_render.push((request, cache_info)),
                 }
             }
         }
 
         // Render cache misses
-        self.render_and_cache_svg(html, &svg_to_render, kroki_url, cache);
-        self.render_and_cache_png(html, &png_to_render, kroki_url, cache);
+        self.render_and_cache_svg(html, svg_to_render, kroki_url, cache);
+        self.render_and_cache_png(html, png_to_render, kroki_url, cache);
     }
 
     /// Render SVG diagrams, cache results, and replace placeholders.
     fn render_and_cache_svg(
         &mut self,
         html: &mut String,
-        to_render: &[(usize, DiagramRequest, String)],
+        to_render: Vec<(DiagramRequest, CacheInfo)>,
         kroki_url: &str,
         cache: &Arc<dyn DiagramCache>,
     ) {
@@ -401,7 +420,7 @@ impl DiagramProcessor {
             return;
         }
 
-        let (requests, hash_map) = extract_requests_and_hashes(to_render);
+        let (requests, cache_map) = extract_requests_and_cache_info(to_render);
 
         match render_all_svg_partial(&requests, kroki_url, 4) {
             Ok(result) => {
@@ -409,8 +428,8 @@ impl DiagramProcessor {
                     let clean_svg = strip_google_fonts_import(r.svg.trim());
                     let scaled_svg = scale_svg_dimensions(&clean_svg, self.dpi);
 
-                    if let Some(hash) = hash_map.get(&r.index) {
-                        cache.set(hash, "svg", &scaled_svg);
+                    if let Some(info) = cache_map.get(&r.index) {
+                        cache.set(info.key(self.effective_dpi()), &scaled_svg);
                     }
 
                     let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
@@ -418,7 +437,7 @@ impl DiagramProcessor {
                 }
                 handle_render_errors(html, result.errors);
             }
-            Err(e) => replace_all_with_error(html, to_render, &e.to_string()),
+            Err(e) => replace_all_with_error_from_cache_info(html, &cache_map, &e.to_string()),
         }
     }
 
@@ -426,7 +445,7 @@ impl DiagramProcessor {
     fn render_and_cache_png(
         &self,
         html: &mut String,
-        to_render: &[(usize, DiagramRequest, String)],
+        to_render: Vec<(DiagramRequest, CacheInfo)>,
         kroki_url: &str,
         cache: &Arc<dyn DiagramCache>,
     ) {
@@ -434,13 +453,13 @@ impl DiagramProcessor {
             return;
         }
 
-        let (requests, hash_map) = extract_requests_and_hashes(to_render);
+        let (requests, cache_map) = extract_requests_and_cache_info(to_render);
 
         match render_all_png_data_uri_partial(&requests, kroki_url, 4) {
             Ok(result) => {
                 for r in result.rendered {
-                    if let Some(hash) = hash_map.get(&r.index) {
-                        cache.set(hash, "png", &r.data_uri);
+                    if let Some(info) = cache_map.get(&r.index) {
+                        cache.set(info.key(self.effective_dpi()), &r.data_uri);
                     }
 
                     let figure = format!(
@@ -451,7 +470,7 @@ impl DiagramProcessor {
                 }
                 handle_render_errors(html, result.errors);
             }
-            Err(e) => replace_all_with_error(html, to_render, &e.to_string()),
+            Err(e) => replace_all_with_error_from_cache_info(html, &cache_map, &e.to_string()),
         }
     }
 
@@ -477,7 +496,6 @@ impl DiagramProcessor {
             .collect();
 
         let server_url = kroki_url.trim_end_matches('/');
-        let dpi = self.dpi.unwrap_or(DEFAULT_DPI);
 
         match render_all(&diagram_requests, server_url, output_dir, 4) {
             Ok(rendered_diagrams) => {
@@ -487,7 +505,7 @@ impl DiagramProcessor {
                         width: r.width,
                         height: r.height,
                     };
-                    let tag = tag_generator.generate_tag(&info, dpi);
+                    let tag = tag_generator.generate_tag(&info, self.effective_dpi());
                     replace_placeholder(html, r.index, &tag);
                 }
             }
@@ -501,16 +519,20 @@ impl DiagramProcessor {
     }
 }
 
-/// Extract requests and build index-to-hash mapping from render queue.
-fn extract_requests_and_hashes(
-    to_render: &[(usize, DiagramRequest, String)],
-) -> (Vec<DiagramRequest>, HashMap<usize, &str>) {
-    let requests = to_render.iter().map(|(_, r, _)| r.clone()).collect();
-    let hash_map = to_render
-        .iter()
-        .map(|(idx, _, hash)| (*idx, hash.as_str()))
-        .collect();
-    (requests, hash_map)
+/// Extract requests and build index-to-cache-info mapping from render queue.
+fn extract_requests_and_cache_info(
+    to_render: Vec<(DiagramRequest, CacheInfo)>,
+) -> (Vec<DiagramRequest>, HashMap<usize, CacheInfo>) {
+    let mut requests = Vec::with_capacity(to_render.len());
+    let mut cache_map = HashMap::with_capacity(to_render.len());
+
+    for (request, info) in to_render {
+        let index = info.index;
+        requests.push(request);
+        cache_map.insert(index, info);
+    }
+
+    (requests, cache_map)
 }
 
 /// Replace a diagram placeholder with content.
@@ -538,13 +560,13 @@ fn handle_render_errors(html: &mut String, errors: Vec<crate::kroki::DiagramErro
 }
 
 /// Replace all placeholders with the same error message.
-fn replace_all_with_error(
+fn replace_all_with_error_from_cache_info(
     html: &mut String,
-    to_render: &[(usize, DiagramRequest, String)],
+    cache_map: &HashMap<usize, CacheInfo>,
     error_msg: &str,
 ) {
-    for (idx, _, _) in to_render {
-        replace_with_error(html, *idx, error_msg);
+    for &idx in cache_map.keys() {
+        replace_with_error(html, idx, error_msg);
     }
 }
 
