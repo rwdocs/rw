@@ -184,8 +184,7 @@ impl MarkdownConverter {
         let parser = Parser::new_ext(markdown_text, options);
 
         // Create DiagramProcessor with file-based output
-        let mut processor = DiagramProcessor::new()
-            .kroki_url(kroki_url)
+        let mut processor = DiagramProcessor::new(kroki_url)
             .include_dirs(&self.include_dirs)
             .config_file(self.config_file.as_deref())
             .output(DiagramOutput::Files {
@@ -320,8 +319,7 @@ impl MarkdownConverter {
         let options = self.get_parser_options();
         let parser = Parser::new_ext(markdown_text, options);
 
-        let mut processor = DiagramProcessor::new()
-            .kroki_url(kroki_url)
+        let mut processor = DiagramProcessor::new(kroki_url)
             .include_dirs(&self.include_dirs)
             .config_file(self.config_file.as_deref());
 

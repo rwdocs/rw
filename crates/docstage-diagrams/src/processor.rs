@@ -24,8 +24,8 @@ use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
 /// Separated from mutable state to allow borrowing config while mutating state,
 /// avoiding unnecessary clones in Rust's ownership model.
 struct ProcessorConfig {
-    /// Kroki server URL for rendering diagrams.
-    kroki_url: Option<String>,
+    /// Kroki server URL for rendering diagrams (required).
+    kroki_url: String,
     /// Directories to search for PlantUML `!include` files.
     include_dirs: Vec<PathBuf>,
     /// PlantUML config content (loaded from config file).
@@ -46,8 +46,7 @@ struct ProcessorConfig {
 ///
 /// # Configuration
 ///
-/// Configure the processor using builder methods:
-/// - [`kroki_url`](Self::kroki_url): Set the Kroki server URL (required for rendering)
+/// Create the processor with a required Kroki URL, then configure using builder methods:
 /// - [`include_dirs`](Self::include_dirs): Set directories for PlantUML `!include` resolution
 /// - [`config_file`](Self::config_file): Load PlantUML config from a file
 /// - [`dpi`](Self::dpi): Set DPI for diagram rendering (default: 192)
@@ -62,8 +61,7 @@ struct ProcessorConfig {
 /// let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
 /// let parser = Parser::new(markdown);
 ///
-/// let processor = DiagramProcessor::new()
-///     .kroki_url("https://kroki.io")
+/// let processor = DiagramProcessor::new("https://kroki.io")
 ///     .dpi(192);
 ///
 /// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
@@ -81,19 +79,23 @@ pub struct DiagramProcessor {
     warnings: Vec<String>,
 }
 
-impl Default for DiagramProcessor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DiagramProcessor {
-    /// Create a new diagram processor.
+    /// Create a new diagram processor with the given Kroki server URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `kroki_url` - Kroki server URL for rendering diagrams (e.g., `"https://kroki.io"`)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let processor = DiagramProcessor::new("https://kroki.io");
+    /// ```
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(kroki_url: impl Into<String>) -> Self {
         Self {
             config: ProcessorConfig {
-                kroki_url: None,
+                kroki_url: kroki_url.into(),
                 include_dirs: Vec::new(),
                 config_content: None,
                 dpi: DEFAULT_DPI,
@@ -105,29 +107,12 @@ impl DiagramProcessor {
         }
     }
 
-    /// Set the Kroki server URL for rendering diagrams.
-    ///
-    /// This is required for [`post_process`](Self::post_process) to render diagrams.
-    /// If not set, placeholders will not be replaced.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let processor = DiagramProcessor::new()
-    ///     .kroki_url("https://kroki.io");
-    /// ```
-    #[must_use]
-    pub fn kroki_url(mut self, url: impl Into<String>) -> Self {
-        self.config.kroki_url = Some(url.into());
-        self
-    }
-
     /// Set directories to search for PlantUML `!include` files.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let processor = DiagramProcessor::new()
+    /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .include_dirs(&[PathBuf::from("docs"), PathBuf::from("includes")]);
     /// ```
     #[must_use]
@@ -143,7 +128,7 @@ impl DiagramProcessor {
     /// # Example
     ///
     /// ```ignore
-    /// let processor = DiagramProcessor::new()
+    /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .include_dirs(&[PathBuf::from(".")])
     ///     .config_file(Some("config.iuml"));
     /// ```
@@ -161,7 +146,7 @@ impl DiagramProcessor {
     /// # Example
     ///
     /// ```ignore
-    /// let processor = DiagramProcessor::new()
+    /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .config_content(Some("skinparam backgroundColor white"));
     /// ```
     #[must_use]
@@ -177,7 +162,7 @@ impl DiagramProcessor {
     /// # Example
     ///
     /// ```ignore
-    /// let processor = DiagramProcessor::new()
+    /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .dpi(96); // Standard resolution
     /// ```
     #[must_use]
@@ -200,8 +185,7 @@ impl DiagramProcessor {
     /// use docstage_diagrams::{DiagramProcessor, FileCache};
     ///
     /// let cache = Arc::new(FileCache::new(".cache/diagrams".into()));
-    /// let processor = DiagramProcessor::new()
-    ///     .kroki_url("https://kroki.io")
+    /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .with_cache(cache);
     /// ```
     #[must_use]
@@ -220,8 +204,7 @@ impl DiagramProcessor {
     /// use std::sync::Arc;
     /// use docstage_diagrams::{DiagramProcessor, DiagramOutput, ImgTagGenerator};
     ///
-    /// let processor = DiagramProcessor::new()
-    ///     .kroki_url("https://kroki.io")
+    /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .output(DiagramOutput::Files {
     ///         output_dir: "public/diagrams".into(),
     ///         tag_generator: Arc::new(ImgTagGenerator::new("/diagrams/")),
@@ -303,10 +286,6 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 
     fn post_process(&mut self, html: &mut String) {
-        let Some(kroki_url) = &self.config.kroki_url else {
-            return;
-        };
-
         let diagrams = to_extracted_diagrams(&self.extracted);
         if diagrams.is_empty() {
             return;
@@ -314,13 +293,7 @@ impl CodeBlockProcessor for DiagramProcessor {
 
         match &self.config.output {
             DiagramOutput::Inline => {
-                Self::post_process_inline(
-                    &self.config,
-                    &mut self.warnings,
-                    html,
-                    &diagrams,
-                    kroki_url,
-                );
+                Self::post_process_inline(&self.config, &mut self.warnings, html, &diagrams);
             }
             DiagramOutput::Files {
                 output_dir,
@@ -331,7 +304,6 @@ impl CodeBlockProcessor for DiagramProcessor {
                     &mut self.warnings,
                     html,
                     &diagrams,
-                    kroki_url,
                     output_dir,
                     tag_generator,
                 );
@@ -380,7 +352,6 @@ impl DiagramProcessor {
         warnings: &mut Vec<String>,
         html: &mut String,
         diagrams: &[ExtractedDiagram],
-        kroki_url: &str,
     ) {
         // Collect all replacements for single-pass application
         let mut replacements = Replacements::new();
@@ -432,8 +403,8 @@ impl DiagramProcessor {
         }
 
         // Render cache misses and collect replacements
-        Self::render_and_cache_svg(config, &mut replacements, svg_to_render, kroki_url);
-        Self::render_and_cache_png(config, &mut replacements, png_to_render, kroki_url);
+        Self::render_and_cache_svg(config, &mut replacements, svg_to_render);
+        Self::render_and_cache_png(config, &mut replacements, png_to_render);
 
         // Apply all replacements in a single pass
         replacements.apply(html);
@@ -444,7 +415,6 @@ impl DiagramProcessor {
         config: &ProcessorConfig,
         replacements: &mut Replacements,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
-        kroki_url: &str,
     ) {
         if to_render.is_empty() {
             return;
@@ -452,7 +422,7 @@ impl DiagramProcessor {
 
         let (requests, cache_map) = extract_requests_and_cache_info(to_render);
 
-        match render_all_svg_partial(&requests, kroki_url, 4) {
+        match render_all_svg_partial(&requests, &config.kroki_url, 4) {
             Ok(result) => {
                 for r in result.rendered {
                     let clean_svg = strip_google_fonts_import(r.svg.trim());
@@ -483,7 +453,6 @@ impl DiagramProcessor {
         config: &ProcessorConfig,
         replacements: &mut Replacements,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
-        kroki_url: &str,
     ) {
         if to_render.is_empty() {
             return;
@@ -491,7 +460,7 @@ impl DiagramProcessor {
 
         let (requests, cache_map) = extract_requests_and_cache_info(to_render);
 
-        match render_all_png_data_uri_partial(&requests, kroki_url, 4) {
+        match render_all_png_data_uri_partial(&requests, &config.kroki_url, 4) {
             Ok(result) => {
                 for r in result.rendered {
                     if let Some(info) = cache_map.get(&r.index) {
@@ -525,7 +494,6 @@ impl DiagramProcessor {
         warnings: &mut Vec<String>,
         html: &mut String,
         diagrams: &[ExtractedDiagram],
-        kroki_url: &str,
         output_dir: &std::path::Path,
         tag_generator: &Arc<dyn DiagramTagGenerator>,
     ) {
@@ -542,7 +510,7 @@ impl DiagramProcessor {
             })
             .collect();
 
-        let server_url = kroki_url.trim_end_matches('/');
+        let server_url = config.kroki_url.trim_end_matches('/');
 
         match render_all(&diagram_requests, server_url, output_dir, 4, config.dpi) {
             Ok(rendered_diagrams) => {
@@ -719,7 +687,7 @@ mod tests {
 
     #[test]
     fn test_process_plantuml() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let attrs = HashMap::new();
         let source = "@startuml\nA -> B\n@enduml";
 
@@ -737,7 +705,7 @@ mod tests {
 
     #[test]
     fn test_process_mermaid() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let attrs = HashMap::new();
 
         let result = processor.process("mermaid", &attrs, "graph TD\n  A --> B", 0);
@@ -751,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_process_kroki_prefix() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let attrs = HashMap::new();
 
         let result = processor.process("kroki-mermaid", &attrs, "graph TD", 0);
@@ -765,7 +733,7 @@ mod tests {
 
     #[test]
     fn test_process_non_diagram() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let attrs = HashMap::new();
 
         let result = processor.process("rust", &attrs, "fn main() {}", 0);
@@ -776,7 +744,7 @@ mod tests {
 
     #[test]
     fn test_process_with_format_png() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = HashMap::new();
         attrs.insert("format".to_string(), "png".to_string());
 
@@ -791,7 +759,7 @@ mod tests {
 
     #[test]
     fn test_process_with_invalid_format() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = HashMap::new();
         attrs.insert("format".to_string(), "jpeg".to_string());
 
@@ -808,7 +776,7 @@ mod tests {
 
     #[test]
     fn test_process_with_unknown_attribute() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = HashMap::new();
         attrs.insert("size".to_string(), "large".to_string());
 
@@ -820,7 +788,7 @@ mod tests {
 
     #[test]
     fn test_process_multiple_diagrams() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let attrs = HashMap::new();
 
         processor.process("plantuml", &attrs, "source1", 0);
@@ -894,7 +862,7 @@ mod tests {
 
     #[test]
     fn test_stores_endpoint_in_attrs() {
-        let mut processor = DiagramProcessor::new();
+        let mut processor = DiagramProcessor::new("https://kroki.io");
         let attrs = HashMap::new();
 
         processor.process("plantuml", &attrs, "source", 0);
@@ -929,7 +897,7 @@ mod tests {
         ];
 
         for lang in languages {
-            let mut processor = DiagramProcessor::new();
+            let mut processor = DiagramProcessor::new("https://kroki.io");
             let attrs = HashMap::new();
 
             let result = processor.process(lang, &attrs, "source", 0);

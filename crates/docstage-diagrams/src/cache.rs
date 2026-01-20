@@ -153,9 +153,9 @@ mod tests {
         let cache = NullCache;
         let key = make_key("@startuml\nA -> B\n@enduml", "plantuml", "svg");
 
-        assert!(cache.get(key.clone()).is_none());
+        assert!(cache.get(key).is_none());
 
-        cache.set(key.clone(), "<svg></svg>");
+        cache.set(key, "<svg></svg>");
         assert!(cache.get(key).is_none());
     }
 
@@ -169,18 +169,15 @@ mod tests {
         let key_svg = make_key("@startuml\nA -> B\n@enduml", "plantuml", "svg");
         let key_png = DiagramKey {
             format: "png",
-            ..key_svg.clone()
+            ..key_svg
         };
 
         // Initially empty
-        assert!(cache.get(key_svg.clone()).is_none());
+        assert!(cache.get(key_svg).is_none());
 
         // Store and retrieve
-        cache.set(key_svg.clone(), "<svg>test</svg>");
-        assert_eq!(
-            cache.get(key_svg.clone()),
-            Some("<svg>test</svg>".to_string())
-        );
+        cache.set(key_svg, "<svg>test</svg>");
+        assert_eq!(cache.get(key_svg), Some("<svg>test</svg>".to_string()));
 
         // Different format is a miss
         assert!(cache.get(key_png).is_none());
@@ -211,10 +208,7 @@ mod tests {
             format: "svg",
             dpi: 192,
         };
-        let key_96 = DiagramKey {
-            dpi: 96,
-            ..key_192.clone()
-        };
+        let key_96 = DiagramKey { dpi: 96, ..key_192 };
 
         assert_ne!(key_192.compute_hash(), key_96.compute_hash());
     }
@@ -224,7 +218,7 @@ mod tests {
         let key_svg = make_key("source", "plantuml", "svg");
         let key_png = DiagramKey {
             format: "png",
-            ..key_svg.clone()
+            ..key_svg
         };
 
         assert_ne!(key_svg.compute_hash(), key_png.compute_hash());
