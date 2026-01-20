@@ -65,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Simplified DPI handling** by defaulting to `DEFAULT_DPI` (192) at construction time instead of using `Option<u32>` throughout; removes `unwrap_or(DEFAULT_DPI)` boilerplate from multiple functions
 - **Optimized placeholder replacement** in `DiagramProcessor` via internal `Replacements` struct; collects all replacements and applies them in a single pass instead of O(N × string_length) allocations from repeated `String::replace()` calls
 - **Simplified `extract_requests_and_cache_info`** in `DiagramProcessor` using iterator `unzip()` instead of manual loop
+- **Made `kroki_url` required when `[diagrams]` section is present** in config; the `[diagrams]` section is optional, but if provided, `kroki_url` must be set (validates at config load time with clear error message)
+- **Simplified config resolution** in `docstage-config` by using `DiagramsConfig::default()` and `iter().flatten()` pattern for cleaner optional field handling
 
 ### Fixed
 

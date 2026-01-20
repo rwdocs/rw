@@ -55,9 +55,9 @@ pub struct Config {
     /// Documentation configuration (paths are relative strings from TOML).
     #[serde(default)]
     docs: DocsConfigRaw,
-    /// Diagram rendering configuration (paths are relative strings from TOML).
-    #[serde(default)]
-    diagrams: DiagramsConfigRaw,
+    /// Diagram rendering configuration (optional section).
+    /// When present, `kroki_url` is required.
+    diagrams: Option<DiagramsConfigRaw>,
     /// Live reload configuration.
     pub live_reload: LiveReloadConfig,
     /// Confluence configuration.
@@ -197,6 +197,8 @@ pub enum ConfigError {
     Io(std::io::Error),
     /// TOML parsing error.
     Parse(toml::de::Error),
+    /// Validation error.
+    Validation(String),
 }
 
 impl std::fmt::Display for ConfigError {
@@ -205,6 +207,7 @@ impl std::fmt::Display for ConfigError {
             Self::NotFound(path) => write!(f, "Configuration file not found: {}", path.display()),
             Self::Io(err) => write!(f, "IO error: {err}"),
             Self::Parse(err) => write!(f, "TOML parse error: {err}"),
+            Self::Validation(msg) => write!(f, "Configuration error: {msg}"),
         }
     }
 }
@@ -310,7 +313,7 @@ impl Config {
         Self {
             server: ServerConfig::default(),
             docs: DocsConfigRaw::default(),
-            diagrams: DiagramsConfigRaw::default(),
+            diagrams: None,
             live_reload: LiveReloadConfig::default(),
             confluence: None,
             docs_resolved: DocsConfig {
@@ -334,14 +337,16 @@ impl Config {
         let mut config: Self = toml::from_str(&content)?;
 
         let config_dir = path.parent().unwrap_or(Path::new("."));
-        config.resolve_paths(config_dir);
+        config.resolve_paths(config_dir)?;
         config.config_path = Some(path.to_path_buf());
 
         Ok(config)
     }
 
     /// Resolve relative paths to absolute paths based on config directory.
-    fn resolve_paths(&mut self, config_dir: &Path) {
+    ///
+    /// Validates that `kroki_url` is provided when `[diagrams]` section exists.
+    fn resolve_paths(&mut self, config_dir: &Path) -> Result<(), ConfigError> {
         let resolve = |path: Option<&str>, default: &str| config_dir.join(path.unwrap_or(default));
 
         self.docs_resolved = DocsConfig {
@@ -350,17 +355,30 @@ impl Config {
             cache_enabled: self.docs.cache_enabled.unwrap_or(true),
         };
 
-        self.diagrams_resolved = DiagramsConfig {
-            kroki_url: self.diagrams.kroki_url.clone(),
-            include_dirs: self
-                .diagrams
-                .include_dirs
-                .as_ref()
-                .map(|dirs| dirs.iter().map(|d| config_dir.join(d)).collect())
-                .unwrap_or_default(),
-            config_file: self.diagrams.config_file.clone(),
-            dpi: self.diagrams.dpi.unwrap_or(192),
+        self.diagrams_resolved = match &self.diagrams {
+            Some(diagrams) => {
+                let kroki_url = diagrams.kroki_url.clone().ok_or_else(|| {
+                    ConfigError::Validation(
+                        "[diagrams] section requires kroki_url to be set".to_string(),
+                    )
+                })?;
+                let include_dirs = diagrams
+                    .include_dirs
+                    .iter()
+                    .flatten()
+                    .map(|d| config_dir.join(d))
+                    .collect();
+                DiagramsConfig {
+                    kroki_url: Some(kroki_url),
+                    include_dirs,
+                    config_file: diagrams.config_file.clone(),
+                    dpi: diagrams.dpi.unwrap_or(192),
+                }
+            }
+            None => DiagramsConfig::default(),
         };
+
+        Ok(())
     }
 
     /// Get the confluence test config if present.
@@ -453,10 +471,11 @@ source_dir = "documentation"
 cache_dir = ".docstage-cache"
 
 [diagrams]
+kroki_url = "https://kroki.io"
 include_dirs = ["diagrams", "shared/diagrams"]
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.resolve_paths(Path::new("/project"));
+        config.resolve_paths(Path::new("/project")).unwrap();
 
         assert_eq!(
             config.docs_resolved.source_dir,
@@ -467,12 +486,47 @@ include_dirs = ["diagrams", "shared/diagrams"]
             PathBuf::from("/project/.docstage-cache")
         );
         assert_eq!(
+            config.diagrams_resolved.kroki_url,
+            Some("https://kroki.io".to_string())
+        );
+        assert_eq!(
             config.diagrams_resolved.include_dirs,
             vec![
                 PathBuf::from("/project/diagrams"),
                 PathBuf::from("/project/shared/diagrams")
             ]
         );
+    }
+
+    #[test]
+    fn test_diagrams_section_requires_kroki_url() {
+        let toml = r#"
+[diagrams]
+include_dirs = ["diagrams"]
+"#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        let result = config.resolve_paths(Path::new("/project"));
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Validation(_)),
+            "Expected ConfigError::Validation, got {err:?}"
+        );
+        assert!(err.to_string().contains("kroki_url"));
+    }
+
+    #[test]
+    fn test_no_diagrams_section_is_valid() {
+        let toml = r#"
+[docs]
+source_dir = "documentation"
+"#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        config.resolve_paths(Path::new("/project")).unwrap();
+
+        assert!(config.diagrams_resolved.kroki_url.is_none());
+        assert!(config.diagrams_resolved.include_dirs.is_empty());
     }
 
     #[test]
