@@ -265,7 +265,8 @@ mod tests {
         std::fs::write(&include_path, "Component(comp, \"Component\")").unwrap();
 
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include test_component.iuml\nBoundary_End()\n@enduml";
-        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
 
         // Cleanup
         std::fs::remove_file(&include_path).unwrap();
@@ -367,7 +368,8 @@ mod tests {
         std::fs::write(&include_path, "!include recursive.iuml\nContent").unwrap();
 
         let source = "@startuml\n!include recursive.iuml\n@enduml";
-        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
 
         std::fs::remove_file(&include_path).unwrap();
 
@@ -384,7 +386,8 @@ mod tests {
         std::fs::write(&include2, "Bob -> Charlie").unwrap();
 
         let source = "@startuml\n!include part1.iuml\n!include part2.iuml\n@enduml";
-        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
 
         std::fs::remove_file(&include1).unwrap();
         std::fs::remove_file(&include2).unwrap();
@@ -404,7 +407,8 @@ mod tests {
         std::fs::write(&outer, "OuterBefore\n!include inner.iuml\nOuterAfter").unwrap();
 
         let source = "@startuml\n!include outer.iuml\n@enduml";
-        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
 
         std::fs::remove_file(&outer).unwrap();
         std::fs::remove_file(&inner).unwrap();
@@ -422,7 +426,8 @@ mod tests {
         std::fs::write(&include_path, "Line1\n\nLine3").unwrap();
 
         let source = "@startuml\n  !include with_empty.iuml\n@enduml";
-        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result =
+            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
 
         std::fs::remove_file(&include_path).unwrap();
 

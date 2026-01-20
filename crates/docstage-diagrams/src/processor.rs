@@ -382,6 +382,9 @@ impl DiagramProcessor {
         diagrams: &[ExtractedDiagram],
         kroki_url: &str,
     ) {
+        // Collect all replacements for single-pass application
+        let mut replacements = Replacements::new();
+
         // Prepare all diagrams
         let prepared: Vec<_> = diagrams
             .iter()
@@ -405,7 +408,7 @@ impl DiagramProcessor {
             };
 
             if let Some(cached_content) = config.cache.get(cache_info.key(config.dpi)) {
-                // Cache hit: replace placeholder directly
+                // Cache hit: add replacement
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
                         format!(r#"<figure class="diagram">{cached_content}</figure>"#)
@@ -416,7 +419,7 @@ impl DiagramProcessor {
                         )
                     }
                 };
-                replace_placeholder(html, diagram.index, &figure);
+                replacements.add(diagram.index, figure);
             } else {
                 // Cache miss: add to render queue
                 let request = DiagramRequest::new(diagram.index, source.clone(), diagram.language);
@@ -428,15 +431,18 @@ impl DiagramProcessor {
             }
         }
 
-        // Render cache misses
-        Self::render_and_cache_svg(config, html, svg_to_render, kroki_url);
-        Self::render_and_cache_png(config, html, png_to_render, kroki_url);
+        // Render cache misses and collect replacements
+        Self::render_and_cache_svg(config, &mut replacements, svg_to_render, kroki_url);
+        Self::render_and_cache_png(config, &mut replacements, png_to_render, kroki_url);
+
+        // Apply all replacements in a single pass
+        replacements.apply(html);
     }
 
-    /// Render SVG diagrams, cache results, and replace placeholders.
+    /// Render SVG diagrams, cache results, and collect replacements.
     fn render_and_cache_svg(
         config: &ProcessorConfig,
-        html: &mut String,
+        replacements: &mut Replacements,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
         kroki_url: &str,
     ) {
@@ -457,18 +463,25 @@ impl DiagramProcessor {
                     }
 
                     let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
-                    replace_placeholder(html, r.index, &figure);
+                    replacements.add(r.index, figure);
                 }
-                handle_render_errors(html, result.errors);
+                for e in result.errors {
+                    replacements.add_error(e.index, &e.to_string());
+                }
             }
-            Err(e) => replace_all_with_error_from_cache_info(html, &cache_map, &e.to_string()),
+            Err(e) => {
+                let error_msg = e.to_string();
+                for &idx in cache_map.keys() {
+                    replacements.add_error(idx, &error_msg);
+                }
+            }
         }
     }
 
-    /// Render PNG diagrams, cache results, and replace placeholders.
+    /// Render PNG diagrams, cache results, and collect replacements.
     fn render_and_cache_png(
         config: &ProcessorConfig,
-        html: &mut String,
+        replacements: &mut Replacements,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
         kroki_url: &str,
     ) {
@@ -489,11 +502,18 @@ impl DiagramProcessor {
                         r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
                         r.data_uri
                     );
-                    replace_placeholder(html, r.index, &figure);
+                    replacements.add(r.index, figure);
                 }
-                handle_render_errors(html, result.errors);
+                for e in result.errors {
+                    replacements.add_error(e.index, &e.to_string());
+                }
             }
-            Err(e) => replace_all_with_error_from_cache_info(html, &cache_map, &e.to_string()),
+            Err(e) => {
+                let error_msg = e.to_string();
+                for &idx in cache_map.keys() {
+                    replacements.add_error(idx, &error_msg);
+                }
+            }
         }
     }
 
@@ -509,6 +529,9 @@ impl DiagramProcessor {
         output_dir: &std::path::Path,
         tag_generator: &Arc<dyn DiagramTagGenerator>,
     ) {
+        // Collect all replacements for single-pass application
+        let mut replacements = Replacements::new();
+
         // Prepare all diagrams
         let diagram_requests: Vec<_> = diagrams
             .iter()
@@ -530,16 +553,19 @@ impl DiagramProcessor {
                         height: r.height,
                     };
                     let tag = tag_generator.generate_tag(&info, config.dpi);
-                    replace_placeholder(html, r.index, &tag);
+                    replacements.add(r.index, tag);
                 }
             }
             Err(e) => {
-                // Replace all placeholders with error
+                let error_msg = e.to_string();
                 for d in diagrams {
-                    replace_with_error(html, d.index, &e.to_string());
+                    replacements.add_error(d.index, &error_msg);
                 }
             }
         }
+
+        // Apply all replacements in a single pass
+        replacements.apply(html);
     }
 }
 
@@ -547,50 +573,89 @@ impl DiagramProcessor {
 fn extract_requests_and_cache_info(
     to_render: Vec<(DiagramRequest, CacheInfo)>,
 ) -> (Vec<DiagramRequest>, HashMap<usize, CacheInfo>) {
-    let mut requests = Vec::with_capacity(to_render.len());
-    let mut cache_map = HashMap::with_capacity(to_render.len());
-
-    for (request, info) in to_render {
-        let index = info.index;
-        requests.push(request);
-        cache_map.insert(index, info);
-    }
-
+    let (requests, cache_infos): (Vec<_>, Vec<_>) = to_render.into_iter().unzip();
+    let cache_map = cache_infos
+        .into_iter()
+        .map(|info| (info.index, info))
+        .collect();
     (requests, cache_map)
 }
 
-/// Replace a diagram placeholder with content.
-fn replace_placeholder(html: &mut String, index: usize, content: &str) {
-    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-    *html = html.replace(&placeholder, content);
+/// Collects diagram replacements for single-pass application.
+///
+/// Instead of calling `html.replace()` for each diagram (O(N × string_length)),
+/// this collects all replacements and applies them in a single pass.
+struct Replacements {
+    map: HashMap<usize, String>,
 }
 
-/// Replace a diagram placeholder with an error message.
-fn replace_with_error(html: &mut String, index: usize, error_msg: &str) {
-    use docstage_renderer::escape_html;
-
-    let error_figure = format!(
-        r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
-        escape_html(error_msg)
-    );
-    replace_placeholder(html, index, &error_figure);
-}
-
-/// Handle render errors by replacing placeholders with error messages.
-fn handle_render_errors(html: &mut String, errors: Vec<crate::kroki::DiagramError>) {
-    for e in errors {
-        replace_with_error(html, e.index, &e.to_string());
+impl Replacements {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
     }
-}
 
-/// Replace all placeholders with the same error message.
-fn replace_all_with_error_from_cache_info(
-    html: &mut String,
-    cache_map: &HashMap<usize, CacheInfo>,
-    error_msg: &str,
-) {
-    for &idx in cache_map.keys() {
-        replace_with_error(html, idx, error_msg);
+    /// Add a replacement for a diagram placeholder.
+    fn add(&mut self, index: usize, content: String) {
+        self.map.insert(index, content);
+    }
+
+    /// Add an error message for a diagram placeholder.
+    fn add_error(&mut self, index: usize, error_msg: &str) {
+        use docstage_renderer::escape_html;
+
+        let error_figure = format!(
+            r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
+            escape_html(error_msg)
+        );
+        self.add(index, error_figure);
+    }
+
+    /// Apply all replacements in a single pass.
+    ///
+    /// This scans the HTML once, replacing all `{{DIAGRAM_N}}` placeholders
+    /// with their corresponding content from the map.
+    fn apply(self, html: &mut String) {
+        if self.map.is_empty() {
+            return;
+        }
+
+        let mut result = String::with_capacity(html.len());
+        let mut remaining = html.as_str();
+
+        while let Some(start) = remaining.find("{{DIAGRAM_") {
+            // Add everything before the placeholder
+            result.push_str(&remaining[..start]);
+
+            // Find the end of the placeholder
+            let after_prefix = &remaining[start + 10..]; // Skip "{{DIAGRAM_"
+            if let Some(end_pos) = after_prefix.find("}}") {
+                // Parse the index
+                let index_str = &after_prefix[..end_pos];
+                if let Ok(index) = index_str.parse::<usize>() {
+                    if let Some(replacement) = self.map.get(&index) {
+                        result.push_str(replacement);
+                    } else {
+                        // No replacement found, keep original placeholder
+                        result.push_str(&remaining[start..start + 10 + end_pos + 2]);
+                    }
+                } else {
+                    // Invalid index, keep original placeholder
+                    result.push_str(&remaining[start..start + 10 + end_pos + 2]);
+                }
+                remaining = &after_prefix[end_pos + 2..];
+            } else {
+                // No closing }}, keep rest as-is
+                result.push_str(&remaining[start..]);
+                remaining = "";
+            }
+        }
+
+        // Add any remaining content
+        result.push_str(remaining);
+
+        *html = result;
     }
 }
 
@@ -875,5 +940,79 @@ mod tests {
                 lang
             );
         }
+    }
+
+    #[test]
+    fn test_replacements_single() {
+        let mut html = String::from("<p>Before</p>{{DIAGRAM_0}}<p>After</p>");
+        let mut replacements = Replacements::new();
+        replacements.add(0, "<svg>diagram</svg>".to_string());
+
+        replacements.apply(&mut html);
+
+        assert_eq!(html, "<p>Before</p><svg>diagram</svg><p>After</p>");
+    }
+
+    #[test]
+    fn test_replacements_multiple() {
+        let mut html =
+            String::from("{{DIAGRAM_0}}<p>middle</p>{{DIAGRAM_1}}<p>end</p>{{DIAGRAM_2}}");
+        let mut replacements = Replacements::new();
+        replacements.add(0, "<svg>first</svg>".to_string());
+        replacements.add(1, "<svg>second</svg>".to_string());
+        replacements.add(2, "<svg>third</svg>".to_string());
+
+        replacements.apply(&mut html);
+
+        assert_eq!(
+            html,
+            "<svg>first</svg><p>middle</p><svg>second</svg><p>end</p><svg>third</svg>"
+        );
+    }
+
+    #[test]
+    fn test_replacements_out_of_order() {
+        let mut html = String::from("{{DIAGRAM_2}}{{DIAGRAM_0}}{{DIAGRAM_1}}");
+        let mut replacements = Replacements::new();
+        replacements.add(0, "A".to_string());
+        replacements.add(1, "B".to_string());
+        replacements.add(2, "C".to_string());
+
+        replacements.apply(&mut html);
+
+        assert_eq!(html, "CAB");
+    }
+
+    #[test]
+    fn test_replacements_missing_keeps_placeholder() {
+        let mut html = String::from("{{DIAGRAM_0}}{{DIAGRAM_1}}");
+        let mut replacements = Replacements::new();
+        replacements.add(0, "A".to_string());
+        // No replacement for index 1
+
+        replacements.apply(&mut html);
+
+        assert_eq!(html, "A{{DIAGRAM_1}}");
+    }
+
+    #[test]
+    fn test_replacements_empty_no_change() {
+        let mut html = String::from("<p>No placeholders</p>");
+        let replacements = Replacements::new();
+
+        replacements.apply(&mut html);
+
+        assert_eq!(html, "<p>No placeholders</p>");
+    }
+
+    #[test]
+    fn test_replacements_large_index() {
+        let mut html = String::from("{{DIAGRAM_12345}}");
+        let mut replacements = Replacements::new();
+        replacements.add(12345, "content".to_string());
+
+        replacements.apply(&mut html);
+
+        assert_eq!(html, "content");
     }
 }
