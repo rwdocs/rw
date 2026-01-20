@@ -102,13 +102,8 @@ impl std::fmt::Display for DiagramError {
 /// Error during diagram rendering (may contain multiple errors).
 #[derive(Debug)]
 pub enum RenderError {
-    /// Single diagram error (legacy, for backwards compatibility).
-    #[allow(dead_code)]
-    Http { index: usize, message: String },
-    #[allow(dead_code)]
+    /// Thread pool creation or other IO errors.
     Io { index: usize, message: String },
-    #[allow(dead_code)]
-    InvalidPng { index: usize },
     /// Multiple diagram errors collected during parallel rendering.
     Multiple(Vec<DiagramError>),
 }
@@ -116,14 +111,8 @@ pub enum RenderError {
 impl std::fmt::Display for RenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RenderError::Http { index, message } => {
-                write!(f, "HTTP error for diagram {index}: {message}")
-            }
             RenderError::Io { index, message } => {
                 write!(f, "IO error for diagram {index}: {message}")
-            }
-            RenderError::InvalidPng { index } => {
-                write!(f, "Invalid PNG data for diagram {index}")
             }
             RenderError::Multiple(errors) => {
                 writeln!(f, "{} diagram(s) failed to render:", errors.len())?;
