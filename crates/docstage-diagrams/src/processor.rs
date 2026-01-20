@@ -375,16 +375,18 @@ impl DiagramProcessor {
         let mut svg_to_render: Vec<(DiagramRequest, CacheInfo)> = Vec::new();
         let mut png_to_render: Vec<(DiagramRequest, CacheInfo)> = Vec::new();
 
-        for (diagram, source) in &prepared {
-            let cache_info = CacheInfo {
-                index: diagram.index,
-                source: source.clone(),
-                endpoint: diagram.language.kroki_endpoint(),
-                format: diagram.format.as_str(),
+        for (diagram, source) in prepared {
+            let endpoint = diagram.language.kroki_endpoint();
+            let format = diagram.format.as_str();
+            let key = DiagramKey {
+                source: &source,
+                endpoint,
+                format,
+                dpi: config.dpi,
             };
 
-            if let Some(cached_content) = config.cache.get(cache_info.key(config.dpi)) {
-                // Cache hit: add replacement
+            if let Some(cached_content) = config.cache.get(key) {
+                // Cache hit: add replacement (no allocation needed)
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
                         format!(r#"<figure class="diagram">{cached_content}</figure>"#)
@@ -397,8 +399,14 @@ impl DiagramProcessor {
                 };
                 replacements.add(diagram.index, figure);
             } else {
-                // Cache miss: add to render queue
-                let request = DiagramRequest::new(diagram.index, source.clone(), diagram.language);
+                // Cache miss: clone for CacheInfo, move into DiagramRequest
+                let cache_info = CacheInfo {
+                    index: diagram.index,
+                    source: source.clone(),
+                    endpoint,
+                    format,
+                };
+                let request = DiagramRequest::new(diagram.index, source, diagram.language);
 
                 match diagram.format {
                     DiagramFormat::Svg => svg_to_render.push((request, cache_info)),
