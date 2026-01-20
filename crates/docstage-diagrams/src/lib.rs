@@ -27,8 +27,8 @@
 //! let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
 //!     .with_processor(DiagramProcessor::new().kroki_url("https://kroki.io"));
 //!
+//! // render() auto-calls post_process() on all processors
 //! let result = renderer.render(parser);
-//! let html = renderer.finalize(result.html); // Renders diagrams inline
 //! ```
 
 mod cache;
