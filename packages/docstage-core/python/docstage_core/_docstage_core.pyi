@@ -71,6 +71,83 @@ class MarkdownConverter:
         base_path: str | None = None,
     ) -> HtmlConvertResult: ...
 
+# PageRenderer classes
+
+class PageRenderResult:
+    """Result of rendering a markdown page."""
+
+    html: str
+    """Rendered HTML content."""
+    title: str | None
+    """Title extracted from first H1 heading (if enabled)."""
+    toc: list[TocEntry]
+    """Table of contents entries."""
+    warnings: list[str]
+    """Warnings generated during conversion (e.g., unresolved includes)."""
+    from_cache: bool
+    """Whether result was served from cache."""
+
+class PageRendererConfig:
+    """Configuration for page renderer."""
+
+    cache_dir: Path | None
+    """Cache directory for rendered pages and metadata."""
+    version: str
+    """Application version for cache invalidation."""
+    extract_title: bool
+    """Extract title from first H1 heading."""
+    kroki_url: str | None
+    """Kroki URL for diagram rendering (None disables diagrams)."""
+    include_dirs: list[Path]
+    """Directories to search for PlantUML includes."""
+    config_file: str | None
+    """PlantUML config file name."""
+    dpi: int
+    """DPI for diagram rendering."""
+
+    def __init__(
+        self,
+        cache_dir: Path | None = None,
+        version: str = "",
+        extract_title: bool = True,
+        kroki_url: str | None = None,
+        include_dirs: list[Path] | None = None,
+        config_file: str | None = None,
+        dpi: int = 192,
+    ) -> None: ...
+
+class PageRenderer:
+    """Page renderer with file-based caching.
+
+    Uses MarkdownConverter for actual conversion and PageCache for persistence.
+    Cache invalidation is based on source file mtime and build version.
+    """
+
+    def __init__(self, config: PageRendererConfig) -> None: ...
+    def render(self, source_path: Path, base_path: str) -> PageRenderResult:
+        """Render a markdown page.
+
+        Args:
+            source_path: Absolute path to markdown source file
+            base_path: URL path for resolving relative links (e.g., "domain-a/guide")
+
+        Returns:
+            PageRenderResult with HTML, title, ToC, and cache status
+
+        Raises:
+            FileNotFoundError: If source markdown file doesn't exist
+            OSError: If file cannot be read
+        """
+        ...
+
+    def invalidate(self, path: str) -> None:
+        """Invalidate cache entry for a path.
+
+        Args:
+            path: Document path to invalidate
+        """
+        ...
+
 # Config classes
 
 class CliSettings:

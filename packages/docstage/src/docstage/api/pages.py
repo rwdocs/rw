@@ -42,7 +42,7 @@ async def get_page(request: web.Request) -> web.Response:
         for warning in result.warnings:
             print(f"[WARNING] {path}: {warning}", file=sys.stderr)
 
-    source_mtime = result.source_path.stat().st_mtime
+    source_mtime = source_path.stat().st_mtime
     last_modified = datetime.fromtimestamp(source_mtime, tz=UTC)
 
     etag = _compute_etag(result.html)
@@ -57,7 +57,7 @@ async def get_page(request: web.Request) -> web.Response:
         "meta": {
             "title": result.title,
             "path": f"/{path}" if path else "/",
-            "source_file": str(result.source_path),
+            "source_file": str(source_path),
             "last_modified": last_modified.isoformat(),
         },
         "breadcrumbs": breadcrumbs,

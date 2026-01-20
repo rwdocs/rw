@@ -9,7 +9,10 @@ use ::docstage_config::{
     CliSettings, Config, ConfigError, ConfluenceConfig, ConfluenceTestConfig, DiagramsConfig,
     DocsConfig, LiveReloadConfig, ServerConfig,
 };
-use ::docstage_core::{ConvertResult, HtmlConvertResult, MarkdownConverter};
+use ::docstage_core::{
+    ConvertResult, HtmlConvertResult, MarkdownConverter, PageRenderResult, PageRenderer,
+    PageRendererConfig, RenderError,
+};
 use ::docstage_renderer::TocEntry;
 
 /// Result of converting markdown to Confluence format.
@@ -244,6 +247,176 @@ impl PyMarkdownConverter {
 }
 
 // ============================================================================
+// PageRenderer bindings
+// ============================================================================
+
+/// Result of rendering a markdown page.
+#[pyclass(name = "PageRenderResult")]
+pub struct PyPageRenderResult {
+    /// Rendered HTML content.
+    #[pyo3(get)]
+    pub html: String,
+    /// Title extracted from first H1 heading (if enabled).
+    #[pyo3(get)]
+    pub title: Option<String>,
+    /// Table of contents entries.
+    #[pyo3(get)]
+    pub toc: Vec<PyTocEntry>,
+    /// Warnings generated during conversion (e.g., unresolved includes).
+    #[pyo3(get)]
+    pub warnings: Vec<String>,
+    /// Whether result was served from cache.
+    #[pyo3(get)]
+    pub from_cache: bool,
+}
+
+impl From<PageRenderResult> for PyPageRenderResult {
+    fn from(result: PageRenderResult) -> Self {
+        Self {
+            html: result.html,
+            title: result.title,
+            toc: result.toc.into_iter().map(Into::into).collect(),
+            warnings: result.warnings,
+            from_cache: result.from_cache,
+        }
+    }
+}
+
+/// Configuration for page renderer.
+#[pyclass(name = "PageRendererConfig")]
+#[derive(Clone)]
+pub struct PyPageRendererConfig {
+    /// Cache directory for rendered pages and metadata.
+    #[pyo3(get, set)]
+    pub cache_dir: Option<PathBuf>,
+    /// Application version for cache invalidation.
+    #[pyo3(get, set)]
+    pub version: String,
+    /// Extract title from first H1 heading.
+    #[pyo3(get, set)]
+    pub extract_title: bool,
+    /// Kroki URL for diagram rendering (None disables diagrams).
+    #[pyo3(get, set)]
+    pub kroki_url: Option<String>,
+    /// Directories to search for PlantUML includes.
+    #[pyo3(get, set)]
+    pub include_dirs: Vec<PathBuf>,
+    /// PlantUML config file name.
+    #[pyo3(get, set)]
+    pub config_file: Option<String>,
+    /// DPI for diagram rendering.
+    #[pyo3(get, set)]
+    pub dpi: u32,
+}
+
+#[pymethods]
+impl PyPageRendererConfig {
+    #[new]
+    #[pyo3(signature = (
+        cache_dir = None,
+        version = String::new(),
+        extract_title = true,
+        kroki_url = None,
+        include_dirs = Vec::new(),
+        config_file = None,
+        dpi = 192
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        cache_dir: Option<PathBuf>,
+        version: String,
+        extract_title: bool,
+        kroki_url: Option<String>,
+        include_dirs: Vec<PathBuf>,
+        config_file: Option<String>,
+        dpi: u32,
+    ) -> Self {
+        Self {
+            cache_dir,
+            version,
+            extract_title,
+            kroki_url,
+            include_dirs,
+            config_file,
+            dpi,
+        }
+    }
+}
+
+impl From<PyPageRendererConfig> for PageRendererConfig {
+    fn from(config: PyPageRendererConfig) -> Self {
+        Self {
+            cache_dir: config.cache_dir,
+            version: config.version,
+            extract_title: config.extract_title,
+            kroki_url: config.kroki_url,
+            include_dirs: config.include_dirs,
+            config_file: config.config_file,
+            dpi: config.dpi,
+        }
+    }
+}
+
+/// Page renderer with file-based caching.
+///
+/// Uses MarkdownConverter for actual conversion and PageCache for persistence.
+/// Cache invalidation is based on source file mtime and build version.
+#[pyclass(name = "PageRenderer")]
+pub struct PyPageRenderer {
+    inner: PageRenderer,
+}
+
+#[pymethods]
+impl PyPageRenderer {
+    #[new]
+    pub fn new(config: PyPageRendererConfig) -> Self {
+        Self {
+            inner: PageRenderer::new(config.into()),
+        }
+    }
+
+    /// Render a markdown page.
+    ///
+    /// Args:
+    ///     source_path: Absolute path to markdown source file
+    ///     base_path: URL path for resolving relative links (e.g., "domain-a/guide")
+    ///
+    /// Returns:
+    ///     PageRenderResult with HTML, title, ToC, and cache status
+    ///
+    /// Raises:
+    ///     FileNotFoundError: If source markdown file doesn't exist
+    ///     OSError: If file cannot be read
+    pub fn render(
+        &self,
+        py: Python<'_>,
+        source_path: PathBuf,
+        base_path: &str,
+    ) -> PyResult<PyPageRenderResult> {
+        py.detach(|| {
+            self.inner
+                .render(&source_path, base_path)
+                .map(Into::into)
+                .map_err(|e| match e {
+                    RenderError::FileNotFound(path) => PyFileNotFoundError::new_err(format!(
+                        "Source file not found: {}",
+                        path.display()
+                    )),
+                    RenderError::Io(err) => PyRuntimeError::new_err(format!("IO error: {err}")),
+                })
+        })
+    }
+
+    /// Invalidate cache entry for a path.
+    ///
+    /// Args:
+    ///     path: Document path to invalidate
+    pub fn invalidate(&self, path: &str) {
+        self.inner.invalidate(path);
+    }
+}
+
+// ============================================================================
 // Config bindings
 // ============================================================================
 
@@ -302,15 +475,15 @@ impl PyCliSettings {
 }
 
 impl From<&PyCliSettings> for CliSettings {
-    fn from(py: &PyCliSettings) -> Self {
+    fn from(settings: &PyCliSettings) -> Self {
         Self {
-            host: py.host.clone(),
-            port: py.port,
-            source_dir: py.source_dir.clone(),
-            cache_dir: py.cache_dir.clone(),
-            cache_enabled: py.cache_enabled,
-            kroki_url: py.kroki_url.clone(),
-            live_reload_enabled: py.live_reload_enabled,
+            host: settings.host.clone(),
+            port: settings.port,
+            source_dir: settings.source_dir.clone(),
+            cache_dir: settings.cache_dir.clone(),
+            cache_enabled: settings.cache_enabled,
+            kroki_url: settings.kroki_url.clone(),
+            live_reload_enabled: settings.live_reload_enabled,
         }
     }
 }
@@ -537,6 +710,11 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHtmlConvertResult>()?;
     m.add_class::<PyMarkdownConverter>()?;
     m.add_class::<PyTocEntry>()?;
+
+    // PageRenderer classes
+    m.add_class::<PyPageRenderResult>()?;
+    m.add_class::<PyPageRendererConfig>()?;
+    m.add_class::<PyPageRenderer>()?;
 
     // Config classes
     m.add_class::<PyConfig>()?;

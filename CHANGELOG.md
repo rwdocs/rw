@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust `PageRenderer`** for page rendering with file-based caching; replaces Python `PageRenderer`, unifying page rendering with the existing markdown conversion pipeline
+- **Rust `PageCache`** trait with `FilePageCache` and `NullPageCache` implementations for mtime-based cache invalidation and build version validation
+- **`PageRendererConfig`** for configuring the page renderer (cache_dir, version, extract_title, kroki_url, include_dirs, config_file, dpi)
+- **PyO3 bindings** for `PageRenderer`, `PageRendererConfig`, and `PageRenderResult` classes
 - **`std::error::Error` implementation for `DiagramError`** enabling compatibility with `?` operator, `anyhow`, and other error handling crates
 - **`Debug` implementation for `DiagramOutput`** enabling easier debugging of diagram output configuration
 - **File-based diagram output abstraction** via `DiagramOutput` enum with `Inline` (default) and `Files` modes; enables customizable tag generation via `DiagramTagGenerator` trait
@@ -32,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Moved `PageRenderer` from Python to Rust**; Python server now uses Rust `PageRenderer` via PyO3 bindings, reducing Python orchestration to a thin aiohttp layer
+- **Removed Python `PageRenderer` class** (`docstage.core.renderer.PageRenderer`); use `docstage_core.PageRenderer` instead
+- **Server initialization uses `PageRendererConfig`** instead of passing cache and keyword arguments; Rust `PageRenderer` manages its own page cache internally
 - **`CodeBlockProcessor` trait methods return slices** (`extracted()` returns `&[ExtractedCodeBlock]` and `warnings()` returns `&[String]` instead of `Vec`); implementations no longer need to clone, improving performance
 - **Extracted renderer to separate crate** (`docstage-renderer`) for reusability and smaller dependency tree
 - **Extracted Confluence renderer to separate crate** (`docstage-confluence-renderer`) for cleaner separation and smaller dependency tree
