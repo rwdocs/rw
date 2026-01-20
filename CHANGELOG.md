@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Diagram caching in Rust** via `FileCache` implementation; Rust owns the cache entirely via `cache_dir` path parameter, eliminating Python-to-Rust callbacks
 - **Cached diagram conversion** via `convert_html_with_diagrams_cached(cache_dir)` method that creates `FileCache` internally
 - **Post-processing hooks** for `CodeBlockProcessor` trait via `post_process` method; enables processors to replace placeholders after rendering
-- **DiagramProcessor configuration** via builder pattern: `kroki_url()`, `include_dirs()`, `config_file()`, `config_content()`, `dpi()`
+- **DiagramProcessor configuration** via builder pattern: `include_dirs()`, `config_file()`, `config_content()`, `dpi()`
 - **Code block processor trait** (`CodeBlockProcessor`) in `docstage-renderer` for extensible code block handling (diagrams, YAML tables, embeds, etc.)
 - **Live reload** for development mode with WebSocket-based file watching
 - **Diagram rendering** via Kroki (PlantUML, Mermaid, GraphViz, and 14+ other formats)
@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Simplified `extract_requests_and_cache_info`** in `DiagramProcessor` using iterator `unzip()` instead of manual loop
 - **Made `kroki_url` required when `[diagrams]` section is present** in config; the `[diagrams]` section is optional, but if provided, `kroki_url` must be set (validates at config load time with clear error message)
 - **Simplified config resolution** in `docstage-config` by using `DiagramsConfig::default()` and `iter().flatten()` pattern for cleaner optional field handling
+- **Made `kroki_url` required in `DiagramProcessor` constructor**; clients decide whether to include the processor based on config; removes `Default` impl and `kroki_url()` builder method
 
 ### Fixed
 
