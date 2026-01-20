@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Made `kroki_url` required when `[diagrams]` section is present** in config; the `[diagrams]` section is optional, but if provided, `kroki_url` must be set (validates at config load time with clear error message)
 - **Simplified config resolution** in `docstage-config` by using `DiagramsConfig::default()` and `iter().flatten()` pattern for cleaner optional field handling
 - **Made `kroki_url` required in `DiagramProcessor` constructor**; clients decide whether to include the processor based on config; removes `Default` impl and `kroki_url()` builder method
+- **Simplified parallel rendering** in `docstage-diagrams` by using rayon's global thread pool instead of per-call thread pool creation; all render functions now return `PartialRenderResult` for consistent partial-success handling; removed `RenderError` type; extracted `create_agent()` and `partition_results()` helpers
 
 ### Fixed
 

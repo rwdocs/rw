@@ -101,33 +101,14 @@ impl std::fmt::Display for DiagramError {
 
 impl std::error::Error for DiagramError {}
 
-/// Error during diagram rendering (may contain multiple errors).
-#[derive(Debug)]
-pub enum RenderError {
-    /// Thread pool creation or other IO errors.
-    Io { index: usize, message: String },
-    /// Multiple diagram errors collected during parallel rendering.
-    Multiple(Vec<DiagramError>),
+/// Create HTTP agent with standard timeout configuration.
+fn create_agent() -> Agent {
+    Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .http_status_as_error(false)
+        .build()
+        .into()
 }
-
-impl std::fmt::Display for RenderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RenderError::Io { index, message } => {
-                write!(f, "IO error for diagram {index}: {message}")
-            }
-            RenderError::Multiple(errors) => {
-                writeln!(f, "{} diagram(s) failed to render:", errors.len())?;
-                for error in errors {
-                    writeln!(f, "  - {error}")?;
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
-impl std::error::Error for RenderError {}
 
 /// Extract width and height from PNG image data.
 ///
@@ -227,71 +208,42 @@ fn render_one_png(
     })
 }
 
-/// Render all diagrams in parallel using Kroki service.
+/// Render all diagrams to PNG files in parallel using Kroki service.
+///
+/// Uses the global rayon thread pool for parallel rendering.
+/// Returns partial results - successfully rendered diagrams even when some fail.
 ///
 /// # Arguments
 /// * `diagrams` - List of diagrams to render
 /// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
 /// * `output_dir` - Directory to save rendered PNG files
-/// * `pool_size` - Number of parallel threads
 /// * `dpi` - DPI used for rendering (affects filename hash)
 ///
 /// # Returns
-/// Vector of rendered diagram info, or all errors collected during rendering.
-///
-/// # Errors
-///
-/// Returns `RenderError::Multiple` if any diagrams fail to render,
-/// containing all errors (not just the first one).
+/// Partial result containing both successful renders and errors.
+#[must_use]
 pub fn render_all(
     diagrams: &[DiagramRequest],
     server_url: &str,
     output_dir: &Path,
-    pool_size: usize,
     dpi: u32,
-) -> Result<Vec<RenderedDiagram>, RenderError> {
+) -> PartialRenderResult<RenderedDiagram> {
     if diagrams.is_empty() {
-        return Ok(Vec::new());
+        return PartialRenderResult {
+            rendered: Vec::new(),
+            errors: Vec::new(),
+        };
     }
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(pool_size)
-        .build()
-        .map_err(|e| RenderError::Io {
-            index: 0,
-            message: format!("Failed to create thread pool: {e}"),
-        })?;
-
-    let agent: Agent = Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .http_status_as_error(false)
-        .build()
-        .into();
-
+    let agent = create_agent();
     let server_url = server_url.trim_end_matches('/');
-    let results: Vec<Result<RenderedDiagram, DiagramError>> = pool.install(|| {
-        diagrams
-            .par_iter()
-            .map(|d| render_one_png(&agent, d, server_url, output_dir, dpi))
-            .collect()
-    });
 
-    // Partition into successes and failures
-    let mut rendered = Vec::with_capacity(diagrams.len());
-    let mut errors = Vec::new();
+    let results: Vec<Result<RenderedDiagram, DiagramError>> = diagrams
+        .par_iter()
+        .map(|d| render_one_png(&agent, d, server_url, output_dir, dpi))
+        .collect();
 
-    for result in results {
-        match result {
-            Ok(diagram) => rendered.push(diagram),
-            Err(error) => errors.push(error),
-        }
-    }
-
-    if errors.is_empty() {
-        Ok(rendered)
-    } else {
-        Err(RenderError::Multiple(errors))
-    }
+    partition_results(results)
 }
 
 /// Render a single diagram to SVG via Kroki.
@@ -347,44 +299,36 @@ pub struct PartialRenderResult<T> {
 
 /// Generic parallel rendering with partial failure support.
 ///
-/// Executes the render function for each diagram in parallel using rayon,
+/// Uses the global rayon thread pool for parallel rendering,
 /// collecting both successes and failures.
-fn render_all_partial<T: Send>(
+fn render_all_partial<T: Send + std::fmt::Debug>(
     diagrams: &[DiagramRequest],
     server_url: &str,
-    pool_size: usize,
     render_fn: fn(&Agent, &DiagramRequest, &str) -> Result<T, DiagramError>,
-) -> Result<PartialRenderResult<T>, RenderError> {
+) -> PartialRenderResult<T> {
     if diagrams.is_empty() {
-        return Ok(PartialRenderResult {
+        return PartialRenderResult {
             rendered: Vec::new(),
             errors: Vec::new(),
-        });
+        };
     }
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(pool_size)
-        .build()
-        .map_err(|e| RenderError::Io {
-            index: 0,
-            message: format!("Failed to create thread pool: {e}"),
-        })?;
-
-    let agent: Agent = Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .http_status_as_error(false)
-        .build()
-        .into();
-
+    let agent = create_agent();
     let server_url = server_url.trim_end_matches('/');
-    let results: Vec<Result<T, DiagramError>> = pool.install(|| {
-        diagrams
-            .par_iter()
-            .map(|d| render_fn(&agent, d, server_url))
-            .collect()
-    });
 
-    let mut rendered = Vec::with_capacity(diagrams.len());
+    let results: Vec<Result<T, DiagramError>> = diagrams
+        .par_iter()
+        .map(|d| render_fn(&agent, d, server_url))
+        .collect();
+
+    partition_results(results)
+}
+
+/// Partition results into successes and failures.
+fn partition_results<T: std::fmt::Debug>(
+    results: Vec<Result<T, DiagramError>>,
+) -> PartialRenderResult<T> {
+    let mut rendered = Vec::with_capacity(results.len());
     let mut errors = Vec::new();
 
     for result in results {
@@ -394,51 +338,46 @@ fn render_all_partial<T: Send>(
         }
     }
 
-    Ok(PartialRenderResult { rendered, errors })
+    PartialRenderResult { rendered, errors }
 }
 
 /// Render all diagrams to SVG in parallel, returning partial results on failure.
 ///
+/// Uses the global rayon thread pool for parallel rendering.
 /// Returns successfully rendered diagrams even when some diagrams fail.
 /// Use this when you want to show partial results rather than failing completely.
 ///
 /// # Arguments
 /// * `diagrams` - List of diagrams to render
 /// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
-/// * `pool_size` - Number of parallel threads
 ///
 /// # Returns
 /// Partial result containing both successful renders and errors.
-///
-/// # Errors
-///
-/// Returns `RenderError::Io` if thread pool creation fails.
+#[must_use]
 pub fn render_all_svg_partial(
     diagrams: &[DiagramRequest],
     server_url: &str,
-    pool_size: usize,
-) -> Result<PartialRenderResult<RenderedSvg>, RenderError> {
-    render_all_partial(diagrams, server_url, pool_size, render_one_svg)
+) -> PartialRenderResult<RenderedSvg> {
+    render_all_partial(diagrams, server_url, render_one_svg)
 }
 
 /// Render all diagrams to PNG as base64 data URIs, returning partial results on failure.
 ///
+/// Uses the global rayon thread pool for parallel rendering.
 /// Returns successfully rendered diagrams even when some diagrams fail.
 ///
 /// # Arguments
 /// * `diagrams` - List of diagrams to render
 /// * `server_url` - Kroki server URL
-/// * `pool_size` - Number of parallel threads
 ///
-/// # Errors
-///
-/// Returns `RenderError::Io` if thread pool creation fails.
+/// # Returns
+/// Partial result containing both successful renders and errors.
+#[must_use]
 pub fn render_all_png_data_uri_partial(
     diagrams: &[DiagramRequest],
     server_url: &str,
-    pool_size: usize,
-) -> Result<PartialRenderResult<RenderedPngDataUri>, RenderError> {
-    render_all_partial(diagrams, server_url, pool_size, render_one_png_data_uri)
+) -> PartialRenderResult<RenderedPngDataUri> {
+    render_all_partial(diagrams, server_url, render_one_png_data_uri)
 }
 
 #[cfg(test)]

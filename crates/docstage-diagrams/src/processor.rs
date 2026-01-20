@@ -422,29 +422,20 @@ impl DiagramProcessor {
 
         let (requests, cache_map) = extract_requests_and_cache_info(to_render);
 
-        match render_all_svg_partial(&requests, &config.kroki_url, 4) {
-            Ok(result) => {
-                for r in result.rendered {
-                    let clean_svg = strip_google_fonts_import(r.svg.trim());
-                    let scaled_svg = scale_svg_dimensions(&clean_svg, config.dpi);
+        let result = render_all_svg_partial(&requests, &config.kroki_url);
+        for r in result.rendered {
+            let clean_svg = strip_google_fonts_import(r.svg.trim());
+            let scaled_svg = scale_svg_dimensions(&clean_svg, config.dpi);
 
-                    if let Some(info) = cache_map.get(&r.index) {
-                        config.cache.set(info.key(config.dpi), &scaled_svg);
-                    }
+            if let Some(info) = cache_map.get(&r.index) {
+                config.cache.set(info.key(config.dpi), &scaled_svg);
+            }
 
-                    let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
-                    replacements.add(r.index, figure);
-                }
-                for e in result.errors {
-                    replacements.add_error(e.index, &e.to_string());
-                }
-            }
-            Err(e) => {
-                let error_msg = e.to_string();
-                for &idx in cache_map.keys() {
-                    replacements.add_error(idx, &error_msg);
-                }
-            }
+            let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
+            replacements.add(r.index, figure);
+        }
+        for e in result.errors {
+            replacements.add_error(e.index, &e.to_string());
         }
     }
 
@@ -460,29 +451,20 @@ impl DiagramProcessor {
 
         let (requests, cache_map) = extract_requests_and_cache_info(to_render);
 
-        match render_all_png_data_uri_partial(&requests, &config.kroki_url, 4) {
-            Ok(result) => {
-                for r in result.rendered {
-                    if let Some(info) = cache_map.get(&r.index) {
-                        config.cache.set(info.key(config.dpi), &r.data_uri);
-                    }
+        let result = render_all_png_data_uri_partial(&requests, &config.kroki_url);
+        for r in result.rendered {
+            if let Some(info) = cache_map.get(&r.index) {
+                config.cache.set(info.key(config.dpi), &r.data_uri);
+            }
 
-                    let figure = format!(
-                        r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
-                        r.data_uri
-                    );
-                    replacements.add(r.index, figure);
-                }
-                for e in result.errors {
-                    replacements.add_error(e.index, &e.to_string());
-                }
-            }
-            Err(e) => {
-                let error_msg = e.to_string();
-                for &idx in cache_map.keys() {
-                    replacements.add_error(idx, &error_msg);
-                }
-            }
+            let figure = format!(
+                r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
+                r.data_uri
+            );
+            replacements.add(r.index, figure);
+        }
+        for e in result.errors {
+            replacements.add_error(e.index, &e.to_string());
         }
     }
 
@@ -512,24 +494,18 @@ impl DiagramProcessor {
 
         let server_url = config.kroki_url.trim_end_matches('/');
 
-        match render_all(&diagram_requests, server_url, output_dir, 4, config.dpi) {
-            Ok(rendered_diagrams) => {
-                for r in rendered_diagrams {
-                    let info = RenderedDiagramInfo {
-                        filename: r.filename,
-                        width: r.width,
-                        height: r.height,
-                    };
-                    let tag = tag_generator.generate_tag(&info, config.dpi);
-                    replacements.add(r.index, tag);
-                }
-            }
-            Err(e) => {
-                let error_msg = e.to_string();
-                for d in diagrams {
-                    replacements.add_error(d.index, &error_msg);
-                }
-            }
+        let result = render_all(&diagram_requests, server_url, output_dir, config.dpi);
+        for r in result.rendered {
+            let info = RenderedDiagramInfo {
+                filename: r.filename,
+                width: r.width,
+                height: r.height,
+            };
+            let tag = tag_generator.generate_tag(&info, config.dpi);
+            replacements.add(r.index, tag);
+        }
+        for e in result.errors {
+            replacements.add_error(e.index, &e.to_string());
         }
 
         // Apply all replacements in a single pass
