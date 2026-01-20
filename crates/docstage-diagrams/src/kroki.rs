@@ -101,13 +101,13 @@ impl std::fmt::Display for DiagramError {
 
 impl std::error::Error for DiagramError {}
 
-/// Create HTTP agent with standard timeout configuration.
+/// Create HTTP agent with the specified timeout.
 ///
 /// Use this to create a reusable agent for connection pooling when making
 /// multiple render calls.
-pub fn create_agent() -> Agent {
+pub fn create_agent(timeout: Duration) -> Agent {
     Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
+        .timeout_global(Some(timeout))
         .http_status_as_error(false)
         .build()
         .into()

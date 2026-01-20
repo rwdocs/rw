@@ -6,12 +6,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use docstage_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 use ureq::Agent;
 
 use crate::cache::{DiagramCache, DiagramKey, NullCache};
-use crate::consts::DEFAULT_DPI;
+use crate::consts::{DEFAULT_DPI, DEFAULT_TIMEOUT};
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
     DiagramRequest, create_agent, render_all, render_all_png_data_uri_partial,
@@ -34,6 +35,8 @@ struct ProcessorConfig {
     config_content: Option<String>,
     /// DPI for diagram rendering (default: 192).
     dpi: u32,
+    /// HTTP timeout for Kroki requests (default: 30 seconds).
+    timeout: Duration,
     /// Cache for diagram rendering (defaults to NullCache).
     cache: Arc<dyn DiagramCache>,
     /// Output mode for diagram rendering.
@@ -103,9 +106,10 @@ impl DiagramProcessor {
                 include_dirs: Vec::new(),
                 config_content: None,
                 dpi: DEFAULT_DPI,
+                timeout: DEFAULT_TIMEOUT,
                 cache: Arc::new(NullCache),
                 output: DiagramOutput::default(),
-                agent: create_agent(),
+                agent: create_agent(DEFAULT_TIMEOUT),
             },
             extracted: Vec::new(),
             warnings: Vec::new(),
@@ -173,6 +177,25 @@ impl DiagramProcessor {
     #[must_use]
     pub fn dpi(mut self, dpi: u32) -> Self {
         self.config.dpi = dpi;
+        self
+    }
+
+    /// Set HTTP timeout for Kroki requests.
+    ///
+    /// Default is 30 seconds. Increase for slow networks or large diagrams.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// let processor = DiagramProcessor::new("https://kroki.io")
+    ///     .timeout(Duration::from_secs(60)); // 60 second timeout
+    /// ```
+    #[must_use]
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.config.timeout = timeout;
+        self.config.agent = create_agent(timeout);
         self
     }
 
@@ -984,5 +1007,26 @@ mod tests {
         replacements.apply(&mut html);
 
         assert_eq!(html, "content");
+    }
+
+    #[test]
+    fn test_timeout_builder() {
+        // Test that timeout builder method works and can be chained
+        let processor = DiagramProcessor::new("https://kroki.io")
+            .timeout(Duration::from_secs(60))
+            .dpi(96);
+
+        // Verify the processor was created successfully and can process diagrams
+        assert!(processor.extracted().is_empty());
+        assert!(processor.warnings().is_empty());
+    }
+
+    #[test]
+    fn test_timeout_builder_short_timeout() {
+        // Test with a very short timeout
+        let processor =
+            DiagramProcessor::new("https://kroki.io").timeout(Duration::from_millis(100));
+
+        assert!(processor.extracted().is_empty());
     }
 }
