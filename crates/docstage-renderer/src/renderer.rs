@@ -142,7 +142,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// Returns blocks that were processed with `ProcessResult::Placeholder`.
     /// Use this after rendering to get the extracted data for deferred processing.
-    #[must_use] 
+    #[must_use]
     pub fn extracted_code_blocks(&self) -> Vec<ExtractedCodeBlock> {
         self.processors
             .iter()
@@ -152,7 +152,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     /// Get all warnings from all processors.
-    #[must_use] 
+    #[must_use]
     pub fn processor_warnings(&self) -> Vec<String> {
         self.processors
             .iter()
