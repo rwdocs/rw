@@ -37,7 +37,7 @@ impl DiagramKey<'_> {
     ///
     /// SHA-256 of `"{endpoint}:{format}:{dpi}:{source}"`.
     #[must_use]
-    fn compute_hash(&self) -> String {
+    pub(crate) fn compute_hash(&self) -> String {
         let content = format!(
             "{}:{}:{}:{}",
             self.endpoint, self.format, self.dpi, self.source
