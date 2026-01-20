@@ -143,12 +143,20 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// Returns blocks that were processed with `ProcessResult::Placeholder`.
     /// Use this after rendering to get the extracted data for deferred processing.
     pub fn extracted_code_blocks(&self) -> Vec<ExtractedCodeBlock> {
-        self.processors.iter().flat_map(|p| p.extracted()).collect()
+        self.processors
+            .iter()
+            .flat_map(|p| p.extracted())
+            .cloned()
+            .collect()
     }
 
     /// Get all warnings from all processors.
     pub fn processor_warnings(&self) -> Vec<String> {
-        self.processors.iter().flat_map(|p| p.warnings()).collect()
+        self.processors
+            .iter()
+            .flat_map(|p| p.warnings())
+            .cloned()
+            .collect()
     }
 
     /// Push content to output or heading buffer based on context.
@@ -661,8 +669,8 @@ mod tests {
             }
         }
 
-        fn extracted(&self) -> Vec<ExtractedCodeBlock> {
-            self.extracted.clone()
+        fn extracted(&self) -> &[ExtractedCodeBlock] {
+            &self.extracted
         }
     }
 

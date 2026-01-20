@@ -41,8 +41,8 @@
 //!         }
 //!     }
 //!
-//!     fn extracted(&self) -> Vec<ExtractedCodeBlock> {
-//!         self.extracted.clone()
+//!     fn extracted(&self) -> &[ExtractedCodeBlock] {
+//!         &self.extracted
 //!     }
 //! }
 //! ```
@@ -126,16 +126,16 @@ pub trait CodeBlockProcessor {
     /// Get all extracted code blocks after rendering.
     ///
     /// Returns blocks that were processed with `ProcessResult::Placeholder`.
-    /// Default implementation returns empty vec (for inline-only processors).
-    fn extracted(&self) -> Vec<ExtractedCodeBlock> {
-        Vec::new()
+    /// Default implementation returns empty slice (for inline-only processors).
+    fn extracted(&self) -> &[ExtractedCodeBlock] {
+        &[]
     }
 
     /// Get warnings generated during processing.
     ///
-    /// Default implementation returns empty vec.
-    fn warnings(&self) -> Vec<String> {
-        Vec::new()
+    /// Default implementation returns empty slice.
+    fn warnings(&self) -> &[String] {
+        &[]
     }
 }
 
@@ -303,12 +303,12 @@ mod tests {
             }
         }
 
-        fn extracted(&self) -> Vec<ExtractedCodeBlock> {
-            self.extracted.clone()
+        fn extracted(&self) -> &[ExtractedCodeBlock] {
+            &self.extracted
         }
 
-        fn warnings(&self) -> Vec<String> {
-            self.warnings.clone()
+        fn warnings(&self) -> &[String] {
+            &self.warnings
         }
     }
 
