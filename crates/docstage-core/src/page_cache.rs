@@ -195,8 +195,8 @@ impl PageCache for FilePageCache {
 
         let meta = self.read_meta(&meta_path)?;
 
-        // Validate source mtime
-        if (meta.source_mtime - source_mtime).abs() > f64::EPSILON {
+        // Validate source mtime (1ms tolerance for JSON serialization precision loss)
+        if (meta.source_mtime - source_mtime).abs() > 0.001 {
             return None;
         }
 
