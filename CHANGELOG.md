@@ -99,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Breadcrumbs exclude non-navigable paths and current page
 - Diagram sizing displays at correct physical size
 - Indented `!include` directives resolve in PlantUML
+- Cache mtime validation on CI due to f64 precision loss in JSON serialization
 
 ## [0.1.0] - 2025-12-05
 
