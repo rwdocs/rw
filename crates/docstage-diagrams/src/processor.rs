@@ -9,11 +9,9 @@ use std::sync::Arc;
 
 use docstage_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 
-use crate::cache::{DiagramCache, compute_diagram_hash};
+use crate::cache::{DiagramCache, NullCache, compute_diagram_hash};
 use crate::consts::DEFAULT_DPI;
-use crate::html_embed::{
-    replace_png_diagrams, replace_svg_diagrams, scale_svg_dimensions, strip_google_fonts_import,
-};
+use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
     DiagramRequest, render_all, render_all_png_data_uri_partial, render_all_svg_partial,
 };
@@ -24,8 +22,8 @@ use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
 /// Code block processor for diagram languages.
 ///
 /// Extracts diagram code blocks (PlantUML, Mermaid, GraphViz, etc.) and replaces
-/// them with placeholders during rendering. Use [`MarkdownRenderer::finalize`]
-/// to render diagrams and replace placeholders.
+/// them with placeholders during rendering. Placeholders are replaced with
+/// rendered diagrams during `post_process()`.
 ///
 /// # Configuration
 ///
@@ -52,10 +50,9 @@ use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
 /// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_processor(processor);
 ///
+/// // render() auto-calls post_process() on all processors
 /// let result = renderer.render(parser);
-/// let html = renderer.finalize(result.html);
 /// ```
-#[derive(Default)]
 pub struct DiagramProcessor {
     extracted: Vec<ExtractedCodeBlock>,
     warnings: Vec<String>,
@@ -67,17 +64,32 @@ pub struct DiagramProcessor {
     config_content: Option<String>,
     /// DPI for diagram rendering (None = default 192).
     dpi: Option<u32>,
-    /// Optional cache for diagram rendering.
-    cache: Option<Arc<dyn DiagramCache>>,
+    /// Cache for diagram rendering (defaults to NullCache).
+    cache: Arc<dyn DiagramCache>,
     /// Output mode for diagram rendering.
     output: DiagramOutput,
+}
+
+impl Default for DiagramProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DiagramProcessor {
     /// Create a new diagram processor.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            extracted: Vec::new(),
+            warnings: Vec::new(),
+            kroki_url: None,
+            include_dirs: Vec::new(),
+            config_content: None,
+            dpi: None,
+            cache: Arc::new(NullCache),
+            output: DiagramOutput::default(),
+        }
     }
 
     /// Set the Kroki server URL for rendering diagrams.
@@ -180,7 +192,7 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn with_cache(mut self, cache: Arc<dyn DiagramCache>) -> Self {
-        self.cache = Some(cache);
+        self.cache = cache;
         self
     }
 
@@ -288,12 +300,8 @@ impl CodeBlockProcessor for DiagramProcessor {
 
         match self.output.clone() {
             DiagramOutput::Inline => {
-                // Use cache-aware rendering if cache is available
-                if let Some(cache) = self.cache.clone() {
-                    self.post_process_with_cache(html, &diagrams, &kroki_url, &cache);
-                } else {
-                    self.post_process_no_cache(html, &diagrams, &kroki_url);
-                }
+                let cache = self.cache.clone();
+                self.post_process_inline(html, &diagrams, &kroki_url, &cache);
             }
             DiagramOutput::Files {
                 output_dir,
@@ -313,38 +321,12 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 }
 
-/// Cache-aware diagram rendering implementation.
+/// Inline diagram rendering implementation.
 impl DiagramProcessor {
-    /// Post-process without caching (original behavior).
-    fn post_process_no_cache(
-        &mut self,
-        html: &mut String,
-        diagrams: &[ExtractedDiagram],
-        kroki_url: &str,
-    ) {
-        let mut svg_requests = Vec::new();
-        let mut png_requests = Vec::new();
-
-        for diagram in diagrams {
-            let prepare_result = self.prepare_source(diagram);
-            self.warnings.extend(prepare_result.warnings);
-
-            let request =
-                DiagramRequest::new(diagram.index, prepare_result.source, diagram.language);
-            let entry = (diagram.index, request);
-
-            match diagram.format {
-                DiagramFormat::Svg => svg_requests.push(entry),
-                DiagramFormat::Png => png_requests.push(entry),
-            }
-        }
-
-        replace_svg_diagrams(html, &svg_requests, kroki_url, self.dpi);
-        replace_png_diagrams(html, &png_requests, kroki_url);
-    }
-
-    /// Post-process with caching: check cache first, render only misses.
-    fn post_process_with_cache(
+    /// Post-process with inline output mode.
+    ///
+    /// Checks cache first, renders only cache misses via Kroki.
+    fn post_process_inline(
         &mut self,
         html: &mut String,
         diagrams: &[ExtractedDiagram],
