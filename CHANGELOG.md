@@ -61,6 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Encapsulated hash calculation in `DiagramCache`** via `DiagramKey` struct; cache implementations compute hashes internally, removing `compute_diagram_hash` from public API
 - **Removed unused `RenderError` variants** (`Http`, `InvalidPng`) in `docstage-diagrams`; individual diagram errors use `DiagramError`/`DiagramErrorKind`, aggregated via `RenderError::Multiple`
 - **Consolidated duplicate hash implementations** in `docstage-diagrams`; filename generation in `render_all` now uses `DiagramKey::compute_hash()` (truncated to 12 hex chars) instead of separate `diagram_hash` function, ensuring DPI is included in filename hash to prevent overwrites when same diagram is rendered at different DPIs
+- **Separated config from state in `DiagramProcessor`** via internal `ProcessorConfig` struct; enables borrowing config immutably while mutating warnings, eliminating unnecessary clones in `post_process()` (idiomatic Rust pattern)
+- **Simplified DPI handling** by defaulting to `DEFAULT_DPI` (192) at construction time instead of using `Option<u32>` throughout; removes `unwrap_or(DEFAULT_DPI)` boilerplate from multiple functions
 
 ### Fixed
 

@@ -16,8 +16,27 @@ use crate::kroki::{
     DiagramRequest, render_all, render_all_png_data_uri_partial, render_all_svg_partial,
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
-use crate::output::{DiagramOutput, RenderedDiagramInfo};
+use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
+
+/// Configuration for diagram processing (immutable after setup).
+///
+/// Separated from mutable state to allow borrowing config while mutating state,
+/// avoiding unnecessary clones in Rust's ownership model.
+struct ProcessorConfig {
+    /// Kroki server URL for rendering diagrams.
+    kroki_url: Option<String>,
+    /// Directories to search for PlantUML `!include` files.
+    include_dirs: Vec<PathBuf>,
+    /// PlantUML config content (loaded from config file).
+    config_content: Option<String>,
+    /// DPI for diagram rendering (default: 192).
+    dpi: u32,
+    /// Cache for diagram rendering (defaults to NullCache).
+    cache: Arc<dyn DiagramCache>,
+    /// Output mode for diagram rendering.
+    output: DiagramOutput,
+}
 
 /// Code block processor for diagram languages.
 ///
@@ -54,20 +73,12 @@ use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
 /// let result = renderer.render(parser);
 /// ```
 pub struct DiagramProcessor {
+    /// Configuration (immutable after setup).
+    config: ProcessorConfig,
+    /// Extracted code blocks (accumulated during processing).
     extracted: Vec<ExtractedCodeBlock>,
+    /// Warnings (accumulated during processing).
     warnings: Vec<String>,
-    /// Kroki server URL for rendering diagrams.
-    kroki_url: Option<String>,
-    /// Directories to search for PlantUML `!include` files.
-    include_dirs: Vec<PathBuf>,
-    /// PlantUML config content (loaded from config file).
-    config_content: Option<String>,
-    /// DPI for diagram rendering (None = default 192).
-    dpi: Option<u32>,
-    /// Cache for diagram rendering (defaults to NullCache).
-    cache: Arc<dyn DiagramCache>,
-    /// Output mode for diagram rendering.
-    output: DiagramOutput,
 }
 
 impl Default for DiagramProcessor {
@@ -81,20 +92,17 @@ impl DiagramProcessor {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            config: ProcessorConfig {
+                kroki_url: None,
+                include_dirs: Vec::new(),
+                config_content: None,
+                dpi: DEFAULT_DPI,
+                cache: Arc::new(NullCache),
+                output: DiagramOutput::default(),
+            },
             extracted: Vec::new(),
             warnings: Vec::new(),
-            kroki_url: None,
-            include_dirs: Vec::new(),
-            config_content: None,
-            dpi: None,
-            cache: Arc::new(NullCache),
-            output: DiagramOutput::default(),
         }
-    }
-
-    /// Get the effective DPI for diagram rendering.
-    fn effective_dpi(&self) -> u32 {
-        self.dpi.unwrap_or(DEFAULT_DPI)
     }
 
     /// Set the Kroki server URL for rendering diagrams.
@@ -110,7 +118,7 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn kroki_url(mut self, url: impl Into<String>) -> Self {
-        self.kroki_url = Some(url.into());
+        self.config.kroki_url = Some(url.into());
         self
     }
 
@@ -124,7 +132,7 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn include_dirs(mut self, dirs: &[PathBuf]) -> Self {
-        self.include_dirs = dirs.to_vec();
+        self.config.include_dirs = dirs.to_vec();
         self
     }
 
@@ -141,7 +149,8 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn config_file(mut self, config_file: Option<&str>) -> Self {
-        self.config_content = config_file.and_then(|cf| load_config_file(&self.include_dirs, cf));
+        self.config.config_content =
+            config_file.and_then(|cf| load_config_file(&self.config.include_dirs, cf));
         self
     }
 
@@ -157,7 +166,7 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn config_content(mut self, content: Option<&str>) -> Self {
-        self.config_content = content.map(ToString::to_string);
+        self.config.config_content = content.map(ToString::to_string);
         self
     }
 
@@ -173,7 +182,7 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn dpi(mut self, dpi: u32) -> Self {
-        self.dpi = Some(dpi);
+        self.config.dpi = dpi;
         self
     }
 
@@ -197,7 +206,7 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn with_cache(mut self, cache: Arc<dyn DiagramCache>) -> Self {
-        self.cache = cache;
+        self.config.cache = cache;
         self
     }
 
@@ -220,7 +229,7 @@ impl DiagramProcessor {
     /// ```
     #[must_use]
     pub fn output(mut self, output: DiagramOutput) -> Self {
-        self.output = output;
+        self.config.output = output;
         self
     }
 
@@ -228,13 +237,13 @@ impl DiagramProcessor {
     ///
     /// For PlantUML diagrams, this resolves `!include` directives and injects config.
     /// For other diagram types, returns the source as-is.
-    fn prepare_source(&self, diagram: &ExtractedDiagram) -> PrepareResult {
+    fn prepare_source(config: &ProcessorConfig, diagram: &ExtractedDiagram) -> PrepareResult {
         if diagram.language.needs_plantuml_preprocessing() {
             prepare_diagram_source(
                 &diagram.source,
-                &self.include_dirs,
-                self.config_content.as_deref(),
-                self.dpi,
+                &config.include_dirs,
+                config.config_content.as_deref(),
+                config.dpi,
             )
         } else {
             PrepareResult {
@@ -294,7 +303,7 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 
     fn post_process(&mut self, html: &mut String) {
-        let Some(kroki_url) = self.kroki_url.clone() else {
+        let Some(kroki_url) = &self.config.kroki_url else {
             return;
         };
 
@@ -303,16 +312,29 @@ impl CodeBlockProcessor for DiagramProcessor {
             return;
         }
 
-        match self.output.clone() {
+        match &self.config.output {
             DiagramOutput::Inline => {
-                let cache = self.cache.clone();
-                self.post_process_inline(html, &diagrams, &kroki_url, &cache);
+                Self::post_process_inline(
+                    &self.config,
+                    &mut self.warnings,
+                    html,
+                    &diagrams,
+                    kroki_url,
+                );
             }
             DiagramOutput::Files {
                 output_dir,
                 tag_generator,
             } => {
-                self.post_process_files(html, &diagrams, &kroki_url, &output_dir, &tag_generator);
+                Self::post_process_files(
+                    &self.config,
+                    &mut self.warnings,
+                    html,
+                    &diagrams,
+                    kroki_url,
+                    output_dir,
+                    tag_generator,
+                );
             }
         }
     }
@@ -345,24 +367,27 @@ impl CacheInfo {
     }
 }
 
-/// Inline diagram rendering implementation.
+/// Diagram rendering implementation.
+///
+/// These methods take `&ProcessorConfig` and `&mut Vec<String>` separately,
+/// allowing immutable config access while mutating warnings (idiomatic Rust pattern).
 impl DiagramProcessor {
     /// Post-process with inline output mode.
     ///
     /// Checks cache first, renders only cache misses via Kroki.
     fn post_process_inline(
-        &mut self,
+        config: &ProcessorConfig,
+        warnings: &mut Vec<String>,
         html: &mut String,
         diagrams: &[ExtractedDiagram],
         kroki_url: &str,
-        cache: &Arc<dyn DiagramCache>,
     ) {
         // Prepare all diagrams
         let prepared: Vec<_> = diagrams
             .iter()
             .map(|diagram| {
-                let prepare_result = self.prepare_source(diagram);
-                self.warnings.extend(prepare_result.warnings);
+                let prepare_result = Self::prepare_source(config, diagram);
+                warnings.extend(prepare_result.warnings);
                 (diagram, prepare_result.source)
             })
             .collect();
@@ -379,7 +404,7 @@ impl DiagramProcessor {
                 format: diagram.format.as_str(),
             };
 
-            if let Some(cached_content) = cache.get(cache_info.key(self.effective_dpi())) {
+            if let Some(cached_content) = config.cache.get(cache_info.key(config.dpi)) {
                 // Cache hit: replace placeholder directly
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
@@ -404,17 +429,16 @@ impl DiagramProcessor {
         }
 
         // Render cache misses
-        self.render_and_cache_svg(html, svg_to_render, kroki_url, cache);
-        self.render_and_cache_png(html, png_to_render, kroki_url, cache);
+        Self::render_and_cache_svg(config, html, svg_to_render, kroki_url);
+        Self::render_and_cache_png(config, html, png_to_render, kroki_url);
     }
 
     /// Render SVG diagrams, cache results, and replace placeholders.
     fn render_and_cache_svg(
-        &mut self,
+        config: &ProcessorConfig,
         html: &mut String,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
         kroki_url: &str,
-        cache: &Arc<dyn DiagramCache>,
     ) {
         if to_render.is_empty() {
             return;
@@ -426,10 +450,10 @@ impl DiagramProcessor {
             Ok(result) => {
                 for r in result.rendered {
                     let clean_svg = strip_google_fonts_import(r.svg.trim());
-                    let scaled_svg = scale_svg_dimensions(&clean_svg, self.dpi);
+                    let scaled_svg = scale_svg_dimensions(&clean_svg, config.dpi);
 
                     if let Some(info) = cache_map.get(&r.index) {
-                        cache.set(info.key(self.effective_dpi()), &scaled_svg);
+                        config.cache.set(info.key(config.dpi), &scaled_svg);
                     }
 
                     let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
@@ -443,11 +467,10 @@ impl DiagramProcessor {
 
     /// Render PNG diagrams, cache results, and replace placeholders.
     fn render_and_cache_png(
-        &self,
+        config: &ProcessorConfig,
         html: &mut String,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
         kroki_url: &str,
-        cache: &Arc<dyn DiagramCache>,
     ) {
         if to_render.is_empty() {
             return;
@@ -459,7 +482,7 @@ impl DiagramProcessor {
             Ok(result) => {
                 for r in result.rendered {
                     if let Some(info) = cache_map.get(&r.index) {
-                        cache.set(info.key(self.effective_dpi()), &r.data_uri);
+                        config.cache.set(info.key(config.dpi), &r.data_uri);
                     }
 
                     let figure = format!(
@@ -478,27 +501,27 @@ impl DiagramProcessor {
     ///
     /// Renders diagrams to PNG files and replaces placeholders with custom tags.
     fn post_process_files(
-        &mut self,
+        config: &ProcessorConfig,
+        warnings: &mut Vec<String>,
         html: &mut String,
         diagrams: &[ExtractedDiagram],
         kroki_url: &str,
         output_dir: &std::path::Path,
-        tag_generator: &Arc<dyn crate::output::DiagramTagGenerator>,
+        tag_generator: &Arc<dyn DiagramTagGenerator>,
     ) {
         // Prepare all diagrams
         let diagram_requests: Vec<_> = diagrams
             .iter()
             .map(|d| {
-                let prepare_result = self.prepare_source(d);
-                self.warnings.extend(prepare_result.warnings);
+                let prepare_result = Self::prepare_source(config, d);
+                warnings.extend(prepare_result.warnings);
                 DiagramRequest::new(d.index, prepare_result.source, d.language)
             })
             .collect();
 
         let server_url = kroki_url.trim_end_matches('/');
-        let dpi = self.effective_dpi();
 
-        match render_all(&diagram_requests, server_url, output_dir, 4, dpi) {
+        match render_all(&diagram_requests, server_url, output_dir, 4, config.dpi) {
             Ok(rendered_diagrams) => {
                 for r in rendered_diagrams {
                     let info = RenderedDiagramInfo {
@@ -506,7 +529,7 @@ impl DiagramProcessor {
                         width: r.width,
                         height: r.height,
                     };
-                    let tag = tag_generator.generate_tag(&info, self.effective_dpi());
+                    let tag = tag_generator.generate_tag(&info, config.dpi);
                     replace_placeholder(html, r.index, &tag);
                 }
             }
