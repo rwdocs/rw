@@ -2,18 +2,11 @@
 //!
 //! This module handles embedding rendered diagrams into HTML:
 //! - SVG dimension scaling based on DPI
-//! - Placeholder replacement with rendered content
-//! - Error handling for failed renders
+//! - Google Fonts stripping from SVG
 
 use std::sync::LazyLock;
 
 use regex::Regex;
-
-use docstage_renderer::escape_html;
-
-use crate::kroki::{
-    DiagramError, DiagramRequest, render_all_png_data_uri_partial, render_all_svg_partial,
-};
 
 use crate::consts::{DEFAULT_DPI, STANDARD_DPI};
 
@@ -90,103 +83,6 @@ pub fn scale_svg_dimensions(svg: &str, dpi: Option<u32>) -> String {
 #[must_use]
 pub fn strip_google_fonts_import(svg: &str) -> String {
     GOOGLE_FONTS_RE.replace_all(svg, "").to_string()
-}
-
-/// Replace diagram placeholders with rendered SVG content.
-///
-/// Renders diagrams via Kroki and replaces `{{DIAGRAM_N}}` placeholders.
-/// On success, wraps SVG in `<figure class="diagram">`.
-/// On failure, shows error in `<figure class="diagram diagram-error">`.
-///
-/// SVG dimensions are scaled based on DPI to display at correct physical size.
-/// For example, at 192 DPI (2x retina), dimensions are halved so diagrams
-/// appear at their intended size on standard displays.
-pub fn replace_svg_diagrams(
-    html: &mut String,
-    diagrams: &[(usize, DiagramRequest)],
-    kroki_url: &str,
-    dpi: Option<u32>,
-) {
-    if diagrams.is_empty() {
-        return;
-    }
-
-    let requests: Vec<_> = diagrams.iter().map(|(_, r)| r.clone()).collect();
-    match render_all_svg_partial(&requests, kroki_url, 4) {
-        Ok(result) => {
-            for r in result.rendered {
-                replace_placeholder_with_svg(html, r.index, r.svg.trim(), dpi);
-            }
-            replace_errors(html, &result.errors);
-        }
-        Err(e) => replace_all_with_error(html, diagrams, &e.to_string()),
-    }
-}
-
-/// Replace diagram placeholders with rendered PNG content as data URIs.
-///
-/// Renders diagrams via Kroki and replaces `{{DIAGRAM_N}}` placeholders.
-/// On success, wraps PNG in `<figure class="diagram"><img>`.
-/// On failure, shows error in `<figure class="diagram diagram-error">`.
-pub fn replace_png_diagrams(
-    html: &mut String,
-    diagrams: &[(usize, DiagramRequest)],
-    kroki_url: &str,
-) {
-    if diagrams.is_empty() {
-        return;
-    }
-
-    let requests: Vec<_> = diagrams.iter().map(|(_, r)| r.clone()).collect();
-    match render_all_png_data_uri_partial(&requests, kroki_url, 4) {
-        Ok(result) => {
-            for r in result.rendered {
-                replace_placeholder_with_png(html, r.index, &r.data_uri);
-            }
-            replace_errors(html, &result.errors);
-        }
-        Err(e) => replace_all_with_error(html, diagrams, &e.to_string()),
-    }
-}
-
-fn replace_placeholder_with_svg(html: &mut String, index: usize, svg: &str, dpi: Option<u32>) {
-    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-    let clean_svg = strip_google_fonts_import(svg);
-    let scaled_svg = scale_svg_dimensions(&clean_svg, dpi);
-    let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
-    *html = html.replace(&placeholder, &figure);
-}
-
-fn replace_placeholder_with_png(html: &mut String, index: usize, data_uri: &str) {
-    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-    let figure =
-        format!(r#"<figure class="diagram"><img src="{data_uri}" alt="diagram"></figure>"#);
-    *html = html.replace(&placeholder, &figure);
-}
-
-fn replace_errors(html: &mut String, errors: &[DiagramError]) {
-    for e in errors {
-        replace_placeholder_with_error_msg(html, e.index, &e.to_string());
-    }
-}
-
-fn replace_all_with_error(
-    html: &mut String,
-    diagrams: &[(usize, DiagramRequest)],
-    error_msg: &str,
-) {
-    for (idx, _) in diagrams {
-        replace_placeholder_with_error_msg(html, *idx, error_msg);
-    }
-}
-
-fn replace_placeholder_with_error_msg(html: &mut String, index: usize, error_msg: &str) {
-    let placeholder = format!("{{{{DIAGRAM_{index}}}}}");
-    let error_figure = format!(
-        r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
-        escape_html(error_msg)
-    );
-    *html = html.replace(&placeholder, &error_figure);
 }
 
 #[cfg(test)]
