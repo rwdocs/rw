@@ -6,8 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+serde = ["dep:serde"]
+
 [dependencies]
 pulldown-cmark = { workspace = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

@@ -8,13 +8,14 @@ from pathlib import Path
 
 from aiohttp import web
 from aiohttp.typedefs import Handler
+from docstage_core import PageRenderer, PageRendererConfig
 from docstage_core.config import Config
 
+from docstage import __version__
 from docstage.api.config import create_config_routes
 from docstage.api.navigation import create_navigation_routes
 from docstage.api.pages import create_pages_routes
 from docstage.app_keys import (
-    cache_key,
     live_reload_enabled_key,
     renderer_key,
     site_loader_key,
@@ -22,7 +23,6 @@ from docstage.app_keys import (
 )
 from docstage.assets import get_static_dir
 from docstage.core.cache import FileCache, NullCache
-from docstage.core.renderer import PageRenderer
 from docstage.core.site import SiteLoader
 
 
@@ -69,24 +69,28 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
     """
     app = web.Application(middlewares=[security_headers_middleware])
 
-    cache: FileCache | NullCache
+    # Site cache (for site structure only)
+    site_cache: FileCache | NullCache
     if config.docs.cache_enabled:
-        cache = FileCache(config.docs.cache_dir)
+        site_cache = FileCache(config.docs.cache_dir)
     else:
-        cache = NullCache()
+        site_cache = NullCache()
 
-    renderer = PageRenderer(
-        cache,
+    # Rust PageRenderer handles page caching internally
+    renderer_config = PageRendererConfig(
+        cache_dir=config.docs.cache_dir if config.docs.cache_enabled else None,
+        version=__version__,
+        extract_title=True,
         kroki_url=config.diagrams.kroki_url,
         include_dirs=config.diagrams.include_dirs,
         config_file=config.diagrams.config_file,
         dpi=config.diagrams.dpi,
     )
-    site_loader = SiteLoader(config.docs.source_dir, cache)
+    renderer = PageRenderer(renderer_config)
+    site_loader = SiteLoader(config.docs.source_dir, site_cache)
 
     app[renderer_key] = renderer
     app[site_loader_key] = site_loader
-    app[cache_key] = cache
     app[verbose_key] = verbose
     app[live_reload_enabled_key] = config.live_reload.enabled
 

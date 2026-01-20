@@ -8,6 +8,9 @@ from ._docstage_core import (
     ConvertResult,
     HtmlConvertResult,
     MarkdownConverter,
+    PageRenderer,
+    PageRendererConfig,
+    PageRenderResult,
     TocEntry,
 )
 
@@ -15,5 +18,8 @@ __all__ = [
     "ConvertResult",
     "HtmlConvertResult",
     "MarkdownConverter",
+    "PageRenderResult",
+    "PageRenderer",
+    "PageRendererConfig",
     "TocEntry",
 ]

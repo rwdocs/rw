@@ -139,6 +139,7 @@ impl ImageState {
 
 /// Table of contents entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TocEntry {
     /// Heading level (1-6).
     pub level: u8,

@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from aiohttp import web
-from docstage.app_keys import cache_key, renderer_key, site_loader_key
+from docstage.app_keys import renderer_key, site_loader_key
 from docstage.assets import get_static_dir
 from docstage.server import create_app
 from docstage_core.config import Config
@@ -55,8 +55,6 @@ class TestCreateApp:
 
         assert renderer_key in app
         assert site_loader_key in app
-        assert cache_key in app
-        assert app[cache_key].cache_dir == test_config.docs.cache_dir
 
     def test__app__uses_bundled_static_assets(self, test_config: Config) -> None:
         """Create app uses bundled static assets."""
