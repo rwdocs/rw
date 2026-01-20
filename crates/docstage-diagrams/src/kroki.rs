@@ -14,11 +14,11 @@
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use rayon::prelude::*;
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::time::Duration;
 use ureq::Agent;
 
+use crate::cache::DiagramKey;
 use crate::language::DiagramLanguage;
 
 /// Result of rendering a single diagram to PNG.
@@ -146,16 +146,6 @@ fn get_png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
     Some((width, height))
 }
 
-/// Generate SHA256 hash prefix for diagram filename.
-fn diagram_hash(diagram_type: &str, source: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(diagram_type.as_bytes());
-    hasher.update(b":");
-    hasher.update(source.as_bytes());
-    let result = hasher.finalize();
-    hex::encode(&result[..6])
-}
-
 /// Send a diagram to Kroki and return the response body as bytes.
 ///
 /// Handles HTTP errors by reading the response body for error details.
@@ -202,6 +192,7 @@ fn render_one_png(
     diagram: &DiagramRequest,
     server_url: &str,
     output_dir: &Path,
+    dpi: u32,
 ) -> Result<RenderedDiagram, DiagramError> {
     let data = send_diagram_request(agent, diagram, server_url, "png")?;
 
@@ -211,7 +202,13 @@ fn render_one_png(
     })?;
 
     let endpoint = diagram.language.kroki_endpoint();
-    let hash = diagram_hash(endpoint, &diagram.source);
+    let key = DiagramKey {
+        source: &diagram.source,
+        endpoint,
+        format: "png",
+        dpi,
+    };
+    let hash = &key.compute_hash()[..12];
     let filename = format!("diagram_{hash}.png");
     let filepath = output_dir.join(&filename);
 
@@ -235,6 +232,7 @@ fn render_one_png(
 /// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
 /// * `output_dir` - Directory to save rendered PNG files
 /// * `pool_size` - Number of parallel threads
+/// * `dpi` - DPI used for rendering (affects filename hash)
 ///
 /// # Returns
 /// Vector of rendered diagram info, or all errors collected during rendering.
@@ -248,6 +246,7 @@ pub fn render_all(
     server_url: &str,
     output_dir: &Path,
     pool_size: usize,
+    dpi: u32,
 ) -> Result<Vec<RenderedDiagram>, RenderError> {
     if diagrams.is_empty() {
         return Ok(Vec::new());
@@ -271,7 +270,7 @@ pub fn render_all(
     let results: Vec<Result<RenderedDiagram, DiagramError>> = pool.install(|| {
         diagrams
             .par_iter()
-            .map(|d| render_one_png(&agent, d, server_url, output_dir))
+            .map(|d| render_one_png(&agent, d, server_url, output_dir, dpi))
             .collect()
     });
 
@@ -467,10 +466,29 @@ mod tests {
     }
 
     #[test]
-    fn test_diagram_hash() {
-        let hash1 = diagram_hash("plantuml", "@startuml\nA -> B\n@enduml");
-        let hash2 = diagram_hash("plantuml", "@startuml\nA -> B\n@enduml");
-        let hash3 = diagram_hash("plantuml", "@startuml\nC -> D\n@enduml");
+    fn test_filename_hash() {
+        let key1 = DiagramKey {
+            source: "@startuml\nA -> B\n@enduml",
+            endpoint: "plantuml",
+            format: "png",
+            dpi: 192,
+        };
+        let key2 = DiagramKey {
+            source: "@startuml\nA -> B\n@enduml",
+            endpoint: "plantuml",
+            format: "png",
+            dpi: 192,
+        };
+        let key3 = DiagramKey {
+            source: "@startuml\nC -> D\n@enduml",
+            endpoint: "plantuml",
+            format: "png",
+            dpi: 192,
+        };
+
+        let hash1 = &key1.compute_hash()[..12];
+        let hash2 = &key2.compute_hash()[..12];
+        let hash3 = &key3.compute_hash()[..12];
 
         assert_eq!(hash1.len(), 12);
         assert_eq!(hash1, hash2);

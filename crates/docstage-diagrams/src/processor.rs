@@ -496,8 +496,9 @@ impl DiagramProcessor {
             .collect();
 
         let server_url = kroki_url.trim_end_matches('/');
+        let dpi = self.effective_dpi();
 
-        match render_all(&diagram_requests, server_url, output_dir, 4) {
+        match render_all(&diagram_requests, server_url, output_dir, 4, dpi) {
             Ok(rendered_diagrams) => {
                 for r in rendered_diagrams {
                     let info = RenderedDiagramInfo {
