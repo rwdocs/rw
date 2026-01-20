@@ -102,7 +102,10 @@ impl std::fmt::Display for DiagramError {
 impl std::error::Error for DiagramError {}
 
 /// Create HTTP agent with standard timeout configuration.
-fn create_agent() -> Agent {
+///
+/// Use this to create a reusable agent for connection pooling when making
+/// multiple render calls.
+pub fn create_agent() -> Agent {
     Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(30)))
         .http_status_as_error(false)
@@ -218,6 +221,7 @@ fn render_one_png(
 /// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
 /// * `output_dir` - Directory to save rendered PNG files
 /// * `dpi` - DPI used for rendering (affects filename hash)
+/// * `agent` - HTTP agent for connection pooling
 ///
 /// # Returns
 /// Partial result containing both successful renders and errors.
@@ -227,6 +231,7 @@ pub fn render_all(
     server_url: &str,
     output_dir: &Path,
     dpi: u32,
+    agent: &Agent,
 ) -> PartialRenderResult<RenderedDiagram> {
     if diagrams.is_empty() {
         return PartialRenderResult {
@@ -235,12 +240,11 @@ pub fn render_all(
         };
     }
 
-    let agent = create_agent();
     let server_url = server_url.trim_end_matches('/');
 
     let results: Vec<Result<RenderedDiagram, DiagramError>> = diagrams
         .par_iter()
-        .map(|d| render_one_png(&agent, d, server_url, output_dir, dpi))
+        .map(|d| render_one_png(agent, d, server_url, output_dir, dpi))
         .collect();
 
     partition_results(results)
@@ -304,6 +308,7 @@ pub struct PartialRenderResult<T> {
 fn render_all_partial<T: Send + std::fmt::Debug>(
     diagrams: &[DiagramRequest],
     server_url: &str,
+    agent: &Agent,
     render_fn: fn(&Agent, &DiagramRequest, &str) -> Result<T, DiagramError>,
 ) -> PartialRenderResult<T> {
     if diagrams.is_empty() {
@@ -313,12 +318,11 @@ fn render_all_partial<T: Send + std::fmt::Debug>(
         };
     }
 
-    let agent = create_agent();
     let server_url = server_url.trim_end_matches('/');
 
     let results: Vec<Result<T, DiagramError>> = diagrams
         .par_iter()
-        .map(|d| render_fn(&agent, d, server_url))
+        .map(|d| render_fn(agent, d, server_url))
         .collect();
 
     partition_results(results)
@@ -350,6 +354,7 @@ fn partition_results<T: std::fmt::Debug>(
 /// # Arguments
 /// * `diagrams` - List of diagrams to render
 /// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
+/// * `agent` - HTTP agent for connection pooling
 ///
 /// # Returns
 /// Partial result containing both successful renders and errors.
@@ -357,8 +362,9 @@ fn partition_results<T: std::fmt::Debug>(
 pub fn render_all_svg_partial(
     diagrams: &[DiagramRequest],
     server_url: &str,
+    agent: &Agent,
 ) -> PartialRenderResult<RenderedSvg> {
-    render_all_partial(diagrams, server_url, render_one_svg)
+    render_all_partial(diagrams, server_url, agent, render_one_svg)
 }
 
 /// Render all diagrams to PNG as base64 data URIs, returning partial results on failure.
@@ -369,6 +375,7 @@ pub fn render_all_svg_partial(
 /// # Arguments
 /// * `diagrams` - List of diagrams to render
 /// * `server_url` - Kroki server URL
+/// * `agent` - HTTP agent for connection pooling
 ///
 /// # Returns
 /// Partial result containing both successful renders and errors.
@@ -376,8 +383,9 @@ pub fn render_all_svg_partial(
 pub fn render_all_png_data_uri_partial(
     diagrams: &[DiagramRequest],
     server_url: &str,
+    agent: &Agent,
 ) -> PartialRenderResult<RenderedPngDataUri> {
-    render_all_partial(diagrams, server_url, render_one_png_data_uri)
+    render_all_partial(diagrams, server_url, agent, render_one_png_data_uri)
 }
 
 #[cfg(test)]
