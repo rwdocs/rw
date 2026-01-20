@@ -76,6 +76,19 @@ pub enum DiagramOutput {
     },
 }
 
+impl std::fmt::Debug for DiagramOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Inline => write!(f, "DiagramOutput::Inline"),
+            Self::Files { output_dir, .. } => f
+                .debug_struct("DiagramOutput::Files")
+                .field("output_dir", output_dir)
+                .field("tag_generator", &"<dyn DiagramTagGenerator>")
+                .finish(),
+        }
+    }
+}
+
 /// Simple `<img>` tag generator for static sites.
 ///
 /// Generates: `<img src="{prefix}{filename}" width="{display_width}" alt="diagram">`
@@ -224,5 +237,23 @@ mod tests {
         };
         // At 192 DPI (2x), height should be halved: 200 * 96 / 192 = 100
         assert_eq!(info.display_height(192), 100);
+    }
+
+    #[test]
+    fn test_diagram_output_debug_inline() {
+        let output = DiagramOutput::Inline;
+        assert_eq!(format!("{output:?}"), "DiagramOutput::Inline");
+    }
+
+    #[test]
+    fn test_diagram_output_debug_files() {
+        let output = DiagramOutput::Files {
+            output_dir: PathBuf::from("/tmp/diagrams"),
+            tag_generator: Arc::new(ImgTagGenerator::new("/assets/")),
+        };
+        let debug = format!("{output:?}");
+        assert!(debug.contains("DiagramOutput::Files"));
+        assert!(debug.contains("/tmp/diagrams"));
+        assert!(debug.contains("<dyn DiagramTagGenerator>"));
     }
 }
