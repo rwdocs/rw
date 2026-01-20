@@ -32,7 +32,7 @@ fn indent_content(content: &str, indent: &str) -> String {
 }
 
 /// Result of preparing diagram source with potential warnings.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PrepareResult {
     /// Prepared diagram source.
     pub source: String,

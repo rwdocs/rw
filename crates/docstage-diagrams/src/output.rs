@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::consts::STANDARD_DPI;
 
 /// Information about a rendered diagram for tag generation.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RenderedDiagramInfo {
     /// Filename of the diagram (e.g., "diagram_abc123.png").
     pub filename: String,
@@ -56,7 +56,7 @@ pub trait DiagramTagGenerator: Send + Sync {
 }
 
 /// Output mode for diagram rendering.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub enum DiagramOutput {
     /// Embed diagrams inline in HTML (default).
     ///
@@ -79,7 +79,7 @@ pub enum DiagramOutput {
 /// Simple `<img>` tag generator for static sites.
 ///
 /// Generates: `<img src="{prefix}{filename}" width="{display_width}" alt="diagram">`
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ImgTagGenerator {
     /// Path prefix (e.g., "/assets/diagrams/").
     pub path_prefix: String,
@@ -109,7 +109,7 @@ impl DiagramTagGenerator for ImgTagGenerator {
 /// Figure-wrapped tag generator.
 ///
 /// Generates: `<figure class="diagram"><img src="..." width="..." alt="diagram"></figure>`
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FigureTagGenerator {
     /// Path prefix (e.g., "/assets/diagrams/").
     pub path_prefix: String,
@@ -191,19 +191,6 @@ mod tests {
     fn test_diagram_output_default() {
         let output = DiagramOutput::default();
         assert!(matches!(output, DiagramOutput::Inline));
-    }
-
-    #[test]
-    fn test_rendered_diagram_info_clone() {
-        let info = RenderedDiagramInfo {
-            filename: "test.png".to_string(),
-            width: 100,
-            height: 50,
-        };
-        let cloned = info.clone();
-        assert_eq!(cloned.filename, "test.png");
-        assert_eq!(cloned.width, 100);
-        assert_eq!(cloned.height, 50);
     }
 
     #[test]
