@@ -99,6 +99,8 @@ impl std::fmt::Display for DiagramError {
     }
 }
 
+impl std::error::Error for DiagramError {}
+
 /// Error during diagram rendering (may contain multiple errors).
 #[derive(Debug)]
 pub enum RenderError {
