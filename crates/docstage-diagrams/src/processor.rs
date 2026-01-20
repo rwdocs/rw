@@ -8,12 +8,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use docstage_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
+use ureq::Agent;
 
 use crate::cache::{DiagramCache, DiagramKey, NullCache};
 use crate::consts::DEFAULT_DPI;
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
-    DiagramRequest, render_all, render_all_png_data_uri_partial, render_all_svg_partial,
+    DiagramRequest, create_agent, render_all, render_all_png_data_uri_partial,
+    render_all_svg_partial,
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
@@ -36,6 +38,8 @@ struct ProcessorConfig {
     cache: Arc<dyn DiagramCache>,
     /// Output mode for diagram rendering.
     output: DiagramOutput,
+    /// HTTP agent for connection pooling (reused across render calls).
+    agent: Agent,
 }
 
 /// Code block processor for diagram languages.
@@ -101,6 +105,7 @@ impl DiagramProcessor {
                 dpi: DEFAULT_DPI,
                 cache: Arc::new(NullCache),
                 output: DiagramOutput::default(),
+                agent: create_agent(),
             },
             extracted: Vec::new(),
             warnings: Vec::new(),
@@ -422,7 +427,7 @@ impl DiagramProcessor {
 
         let (requests, cache_map) = extract_requests_and_cache_info(to_render);
 
-        let result = render_all_svg_partial(&requests, &config.kroki_url);
+        let result = render_all_svg_partial(&requests, &config.kroki_url, &config.agent);
         for r in result.rendered {
             let clean_svg = strip_google_fonts_import(r.svg.trim());
             let scaled_svg = scale_svg_dimensions(&clean_svg, config.dpi);
@@ -451,7 +456,7 @@ impl DiagramProcessor {
 
         let (requests, cache_map) = extract_requests_and_cache_info(to_render);
 
-        let result = render_all_png_data_uri_partial(&requests, &config.kroki_url);
+        let result = render_all_png_data_uri_partial(&requests, &config.kroki_url, &config.agent);
         for r in result.rendered {
             if let Some(info) = cache_map.get(&r.index) {
                 config.cache.set(info.key(config.dpi), &r.data_uri);
@@ -494,7 +499,13 @@ impl DiagramProcessor {
 
         let server_url = config.kroki_url.trim_end_matches('/');
 
-        let result = render_all(&diagram_requests, server_url, output_dir, config.dpi);
+        let result = render_all(
+            &diagram_requests,
+            server_url,
+            output_dir,
+            config.dpi,
+            &config.agent,
+        );
         for r in result.rendered {
             let info = RenderedDiagramInfo {
                 filename: r.filename,
