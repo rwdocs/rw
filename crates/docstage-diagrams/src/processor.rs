@@ -311,12 +311,12 @@ impl CodeBlockProcessor for DiagramProcessor {
         }
     }
 
-    fn extracted(&self) -> Vec<ExtractedCodeBlock> {
-        self.extracted.clone()
+    fn extracted(&self) -> &[ExtractedCodeBlock] {
+        &self.extracted
     }
 
-    fn warnings(&self) -> Vec<String> {
-        self.warnings.clone()
+    fn warnings(&self) -> &[String] {
+        &self.warnings
     }
 }
 
