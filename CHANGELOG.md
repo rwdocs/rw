@@ -74,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Simplified parallel rendering** in `docstage-diagrams` by using rayon's global thread pool instead of per-call thread pool creation; all render functions now return `PartialRenderResult` for consistent partial-success handling; removed `RenderError` type; extracted `create_agent()` and `partition_results()` helpers
 - **HTTP agent reuse for connection pooling** in `docstage-diagrams`; the `ureq::Agent` is now stored in `ProcessorConfig` and reused across render calls instead of creating a new agent per call, enabling HTTP connection pooling for improved performance
 - **Optimized cache lookup in `post_process_inline`** by consuming the prepared diagrams iterator and constructing `DiagramKey` directly for cache hits; eliminates unnecessary `CacheInfo` allocation and string clone for cached diagrams
+- **Added capacity hint for `Replacements` HashMap** in `DiagramProcessor`; pre-allocates based on diagram count to reduce rehashing
 
 ### Fixed
 

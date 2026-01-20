@@ -359,7 +359,7 @@ impl DiagramProcessor {
         diagrams: &[ExtractedDiagram],
     ) {
         // Collect all replacements for single-pass application
-        let mut replacements = Replacements::new();
+        let mut replacements = Replacements::with_capacity(diagrams.len());
 
         // Prepare all diagrams
         let prepared: Vec<_> = diagrams
@@ -493,7 +493,7 @@ impl DiagramProcessor {
         tag_generator: &Arc<dyn DiagramTagGenerator>,
     ) {
         // Collect all replacements for single-pass application
-        let mut replacements = Replacements::new();
+        let mut replacements = Replacements::with_capacity(diagrams.len());
 
         // Prepare all diagrams
         let diagram_requests: Vec<_> = diagrams
@@ -553,9 +553,16 @@ struct Replacements {
 }
 
 impl Replacements {
+    #[cfg(test)]
     fn new() -> Self {
         Self {
             map: HashMap::new(),
+        }
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            map: HashMap::with_capacity(capacity),
         }
     }
 
