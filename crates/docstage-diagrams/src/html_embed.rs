@@ -148,14 +148,14 @@ mod tests {
     #[test]
     fn test_strip_google_fonts_import() {
         let svg_with_import =
-            r#"<style>@import url('https://fonts.googleapis.com/css?family=Roboto');</style>"#;
+            r"<style>@import url('https://fonts.googleapis.com/css?family=Roboto');</style>";
         let result = strip_google_fonts_import(svg_with_import);
         assert_eq!(result, "<style></style>");
     }
 
     #[test]
     fn test_strip_google_fonts_import_no_change() {
-        let svg_without_import = r#"<style>.diagram { fill: blue; }</style>"#;
+        let svg_without_import = r"<style>.diagram { fill: blue; }</style>";
         let result = strip_google_fonts_import(svg_without_import);
         assert_eq!(result, svg_without_import);
     }

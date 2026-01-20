@@ -479,6 +479,9 @@ impl PyConfig {
                 ConfigError::Parse(err) => {
                     PyValueError::new_err(format!("TOML parse error: {err}"))
                 }
+                ConfigError::Validation(err) => {
+                    PyValueError::new_err(format!("Configuration validation error: {err}"))
+                }
             })
     }
 
