@@ -76,7 +76,7 @@ pub struct MarkdownConverter {
     prepend_toc: bool,
     extract_title: bool,
     include_dirs: Vec<PathBuf>,
-    /// PlantUML config file name (loaded from include_dirs when needed).
+    /// `PlantUML` config file name (loaded from `include_dirs` when needed).
     config_file: Option<String>,
     /// DPI for `PlantUML` diagram rendering (None = default 192).
     dpi: Option<u32>,
@@ -130,7 +130,7 @@ impl MarkdownConverter {
         self
     }
 
-    /// Set `PlantUML` config file (loaded from include_dirs when needed).
+    /// Set `PlantUML` config file (loaded from `include_dirs` when needed).
     #[must_use]
     pub fn config_file(mut self, config_file: Option<&str>) -> Self {
         self.config_file = config_file.map(String::from);

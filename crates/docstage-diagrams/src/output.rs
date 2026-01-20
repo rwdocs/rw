@@ -12,7 +12,7 @@ use crate::consts::STANDARD_DPI;
 /// Information about a rendered diagram for tag generation.
 #[derive(Debug)]
 pub struct RenderedDiagramInfo {
-    /// Filename of the diagram (e.g., "diagram_abc123.png").
+    /// Filename of the diagram (e.g., "`diagram_abc123.png`").
     pub filename: String,
     /// Physical width in pixels.
     pub width: u32,

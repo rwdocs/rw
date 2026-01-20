@@ -2,8 +2,8 @@
 //!
 //! This crate provides diagram extraction and rendering for markdown documents:
 //! - `DiagramProcessor` implements `CodeBlockProcessor` for extracting diagrams
-//! - Parallel rendering via Kroki service (PlantUML, Mermaid, GraphViz, etc.)
-//! - PlantUML preprocessing with `!include` resolution and DPI configuration
+//! - Parallel rendering via Kroki service (`PlantUML`, Mermaid, `GraphViz`, etc.)
+//! - `PlantUML` preprocessing with `!include` resolution and DPI configuration
 //! - HTML embedding with SVG scaling and placeholder replacement
 //!
 //! # Architecture

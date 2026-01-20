@@ -60,7 +60,7 @@ impl DiagramLanguage {
 
     /// Kroki endpoint name for this diagram type.
     #[must_use]
-    pub fn kroki_endpoint(&self) -> &'static str {
+    pub fn kroki_endpoint(self) -> &'static str {
         match self {
             Self::PlantUml => "plantuml",
             Self::C4PlantUml => "c4plantuml",
@@ -86,7 +86,7 @@ impl DiagramLanguage {
     ///
     /// `PlantUML` and `C4PlantUML` need `!include` resolution and config injection.
     #[must_use]
-    pub fn needs_plantuml_preprocessing(&self) -> bool {
+    pub fn needs_plantuml_preprocessing(self) -> bool {
         matches!(self, Self::PlantUml | Self::C4PlantUml)
     }
 }
@@ -114,7 +114,7 @@ impl DiagramFormat {
 
     /// Return format as string representation.
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Svg => "svg",
             Self::Png => "png",

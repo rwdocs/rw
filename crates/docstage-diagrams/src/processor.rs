@@ -29,15 +29,15 @@ use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
 struct ProcessorConfig {
     /// Kroki server URL for rendering diagrams (required).
     kroki_url: String,
-    /// Directories to search for PlantUML `!include` files.
+    /// Directories to search for `PlantUML` `!include` files.
     include_dirs: Vec<PathBuf>,
-    /// PlantUML config content (loaded from config file).
+    /// `PlantUML` config content (loaded from config file).
     config_content: Option<String>,
     /// DPI for diagram rendering (default: 192).
     dpi: u32,
     /// HTTP timeout for Kroki requests (default: 30 seconds).
     timeout: Duration,
-    /// Cache for diagram rendering (defaults to NullCache).
+    /// Cache for diagram rendering (defaults to `NullCache`).
     cache: Arc<dyn DiagramCache>,
     /// Output mode for diagram rendering.
     output: DiagramOutput,
@@ -47,15 +47,15 @@ struct ProcessorConfig {
 
 /// Code block processor for diagram languages.
 ///
-/// Extracts diagram code blocks (PlantUML, Mermaid, GraphViz, etc.) and replaces
+/// Extracts diagram code blocks (`PlantUML`, Mermaid, `GraphViz`, etc.) and replaces
 /// them with placeholders during rendering. Placeholders are replaced with
 /// rendered diagrams during `post_process()`.
 ///
 /// # Configuration
 ///
 /// Create the processor with a required Kroki URL, then configure using builder methods:
-/// - [`include_dirs`](Self::include_dirs): Set directories for PlantUML `!include` resolution
-/// - [`config_file`](Self::config_file): Load PlantUML config from a file
+/// - [`include_dirs`](Self::include_dirs): Set directories for `PlantUML` `!include` resolution
+/// - [`config_file`](Self::config_file): Load `PlantUML` config from a file
 /// - [`dpi`](Self::dpi): Set DPI for diagram rendering (default: 192)
 ///
 /// # Example
@@ -116,7 +116,7 @@ impl DiagramProcessor {
         }
     }
 
-    /// Set directories to search for PlantUML `!include` files.
+    /// Set directories to search for `PlantUML` `!include` files.
     ///
     /// # Example
     ///
@@ -130,7 +130,7 @@ impl DiagramProcessor {
         self
     }
 
-    /// Load PlantUML config from a file.
+    /// Load `PlantUML` config from a file.
     ///
     /// The config file is searched in the include directories.
     ///
@@ -148,7 +148,7 @@ impl DiagramProcessor {
         self
     }
 
-    /// Set PlantUML config content directly.
+    /// Set `PlantUML` config content directly.
     ///
     /// Use this when the config content is already loaded (e.g., from a previous call).
     ///
@@ -246,7 +246,7 @@ impl DiagramProcessor {
 
     /// Prepare diagram source for rendering.
     ///
-    /// For PlantUML diagrams, this resolves `!include` directives and injects config.
+    /// For `PlantUML` diagrams, this resolves `!include` directives and injects config.
     /// For other diagram types, returns the source as-is.
     fn prepare_source(config: &ProcessorConfig, diagram: &ExtractedDiagram) -> PrepareResult {
         if diagram.language.needs_plantuml_preprocessing() {
@@ -569,7 +569,7 @@ fn extract_requests_and_cache_info(
 
 /// Collects diagram replacements for single-pass application.
 ///
-/// Instead of calling `html.replace()` for each diagram (O(N × string_length)),
+/// Instead of calling `html.replace()` for each diagram (O(N × `string_length`)),
 /// this collects all replacements and applies them in a single pass.
 struct Replacements {
     map: HashMap<usize, String>,
@@ -929,8 +929,7 @@ mod tests {
 
             assert!(
                 matches!(result, ProcessResult::Placeholder(_)),
-                "Expected Placeholder for language: {}",
-                lang
+                "Expected Placeholder for language: {lang}"
             );
         }
     }
