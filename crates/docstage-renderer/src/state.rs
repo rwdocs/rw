@@ -317,7 +317,7 @@ impl HeadingState {
 ///
 /// Converts to lowercase, replaces whitespace/dashes/underscores with single dashes,
 /// and removes other non-alphanumeric characters.
-#[must_use] 
+#[must_use]
 pub fn slugify(text: &str) -> String {
     let mut result = String::new();
     let mut last_was_dash = true; // Prevents leading dash

@@ -53,7 +53,7 @@ pub trait RenderBackend {
     ///
     /// * `url` - The original link URL
     /// * `base_path` - Optional base path for resolving relative links
-    #[must_use] 
+    #[must_use]
     fn transform_link<'a>(url: &'a str, _base_path: Option<&str>) -> Cow<'a, str> {
         Cow::Borrowed(url)
     }

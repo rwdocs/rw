@@ -3,7 +3,7 @@
 use pulldown_cmark::HeadingLevel;
 
 /// Convert heading level enum to number (1-6).
-#[must_use] 
+#[must_use]
 pub fn heading_level_to_num(level: HeadingLevel) -> u8 {
     match level {
         HeadingLevel::H1 => 1,
