@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 ///
 /// Contains all parameters that affect the rendered diagram output.
 /// Used to compute a content-based hash for caching.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct DiagramKey<'a> {
     /// Diagram source code (after preprocessing).
     pub source: &'a str,
@@ -74,7 +74,7 @@ pub trait DiagramCache: Send + Sync {
 ///
 /// Always returns cache misses and discards stored content.
 /// Use when caching is disabled.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct NullCache;
 
 impl DiagramCache for NullCache {
@@ -89,7 +89,7 @@ impl DiagramCache for NullCache {
 ///
 /// Stores rendered diagrams as files in a directory.
 /// File naming: `{hash}.{format}` (e.g., `abc123.svg`).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FileCache {
     cache_dir: PathBuf,
 }

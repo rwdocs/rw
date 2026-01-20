@@ -22,7 +22,7 @@ use crate::cache::DiagramKey;
 use crate::language::DiagramLanguage;
 
 /// Result of rendering a single diagram to PNG.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RenderedDiagram {
     pub index: usize,
     pub filename: String,
@@ -31,7 +31,7 @@ pub struct RenderedDiagram {
 }
 
 /// Result of rendering a single diagram to SVG.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RenderedSvg {
     /// Index matching the original diagram request.
     pub index: usize,
@@ -40,7 +40,7 @@ pub struct RenderedSvg {
 }
 
 /// Result of rendering a single diagram to PNG (as base64 data URI).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RenderedPngDataUri {
     /// Index matching the original diagram request.
     pub index: usize,
@@ -49,7 +49,7 @@ pub struct RenderedPngDataUri {
 }
 
 /// Diagram info for rendering.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DiagramRequest {
     pub index: usize,
     pub source: String,
@@ -69,14 +69,14 @@ impl DiagramRequest {
 }
 
 /// Single diagram rendering error.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DiagramError {
     pub index: usize,
     pub kind: DiagramErrorKind,
 }
 
 /// Kind of diagram rendering error.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum DiagramErrorKind {
     Http(String),
     Io(String),

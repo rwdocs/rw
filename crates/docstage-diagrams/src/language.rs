@@ -123,7 +123,7 @@ impl DiagramFormat {
 }
 
 /// Information about an extracted diagram.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExtractedDiagram {
     /// Original source code from markdown.
     pub source: String,
@@ -253,21 +253,6 @@ mod tests {
     fn test_diagram_format_as_str() {
         assert_eq!(DiagramFormat::Svg.as_str(), "svg");
         assert_eq!(DiagramFormat::Png.as_str(), "png");
-    }
-
-    #[test]
-    fn test_extracted_diagram_clone() {
-        let diagram = ExtractedDiagram {
-            source: "test".to_string(),
-            index: 0,
-            language: DiagramLanguage::PlantUml,
-            format: DiagramFormat::Svg,
-        };
-        let cloned = diagram.clone();
-        assert_eq!(cloned.source, "test");
-        assert_eq!(cloned.index, 0);
-        assert_eq!(cloned.language, DiagramLanguage::PlantUml);
-        assert_eq!(cloned.format, DiagramFormat::Svg);
     }
 
     #[test]
