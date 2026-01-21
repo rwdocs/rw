@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust `ConfluenceClient`** in `docstage-confluence` crate; synchronous HTTP client with OAuth 1.0 RSA-SHA1 authentication for Confluence REST API operations (pages, comments, attachments)
+- **Rust OAuth 1.0 RSA-SHA1 module** (`oauth/`) in `docstage-confluence` crate; implements signature generation per RFC 5849 with RSA-SHA1 signing
+- **RSA key loading** supporting both PKCS#1 (`-----BEGIN RSA PRIVATE KEY-----`) and PKCS#8 (`-----BEGIN PRIVATE KEY-----`) PEM formats
+- **Confluence API types** (`types/`) for `Page`, `Comment`, `Attachment`, and response wrappers
+- **PyO3 bindings for Confluence client** via `ConfluenceClient`, `ConfluencePage`, `ConfluenceComment`, `ConfluenceCommentsResponse`, and `read_private_key()` function
 - **Title extraction enabled by default** for `confluence update` command; extracts title from first H1 heading and updates the Confluence page title (use `--no-extract-title` to disable)
 - **`--dry-run` flag** for `confluence update` command; previews changes without updating Confluence, showing comments that would be lost
 - **Rust comment preservation module** in `docstage-confluence` crate; preserves inline comment markers when updating Confluence pages from markdown using tree-based comparison
@@ -53,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Moved Confluence client from Python to Rust**; all Confluence CLI commands now use synchronous Rust `ConfluenceClient` via PyO3 bindings instead of async Python `ConfluenceClient` with httpx
+- **Removed Python `ConfluenceClient` class** (`docstage.confluence.client`); use `docstage_core.ConfluenceClient` instead
+- **Removed Python `oauth` module** (`docstage.oauth`); OAuth 1.0 RSA-SHA1 authentication is now handled entirely in Rust; use `docstage_core.read_private_key()` for key loading
+- **Confluence CLI commands are now synchronous**; removed `asyncio.run()` wrappers from `test_auth`, `get_page`, `test_create`, `create`, `update`, and `comments` commands
 - **Extracted CLI helper functions** for diagram attachment handling and dry-run output; `_collect_diagram_attachments()`, `_upload_attachments()`, `_print_dry_run_summary()`, and `_print_unmatched_comments_warning()` reduce code duplication across `_create`, `_update`, and `_upload_mkdocs` commands
 - **Moved comment preservation from Python to Rust**; Confluence `update` command now uses Rust `preserve_comments()` via PyO3 bindings instead of Python `CommentPreserver` class
 - **Removed Python `CommentPreserver` class** (`docstage.confluence.comment_preservation`); use `docstage_core.preserve_comments()` instead

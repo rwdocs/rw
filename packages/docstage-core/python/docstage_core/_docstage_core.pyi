@@ -418,3 +418,232 @@ def preserve_comments(old_html: str, new_html: str) -> PreserveResult:
         PreserveResult with HTML containing preserved markers and any unmatched comments
     """
     ...
+
+# Confluence Client classes
+
+class ConfluencePage:
+    """Confluence page."""
+
+    id: str
+    """Page ID."""
+    title: str
+    """Page title."""
+    version: int
+    """Version number."""
+    body: str | None
+    """Page body in storage format (if expanded)."""
+
+class ConfluenceComment:
+    """Confluence comment."""
+
+    id: str
+    """Comment ID."""
+    title: str
+    """Comment title."""
+    body: str | None
+    """Comment body."""
+    marker_ref: str | None
+    """Inline comment marker reference."""
+    original_selection: str | None
+    """Original selected text for inline comments."""
+    status: str | None
+    """Resolution status ("open" or "resolved")."""
+
+class ConfluenceCommentsResponse:
+    """Response from comments API."""
+
+    results: list[ConfluenceComment]
+    """List of comments."""
+    size: int
+    """Total count."""
+
+class ConfluenceAttachment:
+    """Confluence attachment."""
+
+    id: str
+    """Attachment ID."""
+    title: str
+    """Attachment filename."""
+
+class ConfluenceAttachmentsResponse:
+    """Response from attachments API."""
+
+    results: list[ConfluenceAttachment]
+    """List of attachments."""
+    size: int
+    """Total count."""
+
+class ConfluenceClient:
+    """Confluence REST API client with OAuth 1.0 RSA-SHA1 authentication."""
+
+    base_url: str
+    """Confluence server base URL."""
+
+    def __init__(
+        self,
+        base_url: str,
+        consumer_key: str,
+        private_key: bytes,
+        access_token: str,
+        access_secret: str,
+    ) -> None:
+        """Create a new Confluence client.
+
+        Args:
+            base_url: Confluence server base URL
+            consumer_key: OAuth consumer key
+            private_key: PEM-encoded RSA private key bytes
+            access_token: OAuth access token
+            access_secret: OAuth access token secret
+        """
+        ...
+
+    def create_page(
+        self,
+        space_key: str,
+        title: str,
+        body: str,
+        parent_id: str | None = None,
+    ) -> ConfluencePage:
+        """Create a new page in a space.
+
+        Args:
+            space_key: Space key
+            title: Page title
+            body: Page body in Confluence storage format
+            parent_id: Optional parent page ID
+
+        Returns:
+            Created page
+        """
+        ...
+
+    def get_page(
+        self,
+        page_id: str,
+        expand: list[str] | None = None,
+    ) -> ConfluencePage:
+        """Get page by ID.
+
+        Args:
+            page_id: Page ID
+            expand: Optional list of fields to expand
+
+        Returns:
+            Page information
+        """
+        ...
+
+    def update_page(
+        self,
+        page_id: str,
+        title: str,
+        body: str,
+        version: int,
+        message: str | None = None,
+    ) -> ConfluencePage:
+        """Update an existing page.
+
+        Args:
+            page_id: Page ID
+            title: Page title
+            body: Page body in Confluence storage format
+            version: Current version number
+            message: Optional version message
+
+        Returns:
+            Updated page
+        """
+        ...
+
+    def get_page_url(self, page_id: str) -> str:
+        """Get web URL for page.
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Web URL for the page
+        """
+        ...
+
+    def get_comments(self, page_id: str) -> ConfluenceCommentsResponse:
+        """Get all comments on a page.
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Comments response
+        """
+        ...
+
+    def get_inline_comments(self, page_id: str) -> ConfluenceCommentsResponse:
+        """Get inline comments with marker refs.
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Comments response with inline properties
+        """
+        ...
+
+    def get_footer_comments(self, page_id: str) -> ConfluenceCommentsResponse:
+        """Get footer (page-level) comments.
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Comments response
+        """
+        ...
+
+    def upload_attachment(
+        self,
+        page_id: str,
+        filename: str,
+        data: bytes,
+        content_type: str,
+        comment: str | None = None,
+    ) -> ConfluenceAttachment:
+        """Upload or update attachment.
+
+        Args:
+            page_id: Page ID
+            filename: Attachment filename
+            data: File content bytes
+            content_type: MIME content type
+            comment: Optional comment
+
+        Returns:
+            Uploaded attachment
+        """
+        ...
+
+    def get_attachments(self, page_id: str) -> ConfluenceAttachmentsResponse:
+        """List attachments on a page.
+
+        Args:
+            page_id: Page ID
+
+        Returns:
+            Attachments response
+        """
+        ...
+
+def read_private_key(path: Path) -> bytes:
+    """Read RSA private key from PEM file.
+
+    Args:
+        path: Path to PEM file
+
+    Returns:
+        PEM-encoded key bytes
+
+    Raises:
+        FileNotFoundError: If file not found
+        RuntimeError: If key cannot be parsed
+    """
+    ...
