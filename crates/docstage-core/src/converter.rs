@@ -38,7 +38,7 @@ use std::sync::Arc;
 
 use pulldown_cmark::{Options, Parser};
 
-use docstage_confluence_renderer::ConfluenceBackend;
+use docstage_confluence::ConfluenceBackend;
 use docstage_diagrams::{DiagramCache, DiagramOutput, DiagramProcessor, FileCache, NullCache};
 use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 

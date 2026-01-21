@@ -8,7 +8,7 @@
 //! The renderer uses a trait-based abstraction to handle format-specific differences:
 //! - [`HtmlBackend`]: Produces semantic HTML5 with relative link resolution
 //!
-//! For Confluence XHTML storage format, use the `docstage-confluence-renderer` crate.
+//! For Confluence XHTML storage format, use the `docstage-confluence` crate.
 //!
 //! Shared functionality (tables, lists, inline formatting) is handled by the
 //! generic renderer, while format-specific elements (code blocks, blockquotes,

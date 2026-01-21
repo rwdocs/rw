@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-docstage-confluence-renderer = { workspace = true }
+docstage-confluence = { workspace = true }
 docstage-diagrams = { workspace = true }
 docstage-renderer = { workspace = true, features = ["serde"] }
 pulldown-cmark = { workspace = true }

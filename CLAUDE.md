@@ -40,7 +40,7 @@ crates/
 │       ├── html.rs           # HtmlBackend implementation
 │       └── util.rs           # heading_level_to_num()
 │
-├── docstage-confluence-renderer/  # Confluence XHTML backend
+├── docstage-confluence/       # Confluence integration (renderer, API client)
 │   └── src/
 │       └── lib.rs            # ConfluenceBackend implementation
 │

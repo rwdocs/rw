@@ -323,7 +323,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "docstage-confluence-renderer"
+name = "docstage-confluence"
 version = "0.1.0"
 dependencies = [
  "docstage-renderer",
@@ -334,7 +334,7 @@ dependencies = [
 name = "docstage-core"
 version = "0.1.0"
 dependencies = [
- "docstage-confluence-renderer",
+ "docstage-confluence",
  "docstage-diagrams",
  "docstage-renderer",
  "pretty_assertions",
