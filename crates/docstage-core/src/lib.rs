@@ -49,5 +49,4 @@ mod page_cache;
 mod page_renderer;
 
 pub use converter::{ConvertResult, HtmlConvertResult, MarkdownConverter};
-pub use page_cache::{CacheEntry, CachedMetadata, FilePageCache, NullPageCache, PageCache};
 pub use page_renderer::{PageRenderResult, PageRenderer, PageRendererConfig, RenderError};

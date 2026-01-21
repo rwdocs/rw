@@ -147,12 +147,6 @@ impl FilePageCache {
         }
     }
 
-    /// Root cache directory.
-    #[must_use]
-    pub fn cache_dir(&self) -> &Path {
-        &self.cache_dir
-    }
-
     /// Ensure cache directory exists with .gitignore.
     fn ensure_cache_dir(&self) {
         if !self.cache_dir.exists() {

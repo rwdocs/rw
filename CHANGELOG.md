@@ -10,7 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Rust `PageRenderer`** for page rendering with file-based caching; replaces Python `PageRenderer`, unifying page rendering with the existing markdown conversion pipeline
-- **Rust `PageCache`** trait with `FilePageCache` and `NullPageCache` implementations for mtime-based cache invalidation and build version validation
 - **`PageRendererConfig`** for configuring the page renderer (cache_dir, version, extract_title, kroki_url, include_dirs, config_file, dpi)
 - **PyO3 bindings** for `PageRenderer`, `PageRendererConfig`, and `PageRenderResult` classes
 - **`std::error::Error` implementation for `DiagramError`** enabling compatibility with `?` operator, `anyhow`, and other error handling crates
