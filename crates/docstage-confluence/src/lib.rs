@@ -1,6 +1,29 @@
-//! Confluence backend for markdown rendering.
+//! Confluence integration for docstage.
 //!
-//! Produces Confluence XHTML storage format for the REST API.
+//! This crate provides:
+//! - [`ConfluenceBackend`]: Render backend producing Confluence XHTML storage format
+//! - [`preserve_comments`]: Preserve inline comment markers when updating pages
+//!
+//! # Comment Preservation
+//!
+//! When updating a Confluence page, inline comments need to be preserved. The
+//! [`preserve_comments`] function transfers comment markers from the old HTML
+//! to the new HTML using tree-based comparison.
+//!
+//! ```ignore
+//! use docstage_confluence::preserve_comments;
+//!
+//! let old_html = r#"<p><ac:inline-comment-marker ac:ref="abc">text</ac:inline-comment-marker></p>"#;
+//! let new_html = "<p>text</p>";
+//!
+//! let result = preserve_comments(old_html, new_html);
+//! assert!(result.html.contains("ac:inline-comment-marker"));
+//! ```
+
+mod comment_preservation;
+pub mod error;
+
+pub use comment_preservation::{PreserveResult, TreeNode, UnmatchedComment, preserve_comments};
 
 use std::fmt::Write;
 

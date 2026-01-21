@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust comment preservation module** in `docstage-confluence` crate; preserves inline comment markers when updating Confluence pages from markdown using tree-based comparison
+- **PyO3 bindings for comment preservation** via `preserve_comments()` function, `PreserveResult`, and `UnmatchedComment` classes
 - **Optional static asset embedding** via `rust-embed` crate with `embed-assets` feature flag; development builds serve from `frontend/dist`, production builds embed assets for single-binary deployment
 - **`build-release` Makefile target** for building production binary with embedded assets
 - **Rust `docstage-server` crate** providing native axum HTTP server; replaces Python aiohttp server with direct Rust calls, eliminating FFI overhead
@@ -49,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Moved comment preservation from Python to Rust**; Confluence `update` command now uses Rust `preserve_comments()` via PyO3 bindings instead of Python `CommentPreserver` class
+- **Removed Python `CommentPreserver` class** (`docstage.confluence.comment_preservation`); use `docstage_core.preserve_comments()` instead
 - **Moved `Site` module from Python to Rust**; Python server now uses Rust `SiteLoader` via PyO3 bindings
 - **Removed Python `Site`, `SiteBuilder`, `SiteLoader`** (`docstage.core.site`); use `docstage_core.Site`, `docstage_core.SiteLoader` instead
 - **Removed Python `NavItem`, `build_navigation`** (`docstage.core.navigation`); use `docstage_core.NavItem`, `docstage_core.build_navigation` instead
