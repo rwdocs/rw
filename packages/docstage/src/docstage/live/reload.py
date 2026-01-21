@@ -8,15 +8,10 @@ import asyncio
 import json
 import weakref
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from aiohttp import WSMsgType, web
+from docstage_core import SiteLoader
 from watchfiles import Change, awatch
-
-from docstage.core.types import URLPath
-
-if TYPE_CHECKING:
-    from docstage.core.site import SiteLoader
 
 
 class LiveReloadManager:
@@ -135,14 +130,14 @@ class LiveReloadManager:
                 return True
         return False
 
-    def _resolve_doc_path(self, file_path: Path) -> URLPath | None:
+    def _resolve_doc_path(self, file_path: Path) -> str | None:
         """Resolve file system path to documentation URL path using Site.
 
         Args:
             file_path: Absolute file path
 
         Returns:
-            Documentation path (e.g., URLPath("/guide/setup")) or None if not found
+            Documentation path (e.g., "/guide/setup") or None if not found
         """
         if self._site_loader is None:
             return None
@@ -156,7 +151,7 @@ class LiveReloadManager:
 
         return page.path
 
-    async def _broadcast_reload(self, path: URLPath) -> None:
+    async def _broadcast_reload(self, path: str) -> None:
         """Broadcast reload event to all connected clients.
 
         Args:

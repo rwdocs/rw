@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust `Site` module** (`Site`, `SiteBuilder`, `SiteLoader`, `Page`, `BreadcrumbItem`) for site structure management; provides O(1) path lookups and O(d) breadcrumb building
+- **Rust `SiteCache` trait** with `FileSiteCache` (JSON-based) and `NullSiteCache` implementations for site caching
+- **Rust `NavItem` and `build_navigation()`** for navigation tree construction from site structure
+- **PyO3 bindings** for `Site`, `SiteLoader`, `SiteLoaderConfig`, `Page`, `BreadcrumbItem`, `NavItem`, and `build_navigation()` function
 - **Rust `PageRenderer`** for page rendering with file-based caching; replaces Python `PageRenderer`, unifying page rendering with the existing markdown conversion pipeline
 - **`PageRendererConfig`** for configuring the page renderer (cache_dir, version, extract_title, kroki_url, include_dirs, config_file, dpi)
 - **PyO3 bindings** for `PageRenderer`, `PageRendererConfig`, and `PageRenderResult` classes
@@ -35,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Moved `Site` module from Python to Rust**; Python server now uses Rust `SiteLoader` via PyO3 bindings
+- **Removed Python `Site`, `SiteBuilder`, `SiteLoader`** (`docstage.core.site`); use `docstage_core.Site`, `docstage_core.SiteLoader` instead
+- **Removed Python `NavItem`, `build_navigation`** (`docstage.core.navigation`); use `docstage_core.NavItem`, `docstage_core.build_navigation` instead
+- **Removed Python `URLPath` type alias** (`docstage.core.types`); paths are now plain `str`
+- **Removed site cache methods from `FileCache`** (`get_site`, `set_site`, `invalidate_site`); site caching is now handled entirely in Rust
 - **Moved `PageRenderer` from Python to Rust**; Python server now uses Rust `PageRenderer` via PyO3 bindings, reducing Python orchestration to a thin aiohttp layer
 - **Removed Python `PageRenderer` class** (`docstage.core.renderer.PageRenderer`); use `docstage_core.PageRenderer` instead
 - **Server initialization uses `PageRendererConfig`** instead of passing cache and keyword arguments; Rust `PageRenderer` manages its own page cache internally

@@ -11,8 +11,10 @@ docstage-confluence-renderer = { workspace = true }
 docstage-diagrams = { workspace = true }
 docstage-renderer = { workspace = true, features = ["serde"] }
 pulldown-cmark = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = "1.0"
+tracing = "0.1"
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

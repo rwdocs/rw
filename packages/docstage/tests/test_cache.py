@@ -202,73 +202,6 @@ class TestFileCacheClear:
         cache.clear()  # Should not raise
 
 
-class TestFileCacheSite:
-    """Tests for site cache methods."""
-
-    def test_get_site_returns_none_when_missing(self, tmp_path: Path) -> None:
-        """Return None when site cache doesn't exist."""
-        cache = FileCache(tmp_path / ".cache")
-
-        result = cache.get_site()
-
-        assert result is None
-
-    def test_set_and_get_site(self, tmp_path: Path) -> None:
-        """Store and retrieve site structure."""
-        from docstage.core.site import SiteBuilder
-
-        source_dir = tmp_path / "docs"
-        cache = FileCache(tmp_path / ".cache")
-        builder = SiteBuilder(source_dir)
-        parent_idx = builder.add_page("Domain A", "/domain-a", "domain-a/index.md")
-        builder.add_page("Guide", "/domain-a/guide", "domain-a/guide.md", parent_idx)
-        site = builder.build()
-
-        cache.set_site(site)
-        result = cache.get_site()
-
-        assert result is not None
-        assert result.source_dir == source_dir
-        assert result.get_page("/domain-a") is not None
-        assert result.get_page("/domain-a").title == "Domain A"
-        assert result.get_page("/domain-a").source_path == Path("domain-a/index.md")
-        children = result.get_children("/domain-a")
-        assert len(children) == 1
-        assert children[0].title == "Guide"
-        assert children[0].source_path == Path("domain-a/guide.md")
-
-    def test_invalidate_site(self, tmp_path: Path) -> None:
-        """Remove cached site structure."""
-        from docstage.core.site import SiteBuilder
-
-        source_dir = tmp_path / "docs"
-        cache = FileCache(tmp_path / ".cache")
-        site = SiteBuilder(source_dir).build()
-        cache.set_site(site)
-
-        cache.invalidate_site()
-
-        assert cache.get_site() is None
-
-    def test_invalidate_site_when_missing(self, tmp_path: Path) -> None:
-        """Do nothing when site cache doesn't exist."""
-        cache = FileCache(tmp_path / ".cache")
-
-        cache.invalidate_site()  # Should not raise
-
-    def test_get_site_returns_none_on_invalid_json(self, tmp_path: Path) -> None:
-        """Return None when site file contains invalid JSON."""
-        cache = FileCache(tmp_path / ".cache")
-        cache_dir = tmp_path / ".cache"
-        cache_dir.mkdir(parents=True)
-        site_path = cache_dir / "site.json"
-        site_path.write_text("not valid json {", encoding="utf-8")
-
-        result = cache.get_site()
-
-        assert result is None
-
-
 class TestFileCacheProperty:
     """Tests for FileCache properties."""
 
@@ -492,36 +425,6 @@ class TestNullCache:
 
         # Should not raise
         cache.clear()
-
-    def test_get_site_always_returns_none(self) -> None:
-        """NullCache.get_site() always returns None."""
-        cache = NullCache()
-
-        result = cache.get_site()
-
-        assert result is None
-
-    def test_set_site_is_noop(self, tmp_path: Path) -> None:
-        """NullCache.set_site() does nothing but doesn't raise."""
-        from docstage.core.site import SiteBuilder
-
-        cache = NullCache()
-        source_dir = tmp_path / "docs"
-        site = SiteBuilder(source_dir).build()
-
-        # Should not raise
-        cache.set_site(site)
-
-        # Still returns None after set
-        result = cache.get_site()
-        assert result is None
-
-    def test_invalidate_site_is_noop(self) -> None:
-        """NullCache.invalidate_site() does nothing but doesn't raise."""
-        cache = NullCache()
-
-        # Should not raise
-        cache.invalidate_site()
 
     def test_diagrams_dir_returns_none(self) -> None:
         """NullCache.diagrams_dir returns None (caching disabled)."""

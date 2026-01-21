@@ -10,8 +10,9 @@ use ::docstage_config::{
     DocsConfig, LiveReloadConfig, ServerConfig,
 };
 use ::docstage_core::{
-    ConvertResult, HtmlConvertResult, MarkdownConverter, PageRenderResult, PageRenderer,
-    PageRendererConfig, RenderError,
+    build_navigation, BreadcrumbItem, ConvertResult, HtmlConvertResult, MarkdownConverter, NavItem,
+    Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderError, Site, SiteLoader,
+    SiteLoaderConfig,
 };
 use ::docstage_renderer::TocEntry;
 
@@ -417,6 +418,286 @@ impl PyPageRenderer {
 }
 
 // ============================================================================
+// Site bindings
+// ============================================================================
+
+/// Document page data.
+#[pyclass(name = "Page", frozen)]
+pub struct PyPage {
+    /// Page title.
+    #[pyo3(get)]
+    pub title: String,
+    /// URL path (e.g., "/guide").
+    #[pyo3(get)]
+    pub path: String,
+    /// Relative path to source file.
+    #[pyo3(get)]
+    pub source_path: PathBuf,
+}
+
+impl From<&Page> for PyPage {
+    fn from(page: &Page) -> Self {
+        Self {
+            title: page.title.clone(),
+            path: page.path.clone(),
+            source_path: page.source_path.clone(),
+        }
+    }
+}
+
+/// Breadcrumb navigation item.
+#[pyclass(name = "BreadcrumbItem", frozen)]
+pub struct PyBreadcrumbItem {
+    /// Display title.
+    #[pyo3(get)]
+    pub title: String,
+    /// Link target path.
+    #[pyo3(get)]
+    pub path: String,
+}
+
+impl From<&BreadcrumbItem> for PyBreadcrumbItem {
+    fn from(item: &BreadcrumbItem) -> Self {
+        Self {
+            title: item.title.clone(),
+            path: item.path.clone(),
+        }
+    }
+}
+
+#[pymethods]
+impl PyBreadcrumbItem {
+    /// Convert to dictionary for JSON serialization.
+    pub fn to_dict(&self) -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::from([
+            ("title".to_string(), self.title.clone()),
+            ("path".to_string(), self.path.clone()),
+        ])
+    }
+}
+
+/// Document site structure with efficient path lookups.
+#[pyclass(name = "Site")]
+pub struct PySite {
+    inner: Site,
+}
+
+impl PySite {
+    fn new(inner: Site) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PySite {
+    /// Get page by URL path.
+    ///
+    /// Args:
+    ///     path: URL path (e.g., "/guide")
+    ///
+    /// Returns:
+    ///     Page if found, None otherwise
+    pub fn get_page(&self, path: &str) -> Option<PyPage> {
+        self.inner.get_page(path).map(|p| p.into())
+    }
+
+    /// Get children of a page.
+    ///
+    /// Args:
+    ///     path: URL path of the parent page
+    ///
+    /// Returns:
+    ///     List of child pages
+    pub fn get_children(&self, path: &str) -> Vec<PyPage> {
+        self.inner
+            .get_children(path)
+            .into_iter()
+            .map(|p| p.into())
+            .collect()
+    }
+
+    /// Build breadcrumbs for a given path.
+    ///
+    /// Args:
+    ///     path: URL path (e.g., "/guide/setup")
+    ///
+    /// Returns:
+    ///     List of breadcrumb items for ancestor navigation
+    pub fn get_breadcrumbs(&self, path: &str) -> Vec<PyBreadcrumbItem> {
+        self.inner
+            .get_breadcrumbs(path)
+            .iter()
+            .map(|b| b.into())
+            .collect()
+    }
+
+    /// Get root-level pages.
+    pub fn get_root_pages(&self) -> Vec<PyPage> {
+        self.inner
+            .get_root_pages()
+            .into_iter()
+            .map(|p| p.into())
+            .collect()
+    }
+
+    /// Resolve URL path to absolute source file path.
+    ///
+    /// Args:
+    ///     path: URL path (e.g., "/guide")
+    ///
+    /// Returns:
+    ///     Absolute path to source markdown file, or None if not found
+    pub fn resolve_source_path(&self, path: &str) -> Option<PathBuf> {
+        self.inner.resolve_source_path(path)
+    }
+
+    /// Get page by source file path.
+    ///
+    /// Args:
+    ///     source_path: Relative path to source file (e.g., "guide.md")
+    ///
+    /// Returns:
+    ///     Page if found, None otherwise
+    pub fn get_page_by_source(&self, source_path: PathBuf) -> Option<PyPage> {
+        self.inner.get_page_by_source(&source_path).map(|p| p.into())
+    }
+
+    /// Get source directory.
+    #[getter]
+    pub fn source_dir(&self) -> PathBuf {
+        self.inner.source_dir().to_path_buf()
+    }
+}
+
+/// Configuration for site loader.
+#[pyclass(name = "SiteLoaderConfig")]
+#[derive(Clone)]
+pub struct PySiteLoaderConfig {
+    /// Root directory containing markdown sources.
+    #[pyo3(get, set)]
+    pub source_dir: PathBuf,
+    /// Cache directory for site structure (None disables caching).
+    #[pyo3(get, set)]
+    pub cache_dir: Option<PathBuf>,
+}
+
+#[pymethods]
+impl PySiteLoaderConfig {
+    #[new]
+    #[pyo3(signature = (source_dir, cache_dir = None))]
+    pub fn new(source_dir: PathBuf, cache_dir: Option<PathBuf>) -> Self {
+        Self {
+            source_dir,
+            cache_dir,
+        }
+    }
+}
+
+impl From<PySiteLoaderConfig> for SiteLoaderConfig {
+    fn from(config: PySiteLoaderConfig) -> Self {
+        Self {
+            source_dir: config.source_dir,
+            cache_dir: config.cache_dir,
+        }
+    }
+}
+
+/// Loads site structure from filesystem.
+#[pyclass(name = "SiteLoader")]
+pub struct PySiteLoader {
+    inner: SiteLoader,
+}
+
+#[pymethods]
+impl PySiteLoader {
+    #[new]
+    pub fn new(config: PySiteLoaderConfig) -> Self {
+        Self {
+            inner: SiteLoader::new(config.into()),
+        }
+    }
+
+    /// Load site structure from directory.
+    ///
+    /// Args:
+    ///     use_cache: Whether to use cached data if available (default: True)
+    ///
+    /// Returns:
+    ///     Site structure
+    #[pyo3(signature = (use_cache = true))]
+    pub fn load(&mut self, use_cache: bool) -> PySite {
+        PySite::new(self.inner.load(use_cache).clone())
+    }
+
+    /// Invalidate cached site.
+    pub fn invalidate(&mut self) {
+        self.inner.invalidate();
+    }
+
+    /// Get source directory.
+    #[getter]
+    pub fn source_dir(&self) -> PathBuf {
+        self.inner.source_dir().to_path_buf()
+    }
+}
+
+/// Navigation item with children for UI tree.
+#[pyclass(name = "NavItem")]
+#[derive(Clone)]
+pub struct PyNavItem {
+    /// Display title.
+    #[pyo3(get)]
+    pub title: String,
+    /// Link target path.
+    #[pyo3(get)]
+    pub path: String,
+    /// Child navigation items.
+    #[pyo3(get)]
+    pub children: Vec<PyNavItem>,
+}
+
+impl From<NavItem> for PyNavItem {
+    fn from(item: NavItem) -> Self {
+        Self {
+            title: item.title,
+            path: item.path,
+            children: item.children.into_iter().map(|c| c.into()).collect(),
+        }
+    }
+}
+
+#[pymethods]
+impl PyNavItem {
+    /// Convert to dictionary for JSON serialization.
+    pub fn to_dict(&self, py: Python<'_>) -> Py<pyo3::types::PyAny> {
+        let dict = pyo3::types::PyDict::new(py);
+        let _ = dict.set_item("title", &self.title);
+        let _ = dict.set_item("path", &self.path);
+        if !self.children.is_empty() {
+            let children: Vec<_> = self.children.iter().map(|c| c.to_dict(py)).collect();
+            let _ = dict.set_item("children", children);
+        }
+        dict.into()
+    }
+}
+
+/// Build navigation tree from site structure.
+///
+/// Args:
+///     site: Site structure to build navigation from
+///
+/// Returns:
+///     List of navigation items for UI tree
+#[pyfunction]
+#[pyo3(name = "build_navigation")]
+pub fn py_build_navigation(site: &PySite) -> Vec<PyNavItem> {
+    build_navigation(&site.inner)
+        .into_iter()
+        .map(|item| item.into())
+        .collect()
+}
+
+// ============================================================================
 // Config bindings
 // ============================================================================
 
@@ -715,6 +996,15 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPageRenderResult>()?;
     m.add_class::<PyPageRendererConfig>()?;
     m.add_class::<PyPageRenderer>()?;
+
+    // Site classes
+    m.add_class::<PyPage>()?;
+    m.add_class::<PyBreadcrumbItem>()?;
+    m.add_class::<PySite>()?;
+    m.add_class::<PySiteLoaderConfig>()?;
+    m.add_class::<PySiteLoader>()?;
+    m.add_class::<PyNavItem>()?;
+    m.add_function(wrap_pyfunction!(py_build_navigation, m)?)?;
 
     // Config classes
     m.add_class::<PyConfig>()?;
