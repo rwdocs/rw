@@ -5,10 +5,14 @@ Command-line tool for converting markdown to Confluence pages.
 
 import asyncio
 import sys
+import tempfile
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import click
+
+if TYPE_CHECKING:
+    from docstage.confluence import ConfluenceClient
 from docstage_core.config import CliSettings, Config, ConfluenceConfig
 
 
@@ -308,6 +312,16 @@ def create(
     help="Kroki server URL for diagram rendering (overrides config)",
 )
 @click.option(
+    "--extract-title/--no-extract-title",
+    default=True,
+    help="Extract title from first H1 heading and update page title (default: enabled)",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview changes without updating Confluence. Shows comments that would be lost.",
+)
+@click.option(
     "--config",
     "-c",
     "config_path",
@@ -327,12 +341,23 @@ def update(
     page_id: str,
     message: str | None,
     kroki_url: str | None,
+    extract_title: bool,
+    dry_run: bool,
     config_path: Path | None,
     key_file: Path,
 ) -> None:
     """Update a Confluence page from a markdown file."""
     asyncio.run(
-        _update(markdown_file, page_id, message, kroki_url, config_path, key_file),
+        _update(
+            markdown_file,
+            page_id,
+            message,
+            kroki_url,
+            extract_title,
+            dry_run,
+            config_path,
+            key_file,
+        ),
     )
 
 
@@ -594,6 +619,102 @@ def _require_space_key(space: str | None, config: Config) -> str:
     sys.exit(1)
 
 
+def _collect_diagram_attachments(
+    output_dir: Path,
+    *,
+    verbose: bool = True,
+) -> list[tuple[str, bytes]]:
+    """Collect PNG diagram files from output directory.
+
+    Args:
+        output_dir: Directory containing rendered diagram files
+        verbose: If True, print each filename
+
+    Returns:
+        List of (filename, bytes) tuples
+    """
+    attachments: list[tuple[str, bytes]] = []
+    for filepath in sorted(output_dir.glob("*.png")):
+        attachments.append((filepath.name, filepath.read_bytes()))
+        if verbose:
+            click.echo(f"  -> {filepath.name}")
+    return attachments
+
+
+async def _upload_attachments(
+    confluence: ConfluenceClient,
+    page_id: str,
+    attachments: list[tuple[str, bytes]],
+) -> None:
+    """Upload diagram attachments to a Confluence page.
+
+    Args:
+        confluence: Confluence API client
+        page_id: Target page ID
+        attachments: List of (filename, bytes) tuples to upload
+    """
+    if not attachments:
+        return
+
+    click.echo(f"Uploading {len(attachments)} attachments...")
+    for filename, image_data in attachments:
+        click.echo(f"  Uploading {filename}...")
+        await confluence.upload_attachment(
+            page_id,
+            filename,
+            image_data,
+            "image/png",
+        )
+
+
+def _print_dry_run_summary(unmatched_comments: list) -> None:
+    """Print dry run summary showing comments that would be resolved.
+
+    Args:
+        unmatched_comments: List of UnmatchedComment objects
+    """
+    click.echo(
+        click.style(
+            "\n[DRY RUN] No changes made to Confluence.",
+            fg="cyan",
+            bold=True,
+        ),
+    )
+    if unmatched_comments:
+        click.echo(
+            click.style(
+                f"\nComments that would be resolved ({len(unmatched_comments)}):",
+                fg="yellow",
+                bold=True,
+            ),
+        )
+        for comment in unmatched_comments:
+            click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
+    else:
+        click.echo(
+            click.style("\nNo comments would be resolved.", fg="green"),
+        )
+
+
+def _print_unmatched_comments_warning(unmatched_comments: list) -> None:
+    """Print warning about comments that could not be placed.
+
+    Args:
+        unmatched_comments: List of UnmatchedComment objects
+    """
+    if not unmatched_comments:
+        return
+
+    click.echo(
+        click.style(
+            f"\nWarning: {len(unmatched_comments)} comment(s) could not be placed:",
+            fg="yellow",
+        ),
+    )
+    for comment in unmatched_comments:
+        click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
+
+
 async def _test_auth(config_path: Path | None, key_file: Path) -> None:
     """Test authentication with Confluence API.
 
@@ -774,8 +895,6 @@ async def _create(
         config_path: Path to config file
         key_file: Path to private key PEM file
     """
-    import tempfile
-
     try:
         from docstage.confluence import ConfluenceClient, MarkdownConverter
         from docstage.oauth import create_confluence_client, read_private_key
@@ -801,12 +920,7 @@ async def _create(
             tmpdir_path = Path(tmpdir)
             result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
             confluence_body = result.html
-
-            # Collect diagram attachment data before temp dir is deleted
-            attachment_data: list[tuple[str, bytes]] = []
-            for filepath in sorted(tmpdir_path.glob("*.png")):
-                attachment_data.append((filepath.name, filepath.read_bytes()))
-                click.echo(f"  -> {filepath.name}")
+            attachments = _collect_diagram_attachments(tmpdir_path)
 
             async with create_confluence_client(
                 conf_config.access_token,
@@ -818,18 +932,7 @@ async def _create(
 
                 click.echo(f'Creating page "{title}" in space {space}...')
                 page = await confluence.create_page(space, title, confluence_body)
-
-                # Upload diagram attachments after creating page
-                if attachment_data:
-                    click.echo(f"Uploading {len(attachment_data)} attachments...")
-                    for filename, image_data in attachment_data:
-                        click.echo(f"  Uploading {filename}...")
-                        await confluence.upload_attachment(
-                            page["id"],
-                            filename,
-                            image_data,
-                            "image/png",
-                        )
+                await _upload_attachments(confluence, page["id"], attachments)
 
                 click.echo(
                     click.style("\nPage created successfully!", fg="green", bold=True),
@@ -854,6 +957,8 @@ async def _update(
     page_id: str,
     message: str | None,
     kroki_url: str | None,
+    extract_title: bool,
+    dry_run: bool,
     config_path: Path | None,
     key_file: Path,
 ) -> None:
@@ -864,11 +969,11 @@ async def _update(
         page_id: Page ID to update
         message: Optional version message
         kroki_url: Kroki server URL (or None to use config)
+        extract_title: Extract title from first H1 heading
+        dry_run: If True, only show what would happen without updating
         config_path: Path to config file
         key_file: Path to private key PEM file
     """
-    import tempfile
-
     try:
         from docstage_core import preserve_comments
 
@@ -885,6 +990,7 @@ async def _update(
         click.echo(f"Converting {markdown_file}...")
         converter = MarkdownConverter(
             prepend_toc=True,
+            extract_title=extract_title,
             include_dirs=diagrams_config.include_dirs,
             config_file=diagrams_config.config_file,
             dpi=diagrams_config.dpi,
@@ -895,12 +1001,10 @@ async def _update(
             tmpdir_path = Path(tmpdir)
             result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
             new_html = result.html
+            attachments = _collect_diagram_attachments(tmpdir_path)
 
-            # Collect diagram attachment data before temp dir is deleted
-            attachment_data: list[tuple[str, bytes]] = []
-            for filepath in sorted(tmpdir_path.glob("*.png")):
-                attachment_data.append((filepath.name, filepath.read_bytes()))
-                click.echo(f"  -> {filepath.name}")
+            if result.title:
+                click.echo(f"Title: {result.title}")
 
             async with create_confluence_client(
                 conf_config.access_token,
@@ -916,23 +1020,18 @@ async def _update(
                     expand=["body.storage", "version"],
                 )
                 current_version = current_page["version"]["number"]
-                title = current_page["title"]
                 old_html = current_page["body"]["storage"]["value"]
+
+                title = result.title or current_page["title"]
 
                 click.echo("Preserving comment markers...")
                 preserve_result = preserve_comments(old_html, new_html)
 
-                # Upload diagram attachments before updating page
-                if attachment_data:
-                    click.echo(f"Uploading {len(attachment_data)} attachments...")
-                    for filename, image_data in attachment_data:
-                        click.echo(f"  Uploading {filename}...")
-                        await confluence.upload_attachment(
-                            page_id,
-                            filename,
-                            image_data,
-                            "image/png",
-                        )
+                if dry_run:
+                    _print_dry_run_summary(preserve_result.unmatched_comments)
+                    return
+
+                await _upload_attachments(confluence, page_id, attachments)
 
                 click.echo(
                     f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
@@ -958,15 +1057,7 @@ async def _update(
                 comments = await confluence.get_comments(page_id)
                 click.echo(f"\nComments on page: {comments['size']}")
 
-            if preserve_result.unmatched_comments:
-                click.echo(
-                    click.style(
-                        f"\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:",
-                        fg="yellow",
-                    ),
-                )
-                for comment in preserve_result.unmatched_comments:
-                    click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
+            _print_unmatched_comments_warning(preserve_result.unmatched_comments)
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
@@ -998,8 +1089,6 @@ async def _upload_mkdocs(
         config_path: Path to config file
         key_file: Path to private key PEM file
     """
-    import tempfile
-
     try:
         from docstage_core import MarkdownConverter, preserve_comments
 
@@ -1035,14 +1124,9 @@ async def _upload_mkdocs(
             click.echo(f"Rendering diagrams via Kroki ({effective_kroki_url})...")
             result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
             new_html = result.html
+            attachments = _collect_diagram_attachments(tmpdir_path)
 
-            # Collect diagram attachment data before temp dir is deleted
-            attachment_data: list[tuple[str, bytes]] = []
-            for filepath in sorted(tmpdir_path.glob("*.png")):
-                attachment_data.append((filepath.name, filepath.read_bytes()))
-                click.echo(f"  -> {filepath.name}")
-
-            click.echo(f"Rendered {len(attachment_data)} diagrams")
+            click.echo(f"Rendered {len(attachments)} diagrams")
 
             if result.title:
                 click.echo(f"Title: {result.title}")
@@ -1069,39 +1153,10 @@ async def _upload_mkdocs(
                 preserve_result = preserve_comments(old_html, new_html)
 
                 if dry_run:
-                    click.echo(
-                        click.style(
-                            "\n[DRY RUN] No changes made to Confluence.",
-                            fg="cyan",
-                            bold=True,
-                        ),
-                    )
-                    if preserve_result.unmatched_comments:
-                        click.echo(
-                            click.style(
-                                f"\nComments that would be resolved ({len(preserve_result.unmatched_comments)}):",
-                                fg="yellow",
-                                bold=True,
-                            ),
-                        )
-                        for comment in preserve_result.unmatched_comments:
-                            click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
-                    else:
-                        click.echo(
-                            click.style("\nNo comments would be resolved.", fg="green"),
-                        )
+                    _print_dry_run_summary(preserve_result.unmatched_comments)
                     return
 
-                if attachment_data:
-                    click.echo(f"Uploading {len(attachment_data)} attachments...")
-                    for filename, image_data in attachment_data:
-                        click.echo(f"  Uploading {filename}...")
-                        await confluence.upload_attachment(
-                            page_id,
-                            filename,
-                            image_data,
-                            "image/png",
-                        )
+                await _upload_attachments(confluence, page_id, attachments)
 
                 click.echo(
                     f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
@@ -1124,15 +1179,7 @@ async def _upload_mkdocs(
                 url = await confluence.get_page_url(page_id)
                 click.echo(f"URL: {url}")
 
-                if preserve_result.unmatched_comments:
-                    click.echo(
-                        click.style(
-                            f"\nWarning: {len(preserve_result.unmatched_comments)} comment(s) could not be placed:",
-                            fg="yellow",
-                        ),
-                    )
-                    for comment in preserve_result.unmatched_comments:
-                        click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
+                _print_unmatched_comments_warning(preserve_result.unmatched_comments)
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
