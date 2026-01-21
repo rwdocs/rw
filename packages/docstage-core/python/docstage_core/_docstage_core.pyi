@@ -332,3 +332,58 @@ class Config:
         config_path: Path | None = None,
         cli_settings: CliSettings | None = None,
     ) -> Config: ...
+
+# HTTP Server classes
+
+class HttpServerConfig:
+    """HTTP server configuration for the native Rust server."""
+
+    host: str
+    """Host address to bind to."""
+    port: int
+    """Port to listen on."""
+    source_dir: Path
+    """Documentation source directory."""
+    cache_dir: Path | None
+    """Cache directory (None disables caching)."""
+    kroki_url: str | None
+    """Kroki URL for diagrams (None disables diagrams)."""
+    include_dirs: list[Path]
+    """PlantUML include directories."""
+    config_file: str | None
+    """PlantUML config file."""
+    dpi: int
+    """Diagram DPI."""
+    live_reload_enabled: bool
+    """Enable live reload."""
+    watch_patterns: list[str] | None
+    """Watch patterns for live reload."""
+    static_dir: Path
+    """Static files directory."""
+    verbose: bool
+    """Enable verbose output."""
+    version: str
+    """Application version (for cache invalidation)."""
+
+    @staticmethod
+    def from_config(
+        config: Config,
+        static_dir: Path,
+        version: str,
+        verbose: bool,
+    ) -> HttpServerConfig:
+        """Create configuration from a Config object."""
+        ...
+
+def run_http_server(config: HttpServerConfig) -> None:
+    """Run the HTTP server.
+
+    This function starts the native Rust HTTP server and blocks until it is shut down.
+
+    Args:
+        config: Server configuration
+
+    Raises:
+        RuntimeError: If the server fails to start
+    """
+    ...

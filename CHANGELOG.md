@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live reload system** using notify crate for file watching and axum WebSocket for client notifications
 - **`ServerConfig`** for configuring the HTTP server (host, port, source_dir, cache_dir, kroki_url, etc.)
 - **`server_config_from_docstage_config()`** helper to create `ServerConfig` from `docstage_config::Config`
+- **PyO3 bindings for HTTP server** via `HttpServerConfig` class and `run_http_server()` function; Python CLI now delegates to native Rust server
 - **Rust `Site` module** (`Site`, `SiteBuilder`, `SiteLoader`, `Page`, `BreadcrumbItem`) for site structure management; provides O(1) path lookups and O(d) breadcrumb building
 - **Rust `SiteCache` trait** with `FileSiteCache` (JSON-based) and `NullSiteCache` implementations for site caching
 - **Rust `NavItem` and `build_navigation()`** for navigation tree construction from site structure
@@ -55,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Moved `PageRenderer` from Python to Rust**; Python server now uses Rust `PageRenderer` via PyO3 bindings, reducing Python orchestration to a thin aiohttp layer
 - **Removed Python `PageRenderer` class** (`docstage.core.renderer.PageRenderer`); use `docstage_core.PageRenderer` instead
 - **Server initialization uses `PageRendererConfig`** instead of passing cache and keyword arguments; Rust `PageRenderer` manages its own page cache internally
+- **Replaced Python aiohttp server with native Rust server** via PyO3; `docstage serve` now delegates to `run_http_server()` instead of `aiohttp.web.run_app()`
+- **Removed Python server modules** (`docstage.server.create_app`, `docstage.api`, `docstage.live`, `docstage.app_keys`); all HTTP handling now in Rust `docstage-server` crate
 - **`CodeBlockProcessor` trait methods return slices** (`extracted()` returns `&[ExtractedCodeBlock]` and `warnings()` returns `&[String]` instead of `Vec`); implementations no longer need to clone, improving performance
 - **Extracted renderer to separate crate** (`docstage-renderer`) for reusability and smaller dependency tree
 - **Extracted Confluence renderer to separate crate** (`docstage-confluence-renderer`) for cleaner separation and smaller dependency tree
