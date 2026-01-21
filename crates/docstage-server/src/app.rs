@@ -34,9 +34,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         router = router.route("/ws/live-reload", get(live_reload::ws_handler));
     }
 
-    // Static files and SPA fallback
-    router = router.merge(static_files::static_router(&state.static_dir));
-    router = router.fallback(get(static_files::spa_fallback));
+    // Static files (embedded or filesystem based on feature)
+    router = router.merge(static_files::static_router());
+
+    // SPA fallback only needed in filesystem mode
+    #[cfg(not(feature = "embed-assets"))]
+    {
+        router = router.fallback(get(static_files::spa_fallback));
+    }
 
     // Add security headers middleware
     router

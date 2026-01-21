@@ -1,8 +1,12 @@
 all: build test format lint
 
 build:
-	cd frontend && npm install && npm run build:bundle
+	cd frontend && npm install && npm run build
 	uv sync --reinstall
+
+build-release:
+	cd frontend && npm install && npm run build
+	cargo build --release -p docstage-server --features embed-assets
 
 test:
 	cargo llvm-cov --html

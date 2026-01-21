@@ -1022,9 +1022,6 @@ pub struct PyHttpServerConfig {
     /// Watch patterns for live reload.
     #[pyo3(get, set)]
     pub watch_patterns: Option<Vec<String>>,
-    /// Static files directory.
-    #[pyo3(get, set)]
-    pub static_dir: PathBuf,
     /// Enable verbose output.
     #[pyo3(get, set)]
     pub verbose: bool,
@@ -1039,17 +1036,12 @@ impl PyHttpServerConfig {
     ///
     /// Args:
     ///     config: Application configuration
-    ///     static_dir: Static files directory
     ///     version: Application version
     ///     verbose: Enable verbose output
     #[staticmethod]
-    pub fn from_config(
-        config: &PyConfig,
-        static_dir: PathBuf,
-        version: String,
-        verbose: bool,
-    ) -> Self {
-        ::docstage_server::server_config_from_docstage_config(&config.inner, static_dir, version, verbose).into()
+    pub fn from_config(config: &PyConfig, version: String, verbose: bool) -> Self {
+        ::docstage_server::server_config_from_docstage_config(&config.inner, version, verbose)
+            .into()
     }
 }
 
@@ -1066,7 +1058,6 @@ impl From<::docstage_server::ServerConfig> for PyHttpServerConfig {
             dpi,
             live_reload_enabled,
             watch_patterns,
-            static_dir,
             verbose,
             version,
         } = c;
@@ -1081,7 +1072,6 @@ impl From<::docstage_server::ServerConfig> for PyHttpServerConfig {
             dpi,
             live_reload_enabled,
             watch_patterns,
-            static_dir,
             verbose,
             version,
         }
@@ -1101,7 +1091,6 @@ impl From<PyHttpServerConfig> for ::docstage_server::ServerConfig {
             dpi,
             live_reload_enabled,
             watch_patterns,
-            static_dir,
             verbose,
             version,
         } = c;
@@ -1116,7 +1105,6 @@ impl From<PyHttpServerConfig> for ::docstage_server::ServerConfig {
             dpi,
             live_reload_enabled,
             watch_patterns,
-            static_dir,
             verbose,
             version,
         }

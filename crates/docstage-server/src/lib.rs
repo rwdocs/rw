@@ -5,6 +5,13 @@
 //! - Static files for the frontend SPA
 //! - WebSocket endpoint for live reload during development
 //!
+//! # Static Asset Modes
+//!
+//! This server supports two modes for serving static assets:
+//!
+//! - **Development** (default): Serves files from `frontend/dist` directory
+//! - **Production** (`embed-assets` feature): Embeds assets in the binary
+//!
 //! # Quick Start
 //!
 //! ```ignore
@@ -24,7 +31,6 @@
 //!         dpi: 192,
 //!         live_reload_enabled: true,
 //!         watch_patterns: None,
-//!         static_dir: PathBuf::from("static"),
 //!         verbose: false,
 //!         version: "1.0.0".to_string(),
 //!     };
@@ -47,7 +53,7 @@
 //!                        │       │
 //!                        │       └─► notify (direct Rust crate)
 //!                        │
-//!                        └─► Static files (tower-http)
+//!                        └─► Static files (embedded or tower-http)
 //! ```
 
 mod app;
@@ -92,8 +98,6 @@ pub struct ServerConfig {
     pub live_reload_enabled: bool,
     /// Watch patterns for live reload.
     pub watch_patterns: Option<Vec<String>>,
-    /// Static files directory.
-    pub static_dir: PathBuf,
     /// Enable verbose output.
     pub verbose: bool,
     /// Application version (for cache invalidation).
@@ -113,7 +117,6 @@ impl Default for ServerConfig {
             dpi: 192,
             live_reload_enabled: false,
             watch_patterns: None,
-            static_dir: PathBuf::from("static"),
             verbose: false,
             version: String::new(),
         }
@@ -171,7 +174,6 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         live_reload,
         verbose: config.verbose,
         version: config.version.clone(),
-        static_dir: config.static_dir.clone(),
     });
 
     // Create router
@@ -202,13 +204,11 @@ async fn shutdown_signal() {
 /// # Arguments
 ///
 /// * `config` - Docstage configuration
-/// * `static_dir` - Static files directory
 /// * `version` - Application version
 /// * `verbose` - Enable verbose output
 #[must_use]
 pub fn server_config_from_docstage_config(
     config: &docstage_config::Config,
-    static_dir: PathBuf,
     version: String,
     verbose: bool,
 ) -> ServerConfig {
@@ -227,7 +227,6 @@ pub fn server_config_from_docstage_config(
         dpi: config.diagrams_resolved.dpi,
         live_reload_enabled: config.live_reload.enabled,
         watch_patterns: config.live_reload.watch_patterns.clone(),
-        static_dir,
         verbose,
         version,
     }

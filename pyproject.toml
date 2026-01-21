@@ -9,7 +9,6 @@ dependencies = ["docstage"]
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
-    "pytest-aiohttp>=1.0.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.8",
     "ty>=0.0.12",

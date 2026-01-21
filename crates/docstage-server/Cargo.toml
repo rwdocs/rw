@@ -6,6 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = []
+embed-assets = ["dep:rust-embed"]
+
 [dependencies]
 # Internal crates
 docstage-core = { workspace = true }
@@ -39,6 +43,10 @@ md-5 = "0.10"
 hex = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 glob = "0.3"
+
+# Static file embedding (optional)
+rust-embed = { version = "8.5", features = ["compression"], optional = true }
+mime_guess = "2"
 
 [dev-dependencies]
 tempfile = "3"
