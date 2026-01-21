@@ -84,10 +84,27 @@ impl From<&TocEntry> for TocResponse {
     }
 }
 
+/// Handle GET /api/pages/ (root page).
+pub async fn get_root_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, ServerError> {
+    get_page_impl(String::new(), state, headers).await
+}
+
 /// Handle GET /api/pages/{path}.
 pub async fn get_page(
     Path(path): Path<String>,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, ServerError> {
+    get_page_impl(path, state, headers).await
+}
+
+/// Shared implementation for page rendering.
+async fn get_page_impl(
+    path: String,
+    state: Arc<AppState>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
     // Load site and resolve source path
