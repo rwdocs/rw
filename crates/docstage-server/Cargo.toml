@@ -30,7 +30,7 @@ tower-http = { version = "0.6", features = [
 tokio = { version = "1", features = ["full", "sync"] }
 
 # File watching
-notify = "7"
+notify = "8"
 
 # Serialization
 serde = { workspace = true }
