@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Extracted CLI helper functions** for diagram attachment handling and dry-run output; `_collect_diagram_attachments()`, `_upload_attachments()`, `_print_dry_run_summary()`, and `_print_unmatched_comments_warning()` reduce code duplication across `_create`, `_update`, and `_upload_mkdocs` commands
 - **Moved comment preservation from Python to Rust**; Confluence `update` command now uses Rust `preserve_comments()` via PyO3 bindings instead of Python `CommentPreserver` class
 - **Removed Python `CommentPreserver` class** (`docstage.confluence.comment_preservation`); use `docstage_core.preserve_comments()` instead
+- **Removed Python `docstage.confluence` module**; import `MarkdownConverter` directly from `docstage_core` instead
 - **Moved `Site` module from Python to Rust**; Python server now uses Rust `SiteLoader` via PyO3 bindings
 - **Removed Python `Site`, `SiteBuilder`, `SiteLoader`** (`docstage.core.site`); use `docstage_core.Site`, `docstage_core.SiteLoader` instead
 - **Removed Python `NavItem`, `build_navigation`** (`docstage.core.navigation`); use `docstage_core.NavItem`, `docstage_core.build_navigation` instead

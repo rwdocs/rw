@@ -232,7 +232,7 @@ def convert(
     """Convert a markdown file to Confluence storage format and display it."""
     import tempfile
 
-    from docstage.confluence import MarkdownConverter
+    from docstage_core import MarkdownConverter
 
     config = Config.load(config_path)
     effective_kroki_url = _require_kroki_url(kroki_url, config)
@@ -804,7 +804,7 @@ def _create(
         key_file: Path to private key PEM file
     """
     try:
-        from docstage.confluence import MarkdownConverter
+        from docstage_core import MarkdownConverter
 
         config = Config.load(config_path)
         conf_config = _require_confluence_config(config)
@@ -875,7 +875,7 @@ def _update(
     try:
         from docstage_core import preserve_comments
 
-        from docstage.confluence import MarkdownConverter
+        from docstage_core import MarkdownConverter
 
         config = Config.load(config_path)
         conf_config = _require_confluence_config(config)
