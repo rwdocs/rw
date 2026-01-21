@@ -79,9 +79,7 @@ packages/
 ├── docstage/              # Python CLI package (Click)
 │   └── src/docstage/
 │       ├── cli.py                     # Main CLI commands
-│       ├── server.py                  # Entry point for native Rust HTTP server
-│       ├── confluence/client.py       # Async Confluence REST API client
-│       └── oauth.py                   # OAuth 1.0 RSA-SHA1 auth
+│       └── server.py                  # Entry point for native Rust HTTP server
 │
 └── docstage-core/         # Python package with PyO3 bindings (maturin)
     ├── Cargo.toml

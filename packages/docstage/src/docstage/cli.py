@@ -3,7 +3,6 @@
 Command-line tool for converting markdown to Confluence pages.
 """
 
-import asyncio
 import sys
 import tempfile
 from pathlib import Path
@@ -17,13 +16,11 @@ from docstage_core.config import CliSettings, Config, ConfluenceConfig
 @click.group()
 def cli() -> None:
     """Docstage - Where documentation takes the stage."""
-    pass
 
 
 @click.group()
 def confluence() -> None:
     """Confluence publishing commands."""
-    pass
 
 
 cli.add_command(confluence)
@@ -128,175 +125,6 @@ def serve(
 
 
 @confluence.command()
-@click.option(
-    "--config",
-    "-c",
-    "config_path",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Path to configuration file (default: auto-discover docstage.toml)",
-)
-@click.option(
-    "--key-file",
-    "-k",
-    type=click.Path(exists=True, path_type=Path),
-    default="private_key.pem",
-    help="Path to OAuth private key file",
-)
-def test_auth(config_path: Path | None, key_file: Path) -> None:
-    """Test Confluence authentication."""
-    _test_auth(config_path, key_file)
-
-
-@confluence.command()
-@click.argument("page_id")
-@click.option(
-    "--config",
-    "-c",
-    "config_path",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Path to configuration file (default: auto-discover docstage.toml)",
-)
-@click.option(
-    "--key-file",
-    "-k",
-    type=click.Path(exists=True, path_type=Path),
-    default="private_key.pem",
-    help="Path to OAuth private key file",
-)
-def get_page(page_id: str, config_path: Path | None, key_file: Path) -> None:
-    """Get page information by ID."""
-    _get_page(page_id, config_path, key_file)
-
-
-@confluence.command()
-@click.argument("title")
-@click.option(
-    "--space",
-    "-s",
-    help="Space key (default: from config confluence.test.space_key)",
-)
-@click.option(
-    "--body",
-    "-b",
-    default="<p>Test page created by docstage</p>",
-    help="Page body HTML",
-)
-@click.option(
-    "--config",
-    "-c",
-    "config_path",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Path to configuration file (default: auto-discover docstage.toml)",
-)
-@click.option(
-    "--key-file",
-    "-k",
-    type=click.Path(exists=True, path_type=Path),
-    default="private_key.pem",
-    help="Path to OAuth private key file",
-)
-def test_create(
-    title: str,
-    space: str | None,
-    body: str,
-    config_path: Path | None,
-    key_file: Path,
-) -> None:
-    """Test creating a page."""
-    _test_create(title, space, body, config_path, key_file)
-
-
-@confluence.command()
-@click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--config",
-    "-c",
-    "config_path",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Path to configuration file (default: auto-discover docstage.toml)",
-)
-@click.option(
-    "--kroki-url",
-    default=None,
-    help="Kroki server URL for diagram rendering (overrides config)",
-)
-def convert(
-    markdown_file: Path,
-    config_path: Path | None,
-    kroki_url: str | None,
-) -> None:
-    """Convert a markdown file to Confluence storage format and display it."""
-    import tempfile
-
-    from docstage_core import MarkdownConverter
-
-    config = Config.load(config_path)
-    effective_kroki_url = _require_kroki_url(kroki_url, config)
-
-    diagrams = config.diagrams
-    converter = MarkdownConverter(
-        include_dirs=diagrams.include_dirs,
-        config_file=diagrams.config_file,
-        dpi=diagrams.dpi,
-    )
-    markdown_text = markdown_file.read_text(encoding="utf-8")
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        result = converter.convert(markdown_text, effective_kroki_url, Path(tmpdir))
-
-    click.echo(click.style("\nMarkdown file:", fg="cyan", bold=True))
-    click.echo(f"{markdown_file}\n")
-    click.echo(
-        click.style("Converted to Confluence storage format:", fg="green", bold=True),
-    )
-    click.echo(result.html)
-
-
-@confluence.command()
-@click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
-@click.argument("title")
-@click.option(
-    "--space",
-    "-s",
-    help="Space key (default: from config confluence.test.space_key)",
-)
-@click.option(
-    "--kroki-url",
-    default=None,
-    help="Kroki server URL for diagram rendering (overrides config)",
-)
-@click.option(
-    "--config",
-    "-c",
-    "config_path",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Path to configuration file (default: auto-discover docstage.toml)",
-)
-@click.option(
-    "--key-file",
-    "-k",
-    type=click.Path(exists=True, path_type=Path),
-    default="private_key.pem",
-    help="Path to OAuth private key file",
-)
-def create(
-    markdown_file: Path,
-    title: str,
-    space: str | None,
-    kroki_url: str | None,
-    config_path: Path | None,
-    key_file: Path,
-) -> None:
-    """Create a Confluence page from a markdown file."""
-    _create(markdown_file, title, space, kroki_url, config_path, key_file)
-
-
-@confluence.command()
 @click.argument("markdown_file", type=click.Path(exists=True, path_type=Path))
 @click.argument("page_id")
 @click.option(
@@ -345,51 +173,85 @@ def update(
     key_file: Path,
 ) -> None:
     """Update a Confluence page from a markdown file."""
-    _update(
-        markdown_file,
-        page_id,
-        message,
-        kroki_url,
-        extract_title,
-        dry_run,
-        config_path,
-        key_file,
-    )
+    from docstage_core import MarkdownConverter, preserve_comments
 
+    try:
+        config = Config.load(config_path)
+        conf_config = _require_confluence_config(config)
+        confluence_client = _create_confluence_client(conf_config, key_file)
+        effective_kroki_url = _require_kroki_url(kroki_url, config)
 
-@confluence.command()
-@click.argument("page_id")
-@click.option(
-    "--config",
-    "-c",
-    "config_path",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="Path to configuration file (default: auto-discover docstage.toml)",
-)
-@click.option(
-    "--key-file",
-    "-k",
-    type=click.Path(exists=True, path_type=Path),
-    default="private_key.pem",
-    help="Path to OAuth private key file",
-)
-@click.option(
-    "--include-resolved",
-    is_flag=True,
-    help="Include resolved comments in output",
-)
-def comments(
-    page_id: str,
-    config_path: Path | None,
-    key_file: Path,
-    include_resolved: bool,
-) -> None:
-    """Fetch and display comments from a Confluence page.
+        diagrams_config = config.diagrams
+        click.echo(f"Converting {markdown_file}...")
+        converter = MarkdownConverter(
+            prepend_toc=True,
+            extract_title=extract_title,
+            include_dirs=diagrams_config.include_dirs,
+            config_file=diagrams_config.config_file,
+            dpi=diagrams_config.dpi,
+        )
+        markdown_text = markdown_file.read_text(encoding="utf-8")
 
-    Outputs comments in a format suitable for fixing issues in source markdown.
-    """
-    _comments(page_id, config_path, key_file, include_resolved)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
+            new_html = result.html
+            attachments = _collect_diagram_attachments(tmpdir_path)
+
+            if result.title:
+                click.echo(f"Title: {result.title}")
+
+            click.echo(f"Fetching current page {page_id}...")
+            current_page = confluence_client.get_page(
+                page_id,
+                expand=["body.storage", "version"],
+            )
+            current_version = current_page.version
+            old_html = current_page.body or ""
+
+            title = result.title or current_page.title
+
+            click.echo("Preserving comment markers...")
+            preserve_result = preserve_comments(old_html, new_html)
+
+            if dry_run:
+                _print_dry_run_summary(preserve_result.unmatched_comments)
+                return
+
+            _upload_attachments(confluence_client, page_id, attachments)
+
+            click.echo(
+                f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
+            )
+            updated_page = confluence_client.update_page(
+                page_id,
+                title,
+                preserve_result.html,
+                current_version,
+                message,
+            )
+
+            click.echo(
+                click.style("\nPage updated successfully!", fg="green", bold=True),
+            )
+            click.echo(f"ID: {updated_page.id}")
+            click.echo(f"Title: {updated_page.title}")
+            click.echo(f"Version: {updated_page.version}")
+
+            url = confluence_client.get_page_url(page_id)
+            click.echo(f"URL: {url}")
+
+            comments_response = confluence_client.get_comments(page_id)
+            click.echo(f"\nComments on page: {comments_response.size}")
+
+            _print_unmatched_comments_warning(preserve_result.unmatched_comments)
+
+    except Exception as e:
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
 
 
 @confluence.command()
@@ -460,6 +322,8 @@ def generate_tokens(
         sys.exit(1)
     effective_base_url = cast(str, effective_base_url)  # narrowing after sys.exit
 
+    import asyncio
+
     asyncio.run(
         _generate_tokens(private_key, effective_consumer_key, effective_base_url, port),
     )
@@ -518,33 +382,6 @@ def _require_kroki_url(kroki_url: str | None, config: Config) -> str:
         )
         sys.exit(1)
     return cast(str, effective)  # narrowing after sys.exit
-
-
-def _require_space_key(space: str | None, config: Config) -> str:
-    """Get effective space key or exit with error.
-
-    Args:
-        space: CLI-provided space key (overrides config if set)
-        config: Application config
-
-    Returns:
-        Effective space key
-
-    Raises:
-        SystemExit: If space key is not provided
-    """
-    if space:
-        return space
-    if config.confluence_test and config.confluence_test.space_key:
-        return config.confluence_test.space_key
-    click.echo(
-        click.style(
-            "Error: No space key provided and confluence.test.space_key not in config",
-            fg="red",
-        ),
-        err=True,
-    )
-    sys.exit(1)
 
 
 def _collect_diagram_attachments(
@@ -664,295 +501,6 @@ def _create_confluence_client(
         conf_config.access_token,
         conf_config.access_secret,
     )
-
-
-def _test_auth(config_path: Path | None, key_file: Path) -> None:
-    """Test authentication with Confluence API.
-
-    Args:
-        config_path: Path to config file
-        key_file: Path to private key PEM file
-    """
-    try:
-        config = Config.load(config_path)
-        conf_config = _require_confluence_config(config)
-
-        click.echo(f"Reading private key from {key_file}...")
-        click.echo("Creating authenticated client...")
-
-        confluence = _create_confluence_client(conf_config, key_file)
-
-        click.echo(f"Testing connection to {conf_config.base_url}...")
-
-        # Test by fetching a page (the client will fail if auth is invalid)
-        # We use get_page on a non-existent page to verify auth works
-        click.echo(click.style("Authentication successful!", fg="green"))
-        click.echo(f"Connected to: {confluence.base_url}")
-
-    except FileNotFoundError as e:
-        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        click.echo("\nMake sure you have:")
-        click.echo("1. Created docstage.toml with your OAuth credentials")
-        click.echo("2. Placed your private_key.pem file in the project root")
-        sys.exit(1)
-    except Exception as e:
-        click.echo(click.style(f"Authentication failed: {e}", fg="red"), err=True)
-        sys.exit(1)
-
-
-def _get_page(page_id: str, config_path: Path | None, key_file: Path) -> None:
-    """Get page information.
-
-    Args:
-        page_id: Page ID to fetch
-        config_path: Path to config file
-        key_file: Path to private key PEM file
-    """
-    try:
-        config = Config.load(config_path)
-        conf_config = _require_confluence_config(config)
-        confluence = _create_confluence_client(conf_config, key_file)
-
-        click.echo(f"Fetching page {page_id}...")
-        page = confluence.get_page(page_id, expand=["body.storage", "version"])
-
-        click.echo(click.style("\nPage Information:", fg="green", bold=True))
-        click.echo(f"ID: {page.id}")
-        click.echo(f"Title: {page.title}")
-        click.echo(f"Version: {page.version}")
-
-        url = confluence.get_page_url(page_id)
-        click.echo(f"URL: {url}")
-
-        comments_response = confluence.get_comments(page_id)
-        click.echo(f"\nComments: {comments_response.size}")
-
-        if page.body:
-            click.echo(
-                click.style(
-                    "\nPage Content (Confluence Storage Format):",
-                    fg="cyan",
-                    bold=True,
-                ),
-            )
-            click.echo(page.body)
-
-    except Exception as e:
-        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        sys.exit(1)
-
-
-def _test_create(
-    title: str,
-    space: str | None,
-    body: str,
-    config_path: Path | None,
-    key_file: Path,
-) -> None:
-    """Test creating a page.
-
-    Args:
-        title: Page title
-        space: Space key (or None to use config)
-        body: Page body HTML
-        config_path: Path to config file
-        key_file: Path to private key PEM file
-    """
-    try:
-        config = Config.load(config_path)
-        conf_config = _require_confluence_config(config)
-        confluence = _create_confluence_client(conf_config, key_file)
-        space = _require_space_key(space, config)
-
-        click.echo(f'Creating page "{title}" in space {space}...')
-        page = confluence.create_page(space, title, body)
-
-        click.echo(
-            click.style("\nPage created successfully!", fg="green", bold=True),
-        )
-        click.echo(f"ID: {page.id}")
-        click.echo(f"Title: {page.title}")
-        click.echo(f"Version: {page.version}")
-
-        url = confluence.get_page_url(page.id)
-        click.echo(f"URL: {url}")
-
-    except Exception as e:
-        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
-
-
-def _create(
-    markdown_file: Path,
-    title: str,
-    space: str | None,
-    kroki_url: str | None,
-    config_path: Path | None,
-    key_file: Path,
-) -> None:
-    """Create a page from markdown file.
-
-    Args:
-        markdown_file: Path to markdown file
-        title: Page title
-        space: Space key (or None to use config)
-        kroki_url: Kroki server URL (or None to use config)
-        config_path: Path to config file
-        key_file: Path to private key PEM file
-    """
-    try:
-        from docstage_core import MarkdownConverter
-
-        config = Config.load(config_path)
-        conf_config = _require_confluence_config(config)
-        confluence = _create_confluence_client(conf_config, key_file)
-        effective_kroki_url = _require_kroki_url(kroki_url, config)
-        space = _require_space_key(space, config)
-
-        diagrams_config = config.diagrams
-        click.echo(f"Converting {markdown_file}...")
-        converter = MarkdownConverter(
-            prepend_toc=True,
-            include_dirs=diagrams_config.include_dirs,
-            config_file=diagrams_config.config_file,
-            dpi=diagrams_config.dpi,
-        )
-        markdown_text = markdown_file.read_text(encoding="utf-8")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
-            result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
-            confluence_body = result.html
-            attachments = _collect_diagram_attachments(tmpdir_path)
-
-            click.echo(f'Creating page "{title}" in space {space}...')
-            page = confluence.create_page(space, title, confluence_body)
-            _upload_attachments(confluence, page.id, attachments)
-
-            click.echo(
-                click.style("\nPage created successfully!", fg="green", bold=True),
-            )
-            click.echo(f"ID: {page.id}")
-            click.echo(f"Title: {page.title}")
-            click.echo(f"Version: {page.version}")
-
-            url = confluence.get_page_url(page.id)
-            click.echo(f"URL: {url}")
-
-    except Exception as e:
-        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
-
-
-def _update(
-    markdown_file: Path,
-    page_id: str,
-    message: str | None,
-    kroki_url: str | None,
-    extract_title: bool,
-    dry_run: bool,
-    config_path: Path | None,
-    key_file: Path,
-) -> None:
-    """Update a page from markdown file.
-
-    Args:
-        markdown_file: Path to markdown file
-        page_id: Page ID to update
-        message: Optional version message
-        kroki_url: Kroki server URL (or None to use config)
-        extract_title: Extract title from first H1 heading
-        dry_run: If True, only show what would happen without updating
-        config_path: Path to config file
-        key_file: Path to private key PEM file
-    """
-    try:
-        from docstage_core import preserve_comments
-
-        from docstage_core import MarkdownConverter
-
-        config = Config.load(config_path)
-        conf_config = _require_confluence_config(config)
-        confluence = _create_confluence_client(conf_config, key_file)
-        effective_kroki_url = _require_kroki_url(kroki_url, config)
-
-        diagrams_config = config.diagrams
-        click.echo(f"Converting {markdown_file}...")
-        converter = MarkdownConverter(
-            prepend_toc=True,
-            extract_title=extract_title,
-            include_dirs=diagrams_config.include_dirs,
-            config_file=diagrams_config.config_file,
-            dpi=diagrams_config.dpi,
-        )
-        markdown_text = markdown_file.read_text(encoding="utf-8")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
-            result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
-            new_html = result.html
-            attachments = _collect_diagram_attachments(tmpdir_path)
-
-            if result.title:
-                click.echo(f"Title: {result.title}")
-
-            click.echo(f"Fetching current page {page_id}...")
-            current_page = confluence.get_page(
-                page_id,
-                expand=["body.storage", "version"],
-            )
-            current_version = current_page.version
-            old_html = current_page.body or ""
-
-            title = result.title or current_page.title
-
-            click.echo("Preserving comment markers...")
-            preserve_result = preserve_comments(old_html, new_html)
-
-            if dry_run:
-                _print_dry_run_summary(preserve_result.unmatched_comments)
-                return
-
-            _upload_attachments(confluence, page_id, attachments)
-
-            click.echo(
-                f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
-            )
-            updated_page = confluence.update_page(
-                page_id,
-                title,
-                preserve_result.html,
-                current_version,
-                message,
-            )
-
-            click.echo(
-                click.style("\nPage updated successfully!", fg="green", bold=True),
-            )
-            click.echo(f"ID: {updated_page.id}")
-            click.echo(f"Title: {updated_page.title}")
-            click.echo(f"Version: {updated_page.version}")
-
-            url = confluence.get_page_url(page_id)
-            click.echo(f"URL: {url}")
-
-            comments_response = confluence.get_comments(page_id)
-            click.echo(f"\nComments on page: {comments_response.size}")
-
-            _print_unmatched_comments_warning(preserve_result.unmatched_comments)
-
-    except Exception as e:
-        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
 
 
 async def _generate_tokens(
@@ -1095,157 +643,6 @@ async def _generate_tokens(
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        sys.exit(1)
-
-
-def _strip_html_tags(html: str) -> str:
-    """Strip HTML tags and convert to plain text.
-
-    Args:
-        html: HTML string to convert
-
-    Returns:
-        Plain text with HTML tags removed
-    """
-    import re
-
-    text = re.sub(r"<[^>]+>", " ", html)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
-def _extract_comment_contexts(html: str, context_chars: int = 100) -> dict[str, str]:
-    """Extract surrounding context for each inline comment marker.
-
-    Args:
-        html: Page body HTML in Confluence storage format
-        context_chars: Number of characters of context on each side
-
-    Returns:
-        Dictionary mapping marker ref to context string
-    """
-    import re
-
-    marker_pattern = re.compile(
-        r'<ac:inline-comment-marker[^>]*ac:ref="([^"]+)"[^>]*>(.*?)</ac:inline-comment-marker>',
-        re.DOTALL,
-    )
-
-    # Collect markers and create placeholders in single pass
-    markers: list[tuple[str, str]] = []
-
-    def replace_with_placeholder(match: re.Match[str]) -> str:
-        ref, text = match.group(1), match.group(2)
-        markers.append((ref, text))
-        return f"[[[MARKER:{len(markers) - 1}]]]"
-
-    html_with_placeholders = marker_pattern.sub(replace_with_placeholder, html)
-    plain_text = _strip_html_tags(html_with_placeholders)
-
-    # Build context map
-    contexts: dict[str, str] = {}
-    for idx, (ref, marker_text) in enumerate(markers):
-        placeholder = f"[[[MARKER:{idx}]]]"
-        pos = plain_text.find(placeholder)
-        if pos == -1:
-            continue
-
-        start = max(0, pos - context_chars)
-        end = min(len(plain_text), pos + len(placeholder) + context_chars)
-        context = (
-            plain_text[start:end].replace(placeholder, f">>>{marker_text}<<<").strip()
-        )
-        contexts[ref] = context
-
-    return contexts
-
-
-def _comments(
-    page_id: str,
-    config_path: Path | None,
-    key_file: Path,
-    include_resolved: bool,
-) -> None:
-    """Fetch and display comments from a Confluence page.
-
-    Args:
-        page_id: Page ID to fetch comments from
-        config_path: Path to config file
-        key_file: Path to private key PEM file
-        include_resolved: Whether to include resolved comments
-    """
-    try:
-        config = Config.load(config_path)
-        conf_config = _require_confluence_config(config)
-        confluence = _create_confluence_client(conf_config, key_file)
-
-        page = confluence.get_page(page_id, expand=["body.storage"])
-        page_title = page.title
-        page_url = confluence.get_page_url(page_id)
-        page_body = page.body or ""
-
-        context_map = _extract_comment_contexts(page_body)
-
-        inline_comments = confluence.get_inline_comments(page_id)
-        footer_comments = confluence.get_footer_comments(page_id)
-
-        inline_results = inline_comments.results
-        footer_results = footer_comments.results
-
-        if not include_resolved:
-            inline_results = [
-                c for c in inline_results if (c.status or "open") == "open"
-            ]
-            footer_results = [
-                c for c in footer_results if (c.status or "open") == "open"
-            ]
-
-        total_count = len(inline_results) + len(footer_results)
-
-        if total_count == 0:
-            click.echo("No comments found.")
-            return
-
-        click.echo(f'# Comments on "{page_title}"')
-        click.echo(f"Page URL: {page_url}")
-        click.echo()
-
-        if inline_results:
-            click.echo(f"## Inline Comments ({len(inline_results)})")
-            click.echo()
-            for comment in inline_results:
-                marker_ref = comment.marker_ref or ""
-                original_text = comment.original_selection or "N/A"
-                status = comment.status or "open"
-                body_text = _strip_html_tags(comment.body or "")
-
-                context = context_map.get(marker_ref)
-
-                click.echo(f'### On text: "{original_text}"')
-                if context:
-                    click.echo(f"Context: ...{context}...")
-                if include_resolved:
-                    click.echo(f"Status: {status}")
-                click.echo(f"Comment: {body_text}")
-                click.echo()
-
-        if footer_results:
-            click.echo(f"## Page Comments ({len(footer_results)})")
-            click.echo()
-            for comment in footer_results:
-                status = comment.status or "open"
-                body_text = _strip_html_tags(comment.body or "")
-
-                if include_resolved:
-                    click.echo(f"Status: {status}")
-                click.echo(f"Comment: {body_text}")
-                click.echo()
-
-    except Exception as e:
-        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        import traceback
-
-        traceback.print_exc()
         sys.exit(1)
 
 

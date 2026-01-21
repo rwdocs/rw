@@ -131,15 +131,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **`confluence upload-mkdocs` command**; use `confluence update` instead with appropriate `include_dirs` and `config_file` in `docstage.toml`
+- **`confluence comments` command**; comment information is available in the Confluence UI
+- **`confluence convert` command**; use `confluence update --dry-run` to preview conversion
+- **`confluence create` command**; create pages manually in Confluence, then use `confluence update` to sync content
+- **`confluence get-page` command**; use the Confluence REST API directly or the web UI
+- **`confluence test-auth` command**; use `confluence update --dry-run` to verify authentication
+- **`confluence test-create` command**; use `confluence update --dry-run` to verify permissions
 
 ### Fixed
 
 - **OAuth 1.0 signature now includes query parameters** per RFC 5849 Section 3.4.1.3; fixes `signature_invalid` errors for Confluence API requests with query strings (e.g., `get_page` with `expand` parameter)
 - **Ctrl-C signal handling** now works for `docstage serve`; uses tokio graceful shutdown instead of relying on Python signal handlers
 - Kroki error messages now include the actual error response body (e.g., syntax errors)
-- Confluence CLI commands (`convert`, `create`, `update`) now use `include_dirs`, `config_file`, and `dpi` from config
-- Confluence `create` and `update` commands now upload diagram attachments to the page
-- Confluence `create` and `update` commands now prepend table of contents
+- Confluence `update` command now uses `include_dirs`, `config_file`, and `dpi` from config
+- Confluence `update` command now uploads diagram attachments to the page
+- Confluence `update` command now prepends table of contents
 - Root `index.md` now correctly renders as home page
 - Article links resolve correctly without `/docs/` prefix
 - Comment preservation works when table content changes

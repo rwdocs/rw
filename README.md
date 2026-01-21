@@ -48,8 +48,6 @@ access_token = "your-token"
 access_secret = "your-secret"
 consumer_key = "docstage"
 
-[confluence.test]
-space_key = "DOCS"
 ```
 
 CLI options override config file values:
@@ -86,26 +84,17 @@ All Confluence-related commands are grouped under the `confluence` subcommand:
 # Generate OAuth tokens (requires write permissions in Confluence)
 uv run docstage confluence generate-tokens
 
-# Test authentication
-uv run docstage confluence test-auth
-
-# Preview markdown conversion
-uv run docstage confluence convert document.md
-
-# Create a new page
-uv run docstage confluence create document.md "Page Title" --space ARCH
-
 # Update an existing page
 uv run docstage confluence update document.md <page-id> -m "Update message"
 
-# Get page info
-uv run docstage confluence get-page <page-id>
+# Preview changes without updating (dry run)
+uv run docstage confluence update document.md <page-id> --dry-run
 ```
 
 ## OAuth Permissions
 
-OAuth tokens inherit the authorizing user's permissions. If you get `500` errors on create/update:
-1. Verify you can create/edit pages manually in the target space
+OAuth tokens inherit the authorizing user's permissions. If you get `500` errors on update:
+1. Verify you can edit pages manually in the target space
 2. Regenerate tokens with `uv run docstage confluence generate-tokens`
 
 ## Technical Details
