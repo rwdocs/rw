@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Optional static asset embedding** via `rust-embed` crate with `embed-assets` feature flag; development builds serve from `frontend/dist`, production builds embed assets for single-binary deployment
+- **`build-release` Makefile target** for building production binary with embedded assets
 - **Rust `docstage-server` crate** providing native axum HTTP server; replaces Python aiohttp server with direct Rust calls, eliminating FFI overhead
 - **API handlers** for `/api/config`, `/api/pages/{path}`, and `/api/navigation` endpoints
 - **Static file serving** via tower-http with SPA fallback for client-side routing
@@ -58,6 +60,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Server initialization uses `PageRendererConfig`** instead of passing cache and keyword arguments; Rust `PageRenderer` manages its own page cache internally
 - **Replaced Python aiohttp server with native Rust server** via PyO3; `docstage serve` now delegates to `run_http_server()` instead of `aiohttp.web.run_app()`
 - **Removed Python server modules** (`docstage.server.create_app`, `docstage.api`, `docstage.live`, `docstage.app_keys`); all HTTP handling now in Rust `docstage-server` crate
+- **Removed `static_dir` from server configuration**; Rust server now handles static files internally via `frontend/dist` (dev) or embedded assets (prod)
+- **Removed Python `docstage.assets` module** (`get_static_dir()`); static asset discovery is no longer needed as Rust handles static files internally
+- **Removed bundled static assets from Python package** (`packages/docstage/src/docstage/static/`); assets are now served from `frontend/dist` during development
+- **Removed `npm run build:bundle` script** from frontend; use `npm run build` instead
+- **Removed `aiohttp` and `watchfiles` dependencies** from Python package; no longer needed as Rust handles HTTP serving and file watching
+- **Removed `pytest-aiohttp` dev dependency**; no longer needed as HTTP server is now in Rust
 - **`CodeBlockProcessor` trait methods return slices** (`extracted()` returns `&[ExtractedCodeBlock]` and `warnings()` returns `&[String]` instead of `Vec`); implementations no longer need to clone, improving performance
 - **Extracted renderer to separate crate** (`docstage-renderer`) for reusability and smaller dependency tree
 - **Extracted Confluence renderer to separate crate** (`docstage-confluence-renderer`) for cleaner separation and smaller dependency tree

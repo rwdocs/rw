@@ -353,6 +353,7 @@ dependencies = [
  "glob",
  "hex",
  "md-5",
+ "mime_guess",
  "notify",
  "serde",
  "serde_json",

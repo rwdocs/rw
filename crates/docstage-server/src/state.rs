@@ -2,7 +2,6 @@
 //!
 //! Shared state for all request handlers.
 
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use docstage_core::{PageRenderer, SiteLoader};
@@ -21,8 +20,6 @@ pub struct AppState {
     pub verbose: bool,
     /// Application version for cache invalidation.
     pub version: String,
-    /// Static files directory.
-    pub static_dir: PathBuf,
 }
 
 impl AppState {
