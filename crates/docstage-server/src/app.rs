@@ -24,6 +24,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     let api_routes = Router::new()
         .route("/api/config", get(handlers::config::get_config))
         .route("/api/navigation", get(handlers::navigation::get_navigation))
+        .route("/api/pages/", get(handlers::pages::get_root_page))
         .route("/api/pages/{*path}", get(handlers::pages::get_page));
 
     let mut router = Router::new().merge(api_routes);
