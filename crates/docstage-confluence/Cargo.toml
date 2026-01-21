@@ -1,6 +1,6 @@
 [package]
-name = "docstage-confluence-renderer"
-description = "Confluence XHTML backend for docstage-renderer"
+name = "docstage-confluence"
+description = "Confluence integration for Docstage (renderer, API client, etc.)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
