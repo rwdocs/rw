@@ -56,18 +56,35 @@ impl OAuth1Auth {
     ///
     /// # Arguments
     /// * `method` - HTTP method (GET, POST, PUT, etc.)
-    /// * `uri` - Full request URI
+    /// * `uri` - Full request URI (including query string)
     pub fn sign(&self, method: &str, uri: &Uri) -> String {
-        let url = format!(
+        // Base URL excludes query string (RFC 5849 Section 3.4.1.2)
+        let base_url = format!(
             "{}://{}{}",
             uri.scheme_str().unwrap_or("https"),
             uri.host().unwrap_or(""),
             uri.path()
         );
 
+        // Parse query parameters to include in signature (RFC 5849 Section 3.4.1.3)
+        let query_params: Vec<(String, String)> = uri
+            .query()
+            .map(|q| {
+                q.split('&')
+                    .filter_map(|param| {
+                        let mut parts = param.splitn(2, '=');
+                        let key = parts.next()?;
+                        let value = parts.next().unwrap_or("");
+                        Some((key.to_string(), value.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
         create_authorization_header(
             method,
-            &url,
+            &base_url,
+            &query_params,
             &self.consumer_key,
             &self.access_token,
             &self.private_key,
