@@ -70,9 +70,18 @@ fn build_signature_base_string(
 }
 
 /// Create OAuth Authorization header value.
+///
+/// # Arguments
+/// * `method` - HTTP method (GET, POST, etc.)
+/// * `base_url` - URL without query string (scheme://host/path)
+/// * `query_params` - Query parameters to include in signature
+/// * `consumer_key` - OAuth consumer key
+/// * `access_token` - OAuth access token
+/// * `private_key` - RSA private key for signing
 pub fn create_authorization_header(
     method: &str,
-    url: &str,
+    base_url: &str,
+    query_params: &[(String, String)],
     consumer_key: &str,
     access_token: &str,
     private_key: &RsaPrivateKey,
@@ -85,13 +94,29 @@ pub fn create_authorization_header(
     params.insert("oauth_token".to_string(), access_token.to_string());
     params.insert("oauth_version".to_string(), "1.0".to_string());
 
-    let base_string = build_signature_base_string(method, url, &params);
+    // Include query parameters in signature (RFC 5849 Section 3.4.1.3)
+    for (key, value) in query_params {
+        params.insert(key.clone(), value.clone());
+    }
+
+    let base_string = build_signature_base_string(method, base_url, &params);
     let signature = sign_rsa_sha1(private_key, &base_string);
 
-    params.insert("oauth_signature".to_string(), signature);
+    // Only include OAuth params in the header (not query params)
+    let mut oauth_params = BTreeMap::new();
+    oauth_params.insert("oauth_consumer_key".to_string(), consumer_key.to_string());
+    oauth_params.insert("oauth_nonce".to_string(), params["oauth_nonce"].clone());
+    oauth_params.insert(
+        "oauth_signature_method".to_string(),
+        "RSA-SHA1".to_string(),
+    );
+    oauth_params.insert("oauth_timestamp".to_string(), params["oauth_timestamp"].clone());
+    oauth_params.insert("oauth_token".to_string(), access_token.to_string());
+    oauth_params.insert("oauth_version".to_string(), "1.0".to_string());
+    oauth_params.insert("oauth_signature".to_string(), signature);
 
     // Build header: OAuth key1="value1", key2="value2", ...
-    let header_parts: Vec<String> = params
+    let header_parts: Vec<String> = oauth_params
         .iter()
         .map(|(k, v)| format!("{}=\"{}\"", k, oauth_encode(v)))
         .collect();
