@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Removed Python `NavItem`, `build_navigation`** (`docstage.core.navigation`); use `docstage_core.NavItem`, `docstage_core.build_navigation` instead
 - **Removed Python `URLPath` type alias** (`docstage.core.types`); paths are now plain `str`
 - **Removed site cache methods from `FileCache`** (`get_site`, `set_site`, `invalidate_site`); site caching is now handled entirely in Rust
+- **Removed Python `docstage.core.cache` module** (`PageCache`, `FileCache`, `NullCache`, `CacheEntry`); page caching is now handled entirely in Rust via `PageRenderer`
 - **Moved `PageRenderer` from Python to Rust**; Python server now uses Rust `PageRenderer` via PyO3 bindings, reducing Python orchestration to a thin aiohttp layer
 - **Removed Python `PageRenderer` class** (`docstage.core.renderer.PageRenderer`); use `docstage_core.PageRenderer` instead
 - **Server initialization uses `PageRendererConfig`** instead of passing cache and keyword arguments; Rust `PageRenderer` manages its own page cache internally
