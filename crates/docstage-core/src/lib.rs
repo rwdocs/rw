@@ -4,6 +4,11 @@
 //! - **Confluence XHTML**: Storage format for Confluence REST API
 //! - **Semantic HTML5**: Clean HTML with table of contents and heading anchors
 //!
+//! It also provides site structure management:
+//! - **Site**: Document hierarchy with efficient path lookups
+//! - **SiteLoader**: Filesystem scanning and caching
+//! - **Navigation**: Tree builder for UI presentation
+//!
 //! # Quick Start
 //!
 //! ```ignore
@@ -12,6 +17,22 @@
 //! let converter = MarkdownConverter::new().extract_title(true);
 //! let result = converter.convert_html("# Hello\n\nWorld!");
 //! assert_eq!(result.title, Some("Hello".to_string()));
+//! ```
+//!
+//! # Site Structure
+//!
+//! ```ignore
+//! use std::path::PathBuf;
+//! use docstage_core::site_loader::{SiteLoader, SiteLoaderConfig};
+//! use docstage_core::navigation::build_navigation;
+//!
+//! let config = SiteLoaderConfig {
+//!     source_dir: PathBuf::from("docs"),
+//!     cache_dir: Some(PathBuf::from(".cache")),
+//! };
+//! let mut loader = SiteLoader::new(config);
+//! let site = loader.load(true);
+//! let nav = build_navigation(site);
 //! ```
 //!
 //! # Diagram Support
@@ -45,8 +66,16 @@
 
 mod confluence_tags;
 mod converter;
+pub mod navigation;
 mod page_cache;
 mod page_renderer;
+pub mod site;
+mod site_cache;
+pub mod site_loader;
 
 pub use converter::{ConvertResult, HtmlConvertResult, MarkdownConverter};
+pub use navigation::{NavItem, build_navigation};
 pub use page_renderer::{PageRenderResult, PageRenderer, PageRendererConfig, RenderError};
+pub use site::{BreadcrumbItem, Page, Site, SiteBuilder};
+pub use site_cache::{FileSiteCache, NullSiteCache, SiteCache};
+pub use site_loader::{SiteLoader, SiteLoaderConfig};

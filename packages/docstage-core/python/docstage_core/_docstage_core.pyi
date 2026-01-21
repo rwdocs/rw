@@ -213,6 +213,109 @@ class ConfluenceConfig:
     consumer_key: str
     test: ConfluenceTestConfig | None
 
+# Site classes
+
+class Page:
+    """Document page data."""
+
+    title: str
+    """Page title."""
+    path: str
+    """URL path (e.g., "/guide")."""
+    source_path: Path
+    """Relative path to source file."""
+
+class BreadcrumbItem:
+    """Breadcrumb navigation item."""
+
+    title: str
+    """Display title."""
+    path: str
+    """Link target path."""
+
+    def to_dict(self) -> dict[str, str]:
+        """Convert to dictionary for JSON serialization."""
+        ...
+
+class Site:
+    """Document site structure with efficient path lookups."""
+
+    source_dir: Path
+    """Root directory containing markdown sources."""
+
+    def get_page(self, path: str) -> Page | None:
+        """Get page by URL path."""
+        ...
+
+    def get_children(self, path: str) -> list[Page]:
+        """Get children of a page."""
+        ...
+
+    def get_breadcrumbs(self, path: str) -> list[BreadcrumbItem]:
+        """Build breadcrumbs for a given path."""
+        ...
+
+    def get_root_pages(self) -> list[Page]:
+        """Get root-level pages."""
+        ...
+
+    def resolve_source_path(self, path: str) -> Path | None:
+        """Resolve URL path to absolute source file path."""
+        ...
+
+    def get_page_by_source(self, source_path: Path) -> Page | None:
+        """Get page by source file path."""
+        ...
+
+class SiteLoaderConfig:
+    """Configuration for site loader."""
+
+    source_dir: Path
+    """Root directory containing markdown sources."""
+    cache_dir: Path | None
+    """Cache directory for site structure (None disables caching)."""
+
+    def __init__(
+        self,
+        source_dir: Path,
+        cache_dir: Path | None = None,
+    ) -> None: ...
+
+class SiteLoader:
+    """Loads site structure from filesystem."""
+
+    source_dir: Path
+    """Root directory containing markdown sources."""
+
+    def __init__(self, config: SiteLoaderConfig) -> None: ...
+    def load(self, use_cache: bool = True) -> Site:
+        """Load site structure from directory."""
+        ...
+
+    def invalidate(self) -> None:
+        """Invalidate cached site."""
+        ...
+
+class NavItem:
+    """Navigation item with children for UI tree."""
+
+    title: str
+    """Display title."""
+    path: str
+    """Link target path."""
+    children: list[NavItem]
+    """Child navigation items."""
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary for JSON serialization."""
+        ...
+
+def build_navigation(site: Site) -> list[NavItem]:
+    """Build navigation tree from site structure."""
+    ...
+
+# Config classes
+
 class Config:
     """Application configuration."""
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from aiohttp import web
 from aiohttp.typedefs import Handler
-from docstage_core import PageRenderer, PageRendererConfig
+from docstage_core import PageRenderer, PageRendererConfig, SiteLoader, SiteLoaderConfig
 from docstage_core.config import Config
 
 from docstage import __version__
@@ -22,8 +22,6 @@ from docstage.app_keys import (
     verbose_key,
 )
 from docstage.assets import get_static_dir
-from docstage.core.cache import FileCache, NullCache
-from docstage.core.site import SiteLoader
 
 
 @web.middleware
@@ -69,13 +67,6 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
     """
     app = web.Application(middlewares=[security_headers_middleware])
 
-    # Site cache (for site structure only)
-    site_cache: FileCache | NullCache
-    if config.docs.cache_enabled:
-        site_cache = FileCache(config.docs.cache_dir)
-    else:
-        site_cache = NullCache()
-
     # Rust PageRenderer handles page caching internally
     renderer_config = PageRendererConfig(
         cache_dir=config.docs.cache_dir if config.docs.cache_enabled else None,
@@ -87,7 +78,13 @@ def create_app(config: Config, *, verbose: bool = False) -> web.Application:
         dpi=config.diagrams.dpi,
     )
     renderer = PageRenderer(renderer_config)
-    site_loader = SiteLoader(config.docs.source_dir, site_cache)
+
+    # Rust SiteLoader handles site caching internally
+    site_loader_config = SiteLoaderConfig(
+        source_dir=config.docs.source_dir,
+        cache_dir=config.docs.cache_dir if config.docs.cache_enabled else None,
+    )
+    site_loader = SiteLoader(site_loader_config)
 
     app[renderer_key] = renderer
     app[site_loader_key] = site_loader

@@ -10,10 +10,9 @@ Cache structure:
     │   └── domain-a/
     │       └── subdomain/
     │           └── guide.json       # Extracted metadata
-    ├── diagrams/
-    │   └── <content_hash>.svg       # Rendered SVG diagrams
-    │   └── <content_hash>.png       # Rendered PNG diagrams (base64 data URI)
-    └── site.json                    # Site structure
+    └── diagrams/
+        └── <content_hash>.svg       # Rendered SVG diagrams
+        └── <content_hash>.png       # Rendered PNG diagrams (base64 data URI)
 """
 
 from __future__ import annotations
@@ -21,13 +20,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypedDict
+from typing import Protocol, TypedDict
 
 from docstage import __version__
-from docstage.core.types import URLPath
-
-if TYPE_CHECKING:
-    from docstage.core.site import Site
 
 
 class CachedMetadata(TypedDict):
@@ -108,16 +103,6 @@ class NullCache:
         """No-op."""
 
     def clear(self) -> None:
-        """No-op."""
-
-    def get_site(self) -> Site | None:
-        """Always returns None (cache miss)."""
-        return None
-
-    def set_site(self, site: Site) -> None:
-        """No-op."""
-
-    def invalidate_site(self) -> None:
         """No-op."""
 
 
@@ -247,69 +232,6 @@ class FileCache:
             shutil.rmtree(self._pages_dir)
         if self._meta_dir.exists():
             shutil.rmtree(self._meta_dir)
-
-    def get_site(self) -> Site | None:
-        """Retrieve cached site structure.
-
-        Returns:
-            Site if exists, None otherwise
-        """
-        from docstage.core.site import Page, Site
-
-        site_path = self._cache_dir / "site.json"
-        if not site_path.exists():
-            return None
-
-        try:
-            data = json.loads(site_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-
-        # Reconstruct Site from cached data
-        source_dir = Path(data["source_dir"])
-        pages = [
-            Page(
-                title=p["title"],
-                path=URLPath(p["path"]),
-                source_path=Path(p["source_path"]),
-            )
-            for p in data["pages"]
-        ]
-        return Site(
-            source_dir=source_dir,
-            pages=pages,
-            children=data["children"],
-            parents=data["parents"],
-            roots=data["roots"],
-        )
-
-    def set_site(self, site: Site) -> None:
-        """Store site structure in cache.
-
-        Args:
-            site: Site to cache
-        """
-        self._ensure_cache_dir()
-        site_path = self._cache_dir / "site.json"
-
-        # Serialize Site to JSON-compatible dict
-        data = {
-            "source_dir": str(site.source_dir),
-            "pages": [
-                {"title": p.title, "path": p.path, "source_path": str(p.source_path)}
-                for p in site._pages
-            ],
-            "children": site._children,
-            "parents": site._parents,
-            "roots": site._roots,
-        }
-        site_path.write_text(json.dumps(data), encoding="utf-8")
-
-    def invalidate_site(self) -> None:
-        """Remove cached site structure."""
-        site_path = self._cache_dir / "site.json"
-        if site_path.exists():
-            site_path.unlink()
 
     def _read_meta(self, meta_path: Path) -> CachedMetadata | None:
         """Read and validate metadata file.

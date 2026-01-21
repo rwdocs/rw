@@ -13,7 +13,6 @@ from aiohttp import web
 
 from docstage import __version__
 from docstage.app_keys import renderer_key, site_loader_key, verbose_key
-from docstage.core.types import URLPath
 
 
 def create_pages_routes() -> list[web.RouteDef]:
@@ -23,7 +22,7 @@ def create_pages_routes() -> list[web.RouteDef]:
 
 
 async def get_page(request: web.Request) -> web.Response:
-    path = URLPath(request.match_info["path"])
+    path = request.match_info["path"]
     renderer = request.app[renderer_key]
     site_loader = request.app[site_loader_key]
 

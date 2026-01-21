@@ -1,9 +1,9 @@
 """Navigation API endpoints."""
 
 from aiohttp import web
+from docstage_core import build_navigation
 
 from docstage.app_keys import site_loader_key
-from docstage.core.navigation import build_navigation
 
 
 def create_navigation_routes() -> list[web.RouteDef]:
