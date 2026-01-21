@@ -105,6 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ctrl-C signal handling** now works for `docstage serve`; uses tokio graceful shutdown instead of relying on Python signal handlers
 - Kroki error messages now include the actual error response body (e.g., syntax errors)
 - Confluence CLI commands (`convert`, `create`, `update`) now use `include_dirs`, `config_file`, and `dpi` from config
 - Confluence `create` and `update` commands now upload diagram attachments to the page
