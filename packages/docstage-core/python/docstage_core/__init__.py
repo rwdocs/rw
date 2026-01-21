@@ -9,6 +9,7 @@ from ._docstage_core import (
     BreadcrumbItem,
     ConvertResult,
     HtmlConvertResult,
+    HttpServerConfig,
     MarkdownConverter,
     NavItem,
     Page,
@@ -20,12 +21,14 @@ from ._docstage_core import (
     SiteLoaderConfig,
     TocEntry,
     build_navigation,
+    run_http_server,
 )
 
 __all__ = [
     "BreadcrumbItem",
     "ConvertResult",
     "HtmlConvertResult",
+    "HttpServerConfig",
     "MarkdownConverter",
     "NavItem",
     "Page",
@@ -37,4 +40,5 @@ __all__ = [
     "SiteLoaderConfig",
     "TocEntry",
     "build_navigation",
+    "run_http_server",
 ]

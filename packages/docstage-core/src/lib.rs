@@ -982,6 +982,169 @@ impl PyConfig {
     }
 }
 
+// ============================================================================
+// HTTP Server bindings
+// ============================================================================
+
+/// HTTP server configuration.
+///
+/// This is the configuration for the native Rust HTTP server.
+#[pyclass(name = "HttpServerConfig")]
+#[derive(Clone)]
+pub struct PyHttpServerConfig {
+    /// Host address to bind to.
+    #[pyo3(get, set)]
+    pub host: String,
+    /// Port to listen on.
+    #[pyo3(get, set)]
+    pub port: u16,
+    /// Documentation source directory.
+    #[pyo3(get, set)]
+    pub source_dir: PathBuf,
+    /// Cache directory (`None` disables caching).
+    #[pyo3(get, set)]
+    pub cache_dir: Option<PathBuf>,
+    /// Kroki URL for diagrams (`None` disables diagrams).
+    #[pyo3(get, set)]
+    pub kroki_url: Option<String>,
+    /// `PlantUML` include directories.
+    #[pyo3(get, set)]
+    pub include_dirs: Vec<PathBuf>,
+    /// `PlantUML` config file.
+    #[pyo3(get, set)]
+    pub config_file: Option<String>,
+    /// Diagram DPI.
+    #[pyo3(get, set)]
+    pub dpi: u32,
+    /// Enable live reload.
+    #[pyo3(get, set)]
+    pub live_reload_enabled: bool,
+    /// Watch patterns for live reload.
+    #[pyo3(get, set)]
+    pub watch_patterns: Option<Vec<String>>,
+    /// Static files directory.
+    #[pyo3(get, set)]
+    pub static_dir: PathBuf,
+    /// Enable verbose output.
+    #[pyo3(get, set)]
+    pub verbose: bool,
+    /// Application version (for cache invalidation).
+    #[pyo3(get, set)]
+    pub version: String,
+}
+
+#[pymethods]
+impl PyHttpServerConfig {
+    /// Create configuration from a Config object.
+    ///
+    /// Args:
+    ///     config: Application configuration
+    ///     static_dir: Static files directory
+    ///     version: Application version
+    ///     verbose: Enable verbose output
+    #[staticmethod]
+    pub fn from_config(
+        config: &PyConfig,
+        static_dir: PathBuf,
+        version: String,
+        verbose: bool,
+    ) -> Self {
+        ::docstage_server::server_config_from_docstage_config(&config.inner, static_dir, version, verbose).into()
+    }
+}
+
+impl From<::docstage_server::ServerConfig> for PyHttpServerConfig {
+    fn from(c: ::docstage_server::ServerConfig) -> Self {
+        let ::docstage_server::ServerConfig {
+            host,
+            port,
+            source_dir,
+            cache_dir,
+            kroki_url,
+            include_dirs,
+            config_file,
+            dpi,
+            live_reload_enabled,
+            watch_patterns,
+            static_dir,
+            verbose,
+            version,
+        } = c;
+        Self {
+            host,
+            port,
+            source_dir,
+            cache_dir,
+            kroki_url,
+            include_dirs,
+            config_file,
+            dpi,
+            live_reload_enabled,
+            watch_patterns,
+            static_dir,
+            verbose,
+            version,
+        }
+    }
+}
+
+impl From<PyHttpServerConfig> for ::docstage_server::ServerConfig {
+    fn from(c: PyHttpServerConfig) -> Self {
+        let PyHttpServerConfig {
+            host,
+            port,
+            source_dir,
+            cache_dir,
+            kroki_url,
+            include_dirs,
+            config_file,
+            dpi,
+            live_reload_enabled,
+            watch_patterns,
+            static_dir,
+            verbose,
+            version,
+        } = c;
+        Self {
+            host,
+            port,
+            source_dir,
+            cache_dir,
+            kroki_url,
+            include_dirs,
+            config_file,
+            dpi,
+            live_reload_enabled,
+            watch_patterns,
+            static_dir,
+            verbose,
+            version,
+        }
+    }
+}
+
+/// Run the HTTP server.
+///
+/// This function starts the native Rust HTTP server and blocks until it is shut down.
+///
+/// Args:
+///     config: Server configuration
+///
+/// Raises:
+///     RuntimeError: If the server fails to start
+#[pyfunction]
+#[pyo3(name = "run_http_server")]
+pub fn py_run_http_server(py: Python<'_>, config: PyHttpServerConfig) -> PyResult<()> {
+    py.detach(|| {
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create async runtime: {e}")))?;
+
+        runtime
+            .block_on(::docstage_server::run_server(config.into()))
+            .map_err(|e| PyRuntimeError::new_err(format!("Server error: {e}")))
+    })
+}
+
 /// Python module definition.
 #[pymodule]
 #[pyo3(name = "_docstage_core")]
@@ -1015,6 +1178,10 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyLiveReloadConfig>()?;
     m.add_class::<PyConfluenceConfig>()?;
     m.add_class::<PyConfluenceTestConfig>()?;
+
+    // HTTP Server classes
+    m.add_class::<PyHttpServerConfig>()?;
+    m.add_function(wrap_pyfunction!(py_run_http_server, m)?)?;
 
     Ok(())
 }
