@@ -2,7 +2,26 @@
 //!
 //! This crate provides:
 //! - [`ConfluenceBackend`]: Render backend producing Confluence XHTML storage format
+//! - [`ConfluenceClient`]: REST API client with OAuth 1.0 RSA-SHA1 authentication
 //! - [`preserve_comments`]: Preserve inline comment markers when updating pages
+//!
+//! # API Client
+//!
+//! ```ignore
+//! use docstage_confluence::{ConfluenceClient, oauth};
+//!
+//! let key = oauth::read_private_key("private_key.pem")?;
+//! let client = ConfluenceClient::from_config(
+//!     "https://confluence.example.com",
+//!     "consumer_key",
+//!     &key,
+//!     "access_token",
+//!     "access_secret",
+//! )?;
+//!
+//! let page = client.get_page("123", &["body.storage"])?;
+//! println!("Page title: {}", page.title);
+//! ```
 //!
 //! # Comment Preservation
 //!
@@ -20,10 +39,16 @@
 //! assert!(result.html.contains("ac:inline-comment-marker"));
 //! ```
 
+mod client;
 mod comment_preservation;
 pub mod error;
+pub mod oauth;
+pub mod types;
 
+pub use client::ConfluenceClient;
 pub use comment_preservation::{PreserveResult, TreeNode, UnmatchedComment, preserve_comments};
+pub use error::ConfluenceError;
+pub use types::*;
 
 use std::fmt::Write;
 

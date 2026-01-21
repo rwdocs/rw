@@ -1196,6 +1196,413 @@ pub fn py_preserve_comments(old_html: &str, new_html: &str) -> PyPreserveResult 
     ::docstage_confluence::preserve_comments(old_html, new_html).into()
 }
 
+// ============================================================================
+// Confluence Client bindings
+// ============================================================================
+
+use ::docstage_confluence::{
+    Attachment, AttachmentsResponse, Comment, CommentsResponse, ConfluenceClient, ConfluenceError,
+    Extensions, InlineProperties, Page as ConfluencePage, Resolution, Version,
+};
+
+/// Confluence page.
+#[pyclass(name = "ConfluencePage")]
+#[derive(Clone)]
+pub struct PyConfluencePage {
+    #[pyo3(get)]
+    pub id: String,
+    #[pyo3(get)]
+    pub title: String,
+    #[pyo3(get)]
+    pub version: u32,
+    #[pyo3(get)]
+    pub body: Option<String>,
+}
+
+impl From<ConfluencePage> for PyConfluencePage {
+    fn from(page: ConfluencePage) -> Self {
+        Self {
+            id: page.id,
+            title: page.title,
+            version: page.version.number,
+            body: page
+                .body
+                .and_then(|b| b.storage)
+                .map(|s| s.value),
+        }
+    }
+}
+
+/// Confluence comment.
+#[pyclass(name = "ConfluenceComment")]
+#[derive(Clone)]
+pub struct PyConfluenceComment {
+    #[pyo3(get)]
+    pub id: String,
+    #[pyo3(get)]
+    pub title: String,
+    #[pyo3(get)]
+    pub body: Option<String>,
+    #[pyo3(get)]
+    pub marker_ref: Option<String>,
+    #[pyo3(get)]
+    pub original_selection: Option<String>,
+    #[pyo3(get)]
+    pub status: Option<String>,
+}
+
+impl From<Comment> for PyConfluenceComment {
+    fn from(comment: Comment) -> Self {
+        let inline_props = comment
+            .extensions
+            .as_ref()
+            .and_then(|e| e.inline_properties.as_ref());
+        let resolution = comment
+            .extensions
+            .as_ref()
+            .and_then(|e| e.resolution.as_ref());
+
+        Self {
+            id: comment.id,
+            title: comment.title,
+            body: comment.body.storage.map(|s| s.value),
+            marker_ref: inline_props.map(|p| p.marker_ref.clone()),
+            original_selection: inline_props.map(|p| p.original_selection.clone()),
+            status: resolution.map(|r| r.status.clone()),
+        }
+    }
+}
+
+/// Confluence comments response.
+#[pyclass(name = "ConfluenceCommentsResponse")]
+#[derive(Clone)]
+pub struct PyConfluenceCommentsResponse {
+    #[pyo3(get)]
+    pub results: Vec<PyConfluenceComment>,
+    #[pyo3(get)]
+    pub size: usize,
+}
+
+impl From<CommentsResponse> for PyConfluenceCommentsResponse {
+    fn from(response: CommentsResponse) -> Self {
+        Self {
+            results: response.results.into_iter().map(Into::into).collect(),
+            size: response.size,
+        }
+    }
+}
+
+/// Confluence attachment.
+#[pyclass(name = "ConfluenceAttachment")]
+#[derive(Clone)]
+pub struct PyConfluenceAttachment {
+    #[pyo3(get)]
+    pub id: String,
+    #[pyo3(get)]
+    pub title: String,
+}
+
+impl From<Attachment> for PyConfluenceAttachment {
+    fn from(attachment: Attachment) -> Self {
+        Self {
+            id: attachment.id,
+            title: attachment.title,
+        }
+    }
+}
+
+/// Confluence attachments response.
+#[pyclass(name = "ConfluenceAttachmentsResponse")]
+#[derive(Clone)]
+pub struct PyConfluenceAttachmentsResponse {
+    #[pyo3(get)]
+    pub results: Vec<PyConfluenceAttachment>,
+    #[pyo3(get)]
+    pub size: usize,
+}
+
+impl From<AttachmentsResponse> for PyConfluenceAttachmentsResponse {
+    fn from(response: AttachmentsResponse) -> Self {
+        Self {
+            results: response.results.into_iter().map(Into::into).collect(),
+            size: response.size,
+        }
+    }
+}
+
+fn confluence_error_to_py(e: ConfluenceError) -> PyErr {
+    PyRuntimeError::new_err(e.to_string())
+}
+
+/// Confluence REST API client with OAuth 1.0 RSA-SHA1 authentication.
+#[pyclass(name = "ConfluenceClient")]
+pub struct PyConfluenceClient {
+    inner: ConfluenceClient,
+}
+
+#[pymethods]
+impl PyConfluenceClient {
+    /// Create a new Confluence client.
+    ///
+    /// Args:
+    ///     base_url: Confluence server base URL
+    ///     consumer_key: OAuth consumer key
+    ///     private_key: PEM-encoded RSA private key bytes
+    ///     access_token: OAuth access token
+    ///     access_secret: OAuth access token secret
+    #[new]
+    #[pyo3(signature = (base_url, consumer_key, private_key, access_token, access_secret))]
+    pub fn new(
+        base_url: &str,
+        consumer_key: &str,
+        private_key: &[u8],
+        access_token: &str,
+        access_secret: &str,
+    ) -> PyResult<Self> {
+        let inner =
+            ConfluenceClient::from_config(base_url, consumer_key, private_key, access_token, access_secret)
+                .map_err(confluence_error_to_py)?;
+        Ok(Self { inner })
+    }
+
+    /// Get the base URL.
+    #[getter]
+    pub fn base_url(&self) -> &str {
+        self.inner.base_url()
+    }
+
+    /// Create a new page in a space.
+    ///
+    /// Args:
+    ///     space_key: Space key
+    ///     title: Page title
+    ///     body: Page body in Confluence storage format
+    ///     parent_id: Optional parent page ID
+    ///
+    /// Returns:
+    ///     Created page
+    #[pyo3(signature = (space_key, title, body, parent_id=None))]
+    pub fn create_page(
+        &self,
+        py: Python<'_>,
+        space_key: &str,
+        title: &str,
+        body: &str,
+        parent_id: Option<&str>,
+    ) -> PyResult<PyConfluencePage> {
+        py.allow_threads(|| {
+            self.inner
+                .create_page(space_key, title, body, parent_id)
+                .map(Into::into)
+                .map_err(confluence_error_to_py)
+        })
+    }
+
+    /// Get page by ID.
+    ///
+    /// Args:
+    ///     page_id: Page ID
+    ///     expand: Optional list of fields to expand
+    ///
+    /// Returns:
+    ///     Page information
+    #[pyo3(signature = (page_id, expand=None))]
+    pub fn get_page(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+        expand: Option<Vec<String>>,
+    ) -> PyResult<PyConfluencePage> {
+        let expand_refs: Vec<&str> = expand
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+
+        py.allow_threads(|| {
+            self.inner
+                .get_page(page_id, &expand_refs)
+                .map(Into::into)
+                .map_err(confluence_error_to_py)
+        })
+    }
+
+    /// Update an existing page.
+    ///
+    /// Args:
+    ///     page_id: Page ID
+    ///     title: Page title
+    ///     body: Page body in Confluence storage format
+    ///     version: Current version number
+    ///     message: Optional version message
+    ///
+    /// Returns:
+    ///     Updated page
+    #[pyo3(signature = (page_id, title, body, version, message=None))]
+    pub fn update_page(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+        title: &str,
+        body: &str,
+        version: u32,
+        message: Option<&str>,
+    ) -> PyResult<PyConfluencePage> {
+        py.allow_threads(|| {
+            self.inner
+                .update_page(page_id, title, body, version, message)
+                .map(Into::into)
+                .map_err(confluence_error_to_py)
+        })
+    }
+
+    /// Get web URL for page.
+    ///
+    /// Args:
+    ///     page_id: Page ID
+    ///
+    /// Returns:
+    ///     Web URL for the page
+    pub fn get_page_url(&self, py: Python<'_>, page_id: &str) -> PyResult<String> {
+        py.allow_threads(|| {
+            self.inner
+                .get_page_url(page_id)
+                .map_err(confluence_error_to_py)
+        })
+    }
+
+    /// Get all comments on a page.
+    ///
+    /// Args:
+    ///     page_id: Page ID
+    ///
+    /// Returns:
+    ///     Comments response
+    pub fn get_comments(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+    ) -> PyResult<PyConfluenceCommentsResponse> {
+        py.allow_threads(|| {
+            self.inner
+                .get_comments(page_id)
+                .map(Into::into)
+                .map_err(confluence_error_to_py)
+        })
+    }
+
+    /// Get inline comments with marker refs.
+    ///
+    /// Args:
+    ///     page_id: Page ID
+    ///
+    /// Returns:
+    ///     Comments response with inline properties
+    pub fn get_inline_comments(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+    ) -> PyResult<PyConfluenceCommentsResponse> {
+        py.allow_threads(|| {
+            self.inner
+                .get_inline_comments(page_id)
+                .map(Into::into)
+                .map_err(confluence_error_to_py)
+        })
+    }
+
+    /// Get footer (page-level) comments.
+    ///
+    /// Args:
+    ///     page_id: Page ID
+    ///
+    /// Returns:
+    ///     Comments response
+    pub fn get_footer_comments(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+    ) -> PyResult<PyConfluenceCommentsResponse> {
+        py.allow_threads(|| {
+            self.inner
+                .get_footer_comments(page_id)
+                .map(Into::into)
+                .map_err(confluence_error_to_py)
+        })
+    }
+
+    /// Upload or update attachment.
+    ///
+    /// Args:
+    ///     page_id: Page ID
+    ///     filename: Attachment filename
+    ///     data: File content bytes
+    ///     content_type: MIME content type
+    ///     comment: Optional comment
+    ///
+    /// Returns:
+    ///     Uploaded attachment
+    #[pyo3(signature = (page_id, filename, data, content_type, comment=None))]
+    pub fn upload_attachment(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+        filename: &str,
+        data: &[u8],
+        content_type: &str,
+        comment: Option<&str>,
+    ) -> PyResult<PyConfluenceAttachment> {
+        py.allow_threads(|| {
+            self.inner
+                .upload_attachment(page_id, filename, data, content_type, comment)
+                .map(Into::into)
+                .map_err(confluence_error_to_py)
+        })
+    }
+
+    /// List attachments on a page.
+    ///
+    /// Args:
+    ///     page_id: Page ID
+    ///
+    /// Returns:
+    ///     Attachments response
+    pub fn get_attachments(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+    ) -> PyResult<PyConfluenceAttachmentsResponse> {
+        py.allow_threads(|| {
+            self.inner
+                .get_attachments(page_id)
+                .map(Into::into)
+                .map_err(confluence_error_to_py)
+        })
+    }
+}
+
+/// Read RSA private key from PEM file.
+///
+/// Args:
+///     path: Path to PEM file
+///
+/// Returns:
+///     PEM-encoded key bytes
+#[pyfunction]
+#[pyo3(name = "read_private_key")]
+pub fn py_read_private_key(path: PathBuf) -> PyResult<Vec<u8>> {
+    ::docstage_confluence::oauth::read_private_key(&path).map_err(|e| {
+        if let ConfluenceError::Io(ref io_err) = e {
+            if io_err.kind() == std::io::ErrorKind::NotFound {
+                return PyFileNotFoundError::new_err(format!(
+                    "Private key file not found: {}",
+                    path.display()
+                ));
+            }
+        }
+        PyRuntimeError::new_err(e.to_string())
+    })
+}
+
 /// Python module definition.
 #[pymodule]
 #[pyo3(name = "_docstage_core")]
@@ -1238,6 +1645,15 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyUnmatchedComment>()?;
     m.add_class::<PyPreserveResult>()?;
     m.add_function(wrap_pyfunction!(py_preserve_comments, m)?)?;
+
+    // Confluence Client classes
+    m.add_class::<PyConfluencePage>()?;
+    m.add_class::<PyConfluenceComment>()?;
+    m.add_class::<PyConfluenceCommentsResponse>()?;
+    m.add_class::<PyConfluenceAttachment>()?;
+    m.add_class::<PyConfluenceAttachmentsResponse>()?;
+    m.add_class::<PyConfluenceClient>()?;
+    m.add_function(wrap_pyfunction!(py_read_private_key, m)?)?;
 
     Ok(())
 }

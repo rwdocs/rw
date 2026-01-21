@@ -7,6 +7,12 @@ site structure management with efficient path lookups and navigation.
 
 from ._docstage_core import (
     BreadcrumbItem,
+    ConfluenceAttachment,
+    ConfluenceAttachmentsResponse,
+    ConfluenceClient,
+    ConfluenceComment,
+    ConfluenceCommentsResponse,
+    ConfluencePage,
     ConvertResult,
     HtmlConvertResult,
     HttpServerConfig,
@@ -24,11 +30,18 @@ from ._docstage_core import (
     UnmatchedComment,
     build_navigation,
     preserve_comments,
+    read_private_key,
     run_http_server,
 )
 
 __all__ = [
     "BreadcrumbItem",
+    "ConfluenceAttachment",
+    "ConfluenceAttachmentsResponse",
+    "ConfluenceClient",
+    "ConfluenceComment",
+    "ConfluenceCommentsResponse",
+    "ConfluencePage",
     "ConvertResult",
     "HtmlConvertResult",
     "HttpServerConfig",
@@ -46,5 +59,6 @@ __all__ = [
     "UnmatchedComment",
     "build_navigation",
     "preserve_comments",
+    "read_private_key",
     "run_http_server",
 ]

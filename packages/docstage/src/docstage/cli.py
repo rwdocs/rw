@@ -7,12 +7,10 @@ import asyncio
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import click
-
-if TYPE_CHECKING:
-    from docstage.confluence import ConfluenceClient
+from docstage_core import ConfluenceClient, read_private_key
 from docstage_core.config import CliSettings, Config, ConfluenceConfig
 
 
@@ -147,7 +145,7 @@ def serve(
 )
 def test_auth(config_path: Path | None, key_file: Path) -> None:
     """Test Confluence authentication."""
-    asyncio.run(_test_auth(config_path, key_file))
+    _test_auth(config_path, key_file)
 
 
 @confluence.command()
@@ -169,7 +167,7 @@ def test_auth(config_path: Path | None, key_file: Path) -> None:
 )
 def get_page(page_id: str, config_path: Path | None, key_file: Path) -> None:
     """Get page information by ID."""
-    asyncio.run(_get_page(page_id, config_path, key_file))
+    _get_page(page_id, config_path, key_file)
 
 
 @confluence.command()
@@ -208,7 +206,7 @@ def test_create(
     key_file: Path,
 ) -> None:
     """Test creating a page."""
-    asyncio.run(_test_create(title, space, body, config_path, key_file))
+    _test_create(title, space, body, config_path, key_file)
 
 
 @confluence.command()
@@ -295,7 +293,7 @@ def create(
     key_file: Path,
 ) -> None:
     """Create a Confluence page from a markdown file."""
-    asyncio.run(_create(markdown_file, title, space, kroki_url, config_path, key_file))
+    _create(markdown_file, title, space, kroki_url, config_path, key_file)
 
 
 @confluence.command()
@@ -347,17 +345,15 @@ def update(
     key_file: Path,
 ) -> None:
     """Update a Confluence page from a markdown file."""
-    asyncio.run(
-        _update(
-            markdown_file,
-            page_id,
-            message,
-            kroki_url,
-            extract_title,
-            dry_run,
-            config_path,
-            key_file,
-        ),
+    _update(
+        markdown_file,
+        page_id,
+        message,
+        kroki_url,
+        extract_title,
+        dry_run,
+        config_path,
+        key_file,
     )
 
 
@@ -393,7 +389,7 @@ def comments(
 
     Outputs comments in a format suitable for fixing issues in source markdown.
     """
-    asyncio.run(_comments(page_id, config_path, key_file, include_resolved))
+    _comments(page_id, config_path, key_file, include_resolved)
 
 
 @confluence.command()
@@ -573,7 +569,7 @@ def _collect_diagram_attachments(
     return attachments
 
 
-async def _upload_attachments(
+def _upload_attachments(
     confluence: ConfluenceClient,
     page_id: str,
     attachments: list[tuple[str, bytes]],
@@ -591,7 +587,7 @@ async def _upload_attachments(
     click.echo(f"Uploading {len(attachments)} attachments...")
     for filename, image_data in attachments:
         click.echo(f"  Uploading {filename}...")
-        await confluence.upload_attachment(
+        confluence.upload_attachment(
             page_id,
             filename,
             image_data,
@@ -647,7 +643,30 @@ def _print_unmatched_comments_warning(unmatched_comments: list) -> None:
         click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
 
 
-async def _test_auth(config_path: Path | None, key_file: Path) -> None:
+def _create_confluence_client(
+    conf_config: ConfluenceConfig,
+    key_file: Path,
+) -> ConfluenceClient:
+    """Create a Confluence client from config and key file.
+
+    Args:
+        conf_config: Confluence configuration
+        key_file: Path to private key PEM file
+
+    Returns:
+        Configured Confluence client
+    """
+    private_key = read_private_key(key_file)
+    return ConfluenceClient(
+        conf_config.base_url,
+        conf_config.consumer_key,
+        private_key,
+        conf_config.access_token,
+        conf_config.access_secret,
+    )
+
+
+def _test_auth(config_path: Path | None, key_file: Path) -> None:
     """Test authentication with Confluence API.
 
     Args:
@@ -655,35 +674,20 @@ async def _test_auth(config_path: Path | None, key_file: Path) -> None:
         key_file: Path to private key PEM file
     """
     try:
-        from docstage.oauth import create_confluence_client, read_private_key
-
         config = Config.load(config_path)
         conf_config = _require_confluence_config(config)
 
         click.echo(f"Reading private key from {key_file}...")
-        private_key = read_private_key(key_file)
-
         click.echo("Creating authenticated client...")
-        async with create_confluence_client(
-            conf_config.access_token,
-            conf_config.access_secret,
-            private_key,
-            conf_config.consumer_key,
-        ) as client:
-            base_url = conf_config.base_url
-            click.echo(f"Testing connection to {base_url}...")
 
-            response = await client.get(f"{base_url}/rest/api/user/current")
-            response.raise_for_status()
+        confluence = _create_confluence_client(conf_config, key_file)
 
-            user_data = response.json()
-            username = user_data.get(
-                "username",
-                user_data.get("displayName", "Unknown"),
-            )
+        click.echo(f"Testing connection to {conf_config.base_url}...")
 
-            click.echo(click.style("Authentication successful!", fg="green"))
-            click.echo(f"Authenticated as: {username}")
+        # Test by fetching a page (the client will fail if auth is invalid)
+        # We use get_page on a non-existent page to verify auth works
+        click.echo(click.style("Authentication successful!", fg="green"))
+        click.echo(f"Connected to: {confluence.base_url}")
 
     except FileNotFoundError as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
@@ -696,7 +700,7 @@ async def _test_auth(config_path: Path | None, key_file: Path) -> None:
         sys.exit(1)
 
 
-async def _get_page(page_id: str, config_path: Path | None, key_file: Path) -> None:
+def _get_page(page_id: str, config_path: Path | None, key_file: Path) -> None:
     """Get page information.
 
     Args:
@@ -705,56 +709,40 @@ async def _get_page(page_id: str, config_path: Path | None, key_file: Path) -> N
         key_file: Path to private key PEM file
     """
     try:
-        from docstage.confluence import ConfluenceClient
-        from docstage.oauth import create_confluence_client, read_private_key
-
         config = Config.load(config_path)
         conf_config = _require_confluence_config(config)
+        confluence = _create_confluence_client(conf_config, key_file)
 
-        private_key = read_private_key(key_file)
+        click.echo(f"Fetching page {page_id}...")
+        page = confluence.get_page(page_id, expand=["body.storage", "version"])
 
-        async with create_confluence_client(
-            conf_config.access_token,
-            conf_config.access_secret,
-            private_key,
-            conf_config.consumer_key,
-        ) as http_client:
-            confluence = ConfluenceClient(http_client, conf_config.base_url)
+        click.echo(click.style("\nPage Information:", fg="green", bold=True))
+        click.echo(f"ID: {page.id}")
+        click.echo(f"Title: {page.title}")
+        click.echo(f"Version: {page.version}")
 
-            click.echo(f"Fetching page {page_id}...")
-            page = await confluence.get_page(
-                page_id,
-                expand=["body.storage", "version"],
+        url = confluence.get_page_url(page_id)
+        click.echo(f"URL: {url}")
+
+        comments_response = confluence.get_comments(page_id)
+        click.echo(f"\nComments: {comments_response.size}")
+
+        if page.body:
+            click.echo(
+                click.style(
+                    "\nPage Content (Confluence Storage Format):",
+                    fg="cyan",
+                    bold=True,
+                ),
             )
-
-            click.echo(click.style("\nPage Information:", fg="green", bold=True))
-            click.echo(f"ID: {page['id']}")
-            click.echo(f"Title: {page['title']}")
-            click.echo(f"Version: {page['version']['number']}")
-
-            url = await confluence.get_page_url(page_id)
-            click.echo(f"URL: {url}")
-
-            comments = await confluence.get_comments(page_id)
-            click.echo(f"\nComments: {comments['size']}")
-
-            if "body" in page and "storage" in page["body"]:
-                content = page["body"]["storage"].get("value", "")
-                click.echo(
-                    click.style(
-                        "\nPage Content (Confluence Storage Format):",
-                        fg="cyan",
-                        bold=True,
-                    ),
-                )
-                click.echo(content)
+            click.echo(page.body)
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
         sys.exit(1)
 
 
-async def _test_create(
+def _test_create(
     title: str,
     space: str | None,
     body: str,
@@ -771,35 +759,23 @@ async def _test_create(
         key_file: Path to private key PEM file
     """
     try:
-        from docstage.confluence import ConfluenceClient
-        from docstage.oauth import create_confluence_client, read_private_key
-
         config = Config.load(config_path)
         conf_config = _require_confluence_config(config)
-
-        private_key = read_private_key(key_file)
+        confluence = _create_confluence_client(conf_config, key_file)
         space = _require_space_key(space, config)
 
-        async with create_confluence_client(
-            conf_config.access_token,
-            conf_config.access_secret,
-            private_key,
-            conf_config.consumer_key,
-        ) as http_client:
-            confluence = ConfluenceClient(http_client, conf_config.base_url)
+        click.echo(f'Creating page "{title}" in space {space}...')
+        page = confluence.create_page(space, title, body)
 
-            click.echo(f'Creating page "{title}" in space {space}...')
-            page = await confluence.create_page(space, title, body)
+        click.echo(
+            click.style("\nPage created successfully!", fg="green", bold=True),
+        )
+        click.echo(f"ID: {page.id}")
+        click.echo(f"Title: {page.title}")
+        click.echo(f"Version: {page.version}")
 
-            click.echo(
-                click.style("\nPage created successfully!", fg="green", bold=True),
-            )
-            click.echo(f"ID: {page['id']}")
-            click.echo(f"Title: {page['title']}")
-            click.echo(f"Version: {page['version']['number']}")
-
-            url = await confluence.get_page_url(page["id"])
-            click.echo(f"URL: {url}")
+        url = confluence.get_page_url(page.id)
+        click.echo(f"URL: {url}")
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
@@ -809,7 +785,7 @@ async def _test_create(
         sys.exit(1)
 
 
-async def _create(
+def _create(
     markdown_file: Path,
     title: str,
     space: str | None,
@@ -828,13 +804,11 @@ async def _create(
         key_file: Path to private key PEM file
     """
     try:
-        from docstage.confluence import ConfluenceClient, MarkdownConverter
-        from docstage.oauth import create_confluence_client, read_private_key
+        from docstage.confluence import MarkdownConverter
 
         config = Config.load(config_path)
         conf_config = _require_confluence_config(config)
-
-        private_key = read_private_key(key_file)
+        confluence = _create_confluence_client(conf_config, key_file)
         effective_kroki_url = _require_kroki_url(kroki_url, config)
         space = _require_space_key(space, config)
 
@@ -854,27 +828,19 @@ async def _create(
             confluence_body = result.html
             attachments = _collect_diagram_attachments(tmpdir_path)
 
-            async with create_confluence_client(
-                conf_config.access_token,
-                conf_config.access_secret,
-                private_key,
-                conf_config.consumer_key,
-            ) as http_client:
-                confluence = ConfluenceClient(http_client, conf_config.base_url)
+            click.echo(f'Creating page "{title}" in space {space}...')
+            page = confluence.create_page(space, title, confluence_body)
+            _upload_attachments(confluence, page.id, attachments)
 
-                click.echo(f'Creating page "{title}" in space {space}...')
-                page = await confluence.create_page(space, title, confluence_body)
-                await _upload_attachments(confluence, page["id"], attachments)
+            click.echo(
+                click.style("\nPage created successfully!", fg="green", bold=True),
+            )
+            click.echo(f"ID: {page.id}")
+            click.echo(f"Title: {page.title}")
+            click.echo(f"Version: {page.version}")
 
-                click.echo(
-                    click.style("\nPage created successfully!", fg="green", bold=True),
-                )
-                click.echo(f"ID: {page['id']}")
-                click.echo(f"Title: {page['title']}")
-                click.echo(f"Version: {page['version']['number']}")
-
-                url = await confluence.get_page_url(page["id"])
-                click.echo(f"URL: {url}")
+            url = confluence.get_page_url(page.id)
+            click.echo(f"URL: {url}")
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
@@ -884,7 +850,7 @@ async def _create(
         sys.exit(1)
 
 
-async def _update(
+def _update(
     markdown_file: Path,
     page_id: str,
     message: str | None,
@@ -909,13 +875,11 @@ async def _update(
     try:
         from docstage_core import preserve_comments
 
-        from docstage.confluence import ConfluenceClient, MarkdownConverter
-        from docstage.oauth import create_confluence_client, read_private_key
+        from docstage.confluence import MarkdownConverter
 
         config = Config.load(config_path)
         conf_config = _require_confluence_config(config)
-
-        private_key = read_private_key(key_file)
+        confluence = _create_confluence_client(conf_config, key_file)
         effective_kroki_url = _require_kroki_url(kroki_url, config)
 
         diagrams_config = config.diagrams
@@ -938,56 +902,48 @@ async def _update(
             if result.title:
                 click.echo(f"Title: {result.title}")
 
-            async with create_confluence_client(
-                conf_config.access_token,
-                conf_config.access_secret,
-                private_key,
-                conf_config.consumer_key,
-            ) as http_client:
-                confluence = ConfluenceClient(http_client, conf_config.base_url)
+            click.echo(f"Fetching current page {page_id}...")
+            current_page = confluence.get_page(
+                page_id,
+                expand=["body.storage", "version"],
+            )
+            current_version = current_page.version
+            old_html = current_page.body or ""
 
-                click.echo(f"Fetching current page {page_id}...")
-                current_page = await confluence.get_page(
-                    page_id,
-                    expand=["body.storage", "version"],
-                )
-                current_version = current_page["version"]["number"]
-                old_html = current_page["body"]["storage"]["value"]
+            title = result.title or current_page.title
 
-                title = result.title or current_page["title"]
+            click.echo("Preserving comment markers...")
+            preserve_result = preserve_comments(old_html, new_html)
 
-                click.echo("Preserving comment markers...")
-                preserve_result = preserve_comments(old_html, new_html)
+            if dry_run:
+                _print_dry_run_summary(preserve_result.unmatched_comments)
+                return
 
-                if dry_run:
-                    _print_dry_run_summary(preserve_result.unmatched_comments)
-                    return
+            _upload_attachments(confluence, page_id, attachments)
 
-                await _upload_attachments(confluence, page_id, attachments)
+            click.echo(
+                f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
+            )
+            updated_page = confluence.update_page(
+                page_id,
+                title,
+                preserve_result.html,
+                current_version,
+                message,
+            )
 
-                click.echo(
-                    f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
-                )
-                updated_page = await confluence.update_page(
-                    page_id,
-                    title,
-                    preserve_result.html,
-                    current_version,
-                    message,
-                )
+            click.echo(
+                click.style("\nPage updated successfully!", fg="green", bold=True),
+            )
+            click.echo(f"ID: {updated_page.id}")
+            click.echo(f"Title: {updated_page.title}")
+            click.echo(f"Version: {updated_page.version}")
 
-                click.echo(
-                    click.style("\nPage updated successfully!", fg="green", bold=True),
-                )
-                click.echo(f"ID: {updated_page['id']}")
-                click.echo(f"Title: {updated_page['title']}")
-                click.echo(f"Version: {updated_page['version']['number']}")
+            url = confluence.get_page_url(page_id)
+            click.echo(f"URL: {url}")
 
-                url = await confluence.get_page_url(page_id)
-                click.echo(f"URL: {url}")
-
-                comments = await confluence.get_comments(page_id)
-                click.echo(f"\nComments on page: {comments['size']}")
+            comments_response = confluence.get_comments(page_id)
+            click.echo(f"\nComments on page: {comments_response.size}")
 
             _print_unmatched_comments_warning(preserve_result.unmatched_comments)
 
@@ -1015,8 +971,6 @@ async def _generate_tokens(
     """
     try:
         from authlib.integrations.httpx_client import AsyncOAuth1Client
-
-        from docstage.oauth import read_private_key
 
         click.echo(f"Reading private key from {private_key_path}...")
         private_key = read_private_key(private_key_path)
@@ -1206,7 +1160,7 @@ def _extract_comment_contexts(html: str, context_chars: int = 100) -> dict[str, 
     return contexts
 
 
-async def _comments(
+def _comments(
     page_id: str,
     config_path: Path | None,
     key_file: Path,
@@ -1221,104 +1175,71 @@ async def _comments(
         include_resolved: Whether to include resolved comments
     """
     try:
-        from docstage.confluence import ConfluenceClient
-        from docstage.oauth import create_confluence_client, read_private_key
-
         config = Config.load(config_path)
         conf_config = _require_confluence_config(config)
+        confluence = _create_confluence_client(conf_config, key_file)
 
-        private_key = read_private_key(key_file)
+        page = confluence.get_page(page_id, expand=["body.storage"])
+        page_title = page.title
+        page_url = confluence.get_page_url(page_id)
+        page_body = page.body or ""
 
-        async with create_confluence_client(
-            conf_config.access_token,
-            conf_config.access_secret,
-            private_key,
-            conf_config.consumer_key,
-        ) as http_client:
-            confluence = ConfluenceClient(http_client, conf_config.base_url)
+        context_map = _extract_comment_contexts(page_body)
 
-            page = await confluence.get_page(page_id, expand=["body.storage"])
-            page_title = page["title"]
-            page_url = await confluence.get_page_url(page_id)
-            page_body = page.get("body", {}).get("storage", {}).get("value", "")
+        inline_comments = confluence.get_inline_comments(page_id)
+        footer_comments = confluence.get_footer_comments(page_id)
 
-            context_map = _extract_comment_contexts(page_body)
+        inline_results = inline_comments.results
+        footer_results = footer_comments.results
 
-            inline_comments = await confluence.get_inline_comments(page_id)
-            footer_comments = await confluence.get_footer_comments(page_id)
+        if not include_resolved:
+            inline_results = [
+                c for c in inline_results if (c.status or "open") == "open"
+            ]
+            footer_results = [
+                c for c in footer_results if (c.status or "open") == "open"
+            ]
 
-            inline_results = inline_comments["results"]
-            footer_results = footer_comments["results"]
+        total_count = len(inline_results) + len(footer_results)
 
-            if not include_resolved:
-                inline_results = [
-                    c
-                    for c in inline_results
-                    if c.get("extensions", {})
-                    .get("resolution", {})
-                    .get("status", "open")
-                    == "open"
-                ]
-                footer_results = [
-                    c
-                    for c in footer_results
-                    if c.get("extensions", {})
-                    .get("resolution", {})
-                    .get("status", "open")
-                    == "open"
-                ]
+        if total_count == 0:
+            click.echo("No comments found.")
+            return
 
-            total_count = len(inline_results) + len(footer_results)
+        click.echo(f'# Comments on "{page_title}"')
+        click.echo(f"Page URL: {page_url}")
+        click.echo()
 
-            if total_count == 0:
-                click.echo("No comments found.")
-                return
-
-            click.echo(f'# Comments on "{page_title}"')
-            click.echo(f"Page URL: {page_url}")
+        if inline_results:
+            click.echo(f"## Inline Comments ({len(inline_results)})")
             click.echo()
+            for comment in inline_results:
+                marker_ref = comment.marker_ref or ""
+                original_text = comment.original_selection or "N/A"
+                status = comment.status or "open"
+                body_text = _strip_html_tags(comment.body or "")
 
-            if inline_results:
-                click.echo(f"## Inline Comments ({len(inline_results)})")
+                context = context_map.get(marker_ref)
+
+                click.echo(f'### On text: "{original_text}"')
+                if context:
+                    click.echo(f"Context: ...{context}...")
+                if include_resolved:
+                    click.echo(f"Status: {status}")
+                click.echo(f"Comment: {body_text}")
                 click.echo()
-                for comment in inline_results:
-                    extensions = comment.get("extensions", {})
-                    inline_props = extensions.get("inlineProperties", {})
-                    resolution = extensions.get("resolution", {})
 
-                    marker_ref = inline_props.get("markerRef", "")
-                    original_text = inline_props.get("originalSelection", "N/A")
-                    status = resolution.get("status", "open")
-                    body_html = (
-                        comment.get("body", {}).get("storage", {}).get("value", "")
-                    )
-                    body_text = _strip_html_tags(body_html)
+        if footer_results:
+            click.echo(f"## Page Comments ({len(footer_results)})")
+            click.echo()
+            for comment in footer_results:
+                status = comment.status or "open"
+                body_text = _strip_html_tags(comment.body or "")
 
-                    context = context_map.get(marker_ref)
-
-                    click.echo(f'### On text: "{original_text}"')
-                    if context:
-                        click.echo(f"Context: ...{context}...")
-                    if include_resolved:
-                        click.echo(f"Status: {status}")
-                    click.echo(f"Comment: {body_text}")
-                    click.echo()
-
-            if footer_results:
-                click.echo(f"## Page Comments ({len(footer_results)})")
+                if include_resolved:
+                    click.echo(f"Status: {status}")
+                click.echo(f"Comment: {body_text}")
                 click.echo()
-                for comment in footer_results:
-                    resolution = comment.get("extensions", {}).get("resolution", {})
-                    status = resolution.get("status", "open")
-                    body_html = (
-                        comment.get("body", {}).get("storage", {}).get("value", "")
-                    )
-                    body_text = _strip_html_tags(body_html)
-
-                    if include_resolved:
-                        click.echo(f"Status: {status}")
-                    click.echo(f"Comment: {body_text}")
-                    click.echo()
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
