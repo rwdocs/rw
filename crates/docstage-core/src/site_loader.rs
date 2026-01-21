@@ -60,6 +60,11 @@ impl SiteLoader {
     /// # Arguments
     ///
     /// * `config` - Loader configuration
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal regex for H1 heading extraction fails to compile.
+    /// This should never happen as the regex is a compile-time constant.
     #[must_use]
     pub fn new(config: SiteLoaderConfig) -> Self {
         let cache: Box<dyn SiteCache> = match &config.cache_dir {
@@ -85,6 +90,11 @@ impl SiteLoader {
     /// # Returns
     ///
     /// Reference to the loaded [`Site`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal cached site option is `None` after being set.
+    /// This should never happen as this method always populates the cache before returning.
     pub fn load(&mut self, use_cache: bool) -> &Site {
         // Return in-memory cached Site if available
         if use_cache && self.cached_site.is_some() {

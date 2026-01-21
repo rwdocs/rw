@@ -28,7 +28,7 @@ pub struct LiveReloadManager {
     watch_patterns: Vec<String>,
     site_loader: Arc<RwLock<SiteLoader>>,
     broadcaster: broadcast::Sender<ReloadEvent>,
-    _watcher: Option<RecommendedWatcher>,
+    watcher: Option<RecommendedWatcher>,
 }
 
 impl LiveReloadManager {
@@ -52,7 +52,7 @@ impl LiveReloadManager {
             watch_patterns: watch_patterns.unwrap_or_else(|| vec!["**/*.md".to_string()]),
             site_loader,
             broadcaster,
-            _watcher: None,
+            watcher: None,
         }
     }
 
@@ -79,7 +79,7 @@ impl LiveReloadManager {
         // Store watcher to keep it alive
         let mut watcher = watcher;
         watcher.watch(&source_dir, RecursiveMode::Recursive)?;
-        self._watcher = Some(watcher);
+        self.watcher = Some(watcher);
 
         // Spawn task to process events
         let watch_patterns = self.watch_patterns.clone();

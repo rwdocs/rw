@@ -358,8 +358,6 @@ class HttpServerConfig:
     """Enable live reload."""
     watch_patterns: list[str] | None
     """Watch patterns for live reload."""
-    static_dir: Path
-    """Static files directory."""
     verbose: bool
     """Enable verbose output."""
     version: str
@@ -368,7 +366,6 @@ class HttpServerConfig:
     @staticmethod
     def from_config(
         config: Config,
-        static_dir: Path,
         version: str,
         verbose: bool,
     ) -> HttpServerConfig:

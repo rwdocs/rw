@@ -54,18 +54,23 @@ crates/
 │       ├── plantuml.rs       # !include resolution, DPI configuration
 │       └── html_embed.rs     # SVG scaling, placeholder replacement
 │
-└── docstage-core/         # Pure Rust library (no PyO3)
+├── docstage-core/         # Pure Rust library (no PyO3)
+│   └── src/
+│       ├── lib.rs            # Module exports (re-exports from sub-crates)
+│       └── converter.rs      # MarkdownConverter with convert() and convert_html() methods
+│
+└── docstage-server/       # Native HTTP server (axum)
     └── src/
-        ├── lib.rs            # Module exports (re-exports from sub-crates)
-        └── converter.rs      # MarkdownConverter with convert() and convert_html() methods
+        ├── lib.rs            # Server configuration and entry point
+        ├── handlers/         # API endpoints (config, pages, navigation)
+        ├── live_reload/      # File watching and WebSocket broadcasting
+        └── static_files.rs   # Static file serving with SPA fallback
 
 packages/
 ├── docstage/              # Python CLI package (Click)
 │   └── src/docstage/
 │       ├── cli.py                     # Main CLI commands
-│       ├── assets.py                  # Bundled frontend asset discovery
-│       ├── server.py                  # aiohttp server with SPA fallback
-│       ├── static/                    # Bundled frontend (from npm run build:bundle)
+│       ├── server.py                  # Entry point for native Rust HTTP server
 │       ├── confluence/client.py       # Async Confluence REST API client
 │       ├── confluence/comment_preservation.py  # DOM-based comment preservation
 │       └── oauth.py                   # OAuth 1.0 RSA-SHA1 auth
@@ -95,7 +100,7 @@ extraction, Confluence rendering, Kroki diagram rendering) → Python (API calls
 → Confluence
 
 **Data flow (HTML)**: Markdown → Rust (pulldown-cmark parsing, HTML rendering
-with syntax highlighting, ToC generation) → Python (API serving) → Backstage
+with syntax highlighting, ToC generation, HTTP serving) → Backstage
 
 ## Key Technical Details
 
