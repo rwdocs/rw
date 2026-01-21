@@ -13,9 +13,9 @@ docstage-renderer = { workspace = true, features = ["serde"] }
 pulldown-cmark = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
-serde_json = "1.0"
-tracing = "0.1"
+serde_json = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
-tempfile = "3"
+tempfile = { workspace = true }
