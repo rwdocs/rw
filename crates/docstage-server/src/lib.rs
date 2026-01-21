@@ -182,9 +182,19 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
     tracing::info!("Starting server at http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
+}
+
+/// Wait for shutdown signal (Ctrl-C).
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to install Ctrl+C handler");
+    tracing::info!("Shutdown signal received, stopping server...");
 }
 
 /// Create server configuration from docstage config.
