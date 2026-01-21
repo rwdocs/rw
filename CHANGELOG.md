@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust `docstage-server` crate** providing native axum HTTP server; replaces Python aiohttp server with direct Rust calls, eliminating FFI overhead
+- **API handlers** for `/api/config`, `/api/pages/{path}`, and `/api/navigation` endpoints
+- **Static file serving** via tower-http with SPA fallback for client-side routing
+- **Security middleware** for CSP, X-Content-Type-Options, and X-Frame-Options headers
+- **Live reload system** using notify crate for file watching and axum WebSocket for client notifications
+- **`ServerConfig`** for configuring the HTTP server (host, port, source_dir, cache_dir, kroki_url, etc.)
+- **`server_config_from_docstage_config()`** helper to create `ServerConfig` from `docstage_config::Config`
 - **Rust `Site` module** (`Site`, `SiteBuilder`, `SiteLoader`, `Page`, `BreadcrumbItem`) for site structure management; provides O(1) path lookups and O(d) breadcrumb building
 - **Rust `SiteCache` trait** with `FileSiteCache` (JSON-based) and `NullSiteCache` implementations for site caching
 - **Rust `NavItem` and `build_navigation()`** for navigation tree construction from site structure

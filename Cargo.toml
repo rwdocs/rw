@@ -15,6 +15,7 @@ docstage-confluence-renderer = { path = "crates/docstage-confluence-renderer" }
 docstage-core = { path = "crates/docstage-core" }
 docstage-diagrams = { path = "crates/docstage-diagrams" }
 docstage-renderer = { path = "crates/docstage-renderer" }
+docstage-server = { path = "crates/docstage-server" }
 
 # External dependencies
 base64 = "0.22"

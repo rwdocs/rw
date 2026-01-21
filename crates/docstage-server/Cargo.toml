@@ -1,0 +1,46 @@
+[package]
+name = "docstage-server"
+description = "HTTP server for Docstage documentation engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal crates
+docstage-core = { workspace = true }
+docstage-config = { workspace = true }
+docstage-renderer = { workspace = true, features = ["serde"] }
+
+# HTTP framework
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = [
+    "fs",
+    "set-header",
+    "compression-gzip",
+    "trace"
+] }
+
+# Async runtime
+tokio = { version = "1", features = ["full", "sync"] }
+
+# File watching
+notify = "7"
+
+# Serialization
+serde = { workspace = true }
+serde_json = "1"
+
+# Utilities
+thiserror = "2"
+tracing = "0.1"
+md-5 = "0.10"
+hex = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+glob = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+pretty_assertions = { workspace = true }
+tokio-test = "0.4"
