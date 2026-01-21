@@ -41,13 +41,13 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
                 }
             }
             // Handle client messages (for keepalive)
             result = socket.recv() => {
                 match result {
-                    Some(Ok(_)) => continue,
+                    Some(Ok(_)) => {}
                     _ => break,
                 }
             }

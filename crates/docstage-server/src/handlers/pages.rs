@@ -89,7 +89,7 @@ pub async fn get_root_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
-    get_page_impl(String::new(), state, headers).await
+    get_page_impl(String::new(), state, headers)
 }
 
 /// Handle GET /api/pages/{path}.
@@ -98,11 +98,12 @@ pub async fn get_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
-    get_page_impl(path, state, headers).await
+    get_page_impl(path, state, headers)
 }
 
 /// Shared implementation for page rendering.
-async fn get_page_impl(
+#[allow(clippy::needless_pass_by_value)]
+fn get_page_impl(
     path: String,
     state: Arc<AppState>,
     headers: HeaderMap,
@@ -180,7 +181,7 @@ async fn get_page_impl(
         .into_response())
 }
 
-/// Compute ETag from version and content.
+/// Compute `ETag` from version and content.
 ///
 /// Uses MD5 hash truncated to 64 bits (16 hex chars) - sufficient for
 /// cache invalidation with negligible collision probability.

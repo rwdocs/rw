@@ -6,7 +6,7 @@
 //!
 //! It also provides site structure management:
 //! - **Site**: Document hierarchy with efficient path lookups
-//! - **SiteLoader**: Filesystem scanning and caching
+//! - **`SiteLoader`**: Filesystem scanning and caching
 //! - **Navigation**: Tree builder for UI presentation
 //!
 //! # Quick Start
