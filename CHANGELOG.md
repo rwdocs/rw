@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Title extraction enabled by default** for `confluence update` command; extracts title from first H1 heading and updates the Confluence page title (use `--no-extract-title` to disable)
+- **`--dry-run` flag** for `confluence update` command; previews changes without updating Confluence, showing comments that would be lost
 - **Rust comment preservation module** in `docstage-confluence` crate; preserves inline comment markers when updating Confluence pages from markdown using tree-based comparison
 - **PyO3 bindings for comment preservation** via `preserve_comments()` function, `PreserveResult`, and `UnmatchedComment` classes
 - **Optional static asset embedding** via `rust-embed` crate with `embed-assets` feature flag; development builds serve from `frontend/dist`, production builds embed assets for single-binary deployment
@@ -51,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Extracted CLI helper functions** for diagram attachment handling and dry-run output; `_collect_diagram_attachments()`, `_upload_attachments()`, `_print_dry_run_summary()`, and `_print_unmatched_comments_warning()` reduce code duplication across `_create`, `_update`, and `_upload_mkdocs` commands
 - **Moved comment preservation from Python to Rust**; Confluence `update` command now uses Rust `preserve_comments()` via PyO3 bindings instead of Python `CommentPreserver` class
 - **Removed Python `CommentPreserver` class** (`docstage.confluence.comment_preservation`); use `docstage_core.preserve_comments()` instead
 - **Moved `Site` module from Python to Rust**; Python server now uses Rust `SiteLoader` via PyO3 bindings
