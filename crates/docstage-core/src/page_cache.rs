@@ -259,6 +259,10 @@ mod tests {
         }]
     }
 
+    fn make_cache(dir: &Path) -> FilePageCache {
+        FilePageCache::new(dir.to_path_buf(), "1.0.0".to_string())
+    }
+
     #[test]
     fn test_null_cache_always_misses() {
         let cache = NullPageCache;
@@ -267,22 +271,18 @@ mod tests {
 
         cache.set("test/path", "<html>test</html>", Some("Title"), 1234.0, &[]);
         assert!(cache.get("test/path", 1234.0).is_none());
-
         assert!(cache.diagrams_dir().is_none());
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn test_file_cache_store_and_retrieve() {
-        let temp_dir = std::env::temp_dir().join("docstage_page_cache_test");
-        let _ = fs::remove_dir_all(&temp_dir);
-
-        let cache = FilePageCache::new(temp_dir.clone(), "1.0.0".to_string());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = make_cache(temp_dir.path());
         let toc = make_toc();
 
-        // Initially empty
         assert!(cache.get("domain/guide", 1234.0).is_none());
 
-        // Store and retrieve
         cache.set(
             "domain/guide",
             "<html>content</html>",
@@ -294,87 +294,60 @@ mod tests {
         let entry = cache.get("domain/guide", 1234.0).unwrap();
         assert_eq!(entry.html, "<html>content</html>");
         assert_eq!(entry.meta.title, Some("Guide".to_string()));
-        #[allow(clippy::float_cmp)]
-        {
-            assert_eq!(entry.meta.source_mtime, 1234.0);
-        }
+        assert_eq!(entry.meta.source_mtime, 1234.0);
         assert_eq!(entry.meta.toc.len(), 1);
         assert_eq!(entry.meta.build_version, "1.0.0");
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn test_file_cache_mtime_invalidation() {
-        let temp_dir = std::env::temp_dir().join("docstage_page_cache_mtime_test");
-        let _ = fs::remove_dir_all(&temp_dir);
-
-        let cache = FilePageCache::new(temp_dir.clone(), "1.0.0".to_string());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = make_cache(temp_dir.path());
 
         cache.set("test", "<html>old</html>", None, 1000.0, &[]);
         assert!(cache.get("test", 1000.0).is_some());
-
-        // Different mtime should miss
         assert!(cache.get("test", 2000.0).is_none());
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn test_file_cache_version_invalidation() {
-        let temp_dir = std::env::temp_dir().join("docstage_page_cache_version_test");
-        let _ = fs::remove_dir_all(&temp_dir);
+        let temp_dir = tempfile::tempdir().unwrap();
 
-        let cache_v1 = FilePageCache::new(temp_dir.clone(), "1.0.0".to_string());
+        let cache_v1 = make_cache(temp_dir.path());
         cache_v1.set("test", "<html>v1</html>", None, 1234.0, &[]);
         assert!(cache_v1.get("test", 1234.0).is_some());
 
-        // Different version should miss
-        let cache_v2 = FilePageCache::new(temp_dir.clone(), "2.0.0".to_string());
+        let cache_v2 = FilePageCache::new(temp_dir.path().to_path_buf(), "2.0.0".to_string());
         assert!(cache_v2.get("test", 1234.0).is_none());
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn test_file_cache_invalidate() {
-        let temp_dir = std::env::temp_dir().join("docstage_page_cache_invalidate_test");
-        let _ = fs::remove_dir_all(&temp_dir);
-
-        let cache = FilePageCache::new(temp_dir.clone(), "1.0.0".to_string());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = make_cache(temp_dir.path());
 
         cache.set("test", "<html>test</html>", None, 1234.0, &[]);
         assert!(cache.get("test", 1234.0).is_some());
 
         cache.invalidate("test");
         assert!(cache.get("test", 1234.0).is_none());
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
     fn test_file_cache_diagrams_dir() {
-        let temp_dir = std::env::temp_dir().join("docstage_page_cache_diagrams_test");
-
-        let cache = FilePageCache::new(temp_dir.clone(), "1.0.0".to_string());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = make_cache(temp_dir.path());
         assert_eq!(
             cache.diagrams_dir(),
-            Some(temp_dir.join("diagrams").as_path())
+            Some(temp_dir.path().join("diagrams").as_path())
         );
     }
 
     #[test]
     fn test_file_cache_nested_path() {
-        let temp_dir = std::env::temp_dir().join("docstage_page_cache_nested_test");
-        let _ = fs::remove_dir_all(&temp_dir);
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = make_cache(temp_dir.path());
 
-        let cache = FilePageCache::new(temp_dir.clone(), "1.0.0".to_string());
-
-        // Test deeply nested path
         cache.set(
             "domain/subdomain/deep/guide",
             "<html>nested</html>",
@@ -386,8 +359,5 @@ mod tests {
         let entry = cache.get("domain/subdomain/deep/guide", 1234.0).unwrap();
         assert_eq!(entry.html, "<html>nested</html>");
         assert_eq!(entry.meta.title, Some("Nested Guide".to_string()));
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
