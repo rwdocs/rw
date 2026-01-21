@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 docstage-config = { path = "../../crates/docstage-config" }
+docstage-confluence = { path = "../../crates/docstage-confluence" }
 docstage-core = { path = "../../crates/docstage-core" }
 docstage-diagrams = { path = "../../crates/docstage-diagrams" }
 docstage-renderer = { path = "../../crates/docstage-renderer" }

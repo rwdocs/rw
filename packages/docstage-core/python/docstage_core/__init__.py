@@ -16,11 +16,14 @@ from ._docstage_core import (
     PageRenderer,
     PageRendererConfig,
     PageRenderResult,
+    PreserveResult,
     Site,
     SiteLoader,
     SiteLoaderConfig,
     TocEntry,
+    UnmatchedComment,
     build_navigation,
+    preserve_comments,
     run_http_server,
 )
 
@@ -35,10 +38,13 @@ __all__ = [
     "PageRenderResult",
     "PageRenderer",
     "PageRendererConfig",
+    "PreserveResult",
     "Site",
     "SiteLoader",
     "SiteLoaderConfig",
     "TocEntry",
+    "UnmatchedComment",
     "build_navigation",
+    "preserve_comments",
     "run_http_server",
 ]

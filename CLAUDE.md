@@ -40,9 +40,18 @@ crates/
 │       ├── html.rs           # HtmlBackend implementation
 │       └── util.rs           # heading_level_to_num()
 │
-├── docstage-confluence/       # Confluence integration (renderer, API client)
+├── docstage-confluence/       # Confluence integration (renderer, comment preservation)
 │   └── src/
-│       └── lib.rs            # ConfluenceBackend implementation
+│       ├── lib.rs            # ConfluenceBackend, preserve_comments()
+│       ├── error.rs          # CommentPreservationError
+│       └── comment_preservation/  # Comment preservation module
+│           ├── mod.rs        # Public API (preserve_comments, PreserveResult)
+│           ├── tree.rs       # TreeNode with text_signature, marker detection
+│           ├── parser.rs     # XML parser with namespace handling
+│           ├── matcher.rs    # Tree matching (80% similarity threshold)
+│           ├── transfer.rs   # Marker transfer with global fallback
+│           ├── serializer.rs # XML serializer with CDATA support
+│           └── entities.rs   # HTML entity conversion
 │
 ├── docstage-diagrams/     # Diagram rendering via Kroki
 │   └── src/
@@ -72,7 +81,6 @@ packages/
 │       ├── cli.py                     # Main CLI commands
 │       ├── server.py                  # Entry point for native Rust HTTP server
 │       ├── confluence/client.py       # Async Confluence REST API client
-│       ├── confluence/comment_preservation.py  # DOM-based comment preservation
 │       └── oauth.py                   # OAuth 1.0 RSA-SHA1 auth
 │
 └── docstage-core/         # Python package with PyO3 bindings (maturin)

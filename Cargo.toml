@@ -19,6 +19,8 @@ docstage-server = { path = "crates/docstage-server" }
 
 # External dependencies
 base64 = "0.22"
+quick-xml = "0.37"
+thiserror = "2"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.9"
 hex = "0.4"

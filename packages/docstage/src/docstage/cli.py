@@ -870,8 +870,9 @@ async def _update(
     import tempfile
 
     try:
+        from docstage_core import preserve_comments
+
         from docstage.confluence import ConfluenceClient, MarkdownConverter
-        from docstage.confluence.comment_preservation import CommentPreserver
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
@@ -919,8 +920,7 @@ async def _update(
                 old_html = current_page["body"]["storage"]["value"]
 
                 click.echo("Preserving comment markers...")
-                preserver = CommentPreserver()
-                preserve_result = preserver.preserve_comments(old_html, new_html)
+                preserve_result = preserve_comments(old_html, new_html)
 
                 # Upload diagram attachments before updating page
                 if attachment_data:
@@ -966,7 +966,7 @@ async def _update(
                     ),
                 )
                 for comment in preserve_result.unmatched_comments:
-                    click.echo(f'  - [{comment.ref}] "{comment.text}"')
+                    click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
@@ -1001,10 +1001,9 @@ async def _upload_mkdocs(
     import tempfile
 
     try:
-        from docstage_core import MarkdownConverter
+        from docstage_core import MarkdownConverter, preserve_comments
 
         from docstage.confluence import ConfluenceClient
-        from docstage.confluence.comment_preservation import CommentPreserver
         from docstage.oauth import create_confluence_client, read_private_key
 
         config = Config.load(config_path)
@@ -1067,8 +1066,7 @@ async def _upload_mkdocs(
                 title = result.title or current_page["title"]
 
                 click.echo("Preserving comment markers...")
-                preserver = CommentPreserver()
-                preserve_result = preserver.preserve_comments(old_html, new_html)
+                preserve_result = preserve_comments(old_html, new_html)
 
                 if dry_run:
                     click.echo(
@@ -1087,7 +1085,7 @@ async def _upload_mkdocs(
                             ),
                         )
                         for comment in preserve_result.unmatched_comments:
-                            click.echo(f'  - [{comment.ref}] "{comment.text}"')
+                            click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
                     else:
                         click.echo(
                             click.style("\nNo comments would be resolved.", fg="green"),
@@ -1134,7 +1132,7 @@ async def _upload_mkdocs(
                         ),
                     )
                     for comment in preserve_result.unmatched_comments:
-                        click.echo(f'  - [{comment.ref}] "{comment.text}"')
+                        click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)

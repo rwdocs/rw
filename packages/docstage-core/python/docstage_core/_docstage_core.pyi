@@ -384,3 +384,37 @@ def run_http_server(config: HttpServerConfig) -> None:
         RuntimeError: If the server fails to start
     """
     ...
+
+# Comment Preservation classes
+
+class UnmatchedComment:
+    """Comment that could not be placed in new HTML."""
+
+    ref_id: str
+    """Comment reference ID."""
+    text: str
+    """Text content the marker was wrapping."""
+
+class PreserveResult:
+    """Result of comment preservation operation."""
+
+    html: str
+    """HTML with preserved comment markers."""
+    unmatched_comments: list[UnmatchedComment]
+    """Comments that could not be placed in the new HTML."""
+
+def preserve_comments(old_html: str, new_html: str) -> PreserveResult:
+    """Preserve inline comment markers from old HTML in new HTML.
+
+    This function transfers comment markers from the old Confluence page HTML
+    to the new HTML generated from markdown conversion. It uses tree-based
+    comparison to match content and transfer markers to matching positions.
+
+    Args:
+        old_html: Current page HTML with comment markers
+        new_html: New HTML from markdown conversion
+
+    Returns:
+        PreserveResult with HTML containing preserved markers and any unmatched comments
+    """
+    ...

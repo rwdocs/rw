@@ -1133,6 +1133,69 @@ pub fn py_run_http_server(py: Python<'_>, config: PyHttpServerConfig) -> PyResul
     })
 }
 
+// ============================================================================
+// Comment Preservation bindings
+// ============================================================================
+
+/// Comment that could not be placed in new HTML.
+#[pyclass(name = "UnmatchedComment", frozen)]
+#[derive(Clone)]
+pub struct PyUnmatchedComment {
+    /// Comment reference ID.
+    #[pyo3(get)]
+    pub ref_id: String,
+    /// Text content the marker was wrapping.
+    #[pyo3(get)]
+    pub text: String,
+}
+
+impl From<::docstage_confluence::UnmatchedComment> for PyUnmatchedComment {
+    fn from(c: ::docstage_confluence::UnmatchedComment) -> Self {
+        Self {
+            ref_id: c.ref_id,
+            text: c.text,
+        }
+    }
+}
+
+/// Result of comment preservation operation.
+#[pyclass(name = "PreserveResult")]
+pub struct PyPreserveResult {
+    /// HTML with preserved comment markers.
+    #[pyo3(get)]
+    pub html: String,
+    /// Comments that could not be placed in the new HTML.
+    #[pyo3(get)]
+    pub unmatched_comments: Vec<PyUnmatchedComment>,
+}
+
+impl From<::docstage_confluence::PreserveResult> for PyPreserveResult {
+    fn from(r: ::docstage_confluence::PreserveResult) -> Self {
+        Self {
+            html: r.html,
+            unmatched_comments: r.unmatched_comments.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Preserve inline comment markers from old HTML in new HTML.
+///
+/// This function transfers comment markers from the old Confluence page HTML
+/// to the new HTML generated from markdown conversion. It uses tree-based
+/// comparison to match content and transfer markers to matching positions.
+///
+/// Args:
+///     old_html: Current page HTML with comment markers
+///     new_html: New HTML from markdown conversion
+///
+/// Returns:
+///     PreserveResult with HTML containing preserved markers and any unmatched comments
+#[pyfunction]
+#[pyo3(name = "preserve_comments")]
+pub fn py_preserve_comments(old_html: &str, new_html: &str) -> PyPreserveResult {
+    ::docstage_confluence::preserve_comments(old_html, new_html).into()
+}
+
 /// Python module definition.
 #[pymodule]
 #[pyo3(name = "_docstage_core")]
@@ -1170,6 +1233,11 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // HTTP Server classes
     m.add_class::<PyHttpServerConfig>()?;
     m.add_function(wrap_pyfunction!(py_run_http_server, m)?)?;
+
+    // Comment Preservation classes
+    m.add_class::<PyUnmatchedComment>()?;
+    m.add_class::<PyPreserveResult>()?;
+    m.add_function(wrap_pyfunction!(py_preserve_comments, m)?)?;
 
     Ok(())
 }
