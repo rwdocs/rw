@@ -1,6 +1,6 @@
 //! Error types for page update operations.
 
-use docstage_confluence::ConfluenceError;
+use crate::error::ConfluenceError;
 
 /// Error during page update operation.
 #[derive(Debug, thiserror::Error)]

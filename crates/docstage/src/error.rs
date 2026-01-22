@@ -2,7 +2,7 @@
 
 use docstage_config::ConfigError;
 use docstage_confluence::ConfluenceError;
-use docstage_core::updater::UpdateError;
+use docstage_confluence::updater::UpdateError;
 
 /// CLI error type.
 #[derive(Debug, thiserror::Error)]

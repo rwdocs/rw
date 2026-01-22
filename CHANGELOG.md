@@ -10,13 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`docstage-site` crate** for site structure and page rendering; extracted from `docstage-core` for clearer separation of concerns (site/page management vs Confluence functionality)
+- **`PageRenderer` in `docstage-confluence`** for rendering markdown to Confluence XHTML storage format with diagram support; replaces `MarkdownConverter` from `docstage-core`
 
 - **`RenderResult::warnings` field** in `docstage-renderer` for automatic warnings collection from processors; eliminates manual `renderer.processor_warnings()` calls
 - **`MarkdownRenderer::with_gfm(bool)`** builder method to enable/disable GitHub Flavored Markdown features (tables, strikethrough, task lists)
 - **`MarkdownRenderer::parser_options()`** method to get configured `pulldown_cmark::Options` based on GFM settings
 - **`MarkdownRenderer::create_parser(&str)`** method to create a configured parser for markdown text
 - **`MarkdownRenderer::render_markdown(&str)`** convenience method that creates parser internally and renders markdown
-- **`RenderResult` re-exported from `docstage-core`** for consumers who don't want to depend on `docstage-renderer` directly
+- **`RenderResult` re-exported from `docstage-confluence`** for consumers who don't want to depend on `docstage-renderer` directly
 - **Native Rust CLI** (`crates/docstage/`) replacing the Python CLI entirely; single binary with no Python runtime dependency
 - **`docstage serve` command** in Rust CLI; starts documentation server with live reload, identical options to Python CLI (`--config`, `--source-dir`, `--host`, `--port`, `--kroki-url`, `--verbose`, `--live-reload/--no-live-reload`, `--cache/--no-cache`)
 - **`docstage confluence update` command** in Rust CLI; updates Confluence pages from markdown with full feature parity (`--message`, `--kroki-url`, `--extract-title/--no-extract-title`, `--dry-run`, `--key-file`)
@@ -24,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Colored terminal output** via `console` crate for success, warning, and error messages in CLI
 - **Rust `OAuthTokenGenerator`** in `docstage-confluence` crate for OAuth 1.0 three-legged flow
 - **`create_authorization_header_for_token_flow()`** in `oauth/signature.rs` for generating OAuth headers during token generation (supports optional `oauth_token`, `oauth_callback`, and `oauth_verifier` parameters)
-- **Rust `PageUpdater`** in `docstage-core` crate for updating Confluence pages from markdown; encapsulates entire workflow (convert, fetch, preserve comments, upload attachments, update) in a single Rust call
+- **Rust `PageUpdater`** in `docstage-confluence` crate for updating Confluence pages from markdown; encapsulates entire workflow (convert, fetch, preserve comments, upload attachments, update) in a single Rust call
 - **Rust `ConfluenceClient`** in `docstage-confluence` crate; synchronous HTTP client with OAuth 1.0 RSA-SHA1 authentication for Confluence REST API operations (pages, comments, attachments)
 - **Rust OAuth 1.0 RSA-SHA1 module** (`oauth/`) in `docstage-confluence` crate; implements signature generation per RFC 5849 with RSA-SHA1 signing
 - **RSA key loading** supporting both PKCS#1 (`-----BEGIN RSA PRIVATE KEY-----`) and PKCS#8 (`-----BEGIN PRIVATE KEY-----`) PEM formats
@@ -69,9 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Merged `docstage-core` into `docstage-confluence`**; all Confluence-related functionality is now in a single crate
+- **Renamed `MarkdownConverter` to `PageRenderer`** in `docstage-confluence`; `convert()` method renamed to `render()`
+- **Import path changes** for Confluence types: `docstage_core::{MarkdownConverter, updater::*}` → `docstage_confluence::{PageRenderer, updater::*}`
 - **Extracted site-related code from `docstage-core` to `docstage-site`**; `docstage-server` now depends on `docstage-site` instead of `docstage-core`; cleaner separation between site management (HTML rendering) and Confluence functionality
-- **`docstage-core` now focuses on Confluence integration only**; renamed from "High-performance markdown renderer for Docstage" to "Confluence integration for Docstage"
-- **Import path changes** for site-related types: `docstage_core::{Site, SiteBuilder, SiteLoader, NavItem, PageRenderer}` → `docstage_site::{...}`
 - **Moved `build_navigation()` to `Site::navigation()` method**; call `site.navigation()` instead of `build_navigation(&site)`
 - **`PageRenderer` now uses `MarkdownRenderer` directly** instead of going through `MarkdownConverter`; eliminates unnecessary abstraction layer (`PageRenderer` → `MarkdownConverter` → `MarkdownRenderer` reduced to `PageRenderer` → `MarkdownRenderer`)
 - **`MarkdownConverter` now uses renderer's GFM config** via `MarkdownRenderer::with_gfm()` instead of internal `get_parser_options()` method; removes duplicated parser configuration
@@ -132,15 +134,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Optimized cache lookup in `post_process_inline`** by consuming the prepared diagrams iterator and constructing `DiagramKey` directly for cache hits; eliminates unnecessary `CacheInfo` allocation and string clone for cached diagrams
 - **Added capacity hint for `Replacements` HashMap** in `DiagramProcessor`; pre-allocates based on diagram count to reduce rehashing
 
-### Deprecated
-
-- **`ConvertResult`** type alias in `docstage-core`; use `RenderResult` from `docstage-renderer` instead
-
 ### Removed
 
-- **`MarkdownConverter::convert_html()`** method; use `PageRenderer` for HTML rendering with caching, or `MarkdownRenderer` directly for one-off conversions
-- **`HtmlConvertResult`** type alias in `docstage-core`; use `RenderResult` from `docstage-renderer` instead
-- **`MarkdownConverter::convert_html_with_diagrams_cached()`**; merged into `convert_html_with_diagrams()` which now takes an optional `cache_dir` parameter
+- **`docstage-core` crate**; merged into `docstage-confluence`; all Confluence integration functionality is now in a single crate
+- **`MarkdownConverter` type**; replaced by `PageRenderer` in `docstage-confluence` with `convert()` renamed to `render()`
+- **`ConvertResult` type alias**; use `RenderResult` from `docstage-renderer` (re-exported by `docstage-confluence`) instead
 - **Python CLI package** (`packages/docstage/`); replaced by native Rust CLI in `crates/docstage/`
 - **PyO3 bindings package** (`packages/docstage-core/`); no longer needed
 - **Python tooling**: `pyproject.toml`, `uv.lock`, `.python-version`

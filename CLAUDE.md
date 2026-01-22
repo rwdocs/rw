@@ -56,10 +56,13 @@ crates/
 │       ├── html.rs           # HtmlBackend implementation
 │       └── util.rs           # heading_level_to_num()
 │
-├── docstage-confluence/       # Confluence integration (renderer, comment preservation)
+├── docstage-confluence/       # Confluence integration
 │   └── src/
-│       ├── lib.rs            # ConfluenceBackend, preserve_comments()
-│       ├── error.rs          # CommentPreservationError
+│       ├── lib.rs            # Public API exports
+│       ├── backend.rs        # ConfluenceBackend (RenderBackend implementation)
+│       ├── renderer.rs       # PageRenderer for Confluence XHTML output
+│       ├── tags.rs           # ConfluenceTagGenerator for diagram macros
+│       ├── error.rs          # ConfluenceError
 │       ├── client/           # Confluence REST API client
 │       │   ├── mod.rs        # ConfluenceClient
 │       │   ├── pages.rs      # Page operations
@@ -70,14 +73,19 @@ crates/
 │       │   ├── key.rs        # RSA key loading
 │       │   ├── signature.rs  # Signature generation
 │       │   └── token_generator.rs  # Three-legged OAuth flow
-│       └── comment_preservation/  # Comment preservation module
-│           ├── mod.rs        # Public API (preserve_comments, PreserveResult)
-│           ├── tree.rs       # TreeNode with text_signature, marker detection
-│           ├── parser.rs     # XML parser with namespace handling
-│           ├── matcher.rs    # Tree matching (80% similarity threshold)
-│           ├── transfer.rs   # Marker transfer with global fallback
-│           ├── serializer.rs # XML serializer with CDATA support
-│           └── entities.rs   # HTML entity conversion
+│       ├── comment_preservation/  # Comment preservation module
+│       │   ├── mod.rs        # Public API (preserve_comments, PreserveResult)
+│       │   ├── tree.rs       # TreeNode with text_signature, marker detection
+│       │   ├── parser.rs     # XML parser with namespace handling
+│       │   ├── matcher.rs    # Tree matching (80% similarity threshold)
+│       │   ├── transfer.rs   # Marker transfer with global fallback
+│       │   ├── serializer.rs # XML serializer with CDATA support
+│       │   └── entities.rs   # HTML entity conversion
+│       └── updater/          # Confluence page updater
+│           ├── mod.rs        # PageUpdater, UpdateConfig
+│           ├── executor.rs   # Update workflow implementation
+│           ├── result.rs     # UpdateResult, DryRunResult
+│           └── error.rs      # UpdateError
 │
 ├── docstage-diagrams/     # Diagram rendering via Kroki
 │   └── src/
@@ -97,17 +105,6 @@ crates/
 │       ├── site_loader.rs    # SiteLoader, SiteLoaderConfig
 │       ├── renderer.rs       # PageRenderer, PageRendererConfig, PageRenderResult
 │       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
-│
-├── docstage-core/         # Confluence integration
-│   └── src/
-│       ├── lib.rs            # Module exports
-│       ├── converter.rs      # MarkdownConverter for Confluence XHTML output
-│       ├── confluence_tags.rs # ConfluenceTagGenerator (internal)
-│       └── updater/          # Confluence page updater
-│           ├── mod.rs        # PageUpdater, UpdateConfig
-│           ├── executor.rs   # Update workflow implementation
-│           ├── result.rs     # UpdateResult, DryRunResult
-│           └── error.rs      # UpdateError
 │
 ├── docstage-config/       # Configuration parsing
 │   └── src/

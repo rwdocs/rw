@@ -2,10 +2,12 @@
 
 use std::path::Path;
 
-use docstage_confluence::{ConfluenceClient, Page, preserve_comments};
 use tempfile::TempDir;
 
-use crate::MarkdownConverter;
+use crate::client::ConfluenceClient;
+use crate::comment_preservation::preserve_comments;
+use crate::renderer::PageRenderer;
+use crate::types::Page;
 
 use super::UpdateConfig;
 use super::error::UpdateError;
@@ -51,8 +53,8 @@ impl<'a> PageUpdater<'a> {
         let tmpdir = TempDir::new()?;
 
         // Convert markdown
-        let converter = self.create_converter();
-        let convert_result = converter.convert(markdown_text, Some(kroki_url), Some(tmpdir.path()));
+        let renderer = self.create_renderer();
+        let render_result = renderer.render(markdown_text, Some(kroki_url), Some(tmpdir.path()));
 
         // Collect diagram attachments
         let attachments = Self::collect_attachments(tmpdir.path())?;
@@ -64,10 +66,10 @@ impl<'a> PageUpdater<'a> {
 
         // Preserve comments
         let old_html = Self::extract_body_html(&current_page);
-        let preserve_result = preserve_comments(old_html, &convert_result.html);
+        let preserve_result = preserve_comments(old_html, &render_result.html);
 
         // Determine title
-        let title = convert_result.title.as_ref().unwrap_or(&current_page.title);
+        let title = render_result.title.as_ref().unwrap_or(&current_page.title);
 
         // Upload attachments
         for (filename, data) in &attachments {
@@ -94,7 +96,7 @@ impl<'a> PageUpdater<'a> {
             comment_count: comments.size,
             unmatched_comments: preserve_result.unmatched_comments,
             attachments_uploaded: attachments.len(),
-            warnings: convert_result.warnings,
+            warnings: render_result.warnings,
         })
     }
 
@@ -113,8 +115,8 @@ impl<'a> PageUpdater<'a> {
         let kroki_url = self.kroki_url()?;
         let tmpdir = TempDir::new()?;
 
-        let converter = self.create_converter();
-        let convert_result = converter.convert(markdown_text, Some(kroki_url), Some(tmpdir.path()));
+        let renderer = self.create_renderer();
+        let render_result = renderer.render(markdown_text, Some(kroki_url), Some(tmpdir.path()));
 
         let attachments = Self::collect_attachment_names(tmpdir.path())?;
 
@@ -123,17 +125,17 @@ impl<'a> PageUpdater<'a> {
             .get_page(page_id, &["body.storage", "version"])?;
 
         let old_html = Self::extract_body_html(&current_page);
-        let preserve_result = preserve_comments(old_html, &convert_result.html);
+        let preserve_result = preserve_comments(old_html, &render_result.html);
 
         Ok(DryRunResult {
             html: preserve_result.html,
-            title: convert_result.title,
+            title: render_result.title,
             current_title: current_page.title,
             current_version: current_page.version.number,
             unmatched_comments: preserve_result.unmatched_comments,
             attachment_count: attachments.len(),
             attachment_names: attachments,
-            warnings: convert_result.warnings,
+            warnings: render_result.warnings,
         })
     }
 
@@ -143,9 +145,9 @@ impl<'a> PageUpdater<'a> {
         })
     }
 
-    fn create_converter(&self) -> MarkdownConverter {
+    fn create_renderer(&self) -> PageRenderer {
         let diagrams = &self.config.diagrams;
-        MarkdownConverter::new()
+        PageRenderer::new()
             .prepend_toc(true)
             .extract_title(self.config.extract_title)
             .include_dirs(diagrams.include_dirs.clone())
@@ -154,39 +156,39 @@ impl<'a> PageUpdater<'a> {
     }
 
     fn collect_attachments(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, UpdateError> {
-        let mut attachments: Vec<_> = Self::png_files(dir)?
-            .into_iter()
-            .map(|path| {
-                let filename = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("diagram.png")
-                    .to_string();
-                std::fs::read(&path).map(|data| (filename, data))
-            })
-            .collect::<Result<_, _>>()?;
+        let mut attachments = Vec::new();
+        for (filename, path) in Self::png_files(dir)? {
+            let data = std::fs::read(&path)?;
+            attachments.push((filename, data));
+        }
         attachments.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(attachments)
     }
 
     fn collect_attachment_names(dir: &Path) -> Result<Vec<String>, UpdateError> {
         let mut names: Vec<_> = Self::png_files(dir)?
-            .iter()
-            .filter_map(|path| path.file_name().and_then(|n| n.to_str()).map(String::from))
+            .into_iter()
+            .map(|(name, _)| name)
             .collect();
         names.sort();
         Ok(names)
     }
 
-    fn png_files(dir: &Path) -> Result<Vec<std::path::PathBuf>, UpdateError> {
-        let mut paths = Vec::new();
+    /// Returns PNG files as (filename, path) pairs.
+    fn png_files(dir: &Path) -> Result<Vec<(String, std::path::PathBuf)>, UpdateError> {
+        let mut files = Vec::new();
         for entry in std::fs::read_dir(dir)? {
             let path = entry?.path();
             if path.extension().is_some_and(|ext| ext == "png") {
-                paths.push(path);
+                let filename = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("diagram.png")
+                    .to_string();
+                files.push((filename, path));
             }
         }
-        Ok(paths)
+        Ok(files)
     }
 
     fn extract_body_html(page: &Page) -> &str {

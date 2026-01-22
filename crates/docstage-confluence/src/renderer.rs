@@ -1,10 +1,11 @@
-//! Markdown to Confluence converter.
+//! Markdown to Confluence page renderer.
 //!
-//! This module provides [`MarkdownConverter`] for converting `CommonMark` documents
+//! This module provides [`PageRenderer`] for converting `CommonMark` documents
 //! to Confluence XHTML storage format.
 //!
-//! For HTML output, use [`MarkdownRenderer`](docstage_renderer::MarkdownRenderer) directly
-//! (see [`PageRenderer`](crate::PageRenderer) for an example with caching).
+//! Note: This is distinct from [`docstage_site::PageRenderer`] which renders
+//! markdown to HTML for the web server. Both are "page renderers" but for
+//! different output formats.
 //!
 //! # Features
 //!
@@ -18,14 +19,14 @@
 //!
 //! ```ignore
 //! use std::path::Path;
-//! use docstage_core::MarkdownConverter;
+//! use docstage_confluence::PageRenderer;
 //!
-//! let converter = MarkdownConverter::new()
+//! let renderer = PageRenderer::new()
 //!     .prepend_toc(true)
 //!     .extract_title(true)
 //!     .dpi(192);
 //!
-//! let result = converter.convert(
+//! let result = renderer.render(
 //!     "# Hello\n\n```plantuml\nA -> B\n```",
 //!     Some("https://kroki.io"),
 //!     Some(Path::new("/tmp/diagrams")),
@@ -35,23 +36,21 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use docstage_confluence::ConfluenceBackend;
 use docstage_diagrams::{DiagramOutput, DiagramProcessor};
 use docstage_renderer::{MarkdownRenderer, RenderResult, TocEntry};
 
-use crate::confluence_tags::ConfluenceTagGenerator;
+use crate::backend::ConfluenceBackend;
+use crate::tags::ConfluenceTagGenerator;
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
-/// Result of converting markdown to Confluence format.
+/// Renders markdown to Confluence XHTML storage format.
 ///
-/// Type alias for `RenderResult` from `docstage-renderer`.
-#[deprecated(since = "0.2.0", note = "use RenderResult instead")]
-pub type ConvertResult = RenderResult;
-
-/// Markdown to Confluence converter configuration.
+/// Note: This is distinct from `docstage_site::PageRenderer` which renders
+/// markdown to HTML for the web server. Both are "page renderers" but for
+/// different output formats.
 #[derive(Clone, Debug)]
-pub struct MarkdownConverter {
+pub struct PageRenderer {
     gfm: bool,
     prepend_toc: bool,
     extract_title: bool,
@@ -60,14 +59,14 @@ pub struct MarkdownConverter {
     dpi: Option<u32>,
 }
 
-impl Default for MarkdownConverter {
+impl Default for PageRenderer {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl MarkdownConverter {
-    /// Create a new converter with default settings.
+impl PageRenderer {
+    /// Create a new renderer with default settings.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -133,13 +132,13 @@ impl MarkdownConverter {
         }
     }
 
-    /// Convert markdown to Confluence storage format with optional diagram rendering via Kroki.
+    /// Render markdown to Confluence storage format with optional diagram rendering via Kroki.
     ///
     /// When `kroki_url` and `output_dir` are provided, diagrams are rendered via the Kroki
     /// service and written to the output directory. When `None`, diagram blocks are rendered
     /// as syntax-highlighted code.
     #[must_use]
-    pub fn convert(
+    pub fn render(
         &self,
         markdown_text: &str,
         kroki_url: Option<&str>,
