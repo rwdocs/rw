@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`RenderResult::warnings` field** in `docstage-renderer` for automatic warnings collection from processors; eliminates manual `renderer.processor_warnings()` calls
+- **`MarkdownRenderer::with_gfm(bool)`** builder method to enable/disable GitHub Flavored Markdown features (tables, strikethrough, task lists)
+- **`MarkdownRenderer::parser_options()`** method to get configured `pulldown_cmark::Options` based on GFM settings
+- **`MarkdownRenderer::create_parser(&str)`** method to create a configured parser for markdown text
+- **`MarkdownRenderer::render_markdown(&str)`** convenience method that creates parser internally and renders markdown
+- **`RenderResult` re-exported from `docstage-core`** for consumers who don't want to depend on `docstage-renderer` directly
 - **Native Rust CLI** (`crates/docstage/`) replacing the Python CLI entirely; single binary with no Python runtime dependency
 - **`docstage serve` command** in Rust CLI; starts documentation server with live reload, identical options to Python CLI (`--config`, `--source-dir`, `--host`, `--port`, `--kroki-url`, `--verbose`, `--live-reload/--no-live-reload`, `--cache/--no-cache`)
 - **`docstage confluence update` command** in Rust CLI; updates Confluence pages from markdown with full feature parity (`--message`, `--kroki-url`, `--extract-title/--no-extract-title`, `--dry-run`, `--key-file`)
@@ -61,6 +67,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`MarkdownConverter` now uses renderer's GFM config** via `MarkdownRenderer::with_gfm()` instead of internal `get_parser_options()` method; removes duplicated parser configuration
+- **`MarkdownConverter` methods now use `RenderResult`** directly from renderer instead of creating separate result types; `convert()`, `convert_html()`, `convert_html_with_diagrams()`, and `convert_html_with_diagrams_cached()` all return `RenderResult`
+- **`MarkdownRenderer::render()` now includes warnings** in the returned `RenderResult`; consumers no longer need to manually call `renderer.processor_warnings()`
+- **Removed `MarkdownConverter::get_parser_options()`** method; parser configuration moved to `MarkdownRenderer`
 - **CLI replaced with native Rust binary**; no longer requires Python runtime or `uv run` command; run directly via `./target/debug/docstage` or `cargo install --path crates/docstage`
 - **Removed Python CLI package** (`packages/docstage/`); all CLI functionality is now in `crates/docstage/`
 - **Removed PyO3 bindings package** (`packages/docstage-core/`); no longer needed since CLI is pure Rust
@@ -112,6 +122,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HTTP agent reuse for connection pooling** in `docstage-diagrams`; the `ureq::Agent` is now stored in `ProcessorConfig` and reused across render calls instead of creating a new agent per call, enabling HTTP connection pooling for improved performance
 - **Optimized cache lookup in `post_process_inline`** by consuming the prepared diagrams iterator and constructing `DiagramKey` directly for cache hits; eliminates unnecessary `CacheInfo` allocation and string clone for cached diagrams
 - **Added capacity hint for `Replacements` HashMap** in `DiagramProcessor`; pre-allocates based on diagram count to reduce rehashing
+
+### Deprecated
+
+- **`ConvertResult`** type alias in `docstage-core`; use `RenderResult` from `docstage-renderer` instead
+- **`HtmlConvertResult`** type alias in `docstage-core`; use `RenderResult` from `docstage-renderer` instead
 
 ### Removed
 

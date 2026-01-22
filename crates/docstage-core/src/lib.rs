@@ -74,7 +74,9 @@ mod site_cache;
 pub mod site_loader;
 pub mod updater;
 
+#[allow(deprecated)]
 pub use converter::{ConvertResult, HtmlConvertResult, MarkdownConverter};
+pub use docstage_renderer::RenderResult;
 pub use navigation::{NavItem, build_navigation};
 pub use page_renderer::{PageRenderResult, PageRenderer, PageRendererConfig, RenderError};
 pub use site::{BreadcrumbItem, Page, Site, SiteBuilder};

@@ -36,38 +36,25 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use pulldown_cmark::{Options, Parser};
-
 use docstage_confluence::ConfluenceBackend;
 use docstage_diagrams::{DiagramCache, DiagramOutput, DiagramProcessor, FileCache, NullCache};
-use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
+use docstage_renderer::{HtmlBackend, MarkdownRenderer, RenderResult, TocEntry};
 
 use crate::confluence_tags::ConfluenceTagGenerator;
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
 /// Result of converting markdown to Confluence format.
-#[derive(Clone, Debug)]
-pub struct ConvertResult {
-    pub html: String,
-    pub title: Option<String>,
-    /// Warnings generated during conversion (e.g., unresolved includes).
-    /// Used by Python CLI in verbose mode to log diagnostic info to stderr.
-    pub warnings: Vec<String>,
-}
+///
+/// Type alias for `RenderResult` from `docstage-renderer`.
+#[deprecated(since = "0.2.0", note = "use RenderResult instead")]
+pub type ConvertResult = RenderResult;
 
 /// Result of converting markdown to HTML format.
-#[derive(Clone, Debug)]
-pub struct HtmlConvertResult {
-    /// Rendered HTML content.
-    pub html: String,
-    /// Title extracted from first H1 heading (if `extract_title` was enabled).
-    pub title: Option<String>,
-    /// Table of contents entries.
-    pub toc: Vec<TocEntry>,
-    /// Warnings generated during conversion (e.g., unresolved includes).
-    pub warnings: Vec<String>,
-}
+///
+/// Type alias for `RenderResult` from `docstage-renderer`.
+#[deprecated(since = "0.2.0", note = "use RenderResult instead")]
+pub type HtmlConvertResult = RenderResult;
 
 /// Markdown to Confluence converter configuration.
 #[derive(Clone, Debug)]
@@ -76,9 +63,7 @@ pub struct MarkdownConverter {
     prepend_toc: bool,
     extract_title: bool,
     include_dirs: Vec<PathBuf>,
-    /// `PlantUML` config file name (loaded from `include_dirs` when needed).
     config_file: Option<String>,
-    /// DPI for `PlantUML` diagram rendering (None = default 192).
     dpi: Option<u32>,
 }
 
@@ -146,19 +131,7 @@ impl MarkdownConverter {
         self
     }
 
-    fn get_parser_options(&self) -> Options {
-        let mut options = Options::empty();
-        if self.gfm {
-            options.insert(Options::ENABLE_TABLES);
-            options.insert(Options::ENABLE_STRIKETHROUGH);
-            options.insert(Options::ENABLE_TASKLISTS);
-        }
-        options
-    }
-
-    /// Optionally prepend TOC macro to HTML content.
-    ///
-    /// Only prepends when `prepend_toc` is enabled AND there are headings.
+    /// Prepend TOC macro if enabled and there are headings.
     fn maybe_prepend_toc(&self, html: String, toc: &[TocEntry]) -> String {
         if self.prepend_toc && !toc.is_empty() {
             format!("{TOC_MACRO}{html}")
@@ -167,132 +140,48 @@ impl MarkdownConverter {
         }
     }
 
-    /// Convert markdown to Confluence storage format.
-    ///
-    /// Diagrams are rendered via Kroki and placeholders replaced with
-    /// Confluence image macros. Supports all diagram types: `PlantUML`,
-    /// Mermaid, `GraphViz`, and 14+ other Kroki-supported formats.
-    ///
+    /// Convert markdown to Confluence storage format with diagram rendering via Kroki.
     #[must_use]
-    pub fn convert(
-        &self,
-        markdown_text: &str,
-        kroki_url: &str,
-        output_dir: &Path,
-    ) -> ConvertResult {
-        let options = self.get_parser_options();
-        let parser = Parser::new_ext(markdown_text, options);
-
-        // Create DiagramProcessor with file-based output
-        let mut processor = DiagramProcessor::new(kroki_url)
-            .include_dirs(&self.include_dirs)
-            .config_file(self.config_file.as_deref())
+    pub fn convert(&self, markdown_text: &str, kroki_url: &str, output_dir: &Path) -> RenderResult {
+        let processor = self
+            .create_diagram_processor(kroki_url)
             .output(DiagramOutput::Files {
                 output_dir: output_dir.to_path_buf(),
                 tag_generator: Arc::new(ConfluenceTagGenerator),
             });
 
-        if let Some(dpi) = self.dpi {
-            processor = processor.dpi(dpi);
-        }
+        let mut renderer = self.create_confluence_renderer().with_processor(processor);
+        let result = renderer.render_markdown(markdown_text);
 
-        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
-        renderer = renderer.with_processor(processor);
-
-        let result = renderer.render(parser);
-        let warnings = renderer.processor_warnings();
-
-        let html = self.maybe_prepend_toc(result.html, &result.toc);
-
-        ConvertResult {
-            html,
-            title: result.title,
-            warnings,
-        }
-    }
-
-    /// Convert markdown to HTML format.
-    ///
-    /// Produces semantic HTML5 with syntax highlighting and table of contents.
-    /// Diagram code blocks are rendered with syntax highlighting as-is.
-    /// For rendered diagram images, use `convert_html_with_diagrams()`.
-    ///
-    /// # Arguments
-    ///
-    /// * `markdown_text` - Markdown source text
-    /// * `base_path` - Optional base path for resolving relative links (e.g., "domains/billing/guide").
-    ///   When provided, relative `.md` links are transformed to absolute paths (e.g., `/domains/billing/page`).
-    #[must_use]
-    pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> HtmlConvertResult {
-        let options = self.get_parser_options();
-        let parser = Parser::new_ext(markdown_text, options);
-
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
-        if let Some(path) = base_path {
-            renderer = renderer.with_base_path(path);
-        }
-
-        let result = renderer.render(parser);
-
-        HtmlConvertResult {
-            html: result.html,
+        RenderResult {
+            html: self.maybe_prepend_toc(result.html, &result.toc),
             title: result.title,
             toc: result.toc,
-            warnings: Vec::new(),
+            warnings: result.warnings,
         }
     }
 
-    /// Convert markdown to HTML format with rendered diagrams.
+    /// Convert markdown to HTML format without diagram rendering.
     ///
-    /// Produces semantic HTML5 with diagram code blocks rendered as images via Kroki.
-    /// Diagrams are rendered based on their format attribute:
-    /// - `svg` (default): Inline SVG (supports links and interactivity)
-    /// - `png`: Inline PNG as base64 data URI
-    ///
-    /// If diagram rendering fails, the diagram is replaced with an error message
-    /// wrapped in `<figure class="diagram diagram-error">`. This allows the page
-    /// to still render even when Kroki is unavailable or returns an error.
-    ///
-    /// # Arguments
-    ///
-    /// * `markdown_text` - Markdown source text
-    /// * `kroki_url` - Kroki server URL (e.g., `"https://kroki.io"`)
-    /// * `base_path` - Optional base path for resolving relative links
+    /// For rendered diagram images, use `convert_html_with_diagrams()`.
+    #[must_use]
+    pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> RenderResult {
+        self.create_html_renderer(base_path)
+            .render_markdown(markdown_text)
+    }
+
+    /// Convert markdown to HTML format with diagram rendering via Kroki.
     #[must_use]
     pub fn convert_html_with_diagrams(
         &self,
         markdown_text: &str,
         kroki_url: &str,
         base_path: Option<&str>,
-    ) -> HtmlConvertResult {
+    ) -> RenderResult {
         self.render_html_with_diagrams(markdown_text, kroki_url, None, base_path)
     }
 
     /// Convert markdown to HTML format with cached diagram rendering.
-    ///
-    /// Like [`convert_html_with_diagrams`](Self::convert_html_with_diagrams), but uses
-    /// a file-based cache to avoid re-rendering diagrams with the same content.
-    ///
-    /// The cache key is computed from:
-    /// - Diagram source (after preprocessing)
-    /// - Kroki endpoint
-    /// - Output format (svg/png)
-    /// - DPI setting
-    ///
-    /// Cache files are stored as `{cache_dir}/{hash}.{format}` (e.g., `abc123.svg`).
-    ///
-    /// # Arguments
-    ///
-    /// * `markdown_text` - Markdown source text
-    /// * `kroki_url` - Kroki server URL
-    /// * `cache_dir` - Directory for cached diagrams (caching disabled if None)
-    /// * `base_path` - Optional base path for resolving relative links
     #[must_use]
     pub fn convert_html_with_diagrams_cached(
         &self,
@@ -300,12 +189,45 @@ impl MarkdownConverter {
         kroki_url: &str,
         cache_dir: Option<&Path>,
         base_path: Option<&str>,
-    ) -> HtmlConvertResult {
+    ) -> RenderResult {
         let cache: Arc<dyn DiagramCache> = match cache_dir {
             Some(dir) => Arc::new(FileCache::new(dir.to_path_buf())),
             None => Arc::new(NullCache),
         };
         self.render_html_with_diagrams(markdown_text, kroki_url, Some(cache), base_path)
+    }
+
+    /// Create a diagram processor with common configuration.
+    fn create_diagram_processor(&self, kroki_url: &str) -> DiagramProcessor {
+        let mut processor = DiagramProcessor::new(kroki_url)
+            .include_dirs(&self.include_dirs)
+            .config_file(self.config_file.as_deref());
+
+        if let Some(dpi) = self.dpi {
+            processor = processor.dpi(dpi);
+        }
+        processor
+    }
+
+    /// Create an HTML renderer with common configuration.
+    fn create_html_renderer(&self, base_path: Option<&str>) -> MarkdownRenderer<HtmlBackend> {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_gfm(self.gfm);
+        if self.extract_title {
+            renderer = renderer.with_title_extraction();
+        }
+        if let Some(path) = base_path {
+            renderer = renderer.with_base_path(path);
+        }
+        renderer
+    }
+
+    /// Create a Confluence renderer with common configuration.
+    fn create_confluence_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
+        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new().with_gfm(self.gfm);
+        if self.extract_title {
+            renderer = renderer.with_title_extraction();
+        }
+        renderer
     }
 
     /// Internal helper for HTML rendering with optional diagram caching.
@@ -315,38 +237,14 @@ impl MarkdownConverter {
         kroki_url: &str,
         cache: Option<Arc<dyn DiagramCache>>,
         base_path: Option<&str>,
-    ) -> HtmlConvertResult {
-        let options = self.get_parser_options();
-        let parser = Parser::new_ext(markdown_text, options);
-
-        let mut processor = DiagramProcessor::new(kroki_url)
-            .include_dirs(&self.include_dirs)
-            .config_file(self.config_file.as_deref());
-
-        if let Some(dpi) = self.dpi {
-            processor = processor.dpi(dpi);
-        }
+    ) -> RenderResult {
+        let mut processor = self.create_diagram_processor(kroki_url);
         if let Some(c) = cache {
             processor = processor.with_cache(c);
         }
 
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
-        if let Some(path) = base_path {
-            renderer = renderer.with_base_path(path);
-        }
-        renderer = renderer.with_processor(processor);
-
-        let result = renderer.render(parser);
-        let warnings = renderer.processor_warnings();
-
-        HtmlConvertResult {
-            html: result.html,
-            title: result.title,
-            toc: result.toc,
-            warnings,
-        }
+        self.create_html_renderer(base_path)
+            .with_processor(processor)
+            .render_markdown(markdown_text)
     }
 }
