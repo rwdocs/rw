@@ -13,8 +13,8 @@ use std::time::Duration;
 use ureq::Agent;
 
 use crate::error::ConfluenceError;
-use crate::oauth::key::load_private_key_from_file;
 use crate::oauth::OAuth1Auth;
+use crate::oauth::key::load_private_key_from_file;
 
 /// Default HTTP timeout in seconds.
 const DEFAULT_TIMEOUT: u64 = 30;
@@ -60,10 +60,5 @@ impl ConfluenceClient {
     /// Get the API base URL.
     fn api_url(&self) -> String {
         format!("{}/rest/api", self.base_url)
-    }
-
-    /// Get the base URL.
-    pub fn base_url(&self) -> &str {
-        &self.base_url
     }
 }

@@ -14,7 +14,7 @@ use docstage_renderer::{RenderBackend, escape_html};
 /// - Info panel macro for blockquotes
 /// - `ac:image` with `ri:url` or `ri:attachment` for images
 /// - Title extraction from first H1 with level shifting
-pub struct ConfluenceBackend;
+pub(crate) struct ConfluenceBackend;
 
 impl RenderBackend for ConfluenceBackend {
     const TITLE_AS_METADATA: bool = true;

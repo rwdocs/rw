@@ -3,23 +3,23 @@
 use serde::Deserialize;
 
 /// Confluence attachment.
+///
+/// Only includes fields that are actually used.
+/// Serde ignores unknown fields from the API response.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Attachment {
     /// Attachment ID.
     pub id: String,
     /// Attachment title/filename.
     pub title: String,
-    /// Content type (always "attachment").
-    #[serde(rename = "type")]
-    pub content_type: String,
 }
 
 /// Attachments API response.
+///
+/// Only includes `results` since we only need the attachment list.
+/// Serde ignores unknown fields like `size` from the API response.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AttachmentsResponse {
     /// List of attachments.
     pub results: Vec<Attachment>,
-    /// Total count.
-    #[serde(default)]
-    pub size: usize,
 }

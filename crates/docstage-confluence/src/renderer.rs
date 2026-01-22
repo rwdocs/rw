@@ -50,7 +50,7 @@ const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version=
 /// markdown to HTML for the web server. Both are "page renderers" but for
 /// different output formats.
 #[derive(Clone, Debug)]
-pub struct PageRenderer {
+pub(crate) struct PageRenderer {
     gfm: bool,
     prepend_toc: bool,
     extract_title: bool,
@@ -68,7 +68,7 @@ impl Default for PageRenderer {
 impl PageRenderer {
     /// Create a new renderer with default settings.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             gfm: true,
             prepend_toc: false,
@@ -81,28 +81,31 @@ impl PageRenderer {
 
     /// Enable or disable prepending a table of contents macro.
     #[must_use]
-    pub fn prepend_toc(mut self, enabled: bool) -> Self {
+    pub(crate) fn prepend_toc(mut self, enabled: bool) -> Self {
         self.prepend_toc = enabled;
         self
     }
 
     /// Enable or disable extracting the first H1 as page title.
     #[must_use]
-    pub fn extract_title(mut self, enabled: bool) -> Self {
+    pub(crate) fn extract_title(mut self, enabled: bool) -> Self {
         self.extract_title = enabled;
         self
     }
 
     /// Set directories to search for `PlantUML` includes.
     #[must_use]
-    pub fn include_dirs(mut self, dirs: impl IntoIterator<Item = impl Into<PathBuf>>) -> Self {
+    pub(crate) fn include_dirs(
+        mut self,
+        dirs: impl IntoIterator<Item = impl Into<PathBuf>>,
+    ) -> Self {
         self.include_dirs = dirs.into_iter().map(Into::into).collect();
         self
     }
 
     /// Set `PlantUML` config file (loaded from `include_dirs` when needed).
     #[must_use]
-    pub fn config_file(mut self, config_file: Option<&str>) -> Self {
+    pub(crate) fn config_file(mut self, config_file: Option<&str>) -> Self {
         self.config_file = config_file.map(String::from);
         self
     }
@@ -111,7 +114,7 @@ impl PageRenderer {
     ///
     /// Default is 192 (2x for retina displays). Set to 96 for standard resolution.
     #[must_use]
-    pub fn dpi(mut self, dpi: u32) -> Self {
+    pub(crate) fn dpi(mut self, dpi: u32) -> Self {
         self.dpi = Some(dpi);
         self
     }
@@ -131,7 +134,7 @@ impl PageRenderer {
     /// service and written to the output directory. When `None`, diagram blocks are rendered
     /// as syntax-highlighted code.
     #[must_use]
-    pub fn render(
+    pub(crate) fn render(
         &self,
         markdown_text: &str,
         kroki_url: Option<&str>,

@@ -8,72 +8,8 @@ use crate::error::ConfluenceError;
 use crate::types::Page;
 
 impl ConfluenceClient {
-    /// Create a new page in a space.
-    pub fn create_page(
-        &self,
-        space_key: &str,
-        title: &str,
-        body: &str,
-        parent_id: Option<&str>,
-    ) -> Result<Page, ConfluenceError> {
-        let url = format!("{}/content", self.api_url());
-
-        let mut payload = json!({
-            "type": "page",
-            "title": title,
-            "space": {"key": space_key},
-            "body": {
-                "storage": {
-                    "value": body,
-                    "representation": "storage"
-                }
-            }
-        });
-
-        if let Some(parent) = parent_id {
-            payload["ancestors"] = json!([{"id": parent}]);
-        }
-
-        info!("Creating page \"{}\" in space {}", title, space_key);
-
-        let uri: ureq::http::Uri = url.parse().unwrap();
-        let auth_header = self.auth.sign("POST", &uri);
-
-        let payload_bytes = serde_json::to_vec(&payload)?;
-
-        let response = self
-            .agent
-            .post(&url)
-            .header("Authorization", &auth_header)
-            .header("Content-Type", "application/json")
-            .header("Accept", "application/json")
-            .header("User-Agent", "docstage")
-            .send(&payload_bytes[..])
-            .map_err(|e| ConfluenceError::Http {
-                status: 0,
-                body: e.to_string(),
-            })?;
-
-        let status = response.status().as_u16();
-        let mut body_reader = response.into_body();
-
-        if status >= 400 {
-            let error_body = body_reader
-                .read_to_string()
-                .unwrap_or_else(|_| "(unable to read error body)".to_string());
-            return Err(ConfluenceError::Http {
-                status,
-                body: error_body,
-            });
-        }
-
-        let page: Page = body_reader.read_json()?;
-        info!("Created page with ID: {}", page.id);
-        Ok(page)
-    }
-
     /// Get page by ID with optional field expansion.
-    pub fn get_page(&self, page_id: &str, expand: &[&str]) -> Result<Page, ConfluenceError> {
+    pub(crate) fn get_page(&self, page_id: &str, expand: &[&str]) -> Result<Page, ConfluenceError> {
         let mut url = format!("{}/content/{}", self.api_url(), page_id);
 
         if !expand.is_empty() {
@@ -114,7 +50,7 @@ impl ConfluenceClient {
     }
 
     /// Update existing page (auto-increments version).
-    pub fn update_page(
+    pub(crate) fn update_page(
         &self,
         page_id: &str,
         title: &str,
@@ -186,7 +122,7 @@ impl ConfluenceClient {
     }
 
     /// Get web URL for page.
-    pub fn get_page_url(&self, page_id: &str) -> Result<String, ConfluenceError> {
+    pub(crate) fn get_page_url(&self, page_id: &str) -> Result<String, ConfluenceError> {
         let page = self.get_page(page_id, &[])?;
 
         if let Some(links) = &page.links

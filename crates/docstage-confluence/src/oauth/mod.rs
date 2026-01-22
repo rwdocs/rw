@@ -15,7 +15,7 @@ use ureq::http::Uri;
 use signature::create_authorization_header;
 
 /// OAuth 1.0 RSA-SHA1 authentication (internal use only).
-pub struct OAuth1Auth {
+pub(crate) struct OAuth1Auth {
     consumer_key: String,
     private_key: RsaPrivateKey,
     access_token: String,
@@ -23,7 +23,7 @@ pub struct OAuth1Auth {
 
 impl OAuth1Auth {
     /// Create auth instance with pre-loaded private key.
-    pub fn new(consumer_key: &str, private_key: RsaPrivateKey, access_token: &str) -> Self {
+    pub(crate) fn new(consumer_key: &str, private_key: RsaPrivateKey, access_token: &str) -> Self {
         Self {
             consumer_key: consumer_key.to_string(),
             private_key,
@@ -36,7 +36,7 @@ impl OAuth1Auth {
     /// # Arguments
     /// * `method` - HTTP method (GET, POST, PUT, etc.)
     /// * `uri` - Full request URI (including query string)
-    pub fn sign(&self, method: &str, uri: &Uri) -> String {
+    pub(crate) fn sign(&self, method: &str, uri: &Uri) -> String {
         // Base URL excludes query string (RFC 5849 Section 3.4.1.2)
         let base_url = format!(
             "{}://{}{}",
