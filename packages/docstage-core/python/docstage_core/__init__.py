@@ -1,68 +1,27 @@
-"""High-performance markdown renderer for Docstage.
+"""Python bindings for Docstage Confluence CLI.
 
-This module provides Python bindings to the Rust pulldown-cmark parser
-with custom renderers for Confluence and HTML5 formats. It also provides
-site structure management with efficient path lookups and navigation.
+This module provides Python bindings for the Confluence update workflow
+and HTTP server. The heavy lifting is done in Rust via PyO3.
 """
 
 from ._docstage_core import (
-    BreadcrumbItem,
-    ConfluenceAttachment,
-    ConfluenceAttachmentsResponse,
     ConfluenceClient,
-    ConfluenceComment,
-    ConfluenceCommentsResponse,
     ConfluencePage,
-    ConvertResult,
     DryRunResult,
-    HtmlConvertResult,
     HttpServerConfig,
-    MarkdownConverter,
-    NavItem,
-    Page,
-    PageRenderer,
-    PageRendererConfig,
-    PageRenderResult,
-    PreserveResult,
-    Site,
-    SiteLoader,
-    SiteLoaderConfig,
-    TocEntry,
     UnmatchedComment,
     UpdateResult,
-    build_navigation,
-    preserve_comments,
     read_private_key,
     run_http_server,
 )
 
 __all__ = [
-    "BreadcrumbItem",
-    "ConfluenceAttachment",
-    "ConfluenceAttachmentsResponse",
     "ConfluenceClient",
-    "ConfluenceComment",
-    "ConfluenceCommentsResponse",
     "ConfluencePage",
-    "ConvertResult",
     "DryRunResult",
-    "HtmlConvertResult",
     "HttpServerConfig",
-    "MarkdownConverter",
-    "NavItem",
-    "Page",
-    "PageRenderResult",
-    "PageRenderer",
-    "PageRendererConfig",
-    "PreserveResult",
-    "Site",
-    "SiteLoader",
-    "SiteLoaderConfig",
-    "TocEntry",
     "UnmatchedComment",
     "UpdateResult",
-    "build_navigation",
-    "preserve_comments",
     "read_private_key",
     "run_http_server",
 ]
