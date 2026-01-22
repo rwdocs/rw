@@ -633,6 +633,58 @@ class ConfluenceClient:
         """
         ...
 
+    def update_page_from_markdown(
+        self,
+        page_id: str,
+        markdown_text: str,
+        diagrams: DiagramsConfig,
+        extract_title: bool = True,
+        message: str | None = None,
+    ) -> UpdateResult:
+        """Update a Confluence page from markdown content.
+
+        This method performs the entire update workflow in a single call:
+        1. Converts markdown to Confluence storage format
+        2. Fetches current page content
+        3. Preserves inline comments from current page
+        4. Uploads diagram attachments
+        5. Updates the page with new content
+
+        Args:
+            page_id: Page ID to update
+            markdown_text: Markdown content
+            diagrams: Diagram rendering configuration
+            extract_title: Whether to extract title from first H1 heading
+            message: Optional version message
+
+        Returns:
+            UpdateResult with page info, URL, and comment status
+        """
+        ...
+
+    def dry_run_update(
+        self,
+        page_id: str,
+        markdown_text: str,
+        diagrams: DiagramsConfig,
+        extract_title: bool = True,
+    ) -> DryRunResult:
+        """Perform a dry-run update (no changes made).
+
+        Returns information about what would change without
+        actually updating the page or uploading attachments.
+
+        Args:
+            page_id: Page ID to check
+            markdown_text: Markdown content
+            diagrams: Diagram rendering configuration
+            extract_title: Whether to extract title from first H1 heading
+
+        Returns:
+            DryRunResult with preview of changes
+        """
+        ...
+
 def read_private_key(path: Path) -> bytes:
     """Read RSA private key from PEM file.
 
@@ -647,3 +699,41 @@ def read_private_key(path: Path) -> bytes:
         RuntimeError: If key cannot be parsed
     """
     ...
+
+# Page Updater classes
+
+class UpdateResult:
+    """Result of updating a Confluence page."""
+
+    page: ConfluencePage
+    """Updated page information."""
+    url: str
+    """URL to view the updated page."""
+    comment_count: int
+    """Total comment count after update."""
+    unmatched_comments: list[UnmatchedComment]
+    """Comments that could not be preserved."""
+    attachments_uploaded: int
+    """Number of attachments uploaded."""
+    warnings: list[str]
+    """Warnings from markdown conversion."""
+
+class DryRunResult:
+    """Result of dry-run update operation."""
+
+    html: str
+    """Converted HTML with preserved comments."""
+    title: str | None
+    """Extracted title (if any)."""
+    current_title: str
+    """Current page title."""
+    current_version: int
+    """Current page version."""
+    unmatched_comments: list[UnmatchedComment]
+    """Comments that would be lost."""
+    attachment_count: int
+    """Number of attachments that would be uploaded."""
+    attachment_names: list[str]
+    """Attachment filenames."""
+    warnings: list[str]
+    """Warnings from markdown conversion."""

@@ -420,6 +420,7 @@ dependencies = [
 name = "docstage-core"
 version = "0.1.0"
 dependencies = [
+ "docstage-config",
  "docstage-confluence",
  "docstage-diagrams",
  "docstage-renderer",
@@ -429,6 +430,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tracing",
 ]
 
