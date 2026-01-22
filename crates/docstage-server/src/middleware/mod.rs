@@ -1,3 +1,3 @@
 //! HTTP middleware layers.
 
-pub mod security;
+pub(crate) mod security;

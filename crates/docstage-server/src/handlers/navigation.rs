@@ -13,13 +13,13 @@ use crate::state::AppState;
 
 /// Response for GET /api/navigation.
 #[derive(Serialize)]
-pub struct NavigationResponse {
+pub(crate) struct NavigationResponse {
     /// Navigation tree items.
-    pub items: Vec<NavItem>,
+    items: Vec<NavItem>,
 }
 
 /// Handle GET /api/navigation.
-pub async fn get_navigation(State(state): State<Arc<AppState>>) -> Json<NavigationResponse> {
+pub(crate) async fn get_navigation(State(state): State<Arc<AppState>>) -> Json<NavigationResponse> {
     let mut loader = state.site_loader.write().unwrap();
     let site = loader.load(true);
     let items = site.navigation();

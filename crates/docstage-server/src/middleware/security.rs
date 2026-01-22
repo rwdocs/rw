@@ -19,7 +19,7 @@ const CSP: &str = "default-src 'self'; \
                    frame-ancestors 'none'";
 
 /// Create layer that adds Content-Security-Policy header.
-pub fn csp_layer() -> SetResponseHeaderLayer<HeaderValue> {
+pub(crate) fn csp_layer() -> SetResponseHeaderLayer<HeaderValue> {
     SetResponseHeaderLayer::overriding(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(CSP),
@@ -27,7 +27,7 @@ pub fn csp_layer() -> SetResponseHeaderLayer<HeaderValue> {
 }
 
 /// Create layer that adds X-Content-Type-Options header.
-pub fn content_type_options_layer() -> SetResponseHeaderLayer<HeaderValue> {
+pub(crate) fn content_type_options_layer() -> SetResponseHeaderLayer<HeaderValue> {
     SetResponseHeaderLayer::overriding(
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
@@ -35,7 +35,7 @@ pub fn content_type_options_layer() -> SetResponseHeaderLayer<HeaderValue> {
 }
 
 /// Create layer that adds X-Frame-Options header.
-pub fn frame_options_layer() -> SetResponseHeaderLayer<HeaderValue> {
+pub(crate) fn frame_options_layer() -> SetResponseHeaderLayer<HeaderValue> {
     SetResponseHeaderLayer::overriding(
         HeaderName::from_static("x-frame-options"),
         HeaderValue::from_static("DENY"),

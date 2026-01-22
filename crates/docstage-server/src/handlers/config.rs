@@ -13,13 +13,13 @@ use crate::state::AppState;
 /// Response for GET /api/config.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConfigResponse {
+pub(crate) struct ConfigResponse {
     /// Whether live reload is enabled.
-    pub live_reload_enabled: bool,
+    live_reload_enabled: bool,
 }
 
 /// Handle GET /api/config.
-pub async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
+pub(crate) async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
     Json(ConfigResponse {
         live_reload_enabled: state.live_reload_enabled(),
     })

@@ -1,5 +1,5 @@
 //! HTTP request handlers.
 
-pub mod config;
-pub mod navigation;
-pub mod pages;
+pub(crate) mod config;
+pub(crate) mod navigation;
+pub(crate) mod pages;

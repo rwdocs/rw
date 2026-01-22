@@ -47,13 +47,13 @@ struct Assets;
 /// With `embed-assets` feature: serves from embedded assets.
 /// Without feature: serves from `frontend/dist` directory.
 #[cfg(feature = "embed-assets")]
-pub fn static_router() -> Router<Arc<AppState>> {
+pub(crate) fn static_router() -> Router<Arc<AppState>> {
     Router::new().fallback(serve_embedded)
 }
 
 /// Create router for static file serving (filesystem mode).
 #[cfg(not(feature = "embed-assets"))]
-pub fn static_router() -> Router<Arc<AppState>> {
+pub(crate) fn static_router() -> Router<Arc<AppState>> {
     let static_dir = Path::new(DEV_STATIC_DIR);
     let assets_dir = static_dir.join("assets");
     let favicon_path = static_dir.join("favicon.png");
@@ -103,7 +103,7 @@ async fn serve_embedded(req: Request<Body>) -> Response {
 
 /// SPA fallback handler (filesystem mode only).
 #[cfg(not(feature = "embed-assets"))]
-pub async fn spa_fallback() -> impl IntoResponse {
+pub(crate) async fn spa_fallback() -> impl IntoResponse {
     let index_path = Path::new(DEV_STATIC_DIR).join("index.html");
 
     match tokio::fs::read_to_string(&index_path).await {
