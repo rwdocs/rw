@@ -191,15 +191,12 @@ impl PageRenderer {
         // Render fresh
         let markdown_text = fs::read_to_string(source_path).map_err(RenderError::Io)?;
 
-        let result = match &self.kroki_url {
-            Some(url) => self.converter.convert_html_with_diagrams(
-                &markdown_text,
-                url,
-                self.cache.diagrams_dir(),
-                Some(base_path),
-            ),
-            None => self.converter.convert_html(&markdown_text, Some(base_path)),
-        };
+        let result = self.converter.convert_html(
+            &markdown_text,
+            self.kroki_url.as_deref(),
+            self.cache.diagrams_dir(),
+            Some(base_path),
+        );
 
         // Store in cache
         self.cache.set(
