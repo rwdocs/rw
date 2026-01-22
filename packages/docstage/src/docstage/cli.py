@@ -217,13 +217,6 @@ def update(
     help="Confluence base URL (default: from config)",
 )
 @click.option(
-    "--port",
-    "-p",
-    default=8080,
-    type=int,
-    help="Local callback server port (default: 8080)",
-)
-@click.option(
     "--config",
     "-c",
     "config_path",
@@ -235,7 +228,6 @@ def generate_tokens(
     private_key: Path,
     consumer_key: str | None,
     base_url: str | None,
-    port: int,
     config_path: Path | None,
 ) -> None:
     """Generate OAuth access tokens for Confluence.
@@ -243,6 +235,8 @@ def generate_tokens(
     This starts an interactive OAuth 1.0 flow to generate access tokens.
     You will need to authorize the application in your browser.
     """
+    from docstage_core import OAuthTokenGenerator
+
     config = Config.load(config_path)
 
     effective_consumer_key = (
@@ -265,11 +259,54 @@ def generate_tokens(
         sys.exit(1)
     effective_base_url = cast(str, effective_base_url)  # narrowing after sys.exit
 
-    import asyncio
+    try:
+        click.echo(f"Reading private key from {private_key}...")
+        key_bytes = read_private_key(private_key)
 
-    asyncio.run(
-        _generate_tokens(private_key, effective_consumer_key, effective_base_url, port),
-    )
+        generator = OAuthTokenGenerator(
+            effective_base_url, effective_consumer_key, key_bytes
+        )
+
+        # Step 1: Get request token
+        click.echo("\nStep 1: Requesting temporary credentials...")
+        request_token = generator.request_token()
+        click.echo(click.style("Temporary token received", fg="green"))
+
+        # Step 2: User authorization
+        click.echo("\n" + "=" * 70)
+        click.echo(click.style("Step 2: Authorization Required", fg="cyan", bold=True))
+        click.echo("=" * 70)
+        click.echo("\nPlease open this URL in your browser:")
+        click.echo(
+            click.style(f"\n{request_token.authorization_url}\n", fg="cyan", bold=True)
+        )
+
+        verifier = click.prompt("Enter the verification code", type=str).strip()
+
+        # Step 3: Exchange for access token
+        click.echo("\nStep 3: Exchanging for access token...")
+        access_token = generator.exchange_verifier(
+            request_token.oauth_token,
+            request_token.oauth_token_secret,
+            verifier,
+        )
+
+        # Output results
+        click.echo("\n" + "=" * 70)
+        click.echo(
+            click.style("OAuth Authorization Successful!", fg="green", bold=True)
+        )
+        click.echo("=" * 70)
+        click.echo("\nAdd these credentials to your docstage.toml:")
+        click.echo("\n[confluence]")
+        click.echo(f'base_url = "{effective_base_url}"')
+        click.echo(f'access_token = "{access_token.oauth_token}"')
+        click.echo(f'access_secret = "{access_token.oauth_token_secret}"')
+        click.echo(f'consumer_key = "{effective_consumer_key}"')
+
+    except Exception as e:
+        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
+        sys.exit(1)
 
 
 def _require_confluence_config(config: Config) -> ConfluenceConfig:
@@ -372,149 +409,6 @@ def _create_confluence_client(
         conf_config.access_token,
         conf_config.access_secret,
     )
-
-
-async def _generate_tokens(
-    private_key_path: Path,
-    consumer_key: str,
-    base_url: str,
-    port: int = 8080,
-) -> None:
-    """Generate OAuth access tokens through interactive flow.
-
-    Args:
-        private_key_path: Path to RSA private key
-        consumer_key: OAuth consumer key
-        base_url: Confluence base URL
-        port: Local callback server port
-    """
-    try:
-        from authlib.integrations.httpx_client import AsyncOAuth1Client
-
-        click.echo(f"Reading private key from {private_key_path}...")
-        private_key = read_private_key(private_key_path)
-
-        base_url = base_url.rstrip("/")
-        endpoints = {
-            "request_token_url": f"{base_url}/plugins/servlet/oauth/request-token",
-            "authorize_url": f"{base_url}/plugins/servlet/oauth/authorize",
-            "access_token_url": f"{base_url}/plugins/servlet/oauth/access-token",
-        }
-
-        click.echo(f"Creating OAuth client for consumer key: {consumer_key}")
-        client = AsyncOAuth1Client(
-            client_id=consumer_key,
-            rsa_key=private_key.decode("utf-8"),
-            signature_method="RSA-SHA1",
-        )
-
-        try:
-            click.echo("\nStep 1: Requesting temporary credentials...")
-            client.redirect_uri = "oob"
-            response = await client.fetch_request_token(
-                endpoints["request_token_url"],
-            )
-            oauth_token = response.get("oauth_token")
-            oauth_token_secret = response.get("oauth_token_secret")
-
-            if not oauth_token or not oauth_token_secret:
-                click.echo(
-                    click.style("Failed to get request token", fg="red"),
-                    err=True,
-                )
-                sys.exit(1)
-
-            click.echo(click.style("✓ Temporary token received", fg="green"))
-
-            auth_url = f"{endpoints['authorize_url']}?oauth_token={oauth_token}"
-
-            click.echo("\n" + "=" * 70)
-            click.echo(
-                click.style("Step 2: Authorization Required", fg="cyan", bold=True),
-            )
-            click.echo("=" * 70)
-            click.echo(
-                "\nPlease open this URL in your browser to authorize the application:",
-            )
-            click.echo(click.style(f"\n{auth_url}\n", fg="cyan", bold=True))
-            click.echo('\nAfter clicking "Allow" in Confluence:')
-            click.echo("  - Confluence will display a VERIFICATION CODE on the page")
-            click.echo("  - Copy that code and paste it below")
-            click.echo("=" * 70)
-
-            click.echo("\nStep 3: Enter the verification code...")
-            click.echo(
-                "After authorizing, Confluence should display a verification code.",
-            )
-            oauth_verifier = click.prompt(
-                "Enter the verification code",
-                type=str,
-            ).strip()
-
-            if not oauth_verifier:
-                click.echo(
-                    click.style("Error: Verification code is required", fg="red"),
-                    err=True,
-                )
-                sys.exit(1)
-
-            click.echo(click.style("✓ Verification code received", fg="green"))
-
-            click.echo("\nStep 4: Exchanging for access token...")
-            client.token = {
-                "oauth_token": oauth_token,
-                "oauth_token_secret": oauth_token_secret,
-            }
-            response = await client.fetch_access_token(
-                endpoints["access_token_url"],
-                verifier=oauth_verifier,
-            )
-
-            access_token = response.get("oauth_token")
-            access_secret = response.get("oauth_token_secret")
-
-            if not access_token or not access_secret:
-                click.echo(
-                    click.style("Failed to get access token", fg="red"),
-                    err=True,
-                )
-                sys.exit(1)
-
-            click.echo("\n" + "=" * 70)
-            click.echo(
-                click.style("✓ OAuth Authorization Successful!", fg="green", bold=True),
-            )
-            click.echo("=" * 70)
-            click.echo("\nAdd these credentials to your docstage.toml:")
-            click.echo("\n[confluence]")
-            click.echo(f'base_url = "{base_url}"')
-            click.echo(f'access_token = "{access_token}"')
-            click.echo(f'access_secret = "{access_secret}"')
-            click.echo(f'consumer_key = "{consumer_key}"')
-            click.echo("\n" + "=" * 70)
-            click.echo(
-                click.style(
-                    "\nNote: These tokens inherit YOUR permissions in Confluence.",
-                    fg="yellow",
-                ),
-            )
-            click.echo(
-                "If you can create/edit pages, these tokens will have write access.",
-            )
-            click.echo("=" * 70 + "\n")
-
-        except Exception as e:
-            click.echo(click.style(f"OAuth flow failed: {e}", fg="red"), err=True)
-            import traceback
-
-            traceback.print_exc()
-            sys.exit(1)
-        finally:
-            await client.aclose()
-
-    except Exception as e:
-        click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        sys.exit(1)
 
 
 if __name__ == "__main__":

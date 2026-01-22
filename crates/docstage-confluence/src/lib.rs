@@ -48,6 +48,7 @@ pub mod types;
 pub use client::ConfluenceClient;
 pub use comment_preservation::{PreserveResult, TreeNode, UnmatchedComment, preserve_comments};
 pub use error::ConfluenceError;
+pub use oauth::{AccessToken, OAuthTokenGenerator, RequestToken};
 pub use types::*;
 
 use std::fmt::Write;

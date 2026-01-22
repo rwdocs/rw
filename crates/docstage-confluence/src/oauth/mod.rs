@@ -14,8 +14,10 @@
 
 mod key;
 mod signature;
+mod token_generator;
 
 pub use key::read_private_key;
+pub use token_generator::{AccessToken, OAuthTokenGenerator, RequestToken};
 
 use rsa::RsaPrivateKey;
 use ureq::http::{Request, Uri};

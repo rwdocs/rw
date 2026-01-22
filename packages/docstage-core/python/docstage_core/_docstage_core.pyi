@@ -228,6 +228,76 @@ class ConfluenceClient:
         """
         ...
 
+# OAuth Token Generation classes
+
+class RequestToken:
+    """Request token (temporary credentials) from OAuth 1.0 flow."""
+
+    oauth_token: str
+    """OAuth request token."""
+    oauth_token_secret: str
+    """OAuth request token secret."""
+    authorization_url: str
+    """URL for user to authorize the application."""
+
+class AccessToken:
+    """Access token (final credentials) from OAuth 1.0 flow."""
+
+    oauth_token: str
+    """OAuth access token."""
+    oauth_token_secret: str
+    """OAuth access token secret."""
+
+class OAuthTokenGenerator:
+    """OAuth 1.0 token generator for Confluence.
+
+    Handles the three-legged OAuth 1.0 flow:
+    1. Request temporary credentials (request token)
+    2. Generate authorization URL for user
+    3. Exchange verifier for access credentials
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        consumer_key: str,
+        private_key: bytes,
+    ) -> None:
+        """Create a new token generator.
+
+        Args:
+            base_url: Confluence server base URL
+            consumer_key: OAuth consumer key
+            private_key: PEM-encoded RSA private key bytes
+        """
+        ...
+
+    def request_token(self) -> RequestToken:
+        """Request temporary credentials (step 1).
+
+        Returns:
+            RequestToken with oauth_token, oauth_token_secret, and authorization_url
+        """
+        ...
+
+    def exchange_verifier(
+        self,
+        oauth_token: str,
+        oauth_token_secret: str,
+        verifier: str,
+    ) -> AccessToken:
+        """Exchange verifier for access token (step 2).
+
+        Args:
+            oauth_token: Request token from step 1
+            oauth_token_secret: Request token secret from step 1
+            verifier: Verification code entered by user
+
+        Returns:
+            AccessToken with oauth_token and oauth_token_secret
+        """
+        ...
+
 def read_private_key(path: Path) -> bytes:
     """Read RSA private key from PEM file.
 

@@ -632,6 +632,106 @@ pub fn py_read_private_key(path: PathBuf) -> PyResult<Vec<u8>> {
 }
 
 // ============================================================================
+// OAuth Token Generator bindings
+// ============================================================================
+
+use ::docstage_confluence::{OAuthTokenGenerator, RequestToken};
+
+/// Request token (temporary credentials).
+#[pyclass(name = "RequestToken", frozen)]
+pub struct PyRequestToken {
+    #[pyo3(get)]
+    pub oauth_token: String,
+    #[pyo3(get)]
+    pub oauth_token_secret: String,
+    #[pyo3(get)]
+    pub authorization_url: String,
+}
+
+/// Access token (final credentials).
+#[pyclass(name = "AccessToken", frozen)]
+pub struct PyAccessToken {
+    #[pyo3(get)]
+    pub oauth_token: String,
+    #[pyo3(get)]
+    pub oauth_token_secret: String,
+}
+
+/// OAuth token generator for Confluence.
+///
+/// Handles the three-legged OAuth 1.0 flow:
+/// 1. Request temporary credentials (request token)
+/// 2. Generate authorization URL for user
+/// 3. Exchange verifier for access credentials
+#[pyclass(name = "OAuthTokenGenerator")]
+pub struct PyOAuthTokenGenerator {
+    inner: OAuthTokenGenerator,
+}
+
+#[pymethods]
+impl PyOAuthTokenGenerator {
+    /// Create a new token generator.
+    ///
+    /// Args:
+    ///     base_url: Confluence server base URL
+    ///     consumer_key: OAuth consumer key
+    ///     private_key: PEM-encoded RSA private key bytes
+    #[new]
+    pub fn new(base_url: &str, consumer_key: &str, private_key: &[u8]) -> PyResult<Self> {
+        let inner = OAuthTokenGenerator::new(base_url, consumer_key, private_key)
+            .map_err(confluence_error_to_py)?;
+        Ok(Self { inner })
+    }
+
+    /// Step 1: Request temporary credentials.
+    ///
+    /// Returns:
+    ///     RequestToken with oauth_token, oauth_token_secret, and authorization_url
+    pub fn request_token(&self, py: Python<'_>) -> PyResult<PyRequestToken> {
+        py.allow_threads(|| {
+            let (token, auth_url) = self.inner.request_token().map_err(confluence_error_to_py)?;
+            Ok(PyRequestToken {
+                oauth_token: token.oauth_token,
+                oauth_token_secret: token.oauth_token_secret,
+                authorization_url: auth_url,
+            })
+        })
+    }
+
+    /// Step 2: Exchange verifier for access token.
+    ///
+    /// Args:
+    ///     oauth_token: Request token from step 1
+    ///     oauth_token_secret: Request token secret from step 1
+    ///     verifier: Verification code entered by user
+    ///
+    /// Returns:
+    ///     AccessToken with oauth_token and oauth_token_secret
+    pub fn exchange_verifier(
+        &self,
+        py: Python<'_>,
+        oauth_token: &str,
+        oauth_token_secret: &str,
+        verifier: &str,
+    ) -> PyResult<PyAccessToken> {
+        py.allow_threads(|| {
+            let request_token = RequestToken {
+                oauth_token: oauth_token.to_string(),
+                oauth_token_secret: oauth_token_secret.to_string(),
+            };
+            let access = self
+                .inner
+                .exchange_verifier(&request_token, verifier)
+                .map_err(confluence_error_to_py)?;
+            Ok(PyAccessToken {
+                oauth_token: access.oauth_token,
+                oauth_token_secret: access.oauth_token_secret,
+            })
+        })
+    }
+}
+
+// ============================================================================
 // Page Updater result bindings
 // ============================================================================
 
@@ -726,6 +826,11 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConfluencePage>()?;
     m.add_class::<PyConfluenceClient>()?;
     m.add_function(wrap_pyfunction!(py_read_private_key, m)?)?;
+
+    // OAuth Token Generator
+    m.add_class::<PyRequestToken>()?;
+    m.add_class::<PyAccessToken>()?;
+    m.add_class::<PyOAuthTokenGenerator>()?;
 
     // Page Updater results
     m.add_class::<PyUpdateResult>()?;

@@ -40,6 +40,10 @@ pub enum ConfluenceError {
     /// Comment preservation error.
     #[error("Comment preservation error: {0}")]
     CommentPreservation(#[from] CommentPreservationError),
+
+    /// OAuth token generation error.
+    #[error("OAuth error: {0}")]
+    OAuth(String),
 }
 
 impl From<serde_json::Error> for ConfluenceError {
@@ -50,6 +54,9 @@ impl From<serde_json::Error> for ConfluenceError {
 
 impl From<ureq::Error> for ConfluenceError {
     fn from(e: ureq::Error) -> Self {
-        ConfluenceError::Json(e.to_string())
+        ConfluenceError::Http {
+            status: 0,
+            body: e.to_string(),
+        }
     }
 }
