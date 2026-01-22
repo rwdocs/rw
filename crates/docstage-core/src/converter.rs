@@ -22,7 +22,7 @@
 //!     .dpi(192);
 //!
 //! // Convert to HTML
-//! let result = converter.convert_html("# Hello\n\nWorld");
+//! let result = converter.convert_html("# Hello\n\nWorld", None, None, None);
 //! println!("{}", result.html);
 //!
 //! // Convert to Confluence with diagram rendering
@@ -37,8 +37,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use docstage_confluence::ConfluenceBackend;
-use docstage_diagrams::{DiagramCache, DiagramOutput, DiagramProcessor, FileCache, NullCache};
-use docstage_renderer::{HtmlBackend, MarkdownRenderer, RenderResult, TocEntry};
+use docstage_diagrams::{DiagramOutput, DiagramProcessor, FileCache};
+use docstage_renderer::{HtmlBackend, MarkdownRenderer, RenderBackend, RenderResult, TocEntry};
 
 use crate::confluence_tags::ConfluenceTagGenerator;
 
@@ -150,7 +150,9 @@ impl MarkdownConverter {
                 tag_generator: Arc::new(ConfluenceTagGenerator),
             });
 
-        let mut renderer = self.create_confluence_renderer().with_processor(processor);
+        let mut renderer = self
+            .create_renderer::<ConfluenceBackend>(None)
+            .with_processor(processor);
         let result = renderer.render_markdown(markdown_text);
 
         RenderResult {
@@ -161,29 +163,29 @@ impl MarkdownConverter {
         }
     }
 
-    /// Convert markdown to HTML format without diagram rendering.
-    #[must_use]
-    pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> RenderResult {
-        self.create_html_renderer(base_path)
-            .render_markdown(markdown_text)
-    }
-
-    /// Convert markdown to HTML format with diagram rendering via Kroki.
+    /// Convert markdown to HTML format with optional diagram rendering via Kroki.
     ///
+    /// When `kroki_url` is provided, diagrams are rendered via the Kroki service.
     /// Optionally caches rendered diagrams to `cache_dir` to avoid re-rendering.
     #[must_use]
-    pub fn convert_html_with_diagrams(
+    pub fn convert_html(
         &self,
         markdown_text: &str,
-        kroki_url: &str,
+        kroki_url: Option<&str>,
         cache_dir: Option<&Path>,
         base_path: Option<&str>,
     ) -> RenderResult {
-        let cache: Arc<dyn DiagramCache> = match cache_dir {
-            Some(dir) => Arc::new(FileCache::new(dir.to_path_buf())),
-            None => Arc::new(NullCache),
-        };
-        self.render_html_with_diagrams(markdown_text, kroki_url, Some(cache), base_path)
+        let mut renderer = self.create_renderer::<HtmlBackend>(base_path);
+
+        if let Some(url) = kroki_url {
+            let mut processor = self.create_diagram_processor(url);
+            if let Some(dir) = cache_dir {
+                processor = processor.with_cache(Arc::new(FileCache::new(dir.to_path_buf())));
+            }
+            renderer = renderer.with_processor(processor);
+        }
+
+        renderer.render_markdown(markdown_text)
     }
 
     /// Create a diagram processor with common configuration.
@@ -198,9 +200,9 @@ impl MarkdownConverter {
         processor
     }
 
-    /// Create an HTML renderer with common configuration.
-    fn create_html_renderer(&self, base_path: Option<&str>) -> MarkdownRenderer<HtmlBackend> {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_gfm(self.gfm);
+    /// Create a renderer with common configuration.
+    fn create_renderer<B: RenderBackend>(&self, base_path: Option<&str>) -> MarkdownRenderer<B> {
+        let mut renderer = MarkdownRenderer::<B>::new().with_gfm(self.gfm);
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
@@ -208,32 +210,5 @@ impl MarkdownConverter {
             renderer = renderer.with_base_path(path);
         }
         renderer
-    }
-
-    /// Create a Confluence renderer with common configuration.
-    fn create_confluence_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
-        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new().with_gfm(self.gfm);
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
-        renderer
-    }
-
-    /// Internal helper for HTML rendering with optional diagram caching.
-    fn render_html_with_diagrams(
-        &self,
-        markdown_text: &str,
-        kroki_url: &str,
-        cache: Option<Arc<dyn DiagramCache>>,
-        base_path: Option<&str>,
-    ) -> RenderResult {
-        let mut processor = self.create_diagram_processor(kroki_url);
-        if let Some(c) = cache {
-            processor = processor.with_cache(c);
-        }
-
-        self.create_html_renderer(base_path)
-            .with_processor(processor)
-            .render_markdown(markdown_text)
     }
 }

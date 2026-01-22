@@ -15,7 +15,7 @@
 //! use docstage_core::MarkdownConverter;
 //!
 //! let converter = MarkdownConverter::new().extract_title(true);
-//! let result = converter.convert_html("# Hello\n\nWorld!");
+//! let result = converter.convert_html("# Hello\n\nWorld!", None, None, None);
 //! assert_eq!(result.title, Some("Hello".to_string()));
 //! ```
 //!
@@ -57,9 +57,9 @@
 //! For HTML output with rendered diagrams:
 //!
 //! ```ignore
-//! let result = converter.convert_html_with_diagrams(
+//! let result = converter.convert_html(
 //!     "```mermaid\ngraph TD\n  A --> B\n```",
-//!     "https://kroki.io",
+//!     Some("https://kroki.io"),
 //!     None,  // cache_dir
 //!     None,  // base_path
 //! );
