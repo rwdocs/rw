@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Merged `docstage-core` into `docstage-confluence`**; all Confluence-related functionality is now in a single crate
 - **Renamed `MarkdownConverter` to `PageRenderer`** in `docstage-confluence`; `convert()` method renamed to `render()`
 - **Import path changes** for Confluence types: `docstage_core::{MarkdownConverter, updater::*}` → `docstage_confluence::{PageRenderer, updater::*}`
+- **Simplified `docstage-confluence` public API**; all types now exported at crate root (`PageUpdater`, `UpdateConfig`, `UpdateResult`, `DryRunResult`, `UpdateError`, `OAuthTokenGenerator`, `AccessToken`, `RequestToken`); `updater` and `oauth` submodules are now private
 - **Extracted site-related code from `docstage-core` to `docstage-site`**; `docstage-server` now depends on `docstage-site` instead of `docstage-core`; cleaner separation between site management (HTML rendering) and Confluence functionality
 - **Moved `build_navigation()` to `Site::navigation()` method**; call `site.navigation()` instead of `build_navigation(&site)`
 - **`PageRenderer` now uses `MarkdownRenderer` directly** instead of going through `MarkdownConverter`; eliminates unnecessary abstraction layer (`PageRenderer` → `MarkdownConverter` → `MarkdownRenderer` reduced to `PageRenderer` → `MarkdownRenderer`)
