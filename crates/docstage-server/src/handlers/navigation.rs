@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use docstage_site::{NavItem, build_navigation};
+use docstage_site::NavItem;
 use serde::Serialize;
 
 use crate::state::AppState;
@@ -22,7 +22,7 @@ pub struct NavigationResponse {
 pub async fn get_navigation(State(state): State<Arc<AppState>>) -> Json<NavigationResponse> {
     let mut loader = state.site_loader.write().unwrap();
     let site = loader.load(true);
-    let items = build_navigation(site);
+    let items = site.navigation();
     Json(NavigationResponse { items })
 }
 

@@ -9,7 +9,7 @@
 //!
 //! ```ignore
 //! use std::path::PathBuf;
-//! use docstage_site::{SiteLoader, SiteLoaderConfig, build_navigation};
+//! use docstage_site::{SiteLoader, SiteLoaderConfig};
 //!
 //! let config = SiteLoaderConfig {
 //!     source_dir: PathBuf::from("docs"),
@@ -17,7 +17,7 @@
 //! };
 //! let mut loader = SiteLoader::new(config);
 //! let site = loader.load(true);
-//! let nav = build_navigation(site);
+//! let nav = site.navigation();
 //! ```
 //!
 //! # Page Rendering
@@ -35,15 +35,13 @@
 //! let result = renderer.render(Path::new("docs/guide.md"), "guide")?;
 //! ```
 
-pub mod navigation;
 mod page_cache;
 mod renderer;
 pub mod site;
 mod site_cache;
 pub mod site_loader;
 
-pub use navigation::{NavItem, build_navigation};
 pub use renderer::{PageRenderResult, PageRenderer, PageRendererConfig, RenderError};
-pub use site::{BreadcrumbItem, Page, Site, SiteBuilder};
+pub use site::{BreadcrumbItem, NavItem, Page, Site, SiteBuilder};
 pub use site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 pub use site_loader::{SiteLoader, SiteLoaderConfig};
