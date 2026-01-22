@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use docstage_config::{CliSettings, Config, ConfluenceConfig};
+use docstage_confluence::updater::{DryRunResult, PageUpdater, UpdateConfig, UpdateResult};
 use docstage_confluence::{ConfluenceClient, oauth};
-use docstage_core::updater::{DryRunResult, PageUpdater, UpdateConfig, UpdateResult};
 
 use crate::error::CliError;
 use crate::output::Output;

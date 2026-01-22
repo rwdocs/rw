@@ -503,7 +503,6 @@ dependencies = [
  "console",
  "docstage-config",
  "docstage-confluence",
- "docstage-core",
  "docstage-server",
  "thiserror",
  "tokio",
@@ -525,6 +524,8 @@ name = "docstage-confluence"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "docstage-config",
+ "docstage-diagrams",
  "docstage-renderer",
  "hex",
  "percent-encoding",
@@ -536,23 +537,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
- "thiserror",
- "tracing",
- "ureq",
-]
-
-[[package]]
-name = "docstage-core"
-version = "0.1.0"
-dependencies = [
- "docstage-config",
- "docstage-confluence",
- "docstage-diagrams",
- "docstage-renderer",
- "pretty_assertions",
  "tempfile",
  "thiserror",
  "tracing",
+ "ureq",
 ]
 
 [[package]]

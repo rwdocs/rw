@@ -17,7 +17,6 @@ embed-assets = ["docstage-server/embed-assets"]
 [dependencies]
 docstage-config = { workspace = true }
 docstage-confluence = { workspace = true }
-docstage-core = { workspace = true }
 docstage-server = { workspace = true }
 
 clap = { version = "4", features = ["derive", "env"] }

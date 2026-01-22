@@ -1,6 +1,7 @@
 //! Result types for page update operations.
 
-use docstage_confluence::{Page, UnmatchedComment};
+use crate::comment_preservation::UnmatchedComment;
+use crate::types::Page;
 
 /// Result of a successful page update.
 pub struct UpdateResult {

@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use docstage_core::updater::{PageUpdater, UpdateConfig};
+//! use docstage_confluence::updater::{PageUpdater, UpdateConfig};
 //! use docstage_confluence::ConfluenceClient;
 //! use docstage_config::DiagramsConfig;
 //!
