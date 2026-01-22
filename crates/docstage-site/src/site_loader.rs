@@ -384,10 +384,10 @@ mod tests {
         assert_eq!(page.title, "Welcome");
         assert_eq!(page.path, "/");
         assert_eq!(page.source_path, PathBuf::from("index.md"));
-        assert_eq!(
-            site.resolve_source_path("/"),
-            Some(source_dir.join("index.md"))
-        );
+        // resolve_source_path returns canonicalized path
+        let resolved = site.resolve_source_path("/");
+        let expected = source_dir.join("index.md").canonicalize().unwrap();
+        assert_eq!(resolved, Some(expected));
     }
 
     #[test]
