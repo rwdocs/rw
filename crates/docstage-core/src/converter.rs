@@ -1,14 +1,17 @@
-//! Markdown converter with multiple output formats.
+//! Markdown to Confluence converter.
 //!
-//! This module provides [`MarkdownConverter`], the main entry point for converting
-//! `CommonMark` documents to either Confluence XHTML or semantic HTML5.
+//! This module provides [`MarkdownConverter`] for converting `CommonMark` documents
+//! to Confluence XHTML storage format.
+//!
+//! For HTML output, use [`MarkdownRenderer`](docstage_renderer::MarkdownRenderer) directly
+//! (see [`PageRenderer`](crate::PageRenderer) for an example with caching).
 //!
 //! # Features
 //!
 //! - GitHub Flavored Markdown support (tables, strikethrough, task lists)
 //! - Title extraction from first H1 heading
-//! - Table of contents generation
-//! - `PlantUML` diagram rendering via Kroki service
+//! - Table of contents macro prepending
+//! - Diagram rendering via Kroki service
 //! - Configurable DPI for diagram output
 //!
 //! # Example
@@ -18,14 +21,10 @@
 //! use docstage_core::MarkdownConverter;
 //!
 //! let converter = MarkdownConverter::new()
+//!     .prepend_toc(true)
 //!     .extract_title(true)
 //!     .dpi(192);
 //!
-//! // Convert to HTML
-//! let result = converter.convert_html("# Hello\n\nWorld", None, None, None);
-//! println!("{}", result.html);
-//!
-//! // Convert to Confluence with diagram rendering
 //! let result = converter.convert(
 //!     "# Hello\n\n```plantuml\nA -> B\n```",
 //!     Some("https://kroki.io"),
@@ -37,8 +36,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use docstage_confluence::ConfluenceBackend;
-use docstage_diagrams::{DiagramOutput, DiagramProcessor, FileCache};
-use docstage_renderer::{HtmlBackend, MarkdownRenderer, RenderBackend, RenderResult, TocEntry};
+use docstage_diagrams::{DiagramOutput, DiagramProcessor};
+use docstage_renderer::{MarkdownRenderer, RenderResult, TocEntry};
 
 use crate::confluence_tags::ConfluenceTagGenerator;
 
@@ -49,12 +48,6 @@ const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version=
 /// Type alias for `RenderResult` from `docstage-renderer`.
 #[deprecated(since = "0.2.0", note = "use RenderResult instead")]
 pub type ConvertResult = RenderResult;
-
-/// Result of converting markdown to HTML format.
-///
-/// Type alias for `RenderResult` from `docstage-renderer`.
-#[deprecated(since = "0.2.0", note = "use RenderResult instead")]
-pub type HtmlConvertResult = RenderResult;
 
 /// Markdown to Confluence converter configuration.
 #[derive(Clone, Debug)]
@@ -152,7 +145,7 @@ impl MarkdownConverter {
         kroki_url: Option<&str>,
         output_dir: Option<&Path>,
     ) -> RenderResult {
-        let mut renderer = self.create_renderer::<ConfluenceBackend>(None);
+        let mut renderer = self.create_renderer();
 
         if let (Some(url), Some(dir)) = (kroki_url, output_dir) {
             let processor = self
@@ -174,31 +167,6 @@ impl MarkdownConverter {
         }
     }
 
-    /// Convert markdown to HTML format with optional diagram rendering via Kroki.
-    ///
-    /// When `kroki_url` is provided, diagrams are rendered via the Kroki service.
-    /// Optionally caches rendered diagrams to `cache_dir` to avoid re-rendering.
-    #[must_use]
-    pub fn convert_html(
-        &self,
-        markdown_text: &str,
-        kroki_url: Option<&str>,
-        cache_dir: Option<&Path>,
-        base_path: Option<&str>,
-    ) -> RenderResult {
-        let mut renderer = self.create_renderer::<HtmlBackend>(base_path);
-
-        if let Some(url) = kroki_url {
-            let mut processor = self.create_diagram_processor(url);
-            if let Some(dir) = cache_dir {
-                processor = processor.with_cache(Arc::new(FileCache::new(dir.to_path_buf())));
-            }
-            renderer = renderer.with_processor(processor);
-        }
-
-        renderer.render_markdown(markdown_text)
-    }
-
     /// Create a diagram processor with common configuration.
     fn create_diagram_processor(&self, kroki_url: &str) -> DiagramProcessor {
         let mut processor = DiagramProcessor::new(kroki_url)
@@ -211,14 +179,11 @@ impl MarkdownConverter {
         processor
     }
 
-    /// Create a renderer with common configuration.
-    fn create_renderer<B: RenderBackend>(&self, base_path: Option<&str>) -> MarkdownRenderer<B> {
-        let mut renderer = MarkdownRenderer::<B>::new().with_gfm(self.gfm);
+    /// Create a Confluence renderer with common configuration.
+    fn create_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
+        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new().with_gfm(self.gfm);
         if self.extract_title {
             renderer = renderer.with_title_extraction();
-        }
-        if let Some(path) = base_path {
-            renderer = renderer.with_base_path(path);
         }
         renderer
     }

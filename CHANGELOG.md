@@ -129,10 +129,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 
 - **`ConvertResult`** type alias in `docstage-core`; use `RenderResult` from `docstage-renderer` instead
-- **`HtmlConvertResult`** type alias in `docstage-core`; use `RenderResult` from `docstage-renderer` instead
 
 ### Removed
 
+- **`MarkdownConverter::convert_html()`** method; use `PageRenderer` for HTML rendering with caching, or `MarkdownRenderer` directly for one-off conversions
+- **`HtmlConvertResult`** type alias in `docstage-core`; use `RenderResult` from `docstage-renderer` instead
 - **`MarkdownConverter::convert_html_with_diagrams_cached()`**; merged into `convert_html_with_diagrams()` which now takes an optional `cache_dir` parameter
 - **Python CLI package** (`packages/docstage/`); replaced by native Rust CLI in `crates/docstage/`
 - **PyO3 bindings package** (`packages/docstage-core/`); no longer needed
