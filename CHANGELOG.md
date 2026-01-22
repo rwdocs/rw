@@ -134,6 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Unused PyO3 exports from Python interface**; removed `Site`, `SiteLoader`, `SiteLoaderConfig`, `Page`, `BreadcrumbItem`, `NavItem`, `build_navigation`, `PageRenderer`, `PageRendererConfig`, `PageRenderResult`, `TocEntry`, `MarkdownConverter`, `ConvertResult`, `HtmlConvertResult`, `ConfluenceAttachment`, `ConfluenceAttachmentsResponse`, `ConfluenceComment`, `ConfluenceCommentsResponse`, `preserve_comments`, `PreserveResult`, `ConfluenceTestConfig` from `docstage_core` Python package; these are now handled entirely in Rust
 - **`confluence upload-mkdocs` command**; use `confluence update` instead with appropriate `include_dirs` and `config_file` in `docstage.toml`
 - **`confluence comments` command**; comment information is available in the Confluence UI
 - **`confluence convert` command**; use `confluence update --dry-run` to preview conversion
