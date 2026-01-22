@@ -62,8 +62,11 @@ impl GenerateTokensArgs {
             "Reading private key from {}...",
             self.private_key.display()
         ));
-        let generator =
-            OAuthTokenGenerator::new(&effective_base_url, &effective_consumer_key, &self.private_key)?;
+        let generator = OAuthTokenGenerator::new(
+            &effective_base_url,
+            &effective_consumer_key,
+            &self.private_key,
+        )?;
 
         // Step 1: Get request token
         output.info("\nStep 1: Requesting temporary credentials...");

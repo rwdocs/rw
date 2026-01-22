@@ -9,7 +9,7 @@ use crate::types::{Attachment, AttachmentsResponse};
 
 impl ConfluenceClient {
     /// Upload or update attachment (upsert by filename).
-    pub fn upload_attachment(
+    pub(crate) fn upload_attachment(
         &self,
         page_id: &str,
         filename: &str,
@@ -119,7 +119,10 @@ impl ConfluenceClient {
     }
 
     /// List attachments on a page.
-    pub fn get_attachments(&self, page_id: &str) -> Result<AttachmentsResponse, ConfluenceError> {
+    pub(crate) fn get_attachments(
+        &self,
+        page_id: &str,
+    ) -> Result<AttachmentsResponse, ConfluenceError> {
         let url = format!("{}/content/{}/child/attachment", self.api_url(), page_id);
 
         info!("Getting attachments for page {}", page_id);

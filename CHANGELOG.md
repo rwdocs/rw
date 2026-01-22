@@ -73,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Renamed `MarkdownConverter` to `PageRenderer`** in `docstage-confluence`; `convert()` method renamed to `render()`
 - **Import path changes** for Confluence types: `docstage_core::{MarkdownConverter, updater::*}` → `docstage_confluence::{PageRenderer, updater::*}`
 - **Simplified `docstage-confluence` public API**; all types now exported at crate root (`PageUpdater`, `UpdateConfig`, `UpdateResult`, `DryRunResult`, `UpdateError`, `OAuthTokenGenerator`, `AccessToken`, `RequestToken`); `updater` and `oauth` submodules are now private
+- **Tightened `docstage-confluence` internal visibility**; internal types (`ConfluenceBackend`, `PageRenderer`, `ConfluenceTagGenerator`, `OAuth1Auth`, `PreserveResult`, `CommentPreservationError`) and client methods (`get_page`, `update_page`, `get_page_url`, `get_comments`, `upload_attachment`, `get_attachments`) changed from `pub` to `pub(crate)`; only truly external API remains public
 - **Extracted site-related code from `docstage-core` to `docstage-site`**; `docstage-server` now depends on `docstage-site` instead of `docstage-core`; cleaner separation between site management (HTML rendering) and Confluence functionality
 - **Moved `build_navigation()` to `Site::navigation()` method**; call `site.navigation()` instead of `build_navigation(&site)`
 - **`PageRenderer` now uses `MarkdownRenderer` directly** instead of going through `MarkdownConverter`; eliminates unnecessary abstraction layer (`PageRenderer` → `MarkdownConverter` → `MarkdownRenderer` reduced to `PageRenderer` → `MarkdownRenderer`)
@@ -151,6 +152,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`confluence get-page` command**; use the Confluence REST API directly or the web UI
 - **`confluence test-auth` command**; use `confluence update --dry-run` to verify authentication
 - **`confluence test-create` command**; use `confluence update --dry-run` to verify permissions
+- **Unused `ConfluenceClient` methods** (`create_page`, `base_url`, `get_inline_comments`, `get_footer_comments`); removed to reduce API surface and eliminate dead code
+- **Unused Confluence API types** (`Comment`, `Extensions`, `InlineProperties`, `Resolution`); `CommentsResponse` simplified to only include `size` field; `Attachment` simplified to only `id` and `title`; serde ignores unknown fields by default so unused API response fields are skipped
 
 ### Fixed
 

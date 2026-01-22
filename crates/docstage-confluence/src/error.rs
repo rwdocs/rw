@@ -4,7 +4,7 @@ use std::str::Utf8Error;
 
 /// Error during comment preservation.
 #[derive(Debug, thiserror::Error)]
-pub enum CommentPreservationError {
+pub(crate) enum CommentPreservationError {
     /// XML parsing error.
     #[error("XML parse error: {0}")]
     XmlParse(#[from] quick_xml::Error),
@@ -39,11 +39,17 @@ pub enum ConfluenceError {
 
     /// Comment preservation error.
     #[error("Comment preservation error: {0}")]
-    CommentPreservation(#[from] CommentPreservationError),
+    CommentPreservation(String),
 
     /// OAuth token generation error.
     #[error("OAuth error: {0}")]
     OAuth(String),
+}
+
+impl From<CommentPreservationError> for ConfluenceError {
+    fn from(e: CommentPreservationError) -> Self {
+        ConfluenceError::CommentPreservation(e.to_string())
+    }
 }
 
 impl From<serde_json::Error> for ConfluenceError {

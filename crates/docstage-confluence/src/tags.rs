@@ -9,7 +9,7 @@ use docstage_diagrams::{DiagramTagGenerator, RenderedDiagramInfo};
 ///
 /// Generates: `<ac:image ac:width="{w}"><ri:attachment ri:filename="{f}" /></ac:image>`
 #[derive(Debug, Clone, Default)]
-pub struct ConfluenceTagGenerator;
+pub(crate) struct ConfluenceTagGenerator;
 
 impl DiagramTagGenerator for ConfluenceTagGenerator {
     fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
