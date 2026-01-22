@@ -12,8 +12,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use docstage_confluence::updater::{PageUpdater, UpdateConfig};
-//! use docstage_confluence::ConfluenceClient;
+//! use docstage_confluence::{ConfluenceClient, PageUpdater, UpdateConfig};
 //! use docstage_config::DiagramsConfig;
 //!
 //! let client = ConfluenceClient::from_config(...)?;

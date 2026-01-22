@@ -2,13 +2,14 @@
 //!
 //! This crate provides complete Confluence functionality:
 //! - [`ConfluenceClient`]: REST API client with OAuth 1.0 authentication
-//! - [`PageUpdater`](updater::PageUpdater): Page update workflow with comment preservation
+//! - [`PageUpdater`]: Page update workflow with comment preservation
+//! - [`OAuthTokenGenerator`]: Three-legged OAuth flow for token generation
 //!
-//! # API Client
+//! # Example
 //!
 //! ```ignore
 //! use std::path::Path;
-//! use docstage_confluence::ConfluenceClient;
+//! use docstage_confluence::{ConfluenceClient, PageUpdater, UpdateConfig};
 //!
 //! let client = ConfluenceClient::from_config(
 //!     "https://confluence.example.com",
@@ -18,8 +19,9 @@
 //!     "access_secret",
 //! )?;
 //!
-//! let page = client.get_page("123", &["body.storage"])?;
-//! println!("Page title: {}", page.title);
+//! let config = UpdateConfig { /* ... */ };
+//! let updater = PageUpdater::new(&client, config);
+//! let result = updater.update("123", "# Title\n\nContent", Some("Update"))?;
 //! ```
 
 // Render backend (internal)
@@ -38,14 +40,16 @@ mod comment_preservation;
 pub use comment_preservation::UnmatchedComment;
 
 // OAuth
-pub mod oauth;
+mod oauth;
+pub use oauth::{AccessToken, OAuthTokenGenerator, RequestToken};
 
 // Types (internal, exposed via result structs)
 mod types;
 
 // Page updater
-pub mod updater;
+mod updater;
+pub use updater::{DryRunResult, PageUpdater, UpdateConfig, UpdateError, UpdateResult};
 
 // Errors
-pub mod error;
+mod error;
 pub use error::ConfluenceError;
