@@ -40,8 +40,6 @@ mod output;
 mod plantuml;
 mod processor;
 
-pub use cache::{DiagramCache, DiagramKey, FileCache, NullCache};
-pub use output::{
-    DiagramOutput, DiagramTagGenerator, FigureTagGenerator, ImgTagGenerator, RenderedDiagramInfo,
-};
+pub use cache::{DiagramCache, FileCache};
+pub use output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 pub use processor::DiagramProcessor;

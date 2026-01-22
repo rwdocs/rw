@@ -92,12 +92,14 @@ impl std::fmt::Debug for DiagramOutput {
 /// Simple `<img>` tag generator for static sites.
 ///
 /// Generates: `<img src="{prefix}{filename}" width="{display_width}" alt="diagram">`
+#[allow(dead_code)] // Used in tests as example DiagramTagGenerator implementation
 #[derive(Debug)]
-pub struct ImgTagGenerator {
+pub(crate) struct ImgTagGenerator {
     /// Path prefix (e.g., "/assets/diagrams/").
     pub path_prefix: String,
 }
 
+#[allow(dead_code)]
 impl ImgTagGenerator {
     /// Create a new img tag generator with the given path prefix.
     #[must_use]
@@ -122,12 +124,14 @@ impl DiagramTagGenerator for ImgTagGenerator {
 /// Figure-wrapped tag generator.
 ///
 /// Generates: `<figure class="diagram"><img src="..." width="..." alt="diagram"></figure>`
+#[allow(dead_code)] // Used in tests as example DiagramTagGenerator implementation
 #[derive(Debug)]
-pub struct FigureTagGenerator {
+pub(crate) struct FigureTagGenerator {
     /// Path prefix (e.g., "/assets/diagrams/").
     pub path_prefix: String,
 }
 
+#[allow(dead_code)]
 impl FigureTagGenerator {
     /// Create a new figure tag generator with the given path prefix.
     #[must_use]
