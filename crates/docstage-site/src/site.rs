@@ -23,12 +23,29 @@
 //! let site = builder.build();
 //!
 //! assert!(site.get_page("/guide").is_some());
+//!
+//! // Build navigation tree
+//! let nav = site.navigation();
+//! assert_eq!(nav.len(), 1);
+//! assert_eq!(nav[0].title, "Guide");
 //! ```
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+/// Navigation item with children for UI tree.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct NavItem {
+    /// Display title.
+    pub title: String,
+    /// Link target path.
+    pub path: String,
+    /// Child navigation items.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<NavItem>,
+}
 
 /// Document page data.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,6 +280,46 @@ impl Site {
     #[must_use]
     pub fn root_indices(&self) -> &[usize] {
         &self.roots
+    }
+
+    /// Build navigation tree from site structure.
+    ///
+    /// The root page (path="/") is excluded from navigation as it serves
+    /// as the home page content. Navigation shows only top-level sections.
+    ///
+    /// # Returns
+    ///
+    /// List of [`NavItem`] trees for navigation UI.
+    #[must_use]
+    pub fn navigation(&self) -> Vec<NavItem> {
+        if let Some(root_page) = self.get_page("/") {
+            // Root page exists - navigation shows its children (top-level sections)
+            self.get_children(&root_page.path)
+                .into_iter()
+                .map(|page| self.build_nav_item(page))
+                .collect()
+        } else {
+            // No root page - navigation shows all root pages
+            self.get_root_pages()
+                .into_iter()
+                .map(|page| self.build_nav_item(page))
+                .collect()
+        }
+    }
+
+    /// Recursively build [`NavItem`] from page.
+    fn build_nav_item(&self, page: &Page) -> NavItem {
+        let children = self
+            .get_children(&page.path)
+            .into_iter()
+            .map(|child| self.build_nav_item(child))
+            .collect();
+
+        NavItem {
+            title: page.title.clone(),
+            path: page.path.clone(),
+            children,
+        }
     }
 
     /// Normalize path to have leading slash.
@@ -799,5 +856,201 @@ mod tests {
 
         assert_eq!(item.title, "Home");
         assert_eq!(item.path, "/");
+    }
+
+    // Navigation tests
+
+    #[test]
+    fn test_navigation_empty_site_returns_empty_list() {
+        let site = SiteBuilder::new(source_dir()).build();
+
+        let nav = site.navigation();
+
+        assert!(nav.is_empty());
+    }
+
+    #[test]
+    fn test_navigation_flat_site() {
+        let mut builder = SiteBuilder::new(source_dir());
+        builder.add_page(
+            "Guide".to_string(),
+            "/guide".to_string(),
+            PathBuf::from("guide.md"),
+            None,
+        );
+        builder.add_page(
+            "API".to_string(),
+            "/api".to_string(),
+            PathBuf::from("api.md"),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.navigation();
+
+        assert_eq!(nav.len(), 2);
+        let titles: Vec<_> = nav.iter().map(|item| item.title.as_str()).collect();
+        assert!(titles.contains(&"Guide"));
+        assert!(titles.contains(&"API"));
+    }
+
+    #[test]
+    fn test_navigation_nested_site() {
+        let mut builder = SiteBuilder::new(source_dir());
+        let parent_idx = builder.add_page(
+            "Domain A".to_string(),
+            "/domain-a".to_string(),
+            PathBuf::from("domain-a/index.md"),
+            None,
+        );
+        builder.add_page(
+            "Setup Guide".to_string(),
+            "/domain-a/guide".to_string(),
+            PathBuf::from("domain-a/guide.md"),
+            Some(parent_idx),
+        );
+        let site = builder.build();
+
+        let nav = site.navigation();
+
+        assert_eq!(nav.len(), 1);
+        let domain = &nav[0];
+        assert_eq!(domain.title, "Domain A");
+        assert_eq!(domain.path, "/domain-a");
+        assert_eq!(domain.children.len(), 1);
+        assert_eq!(domain.children[0].title, "Setup Guide");
+        assert_eq!(domain.children[0].path, "/domain-a/guide");
+    }
+
+    #[test]
+    fn test_navigation_deeply_nested() {
+        let mut builder = SiteBuilder::new(source_dir());
+        let idx_a = builder.add_page(
+            "A".to_string(),
+            "/a".to_string(),
+            PathBuf::from("a/index.md"),
+            None,
+        );
+        let idx_b = builder.add_page(
+            "B".to_string(),
+            "/a/b".to_string(),
+            PathBuf::from("a/b/index.md"),
+            Some(idx_a),
+        );
+        builder.add_page(
+            "C".to_string(),
+            "/a/b/c".to_string(),
+            PathBuf::from("a/b/c/index.md"),
+            Some(idx_b),
+        );
+        let site = builder.build();
+
+        let nav = site.navigation();
+
+        assert_eq!(nav[0].title, "A");
+        assert_eq!(nav[0].children[0].title, "B");
+        assert_eq!(nav[0].children[0].children[0].title, "C");
+    }
+
+    #[test]
+    fn test_navigation_root_page_excluded() {
+        let mut builder = SiteBuilder::new(source_dir());
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            "/".to_string(),
+            PathBuf::from("index.md"),
+            None,
+        );
+        builder.add_page(
+            "Domains".to_string(),
+            "/domains".to_string(),
+            PathBuf::from("domains/index.md"),
+            Some(root_idx),
+        );
+        builder.add_page(
+            "Usage".to_string(),
+            "/usage".to_string(),
+            PathBuf::from("usage/index.md"),
+            Some(root_idx),
+        );
+        let site = builder.build();
+
+        let nav = site.navigation();
+
+        // Navigation should show children of root, not root itself
+        assert_eq!(nav.len(), 2);
+        let titles: Vec<_> = nav.iter().map(|item| item.title.as_str()).collect();
+        assert!(titles.contains(&"Domains"));
+        assert!(titles.contains(&"Usage"));
+        assert!(!titles.contains(&"Home"));
+    }
+
+    // NavItem tests
+
+    #[test]
+    fn test_nav_item_creation() {
+        let item = NavItem {
+            title: "Guide".to_string(),
+            path: "/guide".to_string(),
+            children: Vec::new(),
+        };
+
+        assert_eq!(item.title, "Guide");
+        assert_eq!(item.path, "/guide");
+        assert!(item.children.is_empty());
+    }
+
+    #[test]
+    fn test_nav_item_with_children() {
+        let child = NavItem {
+            title: "Child".to_string(),
+            path: "/parent/child".to_string(),
+            children: Vec::new(),
+        };
+        let item = NavItem {
+            title: "Parent".to_string(),
+            path: "/parent".to_string(),
+            children: vec![child],
+        };
+
+        assert_eq!(item.children.len(), 1);
+        assert_eq!(item.children[0].title, "Child");
+    }
+
+    #[test]
+    fn test_nav_item_serialization_without_children() {
+        let item = NavItem {
+            title: "Guide".to_string(),
+            path: "/guide".to_string(),
+            children: Vec::new(),
+        };
+
+        let json = serde_json::to_value(&item).unwrap();
+
+        assert_eq!(json["title"], "Guide");
+        assert_eq!(json["path"], "/guide");
+        assert!(json.get("children").is_none()); // Skipped when empty
+    }
+
+    #[test]
+    fn test_nav_item_serialization_with_children() {
+        let child = NavItem {
+            title: "Child".to_string(),
+            path: "/parent/child".to_string(),
+            children: Vec::new(),
+        };
+        let item = NavItem {
+            title: "Parent".to_string(),
+            path: "/parent".to_string(),
+            children: vec![child],
+        };
+
+        let json = serde_json::to_value(&item).unwrap();
+
+        assert_eq!(json["title"], "Parent");
+        assert_eq!(json["path"], "/parent");
+        assert!(json["children"].is_array());
+        assert_eq!(json["children"][0]["title"], "Child");
+        assert_eq!(json["children"][0]["path"], "/parent/child");
     }
 }

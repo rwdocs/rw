@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`server_config_from_docstage_config()`** helper to create `ServerConfig` from `docstage_config::Config`
 - **Rust `Site` module** (`Site`, `SiteBuilder`, `SiteLoader`, `Page`, `BreadcrumbItem`) for site structure management; provides O(1) path lookups and O(d) breadcrumb building
 - **Rust `SiteCache` trait** with `FileSiteCache` (JSON-based) and `NullSiteCache` implementations for site caching
-- **Rust `NavItem` and `build_navigation()`** for navigation tree construction from site structure
+- **`Site::navigation()` method** for building navigation tree from site structure; returns `Vec<NavItem>` for UI presentation
 - **Rust `PageRenderer`** for page rendering with file-based caching
 - **`PageRendererConfig`** for configuring the page renderer (cache_dir, version, extract_title, kroki_url, include_dirs, config_file, dpi)
 - **`std::error::Error` implementation for `DiagramError`** enabling compatibility with `?` operator, `anyhow`, and other error handling crates
@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Extracted site-related code from `docstage-core` to `docstage-site`**; `docstage-server` now depends on `docstage-site` instead of `docstage-core`; cleaner separation between site management (HTML rendering) and Confluence functionality
 - **`docstage-core` now focuses on Confluence integration only**; renamed from "High-performance markdown renderer for Docstage" to "Confluence integration for Docstage"
 - **Import path changes** for site-related types: `docstage_core::{Site, SiteBuilder, SiteLoader, NavItem, PageRenderer}` → `docstage_site::{...}`
+- **Moved `build_navigation()` to `Site::navigation()` method**; call `site.navigation()` instead of `build_navigation(&site)`
 - **`PageRenderer` now uses `MarkdownRenderer` directly** instead of going through `MarkdownConverter`; eliminates unnecessary abstraction layer (`PageRenderer` → `MarkdownConverter` → `MarkdownRenderer` reduced to `PageRenderer` → `MarkdownRenderer`)
 - **`MarkdownConverter` now uses renderer's GFM config** via `MarkdownRenderer::with_gfm()` instead of internal `get_parser_options()` method; removes duplicated parser configuration
 - **`MarkdownConverter` methods now use `RenderResult`** directly from renderer instead of creating separate result types; `convert()`, `convert_html()`, `convert_html_with_diagrams()`, and `convert_html_with_diagrams_cached()` all return `RenderResult`

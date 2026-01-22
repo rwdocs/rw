@@ -92,10 +92,9 @@ crates/
 ├── docstage-site/         # Site structure and page rendering
 │   └── src/
 │       ├── lib.rs            # Public API exports
-│       ├── site.rs           # Site, SiteBuilder, Page, BreadcrumbItem
+│       ├── site.rs           # Site, SiteBuilder, Page, NavItem, BreadcrumbItem
 │       ├── site_cache.rs     # SiteCache trait, FileSiteCache, NullSiteCache
 │       ├── site_loader.rs    # SiteLoader, SiteLoaderConfig
-│       ├── navigation.rs     # NavItem, build_navigation()
 │       ├── renderer.rs       # PageRenderer, PageRendererConfig, PageRenderResult
 │       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
 │
