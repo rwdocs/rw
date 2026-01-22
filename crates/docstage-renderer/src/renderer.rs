@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::marker::PhantomData;
 
-use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use crate::backend::RenderBackend;
 use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult, parse_fence_info};
@@ -20,6 +20,8 @@ pub struct RenderResult {
     pub title: Option<String>,
     /// Table of contents entries.
     pub toc: Vec<TocEntry>,
+    /// Warnings generated during conversion (e.g., unresolved includes).
+    pub warnings: Vec<String>,
 }
 
 /// Generic markdown renderer with pluggable backend.
@@ -33,32 +35,22 @@ pub struct RenderResult {
 /// Processors are checked in order; the first returning a non-`PassThrough` result wins.
 pub struct MarkdownRenderer<B: RenderBackend> {
     output: String,
-    /// Stack of nested list types (true = ordered, false = unordered).
     list_stack: Vec<bool>,
-    /// Code block rendering state.
     code: CodeBlockState,
-    /// Table rendering state.
     table: TableState,
-    /// Image alt text capture state.
     image: ImageState,
-    /// Heading and title extraction state.
     heading: HeadingState,
-    /// Base path for resolving relative links.
     base_path: Option<String>,
-    /// Pending image data (src, title) waiting for alt text.
     pending_image: Option<(String, String)>,
-    /// Registered code block processors.
     processors: Vec<Box<dyn CodeBlockProcessor>>,
-    /// Current code block index for processor callbacks.
     code_block_index: usize,
-    /// Pending code block attrs from fence info.
     pending_attrs: HashMap<String, String>,
-    /// Phantom data for the backend type.
+    gfm: bool,
     _backend: PhantomData<B>,
 }
 
 impl<B: RenderBackend> MarkdownRenderer<B> {
-    /// Create a new renderer.
+    /// Create a new renderer with GFM enabled by default.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -73,6 +65,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             processors: Vec::new(),
             code_block_index: 0,
             pending_attrs: HashMap::new(),
+            gfm: true,
             _backend: PhantomData,
         }
     }
@@ -95,6 +88,39 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     pub fn with_base_path(mut self, path: impl Into<String>) -> Self {
         self.base_path = Some(path.into());
         self
+    }
+
+    /// Enable or disable GitHub Flavored Markdown features.
+    ///
+    /// GFM is enabled by default. When enabled, the parser supports:
+    /// - Tables
+    /// - Strikethrough (`~~text~~`)
+    /// - Task lists (`- [ ] item`)
+    #[must_use]
+    pub fn with_gfm(mut self, enabled: bool) -> Self {
+        self.gfm = enabled;
+        self
+    }
+
+    /// Get parser options based on GFM configuration.
+    #[must_use]
+    pub fn parser_options(&self) -> Options {
+        if self.gfm {
+            Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
+        } else {
+            Options::empty()
+        }
+    }
+
+    /// Create a configured parser for the given markdown text.
+    #[must_use]
+    pub fn create_parser<'a>(&self, markdown: &'a str) -> Parser<'a> {
+        Parser::new_ext(markdown, self.parser_options())
+    }
+
+    /// Render markdown text directly using configured parser options.
+    pub fn render_markdown(&mut self, markdown: &str) -> RenderResult {
+        self.render(self.create_parser(markdown))
     }
 
     /// Add a code block processor.
@@ -172,8 +198,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
     /// Render markdown events and return the result.
     ///
-    /// When processors are registered, this method automatically calls their
-    /// `post_process` methods to replace placeholders with rendered content.
+    /// Automatically calls `post_process` on all registered processors
+    /// to replace placeholders with rendered content.
     pub fn render<'a, I>(&mut self, events: I) -> RenderResult
     where
         I: Iterator<Item = Event<'a>>,
@@ -183,8 +209,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         }
 
         let mut html = std::mem::take(&mut self.output);
-
-        // Auto-finalize: call post_process on all processors
         for processor in &mut self.processors {
             processor.post_process(&mut html);
         }
@@ -193,6 +217,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             html,
             title: self.heading.take_title(),
             toc: self.heading.take_toc(),
+            warnings: self.processor_warnings(),
         }
     }
 
@@ -403,29 +428,18 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     fn text(&mut self, text: &str) {
-        // Priority: code > image > first H1 > heading > normal text
         if self.code.is_active() {
             self.code.push_str(text);
-            return;
-        }
-
-        if self.image.is_active() {
+        } else if self.image.is_active() {
             self.image.push_str(text);
-            return;
-        }
-
-        if self.heading.is_in_first_h1() {
+        } else if self.heading.is_in_first_h1() {
             self.heading.push_text(text);
-            return;
-        }
-
-        if self.heading.is_active() {
+        } else if self.heading.is_active() {
             self.heading.push_text(text);
             self.heading.push_html(&escape_html(text));
-            return;
+        } else {
+            self.output.push_str(&escape_html(text));
         }
-
-        self.output.push_str(&escape_html(text));
     }
 
     fn inline_code(&mut self, code: &str) {
@@ -802,5 +816,103 @@ mod tests {
         // Should render as normal code block without language class
         assert!(result.html.contains("<pre><code>"));
         assert!(result.html.contains("plain text"));
+    }
+
+    struct WarningProcessor {
+        warnings: Vec<String>,
+    }
+
+    impl WarningProcessor {
+        fn new(warnings: Vec<String>) -> Self {
+            Self { warnings }
+        }
+    }
+
+    impl CodeBlockProcessor for WarningProcessor {
+        fn process(
+            &mut self,
+            _language: &str,
+            _attrs: &HashMap<String, String>,
+            _source: &str,
+            _index: usize,
+        ) -> ProcessResult {
+            ProcessResult::PassThrough
+        }
+
+        fn warnings(&self) -> &[String] {
+            &self.warnings
+        }
+    }
+
+    #[test]
+    fn test_render_result_includes_warnings() {
+        let markdown = "Hello";
+        let parser = Parser::new(markdown);
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_processor(WarningProcessor::new(vec![
+                "warning 1".into(),
+                "warning 2".into(),
+            ]));
+        let result = renderer.render(parser);
+
+        assert_eq!(result.warnings.len(), 2);
+        assert_eq!(result.warnings[0], "warning 1");
+        assert_eq!(result.warnings[1], "warning 2");
+    }
+
+    #[test]
+    fn test_render_result_empty_warnings_by_default() {
+        let result = render_html("Hello");
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_render_markdown_convenience() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown("# Hello\n\n**World**");
+        assert!(result.html.contains("<h1"));
+        assert!(result.html.contains("<strong>World</strong>"));
+    }
+
+    #[test]
+    fn test_gfm_enabled_by_default() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown("| A | B |\n|---|---|\n| 1 | 2 |");
+        assert!(result.html.contains("<table>"));
+    }
+
+    #[test]
+    fn test_gfm_disabled() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_gfm(false);
+        let result = renderer.render_markdown("| A | B |\n|---|---|\n| 1 | 2 |");
+        // Tables not rendered when GFM disabled
+        assert!(!result.html.contains("<table>"));
+    }
+
+    #[test]
+    fn test_parser_options_with_gfm() {
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let options = renderer.parser_options();
+        assert!(options.contains(Options::ENABLE_TABLES));
+        assert!(options.contains(Options::ENABLE_STRIKETHROUGH));
+        assert!(options.contains(Options::ENABLE_TASKLISTS));
+    }
+
+    #[test]
+    fn test_parser_options_without_gfm() {
+        let renderer = MarkdownRenderer::<HtmlBackend>::new().with_gfm(false);
+        let options = renderer.parser_options();
+        assert!(!options.contains(Options::ENABLE_TABLES));
+        assert!(!options.contains(Options::ENABLE_STRIKETHROUGH));
+        assert!(!options.contains(Options::ENABLE_TASKLISTS));
+    }
+
+    #[test]
+    fn test_create_parser() {
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let parser = renderer.create_parser("# Hello");
+        let events: Vec<_> = parser.collect();
+        // Should produce heading events
+        assert!(!events.is_empty());
     }
 }
