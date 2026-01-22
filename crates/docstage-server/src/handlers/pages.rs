@@ -10,8 +10,8 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
-use docstage_core::BreadcrumbItem;
 use docstage_renderer::TocEntry;
+use docstage_site::BreadcrumbItem;
 use md5::{Digest, Md5};
 use serde::Serialize;
 

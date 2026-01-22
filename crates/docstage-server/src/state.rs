@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, RwLock};
 
-use docstage_core::{PageRenderer, SiteLoader};
+use docstage_site::{PageRenderer, SiteLoader};
 
 use crate::live_reload::LiveReloadManager;
 

@@ -12,7 +12,7 @@ embed-assets = ["dep:rust-embed"]
 
 [dependencies]
 # Internal crates
-docstage-core = { workspace = true }
+docstage-site = { workspace = true }
 docstage-config = { workspace = true }
 docstage-renderer = { workspace = true, features = ["serde"] }
 

@@ -7,8 +7,8 @@
 //!
 //! ```
 //! use std::path::PathBuf;
-//! use docstage_core::site::SiteBuilder;
-//! use docstage_core::navigation::build_navigation;
+//! use docstage_site::site::SiteBuilder;
+//! use docstage_site::navigation::build_navigation;
 //!
 //! let mut builder = SiteBuilder::new(PathBuf::from("/docs"));
 //! builder.add_page("Guide".to_string(), "/guide".to_string(), PathBuf::from("guide.md"), None);

@@ -15,7 +15,7 @@
 //!
 //! ```
 //! use std::path::PathBuf;
-//! use docstage_core::site::{Site, SiteBuilder};
+//! use docstage_site::site::{Site, SiteBuilder};
 //!
 //! let mut builder = SiteBuilder::new(PathBuf::from("/docs"));
 //! let guide_idx = builder.add_page("Guide".to_string(), "/guide".to_string(), PathBuf::from("guide.md"), None);

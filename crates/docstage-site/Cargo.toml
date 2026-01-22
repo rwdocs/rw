@@ -1,0 +1,19 @@
+[package]
+name = "docstage-site"
+description = "Site structure and page rendering for Docstage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+docstage-diagrams = { workspace = true }
+docstage-renderer = { workspace = true, features = ["serde"] }
+
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

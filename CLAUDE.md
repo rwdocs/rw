@@ -89,14 +89,21 @@ crates/
 │       ├── plantuml.rs       # !include resolution, DPI configuration
 │       └── html_embed.rs     # SVG scaling, placeholder replacement
 │
-├── docstage-core/         # Core library (site, navigation, page rendering)
+├── docstage-site/         # Site structure and page rendering
+│   └── src/
+│       ├── lib.rs            # Public API exports
+│       ├── site.rs           # Site, SiteBuilder, Page, BreadcrumbItem
+│       ├── site_cache.rs     # SiteCache trait, FileSiteCache, NullSiteCache
+│       ├── site_loader.rs    # SiteLoader, SiteLoaderConfig
+│       ├── navigation.rs     # NavItem, build_navigation()
+│       ├── renderer.rs       # PageRenderer, PageRendererConfig, PageRenderResult
+│       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
+│
+├── docstage-core/         # Confluence integration
 │   └── src/
 │       ├── lib.rs            # Module exports
-│       ├── converter.rs      # MarkdownConverter with convert() and convert_html() methods
-│       ├── site.rs           # Site structure
-│       ├── site_loader.rs    # Site loading and caching
-│       ├── navigation.rs     # Navigation tree builder
-│       ├── page_renderer.rs  # Page rendering with caching
+│       ├── converter.rs      # MarkdownConverter for Confluence XHTML output
+│       ├── confluence_tags.rs # ConfluenceTagGenerator (internal)
 │       └── updater/          # Confluence page updater
 │           ├── mod.rs        # PageUpdater, UpdateConfig
 │           ├── executor.rs   # Update workflow implementation
