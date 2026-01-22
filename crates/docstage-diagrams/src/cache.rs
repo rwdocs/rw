@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 /// Contains all parameters that affect the rendered diagram output.
 /// Used to compute a content-based hash for caching.
 #[derive(Debug, Clone, Copy)]
-pub struct DiagramKey<'a> {
+pub(crate) struct DiagramKey<'a> {
     /// Diagram source code (after preprocessing).
     pub source: &'a str,
     /// Kroki endpoint (e.g., "plantuml", "mermaid").
@@ -75,7 +75,7 @@ pub trait DiagramCache: Send + Sync {
 /// Always returns cache misses and discards stored content.
 /// Use when caching is disabled.
 #[derive(Debug, Default)]
-pub struct NullCache;
+pub(crate) struct NullCache;
 
 impl DiagramCache for NullCache {
     fn get(&self, _key: DiagramKey<'_>) -> Option<String> {
