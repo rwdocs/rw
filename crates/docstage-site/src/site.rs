@@ -216,11 +216,23 @@ impl Site {
     ///
     /// # Returns
     ///
-    /// Absolute path to source markdown file, or `None` if page not found.
+    /// Absolute path to source markdown file, or `None` if page not found
+    /// or if the resolved path would escape the source directory (path traversal
+    /// protection).
     #[must_use]
     pub fn resolve_source_path(&self, path: &str) -> Option<PathBuf> {
-        self.get_page(path)
-            .map(|page| self.source_dir.join(&page.source_path))
+        let page = self.get_page(path)?;
+        let resolved = self.source_dir.join(&page.source_path);
+
+        // Canonicalize and validate path stays within source_dir (defense-in-depth)
+        let canonical = resolved.canonicalize().ok()?;
+        let canonical_source = self.source_dir.canonicalize().ok()?;
+
+        if canonical.starts_with(&canonical_source) {
+            Some(canonical)
+        } else {
+            None // Path traversal attempt
+        }
     }
 
     /// Get page by source file path.
@@ -616,7 +628,11 @@ mod tests {
 
     #[test]
     fn test_resolve_source_path_returns_absolute_path() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().to_path_buf();
+        std::fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let mut builder = SiteBuilder::new(source_dir.clone());
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -627,12 +643,20 @@ mod tests {
 
         let result = site.resolve_source_path("/guide");
 
-        assert_eq!(result, Some(PathBuf::from("/docs/guide.md")));
+        assert!(result.is_some());
+        let resolved = result.unwrap();
+        assert!(resolved.ends_with("guide.md"));
+        assert!(resolved.is_absolute());
     }
 
     #[test]
     fn test_resolve_source_path_nested_page() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().to_path_buf();
+        std::fs::create_dir_all(source_dir.join("domain/subdomain")).unwrap();
+        std::fs::write(source_dir.join("domain/subdomain/page.md"), "# Page").unwrap();
+
+        let mut builder = SiteBuilder::new(source_dir.clone());
         builder.add_page(
             "Deep".to_string(),
             "/domain/subdomain/page".to_string(),
@@ -643,10 +667,9 @@ mod tests {
 
         let result = site.resolve_source_path("/domain/subdomain/page");
 
-        assert_eq!(
-            result,
-            Some(PathBuf::from("/docs/domain/subdomain/page.md"))
-        );
+        assert!(result.is_some());
+        let resolved = result.unwrap();
+        assert!(resolved.ends_with("domain/subdomain/page.md"));
     }
 
     #[test]
@@ -660,7 +683,11 @@ mod tests {
 
     #[test]
     fn test_resolve_source_path_normalizes_path() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().to_path_buf();
+        std::fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let mut builder = SiteBuilder::new(source_dir.clone());
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -671,7 +698,65 @@ mod tests {
 
         let result = site.resolve_source_path("guide");
 
-        assert_eq!(result, Some(PathBuf::from("/docs/guide.md")));
+        assert!(result.is_some());
+        assert!(result.unwrap().ends_with("guide.md"));
+    }
+
+    #[test]
+    fn test_resolve_source_path_blocks_traversal() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().join("docs");
+        std::fs::create_dir(&source_dir).unwrap();
+
+        // Create a file outside source_dir
+        let outside_file = temp_dir.path().join("secret.txt");
+        std::fs::write(&outside_file, "secret").unwrap();
+
+        let mut builder = SiteBuilder::new(source_dir.clone());
+        // Simulate a malicious source_path that tries to escape source_dir
+        builder.add_page(
+            "Malicious".to_string(),
+            "/malicious".to_string(),
+            PathBuf::from("../secret.txt"),
+            None,
+        );
+        let site = builder.build();
+
+        // Should return None because the resolved path escapes source_dir
+        let result = site.resolve_source_path("/malicious");
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_source_path_allows_symlinks_within_source_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().to_path_buf();
+        let subdir = source_dir.join("subdir");
+        std::fs::create_dir(&subdir).unwrap();
+
+        // Create actual file and symlink within source_dir
+        let actual_file = subdir.join("actual.md");
+        std::fs::write(&actual_file, "# Actual").unwrap();
+
+        #[cfg(unix)]
+        {
+            let link_path = source_dir.join("link.md");
+            std::os::unix::fs::symlink(&actual_file, &link_path).unwrap();
+
+            let mut builder = SiteBuilder::new(source_dir.clone());
+            builder.add_page(
+                "Link".to_string(),
+                "/link".to_string(),
+                PathBuf::from("link.md"),
+                None,
+            );
+            let site = builder.build();
+
+            // Should succeed because symlink target is within source_dir
+            let result = site.resolve_source_path("/link");
+            assert!(result.is_some());
+        }
     }
 
     #[test]
