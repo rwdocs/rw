@@ -28,9 +28,9 @@
 //! // Convert to Confluence with diagram rendering
 //! let result = converter.convert(
 //!     "# Hello\n\n```plantuml\nA -> B\n```",
-//!     "https://kroki.io",
-//!     Path::new("/tmp/diagrams"),
-//! )?;
+//!     Some("https://kroki.io"),
+//!     Some(Path::new("/tmp/diagrams")),
+//! );
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -140,19 +140,28 @@ impl MarkdownConverter {
         }
     }
 
-    /// Convert markdown to Confluence storage format with diagram rendering via Kroki.
+    /// Convert markdown to Confluence storage format with optional diagram rendering via Kroki.
+    ///
+    /// When `kroki_url` and `output_dir` are provided, diagrams are rendered via the Kroki
+    /// service and written to the output directory. When `None`, diagram blocks are rendered
+    /// as syntax-highlighted code.
     #[must_use]
-    pub fn convert(&self, markdown_text: &str, kroki_url: &str, output_dir: &Path) -> RenderResult {
-        let processor = self
-            .create_diagram_processor(kroki_url)
-            .output(DiagramOutput::Files {
-                output_dir: output_dir.to_path_buf(),
+    pub fn convert(
+        &self,
+        markdown_text: &str,
+        kroki_url: Option<&str>,
+        output_dir: Option<&Path>,
+    ) -> RenderResult {
+        let mut renderer = self.create_renderer::<ConfluenceBackend>(None);
+
+        if let (Some(url), Some(dir)) = (kroki_url, output_dir) {
+            let processor = self.create_diagram_processor(url).output(DiagramOutput::Files {
+                output_dir: dir.to_path_buf(),
                 tag_generator: Arc::new(ConfluenceTagGenerator),
             });
+            renderer = renderer.with_processor(processor);
+        }
 
-        let mut renderer = self
-            .create_renderer::<ConfluenceBackend>(None)
-            .with_processor(processor);
         let result = renderer.render_markdown(markdown_text);
 
         RenderResult {

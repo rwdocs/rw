@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`MarkdownRenderer::render()` now includes warnings** in the returned `RenderResult`; consumers no longer need to manually call `renderer.processor_warnings()`
 - **Removed `MarkdownConverter::get_parser_options()`** method; parser configuration moved to `MarkdownRenderer`
 - **Merged `convert_html_with_diagrams_cached` into `convert_html_with_diagrams`**; the method now takes an optional `cache_dir` parameter
+- **`MarkdownConverter::convert()` now takes optional `kroki_url` and `output_dir`**; when `None`, diagram blocks are rendered as syntax-highlighted code instead of images (consistent with `convert_html()` behavior)
 - **CLI replaced with native Rust binary**; no longer requires Python runtime or `uv run` command; run directly via `./target/debug/docstage` or `cargo install --path crates/docstage`
 - **Removed Python CLI package** (`packages/docstage/`); all CLI functionality is now in `crates/docstage/`
 - **Removed PyO3 bindings package** (`packages/docstage-core/`); no longer needed since CLI is pure Rust
