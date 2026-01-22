@@ -5,7 +5,7 @@ use docstage_confluence::{ConfluenceError, UpdateError};
 
 /// CLI error type.
 #[derive(Debug, thiserror::Error)]
-pub enum CliError {
+pub(crate) enum CliError {
     #[error("{0}")]
     Config(#[from] ConfigError),
 

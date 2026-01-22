@@ -13,7 +13,7 @@ use crate::output::Output;
 
 /// Arguments for the confluence update command.
 #[derive(Args)]
-pub struct UpdateArgs {
+pub(crate) struct UpdateArgs {
     /// Path to the markdown file.
     markdown_file: PathBuf,
 
@@ -55,7 +55,7 @@ impl UpdateArgs {
     /// # Errors
     ///
     /// Returns an error if the update fails.
-    pub fn execute(self) -> Result<(), CliError> {
+    pub(crate) fn execute(self) -> Result<(), CliError> {
         let output = Output::new();
 
         // Load config

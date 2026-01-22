@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Tightened `docstage` CLI internal visibility**; all types and functions changed from `pub` to `pub(crate)` since the crate is a binary with no external consumers; removed unused `Default` impl for `Output`
 - **Merged `docstage-core` into `docstage-confluence`**; all Confluence-related functionality is now in a single crate
 - **Renamed `MarkdownConverter` to `PageRenderer`** in `docstage-confluence`; `convert()` method renamed to `render()`
 - **Import path changes** for Confluence types: `docstage_core::{MarkdownConverter, updater::*}` → `docstage_confluence::{PageRenderer, updater::*}`

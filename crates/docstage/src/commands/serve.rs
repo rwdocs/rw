@@ -11,7 +11,7 @@ use crate::output::Output;
 
 /// Arguments for the serve command.
 #[derive(Args)]
-pub struct ServeArgs {
+pub(crate) struct ServeArgs {
     /// Path to configuration file (default: auto-discover docstage.toml).
     #[arg(short, long)]
     config: Option<PathBuf>,
@@ -63,7 +63,7 @@ impl ServeArgs {
     /// # Errors
     ///
     /// Returns an error if configuration fails or the server fails to start.
-    pub async fn execute(self, version: &str) -> Result<(), CliError> {
+    pub(crate) async fn execute(self, version: &str) -> Result<(), CliError> {
         let output = Output::new();
 
         // Resolve flags before moving into CliSettings
