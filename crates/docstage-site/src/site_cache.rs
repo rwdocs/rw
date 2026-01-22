@@ -62,7 +62,7 @@ impl From<CachedSite> for Site {
 }
 
 /// Trait for site caching implementations.
-pub trait SiteCache: Send + Sync {
+pub(crate) trait SiteCache: Send + Sync {
     /// Retrieve cached site.
     ///
     /// Returns `None` on cache miss or invalid cache.
@@ -78,7 +78,7 @@ pub trait SiteCache: Send + Sync {
 /// No-op cache that never stores or retrieves data.
 ///
 /// Used when caching is disabled. All operations are no-ops.
-pub struct NullSiteCache;
+pub(crate) struct NullSiteCache;
 
 impl SiteCache for NullSiteCache {
     fn get(&self) -> Option<Site> {
@@ -93,7 +93,7 @@ impl SiteCache for NullSiteCache {
 /// File-based cache for site structure.
 ///
 /// Stores the site as JSON in `{cache_dir}/site.json`.
-pub struct FileSiteCache {
+pub(crate) struct FileSiteCache {
     cache_dir: PathBuf,
 }
 
@@ -104,7 +104,7 @@ impl FileSiteCache {
     ///
     /// * `cache_dir` - Directory to store cache file
     #[must_use]
-    pub fn new(cache_dir: PathBuf) -> Self {
+    pub(crate) fn new(cache_dir: PathBuf) -> Self {
         Self { cache_dir }
     }
 

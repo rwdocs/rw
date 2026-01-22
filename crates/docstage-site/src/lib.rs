@@ -37,11 +37,10 @@
 
 mod page_cache;
 mod renderer;
-pub mod site;
+pub(crate) mod site;
 mod site_cache;
-pub mod site_loader;
+pub(crate) mod site_loader;
 
 pub use renderer::{PageRenderResult, PageRenderer, PageRendererConfig, RenderError};
-pub use site::{BreadcrumbItem, NavItem, Page, Site, SiteBuilder};
-pub use site_cache::{FileSiteCache, NullSiteCache, SiteCache};
+pub use site::{BreadcrumbItem, NavItem, Page, Site};
 pub use site_loader::{SiteLoader, SiteLoaderConfig};
