@@ -7,7 +7,10 @@ Documentation engine for Backstage. Convert markdown files to Confluence pages w
 ## Setup
 
 ```bash
-uv sync
+# Build the CLI
+cargo build -p docstage
+
+# Copy example config
 cp docstage.toml.example docstage.toml
 
 # Install coverage tool (optional, for running `make test`)
@@ -15,6 +18,16 @@ cargo install cargo-llvm-cov
 ```
 
 Edit `docstage.toml` with your settings and place `private_key.pem` in the project root.
+
+### Installation
+
+```bash
+# Install from source
+cargo install --path crates/docstage
+
+# Or build release binary with embedded assets
+cargo build -p docstage --release --features embed-assets
+```
 
 ## Configuration
 
@@ -67,13 +80,13 @@ docstage serve --config /path/to/docstage.toml
 
 ```bash
 # Start documentation server (with live reload)
-uv run docstage serve
+docstage serve
 
 # Start server without live reload
-uv run docstage serve --no-live-reload
+docstage serve --no-live-reload
 
 # Start server without caching (useful for development)
-uv run docstage serve --no-cache
+docstage serve --no-cache
 ```
 
 ## Confluence Publishing
@@ -82,23 +95,24 @@ All Confluence-related commands are grouped under the `confluence` subcommand:
 
 ```bash
 # Generate OAuth tokens (requires write permissions in Confluence)
-uv run docstage confluence generate-tokens
+docstage confluence generate-tokens
 
 # Update an existing page
-uv run docstage confluence update document.md <page-id> -m "Update message"
+docstage confluence update document.md <page-id> -m "Update message"
 
 # Preview changes without updating (dry run)
-uv run docstage confluence update document.md <page-id> --dry-run
+docstage confluence update document.md <page-id> --dry-run
 ```
 
 ## OAuth Permissions
 
 OAuth tokens inherit the authorizing user's permissions. If you get `500` errors on update:
 1. Verify you can edit pages manually in the target space
-2. Regenerate tokens with `uv run docstage confluence generate-tokens`
+2. Regenerate tokens with `docstage confluence generate-tokens`
 
 ## Technical Details
 
+- Native Rust CLI (no Python runtime required)
 - OAuth 1.0 RSA-SHA1 authentication
 - Confluence Server/Data Center REST API v1
 - Rust-based markdown conversion via `docstage-core`

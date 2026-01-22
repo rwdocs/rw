@@ -1,0 +1,28 @@
+[package]
+name = "docstage"
+description = "Documentation engine for Backstage - CLI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "docstage"
+path = "src/main.rs"
+
+[features]
+default = []
+embed-assets = ["docstage-server/embed-assets"]
+
+[dependencies]
+docstage-config = { workspace = true }
+docstage-confluence = { workspace = true }
+docstage-core = { workspace = true }
+docstage-server = { workspace = true }
+
+clap = { version = "4", features = ["derive", "env"] }
+console = "0.15"
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
