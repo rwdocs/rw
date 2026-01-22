@@ -162,8 +162,6 @@ impl MarkdownConverter {
     }
 
     /// Convert markdown to HTML format without diagram rendering.
-    ///
-    /// For rendered diagram images, use `convert_html_with_diagrams()`.
     #[must_use]
     pub fn convert_html(&self, markdown_text: &str, base_path: Option<&str>) -> RenderResult {
         self.create_html_renderer(base_path)
@@ -171,19 +169,10 @@ impl MarkdownConverter {
     }
 
     /// Convert markdown to HTML format with diagram rendering via Kroki.
+    ///
+    /// Optionally caches rendered diagrams to `cache_dir` to avoid re-rendering.
     #[must_use]
     pub fn convert_html_with_diagrams(
-        &self,
-        markdown_text: &str,
-        kroki_url: &str,
-        base_path: Option<&str>,
-    ) -> RenderResult {
-        self.render_html_with_diagrams(markdown_text, kroki_url, None, base_path)
-    }
-
-    /// Convert markdown to HTML format with cached diagram rendering.
-    #[must_use]
-    pub fn convert_html_with_diagrams_cached(
         &self,
         markdown_text: &str,
         kroki_url: &str,
