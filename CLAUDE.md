@@ -17,10 +17,13 @@ format output with PlantUML diagram support.
 ## Development Commands
 
 ```bash
-make build                # Build frontend and reinstall Python package
-make test                 # Run all tests with coverage (Rust, Python, Frontend)
-make format               # Format all code (Rust, Python, Frontend)
-make lint                 # Lint all code (clippy, ruff, ty, svelte-check)
+make build                # Build frontend and CLI
+make test                 # Run all tests with coverage (Rust, Frontend)
+make format               # Format all code (Rust, Frontend)
+make lint                 # Lint all code (clippy, svelte-check)
+
+# Run the CLI
+cargo build -p docstage && ./target/debug/docstage serve
 
 # Frontend dev server
 cd frontend && npm run dev
@@ -30,6 +33,19 @@ cd frontend && npm run dev
 
 ```
 crates/
+├── docstage/              # CLI binary (clap)
+│   └── src/
+│       ├── main.rs           # Entry point, CLI setup
+│       ├── error.rs          # CLI error types
+│       ├── output.rs         # Colored terminal output
+│       └── commands/
+│           ├── mod.rs        # Command module exports
+│           ├── serve.rs      # `serve` command
+│           └── confluence/
+│               ├── mod.rs         # `confluence` subcommand group
+│               ├── update.rs      # `confluence update` command
+│               └── generate_tokens.rs  # `confluence generate-tokens` command
+│
 ├── docstage-renderer/     # Reusable markdown renderer library
 │   └── src/
 │       ├── lib.rs            # Public API exports
@@ -44,6 +60,16 @@ crates/
 │   └── src/
 │       ├── lib.rs            # ConfluenceBackend, preserve_comments()
 │       ├── error.rs          # CommentPreservationError
+│       ├── client/           # Confluence REST API client
+│       │   ├── mod.rs        # ConfluenceClient
+│       │   ├── pages.rs      # Page operations
+│       │   ├── comments.rs   # Comment operations
+│       │   └── attachments.rs # Attachment operations
+│       ├── oauth/            # OAuth 1.0 RSA-SHA1 authentication
+│       │   ├── mod.rs        # OAuth1Auth
+│       │   ├── key.rs        # RSA key loading
+│       │   ├── signature.rs  # Signature generation
+│       │   └── token_generator.rs  # Three-legged OAuth flow
 │       └── comment_preservation/  # Comment preservation module
 │           ├── mod.rs        # Public API (preserve_comments, PreserveResult)
 │           ├── tree.rs       # TreeNode with text_signature, marker detection
@@ -63,10 +89,23 @@ crates/
 │       ├── plantuml.rs       # !include resolution, DPI configuration
 │       └── html_embed.rs     # SVG scaling, placeholder replacement
 │
-├── docstage-core/         # Pure Rust library (no PyO3)
+├── docstage-core/         # Core library (site, navigation, page rendering)
 │   └── src/
-│       ├── lib.rs            # Module exports (re-exports from sub-crates)
-│       └── converter.rs      # MarkdownConverter with convert() and convert_html() methods
+│       ├── lib.rs            # Module exports
+│       ├── converter.rs      # MarkdownConverter with convert() and convert_html() methods
+│       ├── site.rs           # Site structure
+│       ├── site_loader.rs    # Site loading and caching
+│       ├── navigation.rs     # Navigation tree builder
+│       ├── page_renderer.rs  # Page rendering with caching
+│       └── updater/          # Confluence page updater
+│           ├── mod.rs        # PageUpdater, UpdateConfig
+│           ├── executor.rs   # Update workflow implementation
+│           ├── result.rs     # UpdateResult, DryRunResult
+│           └── error.rs      # UpdateError
+│
+├── docstage-config/       # Configuration parsing
+│   └── src/
+│       └── lib.rs            # Config, CliSettings, ConfigError
 │
 └── docstage-server/       # Native HTTP server (axum)
     └── src/
@@ -74,22 +113,6 @@ crates/
         ├── handlers/         # API endpoints (config, pages, navigation)
         ├── live_reload/      # File watching and WebSocket broadcasting
         └── static_files.rs   # Static file serving with SPA fallback
-
-packages/
-├── docstage/              # Python CLI package (Click)
-│   └── src/docstage/
-│       ├── cli.py                     # Main CLI commands
-│       └── server.py                  # Entry point for native Rust HTTP server
-│
-└── docstage-core/         # Python package with PyO3 bindings (maturin)
-    ├── Cargo.toml
-    ├── pyproject.toml
-    ├── src/
-    │   └── lib.rs                # #[pymodule], wrapper types
-    └── python/
-        └── docstage_core/
-            ├── __init__.py
-            └── __init__.pyi
 
 frontend/                  # Svelte 5 SPA (Vite + Tailwind)
 ├── src/
@@ -102,8 +125,7 @@ frontend/                  # Svelte 5 SPA (Vite + Tailwind)
 ```
 
 **Data flow (Confluence)**: Markdown → Rust (pulldown-cmark parsing, PlantUML
-extraction, Confluence rendering, Kroki diagram rendering) → Python (API calls)
-→ Confluence
+extraction, Confluence rendering, Kroki diagram rendering, API calls) → Confluence
 
 **Data flow (HTML)**: Markdown → Rust (pulldown-cmark parsing, HTML rendering
 with syntax highlighting, ToC generation, HTTP serving) → Backstage
@@ -111,5 +133,4 @@ with syntax highlighting, ToC generation, HTTP serving) → Backstage
 ## Key Technical Details
 
 - **Rust requirements**: Edition 2024, Rust 1.91+
-- **Python requirements**: 3.14+
 - **PlantUML**: Extracted from code blocks, rendered via Kroki, uploaded as attachments

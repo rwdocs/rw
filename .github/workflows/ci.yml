@@ -37,29 +37,11 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Set up Python
-        run: uv python install 3.14
-
-      - name: Install Python dependencies
-        run: uv sync
-
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
         run: cargo clippy --all-targets -- -W clippy::pedantic
-
-      - name: Run Ruff check
-        run: uv run ruff check .
-
-      - name: Run Ruff format check
-        run: uv run ruff format --check .
-
-      - name: Run ty
-        run: uv run ty check
 
       - name: Run svelte-check
         run: npm run check
@@ -106,20 +88,8 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Set up Python
-        run: uv python install 3.14
-
-      - name: Install Python dependencies
-        run: uv sync
-
       - name: Run Rust tests
         run: cargo test --all-targets
-
-      - name: Run Python tests
-        run: uv run pytest --cov-report=xml
 
       - name: Run frontend tests
         run: npm run test
@@ -162,14 +132,8 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-
-      - name: Set up Python
-        run: uv python install 3.14
-
-      - name: Install Python dependencies
-        run: uv sync
+      - name: Build CLI
+        run: cargo build -p docstage
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
