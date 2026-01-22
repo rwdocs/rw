@@ -115,5 +115,5 @@ OAuth tokens inherit the authorizing user's permissions. If you get `500` errors
 - Native Rust CLI (no Python runtime required)
 - OAuth 1.0 RSA-SHA1 authentication
 - Confluence Server/Data Center REST API v1
-- Rust-based markdown conversion via `docstage-core`
+- Rust-based markdown conversion via `docstage-confluence`
 - PlantUML diagram rendering with automatic width scaling

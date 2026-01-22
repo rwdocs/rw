@@ -1,7 +1,7 @@
 //! Site structure for document hierarchy.
 //!
 //! Provides the core document site structure with efficient path lookups
-//! and traversal operations. Includes [`SiteBuilder`] for constructing sites.
+//! and traversal operations.
 //!
 //! # Architecture
 //!
@@ -10,25 +10,6 @@
 //! - O(1) URL path lookups via `path_index` `HashMap`
 //! - O(1) source path lookups via `source_path_index` `HashMap`
 //! - O(d) breadcrumb building where d is the page depth
-//!
-//! # Example
-//!
-//! ```
-//! use std::path::PathBuf;
-//! use docstage_site::site::{Site, SiteBuilder};
-//!
-//! let mut builder = SiteBuilder::new(PathBuf::from("/docs"));
-//! let guide_idx = builder.add_page("Guide".to_string(), "/guide".to_string(), PathBuf::from("guide.md"), None);
-//! builder.add_page("Setup".to_string(), "/guide/setup".to_string(), PathBuf::from("guide/setup.md"), Some(guide_idx));
-//! let site = builder.build();
-//!
-//! assert!(site.get_page("/guide").is_some());
-//!
-//! // Build navigation tree
-//! let nav = site.navigation();
-//! assert_eq!(nav.len(), 1);
-//! assert_eq!(nav[0].title, "Guide");
-//! ```
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -89,7 +70,7 @@ impl Site {
     /// This constructor is primarily used by [`SiteBuilder::build`] and
     /// cache deserialization.
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         source_dir: PathBuf,
         pages: Vec<Page>,
         children: Vec<Vec<usize>>,
@@ -134,7 +115,7 @@ impl Site {
     ///
     /// Page reference if found, `None` otherwise.
     #[must_use]
-    pub fn get_page(&self, path: &str) -> Option<&Page> {
+    pub(crate) fn get_page(&self, path: &str) -> Option<&Page> {
         let normalized = Self::normalize_path(path);
         self.path_index.get(&normalized).map(|&i| &self.pages[i])
     }
@@ -149,7 +130,7 @@ impl Site {
     ///
     /// Vector of child page references, empty if page not found or has no children.
     #[must_use]
-    pub fn get_children(&self, path: &str) -> Vec<&Page> {
+    pub(crate) fn get_children(&self, path: &str) -> Vec<&Page> {
         let normalized = Self::normalize_path(path);
         self.path_index
             .get(&normalized)
@@ -223,7 +204,7 @@ impl Site {
 
     /// Get root-level pages.
     #[must_use]
-    pub fn get_root_pages(&self) -> Vec<&Page> {
+    pub(crate) fn get_root_pages(&self) -> Vec<&Page> {
         self.roots.iter().map(|&i| &self.pages[i]).collect()
     }
 
@@ -260,25 +241,25 @@ impl Site {
 
     /// Get all pages (for serialization).
     #[must_use]
-    pub fn pages(&self) -> &[Page] {
+    pub(crate) fn pages(&self) -> &[Page] {
         &self.pages
     }
 
     /// Get children indices (for serialization).
     #[must_use]
-    pub fn children_indices(&self) -> &[Vec<usize>] {
+    pub(crate) fn children_indices(&self) -> &[Vec<usize>] {
         &self.children
     }
 
     /// Get parent indices (for serialization).
     #[must_use]
-    pub fn parent_indices(&self) -> &[Option<usize>] {
+    pub(crate) fn parent_indices(&self) -> &[Option<usize>] {
         &self.parents
     }
 
     /// Get root indices (for serialization).
     #[must_use]
-    pub fn root_indices(&self) -> &[usize] {
+    pub(crate) fn root_indices(&self) -> &[usize] {
         &self.roots
     }
 
@@ -329,7 +310,7 @@ impl Site {
 }
 
 /// Builder for constructing [`Site`] instances.
-pub struct SiteBuilder {
+pub(crate) struct SiteBuilder {
     source_dir: PathBuf,
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
@@ -344,7 +325,7 @@ impl SiteBuilder {
     ///
     /// * `source_dir` - Root directory containing markdown sources
     #[must_use]
-    pub fn new(source_dir: PathBuf) -> Self {
+    pub(crate) fn new(source_dir: PathBuf) -> Self {
         Self {
             source_dir,
             pages: Vec::new(),
@@ -366,7 +347,7 @@ impl SiteBuilder {
     /// # Returns
     ///
     /// Index of the added page.
-    pub fn add_page(
+    pub(crate) fn add_page(
         &mut self,
         title: String,
         path: String,
@@ -393,7 +374,7 @@ impl SiteBuilder {
 
     /// Build the [`Site`] instance.
     #[must_use]
-    pub fn build(self) -> Site {
+    pub(crate) fn build(self) -> Site {
         Site::new(
             self.source_dir,
             self.pages,

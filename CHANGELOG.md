@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Tightened `docstage-site` internal visibility**; `SiteBuilder`, `SiteCache` trait, `FileSiteCache`, `NullSiteCache` changed from `pub` to `pub(crate)`; `Site` methods (`new()`, `get_page()`, `get_children()`, `get_root_pages()`, `pages()`, `children_indices()`, `parent_indices()`, `root_indices()`) changed from `pub` to `pub(crate)`; `site` and `site_loader` modules changed from `pub mod` to `pub(crate) mod`; only types used by other crates remain public (`PageRenderer`, `PageRendererConfig`, `PageRenderResult`, `RenderError`, `SiteLoader`, `SiteLoaderConfig`, `Site`, `Page`, `BreadcrumbItem`, `NavItem`)
 - **Tightened `docstage-config` internal visibility**; `CONFIG_FILENAME` const, `Config::discover_config()`, `Config::default_with_cwd()`, `Config::default_with_base()` methods changed from `pub` to private; removed unused `CliSettings::is_empty()` method, `ConfluenceTestConfig` struct, `ConfluenceConfig::test` field, and `Config::confluence_test()` method
 - **Tightened `docstage` CLI internal visibility**; all types and functions changed from `pub` to `pub(crate)` since the crate is a binary with no external consumers; removed unused `Default` impl for `Output`
 - **Merged `docstage-core` into `docstage-confluence`**; all Confluence-related functionality is now in a single crate
