@@ -3,13 +3,14 @@
 //! Handles the three-legged OAuth 1.0 flow for generating access tokens.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::Duration;
 
 use percent_encoding::percent_decode_str;
 use rsa::RsaPrivateKey;
 use ureq::Agent;
 
-use super::key::load_private_key;
+use super::key::load_private_key_from_file;
 use super::signature::create_authorization_header_for_token_flow;
 use crate::error::ConfluenceError;
 
@@ -51,17 +52,17 @@ impl OAuthTokenGenerator {
     /// # Arguments
     /// * `base_url` - Confluence server base URL
     /// * `consumer_key` - OAuth consumer key
-    /// * `private_key_pem` - PEM-encoded RSA private key bytes
+    /// * `key_file` - Path to RSA private key file (PEM format)
     ///
     /// # Errors
     ///
-    /// Returns an error if the private key cannot be parsed.
+    /// Returns an error if the private key file cannot be read or parsed.
     pub fn new(
         base_url: &str,
         consumer_key: &str,
-        private_key_pem: &[u8],
+        key_file: &Path,
     ) -> Result<Self, ConfluenceError> {
-        let private_key = load_private_key(private_key_pem)?;
+        let private_key = load_private_key_from_file(key_file)?;
         let base_url = base_url.trim_end_matches('/');
 
         let agent = Agent::config_builder()
@@ -294,12 +295,20 @@ o6Ypn8ZrOCbdrwdSpQu37/7pcDFMq/HAyf2I43wreDAcYktu33ZiEDTkyYM0ygv/
 PmtLs+m8nwD5m6Eay2zt00Q=
 -----END PRIVATE KEY-----";
 
+    fn create_test_key_file() -> tempfile::NamedTempFile {
+        use std::io::Write;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(TEST_KEY.as_bytes()).unwrap();
+        file
+    }
+
     #[test]
     fn test_endpoints_from_base_url() {
+        let key_file = create_test_key_file();
         let generator = OAuthTokenGenerator::new(
             "https://confluence.example.com",
             "consumer_key",
-            TEST_KEY.as_bytes(),
+            key_file.path(),
         )
         .unwrap();
 
@@ -310,10 +319,11 @@ PmtLs+m8nwD5m6Eay2zt00Q=
 
     #[test]
     fn test_endpoints_strips_trailing_slash() {
+        let key_file = create_test_key_file();
         let generator = OAuthTokenGenerator::new(
             "https://confluence.example.com/",
             "consumer_key",
-            TEST_KEY.as_bytes(),
+            key_file.path(),
         )
         .unwrap();
 
@@ -322,10 +332,11 @@ PmtLs+m8nwD5m6Eay2zt00Q=
 
     #[test]
     fn test_authorization_url() {
+        let key_file = create_test_key_file();
         let generator = OAuthTokenGenerator::new(
             "https://confluence.example.com",
             "consumer_key",
-            TEST_KEY.as_bytes(),
+            key_file.path(),
         )
         .unwrap();
 

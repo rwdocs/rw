@@ -133,6 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Optimized cache lookup in `post_process_inline`** by consuming the prepared diagrams iterator and constructing `DiagramKey` directly for cache hits; eliminates unnecessary `CacheInfo` allocation and string clone for cached diagrams
 - **Added capacity hint for `Replacements` HashMap** in `DiagramProcessor`; pre-allocates based on diagram count to reduce rehashing
 - **Reduced `docstage-confluence` public API**; internal types now private: `ConfluenceBackend`, `PageRenderer`, `TreeNode`, `PreserveResult`, `preserve_comments()`, `OAuth1Auth`, `types::*` re-exports; consumers use `ConfluenceClient::from_config()` and `PageUpdater` instead of internal implementation details
+- **`ConfluenceClient::from_config()` and `OAuthTokenGenerator::new()` now take key file path** instead of key bytes; file I/O moved from CLI to library; removes `oauth::read_private_key` from public API
 
 ### Removed
 
