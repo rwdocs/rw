@@ -35,8 +35,7 @@ mod state;
 mod util;
 
 pub use backend::RenderBackend;
-pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult, parse_fence_info};
+pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use html::HtmlBackend;
 pub use renderer::{MarkdownRenderer, RenderResult};
-pub use state::{TocEntry, escape_html, slugify};
-pub use util::heading_level_to_num;
+pub use state::{TocEntry, escape_html};

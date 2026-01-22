@@ -9,7 +9,7 @@ use pulldown_cmark::Alignment;
 
 /// State for tracking code block rendering.
 #[derive(Default)]
-pub struct CodeBlockState {
+pub(crate) struct CodeBlockState {
     /// Whether we're inside a code block.
     active: bool,
     /// Language of current code block (e.g., "rust", "python").
@@ -50,7 +50,7 @@ impl CodeBlockState {
 
 /// State for tracking table rendering.
 #[derive(Default)]
-pub struct TableState {
+pub(crate) struct TableState {
     /// Whether we're inside the table header row.
     in_head: bool,
     /// Column alignments for current table.
@@ -106,7 +106,7 @@ impl TableState {
 
 /// State for tracking image alt text capture.
 #[derive(Default)]
-pub struct ImageState {
+pub(crate) struct ImageState {
     /// Whether we're inside an image tag.
     active: bool,
     /// Buffer for alt text.
@@ -151,7 +151,7 @@ pub struct TocEntry {
 
 /// State for tracking heading and title extraction.
 #[allow(clippy::struct_excessive_bools)]
-pub struct HeadingState {
+pub(crate) struct HeadingState {
     /// Whether to extract title from first H1.
     extract_title: bool,
     /// Whether to skip first H1 in output (Confluence mode).
@@ -319,7 +319,7 @@ impl HeadingState {
 /// Converts to lowercase, replaces whitespace/dashes/underscores with single dashes,
 /// and removes other non-alphanumeric characters.
 #[must_use]
-pub fn slugify(text: &str) -> String {
+fn slugify(text: &str) -> String {
     let mut result = String::new();
     let mut last_was_dash = true; // Prevents leading dash
 
