@@ -16,6 +16,7 @@ docstage-core = { path = "crates/docstage-core" }
 docstage-diagrams = { path = "crates/docstage-diagrams" }
 docstage-renderer = { path = "crates/docstage-renderer" }
 docstage-server = { path = "crates/docstage-server" }
+docstage-site = { path = "crates/docstage-site" }
 
 # External dependencies
 base64 = "0.22"

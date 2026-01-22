@@ -550,10 +550,6 @@ dependencies = [
  "docstage-diagrams",
  "docstage-renderer",
  "pretty_assertions",
- "pulldown-cmark",
- "regex",
- "serde",
- "serde_json",
  "tempfile",
  "thiserror",
  "tracing",
@@ -589,8 +585,8 @@ dependencies = [
  "axum",
  "chrono",
  "docstage-config",
- "docstage-core",
  "docstage-renderer",
+ "docstage-site",
  "glob",
  "hex",
  "md-5",
@@ -606,6 +602,19 @@ dependencies = [
  "tokio-test",
  "tower",
  "tower-http",
+ "tracing",
+]
+
+[[package]]
+name = "docstage-site"
+version = "0.1.0"
+dependencies = [
+ "docstage-diagrams",
+ "docstage-renderer",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tracing",
 ]
 

@@ -100,7 +100,7 @@ impl Default for PageRendererConfig {
 ///
 /// ```ignore
 /// use std::path::PathBuf;
-/// use docstage_core::{PageRenderer, PageRendererConfig};
+/// use docstage_site::{PageRenderer, PageRendererConfig};
 ///
 /// let config = PageRendererConfig {
 ///     cache_dir: Some(PathBuf::from(".cache")),

@@ -69,7 +69,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
-use docstage_core::{PageRenderer, PageRendererConfig, SiteLoader, SiteLoaderConfig};
+use docstage_site::{PageRenderer, PageRendererConfig, SiteLoader, SiteLoaderConfig};
 use tokio::sync::broadcast;
 
 pub use error::ServerError;

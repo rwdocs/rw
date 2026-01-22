@@ -10,7 +10,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 
-use docstage_core::SiteLoader;
+use docstage_site::SiteLoader;
 
 /// Event sent to connected WebSocket clients when files change.
 #[derive(Clone, Debug, Serialize)]

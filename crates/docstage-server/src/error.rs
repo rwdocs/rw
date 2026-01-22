@@ -17,9 +17,9 @@ pub enum ServerError {
     #[error("File not found: {0}")]
     FileNotFound(PathBuf),
 
-    /// Render error from docstage-core.
+    /// Render error from docstage-site.
     #[error("Render error: {0}")]
-    Render(#[from] docstage_core::RenderError),
+    Render(#[from] docstage_site::RenderError),
 
     /// I/O error.
     #[error("I/O error: {0}")]

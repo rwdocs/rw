@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use docstage_core::{NavItem, build_navigation};
+use docstage_site::{NavItem, build_navigation};
 use serde::Serialize;
 
 use crate::state::AppState;
@@ -29,7 +29,7 @@ pub async fn get_navigation(State(state): State<Arc<AppState>>) -> Json<Navigati
 #[cfg(test)]
 mod tests {
     use super::*;
-    use docstage_core::NavItem;
+    use docstage_site::NavItem;
 
     #[test]
     fn test_navigation_response_serialization() {

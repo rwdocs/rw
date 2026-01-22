@@ -1,6 +1,6 @@
 [package]
 name = "docstage-core"
-description = "High-performance markdown renderer for Docstage"
+description = "Confluence integration for Docstage"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,11 +10,8 @@ license.workspace = true
 docstage-config = { workspace = true }
 docstage-confluence = { workspace = true }
 docstage-diagrams = { workspace = true }
-docstage-renderer = { workspace = true, features = ["serde"] }
-pulldown-cmark = { workspace = true }
-regex = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+docstage-renderer = { workspace = true }
+
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

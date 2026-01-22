@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`docstage-site` crate** for site structure and page rendering; extracted from `docstage-core` for clearer separation of concerns (site/page management vs Confluence functionality)
+
 - **`RenderResult::warnings` field** in `docstage-renderer` for automatic warnings collection from processors; eliminates manual `renderer.processor_warnings()` calls
 - **`MarkdownRenderer::with_gfm(bool)`** builder method to enable/disable GitHub Flavored Markdown features (tables, strikethrough, task lists)
 - **`MarkdownRenderer::parser_options()`** method to get configured `pulldown_cmark::Options` based on GFM settings
@@ -67,6 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Extracted site-related code from `docstage-core` to `docstage-site`**; `docstage-server` now depends on `docstage-site` instead of `docstage-core`; cleaner separation between site management (HTML rendering) and Confluence functionality
+- **`docstage-core` now focuses on Confluence integration only**; renamed from "High-performance markdown renderer for Docstage" to "Confluence integration for Docstage"
+- **Import path changes** for site-related types: `docstage_core::{Site, SiteBuilder, SiteLoader, NavItem, PageRenderer}` → `docstage_site::{...}`
 - **`PageRenderer` now uses `MarkdownRenderer` directly** instead of going through `MarkdownConverter`; eliminates unnecessary abstraction layer (`PageRenderer` → `MarkdownConverter` → `MarkdownRenderer` reduced to `PageRenderer` → `MarkdownRenderer`)
 - **`MarkdownConverter` now uses renderer's GFM config** via `MarkdownRenderer::with_gfm()` instead of internal `get_parser_options()` method; removes duplicated parser configuration
 - **`MarkdownConverter` methods now use `RenderResult`** directly from renderer instead of creating separate result types; `convert()`, `convert_html()`, `convert_html_with_diagrams()`, and `convert_html_with_diagrams_cached()` all return `RenderResult`

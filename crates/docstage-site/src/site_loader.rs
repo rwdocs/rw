@@ -15,7 +15,7 @@
 //!
 //! ```ignore
 //! use std::path::PathBuf;
-//! use docstage_core::site_loader::{SiteLoader, SiteLoaderConfig};
+//! use docstage_site::site_loader::{SiteLoader, SiteLoaderConfig};
 //!
 //! let config = SiteLoaderConfig {
 //!     source_dir: PathBuf::from("docs"),
