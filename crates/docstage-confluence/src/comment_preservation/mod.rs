@@ -33,8 +33,6 @@ mod serializer;
 mod transfer;
 mod tree;
 
-pub use tree::TreeNode;
-
 use matcher::TreeMatcher;
 use parser::ConfluenceXmlParser;
 use serializer::ConfluenceXmlSerializer;

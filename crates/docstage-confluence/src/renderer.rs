@@ -79,13 +79,6 @@ impl PageRenderer {
         }
     }
 
-    /// Enable or disable GitHub Flavored Markdown features.
-    #[must_use]
-    pub fn gfm(mut self, enabled: bool) -> Self {
-        self.gfm = enabled;
-        self
-    }
-
     /// Enable or disable prepending a table of contents macro.
     #[must_use]
     pub fn prepend_toc(mut self, enabled: bool) -> Self {

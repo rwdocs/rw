@@ -26,7 +26,7 @@ pub struct ConfluenceClient {
 
 impl ConfluenceClient {
     /// Create client with OAuth 1.0 authentication.
-    pub fn new(base_url: &str, auth: OAuth1Auth) -> Self {
+    fn new(base_url: &str, auth: OAuth1Auth) -> Self {
         let agent = Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(DEFAULT_TIMEOUT)))
             .http_status_as_error(false)

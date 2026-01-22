@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use super::Body;
+use super::page::Body;
 
 /// Confluence comment.
 #[derive(Debug, Clone, Deserialize)]

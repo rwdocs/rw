@@ -6,10 +6,10 @@
 //! # Example
 //!
 //! ```ignore
-//! use docstage_confluence::oauth::{OAuth1Auth, read_private_key};
+//! use docstage_confluence::oauth::read_private_key;
 //!
 //! let key = read_private_key("private_key.pem")?;
-//! let auth = OAuth1Auth::new("consumer_key", &key, "access_token", "access_secret")?;
+//! // Use ConfluenceClient::from_config() which handles OAuth internally
 //! ```
 
 mod key;
@@ -20,12 +20,12 @@ pub use key::read_private_key;
 pub use token_generator::{AccessToken, OAuthTokenGenerator, RequestToken};
 
 use rsa::RsaPrivateKey;
-use ureq::http::{Request, Uri};
+use ureq::http::Uri;
 
 use crate::error::ConfluenceError;
 use signature::create_authorization_header;
 
-/// OAuth 1.0 RSA-SHA1 authentication.
+/// OAuth 1.0 RSA-SHA1 authentication (internal use only).
 pub struct OAuth1Auth {
     consumer_key: String,
     private_key: RsaPrivateKey,
@@ -91,18 +91,5 @@ impl OAuth1Auth {
             &self.access_token,
             &self.private_key,
         )
-    }
-
-    /// Create signed request builder with Authorization header.
-    pub fn sign_request<B>(&self, request: Request<B>) -> Request<B> {
-        let method = request.method().as_str();
-        let uri = request.uri().clone();
-        let auth_header = self.sign(method, &uri);
-
-        let (mut parts, body) = request.into_parts();
-        parts
-            .headers
-            .insert("Authorization", auth_header.parse().unwrap());
-        Request::from_parts(parts, body)
     }
 }

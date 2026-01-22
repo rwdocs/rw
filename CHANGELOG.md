@@ -10,14 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`docstage-site` crate** for site structure and page rendering; extracted from `docstage-core` for clearer separation of concerns (site/page management vs Confluence functionality)
-- **`PageRenderer` in `docstage-confluence`** for rendering markdown to Confluence XHTML storage format with diagram support; replaces `MarkdownConverter` from `docstage-core`
+- **Internal `PageRenderer` in `docstage-confluence`** for rendering markdown to Confluence XHTML storage format with diagram support; used by `PageUpdater`
 
 - **`RenderResult::warnings` field** in `docstage-renderer` for automatic warnings collection from processors; eliminates manual `renderer.processor_warnings()` calls
 - **`MarkdownRenderer::with_gfm(bool)`** builder method to enable/disable GitHub Flavored Markdown features (tables, strikethrough, task lists)
 - **`MarkdownRenderer::parser_options()`** method to get configured `pulldown_cmark::Options` based on GFM settings
 - **`MarkdownRenderer::create_parser(&str)`** method to create a configured parser for markdown text
 - **`MarkdownRenderer::render_markdown(&str)`** convenience method that creates parser internally and renders markdown
-- **`RenderResult` re-exported from `docstage-confluence`** for consumers who don't want to depend on `docstage-renderer` directly
 - **Native Rust CLI** (`crates/docstage/`) replacing the Python CLI entirely; single binary with no Python runtime dependency
 - **`docstage serve` command** in Rust CLI; starts documentation server with live reload, identical options to Python CLI (`--config`, `--source-dir`, `--host`, `--port`, `--kroki-url`, `--verbose`, `--live-reload/--no-live-reload`, `--cache/--no-cache`)
 - **`docstage confluence update` command** in Rust CLI; updates Confluence pages from markdown with full feature parity (`--message`, `--kroki-url`, `--extract-title/--no-extract-title`, `--dry-run`, `--key-file`)
@@ -133,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HTTP agent reuse for connection pooling** in `docstage-diagrams`; the `ureq::Agent` is now stored in `ProcessorConfig` and reused across render calls instead of creating a new agent per call, enabling HTTP connection pooling for improved performance
 - **Optimized cache lookup in `post_process_inline`** by consuming the prepared diagrams iterator and constructing `DiagramKey` directly for cache hits; eliminates unnecessary `CacheInfo` allocation and string clone for cached diagrams
 - **Added capacity hint for `Replacements` HashMap** in `DiagramProcessor`; pre-allocates based on diagram count to reduce rehashing
+- **Reduced `docstage-confluence` public API**; internal types now private: `ConfluenceBackend`, `PageRenderer`, `TreeNode`, `PreserveResult`, `preserve_comments()`, `OAuth1Auth`, `types::*` re-exports; consumers use `ConfluenceClient::from_config()` and `PageUpdater` instead of internal implementation details
 
 ### Removed
 

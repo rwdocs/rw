@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use docstage_config::Config;
-use docstage_confluence::{OAuthTokenGenerator, oauth};
+use docstage_confluence::oauth::{self, OAuthTokenGenerator};
 
 use crate::error::CliError;
 use crate::output::Output;

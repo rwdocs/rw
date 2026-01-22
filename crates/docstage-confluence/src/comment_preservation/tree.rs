@@ -51,7 +51,8 @@ impl TreeNode {
         self
     }
 
-    /// Set children.
+    /// Set children (used in tests).
+    #[allow(dead_code)]
     #[must_use]
     pub fn with_children(mut self, children: Vec<TreeNode>) -> Self {
         self.children = children;
