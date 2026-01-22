@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`MarkdownConverter` methods now use `RenderResult`** directly from renderer instead of creating separate result types; `convert()`, `convert_html()`, `convert_html_with_diagrams()`, and `convert_html_with_diagrams_cached()` all return `RenderResult`
 - **`MarkdownRenderer::render()` now includes warnings** in the returned `RenderResult`; consumers no longer need to manually call `renderer.processor_warnings()`
 - **Removed `MarkdownConverter::get_parser_options()`** method; parser configuration moved to `MarkdownRenderer`
+- **Merged `convert_html_with_diagrams_cached` into `convert_html_with_diagrams`**; the method now takes an optional `cache_dir` parameter
 - **CLI replaced with native Rust binary**; no longer requires Python runtime or `uv run` command; run directly via `./target/debug/docstage` or `cargo install --path crates/docstage`
 - **Removed Python CLI package** (`packages/docstage/`); all CLI functionality is now in `crates/docstage/`
 - **Removed PyO3 bindings package** (`packages/docstage-core/`); no longer needed since CLI is pure Rust
@@ -130,6 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`MarkdownConverter::convert_html_with_diagrams_cached()`**; merged into `convert_html_with_diagrams()` which now takes an optional `cache_dir` parameter
 - **Python CLI package** (`packages/docstage/`); replaced by native Rust CLI in `crates/docstage/`
 - **PyO3 bindings package** (`packages/docstage-core/`); no longer needed
 - **Python tooling**: `pyproject.toml`, `uv.lock`, `.python-version`

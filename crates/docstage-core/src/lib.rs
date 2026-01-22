@@ -60,7 +60,9 @@
 //! let result = converter.convert_html_with_diagrams(
 //!     "```mermaid\ngraph TD\n  A --> B\n```",
 //!     "https://kroki.io",
-//! )?;
+//!     None,  // cache_dir
+//!     None,  // base_path
+//! );
 //! // Result contains inline SVG diagrams
 //! ```
 
