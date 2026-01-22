@@ -8,17 +8,12 @@ use rsa::pkcs8::DecodePrivateKey;
 
 use crate::error::ConfluenceError;
 
-/// Read RSA private key from PEM file.
-pub fn read_private_key(path: impl AsRef<Path>) -> Result<Vec<u8>, ConfluenceError> {
-    let path = path.as_ref();
+/// Load RSA private key from file path.
+pub fn load_private_key_from_file(path: &Path) -> Result<RsaPrivateKey, ConfluenceError> {
     let data = std::fs::read(path).map_err(|e| {
         ConfluenceError::RsaKey(format!("Failed to read key file {}: {e}", path.display()))
     })?;
-
-    // Validate the key can be parsed
-    load_private_key(&data)?;
-
-    Ok(data)
+    load_private_key(&data)
 }
 
 /// Load RSA private key from PEM bytes (auto-detects format).

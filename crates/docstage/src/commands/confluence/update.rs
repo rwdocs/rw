@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 use docstage_config::{CliSettings, Config, ConfluenceConfig};
 use docstage_confluence::updater::{DryRunResult, PageUpdater, UpdateConfig, UpdateResult};
-use docstage_confluence::{ConfluenceClient, oauth};
+use docstage_confluence::ConfluenceClient;
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -116,11 +116,10 @@ fn create_confluence_client(
     conf_config: &ConfluenceConfig,
     key_file: &Path,
 ) -> Result<ConfluenceClient, CliError> {
-    let private_key = oauth::read_private_key(key_file)?;
     let client = ConfluenceClient::from_config(
         &conf_config.base_url,
         &conf_config.consumer_key,
-        &private_key,
+        key_file,
         &conf_config.access_token,
         &conf_config.access_secret,
     )?;

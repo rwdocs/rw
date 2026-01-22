@@ -7,11 +7,13 @@ mod attachments;
 mod comments;
 mod pages;
 
+use std::path::Path;
 use std::time::Duration;
 
 use ureq::Agent;
 
 use crate::error::ConfluenceError;
+use crate::oauth::key::load_private_key_from_file;
 use crate::oauth::OAuth1Auth;
 
 /// Default HTTP timeout in seconds.
@@ -25,31 +27,34 @@ pub struct ConfluenceClient {
 }
 
 impl ConfluenceClient {
-    /// Create client with OAuth 1.0 authentication.
-    fn new(base_url: &str, auth: OAuth1Auth) -> Self {
+    /// Create client from config values.
+    ///
+    /// # Arguments
+    /// * `base_url` - Confluence server base URL
+    /// * `consumer_key` - OAuth consumer key
+    /// * `key_file` - Path to RSA private key file (PEM format)
+    /// * `access_token` - OAuth access token
+    /// * `access_secret` - OAuth access token secret
+    pub fn from_config(
+        base_url: &str,
+        consumer_key: &str,
+        key_file: &Path,
+        access_token: &str,
+        _access_secret: &str,
+    ) -> Result<Self, ConfluenceError> {
+        let private_key = load_private_key_from_file(key_file)?;
+
         let agent = Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(DEFAULT_TIMEOUT)))
             .http_status_as_error(false)
             .build()
             .into();
 
-        Self {
+        Ok(Self {
             agent,
             base_url: base_url.trim_end_matches('/').to_string(),
-            auth,
-        }
-    }
-
-    /// Create client from config values (convenience constructor).
-    pub fn from_config(
-        base_url: &str,
-        consumer_key: &str,
-        private_key: &[u8],
-        access_token: &str,
-        access_secret: &str,
-    ) -> Result<Self, ConfluenceError> {
-        let auth = OAuth1Auth::new(consumer_key, private_key, access_token, access_secret)?;
-        Ok(Self::new(base_url, auth))
+            auth: OAuth1Auth::new(consumer_key, private_key, access_token),
+        })
     }
 
     /// Get the API base URL.

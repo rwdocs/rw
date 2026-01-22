@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use docstage_config::Config;
-use docstage_confluence::oauth::{self, OAuthTokenGenerator};
+use docstage_confluence::oauth::OAuthTokenGenerator;
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -57,16 +57,13 @@ impl GenerateTokensArgs {
             return Err(CliError::Validation("base_url required".to_string()));
         };
 
-        // Read private key
+        // Create generator (reads private key internally)
         output.info(&format!(
             "Reading private key from {}...",
             self.private_key.display()
         ));
-        let key_bytes = oauth::read_private_key(&self.private_key)?;
-
-        // Create generator
         let generator =
-            OAuthTokenGenerator::new(&effective_base_url, &effective_consumer_key, &key_bytes)?;
+            OAuthTokenGenerator::new(&effective_base_url, &effective_consumer_key, &self.private_key)?;
 
         // Step 1: Get request token
         output.info("\nStep 1: Requesting temporary credentials...");

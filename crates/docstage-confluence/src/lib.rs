@@ -7,13 +7,13 @@
 //! # API Client
 //!
 //! ```ignore
-//! use docstage_confluence::{ConfluenceClient, oauth};
+//! use std::path::Path;
+//! use docstage_confluence::ConfluenceClient;
 //!
-//! let key = oauth::read_private_key("private_key.pem")?;
 //! let client = ConfluenceClient::from_config(
 //!     "https://confluence.example.com",
 //!     "consumer_key",
-//!     &key,
+//!     Path::new("private_key.pem"),
 //!     "access_token",
 //!     "access_secret",
 //! )?;
