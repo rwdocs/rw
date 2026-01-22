@@ -29,22 +29,8 @@ pub struct CliSettings {
     pub live_reload_enabled: Option<bool>,
 }
 
-impl CliSettings {
-    /// Check if all override fields are None (no overrides specified).
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.host.is_none()
-            && self.port.is_none()
-            && self.source_dir.is_none()
-            && self.cache_dir.is_none()
-            && self.cache_enabled.is_none()
-            && self.kroki_url.is_none()
-            && self.live_reload_enabled.is_none()
-    }
-}
-
 /// Configuration filename to search for.
-pub const CONFIG_FILENAME: &str = "docstage.toml";
+const CONFIG_FILENAME: &str = "docstage.toml";
 
 /// Application configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -173,19 +159,10 @@ pub struct ConfluenceConfig {
     /// OAuth consumer key.
     #[serde(default = "default_consumer_key")]
     pub consumer_key: String,
-    /// Test configuration.
-    pub test: Option<ConfluenceTestConfig>,
 }
 
 fn default_consumer_key() -> String {
     "docstage".to_string()
-}
-
-/// Confluence test configuration.
-#[derive(Debug, Clone, Deserialize)]
-pub struct ConfluenceTestConfig {
-    /// Space key for testing.
-    pub space_key: String,
 }
 
 /// Configuration error.
@@ -286,8 +263,7 @@ impl Config {
     }
 
     /// Search for config file in current directory and parents.
-    #[must_use]
-    pub fn discover_config() -> Option<PathBuf> {
+    fn discover_config() -> Option<PathBuf> {
         let mut current = std::env::current_dir().ok()?;
         loop {
             let candidate = current.join(CONFIG_FILENAME);
@@ -301,15 +277,13 @@ impl Config {
     }
 
     /// Create default config with paths relative to current working directory.
-    #[must_use]
-    pub fn default_with_cwd() -> Self {
+    fn default_with_cwd() -> Self {
         let cwd = std::env::current_dir().unwrap_or_default();
         Self::default_with_base(&cwd)
     }
 
     /// Create default config with paths relative to given base directory.
-    #[must_use]
-    pub fn default_with_base(base: &Path) -> Self {
+    fn default_with_base(base: &Path) -> Self {
         Self {
             server: ServerConfig::default(),
             docs: DocsConfigRaw::default(),
@@ -381,11 +355,6 @@ impl Config {
         Ok(())
     }
 
-    /// Get the confluence test config if present.
-    #[must_use]
-    pub fn confluence_test(&self) -> Option<&ConfluenceTestConfig> {
-        self.confluence.as_ref()?.test.as_ref()
-    }
 }
 
 #[cfg(test)]
@@ -435,9 +404,6 @@ base_url = "https://confluence.example.com"
 access_token = "token123"
 access_secret = "secret456"
 consumer_key = "myapp"
-
-[confluence.test]
-space_key = "DOCS"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         let confluence = config.confluence.unwrap();
@@ -445,7 +411,6 @@ space_key = "DOCS"
         assert_eq!(confluence.access_token, "token123");
         assert_eq!(confluence.access_secret, "secret456");
         assert_eq!(confluence.consumer_key, "myapp");
-        assert_eq!(confluence.test.unwrap().space_key, "DOCS");
     }
 
     #[test]
@@ -663,32 +628,4 @@ source_dir = "documentation"
         );
     }
 
-    #[test]
-    fn test_cli_settings_is_empty() {
-        assert!(CliSettings::default().is_empty());
-
-        assert!(
-            !CliSettings {
-                host: Some("0.0.0.0".to_string()),
-                ..Default::default()
-            }
-            .is_empty()
-        );
-
-        assert!(
-            !CliSettings {
-                port: Some(9000),
-                ..Default::default()
-            }
-            .is_empty()
-        );
-
-        assert!(
-            !CliSettings {
-                live_reload_enabled: Some(false),
-                ..Default::default()
-            }
-            .is_empty()
-        );
-    }
 }
