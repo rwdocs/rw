@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+docstage-config = { workspace = true }
 docstage-confluence = { workspace = true }
 docstage-diagrams = { workspace = true }
 docstage-renderer = { workspace = true, features = ["serde"] }
@@ -14,8 +15,9 @@ pulldown-cmark = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
-tempfile = { workspace = true }

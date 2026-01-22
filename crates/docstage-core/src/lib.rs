@@ -72,6 +72,7 @@ mod page_renderer;
 pub mod site;
 mod site_cache;
 pub mod site_loader;
+pub mod updater;
 
 pub use converter::{ConvertResult, HtmlConvertResult, MarkdownConverter};
 pub use navigation::{NavItem, build_navigation};

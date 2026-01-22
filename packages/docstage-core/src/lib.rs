@@ -1578,6 +1578,163 @@ impl PyConfluenceClient {
                 .map_err(confluence_error_to_py)
         })
     }
+
+    /// Update a Confluence page from markdown content.
+    ///
+    /// This method performs the entire update workflow in a single call:
+    /// 1. Converts markdown to Confluence storage format
+    /// 2. Fetches current page content
+    /// 3. Preserves inline comments from current page
+    /// 4. Uploads diagram attachments
+    /// 5. Updates the page with new content
+    ///
+    /// Args:
+    ///     page_id: Page ID to update
+    ///     markdown_text: Markdown content
+    ///     diagrams: Diagram rendering configuration
+    ///     extract_title: Whether to extract title from first H1 heading
+    ///     message: Optional version message
+    ///
+    /// Returns:
+    ///     UpdateResult with page info, URL, and comment status
+    #[pyo3(signature = (page_id, markdown_text, diagrams, extract_title = true, message = None))]
+    pub fn update_page_from_markdown(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+        markdown_text: &str,
+        diagrams: &PyDiagramsConfig,
+        extract_title: bool,
+        message: Option<&str>,
+    ) -> PyResult<PyUpdateResult> {
+        let config = ::docstage_core::updater::UpdateConfig {
+            diagrams: diagrams.into(),
+            extract_title,
+        };
+        py.allow_threads(|| {
+            let updater = ::docstage_core::updater::PageUpdater::new(&self.inner, config);
+            updater
+                .update(page_id, markdown_text, message)
+                .map(Into::into)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Perform a dry-run update (no changes made).
+    ///
+    /// Returns information about what would change without
+    /// actually updating the page or uploading attachments.
+    ///
+    /// Args:
+    ///     page_id: Page ID to check
+    ///     markdown_text: Markdown content
+    ///     diagrams: Diagram rendering configuration
+    ///     extract_title: Whether to extract title from first H1 heading
+    ///
+    /// Returns:
+    ///     DryRunResult with preview of changes
+    #[pyo3(signature = (page_id, markdown_text, diagrams, extract_title = true))]
+    pub fn dry_run_update(
+        &self,
+        py: Python<'_>,
+        page_id: &str,
+        markdown_text: &str,
+        diagrams: &PyDiagramsConfig,
+        extract_title: bool,
+    ) -> PyResult<PyDryRunResult> {
+        let config = ::docstage_core::updater::UpdateConfig {
+            diagrams: diagrams.into(),
+            extract_title,
+        };
+        py.allow_threads(|| {
+            let updater = ::docstage_core::updater::PageUpdater::new(&self.inner, config);
+            updater
+                .dry_run(page_id, markdown_text)
+                .map(Into::into)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+}
+
+// ============================================================================
+// Page Updater bindings
+// ============================================================================
+
+impl From<&PyDiagramsConfig> for ::docstage_config::DiagramsConfig {
+    fn from(c: &PyDiagramsConfig) -> Self {
+        Self {
+            kroki_url: c.kroki_url.clone(),
+            include_dirs: c.include_dirs.clone(),
+            config_file: c.config_file.clone(),
+            dpi: c.dpi,
+        }
+    }
+}
+
+/// Result of updating a Confluence page.
+#[pyclass(name = "UpdateResult")]
+pub struct PyUpdateResult {
+    #[pyo3(get)]
+    pub page: PyConfluencePage,
+    #[pyo3(get)]
+    pub url: String,
+    #[pyo3(get)]
+    pub comment_count: usize,
+    #[pyo3(get)]
+    pub unmatched_comments: Vec<PyUnmatchedComment>,
+    #[pyo3(get)]
+    pub attachments_uploaded: usize,
+    #[pyo3(get)]
+    pub warnings: Vec<String>,
+}
+
+impl From<::docstage_core::updater::UpdateResult> for PyUpdateResult {
+    fn from(r: ::docstage_core::updater::UpdateResult) -> Self {
+        Self {
+            page: r.page.into(),
+            url: r.url,
+            comment_count: r.comment_count,
+            unmatched_comments: r.unmatched_comments.into_iter().map(Into::into).collect(),
+            attachments_uploaded: r.attachments_uploaded,
+            warnings: r.warnings,
+        }
+    }
+}
+
+/// Result of dry-run update operation.
+#[pyclass(name = "DryRunResult")]
+pub struct PyDryRunResult {
+    #[pyo3(get)]
+    pub html: String,
+    #[pyo3(get)]
+    pub title: Option<String>,
+    #[pyo3(get)]
+    pub current_title: String,
+    #[pyo3(get)]
+    pub current_version: u32,
+    #[pyo3(get)]
+    pub unmatched_comments: Vec<PyUnmatchedComment>,
+    #[pyo3(get)]
+    pub attachment_count: usize,
+    #[pyo3(get)]
+    pub attachment_names: Vec<String>,
+    #[pyo3(get)]
+    pub warnings: Vec<String>,
+}
+
+impl From<::docstage_core::updater::DryRunResult> for PyDryRunResult {
+    fn from(r: ::docstage_core::updater::DryRunResult) -> Self {
+        Self {
+            html: r.html,
+            title: r.title,
+            current_title: r.current_title,
+            current_version: r.current_version,
+            unmatched_comments: r.unmatched_comments.into_iter().map(Into::into).collect(),
+            attachment_count: r.attachment_count,
+            attachment_names: r.attachment_names,
+            warnings: r.warnings,
+        }
+    }
 }
 
 /// Read RSA private key from PEM file.
@@ -1654,6 +1811,10 @@ pub fn docstage_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConfluenceAttachmentsResponse>()?;
     m.add_class::<PyConfluenceClient>()?;
     m.add_function(wrap_pyfunction!(py_read_private_key, m)?)?;
+
+    // Page Updater classes
+    m.add_class::<PyUpdateResult>()?;
+    m.add_class::<PyDryRunResult>()?;
 
     Ok(())
 }

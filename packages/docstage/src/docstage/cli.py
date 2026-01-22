@@ -4,12 +4,11 @@ Command-line tool for converting markdown to Confluence pages.
 """
 
 import sys
-import tempfile
 from pathlib import Path
 from typing import cast
 
 import click
-from docstage_core import ConfluenceClient, read_private_key
+from docstage_core import ConfluenceClient, DryRunResult, UpdateResult, read_private_key
 from docstage_core.config import CliSettings, Config, ConfluenceConfig
 
 
@@ -173,84 +172,28 @@ def update(
     key_file: Path,
 ) -> None:
     """Update a Confluence page from a markdown file."""
-    from docstage_core import MarkdownConverter, preserve_comments
-
     try:
-        config = Config.load(config_path)
+        cli_settings = CliSettings(kroki_url=kroki_url)
+        config = Config.load(config_path, cli_settings)
         conf_config = _require_confluence_config(config)
         confluence_client = _create_confluence_client(conf_config, key_file)
-        effective_kroki_url = _require_kroki_url(kroki_url, config)
 
-        diagrams_config = config.diagrams
-        click.echo(f"Converting {markdown_file}...")
-        converter = MarkdownConverter(
-            prepend_toc=True,
-            extract_title=extract_title,
-            include_dirs=diagrams_config.include_dirs,
-            config_file=diagrams_config.config_file,
-            dpi=diagrams_config.dpi,
-        )
         markdown_text = markdown_file.read_text(encoding="utf-8")
+        click.echo(f"Converting {markdown_file}...")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
-            result = converter.convert(markdown_text, effective_kroki_url, tmpdir_path)
-            new_html = result.html
-            attachments = _collect_diagram_attachments(tmpdir_path)
-
-            if result.title:
-                click.echo(f"Title: {result.title}")
-
-            click.echo(f"Fetching current page {page_id}...")
-            current_page = confluence_client.get_page(
-                page_id,
-                expand=["body.storage", "version"],
+        if dry_run:
+            result = confluence_client.dry_run_update(
+                page_id, markdown_text, config.diagrams, extract_title
             )
-            current_version = current_page.version
-            old_html = current_page.body or ""
-
-            title = result.title or current_page.title
-
-            click.echo("Preserving comment markers...")
-            preserve_result = preserve_comments(old_html, new_html)
-
-            if dry_run:
-                _print_dry_run_summary(preserve_result.unmatched_comments)
-                return
-
-            _upload_attachments(confluence_client, page_id, attachments)
-
-            click.echo(
-                f'Updating page "{title}" from version {current_version} to {current_version + 1}...',
+            _print_dry_run_result(result)
+        else:
+            result = confluence_client.update_page_from_markdown(
+                page_id, markdown_text, config.diagrams, extract_title, message
             )
-            updated_page = confluence_client.update_page(
-                page_id,
-                title,
-                preserve_result.html,
-                current_version,
-                message,
-            )
-
-            click.echo(
-                click.style("\nPage updated successfully!", fg="green", bold=True),
-            )
-            click.echo(f"ID: {updated_page.id}")
-            click.echo(f"Title: {updated_page.title}")
-            click.echo(f"Version: {updated_page.version}")
-
-            url = confluence_client.get_page_url(page_id)
-            click.echo(f"URL: {url}")
-
-            comments_response = confluence_client.get_comments(page_id)
-            click.echo(f"\nComments on page: {comments_response.size}")
-
-            _print_unmatched_comments_warning(preserve_result.unmatched_comments)
+            _print_update_result(result)
 
     except Exception as e:
         click.echo(click.style(f"Error: {e}", fg="red"), err=True)
-        import traceback
-
-        traceback.print_exc()
         sys.exit(1)
 
 
@@ -358,126 +301,54 @@ def _require_confluence_config(config: Config) -> ConfluenceConfig:
     return cast(ConfluenceConfig, config.confluence)  # narrowing after sys.exit
 
 
-def _require_kroki_url(kroki_url: str | None, config: Config) -> str:
-    """Get effective kroki_url or exit with error.
+def _print_dry_run_result(result: DryRunResult) -> None:
+    """Print dry run results."""
+    click.echo(click.style("\n[DRY RUN] No changes made.", fg="cyan", bold=True))
 
-    Args:
-        kroki_url: CLI-provided kroki_url (overrides config if set)
-        config: Application config
+    if result.title:
+        click.echo(f"Title: {result.title}")
+    click.echo(f'Current page: "{result.current_title}" (v{result.current_version})')
 
-    Returns:
-        Effective kroki_url
+    if result.attachment_count > 0:
+        click.echo(f"\nAttachments ({result.attachment_count}):")
+        for name in result.attachment_names:
+            click.echo(f"  -> {name}")
 
-    Raises:
-        SystemExit: If kroki_url is not provided
-    """
-    effective = kroki_url if kroki_url is not None else config.diagrams.kroki_url
-    if not effective:
+    if result.unmatched_comments:
         click.echo(
             click.style(
-                "Error: kroki_url required (via --kroki-url or config)",
-                fg="red",
-            ),
-            err=True,
-        )
-        sys.exit(1)
-    return cast(str, effective)  # narrowing after sys.exit
-
-
-def _collect_diagram_attachments(
-    output_dir: Path,
-    *,
-    verbose: bool = True,
-) -> list[tuple[str, bytes]]:
-    """Collect PNG diagram files from output directory.
-
-    Args:
-        output_dir: Directory containing rendered diagram files
-        verbose: If True, print each filename
-
-    Returns:
-        List of (filename, bytes) tuples
-    """
-    attachments: list[tuple[str, bytes]] = []
-    for filepath in sorted(output_dir.glob("*.png")):
-        attachments.append((filepath.name, filepath.read_bytes()))
-        if verbose:
-            click.echo(f"  -> {filepath.name}")
-    return attachments
-
-
-def _upload_attachments(
-    confluence: ConfluenceClient,
-    page_id: str,
-    attachments: list[tuple[str, bytes]],
-) -> None:
-    """Upload diagram attachments to a Confluence page.
-
-    Args:
-        confluence: Confluence API client
-        page_id: Target page ID
-        attachments: List of (filename, bytes) tuples to upload
-    """
-    if not attachments:
-        return
-
-    click.echo(f"Uploading {len(attachments)} attachments...")
-    for filename, image_data in attachments:
-        click.echo(f"  Uploading {filename}...")
-        confluence.upload_attachment(
-            page_id,
-            filename,
-            image_data,
-            "image/png",
-        )
-
-
-def _print_dry_run_summary(unmatched_comments: list) -> None:
-    """Print dry run summary showing comments that would be resolved.
-
-    Args:
-        unmatched_comments: List of UnmatchedComment objects
-    """
-    click.echo(
-        click.style(
-            "\n[DRY RUN] No changes made to Confluence.",
-            fg="cyan",
-            bold=True,
-        ),
-    )
-    if unmatched_comments:
-        click.echo(
-            click.style(
-                f"\nComments that would be resolved ({len(unmatched_comments)}):",
+                f"\nComments that would be resolved ({len(result.unmatched_comments)}):",
                 fg="yellow",
                 bold=True,
-            ),
+            )
         )
-        for comment in unmatched_comments:
+        for comment in result.unmatched_comments:
             click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
     else:
+        click.echo(click.style("\nNo comments would be resolved.", fg="green"))
+
+
+def _print_update_result(result: UpdateResult) -> None:
+    """Print update results."""
+    click.echo(click.style("\nPage updated successfully!", fg="green", bold=True))
+    click.echo(f"ID: {result.page.id}")
+    click.echo(f"Title: {result.page.title}")
+    click.echo(f"Version: {result.page.version}")
+    click.echo(f"URL: {result.url}")
+    click.echo(f"\nComments on page: {result.comment_count}")
+
+    if result.attachments_uploaded > 0:
+        click.echo(f"Attachments uploaded: {result.attachments_uploaded}")
+
+    if result.unmatched_comments:
         click.echo(
-            click.style("\nNo comments would be resolved.", fg="green"),
+            click.style(
+                f"\nWarning: {len(result.unmatched_comments)} comment(s) could not be placed:",
+                fg="yellow",
+            )
         )
-
-
-def _print_unmatched_comments_warning(unmatched_comments: list) -> None:
-    """Print warning about comments that could not be placed.
-
-    Args:
-        unmatched_comments: List of UnmatchedComment objects
-    """
-    if not unmatched_comments:
-        return
-
-    click.echo(
-        click.style(
-            f"\nWarning: {len(unmatched_comments)} comment(s) could not be placed:",
-            fg="yellow",
-        ),
-    )
-    for comment in unmatched_comments:
-        click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
+        for comment in result.unmatched_comments:
+            click.echo(f'  - [{comment.ref_id}] "{comment.text}"')
 
 
 def _create_confluence_client(

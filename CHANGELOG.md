@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust `PageUpdater`** in `docstage-core` crate for updating Confluence pages from markdown; encapsulates entire workflow (convert, fetch, preserve comments, upload attachments, update) in a single Rust call
+- **PyO3 bindings for page updater** via `update_page_from_markdown()` and `dry_run_update()` methods on `ConfluenceClient`; `UpdateResult` and `DryRunResult` classes for result types
 - **Rust `ConfluenceClient`** in `docstage-confluence` crate; synchronous HTTP client with OAuth 1.0 RSA-SHA1 authentication for Confluence REST API operations (pages, comments, attachments)
 - **Rust OAuth 1.0 RSA-SHA1 module** (`oauth/`) in `docstage-confluence` crate; implements signature generation per RFC 5849 with RSA-SHA1 signing
 - **RSA key loading** supporting both PKCS#1 (`-----BEGIN RSA PRIVATE KEY-----`) and PKCS#8 (`-----BEGIN PRIVATE KEY-----`) PEM formats
@@ -58,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Moved Confluence update workflow from Python to Rust**; `confluence update` command now uses single `update_page_from_markdown()` or `dry_run_update()` call instead of multiple PyO3 boundary crossings
+- **Simplified Python CLI `confluence update` command**; removed tempfile management, converter creation, and attachment collection from Python; all handled in Rust
 - **Moved Confluence client from Python to Rust**; all Confluence CLI commands now use synchronous Rust `ConfluenceClient` via PyO3 bindings instead of async Python `ConfluenceClient` with httpx
 - **Removed Python `ConfluenceClient` class** (`docstage.confluence.client`); use `docstage_core.ConfluenceClient` instead
 - **Removed Python `oauth` module** (`docstage.oauth`); OAuth 1.0 RSA-SHA1 authentication is now handled entirely in Rust; use `docstage_core.read_private_key()` for key loading
