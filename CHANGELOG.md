@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust `OAuthTokenGenerator`** in `docstage-confluence` crate for OAuth 1.0 three-legged flow; replaces `authlib` Python dependency with native Rust implementation
+- **PyO3 bindings for OAuth token generation** via `OAuthTokenGenerator`, `RequestToken`, and `AccessToken` classes; enables synchronous token generation from Python CLI
+- **`create_authorization_header_for_token_flow()`** in `oauth/signature.rs` for generating OAuth headers during token generation (supports optional `oauth_token`, `oauth_callback`, and `oauth_verifier` parameters)
 - **Rust `PageUpdater`** in `docstage-core` crate for updating Confluence pages from markdown; encapsulates entire workflow (convert, fetch, preserve comments, upload attachments, update) in a single Rust call
 - **PyO3 bindings for page updater** via `update_page_from_markdown()` and `dry_run_update()` methods on `ConfluenceClient`; `UpdateResult` and `DryRunResult` classes for result types
 - **Rust `ConfluenceClient`** in `docstage-confluence` crate; synchronous HTTP client with OAuth 1.0 RSA-SHA1 authentication for Confluence REST API operations (pages, comments, attachments)
@@ -60,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Moved OAuth token generation from Python to Rust**; `confluence generate-tokens` command now uses synchronous Rust `OAuthTokenGenerator` via PyO3 bindings instead of async Python `authlib` client
+- **Simplified `confluence generate-tokens` command**; removed `asyncio.run()` wrapper and `--port` option (unused with oob callback); three-step flow now uses Rust implementation
+- **Removed `authlib`, `httpx`, and `cryptography` dependencies** from Python package; OAuth token generation is now handled entirely in Rust
 - **Moved Confluence update workflow from Python to Rust**; `confluence update` command now uses single `update_page_from_markdown()` or `dry_run_update()` call instead of multiple PyO3 boundary crossings
 - **Simplified Python CLI `confluence update` command**; removed tempfile management, converter creation, and attachment collection from Python; all handled in Rust
 - **Moved Confluence client from Python to Rust**; all Confluence CLI commands now use synchronous Rust `ConfluenceClient` via PyO3 bindings instead of async Python `ConfluenceClient` with httpx
