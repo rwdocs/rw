@@ -3,8 +3,8 @@
 //! Provides file watching and WebSocket-based reload notifications
 //! to connected clients when source files change.
 
-pub mod manager;
+mod manager;
 mod websocket;
 
-pub use manager::{LiveReloadManager, ReloadEvent};
-pub use websocket::ws_handler;
+pub(crate) use manager::{LiveReloadManager, ReloadEvent};
+pub(crate) use websocket::ws_handler;

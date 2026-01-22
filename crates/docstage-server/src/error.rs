@@ -1,21 +1,15 @@
 //! Error types for the HTTP server.
 
-use std::path::PathBuf;
-
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
 /// Server error type.
 #[derive(Debug, thiserror::Error)]
-pub enum ServerError {
+pub(crate) enum ServerError {
     /// Page not found at the given path.
     #[error("Page not found: {0}")]
     PageNotFound(String),
-
-    /// File not found at the given path.
-    #[error("File not found: {0}")]
-    FileNotFound(PathBuf),
 
     /// Render error from docstage-site.
     #[error("Render error: {0}")]
@@ -32,10 +26,6 @@ impl IntoResponse for ServerError {
             Self::PageNotFound(path) => (
                 StatusCode::NOT_FOUND,
                 json!({"error": "Page not found", "path": path}),
-            ),
-            Self::FileNotFound(path) => (
-                StatusCode::NOT_FOUND,
-                json!({"error": "File not found", "path": path.display().to_string()}),
             ),
             Self::Render(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

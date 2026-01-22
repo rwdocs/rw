@@ -19,7 +19,7 @@ use crate::static_files;
 /// # Arguments
 ///
 /// * `state` - Shared application state
-pub fn create_router(state: Arc<AppState>) -> Router {
+pub(crate) fn create_router(state: Arc<AppState>) -> Router {
     // API routes
     let api_routes = Router::new()
         .route("/api/config", get(handlers::config::get_config))

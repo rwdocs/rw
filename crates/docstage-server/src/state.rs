@@ -9,23 +9,23 @@ use docstage_site::{PageRenderer, SiteLoader};
 use crate::live_reload::LiveReloadManager;
 
 /// Application state shared across all handlers.
-pub struct AppState {
+pub(crate) struct AppState {
     /// Page renderer for markdown to HTML conversion.
-    pub renderer: PageRenderer,
+    pub(crate) renderer: PageRenderer,
     /// Site loader for document structure.
-    pub site_loader: Arc<RwLock<SiteLoader>>,
+    pub(crate) site_loader: Arc<RwLock<SiteLoader>>,
     /// Live reload manager (if enabled).
-    pub live_reload: Option<LiveReloadManager>,
+    pub(crate) live_reload: Option<LiveReloadManager>,
     /// Enable verbose output (show warnings).
-    pub verbose: bool,
+    pub(crate) verbose: bool,
     /// Application version for cache invalidation.
-    pub version: String,
+    pub(crate) version: String,
 }
 
 impl AppState {
     /// Check if live reload is enabled.
     #[must_use]
-    pub fn live_reload_enabled(&self) -> bool {
+    pub(crate) fn live_reload_enabled(&self) -> bool {
         self.live_reload.is_some()
     }
 }

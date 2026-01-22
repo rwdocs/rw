@@ -14,16 +14,16 @@ use docstage_site::SiteLoader;
 
 /// Event sent to connected WebSocket clients when files change.
 #[derive(Clone, Debug, Serialize)]
-pub struct ReloadEvent {
+pub(crate) struct ReloadEvent {
     /// Event type (always "reload").
     #[serde(rename = "type")]
-    pub event_type: String,
+    event_type: String,
     /// Documentation path that changed.
-    pub path: String,
+    path: String,
 }
 
 /// Manages file watching and broadcasting reload events.
-pub struct LiveReloadManager {
+pub(crate) struct LiveReloadManager {
     source_dir: PathBuf,
     watch_patterns: Vec<String>,
     site_loader: Arc<RwLock<SiteLoader>>,
@@ -41,7 +41,7 @@ impl LiveReloadManager {
     /// * `site_loader` - Site loader for cache invalidation and path resolution
     /// * `broadcaster` - Broadcast channel sender for reload events
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         source_dir: PathBuf,
         watch_patterns: Option<Vec<String>>,
         site_loader: Arc<RwLock<SiteLoader>>,
@@ -64,7 +64,7 @@ impl LiveReloadManager {
     /// # Errors
     ///
     /// Returns an error if the file watcher cannot be created.
-    pub fn start(&mut self) -> Result<(), notify::Error> {
+    pub(crate) fn start(&mut self) -> Result<(), notify::Error> {
         let (tx, mut rx) = mpsc::channel::<Event>(100);
         let source_dir = self.source_dir.clone();
 
@@ -169,7 +169,7 @@ impl LiveReloadManager {
 
     /// Get a receiver for reload events.
     #[must_use]
-    pub fn subscribe(&self) -> broadcast::Receiver<ReloadEvent> {
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<ReloadEvent> {
         self.broadcaster.subscribe()
     }
 }

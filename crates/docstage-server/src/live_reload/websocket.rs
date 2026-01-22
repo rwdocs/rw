@@ -13,7 +13,7 @@ use super::manager::ReloadEvent;
 use crate::state::AppState;
 
 /// Handle WebSocket upgrade for live reload.
-pub async fn ws_handler(
+pub(crate) async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {

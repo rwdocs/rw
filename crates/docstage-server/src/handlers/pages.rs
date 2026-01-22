@@ -20,38 +20,38 @@ use crate::state::AppState;
 
 /// Response for GET /api/pages/{path}.
 #[derive(Serialize)]
-pub struct PageResponse {
+struct PageResponse {
     /// Page metadata.
-    pub meta: PageMeta,
+    meta: PageMeta,
     /// Breadcrumb navigation items.
-    pub breadcrumbs: Vec<BreadcrumbResponse>,
+    breadcrumbs: Vec<BreadcrumbResponse>,
     /// Table of contents entries.
-    pub toc: Vec<TocResponse>,
+    toc: Vec<TocResponse>,
     /// Rendered HTML content.
-    pub content: String,
+    content: String,
 }
 
 /// Page metadata.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PageMeta {
+struct PageMeta {
     /// Page title (from H1 heading).
-    pub title: Option<String>,
+    title: Option<String>,
     /// URL path.
-    pub path: String,
+    path: String,
     /// Source file path.
-    pub source_file: String,
+    source_file: String,
     /// Last modification time (ISO 8601).
-    pub last_modified: String,
+    last_modified: String,
 }
 
 /// Breadcrumb item for serialization.
 #[derive(Serialize)]
-pub struct BreadcrumbResponse {
+struct BreadcrumbResponse {
     /// Display title.
-    pub title: String,
+    title: String,
     /// Link target path.
-    pub path: String,
+    path: String,
 }
 
 impl From<BreadcrumbItem> for BreadcrumbResponse {
@@ -65,13 +65,13 @@ impl From<BreadcrumbItem> for BreadcrumbResponse {
 
 /// Table of contents entry for serialization.
 #[derive(Serialize)]
-pub struct TocResponse {
+struct TocResponse {
     /// Heading level (2-6).
-    pub level: u8,
+    level: u8,
     /// Heading text.
-    pub title: String,
+    title: String,
     /// Anchor ID.
-    pub id: String,
+    id: String,
 }
 
 impl From<&TocEntry> for TocResponse {
@@ -85,7 +85,7 @@ impl From<&TocEntry> for TocResponse {
 }
 
 /// Handle GET /api/pages/ (root page).
-pub async fn get_root_page(
+pub(crate) async fn get_root_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
@@ -93,7 +93,7 @@ pub async fn get_root_page(
 }
 
 /// Handle GET /api/pages/{path}.
-pub async fn get_page(
+pub(crate) async fn get_page(
     Path(path): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
