@@ -354,7 +354,6 @@ impl Config {
 
         Ok(())
     }
-
 }
 
 #[cfg(test)]
@@ -627,5 +626,4 @@ source_dir = "documentation"
             config_before.docs_resolved.source_dir
         );
     }
-
 }

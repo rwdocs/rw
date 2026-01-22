@@ -73,7 +73,6 @@ use docstage_site::{PageRenderer, PageRendererConfig, SiteLoader, SiteLoaderConf
 use state::AppState;
 use tokio::sync::broadcast;
 
-
 /// Server configuration.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
