@@ -52,7 +52,7 @@ impl<'a> PageUpdater<'a> {
 
         // Convert markdown
         let converter = self.create_converter();
-        let convert_result = converter.convert(markdown_text, kroki_url, tmpdir.path());
+        let convert_result = converter.convert(markdown_text, Some(kroki_url), Some(tmpdir.path()));
 
         // Collect diagram attachments
         let attachments = Self::collect_attachments(tmpdir.path())?;
@@ -114,7 +114,7 @@ impl<'a> PageUpdater<'a> {
         let tmpdir = TempDir::new()?;
 
         let converter = self.create_converter();
-        let convert_result = converter.convert(markdown_text, kroki_url, tmpdir.path());
+        let convert_result = converter.convert(markdown_text, Some(kroki_url), Some(tmpdir.path()));
 
         let attachments = Self::collect_attachment_names(tmpdir.path())?;
 

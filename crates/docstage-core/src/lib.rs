@@ -49,9 +49,9 @@
 //! let converter = MarkdownConverter::new();
 //! let result = converter.convert(
 //!     "```plantuml\n@startuml\nA -> B\n@enduml\n```",
-//!     "https://kroki.io",
-//!     Path::new("/tmp/diagrams"),
-//! )?;
+//!     Some("https://kroki.io"),
+//!     Some(Path::new("/tmp/diagrams")),
+//! );
 //! ```
 //!
 //! For HTML output with rendered diagrams:
