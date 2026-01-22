@@ -155,10 +155,12 @@ impl MarkdownConverter {
         let mut renderer = self.create_renderer::<ConfluenceBackend>(None);
 
         if let (Some(url), Some(dir)) = (kroki_url, output_dir) {
-            let processor = self.create_diagram_processor(url).output(DiagramOutput::Files {
-                output_dir: dir.to_path_buf(),
-                tag_generator: Arc::new(ConfluenceTagGenerator),
-            });
+            let processor = self
+                .create_diagram_processor(url)
+                .output(DiagramOutput::Files {
+                    output_dir: dir.to_path_buf(),
+                    tag_generator: Arc::new(ConfluenceTagGenerator),
+                });
             renderer = renderer.with_processor(processor);
         }
 

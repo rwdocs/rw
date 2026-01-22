@@ -67,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`PageRenderer` now uses `MarkdownRenderer` directly** instead of going through `MarkdownConverter`; eliminates unnecessary abstraction layer (`PageRenderer` → `MarkdownConverter` → `MarkdownRenderer` reduced to `PageRenderer` → `MarkdownRenderer`)
 - **`MarkdownConverter` now uses renderer's GFM config** via `MarkdownRenderer::with_gfm()` instead of internal `get_parser_options()` method; removes duplicated parser configuration
 - **`MarkdownConverter` methods now use `RenderResult`** directly from renderer instead of creating separate result types; `convert()`, `convert_html()`, `convert_html_with_diagrams()`, and `convert_html_with_diagrams_cached()` all return `RenderResult`
 - **`MarkdownRenderer::render()` now includes warnings** in the returned `RenderResult`; consumers no longer need to manually call `renderer.processor_warnings()`

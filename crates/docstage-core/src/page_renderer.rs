@@ -1,14 +1,15 @@
 //! Page rendering with caching.
 //!
-//! Provides [`PageRenderer`] that wraps [`MarkdownConverter`] with file-based caching
+//! Provides [`PageRenderer`] for rendering markdown to HTML with file-based caching
 //! and mtime-based invalidation.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use docstage_renderer::TocEntry;
+use docstage_diagrams::{DiagramProcessor, FileCache};
+use docstage_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
 
-use crate::converter::MarkdownConverter;
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 
 /// Result of rendering a markdown page.
@@ -92,7 +93,7 @@ impl Default for PageRendererConfig {
 
 /// Page renderer with file-based caching.
 ///
-/// Uses [`MarkdownConverter`] for actual conversion and [`PageCache`] for persistence.
+/// Uses [`MarkdownRenderer`] for rendering and [`PageCache`] for persistence.
 /// Cache invalidation is based on source file mtime and build version.
 ///
 /// # Example
@@ -116,8 +117,11 @@ impl Default for PageRendererConfig {
 /// ```
 pub struct PageRenderer {
     cache: Box<dyn PageCache>,
-    converter: MarkdownConverter,
+    extract_title: bool,
     kroki_url: Option<String>,
+    include_dirs: Vec<PathBuf>,
+    config_file: Option<String>,
+    dpi: u32,
 }
 
 impl PageRenderer {
@@ -129,17 +133,13 @@ impl PageRenderer {
             None => Box::new(NullPageCache),
         };
 
-        let converter = MarkdownConverter::new()
-            .gfm(true)
-            .extract_title(config.extract_title)
-            .include_dirs(config.include_dirs)
-            .dpi(config.dpi)
-            .config_file(config.config_file.as_deref());
-
         Self {
             cache,
-            converter,
+            extract_title: config.extract_title,
             kroki_url: config.kroki_url,
+            include_dirs: config.include_dirs,
+            config_file: config.config_file,
+            dpi: config.dpi,
         }
     }
 
@@ -163,42 +163,31 @@ impl PageRenderer {
         source_path: &Path,
         base_path: &str,
     ) -> Result<PageRenderResult, RenderError> {
-        // Check file exists
         if !source_path.exists() {
             return Err(RenderError::FileNotFound(source_path.to_path_buf()));
         }
 
-        // Get source mtime
-        let source_mtime = source_path
-            .metadata()
-            .map_err(RenderError::Io)?
-            .modified()
-            .map_err(RenderError::Io)?
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0.0, |d| d.as_secs_f64());
+        let source_mtime = get_mtime(source_path)?;
 
-        // Check cache
         if let Some(cached) = self.cache.get(base_path, source_mtime) {
             return Ok(PageRenderResult {
                 html: cached.html,
                 title: cached.meta.title,
                 toc: cached.meta.toc,
-                warnings: Vec::new(), // Warnings are not cached
+                warnings: Vec::new(),
                 from_cache: true,
             });
         }
 
-        // Render fresh
         let markdown_text = fs::read_to_string(source_path).map_err(RenderError::Io)?;
 
-        let result = self.converter.convert_html(
-            &markdown_text,
-            self.kroki_url.as_deref(),
-            self.cache.diagrams_dir(),
-            Some(base_path),
-        );
+        let mut renderer = self.create_renderer(base_path);
+        if let Some(processor) = self.create_diagram_processor() {
+            renderer = renderer.with_processor(processor);
+        }
 
-        // Store in cache
+        let result = renderer.render_markdown(&markdown_text);
+
         self.cache.set(
             base_path,
             &result.html,
@@ -216,6 +205,34 @@ impl PageRenderer {
         })
     }
 
+    /// Create a renderer with common configuration.
+    fn create_renderer(&self, base_path: &str) -> MarkdownRenderer<HtmlBackend> {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_gfm(true)
+            .with_base_path(base_path);
+
+        if self.extract_title {
+            renderer = renderer.with_title_extraction();
+        }
+        renderer
+    }
+
+    /// Create a diagram processor if kroki_url is configured.
+    fn create_diagram_processor(&self) -> Option<DiagramProcessor> {
+        let url = self.kroki_url.as_ref()?;
+
+        let mut processor = DiagramProcessor::new(url)
+            .include_dirs(&self.include_dirs)
+            .config_file(self.config_file.as_deref())
+            .dpi(self.dpi);
+
+        if let Some(dir) = self.cache.diagrams_dir() {
+            processor = processor.with_cache(Arc::new(FileCache::new(dir.to_path_buf())));
+        }
+
+        Some(processor)
+    }
+
     /// Invalidate cache entry for a path.
     ///
     /// # Arguments
@@ -224,6 +241,18 @@ impl PageRenderer {
     pub fn invalidate(&self, path: &str) {
         self.cache.invalidate(path);
     }
+}
+
+/// Get file modification time as seconds since Unix epoch.
+fn get_mtime(path: &Path) -> Result<f64, RenderError> {
+    path.metadata()
+        .map_err(RenderError::Io)?
+        .modified()
+        .map_err(RenderError::Io)
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_secs_f64())
+        })
 }
 
 #[cfg(test)]
