@@ -12,7 +12,7 @@ use crate::output::Output;
 
 /// Arguments for the confluence generate-tokens command.
 #[derive(Args)]
-pub struct GenerateTokensArgs {
+pub(crate) struct GenerateTokensArgs {
     /// Path to RSA private key file.
     #[arg(short = 'k', long = "private-key", default_value = "private_key.pem")]
     private_key: PathBuf,
@@ -36,7 +36,7 @@ impl GenerateTokensArgs {
     /// # Errors
     ///
     /// Returns an error if token generation fails.
-    pub fn execute(self) -> Result<(), CliError> {
+    pub(crate) fn execute(self) -> Result<(), CliError> {
         let output = Output::new();
 
         // Load config
