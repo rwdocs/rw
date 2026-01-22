@@ -142,26 +142,8 @@ pub trait CodeBlockProcessor {
 /// Parse fence info string into language and attributes.
 ///
 /// Format: `language [key=value ...]`
-///
-/// # Examples
-///
-/// ```
-/// use docstage_renderer::parse_fence_info;
-///
-/// let (lang, attrs) = parse_fence_info("plantuml");
-/// assert_eq!(lang, "plantuml");
-/// assert!(attrs.is_empty());
-///
-/// let (lang, attrs) = parse_fence_info("plantuml format=png");
-/// assert_eq!(lang, "plantuml");
-/// assert_eq!(attrs.get("format"), Some(&"png".to_string()));
-///
-/// let (lang, attrs) = parse_fence_info("table-yaml caption=\"Users\"");
-/// assert_eq!(lang, "table-yaml");
-/// assert_eq!(attrs.get("caption"), Some(&"Users".to_string()));
-/// ```
 #[must_use]
-pub fn parse_fence_info(info: &str) -> (String, HashMap<String, String>) {
+pub(crate) fn parse_fence_info(info: &str) -> (String, HashMap<String, String>) {
     let mut parts = info.split_whitespace();
     let language = parts.next().unwrap_or("").to_string();
 
