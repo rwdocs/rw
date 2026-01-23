@@ -516,6 +516,7 @@ version = "0.1.0"
 dependencies = [
  "pretty_assertions",
  "serde",
+ "thiserror",
  "toml",
 ]
 
@@ -554,6 +555,7 @@ dependencies = [
  "rayon",
  "regex",
  "sha2",
+ "thiserror",
  "ureq",
 ]
 
@@ -603,6 +605,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tracing",
 ]
 

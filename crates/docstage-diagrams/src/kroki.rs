@@ -69,37 +69,23 @@ impl DiagramRequest {
 }
 
 /// Single diagram rendering error.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("diagram {index}: {kind}")]
 pub struct DiagramError {
     pub index: usize,
     pub kind: DiagramErrorKind,
 }
 
 /// Kind of diagram rendering error.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DiagramErrorKind {
+    #[error("HTTP error: {0}")]
     Http(String),
+    #[error("I/O error: {0}")]
     Io(String),
+    #[error("invalid PNG data")]
     InvalidPng,
 }
-
-impl std::fmt::Display for DiagramError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.kind {
-            DiagramErrorKind::Http(msg) => {
-                write!(f, "diagram {}: HTTP error: {msg}", self.index)
-            }
-            DiagramErrorKind::Io(msg) => {
-                write!(f, "diagram {}: IO error: {msg}", self.index)
-            }
-            DiagramErrorKind::InvalidPng => {
-                write!(f, "diagram {}: invalid PNG data", self.index)
-            }
-        }
-    }
-}
-
-impl std::error::Error for DiagramError {}
 
 /// Create HTTP agent with the specified timeout.
 ///
