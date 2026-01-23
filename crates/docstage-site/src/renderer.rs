@@ -28,30 +28,14 @@ pub struct PageRenderResult {
 }
 
 /// Error returned when page rendering fails.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum RenderError {
     /// Source file not found.
+    #[error("Source file not found: {}", .0.display())]
     FileNotFound(PathBuf),
     /// I/O error reading source file.
-    Io(std::io::Error),
-}
-
-impl std::fmt::Display for RenderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::FileNotFound(path) => write!(f, "Source file not found: {}", path.display()),
-            Self::Io(err) => write!(f, "I/O error: {err}"),
-        }
-    }
-}
-
-impl std::error::Error for RenderError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::FileNotFound(_) => None,
-            Self::Io(err) => Some(err),
-        }
-    }
+    #[error("I/O error: {0}")]
+    Io(#[source] std::io::Error),
 }
 
 /// Configuration for [`PageRenderer`].
@@ -217,7 +201,7 @@ impl PageRenderer {
         renderer
     }
 
-    /// Create a diagram processor if kroki_url is configured.
+    /// Create a diagram processor if `kroki_url` is configured.
     fn create_diagram_processor(&self) -> Option<DiagramProcessor> {
         let url = self.kroki_url.as_ref()?;
 

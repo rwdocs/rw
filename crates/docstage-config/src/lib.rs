@@ -166,41 +166,20 @@ fn default_consumer_key() -> String {
 }
 
 /// Configuration error.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     /// File not found.
+    #[error("Configuration file not found: {}", .0.display())]
     NotFound(PathBuf),
-    /// IO error.
-    Io(std::io::Error),
+    /// I/O error.
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
     /// TOML parsing error.
-    Parse(toml::de::Error),
+    #[error("TOML parse error: {0}")]
+    Parse(#[from] toml::de::Error),
     /// Validation error.
+    #[error("Configuration error: {0}")]
     Validation(String),
-}
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound(path) => write!(f, "Configuration file not found: {}", path.display()),
-            Self::Io(err) => write!(f, "IO error: {err}"),
-            Self::Parse(err) => write!(f, "TOML parse error: {err}"),
-            Self::Validation(msg) => write!(f, "Configuration error: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for ConfigError {}
-
-impl From<std::io::Error> for ConfigError {
-    fn from(err: std::io::Error) -> Self {
-        Self::Io(err)
-    }
-}
-
-impl From<toml::de::Error> for ConfigError {
-    fn from(err: toml::de::Error) -> Self {
-        Self::Parse(err)
-    }
 }
 
 impl Config {
