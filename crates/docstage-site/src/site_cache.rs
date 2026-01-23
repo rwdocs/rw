@@ -130,7 +130,7 @@ impl SiteCache for FileSiteCache {
         // Ensure cache directory exists
         if let Err(e) = fs::create_dir_all(&self.cache_dir) {
             // Silently ignore errors - cache is optional
-            tracing::debug!("Failed to create cache directory: {e}");
+            tracing::debug!(error = %e, "Failed to create cache directory");
             return;
         }
 
@@ -138,13 +138,13 @@ impl SiteCache for FileSiteCache {
         let content = match serde_json::to_string(&cached) {
             Ok(c) => c,
             Err(e) => {
-                tracing::debug!("Failed to serialize site: {e}");
+                tracing::debug!(error = %e, "Failed to serialize site");
                 return;
             }
         };
 
         if let Err(e) = fs::write(self.cache_path(), content) {
-            tracing::debug!("Failed to write site cache: {e}");
+            tracing::debug!(error = %e, "Failed to write site cache");
         }
     }
 
@@ -153,7 +153,7 @@ impl SiteCache for FileSiteCache {
         if cache_path.exists()
             && let Err(e) = fs::remove_file(&cache_path)
         {
-            tracing::debug!("Failed to remove site cache: {e}");
+            tracing::debug!(error = %e, "Failed to remove site cache");
         }
     }
 }

@@ -81,8 +81,8 @@ pub(crate) struct PreserveResult {
 /// Returns the new HTML unchanged if parsing fails, logging the error.
 pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResult {
     tracing::info!("Starting comment preservation");
-    tracing::debug!("Old HTML length: {}", old_html.len());
-    tracing::debug!("New HTML length: {}", new_html.len());
+    tracing::debug!(old_html_len = old_html.len(), "Old HTML length");
+    tracing::debug!(new_html_len = new_html.len(), "New HTML length");
 
     match try_preserve_comments(old_html, new_html) {
         Ok(result) => {
@@ -90,7 +90,7 @@ pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResul
             result
         }
         Err(e) => {
-            tracing::error!("Comment preservation failed: {e}");
+            tracing::error!(error = %e, "Comment preservation failed");
             tracing::warn!("Falling back to new HTML without comment preservation");
             PreserveResult {
                 html: new_html.to_string(),
@@ -117,7 +117,7 @@ fn try_preserve_comments(
     tracing::debug!("Matching nodes...");
     let matcher = TreeMatcher::new(&old_tree, &new_tree);
     let matches = matcher.find_matches();
-    tracing::info!("Found {} matching nodes", matches.len());
+    tracing::info!(count = matches.len(), "Found matching nodes");
 
     // Transfer markers
     tracing::debug!("Transferring markers...");
@@ -127,7 +127,7 @@ fn try_preserve_comments(
     // Serialize back
     tracing::debug!("Serializing result...");
     let html = serializer.serialize(&new_tree);
-    tracing::debug!("Result HTML length: {}", html.len());
+    tracing::debug!(result_html_len = html.len(), "Result HTML length");
 
     Ok(PreserveResult {
         html,
