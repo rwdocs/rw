@@ -74,15 +74,19 @@
 
   /* GitHub-style alerts */
   .prose .alert {
-    @apply my-4 p-4 rounded-lg border-l-4;
+    @apply my-4 px-4 py-2 border-l-4;
   }
 
   .prose .alert-title {
-    @apply flex items-center gap-2 font-semibold mb-2;
+    @apply flex items-center gap-2 font-medium;
   }
 
   .prose .alert-icon {
-    @apply text-lg;
+    @apply w-4 h-4 fill-current flex-shrink-0;
+  }
+
+  .prose .alert-content {
+    @apply mt-1;
   }
 
   .prose .alert-content > :first-child {
@@ -99,7 +103,7 @@
   }
 
   .prose .alert-note .alert-title {
-    @apply text-blue-700;
+    @apply text-blue-600;
   }
 
   .prose .alert-tip {
@@ -107,7 +111,7 @@
   }
 
   .prose .alert-tip .alert-title {
-    @apply text-green-700;
+    @apply text-green-600;
   }
 
   .prose .alert-important {
@@ -115,7 +119,7 @@
   }
 
   .prose .alert-important .alert-title {
-    @apply text-purple-700;
+    @apply text-purple-600;
   }
 
   .prose .alert-warning {
@@ -123,7 +127,7 @@
   }
 
   .prose .alert-warning .alert-title {
-    @apply text-amber-700;
+    @apply text-amber-600;
   }
 
   .prose .alert-caution {
@@ -131,6 +135,6 @@
   }
 
   .prose .alert-caution .alert-title {
-    @apply text-red-700;
+    @apply text-red-600;
   }
 }
