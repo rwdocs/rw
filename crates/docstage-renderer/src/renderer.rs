@@ -166,25 +166,20 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
     /// Get all extracted code blocks from all processors.
     ///
-    /// Returns blocks that were processed with `ProcessResult::Placeholder`.
+    /// Returns an iterator over blocks that were processed with `ProcessResult::Placeholder`.
     /// Use this after rendering to get the extracted data for deferred processing.
-    #[must_use]
-    pub fn extracted_code_blocks(&self) -> Vec<ExtractedCodeBlock> {
-        self.processors
-            .iter()
-            .flat_map(|p| p.extracted())
-            .cloned()
-            .collect()
+    ///
+    /// If you need a `Vec`, call `.collect()` on the result.
+    pub fn extracted_code_blocks(&self) -> impl Iterator<Item = ExtractedCodeBlock> + '_ {
+        self.processors.iter().flat_map(|p| p.extracted()).cloned()
     }
 
     /// Get all warnings from all processors.
-    #[must_use]
-    pub fn processor_warnings(&self) -> Vec<String> {
-        self.processors
-            .iter()
-            .flat_map(|p| p.warnings())
-            .cloned()
-            .collect()
+    ///
+    /// Returns an iterator over warnings from all processors.
+    /// If you need a `Vec`, call `.collect()` on the result.
+    pub fn processor_warnings(&self) -> impl Iterator<Item = String> + '_ {
+        self.processors.iter().flat_map(|p| p.warnings()).cloned()
     }
 
     /// Push content to output or heading buffer based on context.
@@ -217,7 +212,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             html,
             title: self.heading.take_title(),
             toc: self.heading.take_toc(),
-            warnings: self.processor_warnings(),
+            warnings: self.processor_warnings().collect(),
         }
     }
 
@@ -732,7 +727,7 @@ mod tests {
         assert!(result.html.contains("{{DIAGRAM_0}}"));
         assert!(!result.html.contains("<pre>"));
 
-        let extracted = renderer.extracted_code_blocks();
+        let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
         assert_eq!(extracted.len(), 1);
         assert_eq!(extracted[0].language, "diagram");
         assert_eq!(extracted[0].source, "A -> B\n");
@@ -760,7 +755,7 @@ mod tests {
 
         assert!(result.html.contains("{{DIAGRAM_0}}"));
 
-        let extracted = renderer.extracted_code_blocks();
+        let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
         assert_eq!(extracted.len(), 1);
         assert_eq!(extracted[0].attrs.get("format"), Some(&"png".to_string()));
         assert_eq!(extracted[0].attrs.get("theme"), Some(&"dark".to_string()));
@@ -783,7 +778,7 @@ mod tests {
         // Neither handles rust, so normal code block
         assert!(result.html.contains(r#"class="language-rust""#));
 
-        let extracted = renderer.extracted_code_blocks();
+        let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
         assert_eq!(extracted.len(), 1);
         assert_eq!(extracted[0].language, "diagram");
     }
@@ -799,7 +794,7 @@ mod tests {
         assert!(result.html.contains("{{DIAGRAM_0}}"));
         assert!(result.html.contains("{{DIAGRAM_1}}"));
 
-        let extracted = renderer.extracted_code_blocks();
+        let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
         assert_eq!(extracted.len(), 2);
         assert_eq!(extracted[0].index, 0);
         assert_eq!(extracted[1].index, 1);
