@@ -31,7 +31,7 @@ impl<'a> TreeMatcher<'a> {
             &self.new_tree.children,
             &mut matches,
         );
-        tracing::info!("Matched {} nodes between trees", matches.len());
+        tracing::info!(count = matches.len(), "Matched nodes between trees");
         matches
     }
 
@@ -87,7 +87,7 @@ impl<'a> TreeMatcher<'a> {
         }
 
         if score < 1.0 {
-            tracing::debug!("Partial match: {} ({:.2} similarity)", old_node.tag, score);
+            tracing::debug!(tag = %old_node.tag, similarity = score, "Partial match");
         }
 
         matches.insert(old_node as *const TreeNode, new_node as *const TreeNode);

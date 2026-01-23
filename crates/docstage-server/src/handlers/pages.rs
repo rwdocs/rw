@@ -120,7 +120,7 @@ fn get_page_impl(
     // Log warnings in verbose mode
     if state.verbose && !result.warnings.is_empty() {
         for warning in &result.warnings {
-            tracing::warn!("{}: {}", path, warning);
+            tracing::warn!(path = %path, warning = %warning, "Page render warning");
         }
     }
 

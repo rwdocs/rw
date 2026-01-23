@@ -47,11 +47,7 @@ impl CommentMarkerTransfer {
                 continue;
             }
 
-            tracing::debug!(
-                "Transferring {} markers from {}",
-                markers.len(),
-                old_node.tag
-            );
+            tracing::debug!(count = markers.len(), tag = %old_node.tag, "Transferring markers");
 
             for marker in markers {
                 let ref_id = marker.marker_ref().unwrap_or("").to_string();
@@ -71,23 +67,17 @@ impl CommentMarkerTransfer {
             }
 
             // Try global text search
-            tracing::debug!(
-                "Parent node not matched for marker text: \"{}...\"",
-                marker.text.chars().take(50).collect::<String>()
-            );
+            let text_preview: String = marker.text.chars().take(50).collect();
+            tracing::debug!(marker_text = %text_preview, "Parent node not matched for marker");
 
             if self.try_global_insert(new_tree, marker) {
-                tracing::info!(
-                    "Fallback: inserted marker \"{}...\" via global search",
-                    marker.text.chars().take(30).collect::<String>()
-                );
+                let text_preview: String = marker.text.chars().take(30).collect();
+                tracing::info!(marker_text = %text_preview, "Fallback: inserted marker via global search");
                 self.transferred_refs.insert(ref_id);
                 transferred_count += 1;
             } else {
-                tracing::warn!(
-                    "Could not place marker text: \"{}...\"",
-                    marker.text.chars().take(50).collect::<String>()
-                );
+                let text_preview: String = marker.text.chars().take(50).collect();
+                tracing::warn!(marker_text = %text_preview, "Could not place marker");
                 self.unmatched_comments.push(UnmatchedComment {
                     ref_id,
                     text: marker.text.clone(),
@@ -95,7 +85,7 @@ impl CommentMarkerTransfer {
             }
         }
 
-        tracing::info!("Transferred {} comment markers", transferred_count);
+        tracing::info!(count = transferred_count, "Transferred comment markers");
     }
 
     /// Get comments that couldn't be placed.
@@ -212,7 +202,7 @@ fn insert_marker_by_text(node: &mut TreeNode, mut marker: TreeNode, marker_text:
         node.text = before;
         marker.tail = after;
         node.children.insert(0, marker);
-        tracing::debug!("Inserted marker in {} direct text", node.tag);
+        tracing::debug!(tag = %node.tag, "Inserted marker in direct text");
         return true;
     }
 
@@ -228,7 +218,7 @@ fn insert_marker_by_text(node: &mut TreeNode, mut marker: TreeNode, marker_text:
             node.children[i].tail = before;
             marker.tail = after;
             node.children.insert(i + 1, marker);
-            tracing::debug!("Inserted marker in {} tail", node.children[i].tag);
+            tracing::debug!(tag = %node.children[i].tag, "Inserted marker in tail");
             return true;
         }
 
@@ -242,10 +232,8 @@ fn insert_marker_by_text(node: &mut TreeNode, mut marker: TreeNode, marker_text:
         }
     }
 
-    tracing::debug!(
-        "Could not find position for marker text: \"{}...\"",
-        marker_text.chars().take(50).collect::<String>()
-    );
+    let text_preview: String = marker_text.chars().take(50).collect();
+    tracing::debug!(marker_text = %text_preview, "Could not find position for marker");
     false
 }
 

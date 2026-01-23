@@ -179,7 +179,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
 
     // Bind and run server
     let addr = SocketAddr::from_str(&format!("{}:{}", config.host, config.port))?;
-    tracing::info!("Starting server at http://{}", addr);
+    tracing::info!(address = %addr, "Starting server");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
