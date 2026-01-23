@@ -40,3 +40,4 @@ rsa = { version = "0.9", features = ["pem", "sha1"] }
 sha1 = { version = "0.10", features = ["oid"] }
 percent-encoding = "2.3"
 rand = "0.9"
+shellexpand = "3"
