@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Environment variable expansion in configuration** via `shellexpand` crate; supports `${VAR}` and `${VAR:-default}` syntax in string config values; expanded fields: `server.host`, `confluence.base_url`, `confluence.access_token`, `confluence.access_secret`, `confluence.consumer_key`, `diagrams.kroki_url`
+- **`ConfigError::EnvVar` variant** for environment variable expansion errors; includes field path and descriptive error message
+
 - **`docstage-site` crate** for site structure and page rendering; extracted from `docstage-core` for clearer separation of concerns (site/page management vs Confluence functionality)
 - **Internal `PageRenderer` in `docstage-confluence`** for rendering markdown to Confluence XHTML storage format with diagram support; used by `PageUpdater`
 

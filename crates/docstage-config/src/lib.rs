@@ -4,6 +4,23 @@
 //! auto-discovery of config files in parent directories.
 //!
 //! CLI settings can be applied during load via [`CliSettings`].
+//!
+//! ## Environment Variable Expansion
+//!
+//! String configuration values support environment variable expansion:
+//!
+//! - `${VAR}` - expands to the value of VAR, errors if unset
+//! - `${VAR:-default}` - expands to VAR if set, otherwise uses default
+//!
+//! Expanded fields:
+//! - `server.host`
+//! - `confluence.base_url`
+//! - `confluence.access_token`
+//! - `confluence.access_secret`
+//! - `confluence.consumer_key`
+//! - `diagrams.kroki_url`
+
+mod expand;
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -116,7 +133,7 @@ struct DiagramsConfigRaw {
 }
 
 /// Resolved diagram rendering configuration with absolute paths.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DiagramsConfig {
     /// Kroki server URL for diagram rendering.
     pub kroki_url: Option<String>,
@@ -126,6 +143,17 @@ pub struct DiagramsConfig {
     pub config_file: Option<String>,
     /// DPI for diagram rendering.
     pub dpi: u32,
+}
+
+impl Default for DiagramsConfig {
+    fn default() -> Self {
+        Self {
+            kroki_url: None,
+            include_dirs: Vec::new(),
+            config_file: None,
+            dpi: 192,
+        }
+    }
 }
 
 /// Live reload configuration.
@@ -180,6 +208,14 @@ pub enum ConfigError {
     /// Validation error.
     #[error("Configuration error: {0}")]
     Validation(String),
+    /// Environment variable error during expansion.
+    #[error("Environment variable error in {field}: {message}")]
+    EnvVar {
+        /// Config field path (e.g., "confluence.access_token").
+        field: String,
+        /// Error message (e.g., "${CONFLUENCE_TOKEN} not set").
+        message: String,
+    },
 }
 
 impl Config {
@@ -274,12 +310,7 @@ impl Config {
                 cache_dir: base.join(".cache"),
                 cache_enabled: true,
             },
-            diagrams_resolved: DiagramsConfig {
-                kroki_url: None,
-                include_dirs: Vec::new(),
-                config_file: None,
-                dpi: 192,
-            },
+            diagrams_resolved: DiagramsConfig::default(),
             config_path: None,
         }
     }
@@ -289,11 +320,40 @@ impl Config {
         let content = std::fs::read_to_string(path)?;
         let mut config: Self = toml::from_str(&content)?;
 
+        // Expand environment variables before path resolution
+        config.expand_env_vars()?;
+
         let config_dir = path.parent().unwrap_or(Path::new("."));
         config.resolve_paths(config_dir)?;
         config.config_path = Some(path.to_path_buf());
 
         Ok(config)
+    }
+
+    /// Expand environment variable references in configuration strings.
+    fn expand_env_vars(&mut self) -> Result<(), ConfigError> {
+        // Server config
+        self.server.host = expand::expand_env(&self.server.host, "server.host")?;
+
+        // Diagrams config (if present)
+        if let Some(ref mut diagrams) = self.diagrams
+            && let Some(ref url) = diagrams.kroki_url
+        {
+            diagrams.kroki_url = Some(expand::expand_env(url, "diagrams.kroki_url")?);
+        }
+
+        // Confluence config (if present)
+        if let Some(ref mut confluence) = self.confluence {
+            confluence.base_url = expand::expand_env(&confluence.base_url, "confluence.base_url")?;
+            confluence.access_token =
+                expand::expand_env(&confluence.access_token, "confluence.access_token")?;
+            confluence.access_secret =
+                expand::expand_env(&confluence.access_secret, "confluence.access_secret")?;
+            confluence.consumer_key =
+                expand::expand_env(&confluence.consumer_key, "confluence.consumer_key")?;
+        }
+
+        Ok(())
     }
 
     /// Resolve relative paths to absolute paths based on config directory.
@@ -604,5 +664,117 @@ source_dir = "documentation"
             config.docs_resolved.source_dir,
             config_before.docs_resolved.source_dir
         );
+    }
+
+    #[test]
+    fn test_expand_env_vars_server_host() {
+        // SAFETY: test runs single-threaded per test function
+        unsafe {
+            std::env::set_var("TEST_HOST", "0.0.0.0");
+        }
+
+        let toml = r#"
+[server]
+host = "${TEST_HOST}"
+"#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        config.expand_env_vars().unwrap();
+
+        assert_eq!(config.server.host, "0.0.0.0");
+
+        unsafe {
+            std::env::remove_var("TEST_HOST");
+        }
+    }
+
+    #[test]
+    fn test_expand_env_vars_confluence() {
+        // SAFETY: test runs single-threaded per test function
+        unsafe {
+            std::env::set_var("TEST_CONFLUENCE_URL", "https://confluence.test.com");
+            std::env::set_var("TEST_TOKEN", "my-token");
+            std::env::set_var("TEST_SECRET", "my-secret");
+        }
+
+        let toml = r#"
+[confluence]
+base_url = "${TEST_CONFLUENCE_URL}"
+access_token = "${TEST_TOKEN}"
+access_secret = "${TEST_SECRET}"
+consumer_key = "${TEST_CONSUMER_KEY:-docstage}"
+"#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        config.expand_env_vars().unwrap();
+
+        let confluence = config.confluence.unwrap();
+        assert_eq!(confluence.base_url, "https://confluence.test.com");
+        assert_eq!(confluence.access_token, "my-token");
+        assert_eq!(confluence.access_secret, "my-secret");
+        assert_eq!(confluence.consumer_key, "docstage");
+
+        unsafe {
+            std::env::remove_var("TEST_CONFLUENCE_URL");
+            std::env::remove_var("TEST_TOKEN");
+            std::env::remove_var("TEST_SECRET");
+        }
+    }
+
+    #[test]
+    fn test_expand_env_vars_diagrams_kroki_url() {
+        // SAFETY: test runs single-threaded per test function
+        unsafe {
+            std::env::set_var("TEST_KROKI_URL", "https://kroki.test.com");
+        }
+
+        let toml = r#"
+[diagrams]
+kroki_url = "${TEST_KROKI_URL}"
+"#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        config.expand_env_vars().unwrap();
+
+        assert_eq!(
+            config.diagrams.as_ref().unwrap().kroki_url,
+            Some("https://kroki.test.com".to_string())
+        );
+
+        unsafe {
+            std::env::remove_var("TEST_KROKI_URL");
+        }
+    }
+
+    #[test]
+    fn test_expand_env_vars_missing_required_var() {
+        // SAFETY: test runs single-threaded per test function
+        unsafe {
+            std::env::remove_var("MISSING_VAR_CONFIG_TEST");
+        }
+
+        let toml = r#"
+[confluence]
+base_url = "${MISSING_VAR_CONFIG_TEST}"
+access_token = "token"
+access_secret = "secret"
+"#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        let result = config.expand_env_vars();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ConfigError::EnvVar { .. }));
+        assert!(err.to_string().contains("MISSING_VAR_CONFIG_TEST"));
+        assert!(err.to_string().contains("confluence.base_url"));
+    }
+
+    #[test]
+    fn test_expand_env_vars_literal_unchanged() {
+        let toml = r#"
+[server]
+host = "127.0.0.1"
+"#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        config.expand_env_vars().unwrap();
+
+        assert_eq!(config.server.host, "127.0.0.1");
     }
 }

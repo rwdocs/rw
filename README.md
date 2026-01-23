@@ -63,6 +63,28 @@ consumer_key = "docstage"
 
 ```
 
+### Environment Variables
+
+String configuration values support environment variable expansion:
+
+```toml
+[confluence]
+base_url = "${CONFLUENCE_URL}"
+access_token = "${CONFLUENCE_TOKEN}"
+access_secret = "${CONFLUENCE_SECRET}"
+consumer_key = "${CONFLUENCE_CONSUMER_KEY:-docstage}"  # with default value
+
+[diagrams]
+kroki_url = "${KROKI_URL:-https://kroki.io}"
+```
+
+Supported syntax:
+- `${VAR}` - expands to the value of VAR, errors if unset
+- `${VAR:-default}` - expands to VAR if set, otherwise uses default
+
+Expanded fields: `server.host`, `confluence.base_url`, `confluence.access_token`,
+`confluence.access_secret`, `confluence.consumer_key`, `diagrams.kroki_url`
+
 CLI options override config file values:
 
 ```bash
