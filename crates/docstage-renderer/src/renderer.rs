@@ -590,7 +590,7 @@ mod tests {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render_markdown("> [!TIP]\n> This is a tip.");
         assert!(result.html.contains("alert-tip"));
-        assert!(result.html.contains("💡"));
+        assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
 
     #[test]
@@ -598,7 +598,7 @@ mod tests {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render_markdown("> [!IMPORTANT]\n> Critical information.");
         assert!(result.html.contains("alert-important"));
-        assert!(result.html.contains("❗"));
+        assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
 
     #[test]
@@ -606,7 +606,7 @@ mod tests {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render_markdown("> [!WARNING]\n> Be careful!");
         assert!(result.html.contains("alert-warning"));
-        assert!(result.html.contains("⚠️"));
+        assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
 
     #[test]
@@ -614,7 +614,7 @@ mod tests {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render_markdown("> [!CAUTION]\n> Dangerous operation.");
         assert!(result.html.contains("alert-caution"));
-        assert!(result.html.contains("🔴"));
+        assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
 
     #[test]
