@@ -96,7 +96,16 @@ impl ConfluenceXmlParser {
                     if first_element {
                         continue;
                     }
-                    let text = e.unescape()?.into_owned();
+                    let text = reader.decoder().decode(&e)?.into_owned();
+                    append_text(&mut node, text);
+                }
+                Event::GeneralRef(e) => {
+                    if first_element {
+                        continue;
+                    }
+                    // Handle entity references (e.g., &lt; &gt; &amp;)
+                    let entity = reader.decoder().decode(&e)?.into_owned();
+                    let text = decode_entity(&entity);
                     append_text(&mut node, text);
                 }
                 Event::CData(e) => {
@@ -150,7 +159,13 @@ impl ConfluenceXmlParser {
                     node.children.push(child);
                 }
                 Event::Text(e) => {
-                    let text = e.unescape()?.into_owned();
+                    let text = reader.decoder().decode(&e)?.into_owned();
+                    append_text(&mut node, text);
+                }
+                Event::GeneralRef(e) => {
+                    // Handle entity references (e.g., &lt; &gt; &amp;)
+                    let entity = reader.decoder().decode(&e)?.into_owned();
+                    let text = decode_entity(&entity);
                     append_text(&mut node, text);
                 }
                 Event::CData(e) => {
@@ -226,6 +241,30 @@ fn append_text(node: &mut TreeNode, text: String) {
         last_child.tail.push_str(&text);
     } else {
         node.text.push_str(&text);
+    }
+}
+
+/// Decode XML entity references to their character values.
+fn decode_entity(entity: &str) -> String {
+    match entity {
+        "lt" => "<".to_string(),
+        "gt" => ">".to_string(),
+        "amp" => "&".to_string(),
+        "apos" => "'".to_string(),
+        "quot" => "\"".to_string(),
+        // Numeric character references
+        s if s.starts_with('#') => {
+            let code = if s.starts_with("#x") || s.starts_with("#X") {
+                u32::from_str_radix(&s[2..], 16).ok()
+            } else {
+                s[1..].parse::<u32>().ok()
+            };
+            code.and_then(char::from_u32)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| format!("&{entity};"))
+        }
+        // Unknown entity - preserve as-is
+        _ => format!("&{entity};"),
     }
 }
 

@@ -17,6 +17,10 @@ pub enum CommentPreservationError {
     /// XML attribute error.
     #[error("XML attribute error")]
     XmlAttr(#[from] quick_xml::events::attributes::AttrError),
+
+    /// Encoding error during XML parsing.
+    #[error("encoding error")]
+    Encoding(#[from] quick_xml::encoding::EncodingError),
 }
 
 /// Error from Confluence API operations.
