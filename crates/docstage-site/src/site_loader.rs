@@ -11,22 +11,34 @@
 //! - Files starting with `.` or `_` are skipped
 //! - Directories without `index.md` have their children promoted to parent level
 //!
+//! # Thread Safety
+//!
+//! `SiteLoader` is designed for concurrent access:
+//! - `get()` returns `Arc<Site>` with minimal locking (just Arc clone)
+//! - `reload_if_needed()` uses double-checked locking for efficient cache validation
+//! - `invalidate()` is lock-free (atomic flag)
+//!
 //! # Example
 //!
 //! ```ignore
 //! use std::path::PathBuf;
+//! use std::sync::Arc;
 //! use docstage_site::site_loader::{SiteLoader, SiteLoaderConfig};
 //!
 //! let config = SiteLoaderConfig {
 //!     source_dir: PathBuf::from("docs"),
 //!     cache_dir: Some(PathBuf::from(".cache")),
 //! };
-//! let mut loader = SiteLoader::new(config);
-//! let site = loader.load(true);
+//! let loader = Arc::new(SiteLoader::new(config));
+//!
+//! // Concurrent access from multiple threads
+//! let site = loader.reload_if_needed();
 //! ```
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 
 use regex::Regex;
 
@@ -47,10 +59,22 @@ pub struct SiteLoaderConfig {
 /// Scans a source directory for markdown files and builds a [`Site`] structure.
 /// Uses `index.md` files as section landing pages. Extracts titles from the
 /// first H1 heading in each document, falling back to filename-based titles.
+///
+/// # Thread Safety
+///
+/// This struct is designed for concurrent access without external locking:
+/// - Uses internal `RwLock<Arc<Site>>` for the current site snapshot
+/// - Uses `Mutex<()>` for serializing reload operations
+/// - Uses `AtomicBool` for cache validity tracking
 pub struct SiteLoader {
     config: SiteLoaderConfig,
-    cache: Box<dyn SiteCache>,
-    cached_site: Option<Site>,
+    file_cache: Box<dyn SiteCache>,
+    /// Mutex for serializing reload operations.
+    reload_lock: Mutex<()>,
+    /// Current site snapshot (atomically swappable).
+    current_site: RwLock<Arc<Site>>,
+    /// Cache validity flag.
+    cache_valid: AtomicBool,
     h1_regex: Regex,
 }
 
@@ -67,59 +91,90 @@ impl SiteLoader {
     /// This should never happen as the regex is a compile-time constant.
     #[must_use]
     pub fn new(config: SiteLoaderConfig) -> Self {
-        let cache: Box<dyn SiteCache> = match &config.cache_dir {
+        let file_cache: Box<dyn SiteCache> = match &config.cache_dir {
             Some(dir) => Box::new(FileSiteCache::new(dir.clone())),
             None => Box::new(NullSiteCache),
         };
 
+        // Create initial empty site
+        let initial_site = Arc::new(SiteBuilder::new(config.source_dir.clone()).build());
+
         Self {
             config,
-            cache,
-            cached_site: None,
+            file_cache,
+            reload_lock: Mutex::new(()),
+            current_site: RwLock::new(initial_site),
+            cache_valid: AtomicBool::new(false),
             // Regex for extracting first H1 heading
             h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
         }
     }
 
-    /// Load site structure from directory.
+    /// Get current site snapshot.
     ///
-    /// # Arguments
+    /// Returns an `Arc<Site>` that can be used without holding any lock.
+    /// The site is guaranteed to be internally consistent.
     ///
-    /// * `use_cache` - Whether to use cached data if available
+    /// Note: This returns the current snapshot without checking cache validity.
+    /// For most use cases, prefer `reload_if_needed()` which ensures the site
+    /// is up-to-date.
+    #[must_use]
+    pub fn get(&self) -> Arc<Site> {
+        self.current_site.read().unwrap().clone()
+    }
+
+    /// Reload site from filesystem if cache is invalid.
+    ///
+    /// Uses double-checked locking pattern:
+    /// 1. Fast path: return current site if cache valid
+    /// 2. Slow path: acquire reload_lock, recheck, then reload
     ///
     /// # Returns
     ///
-    /// Reference to the loaded [`Site`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal cached site option is `None` after being set.
-    /// This should never happen as this method always populates the cache before returning.
-    pub fn load(&mut self, use_cache: bool) -> &Site {
-        // Return in-memory cached Site if available
-        if use_cache && self.cached_site.is_some() {
-            return self.cached_site.as_ref().unwrap();
+    /// `Arc<Site>` containing the current site snapshot.
+    pub fn reload_if_needed(&self) -> Arc<Site> {
+        // Fast path: cache valid
+        if self.cache_valid.load(Ordering::Acquire) {
+            return self.get();
         }
 
-        // Try file cache
-        if use_cache && let Some(site) = self.cache.get() {
-            self.cached_site = Some(site);
-            return self.cached_site.as_ref().unwrap();
+        // Slow path: acquire reload lock
+        let _guard = self.reload_lock.lock().unwrap();
+
+        // Double-check after acquiring lock
+        if self.cache_valid.load(Ordering::Acquire) {
+            return self.get();
+        }
+
+        // Try file cache first
+        if let Some(site) = self.file_cache.get() {
+            let site = Arc::new(site);
+            *self.current_site.write().unwrap() = site.clone();
+            self.cache_valid.store(true, Ordering::Release);
+            return site;
         }
 
         // Load from filesystem
         let site = self.load_from_filesystem();
+        let site = Arc::new(site);
 
-        // Store in cache
-        self.cache.set(&site);
-        self.cached_site = Some(site);
-        self.cached_site.as_ref().unwrap()
+        // Store in file cache
+        self.file_cache.set(&site);
+
+        // Update current site
+        *self.current_site.write().unwrap() = site.clone();
+        self.cache_valid.store(true, Ordering::Release);
+
+        site
     }
 
     /// Invalidate cached site.
-    pub fn invalidate(&mut self) {
-        self.cached_site = None;
-        self.cache.invalidate();
+    ///
+    /// Marks cache as invalid. Next `reload_if_needed()` will reload.
+    /// Current readers continue using their existing `Arc<Site>`.
+    pub fn invalidate(&self) {
+        self.cache_valid.store(false, Ordering::Release);
+        self.file_cache.invalidate();
     }
 
     /// Get source directory.
@@ -300,29 +355,32 @@ impl SiteLoader {
 
 #[cfg(test)]
 mod tests {
+    // Ensure SiteLoader is Send + Sync for use with Arc
+    static_assertions::assert_impl_all!(super::SiteLoader: Send, Sync);
+    use std::sync::Arc;
+
     use super::*;
-    use std::fs;
 
     fn create_test_dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
     }
 
     #[test]
-    fn test_load_missing_dir_returns_empty_site() {
+    fn test_reload_if_needed_missing_dir_returns_empty_site() {
         let temp_dir = create_test_dir();
         let config = SiteLoaderConfig {
             source_dir: temp_dir.path().join("nonexistent"),
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         assert!(site.get_root_pages().is_empty());
     }
 
     #[test]
-    fn test_load_empty_dir_returns_empty_site() {
+    fn test_reload_if_needed_empty_dir_returns_empty_site() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -331,15 +389,15 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         assert!(site.get_root_pages().is_empty());
     }
 
     #[test]
-    fn test_load_flat_structure_builds_site() {
+    fn test_reload_if_needed_flat_structure_builds_site() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -350,9 +408,9 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         assert_eq!(site.get_root_pages().len(), 2);
         assert!(site.get_page("/guide").is_some());
@@ -360,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_root_index_adds_home_page() {
+    fn test_reload_if_needed_root_index_adds_home_page() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -374,9 +432,9 @@ mod tests {
             source_dir: source_dir.clone(),
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         let page = site.get_page("/");
         assert!(page.is_some());
@@ -391,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_nested_structure_builds_site() {
+    fn test_reload_if_needed_nested_structure_builds_site() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         let domain_dir = source_dir.join("domain-a");
@@ -403,9 +461,9 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         let domain = site.get_page("/domain-a");
         assert!(domain.is_some());
@@ -420,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_extracts_title_from_h1() {
+    fn test_reload_if_needed_extracts_title_from_h1() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -430,9 +488,9 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         let page = site.get_page("/guide");
         assert!(page.is_some());
@@ -440,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_falls_back_to_filename() {
+    fn test_reload_if_needed_falls_back_to_filename() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -454,9 +512,9 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         let page = site.get_page("/setup-guide");
         assert!(page.is_some());
@@ -464,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_cyrillic_filename() {
+    fn test_reload_if_needed_cyrillic_filename() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -478,9 +536,9 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         let page = site.get_page("/руководство");
         assert!(page.is_some());
@@ -491,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_skips_hidden_files() {
+    fn test_reload_if_needed_skips_hidden_files() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -502,16 +560,16 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         assert!(site.get_page("/.hidden").is_none());
         assert!(site.get_page("/visible").is_some());
     }
 
     #[test]
-    fn test_load_skips_underscore_files() {
+    fn test_reload_if_needed_skips_underscore_files() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -522,16 +580,16 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         assert!(site.get_page("/_partial").is_none());
         assert!(site.get_page("/main").is_some());
     }
 
     #[test]
-    fn test_load_directory_without_index_promotes_children() {
+    fn test_reload_if_needed_directory_without_index_promotes_children() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         let no_index_dir = source_dir.join("no-index");
@@ -542,9 +600,9 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         // Child should be at root level (promoted)
         let roots = site.get_root_pages();
@@ -554,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_caches_site_instance() {
+    fn test_get_returns_same_arc() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -564,12 +622,36 @@ mod tests {
             source_dir,
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site1 = loader.load(true) as *const Site;
-        let site2 = loader.load(true) as *const Site;
+        // First reload to populate
+        let _ = loader.reload_if_needed();
 
-        assert_eq!(site1, site2);
+        // Get should return the same Arc
+        let site1 = loader.get();
+        let site2 = loader.get();
+
+        assert!(Arc::ptr_eq(&site1, &site2));
+    }
+
+    #[test]
+    fn test_reload_if_needed_caches_result() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let config = SiteLoaderConfig {
+            source_dir,
+            cache_dir: None,
+        };
+        let loader = SiteLoader::new(config);
+
+        let site1 = loader.reload_if_needed();
+        let site2 = loader.reload_if_needed();
+
+        // Should return the same Arc (cached)
+        assert!(Arc::ptr_eq(&site1, &site2));
     }
 
     #[test]
@@ -583,23 +665,26 @@ mod tests {
             source_dir: source_dir.clone(),
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        // First load - should NOT have /new
-        let site1 = loader.load(true);
+        // First reload - should NOT have /new
+        let site1 = loader.reload_if_needed();
         assert!(site1.get_page("/new").is_none());
 
         // Add new file and invalidate
         fs::write(source_dir.join("new.md"), "# New").unwrap();
         loader.invalidate();
 
-        // Second load - should have /new now
-        let site2 = loader.load(true);
+        // Second reload - should have /new now
+        let site2 = loader.reload_if_needed();
         assert!(site2.get_page("/new").is_some());
+
+        // Should be a different Arc (reloaded)
+        assert!(!Arc::ptr_eq(&site1, &site2));
     }
 
     #[test]
-    fn test_load_site_has_source_dir() {
+    fn test_reload_if_needed_site_has_source_dir() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
@@ -609,9 +694,9 @@ mod tests {
             source_dir: source_dir.clone(),
             cache_dir: None,
         };
-        let mut loader = SiteLoader::new(config);
+        let loader = SiteLoader::new(config);
 
-        let site = loader.load(true);
+        let site = loader.reload_if_needed();
 
         assert_eq!(site.source_dir(), source_dir);
     }
@@ -639,5 +724,79 @@ mod tests {
         let loader = SiteLoader::new(config);
 
         assert_eq!(loader.source_dir(), source_dir);
+    }
+
+    #[test]
+    fn test_concurrent_access() {
+        use std::thread;
+
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let config = SiteLoaderConfig {
+            source_dir,
+            cache_dir: None,
+        };
+        let loader = Arc::new(SiteLoader::new(config));
+
+        // Spawn multiple threads accessing concurrently
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                let loader = Arc::clone(&loader);
+                thread::spawn(move || {
+                    let site = loader.reload_if_needed();
+                    assert!(site.get_page("/guide").is_some());
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_concurrent_invalidate_and_reload() {
+        use std::thread;
+
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let config = SiteLoaderConfig {
+            source_dir,
+            cache_dir: None,
+        };
+        let loader = Arc::new(SiteLoader::new(config));
+
+        // Initial load
+        let _ = loader.reload_if_needed();
+
+        // Spawn threads that invalidate and reload concurrently
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let loader = Arc::clone(&loader);
+                thread::spawn(move || {
+                    if i % 2 == 0 {
+                        loader.invalidate();
+                    } else {
+                        let site = loader.reload_if_needed();
+                        // Site should always be valid
+                        assert!(site.get_page("/guide").is_some());
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Final state should be valid
+        let site = loader.reload_if_needed();
+        assert!(site.get_page("/guide").is_some());
     }
 }
