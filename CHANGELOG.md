@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Configuration validation on load** via `Config::validate()` method; validates all config fields at load time instead of during use; checks: `server.host` non-empty, `server.port` non-zero, `diagrams.kroki_url` valid HTTP(S) URL when set, `diagrams.dpi` positive and ≤1000, `confluence.*` fields non-empty and `base_url` valid HTTP(S) URL when section exists
+
 ### Changed
 
 - **`MarkdownRenderer::extracted_code_blocks()` returns `impl Iterator`** instead of `Vec<ExtractedCodeBlock>`; callers who need a `Vec` can call `.collect()` on the result; enables lazy iteration without allocation for callers who only iterate once
