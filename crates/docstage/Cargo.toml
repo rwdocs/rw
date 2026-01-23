@@ -20,7 +20,7 @@ docstage-confluence = { workspace = true }
 docstage-server = { workspace = true }
 
 clap = { version = "4", features = ["derive", "env"] }
-console = "0.15"
+console = "0.16"
 thiserror = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true }
