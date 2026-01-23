@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Updated `quick-xml` dependency to 0.39**; migrated from deprecated `BytesText::unescape()` API to `reader.decoder().decode()` with explicit `Event::GeneralRef` handling for XML entity references; added `CommentPreservationError::Encoding` variant for encoding errors
 - **`MarkdownRenderer::extracted_code_blocks()` returns `impl Iterator`** instead of `Vec<ExtractedCodeBlock>`; callers who need a `Vec` can call `.collect()` on the result; enables lazy iteration without allocation for callers who only iterate once
 - **`MarkdownRenderer::processor_warnings()` returns `impl Iterator`** instead of `Vec<String>`; same lazy evaluation benefits as `extracted_code_blocks()`
 - **Preserved error sources in error types** via `#[source]` and `#[from]` attributes for proper error chain debugging; `ConfluenceError` split `Http` variant into `HttpRequest` (wraps `ureq::Error`) and `HttpResponse` (status + body), `Json` now uses `#[from] serde_json::Error`, `CommentPreservation` uses `#[from] CommentPreservationError`, `RsaKey` uses `#[from] RsaKeyError`; `DiagramErrorKind` now has `HttpRequest` (wraps `ureq::Error`), `HttpResponse` (status + body), `Io` (wraps `std::io::Error`), `InvalidUtf8` (wraps `FromUtf8Error`) variants instead of `Http(String)` and `Io(String)`
