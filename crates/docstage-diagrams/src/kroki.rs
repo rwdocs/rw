@@ -66,6 +66,14 @@ impl DiagramRequest {
             language,
         }
     }
+
+    /// Create an error for this diagram request.
+    fn error(&self, kind: DiagramErrorKind) -> DiagramError {
+        DiagramError {
+            index: self.index,
+            kind,
+        }
+    }
 }
 
 /// Single diagram rendering error.
@@ -78,11 +86,26 @@ pub struct DiagramError {
 
 /// Kind of diagram rendering error.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DiagramErrorKind {
-    #[error("HTTP error: {0}")]
-    Http(String),
-    #[error("I/O error: {0}")]
-    Io(String),
+    /// HTTP request failed (network error, timeout, etc).
+    #[error("HTTP request failed")]
+    HttpRequest(#[source] ureq::Error),
+    /// HTTP response error (server returned error status).
+    #[error("HTTP {status}: {body}")]
+    HttpResponse {
+        /// HTTP status code.
+        status: u16,
+        /// Response body (may contain error details).
+        body: String,
+    },
+    /// I/O error (file operations).
+    #[error("I/O error")]
+    Io(#[source] std::io::Error),
+    /// Invalid UTF-8 in response.
+    #[error("invalid UTF-8")]
+    InvalidUtf8(#[source] std::string::FromUtf8Error),
+    /// Invalid PNG data (missing or malformed header).
     #[error("invalid PNG data")]
     InvalidPng,
 }
@@ -134,10 +157,7 @@ fn send_diagram_request(
         .post(&url)
         .header("Content-Type", "text/plain")
         .send(diagram.source.as_bytes())
-        .map_err(|e| DiagramError {
-            index: diagram.index,
-            kind: DiagramErrorKind::Http(e.to_string()),
-        })?;
+        .map_err(|e| diagram.error(DiagramErrorKind::HttpRequest(e)))?;
 
     let status = response.status().as_u16();
     let mut body = response.into_body();
@@ -146,16 +166,14 @@ fn send_diagram_request(
         let error_body = body
             .read_to_string()
             .unwrap_or_else(|_| String::from("(unable to read error body)"));
-        return Err(DiagramError {
-            index: diagram.index,
-            kind: DiagramErrorKind::Http(format!("HTTP {status}: {error_body}")),
-        });
+        return Err(diagram.error(DiagramErrorKind::HttpResponse {
+            status,
+            body: error_body,
+        }));
     }
 
-    body.read_to_vec().map_err(|e| DiagramError {
-        index: diagram.index,
-        kind: DiagramErrorKind::Io(e.to_string()),
-    })
+    body.read_to_vec()
+        .map_err(|e| diagram.error(DiagramErrorKind::HttpRequest(e)))
 }
 
 /// Render a single diagram to PNG via Kroki.
@@ -168,10 +186,8 @@ fn render_one_png(
 ) -> Result<RenderedDiagram, DiagramError> {
     let data = send_diagram_request(agent, diagram, server_url, "png")?;
 
-    let (width, height) = get_png_dimensions(&data).ok_or(DiagramError {
-        index: diagram.index,
-        kind: DiagramErrorKind::InvalidPng,
-    })?;
+    let (width, height) =
+        get_png_dimensions(&data).ok_or_else(|| diagram.error(DiagramErrorKind::InvalidPng))?;
 
     let endpoint = diagram.language.kroki_endpoint();
     let key = DiagramKey {
@@ -184,10 +200,7 @@ fn render_one_png(
     let filename = format!("diagram_{hash}.png");
     let filepath = output_dir.join(&filename);
 
-    std::fs::write(&filepath, &data).map_err(|e| DiagramError {
-        index: diagram.index,
-        kind: DiagramErrorKind::Io(e.to_string()),
-    })?;
+    std::fs::write(&filepath, &data).map_err(|e| diagram.error(DiagramErrorKind::Io(e)))?;
 
     Ok(RenderedDiagram {
         index: diagram.index,
@@ -243,10 +256,8 @@ fn render_one_svg(
     server_url: &str,
 ) -> Result<RenderedSvg, DiagramError> {
     let data = send_diagram_request(agent, diagram, server_url, "svg")?;
-    let svg = String::from_utf8(data).map_err(|e| DiagramError {
-        index: diagram.index,
-        kind: DiagramErrorKind::Io(format!("invalid UTF-8 in SVG: {e}")),
-    })?;
+    let svg =
+        String::from_utf8(data).map_err(|e| diagram.error(DiagramErrorKind::InvalidUtf8(e)))?;
 
     Ok(RenderedSvg {
         index: diagram.index,
@@ -263,10 +274,7 @@ fn render_one_png_data_uri(
     let data = send_diagram_request(agent, diagram, server_url, "png")?;
 
     if get_png_dimensions(&data).is_none() {
-        return Err(DiagramError {
-            index: diagram.index,
-            kind: DiagramErrorKind::InvalidPng,
-        });
+        return Err(diagram.error(DiagramErrorKind::InvalidPng));
     }
 
     let base64 = BASE64_STANDARD.encode(&data);
