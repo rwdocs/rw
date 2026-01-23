@@ -6,23 +6,20 @@ use rsa::RsaPrivateKey;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::DecodePrivateKey;
 
-use crate::error::ConfluenceError;
+use crate::error::{ConfluenceError, RsaKeyError};
 
 /// Load RSA private key from file path.
 pub fn load_private_key_from_file(path: &Path) -> Result<RsaPrivateKey, ConfluenceError> {
-    let data = std::fs::read(path).map_err(|e| {
-        ConfluenceError::RsaKey(format!("Failed to read key file {}: {e}", path.display()))
-    })?;
-    load_private_key(&data)
+    let data = std::fs::read(path)?;
+    Ok(load_private_key(&data)?)
 }
 
 /// Load RSA private key from PEM bytes (auto-detects format).
 ///
 /// Supports both PKCS#8 (`-----BEGIN PRIVATE KEY-----`) and
 /// PKCS#1 (`-----BEGIN RSA PRIVATE KEY-----`) formats.
-pub fn load_private_key(pem: &[u8]) -> Result<RsaPrivateKey, ConfluenceError> {
-    let pem_str = std::str::from_utf8(pem)
-        .map_err(|e| ConfluenceError::RsaKey(format!("Invalid UTF-8 in key: {e}")))?;
+pub fn load_private_key(pem: &[u8]) -> Result<RsaPrivateKey, RsaKeyError> {
+    let pem_str = std::str::from_utf8(pem).map_err(RsaKeyError::InvalidUtf8)?;
 
     // Try PKCS#8 first (-----BEGIN PRIVATE KEY-----)
     if let Ok(key) = RsaPrivateKey::from_pkcs8_pem(pem_str) {
@@ -30,8 +27,7 @@ pub fn load_private_key(pem: &[u8]) -> Result<RsaPrivateKey, ConfluenceError> {
     }
 
     // Fall back to PKCS#1 (-----BEGIN RSA PRIVATE KEY-----)
-    RsaPrivateKey::from_pkcs1_pem(pem_str)
-        .map_err(|e| ConfluenceError::RsaKey(format!("Failed to parse PEM key: {e}")))
+    RsaPrivateKey::from_pkcs1_pem(pem_str).map_err(RsaKeyError::Pkcs1)
 }
 
 #[cfg(test)]

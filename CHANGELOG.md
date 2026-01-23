@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Preserved error sources in error types** via `#[source]` and `#[from]` attributes for proper error chain debugging; `ConfluenceError` split `Http` variant into `HttpRequest` (wraps `ureq::Error`) and `HttpResponse` (status + body), `Json` now uses `#[from] serde_json::Error`, `CommentPreservation` uses `#[from] CommentPreservationError`, `RsaKey` uses `#[from] RsaKeyError`; `DiagramErrorKind` now has `HttpRequest` (wraps `ureq::Error`), `HttpResponse` (status + body), `Io` (wraps `std::io::Error`), `InvalidUtf8` (wraps `FromUtf8Error`) variants instead of `Http(String)` and `Io(String)`
+
 ### Added
+
+- **`RsaKeyError` enum** in `docstage-confluence` for structured RSA key errors with `InvalidUtf8`, `Pkcs1`, `Pkcs8` variants using `#[from]` for automatic conversion; enables error chain debugging for key loading failures
+- **`CommentPreservationError` made public** with `#[non_exhaustive]` attribute for forward compatibility; enables inspecting XML parsing errors in error chains
+- **`ConfluenceError::HttpRequest` variant** for network-level errors (timeouts, DNS, TLS) with preserved `ureq::Error` source
+- **`ConfluenceError::HttpResponse` variant** for HTTP-level errors (4xx, 5xx) with status code and response body
+- **`DiagramRequest::error()` helper** in `docstage-diagrams` for creating `DiagramError` instances with diagram index context
 
 - **Environment variable expansion in configuration** via `shellexpand` crate; supports `${VAR}` and `${VAR:-default}` syntax in string config values; expanded fields: `server.host`, `confluence.base_url`, `confluence.access_token`, `confluence.access_secret`, `confluence.consumer_key`, `diagrams.kroki_url`
 - **`ConfigError::EnvVar` variant** for environment variable expansion errors; includes field path and descriptive error message

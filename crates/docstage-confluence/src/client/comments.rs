@@ -25,11 +25,7 @@ impl ConfluenceClient {
             .get(&url)
             .header("Authorization", &auth_header)
             .header("Accept", "application/json")
-            .call()
-            .map_err(|e| ConfluenceError::Http {
-                status: 0,
-                body: e.to_string(),
-            })?;
+            .call()?;
 
         let status = response.status().as_u16();
         let mut body_reader = response.into_body();
@@ -38,7 +34,7 @@ impl ConfluenceClient {
             let error_body = body_reader
                 .read_to_string()
                 .unwrap_or_else(|_| "(unable to read error body)".to_string());
-            return Err(ConfluenceError::Http {
+            return Err(ConfluenceError::HttpResponse {
                 status,
                 body: error_body,
             });

@@ -83,11 +83,7 @@ impl ConfluenceClient {
             )
             .header("X-Atlassian-Token", "nocheck")
             .header("Accept", "application/json")
-            .send(&body[..])
-            .map_err(|e| ConfluenceError::Http {
-                status: 0,
-                body: e.to_string(),
-            })?;
+            .send(&body[..])?;
 
         let status = response.status().as_u16();
         let mut body_reader = response.into_body();
@@ -96,7 +92,7 @@ impl ConfluenceClient {
             let error_body = body_reader
                 .read_to_string()
                 .unwrap_or_else(|_| "(unable to read error body)".to_string());
-            return Err(ConfluenceError::Http {
+            return Err(ConfluenceError::HttpResponse {
                 status,
                 body: error_body,
             });
@@ -111,7 +107,7 @@ impl ConfluenceClient {
                 .results
                 .into_iter()
                 .next()
-                .ok_or_else(|| ConfluenceError::Http {
+                .ok_or_else(|| ConfluenceError::HttpResponse {
                     status: 200,
                     body: "Empty attachment response".to_string(),
                 })
@@ -135,11 +131,7 @@ impl ConfluenceClient {
             .get(&url)
             .header("Authorization", &auth_header)
             .header("Accept", "application/json")
-            .call()
-            .map_err(|e| ConfluenceError::Http {
-                status: 0,
-                body: e.to_string(),
-            })?;
+            .call()?;
 
         let status = response.status().as_u16();
         let mut body_reader = response.into_body();
@@ -148,7 +140,7 @@ impl ConfluenceClient {
             let error_body = body_reader
                 .read_to_string()
                 .unwrap_or_else(|_| "(unable to read error body)".to_string());
-            return Err(ConfluenceError::Http {
+            return Err(ConfluenceError::HttpResponse {
                 status,
                 body: error_body,
             });

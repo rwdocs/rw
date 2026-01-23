@@ -4,65 +4,71 @@ use std::str::Utf8Error;
 
 /// Error during comment preservation.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum CommentPreservationError {
+#[non_exhaustive]
+pub enum CommentPreservationError {
     /// XML parsing error.
-    #[error("XML parse error: {0}")]
+    #[error("XML parse error")]
     XmlParse(#[from] quick_xml::Error),
 
     /// UTF-8 decoding error.
-    #[error("UTF-8 error: {0}")]
+    #[error("UTF-8 error")]
     Utf8(#[from] Utf8Error),
 
     /// XML attribute error.
-    #[error("XML attribute error: {0}")]
+    #[error("XML attribute error")]
     XmlAttr(#[from] quick_xml::events::attributes::AttrError),
 }
 
 /// Error from Confluence API operations.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfluenceError {
-    /// HTTP request error.
+    /// HTTP request failed (network error, timeout, etc).
+    #[error("HTTP request failed")]
+    HttpRequest(#[from] ureq::Error),
+
+    /// HTTP response error (server returned error status).
     #[error("HTTP error: {status} - {body}")]
-    Http { status: u16, body: String },
+    HttpResponse {
+        /// HTTP status code.
+        status: u16,
+        /// Response body (may contain error details).
+        body: String,
+    },
 
     /// RSA key loading/parsing error.
-    #[error("RSA key error: {0}")]
-    RsaKey(String),
+    #[error("RSA key error")]
+    RsaKey(#[from] RsaKeyError),
 
-    /// IO error.
-    #[error("IO error: {0}")]
+    /// I/O error.
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
 
     /// JSON serialization/deserialization error.
-    #[error("JSON error: {0}")]
-    Json(String),
+    #[error("JSON error")]
+    Json(#[from] serde_json::Error),
 
     /// Comment preservation error.
-    #[error("Comment preservation error: {0}")]
-    CommentPreservation(String),
+    #[error("comment preservation error")]
+    CommentPreservation(#[from] CommentPreservationError),
 
     /// OAuth token generation error.
     #[error("OAuth error: {0}")]
     OAuth(String),
 }
 
-impl From<CommentPreservationError> for ConfluenceError {
-    fn from(e: CommentPreservationError) -> Self {
-        ConfluenceError::CommentPreservation(e.to_string())
-    }
-}
+/// RSA key loading/parsing error.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RsaKeyError {
+    /// Invalid UTF-8 in key file.
+    #[error("invalid UTF-8 in key")]
+    InvalidUtf8(#[from] Utf8Error),
 
-impl From<serde_json::Error> for ConfluenceError {
-    fn from(e: serde_json::Error) -> Self {
-        ConfluenceError::Json(e.to_string())
-    }
-}
+    /// PKCS#1 key parsing error.
+    #[error("PKCS#1 key error")]
+    Pkcs1(#[from] rsa::pkcs1::Error),
 
-impl From<ureq::Error> for ConfluenceError {
-    fn from(e: ureq::Error) -> Self {
-        ConfluenceError::Http {
-            status: 0,
-            body: e.to_string(),
-        }
-    }
+    /// PKCS#8 key parsing error (returned when both formats fail).
+    #[error("PKCS#8 key error")]
+    Pkcs8(#[from] rsa::pkcs8::Error),
 }
