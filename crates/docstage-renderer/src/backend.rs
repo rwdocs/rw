@@ -5,6 +5,32 @@
 
 use std::borrow::Cow;
 
+use pulldown_cmark::BlockQuoteKind;
+
+/// Alert type for GitHub-style alerts.
+///
+/// Maps to [`pulldown_cmark::BlockQuoteKind`] for blockquotes with `> [!NOTE]` syntax.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertKind {
+    Note,
+    Tip,
+    Important,
+    Warning,
+    Caution,
+}
+
+impl From<BlockQuoteKind> for AlertKind {
+    fn from(kind: BlockQuoteKind) -> Self {
+        match kind {
+            BlockQuoteKind::Note => AlertKind::Note,
+            BlockQuoteKind::Tip => AlertKind::Tip,
+            BlockQuoteKind::Important => AlertKind::Important,
+            BlockQuoteKind::Warning => AlertKind::Warning,
+            BlockQuoteKind::Caution => AlertKind::Caution,
+        }
+    }
+}
+
 /// Backend trait for format-specific rendering operations.
 ///
 /// Implementations provide format-specific rendering for:
@@ -33,6 +59,14 @@ pub trait RenderBackend {
 
     /// Render blockquote end tag.
     fn blockquote_end(out: &mut String);
+
+    /// Render alert start tag.
+    ///
+    /// Alerts are GitHub-style blockquotes with `> [!NOTE]` syntax.
+    fn alert_start(kind: AlertKind, out: &mut String);
+
+    /// Render alert end tag.
+    fn alert_end(kind: AlertKind, out: &mut String);
 
     /// Render an image.
     ///

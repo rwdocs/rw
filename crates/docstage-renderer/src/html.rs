@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use crate::backend::RenderBackend;
+use crate::backend::{AlertKind, RenderBackend};
 use crate::state::escape_html;
 
 /// HTML render backend.
@@ -40,6 +40,25 @@ impl RenderBackend for HtmlBackend {
 
     fn blockquote_end(out: &mut String) {
         out.push_str("</blockquote>");
+    }
+
+    fn alert_start(kind: AlertKind, out: &mut String) {
+        let (class, icon, title) = match kind {
+            AlertKind::Note => ("note", "ℹ️", "Note"),
+            AlertKind::Tip => ("tip", "💡", "Tip"),
+            AlertKind::Important => ("important", "❗", "Important"),
+            AlertKind::Warning => ("warning", "⚠️", "Warning"),
+            AlertKind::Caution => ("caution", "🔴", "Caution"),
+        };
+        write!(
+            out,
+            r#"<div class="alert alert-{class}"><div class="alert-title"><span class="alert-icon">{icon}</span>{title}</div><div class="alert-content">"#
+        )
+        .unwrap();
+    }
+
+    fn alert_end(_kind: AlertKind, out: &mut String) {
+        out.push_str("</div></div>");
     }
 
     fn image(src: &str, alt: &str, title: &str, out: &mut String) {
@@ -269,5 +288,57 @@ mod tests {
     fn test_transform_link_without_base_path() {
         let result = HtmlBackend::transform_link("./page.md", None);
         assert_eq!(result, "./page.md");
+    }
+
+    #[test]
+    fn test_alert_note() {
+        let mut out = String::new();
+        HtmlBackend::alert_start(AlertKind::Note, &mut out);
+        out.push_str("<p>content</p>");
+        HtmlBackend::alert_end(AlertKind::Note, &mut out);
+        assert!(out.contains(r#"class="alert alert-note""#));
+        assert!(out.contains("ℹ️"));
+        assert!(out.contains("Note"));
+        assert!(out.contains("<p>content</p>"));
+    }
+
+    #[test]
+    fn test_alert_tip() {
+        let mut out = String::new();
+        HtmlBackend::alert_start(AlertKind::Tip, &mut out);
+        HtmlBackend::alert_end(AlertKind::Tip, &mut out);
+        assert!(out.contains(r#"class="alert alert-tip""#));
+        assert!(out.contains("💡"));
+        assert!(out.contains("Tip"));
+    }
+
+    #[test]
+    fn test_alert_important() {
+        let mut out = String::new();
+        HtmlBackend::alert_start(AlertKind::Important, &mut out);
+        HtmlBackend::alert_end(AlertKind::Important, &mut out);
+        assert!(out.contains(r#"class="alert alert-important""#));
+        assert!(out.contains("❗"));
+        assert!(out.contains("Important"));
+    }
+
+    #[test]
+    fn test_alert_warning() {
+        let mut out = String::new();
+        HtmlBackend::alert_start(AlertKind::Warning, &mut out);
+        HtmlBackend::alert_end(AlertKind::Warning, &mut out);
+        assert!(out.contains(r#"class="alert alert-warning""#));
+        assert!(out.contains("⚠️"));
+        assert!(out.contains("Warning"));
+    }
+
+    #[test]
+    fn test_alert_caution() {
+        let mut out = String::new();
+        HtmlBackend::alert_start(AlertKind::Caution, &mut out);
+        HtmlBackend::alert_end(AlertKind::Caution, &mut out);
+        assert!(out.contains(r#"class="alert alert-caution""#));
+        assert!(out.contains("🔴"));
+        assert!(out.contains("Caution"));
     }
 }

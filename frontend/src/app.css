@@ -71,4 +71,66 @@
   .prose figure.diagram-error pre {
     @apply m-0;
   }
+
+  /* GitHub-style alerts */
+  .prose .alert {
+    @apply my-4 p-4 rounded-lg border-l-4;
+  }
+
+  .prose .alert-title {
+    @apply flex items-center gap-2 font-semibold mb-2;
+  }
+
+  .prose .alert-icon {
+    @apply text-lg;
+  }
+
+  .prose .alert-content > :first-child {
+    @apply mt-0;
+  }
+
+  .prose .alert-content > :last-child {
+    @apply mb-0;
+  }
+
+  /* Alert type-specific colors */
+  .prose .alert-note {
+    @apply bg-blue-50 border-blue-500;
+  }
+
+  .prose .alert-note .alert-title {
+    @apply text-blue-700;
+  }
+
+  .prose .alert-tip {
+    @apply bg-green-50 border-green-500;
+  }
+
+  .prose .alert-tip .alert-title {
+    @apply text-green-700;
+  }
+
+  .prose .alert-important {
+    @apply bg-purple-50 border-purple-500;
+  }
+
+  .prose .alert-important .alert-title {
+    @apply text-purple-700;
+  }
+
+  .prose .alert-warning {
+    @apply bg-amber-50 border-amber-500;
+  }
+
+  .prose .alert-warning .alert-title {
+    @apply text-amber-700;
+  }
+
+  .prose .alert-caution {
+    @apply bg-red-50 border-red-500;
+  }
+
+  .prose .alert-caution .alert-title {
+    @apply text-red-700;
+  }
 }

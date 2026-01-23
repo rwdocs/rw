@@ -5,7 +5,7 @@
 
 use std::fmt::Write;
 
-use docstage_renderer::{RenderBackend, escape_html};
+use docstage_renderer::{AlertKind, RenderBackend, escape_html};
 
 /// Confluence render backend.
 ///
@@ -46,6 +46,24 @@ impl RenderBackend for ConfluenceBackend {
     }
 
     fn blockquote_end(out: &mut String) {
+        out.push_str("</ac:rich-text-body></ac:structured-macro>");
+    }
+
+    fn alert_start(kind: AlertKind, out: &mut String) {
+        let macro_name = match kind {
+            AlertKind::Note => "info",
+            AlertKind::Tip => "tip",
+            AlertKind::Important => "note",
+            AlertKind::Warning | AlertKind::Caution => "warning",
+        };
+        write!(
+            out,
+            r#"<ac:structured-macro ac:name="{macro_name}" ac:schema-version="1"><ac:rich-text-body>"#
+        )
+        .unwrap();
+    }
+
+    fn alert_end(_kind: AlertKind, out: &mut String) {
         out.push_str("</ac:rich-text-body></ac:structured-macro>");
     }
 
@@ -147,5 +165,49 @@ mod tests {
         let mut out = String::new();
         ConfluenceBackend::task_list_marker(true, &mut out);
         assert_eq!(out, "[x] ");
+    }
+
+    #[test]
+    fn test_alert_note() {
+        let mut out = String::new();
+        ConfluenceBackend::alert_start(AlertKind::Note, &mut out);
+        out.push_str("<p>content</p>");
+        ConfluenceBackend::alert_end(AlertKind::Note, &mut out);
+        assert!(out.contains(r#"ac:name="info""#));
+        assert!(out.contains("<ac:rich-text-body><p>content</p></ac:rich-text-body>"));
+    }
+
+    #[test]
+    fn test_alert_tip() {
+        let mut out = String::new();
+        ConfluenceBackend::alert_start(AlertKind::Tip, &mut out);
+        ConfluenceBackend::alert_end(AlertKind::Tip, &mut out);
+        assert!(out.contains(r#"ac:name="tip""#));
+    }
+
+    #[test]
+    fn test_alert_important() {
+        let mut out = String::new();
+        ConfluenceBackend::alert_start(AlertKind::Important, &mut out);
+        ConfluenceBackend::alert_end(AlertKind::Important, &mut out);
+        // Important maps to "note" macro in Confluence
+        assert!(out.contains(r#"ac:name="note""#));
+    }
+
+    #[test]
+    fn test_alert_warning() {
+        let mut out = String::new();
+        ConfluenceBackend::alert_start(AlertKind::Warning, &mut out);
+        ConfluenceBackend::alert_end(AlertKind::Warning, &mut out);
+        assert!(out.contains(r#"ac:name="warning""#));
+    }
+
+    #[test]
+    fn test_alert_caution() {
+        let mut out = String::new();
+        ConfluenceBackend::alert_start(AlertKind::Caution, &mut out);
+        ConfluenceBackend::alert_end(AlertKind::Caution, &mut out);
+        // Caution also maps to "warning" macro in Confluence
+        assert!(out.contains(r#"ac:name="warning""#));
     }
 }

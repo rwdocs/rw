@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
-use crate::backend::RenderBackend;
+use crate::backend::{AlertKind, RenderBackend};
 use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult, parse_fence_info};
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
@@ -46,6 +46,8 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     code_block_index: usize,
     pending_attrs: HashMap<String, String>,
     gfm: bool,
+    /// Stack of alert kinds for nested blockquotes (regular blockquote uses None).
+    alert_stack: Vec<Option<AlertKind>>,
     _backend: PhantomData<B>,
 }
 
@@ -66,6 +68,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             code_block_index: 0,
             pending_attrs: HashMap::new(),
             gfm: true,
+            alert_stack: Vec::new(),
             _backend: PhantomData,
         }
     }
@@ -106,7 +109,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn parser_options(&self) -> Options {
         if self.gfm {
-            Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
+            Options::ENABLE_TABLES
+                | Options::ENABLE_STRIKETHROUGH
+                | Options::ENABLE_TASKLISTS
+                | Options::ENABLE_GFM
         } else {
             Options::empty()
         }
@@ -246,8 +252,15 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 // Opening tag is written in end_tag after we have the ID.
                 self.heading.start_heading(heading_level_to_num(level));
             }
-            Tag::BlockQuote(_) => {
-                B::blockquote_start(&mut self.output);
+            Tag::BlockQuote(kind) => {
+                if let Some(bq_kind) = kind {
+                    let alert_kind = AlertKind::from(bq_kind);
+                    self.alert_stack.push(Some(alert_kind));
+                    B::alert_start(alert_kind, &mut self.output);
+                } else {
+                    self.alert_stack.push(None);
+                    B::blockquote_start(&mut self.output);
+                }
             }
             Tag::CodeBlock(kind) => {
                 let (lang, attrs) = match kind {
@@ -340,9 +353,14 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                     .unwrap();
                 }
             }
-            TagEnd::BlockQuote(_) => {
-                B::blockquote_end(&mut self.output);
-            }
+            TagEnd::BlockQuote(_) => match self.alert_stack.pop() {
+                Some(Some(alert_kind)) => {
+                    B::alert_end(alert_kind, &mut self.output);
+                }
+                _ => {
+                    B::blockquote_end(&mut self.output);
+                }
+            },
             TagEnd::CodeBlock => {
                 let (lang, content) = self.code.end();
                 let attrs = std::mem::take(&mut self.pending_attrs);
@@ -557,6 +575,64 @@ mod tests {
         let result = render_html("> Note");
         assert!(result.html.contains("<blockquote>"));
         assert!(result.html.contains("</blockquote>"));
+    }
+
+    #[test]
+    fn test_note_alert() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown("> [!NOTE]\n> This is a **note**.");
+        assert!(result.html.contains("alert-note"));
+        assert!(result.html.contains("<strong>note</strong>"));
+    }
+
+    #[test]
+    fn test_tip_alert() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown("> [!TIP]\n> This is a tip.");
+        assert!(result.html.contains("alert-tip"));
+        assert!(result.html.contains("💡"));
+    }
+
+    #[test]
+    fn test_important_alert() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown("> [!IMPORTANT]\n> Critical information.");
+        assert!(result.html.contains("alert-important"));
+        assert!(result.html.contains("❗"));
+    }
+
+    #[test]
+    fn test_warning_alert() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown("> [!WARNING]\n> Be careful!");
+        assert!(result.html.contains("alert-warning"));
+        assert!(result.html.contains("⚠️"));
+    }
+
+    #[test]
+    fn test_caution_alert() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown("> [!CAUTION]\n> Dangerous operation.");
+        assert!(result.html.contains("alert-caution"));
+        assert!(result.html.contains("🔴"));
+    }
+
+    #[test]
+    fn test_alert_with_list() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result =
+            renderer.render_markdown("> [!WARNING]\n> Be careful:\n> - Item 1\n> - Item 2");
+        assert!(result.html.contains("alert-warning"));
+        assert!(result.html.contains("<ul>"));
+        assert!(result.html.contains("<li>"));
+    }
+
+    #[test]
+    fn test_regular_blockquote_unchanged() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown("> Just a regular quote");
+        assert!(result.html.contains("<blockquote>"));
+        assert!(!result.html.contains("alert"));
     }
 
     #[test]
@@ -891,6 +967,7 @@ mod tests {
         assert!(options.contains(Options::ENABLE_TABLES));
         assert!(options.contains(Options::ENABLE_STRIKETHROUGH));
         assert!(options.contains(Options::ENABLE_TASKLISTS));
+        assert!(options.contains(Options::ENABLE_GFM));
     }
 
     #[test]
@@ -900,6 +977,7 @@ mod tests {
         assert!(!options.contains(Options::ENABLE_TABLES));
         assert!(!options.contains(Options::ENABLE_STRIKETHROUGH));
         assert!(!options.contains(Options::ENABLE_TASKLISTS));
+        assert!(!options.contains(Options::ENABLE_GFM));
     }
 
     #[test]
