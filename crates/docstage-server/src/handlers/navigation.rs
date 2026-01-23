@@ -20,8 +20,7 @@ pub(crate) struct NavigationResponse {
 
 /// Handle GET /api/navigation.
 pub(crate) async fn get_navigation(State(state): State<Arc<AppState>>) -> Json<NavigationResponse> {
-    let mut loader = state.site_loader.write().unwrap();
-    let site = loader.load(true);
+    let site = state.site_loader.reload_if_needed();
     let items = site.navigation();
     Json(NavigationResponse { items })
 }
@@ -29,7 +28,6 @@ pub(crate) async fn get_navigation(State(state): State<Arc<AppState>>) -> Json<N
 #[cfg(test)]
 mod tests {
     use super::*;
-    use docstage_site::NavItem;
 
     #[test]
     fn test_navigation_response_serialization() {

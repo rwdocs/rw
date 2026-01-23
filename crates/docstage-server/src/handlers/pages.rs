@@ -109,7 +109,7 @@ fn get_page_impl(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
     // Load site and resolve source path
-    let site = state.site_loader.write().unwrap().load(true).clone();
+    let site = state.site_loader.reload_if_needed();
     let source_path = site
         .resolve_source_path(&path)
         .ok_or_else(|| ServerError::PageNotFound(path.clone()))?;

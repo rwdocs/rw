@@ -2,7 +2,7 @@
 //!
 //! Shared state for all request handlers.
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use docstage_site::{PageRenderer, SiteLoader};
 
@@ -13,7 +13,7 @@ pub(crate) struct AppState {
     /// Page renderer for markdown to HTML conversion.
     pub(crate) renderer: PageRenderer,
     /// Site loader for document structure.
-    pub(crate) site_loader: Arc<RwLock<SiteLoader>>,
+    pub(crate) site_loader: Arc<SiteLoader>,
     /// Live reload manager (if enabled).
     pub(crate) live_reload: Option<LiveReloadManager>,
     /// Enable verbose output (show warnings).

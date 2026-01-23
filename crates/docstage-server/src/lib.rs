@@ -67,7 +67,7 @@ mod static_files;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use docstage_site::{PageRenderer, PageRendererConfig, SiteLoader, SiteLoaderConfig};
 use state::AppState;
@@ -148,7 +148,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         source_dir: config.source_dir.clone(),
         cache_dir: config.cache_dir.clone(),
     };
-    let site_loader = Arc::new(RwLock::new(SiteLoader::new(site_loader_config)));
+    let site_loader = Arc::new(SiteLoader::new(site_loader_config));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {

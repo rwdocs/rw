@@ -3,7 +3,7 @@
 //! Coordinates file watching and WebSocket broadcasting for live reload.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -26,7 +26,7 @@ pub(crate) struct ReloadEvent {
 pub(crate) struct LiveReloadManager {
     source_dir: PathBuf,
     watch_patterns: Vec<String>,
-    site_loader: Arc<RwLock<SiteLoader>>,
+    site_loader: Arc<SiteLoader>,
     broadcaster: broadcast::Sender<ReloadEvent>,
     watcher: Option<RecommendedWatcher>,
 }
@@ -44,7 +44,7 @@ impl LiveReloadManager {
     pub(crate) fn new(
         source_dir: PathBuf,
         watch_patterns: Option<Vec<String>>,
-        site_loader: Arc<RwLock<SiteLoader>>,
+        site_loader: Arc<SiteLoader>,
         broadcaster: broadcast::Sender<ReloadEvent>,
     ) -> Self {
         Self {
@@ -107,7 +107,7 @@ impl LiveReloadManager {
         event: &Event,
         source_dir: &Path,
         watch_patterns: &[String],
-        site_loader: &Arc<RwLock<SiteLoader>>,
+        site_loader: &Arc<SiteLoader>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
         // Filter to only modify/create events
@@ -124,7 +124,7 @@ impl LiveReloadManager {
             }
 
             // Invalidate site cache first
-            site_loader.write().unwrap().invalidate();
+            site_loader.invalidate();
 
             // Resolve doc path
             if let Some(doc_path) = Self::resolve_doc_path(path, source_dir, site_loader) {
@@ -156,12 +156,11 @@ impl LiveReloadManager {
     fn resolve_doc_path(
         file_path: &Path,
         source_dir: &Path,
-        site_loader: &Arc<RwLock<SiteLoader>>,
+        site_loader: &Arc<SiteLoader>,
     ) -> Option<String> {
         let relative = file_path.strip_prefix(source_dir).ok()?;
 
-        let mut loader = site_loader.write().unwrap();
-        let site = loader.load(true);
+        let site = site_loader.reload_if_needed();
         let page = site.get_page_by_source(relative)?;
 
         Some(page.path.clone())
