@@ -19,7 +19,7 @@ docstage-site = { path = "crates/docstage-site" }
 
 # External dependencies
 base64 = "0.22"
-quick-xml = "0.37"
+quick-xml = "0.39"
 thiserror = "2"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.9"
