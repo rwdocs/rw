@@ -218,6 +218,24 @@ pub enum ConfigError {
     },
 }
 
+/// Require a string field to be non-empty.
+fn require_non_empty(value: &str, field: &str) -> Result<(), ConfigError> {
+    if value.is_empty() {
+        return Err(ConfigError::Validation(format!("{field} cannot be empty")));
+    }
+    Ok(())
+}
+
+/// Require a URL field to use http:// or https:// scheme.
+fn require_http_url(url: &str, field: &str) -> Result<(), ConfigError> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(ConfigError::Validation(format!(
+            "{field} must start with http:// or https://"
+        )));
+    }
+    Ok(())
+}
+
 impl Config {
     /// Load configuration from file with optional CLI settings.
     ///
@@ -327,7 +345,80 @@ impl Config {
         config.resolve_paths(config_dir)?;
         config.config_path = Some(path.to_path_buf());
 
+        // Validate configuration after loading and resolution
+        config.validate()?;
+
         Ok(config)
+    }
+
+    /// Validate configuration values.
+    ///
+    /// Checks that all required fields are properly set and contain valid values.
+    /// Called automatically after loading from file.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::Validation` if any validation fails.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.validate_server()?;
+        self.validate_diagrams()?;
+        self.validate_confluence()?;
+        Ok(())
+    }
+
+    /// Validate server configuration.
+    fn validate_server(&self) -> Result<(), ConfigError> {
+        require_non_empty(&self.server.host, "server.host")?;
+
+        // Port 0 is technically valid (OS assigns a random port), but it's
+        // unlikely to be intentional in a config file
+        if self.server.port == 0 {
+            return Err(ConfigError::Validation(
+                "server.port cannot be 0".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Validate diagrams configuration.
+    fn validate_diagrams(&self) -> Result<(), ConfigError> {
+        // Only validate kroki_url if set (diagram rendering enabled)
+        if let Some(ref kroki_url) = self.diagrams_resolved.kroki_url {
+            require_non_empty(kroki_url, "diagrams.kroki_url")?;
+            require_http_url(kroki_url, "diagrams.kroki_url")?;
+        }
+
+        // DPI validation: must be positive and reasonable
+        const MAX_DPI: u32 = 1000;
+        let dpi = self.diagrams_resolved.dpi;
+        if dpi == 0 {
+            return Err(ConfigError::Validation(
+                "diagrams.dpi must be greater than 0".to_string(),
+            ));
+        }
+        if dpi > MAX_DPI {
+            return Err(ConfigError::Validation(format!(
+                "diagrams.dpi cannot exceed {MAX_DPI}"
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Validate Confluence configuration.
+    fn validate_confluence(&self) -> Result<(), ConfigError> {
+        let Some(ref confluence) = self.confluence else {
+            return Ok(());
+        };
+
+        require_non_empty(&confluence.base_url, "confluence.base_url")?;
+        require_http_url(&confluence.base_url, "confluence.base_url")?;
+        require_non_empty(&confluence.access_token, "confluence.access_token")?;
+        require_non_empty(&confluence.access_secret, "confluence.access_secret")?;
+        require_non_empty(&confluence.consumer_key, "confluence.consumer_key")?;
+
+        Ok(())
     }
 
     /// Expand environment variable references in configuration strings.
@@ -776,5 +867,161 @@ host = "127.0.0.1"
         config.expand_env_vars().unwrap();
 
         assert_eq!(config.server.host, "127.0.0.1");
+    }
+
+    // Validation tests
+
+    /// Assert that validation fails with expected substrings in the error message.
+    fn assert_validation_error(config: &Config, expected_substrings: &[&str]) {
+        let result = config.validate();
+        assert!(result.is_err(), "Expected validation to fail");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Validation(_)),
+            "Expected ConfigError::Validation, got {err:?}"
+        );
+        let msg = err.to_string();
+        for s in expected_substrings {
+            assert!(
+                msg.contains(s),
+                "Expected error to contain '{s}', got: {msg}"
+            );
+        }
+    }
+
+    /// Create a valid Confluence config for testing.
+    fn valid_confluence_config() -> ConfluenceConfig {
+        ConfluenceConfig {
+            base_url: "https://confluence.example.com".to_string(),
+            access_token: "token".to_string(),
+            access_secret: "secret".to_string(),
+            consumer_key: "docstage".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_validate_default_config_passes() {
+        let config = Config::default_with_base(Path::new("/test"));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_server_host_empty() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.server.host = String::new();
+        assert_validation_error(&config, &["server.host", "empty"]);
+    }
+
+    #[test]
+    fn test_validate_server_port_zero() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.server.port = 0;
+        assert_validation_error(&config, &["server.port"]);
+    }
+
+    #[test]
+    fn test_validate_diagrams_kroki_url_empty() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.diagrams_resolved.kroki_url = Some(String::new());
+        assert_validation_error(&config, &["kroki_url", "empty"]);
+    }
+
+    #[test]
+    fn test_validate_diagrams_kroki_url_invalid_scheme() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.diagrams_resolved.kroki_url = Some("ftp://kroki.io".to_string());
+        assert_validation_error(&config, &["kroki_url", "http"]);
+    }
+
+    #[test]
+    fn test_validate_diagrams_kroki_url_valid_http() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.diagrams_resolved.kroki_url = Some("http://localhost:8000".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_diagrams_kroki_url_valid_https() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.diagrams_resolved.kroki_url = Some("https://kroki.io".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_diagrams_dpi_zero() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.diagrams_resolved.dpi = 0;
+        assert_validation_error(&config, &["dpi", "greater than 0"]);
+    }
+
+    #[test]
+    fn test_validate_diagrams_dpi_too_high() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.diagrams_resolved.dpi = 2000;
+        assert_validation_error(&config, &["dpi", "1000"]);
+    }
+
+    #[test]
+    fn test_validate_confluence_base_url_empty() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.confluence = Some(ConfluenceConfig {
+            base_url: String::new(),
+            ..valid_confluence_config()
+        });
+        assert_validation_error(&config, &["base_url", "empty"]);
+    }
+
+    #[test]
+    fn test_validate_confluence_base_url_invalid_scheme() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.confluence = Some(ConfluenceConfig {
+            base_url: "confluence.example.com".to_string(),
+            ..valid_confluence_config()
+        });
+        assert_validation_error(&config, &["base_url", "http"]);
+    }
+
+    #[test]
+    fn test_validate_confluence_access_token_empty() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.confluence = Some(ConfluenceConfig {
+            access_token: String::new(),
+            ..valid_confluence_config()
+        });
+        assert_validation_error(&config, &["access_token", "empty"]);
+    }
+
+    #[test]
+    fn test_validate_confluence_access_secret_empty() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.confluence = Some(ConfluenceConfig {
+            access_secret: String::new(),
+            ..valid_confluence_config()
+        });
+        assert_validation_error(&config, &["access_secret", "empty"]);
+    }
+
+    #[test]
+    fn test_validate_confluence_consumer_key_empty() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.confluence = Some(ConfluenceConfig {
+            consumer_key: String::new(),
+            ..valid_confluence_config()
+        });
+        assert_validation_error(&config, &["consumer_key", "empty"]);
+    }
+
+    #[test]
+    fn test_validate_confluence_valid() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.confluence = Some(valid_confluence_config());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_no_confluence_section_is_valid() {
+        let config = Config::default_with_base(Path::new("/test"));
+        assert!(config.confluence.is_none());
+        assert!(config.validate().is_ok());
     }
 }
