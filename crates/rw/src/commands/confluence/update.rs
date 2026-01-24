@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use rw_config::{CliSettings, Config, ConfluenceConfig};
-use rw_confluence::{
-    ConfluenceClient, DryRunResult, PageUpdater, UpdateConfig, UpdateResult,
-};
+use rw_confluence::{ConfluenceClient, DryRunResult, PageUpdater, UpdateConfig, UpdateResult};
 
 use crate::error::CliError;
 use crate::output::Output;

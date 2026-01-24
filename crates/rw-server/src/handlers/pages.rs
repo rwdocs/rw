@@ -10,9 +10,9 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
+use md5::{Digest, Md5};
 use rw_renderer::TocEntry;
 use rw_site::BreadcrumbItem;
-use md5::{Digest, Md5};
 use serde::Serialize;
 
 use crate::error::ServerError;
