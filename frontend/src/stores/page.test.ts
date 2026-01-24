@@ -74,7 +74,7 @@ describe("page store", () => {
 
       await page.load("test");
 
-      expect(document.title).toBe("Test Page - Docstage");
+      expect(document.title).toBe("Test Page - RW");
     });
 
     it("sets notFound on 404 error", async () => {

@@ -8,11 +8,9 @@ After code changes:
 
 ## Project Overview
 
-Docstage is a documentation engine for Backstage. It converts CommonMark
-documents to HTML and serves them via API. Currently supports Confluence storage
-format output with PlantUML diagram support.
-
-**Tagline:** "Where documentation takes the stage"
+RW is a documentation engine. It converts CommonMark documents to HTML and serves
+them via API. Currently supports Confluence storage format output with PlantUML
+diagram support.
 
 ## Development Commands
 
@@ -23,7 +21,7 @@ make format               # Format all code (Rust, Frontend)
 make lint                 # Lint all code (clippy, svelte-check)
 
 # Run the CLI
-cargo build -p docstage && ./target/debug/docstage serve
+cargo build -p rw && ./target/debug/rw serve
 
 # Frontend dev server
 cd frontend && npm run dev
@@ -33,7 +31,7 @@ cd frontend && npm run dev
 
 ```
 crates/
-├── docstage/              # CLI binary (clap)
+├── rw/                    # CLI binary (clap)
 │   └── src/
 │       ├── main.rs           # Entry point, CLI setup
 │       ├── error.rs          # CLI error types
@@ -46,7 +44,7 @@ crates/
 │               ├── update.rs      # `confluence update` command
 │               └── generate_tokens.rs  # `confluence generate-tokens` command
 │
-├── docstage-renderer/     # Reusable markdown renderer library
+├── rw-renderer/           # Reusable markdown renderer library
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend>
@@ -56,7 +54,7 @@ crates/
 │       ├── html.rs           # HtmlBackend implementation
 │       └── util.rs           # heading_level_to_num()
 │
-├── docstage-confluence/       # Confluence integration
+├── rw-confluence/         # Confluence integration
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── backend.rs        # ConfluenceBackend (RenderBackend implementation)
@@ -87,7 +85,7 @@ crates/
 │           ├── result.rs     # UpdateResult, DryRunResult
 │           └── error.rs      # UpdateError
 │
-├── docstage-diagrams/     # Diagram rendering via Kroki
+├── rw-diagrams/           # Diagram rendering via Kroki
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── language.rs       # DiagramLanguage, DiagramFormat, ExtractedDiagram
@@ -97,7 +95,7 @@ crates/
 │       ├── plantuml.rs       # !include resolution, DPI configuration
 │       └── html_embed.rs     # SVG scaling, placeholder replacement
 │
-├── docstage-site/         # Site structure and page rendering
+├── rw-site/               # Site structure and page rendering
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── site.rs           # Site, SiteBuilder, Page, NavItem, BreadcrumbItem
@@ -106,11 +104,11 @@ crates/
 │       ├── renderer.rs       # PageRenderer, PageRendererConfig, PageRenderResult
 │       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
 │
-├── docstage-config/       # Configuration parsing
+├── rw-config/             # Configuration parsing
 │   └── src/
 │       └── lib.rs            # Config, CliSettings, ConfigError
 │
-└── docstage-server/       # Native HTTP server (axum)
+└── rw-server/             # Native HTTP server (axum)
     └── src/
         ├── lib.rs            # Server configuration and entry point
         ├── handlers/         # API endpoints (config, pages, navigation)

@@ -1,0 +1,27 @@
+[package]
+name = "rw"
+description = "Documentation engine - CLI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rw"
+path = "src/main.rs"
+
+[features]
+default = []
+embed-assets = ["rw-server/embed-assets"]
+
+[dependencies]
+rw-config = { workspace = true }
+rw-confluence = { workspace = true }
+rw-server = { workspace = true }
+
+clap = { version = "4", features = ["derive", "env"] }
+console = "0.16"
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -43,7 +43,7 @@ function createPageStore() {
         });
         set({ data, loading: false, error: null, notFound: false });
         if (data.meta.title) {
-          document.title = `${data.meta.title} - Docstage`;
+          document.title = `${data.meta.title} - RW`;
         }
       } catch (e) {
         // Ignore aborted requests

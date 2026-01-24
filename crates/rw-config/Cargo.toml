@@ -1,0 +1,16 @@
+[package]
+name = "rw-config"
+description = "Configuration management for RW"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+shellexpand = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

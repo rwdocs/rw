@@ -167,13 +167,13 @@ test.describe("Page Content", () => {
   test("page title updates on navigation", async ({ page }) => {
     await page.goto("/");
 
-    // Initial title should be "{page title} - Docstage"
-    await expect(page).toHaveTitle(/Test Documentation - Docstage/);
+    // Initial title should be "{page title} - RW"
+    await expect(page).toHaveTitle(/Test Documentation - RW/);
 
     // Navigate to another page
     await page.goto("/getting-started/installation");
 
     // Title should update
-    await expect(page).toHaveTitle(/Installation - Docstage/);
+    await expect(page).toHaveTitle(/Installation - RW/);
   });
 });
