@@ -43,10 +43,7 @@ impl ConfluenceClient {
         let auth_header = self.auth.sign("POST", &uri);
 
         // Build multipart form data manually
-        let boundary = format!(
-            "----RwFormBoundary{:016x}",
-            rand::rng().random::<u64>()
-        );
+        let boundary = format!("----RwFormBoundary{:016x}", rand::rng().random::<u64>());
         let mut body = Vec::new();
 
         // Add file part
