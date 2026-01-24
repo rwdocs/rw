@@ -26,3 +26,12 @@ format:
 lint:
 	cargo clippy --all-targets -- -W clippy::pedantic
 	cd frontend && npm run check
+
+bench:
+	cargo bench -p rw-site
+
+bench-baseline:
+	cargo bench -p rw-site -- --save-baseline main
+
+bench-compare:
+	cargo bench -p rw-site -- --baseline main
