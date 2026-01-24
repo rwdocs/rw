@@ -121,9 +121,7 @@ fn bench_siteloader_reload(c: &mut Criterion) {
     // Prime the cache
     let _ = loader.reload_if_needed();
 
-    group.bench_function("reload_cached", |b| {
-        b.iter(|| loader.reload_if_needed())
-    });
+    group.bench_function("reload_cached", |b| b.iter(|| loader.reload_if_needed()));
 
     group.bench_function("reload_after_invalidate", |b| {
         b.iter(|| {

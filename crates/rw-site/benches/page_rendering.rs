@@ -60,7 +60,9 @@ fn bench_render_varying_sizes(c: &mut Criterion) {
 
     for (headings, paragraphs) in [(5, 2), (20, 3), (50, 5)] {
         let markdown = generate_markdown(headings, paragraphs);
-        let file_path = temp_dir.path().join(format!("doc_{headings}_{paragraphs}.md"));
+        let file_path = temp_dir
+            .path()
+            .join(format!("doc_{headings}_{paragraphs}.md"));
         fs::write(&file_path, &markdown).unwrap();
 
         let size = markdown.len();
