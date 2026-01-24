@@ -35,7 +35,7 @@
     <div class="p-4">
       <div class="flex items-center justify-between mb-6">
         <a href="/" class="block">
-          <span class="text-xl font-semibold text-gray-900">Docstage</span>
+          <span class="text-xl font-semibold text-gray-900">RW</span>
         </a>
         <button
           onclick={closeMobileMenu}

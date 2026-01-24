@@ -1,40 +1,38 @@
-# Docstage
+# RW
 
-Documentation engine for Backstage. Convert markdown files to Confluence pages with PlantUML diagram support.
-
-*"Where documentation takes the stage"*
+Documentation engine. Convert markdown files to Confluence pages with PlantUML diagram support.
 
 ## Setup
 
 ```bash
 # Build the CLI
-cargo build -p docstage
+cargo build -p rw
 
 # Copy example config
-cp docstage.toml.example docstage.toml
+cp rw.toml.example rw.toml
 
 # Install coverage tool (optional, for running `make test`)
 cargo install cargo-llvm-cov
 ```
 
-Edit `docstage.toml` with your settings and place `private_key.pem` in the project root.
+Edit `rw.toml` with your settings and place `private_key.pem` in the project root.
 
 ### Installation
 
 ```bash
 # Install from source
-cargo install --path crates/docstage
+cargo install --path crates/rw
 
 # Or build release binary with embedded assets
-cargo build -p docstage --release --features embed-assets
+cargo build -p rw --release --features embed-assets
 ```
 
 ## Configuration
 
-Docstage uses `docstage.toml` for configuration. The file is automatically discovered in the current directory or any parent directory.
+RW uses `rw.toml` for configuration. The file is automatically discovered in the current directory or any parent directory.
 
 ```toml
-# docstage.toml
+# rw.toml
 
 [server]
 host = "127.0.0.1"      # Server host
@@ -59,7 +57,7 @@ watch_patterns = ["**/*.md"]    # Patterns to watch
 base_url = "https://confluence.example.com"
 access_token = "your-token"
 access_secret = "your-secret"
-consumer_key = "docstage"
+consumer_key = "rw"
 
 ```
 
@@ -72,7 +70,7 @@ String configuration values support environment variable expansion:
 base_url = "${CONFLUENCE_URL}"
 access_token = "${CONFLUENCE_TOKEN}"
 access_secret = "${CONFLUENCE_SECRET}"
-consumer_key = "${CONFLUENCE_CONSUMER_KEY:-docstage}"  # with default value
+consumer_key = "${CONFLUENCE_CONSUMER_KEY:-rw}"  # with default value
 
 [diagrams]
 kroki_url = "${KROKI_URL:-https://kroki.io}"
@@ -89,26 +87,26 @@ CLI options override config file values:
 
 ```bash
 # Use config file
-docstage serve
+rw serve
 
 # Override port from config
-docstage serve --port 9000
+rw serve --port 9000
 
 # Use explicit config file
-docstage serve --config /path/to/docstage.toml
+rw serve --config /path/to/rw.toml
 ```
 
 ## Usage
 
 ```bash
 # Start documentation server (with live reload)
-docstage serve
+rw serve
 
 # Start server without live reload
-docstage serve --no-live-reload
+rw serve --no-live-reload
 
 # Start server without caching (useful for development)
-docstage serve --no-cache
+rw serve --no-cache
 ```
 
 ## Confluence Publishing
@@ -117,25 +115,25 @@ All Confluence-related commands are grouped under the `confluence` subcommand:
 
 ```bash
 # Generate OAuth tokens (requires write permissions in Confluence)
-docstage confluence generate-tokens
+rw confluence generate-tokens
 
 # Update an existing page
-docstage confluence update document.md <page-id> -m "Update message"
+rw confluence update document.md <page-id> -m "Update message"
 
 # Preview changes without updating (dry run)
-docstage confluence update document.md <page-id> --dry-run
+rw confluence update document.md <page-id> --dry-run
 ```
 
 ## OAuth Permissions
 
 OAuth tokens inherit the authorizing user's permissions. If you get `500` errors on update:
 1. Verify you can edit pages manually in the target space
-2. Regenerate tokens with `docstage confluence generate-tokens`
+2. Regenerate tokens with `rw confluence generate-tokens`
 
 ## Technical Details
 
 - Native Rust CLI (no Python runtime required)
 - OAuth 1.0 RSA-SHA1 authentication
 - Confluence Server/Data Center REST API v1
-- Rust-based markdown conversion via `docstage-confluence`
+- Rust-based markdown conversion via `rw-confluence`
 - PlantUML diagram rendering with automatic width scaling

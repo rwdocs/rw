@@ -10,12 +10,12 @@ license = "MIT"
 
 [workspace.dependencies]
 # Internal crates
-docstage-config = { path = "crates/docstage-config" }
-docstage-confluence = { path = "crates/docstage-confluence" }
-docstage-diagrams = { path = "crates/docstage-diagrams" }
-docstage-renderer = { path = "crates/docstage-renderer" }
-docstage-server = { path = "crates/docstage-server" }
-docstage-site = { path = "crates/docstage-site" }
+rw-config = { path = "crates/rw-config" }
+rw-confluence = { path = "crates/rw-confluence" }
+rw-diagrams = { path = "crates/rw-diagrams" }
+rw-renderer = { path = "crates/rw-renderer" }
+rw-server = { path = "crates/rw-server" }
+rw-site = { path = "crates/rw-site" }
 
 # External dependencies
 base64 = "0.22"

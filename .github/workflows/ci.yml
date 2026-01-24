@@ -133,7 +133,7 @@ jobs:
         working-directory: frontend
 
       - name: Build CLI
-        run: cargo build -p docstage
+        run: cargo build -p rw
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
