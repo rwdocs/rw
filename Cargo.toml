@@ -42,3 +42,6 @@ sha1 = { version = "0.10", features = ["oid"] }
 percent-encoding = "2.3"
 rand = "0.9"
 shellexpand = "3"
+
+# Benchmarking
+criterion = { version = "0.6", features = ["html_reports"] }

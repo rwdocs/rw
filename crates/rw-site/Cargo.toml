@@ -17,5 +17,14 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
 static_assertions = { workspace = true }
 tempfile = { workspace = true }
+
+[[bench]]
+name = "page_rendering"
+harness = false
+
+[[bench]]
+name = "site_structure"
+harness = false
