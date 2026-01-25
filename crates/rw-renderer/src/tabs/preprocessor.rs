@@ -1,6 +1,6 @@
 //! Tabs preprocessor for converting CommonMark directives to HTML elements.
 //!
-//! Converts `::: tabs` / `::: tab` / `:::` syntax to `<rw-tabs>` / `<rw-tab>`
+//! Converts `::: tab` / `:::` syntax to `<rw-tabs>` / `<rw-tab>`
 //! elements that pass through pulldown-cmark unchanged.
 
 use super::fence::FenceTracker;
@@ -30,8 +30,6 @@ pub struct TabsGroup {
 enum State {
     /// Normal markdown processing.
     Normal,
-    /// Inside `::: tabs` block, waiting for tab.
-    InTabs,
     /// Inside `::: tab` block.
     InTab,
 }
@@ -39,8 +37,8 @@ enum State {
 /// Preprocessor that converts tab directives to HTML elements.
 ///
 /// Uses a state machine to track nesting and collect metadata:
-/// - `::: tabs` → `<rw-tabs data-id="N">`
-/// - `::: tab Label` → `<rw-tab data-id="M">` (implicitly closes previous tab)
+/// - `::: tab Label` → starts group (if needed) and opens tab
+/// - `::: tab Label` → closes previous tab, opens new tab in same group
 /// - `:::` (closing) → `</rw-tab></rw-tabs>` (closes tab and container)
 ///
 /// # Example
@@ -49,10 +47,10 @@ enum State {
 /// use rw_renderer::TabsPreprocessor;
 ///
 /// let mut preprocessor = TabsPreprocessor::new();
+/// // First ::: tab starts the group
 /// // ::: tab B implicitly closes ::: tab A
 /// // Final ::: closes the last tab AND the container
 /// let output = preprocessor.process(r#"
-/// ::: tabs
 /// ::: tab macOS
 /// Install with Homebrew.
 /// ::: tab Linux
@@ -75,7 +73,7 @@ pub struct TabsPreprocessor {
     current_group: Option<TabsGroup>,
     next_group_id: usize,
     next_tab_id: usize,
-    tabs_start_line: usize,
+    group_start_line: usize,
 }
 
 impl TabsPreprocessor {
@@ -90,7 +88,7 @@ impl TabsPreprocessor {
             current_group: None,
             next_group_id: 0,
             next_tab_id: 0,
-            tabs_start_line: 0,
+            group_start_line: 0,
         }
     }
 
@@ -146,7 +144,6 @@ impl TabsPreprocessor {
         let trimmed = line.trim();
         if let Some(directive) = parse_directive(trimmed) {
             match directive {
-                Directive::Tabs => self.handle_tabs(line_num),
                 Directive::Tab(label) => self.handle_tab(label, line_num),
                 Directive::Close => self.handle_close(line_num),
             }
@@ -155,49 +152,29 @@ impl TabsPreprocessor {
         }
     }
 
-    /// Handle `::: tabs` directive.
-    fn handle_tabs(&mut self, line_num: usize) -> String {
-        match self.state {
-            State::Normal => {
-                let group_id = self.next_group_id;
-                self.next_group_id += 1;
-                self.current_group = Some(TabsGroup {
-                    id: group_id,
-                    tabs: Vec::new(),
-                });
-                self.tabs_start_line = line_num;
-                self.state = State::InTabs;
-                // Blank line after opening tag for pulldown-cmark
-                format!("<rw-tabs data-id=\"{group_id}\">\n")
-            }
-            State::InTabs | State::InTab => {
-                // Nested tabs not supported
-                self.warnings.push(format!(
-                    "line {line_num}: nested ::: tabs not supported, passing through"
-                ));
-                "::: tabs".to_string()
-            }
-        }
-    }
-
     /// Handle `::: tab Label` directive.
     fn handle_tab(&mut self, label: String, line_num: usize) -> String {
         match self.state {
-            State::InTabs => {
+            State::Normal => {
+                // Start new group and first tab
+                let group_id = self.next_group_id;
+                self.next_group_id += 1;
                 let tab_id = self.next_tab_id;
                 self.next_tab_id += 1;
 
-                if let Some(ref mut group) = self.current_group {
-                    group.tabs.push(TabMetadata {
+                self.current_group = Some(TabsGroup {
+                    id: group_id,
+                    tabs: vec![TabMetadata {
                         id: tab_id,
-                        label: label.clone(),
+                        label,
                         line: line_num,
-                    });
-                }
-
+                    }],
+                });
+                self.group_start_line = line_num;
                 self.state = State::InTab;
-                // Blank line after opening tag for pulldown-cmark
-                format!("<rw-tab data-id=\"{tab_id}\">\n")
+
+                // Blank line after opening tags for pulldown-cmark
+                format!("<rw-tabs data-id=\"{group_id}\">\n\n<rw-tab data-id=\"{tab_id}\">\n")
             }
             State::InTab => {
                 // Close previous tab, open new one
@@ -207,19 +184,13 @@ impl TabsPreprocessor {
                 if let Some(ref mut group) = self.current_group {
                     group.tabs.push(TabMetadata {
                         id: tab_id,
-                        label: label.clone(),
+                        label,
                         line: line_num,
                     });
                 }
 
                 // Blank lines around tags for pulldown-cmark block parsing
                 format!("\n</rw-tab>\n\n<rw-tab data-id=\"{tab_id}\">\n")
-            }
-            State::Normal => {
-                self.warnings.push(format!(
-                    "line {line_num}: ::: tab outside ::: tabs, passing through"
-                ));
-                format!("::: tab {label}")
             }
         }
     }
@@ -228,29 +199,13 @@ impl TabsPreprocessor {
     fn handle_close(&mut self, line_num: usize) -> String {
         match self.state {
             State::InTab => {
-                // Close tab AND tabs container (per RD-029: "closes everything")
+                // Close tab AND tabs container
                 if let Some(group) = self.current_group.take() {
                     self.groups.push(group);
                 }
                 self.state = State::Normal;
                 // Blank line before closing tags for pulldown-cmark
                 "\n</rw-tab>\n</rw-tabs>".to_string()
-            }
-            State::InTabs => {
-                // Close tabs group (empty tabs case)
-                if let Some(group) = self.current_group.take() {
-                    if group.tabs.is_empty() {
-                        self.warnings.push(format!(
-                            "line {}: ::: tabs with no tabs, skipping",
-                            self.tabs_start_line
-                        ));
-                        self.state = State::Normal;
-                        return String::new();
-                    }
-                    self.groups.push(group);
-                }
-                self.state = State::Normal;
-                "</rw-tabs>".to_string()
             }
             State::Normal => {
                 // Stray closing, warn and pass through
@@ -264,20 +219,11 @@ impl TabsPreprocessor {
 
     /// Finalize processing and check for unclosed blocks.
     fn finalize(&mut self) {
-        match self.state {
-            State::InTab => {
-                self.warnings.push(format!(
-                    "line {}: unclosed ::: tabs (missing closing :::)",
-                    self.tabs_start_line
-                ));
-            }
-            State::InTabs => {
-                self.warnings.push(format!(
-                    "line {}: unclosed ::: tabs (missing closing :::)",
-                    self.tabs_start_line
-                ));
-            }
-            State::Normal => {}
+        if self.state == State::InTab {
+            self.warnings.push(format!(
+                "line {}: unclosed tabs (missing closing :::)",
+                self.group_start_line
+            ));
         }
     }
 }
@@ -291,7 +237,6 @@ impl Default for TabsPreprocessor {
 /// Parsed directive type.
 #[derive(Debug, PartialEq, Eq)]
 enum Directive {
-    Tabs,
     Tab(String),
     Close,
 }
@@ -306,10 +251,6 @@ fn parse_directive(trimmed: &str) -> Option<Directive> {
 
     if rest.is_empty() {
         return Some(Directive::Close);
-    }
-
-    if rest == "tabs" || rest.starts_with("tabs ") {
-        return Some(Directive::Tabs);
     }
 
     if rest.starts_with("tab ") {
@@ -343,13 +284,6 @@ fn strip_quotes(s: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_directive_tabs() {
-        assert_eq!(parse_directive("::: tabs"), Some(Directive::Tabs));
-        assert_eq!(parse_directive(":::tabs"), Some(Directive::Tabs));
-        assert_eq!(parse_directive("::: tabs "), Some(Directive::Tabs));
-    }
 
     #[test]
     fn test_parse_directive_tab() {
@@ -408,6 +342,7 @@ mod tests {
 
     #[test]
     fn test_parse_directive_unknown() {
+        assert_eq!(parse_directive("::: tabs"), None); // ::: tabs no longer recognized
         assert_eq!(parse_directive("::: note"), None);
         assert_eq!(parse_directive("::: warning"), None);
         assert_eq!(parse_directive("```rust"), None);
@@ -417,11 +352,11 @@ mod tests {
     #[test]
     fn test_simple_tabs() {
         let mut pp = TabsPreprocessor::new();
-        // Use implicit tab closing: ::: tab B implicitly closes ::: tab A
+        // First ::: tab starts the group
+        // ::: tab B implicitly closes ::: tab A
         // Final ::: closes the last tab AND the container
         let output = pp.process(
-            r#"::: tabs
-::: tab macOS
+            r#"::: tab macOS
 Install with Homebrew.
 ::: tab Linux
 Install with apt.
@@ -447,13 +382,11 @@ Install with apt.
     #[test]
     fn test_tabs_with_code_block() {
         let mut pp = TabsPreprocessor::new();
-        // Single ::: closes both the tab and the container
         let output = pp.process(
-            r#"::: tabs
-::: tab Example
+            r#"::: tab Example
 
 ```python
-::: not a directive
+::: tab inside code
 print("hello")
 ```
 
@@ -461,50 +394,14 @@ print("hello")
         );
 
         // Code block content should not be transformed
-        assert!(output.contains("::: not a directive"));
+        assert!(output.contains("::: tab inside code"));
         assert!(output.contains(r#"<rw-tabs data-id="0">"#));
-    }
-
-    #[test]
-    fn test_nested_tabs_warning() {
-        let mut pp = TabsPreprocessor::new();
-        // ::: inside tab closes everything, so nested ::: tabs becomes orphan
-        let output = pp.process(
-            r#"::: tabs
-::: tab First
-::: tabs
-:::"#,
-        );
-
-        assert!(pp.warnings().iter().any(|w| w.contains("nested")));
-        // Inner ::: tabs should pass through as literal
-        assert!(output.contains("::: tabs"));
-    }
-
-    #[test]
-    fn test_tab_outside_tabs_warning() {
-        let mut pp = TabsPreprocessor::new();
-        let output = pp.process("::: tab Orphan\nContent\n:::");
-
-        assert!(pp.warnings().iter().any(|w| w.contains("outside")));
-        // Should pass through as literal
-        assert!(output.contains("::: tab Orphan"));
-    }
-
-    #[test]
-    fn test_empty_tabs_warning() {
-        let mut pp = TabsPreprocessor::new();
-        let _output = pp.process("::: tabs\n:::");
-
-        assert!(pp.warnings().iter().any(|w| w.contains("no tabs")));
-        let groups = pp.into_groups();
-        assert!(groups.is_empty());
     }
 
     #[test]
     fn test_unclosed_tabs_warning() {
         let mut pp = TabsPreprocessor::new();
-        let _output = pp.process("::: tabs\n::: tab Test\nContent");
+        let _output = pp.process("::: tab Test\nContent");
 
         assert!(pp.warnings().iter().any(|w| w.contains("unclosed")));
     }
@@ -522,16 +419,13 @@ print("hello")
     #[test]
     fn test_multiple_tab_groups() {
         let mut pp = TabsPreprocessor::new();
-        // Single ::: closes both tab and container
         let output = pp.process(
-            r#"::: tabs
-::: tab A
+            r#"::: tab A
 Content A
 :::
 
 Some text between.
 
-::: tabs
 ::: tab B
 Content B
 :::"#,
@@ -549,10 +443,8 @@ Content B
     #[test]
     fn test_tab_without_label() {
         let mut pp = TabsPreprocessor::new();
-        // Single ::: closes both tab and container
         let _output = pp.process(
-            r#"::: tabs
-::: tab
+            r#"::: tab
 Content
 :::"#,
         );
@@ -573,10 +465,8 @@ Content
     #[test]
     fn test_preserves_content_inside_tabs() {
         let mut pp = TabsPreprocessor::new();
-        // Single ::: closes both tab and container
         let output = pp.process(
-            r#"::: tabs
-::: tab Test
+            r#"::: tab Test
 
 # Heading
 
@@ -600,13 +490,13 @@ fn main() {}
         let mut pp = TabsPreprocessor::new();
         let output = pp.process(
             r#"~~~
-::: tabs
+::: tab inside fence
 ~~~"#,
         );
 
-        // Should not parse ::: tabs inside fence
+        // Should not parse ::: tab inside fence
         assert!(!output.contains("<rw-tabs"));
-        assert!(output.contains("::: tabs"));
+        assert!(output.contains("::: tab inside fence"));
     }
 
     #[test]
