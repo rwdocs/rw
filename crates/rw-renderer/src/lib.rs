@@ -32,6 +32,7 @@ mod code_block;
 mod html;
 mod renderer;
 mod state;
+mod tabs;
 mod util;
 
 pub use backend::{AlertKind, RenderBackend};
@@ -39,3 +40,4 @@ pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use html::HtmlBackend;
 pub use renderer::{MarkdownRenderer, RenderResult};
 pub use state::{TocEntry, escape_html};
+pub use tabs::{TabMetadata, TabsGroup, TabsPreprocessor, TabsProcessor};

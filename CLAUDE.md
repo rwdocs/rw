@@ -52,6 +52,11 @@ crates/
 │       ├── code_block.rs     # CodeBlockProcessor trait for extensible code block handling
 │       ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
 │       ├── html.rs           # HtmlBackend implementation
+│       ├── tabs/             # Tabbed content blocks
+│       │   ├── mod.rs        # Module exports
+│       │   ├── fence.rs      # FenceTracker for code fence state
+│       │   ├── preprocessor.rs  # TabsPreprocessor (directive → HTML)
+│       │   └── processor.rs  # TabsProcessor (post-processing)
 │       └── util.rs           # heading_level_to_num()
 │
 ├── rw-confluence/         # Confluence integration
@@ -121,6 +126,7 @@ frontend/                  # Svelte 5 SPA (Vite + Tailwind)
 │   ├── pages/             # Page components
 │   ├── stores/            # Svelte stores (router, navigation, page)
 │   ├── api/               # API client
+│   ├── lib/               # Utility libraries (tabs.ts)
 │   └── types/             # TypeScript interfaces
 └── dist/                  # Production build output
 ```

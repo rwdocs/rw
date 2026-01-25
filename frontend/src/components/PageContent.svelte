@@ -1,5 +1,15 @@
 <script lang="ts">
   import { page } from "../stores/page";
+  import { initializeTabs } from "../lib/tabs";
+
+  let articleRef: HTMLElement | undefined = $state();
+
+  // Initialize tabs when content changes
+  $effect(() => {
+    if ($page.data && articleRef) {
+      initializeTabs(articleRef);
+    }
+  });
 </script>
 
 <div class="transition-opacity duration-150 {$page.loading ? 'opacity-0' : 'opacity-100'}">
@@ -15,7 +25,7 @@
       <p class="text-red-600">Error: {$page.error}</p>
     </div>
   {:else if $page.data}
-    <article class="prose prose-slate max-w-none">
+    <article bind:this={articleRef} class="prose prose-slate max-w-none">
       {@html $page.data.content}
     </article>
   {/if}
