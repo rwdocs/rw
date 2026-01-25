@@ -272,10 +272,10 @@ fn parse_directive(trimmed: &str) -> Option<Directive> {
 
 /// Strip surrounding quotes (single or double) from a string.
 fn strip_quotes(s: &str) -> &str {
-    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
-        if s.len() >= 2 {
-            return &s[1..s.len() - 1];
-        }
+    let is_quoted =
+        (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\''));
+    if is_quoted && s.len() >= 2 {
+        return &s[1..s.len() - 1];
     }
     s
 }

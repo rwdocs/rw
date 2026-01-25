@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Tabbed content blocks** using CommonMark directive syntax (`::: tab Label` / `:::`); renders as accessible HTML with ARIA attributes (`role="tablist"`, `role="tab"`, `role="tabpanel"`); interactive tab switching via click and keyboard navigation (Arrow keys, Home, End); first tab selected by default; supports markdown content inside tabs including code blocks, diagrams, and alerts; Material for MkDocs-inspired styling with clean underline indicator and code blocks pinned directly to tabs; focus indicator only shows on keyboard navigation (`:focus-visible`)
 - **`TabsPreprocessor`** in `rw-renderer` for converting directive syntax to intermediate `<rw-tabs>` / `<rw-tab>` elements; 2-state machine (Normal, InTab) handles code fence skipping and warning generation
-- **`TabsProcessor`** in `rw-renderer` implementing `CodeBlockProcessor` for post-processing intermediate elements to accessible HTML
+- **`TabsProcessor`** in `rw-renderer` for post-processing intermediate `<rw-tabs>` elements to accessible HTML; uses explicit `post_process(&mut String)` method instead of `CodeBlockProcessor` trait (tabs are container directives, not code blocks)
 - **`TabsGroup`** and **`TabMetadata`** types for tab group metadata; exported at crate root
 
 - **GitHub-style alerts** (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`); renders as styled alert boxes in HTML with SVG icons (Octicons-style) and colored left borders; clean GitHub-inspired styling without rounded corners; Confluence backend maps to `info`, `tip`, `note`, and `warning` macros respectively

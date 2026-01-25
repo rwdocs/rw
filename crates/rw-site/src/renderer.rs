@@ -168,18 +168,22 @@ impl PageRenderer {
         // Preprocess tabs directives
         let mut tabs_preprocessor = TabsPreprocessor::new();
         let processed_markdown = tabs_preprocessor.process(&markdown_text);
-        let tabs_warnings: Vec<String> = tabs_preprocessor.warnings().to_vec();
+        let tabs_warnings = tabs_preprocessor.warnings().to_vec();
         let tabs_groups = tabs_preprocessor.into_groups();
 
         let mut renderer = self.create_renderer(base_path);
-        if !tabs_groups.is_empty() {
-            renderer = renderer.with_processor(TabsProcessor::new(tabs_groups));
-        }
         if let Some(processor) = self.create_diagram_processor() {
             renderer = renderer.with_processor(processor);
         }
 
         let mut result = renderer.render_markdown(&processed_markdown);
+
+        // Post-process tabs (not a CodeBlockProcessor - tabs are container directives)
+        if !tabs_groups.is_empty() {
+            let mut tabs_processor = TabsProcessor::new(tabs_groups);
+            tabs_processor.post_process(&mut result.html);
+            result.warnings.extend(tabs_processor.warnings().to_vec());
+        }
         result.warnings.extend(tabs_warnings);
 
         self.cache.set(

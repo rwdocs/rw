@@ -21,6 +21,9 @@
 //! 2. **Post-processing** ([`TabsProcessor`]): Transforms the intermediate
 //!    elements to accessible HTML with ARIA attributes.
 //!
+//! Note: `TabsProcessor` is a simple struct with explicit `post_process()` method,
+//! not a `CodeBlockProcessor`. Tabs are container directives, not code blocks.
+//!
 //! # Usage
 //!
 //! ```
@@ -39,10 +42,13 @@
 //! let processed = preprocessor.process(markdown);
 //! let groups = preprocessor.into_groups();
 //!
-//! // Phase 2: Render with post-processor
-//! let result = MarkdownRenderer::<HtmlBackend>::new()
-//!     .with_processor(TabsProcessor::new(groups))
+//! // Phase 2: Render markdown
+//! let mut result = MarkdownRenderer::<HtmlBackend>::new()
 //!     .render_markdown(&processed);
+//!
+//! // Phase 3: Post-process tabs
+//! let mut tabs_processor = TabsProcessor::new(groups);
+//! tabs_processor.post_process(&mut result.html);
 //!
 //! assert!(result.html.contains(r#"role="tablist""#));
 //! ```

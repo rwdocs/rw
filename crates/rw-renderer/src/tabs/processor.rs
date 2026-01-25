@@ -6,7 +6,6 @@
 
 use std::collections::HashMap;
 
-use crate::code_block::{CodeBlockProcessor, ProcessResult};
 use crate::state::escape_html;
 
 use super::TabsGroup;
@@ -80,8 +79,7 @@ impl TabsProcessor {
         // Tab panels - parse inner content to extract panels
         let panels = parse_tab_panels(inner_content);
         for (idx, (panel_tab_id, content)) in panels.iter().enumerate() {
-            let tab = group.tabs.iter().find(|t| t.id == *panel_tab_id);
-            if tab.is_none() {
+            if !group.tabs.iter().any(|t| t.id == *panel_tab_id) {
                 self.warnings.push(format!(
                     "tab {panel_tab_id} not found in group {group_id} metadata"
                 ));
@@ -98,21 +96,12 @@ impl TabsProcessor {
         output.push_str("</div>");
         output
     }
-}
 
-impl CodeBlockProcessor for TabsProcessor {
-    fn process(
-        &mut self,
-        _language: &str,
-        _attrs: &HashMap<String, String>,
-        _source: &str,
-        _index: usize,
-    ) -> ProcessResult {
-        // TabsProcessor doesn't handle code blocks, only post-processing
-        ProcessResult::PassThrough
-    }
-
-    fn post_process(&mut self, html: &mut String) {
+    /// Post-process HTML by transforming `<rw-tabs>` elements to accessible HTML.
+    ///
+    /// This should be called after markdown rendering to replace the intermediate
+    /// `<rw-tabs>` / `<rw-tab>` elements with the final accessible HTML structure.
+    pub fn post_process(&mut self, html: &mut String) {
         // Find and replace all <rw-tabs> elements
         let mut result = String::with_capacity(html.len());
         let mut remaining = html.as_str();
@@ -162,7 +151,9 @@ impl CodeBlockProcessor for TabsProcessor {
         *html = result;
     }
 
-    fn warnings(&self) -> &[String] {
+    /// Get warnings generated during processing.
+    #[must_use]
+    pub fn warnings(&self) -> &[String] {
         &self.warnings
     }
 }
@@ -351,13 +342,6 @@ mod tests {
 
         assert!(output.contains("&lt;script&gt;"));
         assert!(!output.contains("<script>"));
-    }
-
-    #[test]
-    fn test_process_returns_passthrough() {
-        let mut processor = TabsProcessor::new(vec![]);
-        let result = processor.process("rust", &HashMap::new(), "fn main() {}", 0);
-        assert_eq!(result, ProcessResult::PassThrough);
     }
 
     #[test]
