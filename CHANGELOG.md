@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Criterion benchmarks for `rw-site` crate**; measures page rendering performance (simple, ToC extraction, GFM features, code blocks, varying sizes, cache hit/miss) and site structure operations (page lookup, breadcrumbs, navigation tree building, SiteLoader reload, path resolution); run with `make bench`
 
+- **Tabbed content blocks** using CommonMark directive syntax (`::: tabs` / `::: tab Label` / `:::`); renders as accessible HTML with ARIA attributes (`role="tablist"`, `role="tab"`, `role="tabpanel"`); interactive tab switching via click and keyboard navigation (Arrow keys, Home, End); first tab selected by default; supports markdown content inside tabs including code blocks, diagrams, and alerts
+- **`TabsPreprocessor`** in `rw-renderer` for converting directive syntax to intermediate `<rw-tabs>` / `<rw-tab>` elements; state machine handles nesting, code fence skipping, and warning generation
+- **`TabsProcessor`** in `rw-renderer` implementing `CodeBlockProcessor` for post-processing intermediate elements to accessible HTML
+- **`TabsGroup`** and **`TabMetadata`** types for tab group metadata; exported at crate root
+
 - **GitHub-style alerts** (`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`); renders as styled alert boxes in HTML with SVG icons (Octicons-style) and colored left borders; clean GitHub-inspired styling without rounded corners; Confluence backend maps to `info`, `tip`, `note`, and `warning` macros respectively
 - **`AlertKind` enum** in `rw-renderer` for alert type classification; exported at crate root; `alert_start` and `alert_end` methods added to `RenderBackend` trait
 - **Configuration validation on load** via `Config::validate()` method; validates all config fields at load time instead of during use; checks: `server.host` non-empty, `server.port` non-zero, `diagrams.kroki_url` valid HTTP(S) URL when set, `diagrams.dpi` positive and ≤1000, `confluence.*` fields non-empty and `base_url` valid HTTP(S) URL when section exists

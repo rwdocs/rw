@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rw_diagrams::{DiagramProcessor, FileCache};
-use rw_renderer::{HtmlBackend, MarkdownRenderer, TocEntry};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsPreprocessor, TabsProcessor, TocEntry};
 
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 
@@ -165,12 +165,22 @@ impl PageRenderer {
 
         let markdown_text = fs::read_to_string(source_path).map_err(RenderError::Io)?;
 
+        // Preprocess tabs directives
+        let mut tabs_preprocessor = TabsPreprocessor::new();
+        let processed_markdown = tabs_preprocessor.process(&markdown_text);
+        let tabs_warnings: Vec<String> = tabs_preprocessor.warnings().to_vec();
+        let tabs_groups = tabs_preprocessor.into_groups();
+
         let mut renderer = self.create_renderer(base_path);
+        if !tabs_groups.is_empty() {
+            renderer = renderer.with_processor(TabsProcessor::new(tabs_groups));
+        }
         if let Some(processor) = self.create_diagram_processor() {
             renderer = renderer.with_processor(processor);
         }
 
-        let result = renderer.render_markdown(&markdown_text);
+        let mut result = renderer.render_markdown(&processed_markdown);
+        result.warnings.extend(tabs_warnings);
 
         self.cache.set(
             base_path,

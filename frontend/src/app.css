@@ -137,4 +137,46 @@
   .prose .alert-caution .alert-title {
     @apply text-red-600;
   }
+
+  /* Tabs styling */
+  .prose .tabs {
+    @apply my-6;
+  }
+
+  .prose .tabs-buttons {
+    @apply flex gap-0 border-b border-gray-200;
+  }
+
+  .prose .tabs-buttons [role="tab"] {
+    @apply px-4 py-2 text-sm font-medium text-gray-600 bg-transparent border-b-2 border-transparent cursor-pointer transition-colors;
+  }
+
+  .prose .tabs-buttons [role="tab"]:hover {
+    @apply text-gray-900 border-gray-300;
+  }
+
+  .prose .tabs-buttons [role="tab"][aria-selected="true"] {
+    @apply text-blue-600 border-blue-600;
+  }
+
+  .prose .tabs-buttons [role="tab"]:focus {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2;
+  }
+
+  .prose .tabs [role="tabpanel"] {
+    @apply pt-4;
+  }
+
+  .prose .tabs [role="tabpanel"][hidden] {
+    @apply hidden;
+  }
+
+  /* Remove margin from first/last child in tab panels */
+  .prose .tabs [role="tabpanel"] > :first-child {
+    @apply mt-0;
+  }
+
+  .prose .tabs [role="tabpanel"] > :last-child {
+    @apply mb-0;
+  }
 }
