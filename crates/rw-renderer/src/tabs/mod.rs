@@ -3,13 +3,10 @@
 //! Implements CommonMark directive syntax for tabs:
 //!
 //! ```markdown
-//! ::: tabs
 //! ::: tab macOS
 //! Install with Homebrew.
-//! :::
 //! ::: tab Linux
 //! Install with apt.
-//! :::
 //! :::
 //! ```
 //!
@@ -30,13 +27,10 @@
 //! use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsPreprocessor, TabsProcessor};
 //!
 //! let markdown = r#"
-//! ::: tabs
 //! ::: tab macOS
 //! Install with Homebrew.
-//! :::
 //! ::: tab Linux
 //! Install with apt.
-//! :::
 //! :::
 //! "#;
 //!
