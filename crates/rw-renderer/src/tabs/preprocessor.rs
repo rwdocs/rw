@@ -40,8 +40,8 @@ enum State {
 ///
 /// Uses a state machine to track nesting and collect metadata:
 /// - `::: tabs` → `<rw-tabs data-id="N">`
-/// - `::: tab Label` → `<rw-tab data-id="M">`
-/// - `:::` (closing) → `</rw-tab>` or `</rw-tabs>`
+/// - `::: tab Label` → `<rw-tab data-id="M">` (implicitly closes previous tab)
+/// - `:::` (closing) → `</rw-tab></rw-tabs>` (closes tab and container)
 ///
 /// # Example
 ///
@@ -49,14 +49,14 @@ enum State {
 /// use rw_renderer::TabsPreprocessor;
 ///
 /// let mut preprocessor = TabsPreprocessor::new();
+/// // ::: tab B implicitly closes ::: tab A
+/// // Final ::: closes the last tab AND the container
 /// let output = preprocessor.process(r#"
 /// ::: tabs
 /// ::: tab macOS
 /// Install with Homebrew.
-/// :::
 /// ::: tab Linux
 /// Install with apt.
-/// :::
 /// :::
 /// "#);
 ///
@@ -167,7 +167,8 @@ impl TabsPreprocessor {
                 });
                 self.tabs_start_line = line_num;
                 self.state = State::InTabs;
-                format!(r#"<rw-tabs data-id="{group_id}">"#)
+                // Blank line after opening tag for pulldown-cmark
+                format!("<rw-tabs data-id=\"{group_id}\">\n")
             }
             State::InTabs | State::InTab => {
                 // Nested tabs not supported
@@ -195,7 +196,8 @@ impl TabsPreprocessor {
                 }
 
                 self.state = State::InTab;
-                format!(r#"<rw-tab data-id="{tab_id}">"#)
+                // Blank line after opening tag for pulldown-cmark
+                format!("<rw-tab data-id=\"{tab_id}\">\n")
             }
             State::InTab => {
                 // Close previous tab, open new one
@@ -210,7 +212,8 @@ impl TabsPreprocessor {
                     });
                 }
 
-                format!(r#"</rw-tab><rw-tab data-id="{tab_id}">"#)
+                // Blank lines around tags for pulldown-cmark block parsing
+                format!("\n</rw-tab>\n\n<rw-tab data-id=\"{tab_id}\">\n")
             }
             State::Normal => {
                 self.warnings.push(format!(
@@ -225,12 +228,16 @@ impl TabsPreprocessor {
     fn handle_close(&mut self, line_num: usize) -> String {
         match self.state {
             State::InTab => {
-                // Close tab, go back to InTabs
-                self.state = State::InTabs;
-                "</rw-tab>".to_string()
+                // Close tab AND tabs container (per RD-029: "closes everything")
+                if let Some(group) = self.current_group.take() {
+                    self.groups.push(group);
+                }
+                self.state = State::Normal;
+                // Blank line before closing tags for pulldown-cmark
+                "\n</rw-tab>\n</rw-tabs>".to_string()
             }
             State::InTabs => {
-                // Close tabs group
+                // Close tabs group (empty tabs case)
                 if let Some(group) = self.current_group.take() {
                     if group.tabs.is_empty() {
                         self.warnings.push(format!(
@@ -310,6 +317,8 @@ fn parse_directive(trimmed: &str) -> Option<Directive> {
         if label.is_empty() {
             return Some(Directive::Tab("Tab".to_string()));
         }
+        // Strip surrounding quotes if present
+        let label = strip_quotes(label);
         return Some(Directive::Tab(label.to_string()));
     }
 
@@ -319,6 +328,16 @@ fn parse_directive(trimmed: &str) -> Option<Directive> {
 
     // Unknown directive - not a tabs directive
     None
+}
+
+/// Strip surrounding quotes (single or double) from a string.
+fn strip_quotes(s: &str) -> &str {
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        if s.len() >= 2 {
+            return &s[1..s.len() - 1];
+        }
+    }
+    s
 }
 
 #[cfg(test)]
@@ -353,6 +372,35 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_directive_tab_with_quotes() {
+        // Double quotes
+        assert_eq!(
+            parse_directive(r#"::: tab "macOS и Linux""#),
+            Some(Directive::Tab("macOS и Linux".to_string()))
+        );
+        // Single quotes
+        assert_eq!(
+            parse_directive("::: tab 'Windows'"),
+            Some(Directive::Tab("Windows".to_string()))
+        );
+        // No quotes
+        assert_eq!(
+            parse_directive("::: tab Plain Label"),
+            Some(Directive::Tab("Plain Label".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_strip_quotes() {
+        assert_eq!(strip_quotes(r#""quoted""#), "quoted");
+        assert_eq!(strip_quotes("'single'"), "single");
+        assert_eq!(strip_quotes("no quotes"), "no quotes");
+        assert_eq!(strip_quotes(r#""mismatched'"#), r#""mismatched'"#);
+        assert_eq!(strip_quotes(r#""""#), ""); // Empty quoted string
+        assert_eq!(strip_quotes(""), ""); // Empty string
+    }
+
+    #[test]
     fn test_parse_directive_close() {
         assert_eq!(parse_directive(":::"), Some(Directive::Close));
         assert_eq!(parse_directive("::: "), Some(Directive::Close));
@@ -369,14 +417,14 @@ mod tests {
     #[test]
     fn test_simple_tabs() {
         let mut pp = TabsPreprocessor::new();
+        // Use implicit tab closing: ::: tab B implicitly closes ::: tab A
+        // Final ::: closes the last tab AND the container
         let output = pp.process(
             r#"::: tabs
 ::: tab macOS
 Install with Homebrew.
-:::
 ::: tab Linux
 Install with apt.
-:::
 :::"#,
         );
 
@@ -399,6 +447,7 @@ Install with apt.
     #[test]
     fn test_tabs_with_code_block() {
         let mut pp = TabsPreprocessor::new();
+        // Single ::: closes both the tab and the container
         let output = pp.process(
             r#"::: tabs
 ::: tab Example
@@ -408,7 +457,6 @@ Install with apt.
 print("hello")
 ```
 
-:::
 :::"#,
         );
 
@@ -420,12 +468,11 @@ print("hello")
     #[test]
     fn test_nested_tabs_warning() {
         let mut pp = TabsPreprocessor::new();
+        // ::: inside tab closes everything, so nested ::: tabs becomes orphan
         let output = pp.process(
             r#"::: tabs
 ::: tab First
 ::: tabs
-:::
-:::
 :::"#,
         );
 
@@ -475,11 +522,11 @@ print("hello")
     #[test]
     fn test_multiple_tab_groups() {
         let mut pp = TabsPreprocessor::new();
+        // Single ::: closes both tab and container
         let output = pp.process(
             r#"::: tabs
 ::: tab A
 Content A
-:::
 :::
 
 Some text between.
@@ -487,7 +534,6 @@ Some text between.
 ::: tabs
 ::: tab B
 Content B
-:::
 :::"#,
         );
 
@@ -503,11 +549,11 @@ Content B
     #[test]
     fn test_tab_without_label() {
         let mut pp = TabsPreprocessor::new();
+        // Single ::: closes both tab and container
         let _output = pp.process(
             r#"::: tabs
 ::: tab
 Content
-:::
 :::"#,
         );
 
@@ -527,6 +573,7 @@ Content
     #[test]
     fn test_preserves_content_inside_tabs() {
         let mut pp = TabsPreprocessor::new();
+        // Single ::: closes both tab and container
         let output = pp.process(
             r#"::: tabs
 ::: tab Test
@@ -540,7 +587,6 @@ Content
 fn main() {}
 ```
 
-:::
 :::"#,
         );
 
