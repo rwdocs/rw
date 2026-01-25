@@ -80,27 +80,19 @@ impl TabsProcessor {
         // Tab panels - parse inner content to extract panels
         let panels = parse_tab_panels(inner_content);
         for (idx, (panel_tab_id, content)) in panels.iter().enumerate() {
-            // Find the matching tab metadata
             let tab = group.tabs.iter().find(|t| t.id == *panel_tab_id);
-            let hidden = if idx == 0 { "" } else { " hidden" };
-
-            if let Some(tab) = tab {
-                let tab_id = format!("tab-{group_id}-{}", tab.id);
-                let panel_id = format!("panel-{group_id}-{}", tab.id);
-                output.push_str(&format!(
-                    r#"<div role="tabpanel" id="{panel_id}" aria-labelledby="{tab_id}"{hidden}>{content}</div>"#
-                ));
-            } else {
-                // Tab not found in metadata, use panel_tab_id directly
+            if tab.is_none() {
                 self.warnings.push(format!(
                     "tab {panel_tab_id} not found in group {group_id} metadata"
                 ));
-                let tab_id = format!("tab-{group_id}-{panel_tab_id}");
-                let panel_id = format!("panel-{group_id}-{panel_tab_id}");
-                output.push_str(&format!(
-                    r#"<div role="tabpanel" id="{panel_id}" aria-labelledby="{tab_id}"{hidden}>{content}</div>"#
-                ));
             }
+
+            let hidden = if idx == 0 { "" } else { " hidden" };
+            let tab_id = format!("tab-{group_id}-{panel_tab_id}");
+            let panel_id = format!("panel-{group_id}-{panel_tab_id}");
+            output.push_str(&format!(
+                r#"<div role="tabpanel" id="{panel_id}" aria-labelledby="{tab_id}"{hidden}>{content}</div>"#
+            ));
         }
 
         output.push_str("</div>");

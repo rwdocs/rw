@@ -88,7 +88,7 @@ function handleTabKeydown(event: KeyboardEvent, container: HTMLElement, tabs: HT
 
   if (currentIndex === -1) return;
 
-  let newIndex: number | null = null;
+  let newIndex: number;
 
   switch (event.key) {
     case "ArrowLeft":
@@ -109,8 +109,6 @@ function handleTabKeydown(event: KeyboardEvent, container: HTMLElement, tabs: HT
       return; // Don't prevent default for other keys
   }
 
-  if (newIndex !== null) {
-    event.preventDefault();
-    activateTab(container, tabs[newIndex], tabs);
-  }
+  event.preventDefault();
+  activateTab(container, tabs[newIndex], tabs);
 }

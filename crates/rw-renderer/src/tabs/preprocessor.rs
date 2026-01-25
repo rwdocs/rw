@@ -253,18 +253,17 @@ fn parse_directive(trimmed: &str) -> Option<Directive> {
         return Some(Directive::Close);
     }
 
-    if rest.starts_with("tab ") {
-        let label = rest[4..].trim();
-        if label.is_empty() {
-            return Some(Directive::Tab("Tab".to_string()));
+    if let Some(label_part) = rest.strip_prefix("tab") {
+        // Must be followed by whitespace or end of string (not "tabs", "table", etc.)
+        if label_part.is_empty() || label_part.starts_with(char::is_whitespace) {
+            let label = label_part.trim();
+            let label = if label.is_empty() {
+                "Tab"
+            } else {
+                strip_quotes(label)
+            };
+            return Some(Directive::Tab(label.to_string()));
         }
-        // Strip surrounding quotes if present
-        let label = strip_quotes(label);
-        return Some(Directive::Tab(label.to_string()));
-    }
-
-    if rest == "tab" {
-        return Some(Directive::Tab("Tab".to_string()));
     }
 
     // Unknown directive - not a tabs directive
