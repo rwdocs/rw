@@ -34,14 +34,12 @@ impl FenceTracker {
     pub(crate) fn update(&mut self, line: &str) -> bool {
         let trimmed = line.trim_start();
 
-        if self.in_fence() {
+        if let Some(fence_char) = self.fence_char {
             // Check for closing fence
-            if let Some(fence_char) = self.fence_char {
-                if is_fence_line(trimmed, fence_char, self.fence_len) {
-                    self.fence_char = None;
-                    self.fence_len = 0;
-                    return true;
-                }
+            if is_fence_line(trimmed, fence_char, self.fence_len) {
+                self.fence_char = None;
+                self.fence_len = 0;
+                return true;
             }
             false
         } else {
