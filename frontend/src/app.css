@@ -160,11 +160,15 @@
   }
 
   .prose .tabs-buttons [role="tab"]:focus {
-    @apply outline-none ring-2 ring-blue-500 ring-offset-2;
+    @apply outline-none;
+  }
+
+  .prose .tabs-buttons [role="tab"]:focus-visible {
+    @apply text-blue-600 border-blue-600;
   }
 
   .prose .tabs [role="tabpanel"] {
-    @apply pt-4;
+    @apply pt-3;
   }
 
   .prose .tabs [role="tabpanel"][hidden] {
@@ -178,5 +182,14 @@
 
   .prose .tabs [role="tabpanel"] > :last-child {
     @apply mb-0;
+  }
+
+  /* Pin code blocks to tabs when they're the first child */
+  .prose .tabs [role="tabpanel"]:has(> pre:first-child) {
+    @apply pt-0;
+  }
+
+  .prose .tabs [role="tabpanel"] > pre:first-child {
+    @apply !mt-2;
   }
 }
