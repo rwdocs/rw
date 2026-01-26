@@ -211,9 +211,9 @@ pub enum ConfigError {
     /// Environment variable error during expansion.
     #[error("Environment variable error in {field}: {message}")]
     EnvVar {
-        /// Config field path (e.g., "confluence.access_token").
+        /// Config field path (e.g., "`confluence.access_token`").
         field: String,
-        /// Error message (e.g., "${CONFLUENCE_TOKEN} not set").
+        /// Error message (e.g., "${`CONFLUENCE_TOKEN`} not set").
         message: String,
     },
 }
@@ -383,6 +383,8 @@ impl Config {
 
     /// Validate diagrams configuration.
     fn validate_diagrams(&self) -> Result<(), ConfigError> {
+        const MAX_DPI: u32 = 1000;
+
         // Only validate kroki_url if set (diagram rendering enabled)
         if let Some(ref kroki_url) = self.diagrams_resolved.kroki_url {
             require_non_empty(kroki_url, "diagrams.kroki_url")?;
@@ -390,7 +392,6 @@ impl Config {
         }
 
         // DPI validation: must be positive and reasonable
-        const MAX_DPI: u32 = 1000;
         let dpi = self.diagrams_resolved.dpi;
         if dpi == 0 {
             return Err(ConfigError::Validation(

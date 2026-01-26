@@ -19,9 +19,7 @@ pub fn convert_html_entities(html: &str) -> String {
     ENTITY_PATTERN
         .replace_all(html, |caps: &regex::Captures| {
             let entity_name = &caps[1];
-            entity_to_unicode(entity_name)
-                .map(String::from)
-                .unwrap_or_else(|| caps[0].to_string())
+            entity_to_unicode(entity_name).map_or_else(|| caps[0].to_string(), String::from)
         })
         .into_owned()
 }

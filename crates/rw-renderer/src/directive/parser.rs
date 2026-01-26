@@ -1,6 +1,6 @@
 //! Directive syntax parsing.
 //!
-//! Parses CommonMark directive syntax: `:name`, `::name`, `:::name`
+//! Parses `CommonMark` directive syntax: `:name`, `::name`, `:::name`
 
 use super::DirectiveArgs;
 
@@ -100,7 +100,7 @@ fn is_valid_directive_name(name: &str) -> bool {
 
 /// Parse content from brackets: `[content]`
 ///
-/// Returns (content, bytes_consumed).
+/// Returns (content, `bytes_consumed`).
 fn parse_brackets(s: &str) -> (String, usize) {
     if !s.starts_with('[') {
         return (String::new(), 0);
@@ -135,7 +135,7 @@ fn parse_brackets(s: &str) -> (String, usize) {
 
 /// Parse attributes from braces: `{#id .class key="value"}`
 ///
-/// Returns (attrs_str without braces, bytes_consumed).
+/// Returns (`attrs_str` without braces, `bytes_consumed`).
 fn parse_braces(s: &str) -> (String, usize) {
     if !s.starts_with('{') {
         return (String::new(), 0);

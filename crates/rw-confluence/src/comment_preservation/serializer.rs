@@ -1,5 +1,7 @@
 //! Confluence XHTML serializer with CDATA support.
 
+#![allow(clippy::unused_self)] // Unit struct methods have &self for API consistency
+
 use std::fmt::Write;
 use std::sync::LazyLock;
 
@@ -13,7 +15,7 @@ static PLAIN_TEXT_BODY_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         .expect("invalid plain-text-body regex")
 });
 
-/// Serialize TreeNode back to Confluence storage format.
+/// Serialize `TreeNode` back to Confluence storage format.
 pub struct ConfluenceXmlSerializer;
 
 impl ConfluenceXmlSerializer {

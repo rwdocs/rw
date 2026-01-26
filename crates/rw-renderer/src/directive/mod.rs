@@ -1,6 +1,6 @@
-//! Pluggable directives API for CommonMark directive syntax.
+//! Pluggable directives API for `CommonMark` directive syntax.
 //!
-//! This module provides a trait-based extensibility system for handling CommonMark
+//! This module provides a trait-based extensibility system for handling `CommonMark`
 //! directives (inline `:name`, leaf `::name`, and container `:::name`).
 //!
 //! # Architecture

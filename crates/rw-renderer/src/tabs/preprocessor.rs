@@ -1,4 +1,4 @@
-//! Tabs preprocessor for converting CommonMark directives to HTML elements.
+//! Tabs preprocessor for converting `CommonMark` directives to HTML elements.
 //!
 //! Converts `:::tab` / `:::` syntax to `<rw-tabs>` / `<rw-tab>`
 //! elements that pass through pulldown-cmark unchanged.
@@ -270,8 +270,7 @@ fn parse_directive(trimmed: &str) -> Option<Directive> {
                 };
                 return Some(Directive::Tab(label.to_string()));
             }
-        } else if after_tab.is_empty()
-            || after_tab.chars().next().is_some_and(|c| c.is_whitespace())
+        } else if after_tab.is_empty() || after_tab.chars().next().is_some_and(char::is_whitespace)
         {
             // :::tab or :::tab with trailing whitespace (no label)
             return Some(Directive::Tab("Tab".to_string()));
@@ -370,11 +369,11 @@ mod tests {
         // :::tab[B] implicitly closes :::tab[A]
         // Final ::: closes the last tab AND the container
         let output = pp.process(
-            r#":::tab[macOS]
+            r":::tab[macOS]
 Install with Homebrew.
 :::tab[Linux]
 Install with apt.
-:::"#,
+:::",
         );
 
         assert!(output.contains(r#"<rw-tabs data-id="0">"#));
@@ -434,7 +433,7 @@ print("hello")
     fn test_multiple_tab_groups() {
         let mut pp = TabsPreprocessor::new();
         let output = pp.process(
-            r#":::tab[A]
+            r":::tab[A]
 Content A
 :::
 
@@ -442,7 +441,7 @@ Some text between.
 
 :::tab[B]
 Content B
-:::"#,
+:::",
         );
 
         assert!(output.contains(r#"<rw-tabs data-id="0">"#));
@@ -458,9 +457,9 @@ Content B
     fn test_tab_without_label() {
         let mut pp = TabsPreprocessor::new();
         let _output = pp.process(
-            r#":::tab
+            r":::tab
 Content
-:::"#,
+:::",
         );
 
         let groups = pp.into_groups();
@@ -480,7 +479,7 @@ Content
     fn test_preserves_content_inside_tabs() {
         let mut pp = TabsPreprocessor::new();
         let output = pp.process(
-            r#":::tab[Test]
+            r":::tab[Test]
 
 # Heading
 
@@ -491,7 +490,7 @@ Content
 fn main() {}
 ```
 
-:::"#,
+:::",
         );
 
         assert!(output.contains("# Heading"));
@@ -503,9 +502,9 @@ fn main() {}
     fn test_tilde_fence_skip() {
         let mut pp = TabsPreprocessor::new();
         let output = pp.process(
-            r#"~~~
+            r"~~~
 :::tab inside fence
-~~~"#,
+~~~",
         );
 
         // Should not parse :::tab inside fence

@@ -118,6 +118,10 @@ impl SiteLoader {
     /// Note: This returns the current snapshot without checking cache validity.
     /// For most use cases, prefer `reload_if_needed()` which ensures the site
     /// is up-to-date.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal `RwLock` is poisoned.
     #[must_use]
     pub fn get(&self) -> Arc<Site> {
         self.current_site.read().unwrap().clone()
@@ -127,11 +131,15 @@ impl SiteLoader {
     ///
     /// Uses double-checked locking pattern:
     /// 1. Fast path: return current site if cache valid
-    /// 2. Slow path: acquire reload_lock, recheck, then reload
+    /// 2. Slow path: acquire `reload_lock`, recheck, then reload
     ///
     /// # Returns
     ///
     /// `Arc<Site>` containing the current site snapshot.
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
     pub fn reload_if_needed(&self) -> Arc<Site> {
         // Fast path: cache valid
         if self.cache_valid.load(Ordering::Acquire) {

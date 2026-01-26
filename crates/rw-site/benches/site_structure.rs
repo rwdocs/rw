@@ -44,11 +44,11 @@ fn bench_site_get_page(c: &mut Criterion) {
     let mut group = c.benchmark_group("site_lookup");
 
     group.bench_function("get_page_hit", |b| {
-        b.iter(|| site.get_page_by_source(Path::new("section-0/section-1/index.md")))
+        b.iter(|| site.get_page_by_source(Path::new("section-0/section-1/index.md")));
     });
 
     group.bench_function("get_page_miss", |b| {
-        b.iter(|| site.get_page_by_source(Path::new("nonexistent/path.md")))
+        b.iter(|| site.get_page_by_source(Path::new("nonexistent/path.md")));
     });
 
     group.finish();
@@ -69,11 +69,11 @@ fn bench_site_breadcrumbs(c: &mut Criterion) {
     let mut group = c.benchmark_group("breadcrumbs");
 
     group.bench_function("depth_2", |b| {
-        b.iter(|| site.get_breadcrumbs("/section-0/section-0"))
+        b.iter(|| site.get_breadcrumbs("/section-0/section-0"));
     });
 
     group.bench_function("depth_5", |b| {
-        b.iter(|| site.get_breadcrumbs("/section-0/section-0/section-0/section-0/section-0"))
+        b.iter(|| site.get_breadcrumbs("/section-0/section-0/section-0/section-0/section-0"));
     });
 
     group.finish();
@@ -127,7 +127,7 @@ fn bench_siteloader_reload(c: &mut Criterion) {
         b.iter(|| {
             loader.invalidate();
             loader.reload_if_needed()
-        })
+        });
     });
 
     group.finish();
@@ -152,7 +152,7 @@ fn bench_siteloader_varying_sizes(c: &mut Criterion) {
                     })
                 },
                 |loader| loader.reload_if_needed(),
-            )
+            );
         });
     }
 
@@ -174,15 +174,15 @@ fn bench_resolve_source_path(c: &mut Criterion) {
     let mut group = c.benchmark_group("resolve_path");
 
     group.bench_function("shallow", |b| {
-        b.iter(|| site.resolve_source_path("/section-0"))
+        b.iter(|| site.resolve_source_path("/section-0"));
     });
 
     group.bench_function("deep", |b| {
-        b.iter(|| site.resolve_source_path("/section-0/section-0/section-0/section-0"))
+        b.iter(|| site.resolve_source_path("/section-0/section-0/section-0/section-0"));
     });
 
     group.bench_function("not_found", |b| {
-        b.iter(|| site.resolve_source_path("/nonexistent"))
+        b.iter(|| site.resolve_source_path("/nonexistent"));
     });
 
     group.finish();

@@ -82,7 +82,7 @@ fn build_authorization_header(oauth_params: &BTreeMap<String, String>) -> String
 ///
 /// # Arguments
 /// * `method` - HTTP method (GET, POST, etc.)
-/// * `base_url` - URL without query string (scheme://host/path)
+/// * `base_url` - URL without query string (<scheme://host/path>)
 /// * `query_params` - Query parameters to include in signature
 /// * `consumer_key` - OAuth consumer key
 /// * `access_token` - OAuth access token
@@ -128,7 +128,7 @@ pub fn create_authorization_header(
 ///
 /// # Arguments
 /// * `method` - HTTP method (GET, POST, etc.)
-/// * `base_url` - URL without query string (scheme://host/path)
+/// * `base_url` - URL without query string (<scheme://host/path>)
 /// * `query_params` - Query parameters to include in signature
 /// * `consumer_key` - OAuth consumer key
 /// * `oauth_token` - OAuth token (None for request token phase)

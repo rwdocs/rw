@@ -96,7 +96,7 @@ mod tests {
     struct TestNote;
 
     impl ContainerDirective for TestNote {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "note"
         }
 
@@ -125,7 +125,7 @@ mod tests {
     }
 
     impl ContainerDirective for TestDetails {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "details"
         }
 

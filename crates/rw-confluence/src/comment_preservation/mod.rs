@@ -13,6 +13,8 @@
 //! - [`transfer`]: Comment marker transfer with global fallback
 //! - [`serializer`]: XML serializer with CDATA support
 //! - [`entities`]: HTML entity to Unicode conversion
+
+#![allow(clippy::similar_names)] // matcher/matches, old_tree/new_tree are intentional naming patterns
 //!
 //! # Example
 //!
@@ -216,10 +218,10 @@ mod tests {
             <tr><td><code><ac:inline-comment-marker ac:ref="marker-id">keep-this</ac:inline-comment-marker></code></td><td><code>same</code></td></tr>
         </tbody></table>"#;
 
-        let new_html = r#"<table><tbody>
+        let new_html = r"<table><tbody>
             <tr><td><code>old-text</code></td><td><code>completely-different-value-here</code></td></tr>
             <tr><td><code>keep-this</code></td><td><code>same</code></td></tr>
-        </tbody></table>"#;
+        </tbody></table>";
 
         let result = preserve_comments(old_html, new_html);
 

@@ -5,7 +5,7 @@
 
 /// Tracks code fence state during line-by-line processing.
 ///
-/// Code fences in CommonMark can use backticks (```) or tildes (~~~).
+/// Code fences in `CommonMark` can use backticks or tildes (three or more).
 /// The closing fence must use the same character and be at least as long
 /// as the opening fence.
 #[derive(Debug, Default)]
@@ -89,7 +89,7 @@ fn is_fence_line(trimmed: &str, expected_char: char, min_len: usize) -> bool {
     }
 
     // After fence chars, only whitespace is allowed
-    trimmed[count..].chars().all(|c| c.is_whitespace())
+    trimmed[count..].chars().all(char::is_whitespace)
 }
 
 #[cfg(test)]

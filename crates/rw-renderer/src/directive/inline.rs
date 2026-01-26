@@ -54,7 +54,7 @@ mod tests {
     struct TestKbd;
 
     impl InlineDirective for TestKbd {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "kbd"
         }
 

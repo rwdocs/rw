@@ -1,4 +1,4 @@
-//! Directive processor for CommonMark directives.
+//! Directive processor for `CommonMark` directives.
 //!
 //! Handles preprocessing (before pulldown-cmark) and post-processing (after rendering).
 
@@ -99,7 +99,7 @@ fn default_read_file(path: &Path) -> io::Result<String> {
     std::fs::read_to_string(path)
 }
 
-/// Processor for CommonMark directives.
+/// Processor for `CommonMark` directives.
 ///
 /// Handles both preprocessing (before pulldown-cmark) and post-processing
 /// (after rendering) of directive syntax.
@@ -416,7 +416,7 @@ mod tests {
     struct TestKbd;
 
     impl InlineDirective for TestKbd {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "kbd"
         }
 
@@ -429,7 +429,7 @@ mod tests {
     struct TestYoutube;
 
     impl LeafDirective for TestYoutube {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "youtube"
         }
 
@@ -445,7 +445,7 @@ mod tests {
     struct TestNote;
 
     impl ContainerDirective for TestNote {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "note"
         }
 
@@ -574,7 +574,7 @@ mod tests {
         }
 
         impl ContainerDirective for TestDetails {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "details"
             }
 
@@ -626,7 +626,7 @@ mod tests {
         struct TestInclude;
 
         impl LeafDirective for TestInclude {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "include"
             }
 
