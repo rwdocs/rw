@@ -209,6 +209,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Svelte lint warnings for SVG `<path>` elements**; added `svelte-ignore component_name_lowercase` comments in `NavItem.svelte` and `MobileDrawer.svelte` to suppress false positive warnings about SVG path elements
 - **Path traversal protection in `Site::resolve_source_path`**; canonicalizes resolved paths and validates they stay within `source_dir` to prevent directory traversal attacks
 - **OAuth 1.0 signature now includes query parameters** per RFC 5849 Section 3.4.1.3; fixes `signature_invalid` errors for Confluence API requests with query strings (e.g., `get_page` with `expand` parameter)
 - **Ctrl-C signal handling** now works for `rw serve`; uses tokio graceful shutdown instead of relying on Python signal handlers

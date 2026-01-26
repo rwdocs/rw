@@ -43,6 +43,7 @@
           aria-label="Close menu"
         >
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <!-- svelte-ignore component_name_lowercase -->
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
