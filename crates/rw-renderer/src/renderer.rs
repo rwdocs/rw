@@ -37,7 +37,7 @@ pub struct RenderResult {
 ///
 /// # Directive Processing
 ///
-/// The renderer supports CommonMark directives via [`with_directives`](Self::with_directives).
+/// The renderer supports `CommonMark` directives via [`with_directives`](Self::with_directives).
 /// When a directive processor is configured, [`render_markdown`](Self::render_markdown)
 /// will preprocess the input to expand directives before pulldown-cmark parsing,
 /// and post-process the output to transform intermediate elements.
@@ -56,7 +56,7 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     gfm: bool,
     /// Stack of alert kinds for nested blockquotes (regular blockquote uses None).
     alert_stack: Vec<Option<AlertKind>>,
-    /// Optional directive processor for CommonMark directives.
+    /// Optional directive processor for `CommonMark` directives.
     directives: Option<DirectiveProcessor>,
     _backend: PhantomData<B>,
 }
@@ -116,7 +116,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Configure directive processing for CommonMark directives.
+    /// Configure directive processing for `CommonMark` directives.
     ///
     /// When a directive processor is set, [`render_markdown`](Self::render_markdown)
     /// will:
@@ -1070,11 +1070,11 @@ mod tests {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
 
         let result = renderer.render_markdown(
-            r#":::tab[macOS]
+            r":::tab[macOS]
 Install with Homebrew.
 :::tab[Linux]
 Install with apt.
-:::"#,
+:::",
         );
 
         // Should have accessible tab structure
@@ -1095,7 +1095,7 @@ Install with apt.
         struct KbdDirective;
 
         impl InlineDirective for KbdDirective {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "kbd"
             }
 

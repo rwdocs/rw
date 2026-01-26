@@ -47,28 +47,25 @@ impl ConfluenceClient {
         let mut body = Vec::new();
 
         // Add file part
-        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
         body.extend_from_slice(
-            format!(
-                "Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n",
-                filename
-            )
-            .as_bytes(),
+            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n")
+                .as_bytes(),
         );
-        body.extend_from_slice(format!("Content-Type: {}\r\n\r\n", content_type).as_bytes());
+        body.extend_from_slice(format!("Content-Type: {content_type}\r\n\r\n").as_bytes());
         body.extend_from_slice(data);
         body.extend_from_slice(b"\r\n");
 
         // Add comment if provided
         if let Some(c) = comment {
-            body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+            body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
             body.extend_from_slice(b"Content-Disposition: form-data; name=\"comment\"\r\n\r\n");
             body.extend_from_slice(c.as_bytes());
             body.extend_from_slice(b"\r\n");
         }
 
         // End boundary
-        body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
 
         let response = self
             .agent
@@ -76,7 +73,7 @@ impl ConfluenceClient {
             .header("Authorization", &auth_header)
             .header(
                 "Content-Type",
-                &format!("multipart/form-data; boundary={}", boundary),
+                &format!("multipart/form-data; boundary={boundary}"),
             )
             .header("X-Atlassian-Token", "nocheck")
             .header("Accept", "application/json")

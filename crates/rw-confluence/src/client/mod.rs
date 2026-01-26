@@ -35,6 +35,10 @@ impl ConfluenceClient {
     /// * `key_file` - Path to RSA private key file (PEM format)
     /// * `access_token` - OAuth access token
     /// * `access_secret` - OAuth access token secret
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfluenceError::RsaKey`] if the private key file cannot be loaded.
     pub fn from_config(
         base_url: &str,
         consumer_key: &str,

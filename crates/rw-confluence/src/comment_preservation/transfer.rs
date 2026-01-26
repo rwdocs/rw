@@ -1,5 +1,7 @@
 //! Comment marker transfer from old tree to new tree.
 
+#![allow(clippy::unused_self)] // Methods take &self for API consistency
+
 use std::collections::{HashMap, HashSet};
 
 use super::UnmatchedComment;
@@ -151,7 +153,7 @@ fn collect_nodes_recursive<'a>(
     node: &'a TreeNode,
     map: &mut HashMap<*const TreeNode, &'a TreeNode>,
 ) {
-    map.insert(node as *const TreeNode, node);
+    map.insert(std::ptr::from_ref::<TreeNode>(node), node);
     for child in &node.children {
         collect_nodes_recursive(child, map);
     }
@@ -302,7 +304,10 @@ mod tests {
         let old_p = &old_tree.children[0];
         let new_p = &new_tree.children[0];
         let mut matches = HashMap::new();
-        matches.insert(old_p as *const TreeNode, new_p as *const TreeNode);
+        matches.insert(
+            std::ptr::from_ref::<TreeNode>(old_p),
+            std::ptr::from_ref::<TreeNode>(new_p),
+        );
 
         let mut transfer = CommentMarkerTransfer::new();
         transfer.transfer(&matches, &mut new_tree, &old_tree);
@@ -324,7 +329,10 @@ mod tests {
         let old_li = &old_tree.children[0];
         let new_li = &new_tree.children[0];
         let mut matches = HashMap::new();
-        matches.insert(old_li as *const TreeNode, new_li as *const TreeNode);
+        matches.insert(
+            std::ptr::from_ref::<TreeNode>(old_li),
+            std::ptr::from_ref::<TreeNode>(new_li),
+        );
 
         let mut transfer = CommentMarkerTransfer::new();
         transfer.transfer(&matches, &mut new_tree, &old_tree);
@@ -350,7 +358,10 @@ mod tests {
         let old_p = &old_tree.children[0];
         let new_p = &new_tree.children[0];
         let mut matches = HashMap::new();
-        matches.insert(old_p as *const TreeNode, new_p as *const TreeNode);
+        matches.insert(
+            std::ptr::from_ref::<TreeNode>(old_p),
+            std::ptr::from_ref::<TreeNode>(new_p),
+        );
 
         let mut transfer = CommentMarkerTransfer::new();
         transfer.transfer(&matches, &mut new_tree, &old_tree);

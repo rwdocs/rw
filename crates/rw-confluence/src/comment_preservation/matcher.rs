@@ -1,5 +1,7 @@
 //! Tree matching using text similarity.
 
+#![allow(clippy::cast_precision_loss)] // Intentional f64 conversion for similarity ratio
+
 use std::collections::HashMap;
 
 use super::tree::TreeNode;
@@ -60,7 +62,7 @@ impl<'a> TreeMatcher<'a> {
                     continue;
                 }
 
-                let score = self.get_match_score(old_child, new_child);
+                let score = Self::get_match_score(old_child, new_child);
                 if score > best_score {
                     best_score = score;
                     best_idx = Some(idx);
@@ -80,7 +82,7 @@ impl<'a> TreeMatcher<'a> {
         new_node: &'a TreeNode,
         matches: &mut HashMap<*const TreeNode, *const TreeNode>,
     ) {
-        let score = self.get_match_score(old_node, new_node);
+        let score = Self::get_match_score(old_node, new_node);
 
         if score < SIMILARITY_THRESHOLD {
             return;
@@ -90,11 +92,14 @@ impl<'a> TreeMatcher<'a> {
             tracing::debug!(tag = %old_node.tag, similarity = score, "Partial match");
         }
 
-        matches.insert(old_node as *const TreeNode, new_node as *const TreeNode);
+        matches.insert(
+            std::ptr::from_ref::<TreeNode>(old_node),
+            std::ptr::from_ref::<TreeNode>(new_node),
+        );
         self.match_children(&old_node.children, &new_node.children, matches);
     }
 
-    fn get_match_score(&self, old_node: &TreeNode, new_node: &TreeNode) -> f64 {
+    fn get_match_score(old_node: &TreeNode, new_node: &TreeNode) -> f64 {
         // Don't match comment markers
         if old_node.is_comment_marker() {
             return -1.0;

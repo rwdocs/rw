@@ -135,6 +135,7 @@ impl OAuthTokenGenerator {
     /// Step 2: Get authorization URL for a request token.
     ///
     /// This is a convenience method; the URL is also returned by `request_token()`.
+    #[must_use]
     pub fn get_authorization_url(&self, request_token: &RequestToken) -> String {
         format!(
             "{}?oauth_token={}",

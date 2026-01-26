@@ -1,6 +1,6 @@
 //! Tabbed content blocks for markdown.
 //!
-//! Implements CommonMark directive syntax for tabs:
+//! Implements `CommonMark` directive syntax for tabs:
 //!
 //! ```markdown
 //! :::tab[macOS]

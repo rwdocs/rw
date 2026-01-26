@@ -125,12 +125,12 @@ impl ServeArgs {
         Ok(())
     }
 
-    /// Resolve cache_enabled from --cache/--no-cache flags.
+    /// Resolve `cache_enabled` from --cache/--no-cache flags.
     fn resolve_cache_enabled(&self) -> Option<bool> {
         self.no_cache.then_some(false).or(self.cache)
     }
 
-    /// Resolve live_reload_enabled from --live-reload/--no-live-reload flags.
+    /// Resolve `live_reload_enabled` from --live-reload/--no-live-reload flags.
     fn resolve_live_reload_enabled(&self) -> Option<bool> {
         self.no_live_reload.then_some(false).or(self.live_reload)
     }

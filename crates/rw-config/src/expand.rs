@@ -28,7 +28,7 @@ pub(crate) fn expand_env(value: &str, field: &str) -> Result<String, ConfigError
             }),
         }
     })
-    .map(|cow| cow.into_owned())
+    .map(std::borrow::Cow::into_owned)
     .map_err(|e| ConfigError::EnvVar {
         field: field.to_string(),
         message: format!("${{{0}}} not set", e.cause.var_name),

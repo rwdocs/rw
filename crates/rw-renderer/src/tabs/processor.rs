@@ -5,6 +5,7 @@
 //! with ARIA attributes.
 
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use crate::state::escape_html;
 
@@ -59,7 +60,7 @@ impl TabsProcessor {
         let mut output = String::with_capacity(inner_content.len() + 512);
 
         // Container div
-        output.push_str(&format!(r#"<div class="tabs" id="tabs-{group_id}">"#));
+        let _ = write!(output, r#"<div class="tabs" id="tabs-{group_id}">"#);
 
         // Tab buttons
         output.push_str(r#"<div class="tabs-buttons" role="tablist">"#);
@@ -68,11 +69,12 @@ impl TabsProcessor {
             let tab_id = format!("tab-{group_id}-{}", tab.id);
             let panel_id = format!("panel-{group_id}-{}", tab.id);
 
-            output.push_str(&format!(
+            let _ = write!(
+                output,
                 r#"<button role="tab" id="{tab_id}" aria-controls="{panel_id}" aria-selected="{selected}" tabindex="{}">{}</button>"#,
                 if selected { "0" } else { "-1" },
                 escape_html(&tab.label)
-            ));
+            );
         }
         output.push_str("</div>");
 
@@ -88,9 +90,10 @@ impl TabsProcessor {
             let hidden = if idx == 0 { "" } else { " hidden" };
             let tab_id = format!("tab-{group_id}-{panel_tab_id}");
             let panel_id = format!("panel-{group_id}-{panel_tab_id}");
-            output.push_str(&format!(
+            let _ = write!(
+                output,
                 r#"<div role="tabpanel" id="{panel_id}" aria-labelledby="{tab_id}"{hidden}>{content}</div>"#
-            ));
+            );
         }
 
         output.push_str("</div>");
@@ -168,7 +171,7 @@ fn parse_data_id(tag: &str) -> Option<usize> {
 
 /// Parse `<rw-tab>` elements from inner content.
 ///
-/// Returns a vector of (tab_id, content) tuples.
+/// Returns a vector of (`tab_id`, content) tuples.
 fn parse_tab_panels(content: &str) -> Vec<(usize, String)> {
     let mut panels = Vec::new();
     let mut remaining = content;
@@ -230,7 +233,7 @@ mod tests {
     fn test_parse_data_id() {
         assert_eq!(parse_data_id(r#"<rw-tabs data-id="0">"#), Some(0));
         assert_eq!(parse_data_id(r#"<rw-tabs data-id="42">"#), Some(42));
-        assert_eq!(parse_data_id(r#"<rw-tabs>"#), None);
+        assert_eq!(parse_data_id(r"<rw-tabs>"), None);
         assert_eq!(parse_data_id(r#"<rw-tabs data-id="abc">"#), None);
     }
 

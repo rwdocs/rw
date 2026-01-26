@@ -41,7 +41,7 @@ pub struct DirectiveContext<'a> {
     pub read_file: &'a dyn Fn(&Path) -> io::Result<String>,
 }
 
-impl<'a> DirectiveContext<'a> {
+impl DirectiveContext<'_> {
     /// Resolve a relative path against the base directory.
     ///
     /// Returns the joined path. Use [`resolve_path_safe`](Self::resolve_path_safe)
@@ -113,7 +113,7 @@ impl<'a> DirectiveContext<'a> {
         }
     }
 
-    /// Read a file using the context's read_file callback.
+    /// Read a file using the context's `read_file` callback.
     ///
     /// # Errors
     ///

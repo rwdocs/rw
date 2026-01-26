@@ -1,5 +1,7 @@
 //! Benchmarks for page rendering performance.
 
+#![allow(clippy::format_push_string)] // Benchmark setup code, performance not critical
+
 use std::fs;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
@@ -30,7 +32,7 @@ fn bench_render_simple(c: &mut Criterion) {
     let renderer = PageRenderer::new(config);
 
     c.bench_function("render_simple_markdown", |b| {
-        b.iter(|| renderer.render(&file_path, "simple"))
+        b.iter(|| renderer.render(&file_path, "simple"));
     });
 }
 
@@ -47,7 +49,7 @@ fn bench_render_with_toc(c: &mut Criterion) {
     let renderer = PageRenderer::new(config);
 
     c.bench_function("render_with_toc_10_headings", |b| {
-        b.iter(|| renderer.render(&file_path, "toc"))
+        b.iter(|| renderer.render(&file_path, "toc"));
     });
 }
 
@@ -98,14 +100,14 @@ fn bench_render_cached_vs_uncached(c: &mut Criterion) {
     let mut group = c.benchmark_group("caching");
 
     group.bench_function("render_uncached", |b| {
-        b.iter(|| uncached_renderer.render(&file_path, "test"))
+        b.iter(|| uncached_renderer.render(&file_path, "test"));
     });
 
     // Prime the cache
     let _ = cached_renderer.render(&file_path, "cached");
 
     group.bench_function("render_cache_hit", |b| {
-        b.iter(|| cached_renderer.render(&file_path, "cached"))
+        b.iter(|| cached_renderer.render(&file_path, "cached"));
     });
 
     group.finish();
@@ -115,7 +117,7 @@ fn bench_render_gfm_features(c: &mut Criterion) {
     let temp_dir = tempfile::tempdir().unwrap();
     let file_path = temp_dir.path().join("gfm.md");
 
-    let markdown = r#"# GFM Features
+    let markdown = r"# GFM Features
 
 | Column A | Column B | Column C |
 |----------|----------|----------|
@@ -127,14 +129,14 @@ fn bench_render_gfm_features(c: &mut Criterion) {
 - [ ] Another task
 
 This has ~~strikethrough~~ and **bold** and *italic*.
-"#;
+";
     fs::write(&file_path, markdown).unwrap();
 
     let config = PageRendererConfig::default();
     let renderer = PageRenderer::new(config);
 
     c.bench_function("render_gfm_features", |b| {
-        b.iter(|| renderer.render(&file_path, "gfm"))
+        b.iter(|| renderer.render(&file_path, "gfm"));
     });
 }
 
@@ -183,7 +185,7 @@ console.log(fibonacci(10));
     let renderer = PageRenderer::new(config);
 
     c.bench_function("render_code_blocks", |b| {
-        b.iter(|| renderer.render(&file_path, "code"))
+        b.iter(|| renderer.render(&file_path, "code"));
     });
 }
 
@@ -199,7 +201,7 @@ fn bench_render_large_document(c: &mut Criterion) {
     let mut group = c.benchmark_group("large_document");
     group.throughput(Throughput::Bytes(markdown.len() as u64));
     group.bench_function("render", |b| {
-        b.iter(|| renderer.render(&file_path, "large"))
+        b.iter(|| renderer.render(&file_path, "large"));
     });
     group.finish();
 }

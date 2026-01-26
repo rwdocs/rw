@@ -79,7 +79,7 @@ mod tests {
     struct TestYoutube;
 
     impl LeafDirective for TestYoutube {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "youtube"
         }
 
@@ -104,7 +104,7 @@ mod tests {
     }
 
     impl LeafDirective for TestInclude {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "include"
         }
 

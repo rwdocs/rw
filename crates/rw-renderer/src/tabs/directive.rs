@@ -2,6 +2,8 @@
 //!
 //! Implements `ContainerDirective` for tabbed content blocks.
 
+use std::fmt::Write;
+
 use crate::directive::{
     ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements,
 };
@@ -59,7 +61,7 @@ pub struct TabsDirective {
     current_group: Option<TabsGroup>,
     next_group_id: usize,
     next_tab_id: usize,
-    /// Stack to track nested tabs (group_start_line).
+    /// Stack to track nested tabs (`group_start_line`).
     stack: Vec<usize>,
     warnings: Vec<String>,
 }
@@ -92,7 +94,7 @@ impl Default for TabsDirective {
 }
 
 impl ContainerDirective for TabsDirective {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "tab"
     }
 
@@ -186,7 +188,7 @@ fn render_tabs_open(group: &TabsGroup) -> String {
     let mut output = String::with_capacity(512);
 
     // Container div
-    output.push_str(&format!(r#"<div class="tabs" id="tabs-{}">"#, group.id));
+    let _ = write!(output, r#"<div class="tabs" id="tabs-{}">"#, group.id);
 
     // Tab buttons
     output.push_str(r#"<div class="tabs-buttons" role="tablist">"#);
@@ -195,11 +197,12 @@ fn render_tabs_open(group: &TabsGroup) -> String {
         let tab_id = format!("tab-{}-{}", group.id, tab.id);
         let panel_id = format!("panel-{}-{}", group.id, tab.id);
 
-        output.push_str(&format!(
+        let _ = write!(
+            output,
             r#"<button role="tab" id="{tab_id}" aria-controls="{panel_id}" aria-selected="{selected}" tabindex="{}">{}</button>"#,
             if selected { "0" } else { "-1" },
             escape_html(&tab.label)
-        ));
+        );
     }
     output.push_str("</div>");
 
@@ -235,11 +238,11 @@ mod tests {
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#":::tab[macOS]
+        let input = r":::tab[macOS]
 Install with Homebrew.
 :::tab[Linux]
 Install with apt.
-:::"#;
+:::";
 
         let output = processor.process(input);
 
@@ -257,11 +260,11 @@ Install with apt.
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#":::tab[macOS]
+        let input = r":::tab[macOS]
 Content A
 :::tab[Linux]
 Content B
-:::"#;
+:::";
 
         let output = processor.process(input);
         let mut html = output;
@@ -307,9 +310,9 @@ print("hello")
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#":::tab
+        let input = r":::tab
 Content
-:::"#;
+:::";
 
         let output = processor.process(input);
         let mut html = output;
@@ -339,7 +342,7 @@ Content
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#":::tab[A]
+        let input = r":::tab[A]
 Content A
 :::
 
@@ -347,7 +350,7 @@ Some text between.
 
 :::tab[B]
 Content B
-:::"#;
+:::";
 
         let output = processor.process(input);
 
@@ -360,9 +363,9 @@ Content B
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#":::tab[<script>]
+        let input = r":::tab[<script>]
 Content
-:::"#;
+:::";
 
         let output = processor.process(input);
         let mut html = output;

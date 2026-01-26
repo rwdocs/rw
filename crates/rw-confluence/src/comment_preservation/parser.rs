@@ -1,5 +1,7 @@
 //! Confluence XHTML parser with namespace support.
 
+#![allow(clippy::unused_self)] // Unit struct methods have &self for API consistency
+
 use std::collections::HashMap;
 use std::io::BufRead;
 
@@ -26,7 +28,7 @@ impl ConfluenceXmlParser {
         Self
     }
 
-    /// Parse HTML string to TreeNode structure.
+    /// Parse HTML string to `TreeNode` structure.
     ///
     /// Adds namespace declarations for `ac:` and `ri:` prefixes, then parses
     /// the XML into a tree structure.
@@ -97,7 +99,7 @@ impl ConfluenceXmlParser {
                         continue;
                     }
                     let text = reader.decoder().decode(&e)?.into_owned();
-                    append_text(&mut node, text);
+                    append_text(&mut node, &text);
                 }
                 Event::GeneralRef(e) => {
                     if first_element {
@@ -106,20 +108,17 @@ impl ConfluenceXmlParser {
                     // Handle entity references (e.g., &lt; &gt; &amp;)
                     let entity = reader.decoder().decode(&e)?.into_owned();
                     let text = decode_entity(&entity);
-                    append_text(&mut node, text);
+                    append_text(&mut node, &text);
                 }
                 Event::CData(e) => {
                     if first_element {
                         continue;
                     }
                     let text = String::from_utf8_lossy(&e).into_owned();
-                    append_text(&mut node, text);
+                    append_text(&mut node, &text);
                 }
-                Event::End(_) => {
-                    // End of current element
-                    return Ok(node);
-                }
-                Event::Eof => {
+                Event::End(_) | Event::Eof => {
+                    // End of current element or document
                     return Ok(node);
                 }
                 Event::Comment(_) | Event::Decl(_) | Event::PI(_) | Event::DocType(_) => {
@@ -160,17 +159,17 @@ impl ConfluenceXmlParser {
                 }
                 Event::Text(e) => {
                     let text = reader.decoder().decode(&e)?.into_owned();
-                    append_text(&mut node, text);
+                    append_text(&mut node, &text);
                 }
                 Event::GeneralRef(e) => {
                     // Handle entity references (e.g., &lt; &gt; &amp;)
                     let entity = reader.decoder().decode(&e)?.into_owned();
                     let text = decode_entity(&entity);
-                    append_text(&mut node, text);
+                    append_text(&mut node, &text);
                 }
                 Event::CData(e) => {
                     let text = String::from_utf8_lossy(&e).into_owned();
-                    append_text(&mut node, text);
+                    append_text(&mut node, &text);
                 }
                 Event::End(e) => {
                     let end_tag = self.decode_tag_from_bytes(reader, e.name().as_ref());
@@ -193,11 +192,10 @@ impl ConfluenceXmlParser {
     }
 
     fn decode_tag_from_bytes<R: BufRead>(&self, reader: &Reader<R>, name: &[u8]) -> String {
-        reader
-            .decoder()
-            .decode(name)
-            .map(|s| s.into_owned())
-            .unwrap_or_else(|_| String::from_utf8_lossy(name).into_owned())
+        reader.decoder().decode(name).map_or_else(
+            |_| String::from_utf8_lossy(name).into_owned(),
+            std::borrow::Cow::into_owned,
+        )
     }
 
     fn decode_attrs<R: BufRead>(
@@ -207,21 +205,20 @@ impl ConfluenceXmlParser {
     ) -> HashMap<String, String> {
         let mut attrs = HashMap::new();
         for attr in e.attributes().flatten() {
-            let key = reader
-                .decoder()
-                .decode(attr.key.as_ref())
-                .map(|s| s.into_owned())
-                .unwrap_or_else(|_| String::from_utf8_lossy(attr.key.as_ref()).into_owned());
+            let key = reader.decoder().decode(attr.key.as_ref()).map_or_else(
+                |_| String::from_utf8_lossy(attr.key.as_ref()).into_owned(),
+                std::borrow::Cow::into_owned,
+            );
 
             // Skip namespace declarations
             if key.starts_with("xmlns") {
                 continue;
             }
 
-            let value = attr
-                .unescape_value()
-                .map(|s| s.into_owned())
-                .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
+            let value = attr.unescape_value().map_or_else(
+                |_| String::from_utf8_lossy(&attr.value).into_owned(),
+                std::borrow::Cow::into_owned,
+            );
 
             attrs.insert(key, value);
         }
@@ -236,11 +233,11 @@ impl Default for ConfluenceXmlParser {
 }
 
 /// Append text to node's text or last child's tail.
-fn append_text(node: &mut TreeNode, text: String) {
+fn append_text(node: &mut TreeNode, text: &str) {
     if let Some(last_child) = node.children.last_mut() {
-        last_child.tail.push_str(&text);
+        last_child.tail.push_str(text);
     } else {
-        node.text.push_str(&text);
+        node.text.push_str(text);
     }
 }
 
@@ -260,8 +257,7 @@ fn decode_entity(entity: &str) -> String {
                 s[1..].parse::<u32>().ok()
             };
             code.and_then(char::from_u32)
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| format!("&{entity};"))
+                .map_or_else(|| format!("&{entity};"), |c| c.to_string())
         }
         // Unknown entity - preserve as-is
         _ => format!("&{entity};"),
