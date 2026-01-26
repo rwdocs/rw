@@ -18,6 +18,13 @@
 //! - `reload_if_needed()` uses double-checked locking for efficient cache validation
 //! - `invalidate()` is lock-free (atomic flag)
 //!
+//! # Performance
+//!
+//! The loader uses mtime caching to minimize file I/O:
+//! - File mtimes are tracked between reloads
+//! - Only files with changed mtimes are re-read for title extraction
+//! - Unchanged files reuse cached titles
+//!
 //! # Example
 //!
 //! ```ignore
@@ -35,16 +42,22 @@
 //! let site = loader.reload_if_needed();
 //! ```
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use regex::Regex;
 
 use crate::site::{Site, SiteBuilder};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
+
+/// Convert Duration to milliseconds as f64.
+fn elapsed_ms(start: Instant) -> f64 {
+    start.elapsed().as_secs_f64() * 1000.0
+}
 
 /// Configuration for [`SiteLoader`].
 #[derive(Clone, Debug)]
@@ -53,6 +66,26 @@ pub struct SiteLoaderConfig {
     pub source_dir: PathBuf,
     /// Cache directory for site structure (`None` disables caching).
     pub cache_dir: Option<PathBuf>,
+}
+
+/// Cached file metadata for incremental title extraction.
+#[derive(Clone, Debug)]
+struct CachedFile {
+    /// File modification time.
+    mtime: SystemTime,
+    /// Extracted title from the file.
+    title: String,
+}
+
+/// Statistics for a single scan operation.
+#[derive(Default)]
+struct ScanStats {
+    /// Total markdown files encountered.
+    file_count: usize,
+    /// Files with cached titles (mtime unchanged).
+    cached_count: usize,
+    /// Files that were read (new or mtime changed).
+    read_count: usize,
 }
 
 /// Loads site structure from filesystem.
@@ -67,6 +100,11 @@ pub struct SiteLoaderConfig {
 /// - Uses internal `RwLock<Arc<Site>>` for the current site snapshot
 /// - Uses `Mutex<()>` for serializing reload operations
 /// - Uses `AtomicBool` for cache validity tracking
+///
+/// # Performance
+///
+/// Uses mtime caching to avoid re-reading unchanged files during reload.
+/// File mtimes and extracted titles are cached between reloads.
 pub struct SiteLoader {
     config: SiteLoaderConfig,
     file_cache: Box<dyn SiteCache>,
@@ -77,6 +115,9 @@ pub struct SiteLoader {
     /// Cache validity flag.
     cache_valid: AtomicBool,
     h1_regex: Regex,
+    /// Mtime cache for incremental title extraction.
+    /// Maps absolute file paths to (mtime, extracted_title).
+    mtime_cache: Mutex<HashMap<PathBuf, CachedFile>>,
 }
 
 impl SiteLoader {
@@ -108,6 +149,7 @@ impl SiteLoader {
             cache_valid: AtomicBool::new(false),
             // Regex for extracting first H1 heading
             h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
+            mtime_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -160,31 +202,31 @@ impl SiteLoader {
         // Try file cache first
         let file_cache_start = Instant::now();
         if let Some(site) = self.file_cache.get() {
-            let file_cache_ms = file_cache_start.elapsed().as_secs_f64() * 1000.0;
+            let file_cache_ms = elapsed_ms(file_cache_start);
             let site = Arc::new(site);
             *self.current_site.write().unwrap() = site.clone();
             self.cache_valid.store(true, Ordering::Release);
             tracing::info!(
                 source = "file_cache",
                 file_cache_ms,
-                elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+                elapsed_ms = elapsed_ms(start),
                 "Site reloaded"
             );
             return site;
         }
-        let file_cache_ms = file_cache_start.elapsed().as_secs_f64() * 1000.0;
+        let file_cache_ms = elapsed_ms(file_cache_start);
 
         // Load from filesystem
         let fs_start = Instant::now();
         let site = self.load_from_filesystem();
-        let fs_scan_ms = fs_start.elapsed().as_secs_f64() * 1000.0;
+        let fs_scan_ms = elapsed_ms(fs_start);
 
         let site = Arc::new(site);
 
         // Store in file cache
         let cache_store_start = Instant::now();
         self.file_cache.set(&site);
-        let cache_store_ms = cache_store_start.elapsed().as_secs_f64() * 1000.0;
+        let cache_store_ms = elapsed_ms(cache_store_start);
 
         // Update current site
         *self.current_site.write().unwrap() = site.clone();
@@ -197,7 +239,7 @@ impl SiteLoader {
             file_cache_check_ms = file_cache_ms,
             fs_scan_ms,
             cache_store_ms,
-            elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+            elapsed_ms = elapsed_ms(start),
             "Site reloaded"
         );
 
@@ -220,6 +262,9 @@ impl SiteLoader {
     }
 
     /// Scan filesystem and build site structure.
+    ///
+    /// Uses mtime caching to avoid re-reading unchanged files.
+    /// Single traversal builds site structure with inline title extraction.
     fn load_from_filesystem(&self) -> Site {
         let mut builder = SiteBuilder::new(self.config.source_dir.clone());
 
@@ -227,11 +272,14 @@ impl SiteLoader {
             return builder.build();
         }
 
+        // Track statistics
+        let mut stats = ScanStats::default();
+
         // Handle root index.md specially
         let root_index = self.config.source_dir.join("index.md");
         let root_idx = if root_index.exists() {
             let title = self
-                .extract_title(&root_index)
+                .get_cached_title(&root_index, &mut stats)
                 .unwrap_or_else(|| "Home".to_string());
             let source_path = PathBuf::from("index.md");
             Some(builder.add_page(title, "/".to_string(), source_path, None))
@@ -239,9 +287,71 @@ impl SiteLoader {
             None
         };
 
-        self.scan_directory(&self.config.source_dir, "", &mut builder, root_idx);
+        self.scan_directory(
+            &self.config.source_dir,
+            "",
+            &mut builder,
+            root_idx,
+            &mut stats,
+        );
+
+        tracing::debug!(
+            file_count = stats.file_count,
+            cached_count = stats.cached_count,
+            read_count = stats.read_count,
+            "Site scan completed"
+        );
 
         builder.build()
+    }
+
+    /// Get title for a file, using mtime cache when possible.
+    ///
+    /// Checks if file's mtime matches cached mtime. If so, returns cached title.
+    /// Otherwise, reads file to extract title and updates cache.
+    fn get_cached_title(&self, file_path: &Path, stats: &mut ScanStats) -> Option<String> {
+        stats.file_count += 1;
+
+        // Get current mtime
+        let current_mtime = fs::metadata(file_path).ok().and_then(|m| m.modified().ok());
+
+        // Check cache
+        {
+            let cache = self.mtime_cache.lock().unwrap();
+            if let (Some(cached), Some(mtime)) = (cache.get(file_path), current_mtime)
+                && cached.mtime == mtime
+            {
+                stats.cached_count += 1;
+                return Some(cached.title.clone());
+            }
+        }
+
+        // Cache miss - read file
+        stats.read_count += 1;
+        let title = self.extract_title_from_content(file_path);
+
+        // Update cache
+        if let (Some(title), Some(mtime)) = (&title, current_mtime) {
+            let mut cache = self.mtime_cache.lock().unwrap();
+            cache.insert(
+                file_path.to_path_buf(),
+                CachedFile {
+                    mtime,
+                    title: title.clone(),
+                },
+            );
+        }
+
+        title
+    }
+
+    /// Extract title from first H1 heading in markdown file.
+    fn extract_title_from_content(&self, file_path: &Path) -> Option<String> {
+        let content = fs::read_to_string(file_path).ok()?;
+        self.h1_regex
+            .captures(&content)
+            .and_then(|caps| caps.get(1))
+            .map(|m| m.as_str().trim().to_string())
     }
 
     /// Recursively scan directory and add pages to builder.
@@ -253,46 +363,64 @@ impl SiteLoader {
         base_path: &str,
         builder: &mut SiteBuilder,
         parent_idx: Option<usize>,
+        stats: &mut ScanStats,
     ) -> Vec<usize> {
         let Ok(entries) = fs::read_dir(dir_path) else {
             return Vec::new();
         };
 
-        // Collect and sort entries: directories first, then alphabetical by name
-        let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
-        entries.sort_by(|a, b| {
-            let a_is_dir = a.file_type().is_ok_and(|t| t.is_dir());
-            let b_is_dir = b.file_type().is_ok_and(|t| t.is_dir());
-
-            // Directories come before files
-            b_is_dir.cmp(&a_is_dir).then_with(|| {
-                a.file_name()
-                    .to_string_lossy()
-                    .to_lowercase()
-                    .cmp(&b.file_name().to_string_lossy().to_lowercase())
+        // Collect entries with cached file_type to avoid repeated stat calls in sort.
+        // On macOS/APFS, file_type() requires a stat syscall per call.
+        let mut entries: Vec<_> = entries
+            .filter_map(Result::ok)
+            .map(|e| {
+                let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+                let name_lower = e.file_name().to_string_lossy().to_lowercase();
+                (e, is_dir, name_lower)
             })
+            .collect();
+
+        // Sort: directories first, then alphabetical by name
+        entries.sort_by(|(_, a_is_dir, a_name), (_, b_is_dir, b_name)| {
+            b_is_dir.cmp(a_is_dir).then_with(|| a_name.cmp(b_name))
         });
 
         let mut indices = Vec::new();
 
-        for entry in entries {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-
+        for (entry, is_dir, name_lower) in entries {
             // Skip hidden and underscore-prefixed files/dirs
-            if name_str.starts_with('.') || name_str.starts_with('_') {
+            if name_lower.starts_with('.') || name_lower.starts_with('_') {
+                continue;
+            }
+
+            // Skip common non-documentation directories
+            if is_dir
+                && matches!(
+                    name_lower.as_str(),
+                    "node_modules"
+                        | "target"
+                        | "dist"
+                        | "build"
+                        | ".cache"
+                        | "vendor"
+                        | "__pycache__"
+                )
+            {
                 continue;
             }
 
             let path = entry.path();
 
-            if path.is_dir() {
-                if let Some(result) = self.process_directory(&path, base_path, builder, parent_idx)
+            if is_dir {
+                if let Some(result) =
+                    self.process_directory(&path, base_path, builder, parent_idx, stats)
                 {
                     indices.extend(result);
                 }
-            } else if path.extension().is_some_and(|e| e == "md") && name_str != "index.md" {
-                let idx = self.process_file(&path, base_path, builder, parent_idx);
+            } else if path.extension().is_some_and(|e| e == "md")
+                && !name_lower.ends_with("index.md")
+            {
+                let idx = self.process_file(&path, base_path, builder, parent_idx, stats);
                 indices.push(idx);
             }
         }
@@ -307,6 +435,7 @@ impl SiteLoader {
         base_path: &str,
         builder: &mut SiteBuilder,
         parent_idx: Option<usize>,
+        stats: &mut ScanStats,
     ) -> Option<Vec<usize>> {
         let dir_name = dir_path.file_name()?.to_string_lossy();
         let item_path = if base_path.is_empty() {
@@ -319,13 +448,14 @@ impl SiteLoader {
 
         if !index_file.exists() {
             // No index.md - promote children to parent level
-            let child_indices = self.scan_directory(dir_path, &item_path, builder, parent_idx);
+            let child_indices =
+                self.scan_directory(dir_path, &item_path, builder, parent_idx, stats);
             return (!child_indices.is_empty()).then_some(child_indices);
         }
 
         // Create page for this directory
         let title = self
-            .extract_title(&index_file)
+            .get_cached_title(&index_file, stats)
             .unwrap_or_else(|| Self::title_from_name(&dir_name));
         let source_path = index_file
             .strip_prefix(&self.config.source_dir)
@@ -334,7 +464,7 @@ impl SiteLoader {
         let page_idx = builder.add_page(title, item_path.clone(), source_path, parent_idx);
 
         // Scan children with this page as parent
-        self.scan_directory(dir_path, &item_path, builder, Some(page_idx));
+        self.scan_directory(dir_path, &item_path, builder, Some(page_idx), stats);
 
         Some(vec![page_idx])
     }
@@ -346,6 +476,7 @@ impl SiteLoader {
         base_path: &str,
         builder: &mut SiteBuilder,
         parent_idx: Option<usize>,
+        stats: &mut ScanStats,
     ) -> usize {
         let file_name = file_path.file_stem().unwrap_or_default().to_string_lossy();
         let item_path = if base_path.is_empty() {
@@ -355,22 +486,13 @@ impl SiteLoader {
         };
 
         let title = self
-            .extract_title(file_path)
+            .get_cached_title(file_path, stats)
             .unwrap_or_else(|| Self::title_from_name(&file_name));
         let source_path = file_path
             .strip_prefix(&self.config.source_dir)
             .unwrap_or(file_path)
             .to_path_buf();
         builder.add_page(title, item_path, source_path, parent_idx)
-    }
-
-    /// Extract title from first H1 heading in markdown file.
-    fn extract_title(&self, file_path: &Path) -> Option<String> {
-        let content = fs::read_to_string(file_path).ok()?;
-        self.h1_regex
-            .captures(&content)
-            .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().trim().to_string())
     }
 
     /// Generate title from file/directory name.
@@ -834,5 +956,57 @@ mod tests {
         // Final state should be valid
         let site = loader.reload_if_needed();
         assert!(site.get_page("/guide").is_some());
+    }
+
+    #[test]
+    fn test_mtime_cache_reuses_titles() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Original Title").unwrap();
+
+        let config = SiteLoaderConfig {
+            source_dir: source_dir.clone(),
+            cache_dir: None,
+        };
+        let loader = SiteLoader::new(config);
+
+        // First load
+        let site1 = loader.reload_if_needed();
+        assert_eq!(site1.get_page("/guide").unwrap().title, "Original Title");
+
+        // Invalidate and reload without changing file - should use cached title
+        loader.invalidate();
+        let site2 = loader.reload_if_needed();
+        assert_eq!(site2.get_page("/guide").unwrap().title, "Original Title");
+    }
+
+    #[test]
+    fn test_mtime_cache_detects_changes() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Original Title").unwrap();
+
+        let config = SiteLoaderConfig {
+            source_dir: source_dir.clone(),
+            cache_dir: None,
+        };
+        let loader = SiteLoader::new(config);
+
+        // First load
+        let site1 = loader.reload_if_needed();
+        assert_eq!(site1.get_page("/guide").unwrap().title, "Original Title");
+
+        // Small delay to ensure mtime changes
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Modify file
+        fs::write(source_dir.join("guide.md"), "# Updated Title").unwrap();
+        loader.invalidate();
+
+        // Reload should see new title
+        let site2 = loader.reload_if_needed();
+        assert_eq!(site2.get_page("/guide").unwrap().title, "Updated Title");
     }
 }
