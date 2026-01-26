@@ -52,11 +52,23 @@ crates/
 │       ├── code_block.rs     # CodeBlockProcessor trait for extensible code block handling
 │       ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
 │       ├── html.rs           # HtmlBackend implementation
+│       ├── directive/        # Pluggable directives API (CommonMark syntax)
+│       │   ├── mod.rs        # Module exports
+│       │   ├── args.rs       # DirectiveArgs parsing ([content]{attrs})
+│       │   ├── context.rs    # DirectiveContext (file system access)
+│       │   ├── output.rs     # DirectiveOutput (Html/Markdown/Skip)
+│       │   ├── replacements.rs  # Single-pass string replacement
+│       │   ├── inline.rs     # InlineDirective trait (:name)
+│       │   ├── leaf.rs       # LeafDirective trait (::name)
+│       │   ├── container.rs  # ContainerDirective trait (:::name)
+│       │   ├── parser.rs     # Directive syntax parsing
+│       │   └── processor.rs  # DirectiveProcessor coordination
 │       ├── tabs/             # Tabbed content blocks
 │       │   ├── mod.rs        # Module exports
+│       │   ├── directive.rs  # TabsDirective (ContainerDirective impl)
 │       │   ├── fence.rs      # FenceTracker for code fence state
-│       │   ├── preprocessor.rs  # TabsPreprocessor (directive → HTML)
-│       │   └── processor.rs  # TabsProcessor (post-processing)
+│       │   ├── preprocessor.rs  # TabsPreprocessor (legacy API)
+│       │   └── processor.rs  # TabsProcessor (legacy API)
 │       └── util.rs           # heading_level_to_num()
 │
 ├── rw-confluence/         # Confluence integration

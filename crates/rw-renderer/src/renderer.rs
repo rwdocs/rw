@@ -8,6 +8,7 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use crate::backend::{AlertKind, RenderBackend};
 use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult, parse_fence_info};
+use crate::directive::DirectiveProcessor;
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
 
@@ -33,6 +34,13 @@ pub struct RenderResult {
 ///
 /// Custom code block processing can be added via [`with_processor`](Self::with_processor).
 /// Processors are checked in order; the first returning a non-`PassThrough` result wins.
+///
+/// # Directive Processing
+///
+/// The renderer supports CommonMark directives via [`with_directives`](Self::with_directives).
+/// When a directive processor is configured, [`render_markdown`](Self::render_markdown)
+/// will preprocess the input to expand directives before pulldown-cmark parsing,
+/// and post-process the output to transform intermediate elements.
 pub struct MarkdownRenderer<B: RenderBackend> {
     output: String,
     list_stack: Vec<bool>,
@@ -48,6 +56,8 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     gfm: bool,
     /// Stack of alert kinds for nested blockquotes (regular blockquote uses None).
     alert_stack: Vec<Option<AlertKind>>,
+    /// Optional directive processor for CommonMark directives.
+    directives: Option<DirectiveProcessor>,
     _backend: PhantomData<B>,
 }
 
@@ -69,6 +79,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             pending_attrs: HashMap::new(),
             gfm: true,
             alert_stack: Vec::new(),
+            directives: None,
             _backend: PhantomData,
         }
     }
@@ -105,6 +116,41 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
+    /// Configure directive processing for CommonMark directives.
+    ///
+    /// When a directive processor is set, [`render_markdown`](Self::render_markdown)
+    /// will:
+    /// 1. Preprocess the input to expand directives (inline, leaf, container)
+    /// 2. Parse and render the preprocessed markdown
+    /// 3. Post-process the output to transform intermediate elements
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective};
+    /// use rw_renderer::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+    ///
+    /// let config = DirectiveProcessorConfig::default();
+    /// let processor = DirectiveProcessor::new(config)
+    ///     .with_container(TabsDirective::new());
+    ///
+    /// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+    ///     .with_directives(processor);
+    ///
+    /// let result = renderer.render_markdown(r#"::: tab A
+    /// Content A
+    /// ::: tab B
+    /// Content B
+    /// :::"#);
+    ///
+    /// assert!(result.html.contains(r#"role="tablist""#));
+    /// ```
+    #[must_use]
+    pub fn with_directives(mut self, processor: DirectiveProcessor) -> Self {
+        self.directives = Some(processor);
+        self
+    }
+
     /// Get parser options based on GFM configuration.
     #[must_use]
     pub fn parser_options(&self) -> Options {
@@ -125,8 +171,30 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     /// Render markdown text directly using configured parser options.
+    ///
+    /// If a directive processor is configured via [`with_directives`](Self::with_directives),
+    /// this method will:
+    /// 1. Preprocess the input to expand directives
+    /// 2. Parse and render the preprocessed markdown
+    /// 3. Post-process the output to transform intermediate elements
     pub fn render_markdown(&mut self, markdown: &str) -> RenderResult {
-        self.render(self.create_parser(markdown))
+        // Phase 1: Preprocess directives (if configured)
+        let preprocessed = if let Some(ref mut processor) = self.directives {
+            processor.process(markdown)
+        } else {
+            markdown.to_string()
+        };
+
+        // Phase 2: Parse and render
+        let mut result = self.render(self.create_parser(&preprocessed));
+
+        // Phase 3: Post-process directives (if configured)
+        if let Some(ref mut processor) = self.directives {
+            processor.post_process(&mut result.html);
+            result.warnings.extend(processor.warnings());
+        }
+
+        result
     }
 
     /// Add a code block processor.
@@ -987,5 +1055,78 @@ mod tests {
         let events: Vec<_> = parser.collect();
         // Should produce heading events
         assert!(!events.is_empty());
+    }
+
+    // Directive integration tests
+
+    #[test]
+    fn test_with_directives_tabs() {
+        use crate::TabsDirective;
+        use crate::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+
+        let config = DirectiveProcessorConfig::default();
+        let processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        let result = renderer.render_markdown(
+            r#"::: tab macOS
+Install with Homebrew.
+::: tab Linux
+Install with apt.
+:::"#,
+        );
+
+        // Should have accessible tab structure
+        assert!(result.html.contains(r#"role="tablist""#));
+        assert!(result.html.contains(r#"role="tab""#));
+        assert!(result.html.contains(r#"role="tabpanel""#));
+        assert!(result.html.contains("macOS"));
+        assert!(result.html.contains("Linux"));
+    }
+
+    #[test]
+    fn test_with_directives_inline() {
+        use crate::directive::{
+            DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor,
+            DirectiveProcessorConfig, InlineDirective,
+        };
+
+        struct KbdDirective;
+
+        impl InlineDirective for KbdDirective {
+            fn name(&self) -> &str {
+                "kbd"
+            }
+
+            fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
+                DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content))
+            }
+        }
+
+        let config = DirectiveProcessorConfig::default();
+        let processor = DirectiveProcessor::new(config).with_inline(KbdDirective);
+
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        let result = renderer.render_markdown("Press :kbd[Ctrl+C] to copy.");
+
+        assert!(result.html.contains("<kbd>Ctrl+C</kbd>"));
+    }
+
+    #[test]
+    fn test_directives_warnings_included() {
+        use crate::TabsDirective;
+        use crate::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+
+        let config = DirectiveProcessorConfig::default();
+        let processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        // Unclosed tabs should produce warning
+        let result = renderer.render_markdown("::: tab Test\nContent");
+
+        assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
     }
 }
