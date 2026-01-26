@@ -4,14 +4,16 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
 
 use rw_site::SiteLoader;
+
+use super::debouncer::{EventDebouncer, FsEvent, FsEventKind};
 
 /// Event sent to connected WebSocket clients when files change.
 #[derive(Clone, Debug, Serialize)]
@@ -23,6 +25,9 @@ pub(crate) struct ReloadEvent {
     path: String,
 }
 
+/// Default debounce duration in milliseconds.
+const DEFAULT_DEBOUNCE_MS: u64 = 100;
+
 /// Manages file watching and broadcasting reload events.
 pub(crate) struct LiveReloadManager {
     source_dir: PathBuf,
@@ -30,6 +35,7 @@ pub(crate) struct LiveReloadManager {
     site_loader: Arc<SiteLoader>,
     broadcaster: broadcast::Sender<ReloadEvent>,
     watcher: Option<RecommendedWatcher>,
+    debounce_ms: u64,
 }
 
 impl LiveReloadManager {
@@ -54,7 +60,16 @@ impl LiveReloadManager {
             site_loader,
             broadcaster,
             watcher: None,
+            debounce_ms: DEFAULT_DEBOUNCE_MS,
         }
+    }
+
+    /// Set the debounce duration in milliseconds.
+    #[allow(dead_code)]
+    #[must_use]
+    pub(crate) fn with_debounce_ms(mut self, debounce_ms: u64) -> Self {
+        self.debounce_ms = debounce_ms;
+        self
     }
 
     /// Start the file watcher.
@@ -70,91 +85,163 @@ impl LiveReloadManager {
         let source_dir = self.source_dir.clone();
 
         // Create watcher with callback that sends events to channel
-        let watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+        let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
             if let Ok(event) = res {
                 // Use blocking_send since callback is sync
                 let _ = tx.blocking_send(event);
             }
         })?;
 
-        // Store watcher to keep it alive
-        let mut watcher = watcher;
         watcher.watch(&source_dir, RecursiveMode::Recursive)?;
         self.watcher = Some(watcher);
 
-        // Spawn task to process events
+        // Create debouncer
+        let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(self.debounce_ms)));
+        let debouncer_for_record = Arc::clone(&debouncer);
+
+        // Spawn task to record events into debouncer
         let watch_patterns = self.watch_patterns.clone();
-        let site_loader = Arc::clone(&self.site_loader);
-        let broadcaster = self.broadcaster.clone();
-        let source_dir_clone = self.source_dir.clone();
+        let source_dir_for_record = self.source_dir.clone();
 
         tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
-                Self::handle_event(
+                Self::record_event(
                     &event,
-                    &source_dir_clone,
+                    &source_dir_for_record,
                     &watch_patterns,
-                    &site_loader,
-                    &broadcaster,
+                    &debouncer_for_record,
                 );
+            }
+        });
+
+        // Spawn task to process debounced events
+        let site_loader = Arc::clone(&self.site_loader);
+        let broadcaster = self.broadcaster.clone();
+        let source_dir_for_process = self.source_dir.clone();
+        let poll_interval = Duration::from_millis(50);
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(poll_interval);
+
+            loop {
+                interval.tick().await;
+
+                for fs_event in debouncer.drain_ready() {
+                    Self::handle_fs_event(
+                        &fs_event,
+                        &source_dir_for_process,
+                        &site_loader,
+                        &broadcaster,
+                    );
+                }
             }
         });
 
         Ok(())
     }
 
-    /// Handle a file system event.
-    fn handle_event(
+    /// Record a raw filesystem event into the debouncer.
+    fn record_event(
         event: &Event,
         source_dir: &Path,
         watch_patterns: &[String],
+        debouncer: &EventDebouncer,
+    ) {
+        // Convert notify EventKind to FsEventKind
+        let kind = match event.kind {
+            EventKind::Create(_) => FsEventKind::Created,
+            EventKind::Modify(_) => FsEventKind::Modified,
+            EventKind::Remove(_) => FsEventKind::Removed,
+            _ => return,
+        };
+
+        for path in &event.paths {
+            // Check if path matches watch patterns
+            if !Self::matches_patterns(path, source_dir, watch_patterns) {
+                continue;
+            }
+
+            debouncer.record(path.clone(), kind);
+            tracing::debug!(path = %path.display(), ?kind, "Recorded filesystem event");
+        }
+    }
+
+    /// Handle a debounced filesystem event.
+    fn handle_fs_event(
+        fs_event: &FsEvent,
+        source_dir: &Path,
         site_loader: &Arc<SiteLoader>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
         let start = Instant::now();
 
-        // Filter to only modify/create events
-        use notify::EventKind;
-        match event.kind {
-            EventKind::Create(_) | EventKind::Modify(_) => {}
-            _ => return,
-        }
+        // Invalidate site cache first
+        let invalidate_start = Instant::now();
+        site_loader.invalidate();
+        let invalidate_ms = invalidate_start.elapsed().as_secs_f64() * 1000.0;
 
-        for path in &event.paths {
-            // Check if path matches watch patterns
-            let pattern_start = Instant::now();
-            if !Self::matches_patterns(path, source_dir, watch_patterns) {
-                continue;
+        // Resolve doc path
+        let resolve_start = Instant::now();
+        let doc_path = match fs_event.kind {
+            FsEventKind::Removed => {
+                // For removed files, compute path from filename since site won't have it
+                Self::compute_doc_path(&fs_event.path, source_dir)
             }
-            let pattern_ms = pattern_start.elapsed().as_secs_f64() * 1000.0;
-
-            // Invalidate site cache first
-            let invalidate_start = Instant::now();
-            site_loader.invalidate();
-            let invalidate_ms = invalidate_start.elapsed().as_secs_f64() * 1000.0;
-
-            // Resolve doc path
-            let resolve_start = Instant::now();
-            if let Some(doc_path) = Self::resolve_doc_path(path, source_dir, site_loader) {
-                let resolve_ms = resolve_start.elapsed().as_secs_f64() * 1000.0;
-
-                // Broadcast reload event
-                let reload_event = ReloadEvent {
-                    event_type: "reload".to_string(),
-                    path: doc_path.clone(),
-                };
-                let _ = broadcaster.send(reload_event);
-
-                tracing::info!(
-                    path = %doc_path,
-                    pattern_ms,
-                    invalidate_ms,
-                    resolve_ms,
-                    elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
-                    "Live reload event processed"
-                );
+            FsEventKind::Created | FsEventKind::Modified => {
+                Self::resolve_doc_path(&fs_event.path, source_dir, site_loader)
             }
-        }
+        };
+
+        let Some(doc_path) = doc_path else {
+            return;
+        };
+
+        let resolve_ms = resolve_start.elapsed().as_secs_f64() * 1000.0;
+
+        // Broadcast reload event
+        let reload_event = ReloadEvent {
+            event_type: "reload".to_string(),
+            path: doc_path.clone(),
+        };
+        let _ = broadcaster.send(reload_event);
+
+        tracing::info!(
+            path = %doc_path,
+            kind = ?fs_event.kind,
+            invalidate_ms,
+            resolve_ms,
+            elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+            "Live reload event processed"
+        );
+    }
+
+    /// Compute documentation path from filesystem path for deleted files.
+    fn compute_doc_path(file_path: &Path, source_dir: &Path) -> Option<String> {
+        let relative = file_path.strip_prefix(source_dir).ok()?;
+
+        // Convert path components to URL segments
+        let segments: Vec<_> = relative
+            .with_extension("")
+            .components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect();
+
+        // Handle index files: /guide/index -> /guide, /index -> /
+        let path = if segments.last().is_some_and(|s| s == "index") {
+            let parent_segments = &segments[..segments.len() - 1];
+            if parent_segments.is_empty() {
+                "/".to_string()
+            } else {
+                format!("/{}", parent_segments.join("/"))
+            }
+        } else {
+            format!("/{}", segments.join("/"))
+        };
+
+        Some(path)
     }
 
     /// Check if a path matches any watch pattern.
@@ -242,5 +329,50 @@ mod tests {
             &source_dir,
             &patterns
         ));
+    }
+
+    #[test]
+    fn test_compute_doc_path_simple() {
+        let source_dir = PathBuf::from("/docs");
+        let file_path = PathBuf::from("/docs/guide.md");
+
+        let result = LiveReloadManager::compute_doc_path(&file_path, &source_dir);
+        assert_eq!(result, Some("/guide".to_string()));
+    }
+
+    #[test]
+    fn test_compute_doc_path_nested() {
+        let source_dir = PathBuf::from("/docs");
+        let file_path = PathBuf::from("/docs/api/reference.md");
+
+        let result = LiveReloadManager::compute_doc_path(&file_path, &source_dir);
+        assert_eq!(result, Some("/api/reference".to_string()));
+    }
+
+    #[test]
+    fn test_compute_doc_path_index() {
+        let source_dir = PathBuf::from("/docs");
+        let file_path = PathBuf::from("/docs/guide/index.md");
+
+        let result = LiveReloadManager::compute_doc_path(&file_path, &source_dir);
+        assert_eq!(result, Some("/guide".to_string()));
+    }
+
+    #[test]
+    fn test_compute_doc_path_root_index() {
+        let source_dir = PathBuf::from("/docs");
+        let file_path = PathBuf::from("/docs/index.md");
+
+        let result = LiveReloadManager::compute_doc_path(&file_path, &source_dir);
+        assert_eq!(result, Some("/".to_string()));
+    }
+
+    #[test]
+    fn test_compute_doc_path_outside_source() {
+        let source_dir = PathBuf::from("/docs");
+        let file_path = PathBuf::from("/other/guide.md");
+
+        let result = LiveReloadManager::compute_doc_path(&file_path, &source_dir);
+        assert_eq!(result, None);
     }
 }

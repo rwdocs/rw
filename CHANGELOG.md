@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Event debouncing for live reload** (RD-031 Phase 1); coalesces multiple filesystem events per save into single events using 100ms debounce window; `EventDebouncer` in `rw-server` with thread-safe `record()` and `drain_ready()` methods; coalescing rules handle all event combinations (Created/Modified/Removed); fixes file deletion bug where `Remove` events were ignored; expected 4× performance improvement (~800ms → ~195ms) by reducing duplicate site reloads
+- **`FsEvent` and `FsEventKind`** types in `rw-server` for debounced filesystem events; `FsEventKind::Removed` enables proper handling of deleted files
+- **`LiveReloadManager::with_debounce_ms()`** builder method for configuring debounce duration
+
 - **Performance timing instrumentation** for live reload debugging; structured `tracing::info!` logs with millisecond timing for: `PageRenderer::render()` (file read, tabs preprocessing, markdown rendering, tabs post-processing, cache operations), `DiagramProcessor::post_process()` (source preparation, cache check, Kroki HTTP rendering, placeholder replacement with cache hit/miss counts), `SiteLoader::reload_if_needed()` (file cache check, filesystem scan, cache store), `get_page_impl()` (site reload, path resolution, page rendering, response building), `LiveReloadManager::handle_event()` (pattern matching, cache invalidation, path resolution); enabled via `--verbose` flag or `RUST_LOG=info`
 
 - **Pluggable directives API** in `rw-renderer` for extensible CommonMark directive syntax; trait-based architecture supports inline (`:name[content]{attrs}`), leaf (`::name[content]{attrs}`), and container (`:::name` ... `:::`) directives; two-phase processing model with preprocessing before pulldown-cmark and post-processing after rendering
