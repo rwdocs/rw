@@ -175,28 +175,38 @@ impl LiveReloadManager {
     ) {
         let start = Instant::now();
 
-        // Invalidate site cache first
-        let invalidate_start = Instant::now();
-        site_loader.invalidate();
-        let invalidate_ms = invalidate_start.elapsed().as_secs_f64() * 1000.0;
-
-        // Resolve doc path
-        let resolve_start = Instant::now();
+        // Resolve doc path based on event kind
         let doc_path = match fs_event.kind {
-            FsEventKind::Removed => {
-                // For removed files, compute path from filename since site won't have it
-                Self::compute_doc_path(&fs_event.path, source_dir)
+            FsEventKind::Modified => {
+                // Content change only - use cached site, no traversal needed.
+                // The page renderer will re-read the file on next request.
+                Self::resolve_doc_path_cached(&fs_event.path, source_dir, site_loader)
             }
-            FsEventKind::Created | FsEventKind::Modified => {
-                Self::resolve_doc_path(&fs_event.path, source_dir, site_loader)
+            FsEventKind::Created => {
+                // Check if file already exists in cached site. If so, this is really
+                // a modification (editors often save via "write temp + rename" which
+                // appears as a Create event). Only do full reload for genuinely new files.
+                if let Some(path) =
+                    Self::resolve_doc_path_cached(&fs_event.path, source_dir, site_loader)
+                {
+                    // File exists in cached site - treat as modification
+                    Some(path)
+                } else {
+                    // New file - must reload to add it to site structure
+                    site_loader.invalidate();
+                    Self::resolve_doc_path(&fs_event.path, source_dir, site_loader)
+                }
+            }
+            FsEventKind::Removed => {
+                // File deleted - invalidate and compute path from filename
+                site_loader.invalidate();
+                Self::compute_doc_path(&fs_event.path, source_dir)
             }
         };
 
         let Some(doc_path) = doc_path else {
             return;
         };
-
-        let resolve_ms = resolve_start.elapsed().as_secs_f64() * 1000.0;
 
         // Broadcast reload event
         let reload_event = ReloadEvent {
@@ -208,8 +218,6 @@ impl LiveReloadManager {
         tracing::info!(
             path = %doc_path,
             kind = ?fs_event.kind,
-            invalidate_ms,
-            resolve_ms,
             elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
             "Live reload event processed"
         );
@@ -259,6 +267,8 @@ impl LiveReloadManager {
     }
 
     /// Resolve file system path to documentation URL path.
+    ///
+    /// Triggers a site reload if cache is invalid (for Created events).
     fn resolve_doc_path(
         file_path: &Path,
         source_dir: &Path,
@@ -267,6 +277,22 @@ impl LiveReloadManager {
         let relative = file_path.strip_prefix(source_dir).ok()?;
 
         let site = site_loader.reload_if_needed();
+        let page = site.get_page_by_source(relative)?;
+
+        Some(page.path.clone())
+    }
+
+    /// Resolve file system path using cached site (no reload).
+    ///
+    /// Used for Modified events where site structure hasn't changed.
+    fn resolve_doc_path_cached(
+        file_path: &Path,
+        source_dir: &Path,
+        site_loader: &Arc<SiteLoader>,
+    ) -> Option<String> {
+        let relative = file_path.strip_prefix(source_dir).ok()?;
+
+        let site = site_loader.get();
         let page = site.get_page_by_source(relative)?;
 
         Some(page.path.clone())
