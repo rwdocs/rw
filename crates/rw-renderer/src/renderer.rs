@@ -137,9 +137,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
     ///     .with_directives(processor);
     ///
-    /// let result = renderer.render_markdown(r#"::: tab A
+    /// let result = renderer.render_markdown(r#":::tab[A]
     /// Content A
-    /// ::: tab B
+    /// :::tab[B]
     /// Content B
     /// :::"#);
     ///
@@ -1070,9 +1070,9 @@ mod tests {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
 
         let result = renderer.render_markdown(
-            r#"::: tab macOS
+            r#":::tab[macOS]
 Install with Homebrew.
-::: tab Linux
+:::tab[Linux]
 Install with apt.
 :::"#,
         );
@@ -1125,7 +1125,7 @@ Install with apt.
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
 
         // Unclosed tabs should produce warning
-        let result = renderer.render_markdown("::: tab Test\nContent");
+        let result = renderer.render_markdown(":::tab[Test]\nContent");
 
         assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
     }

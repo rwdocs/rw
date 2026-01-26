@@ -31,7 +31,7 @@ pub struct TabsGroup {
 
 /// Container directive for tabbed content blocks.
 ///
-/// Converts `::: tab Label` syntax to accessible tabbed HTML.
+/// Converts `:::tab[Label]` syntax to accessible tabbed HTML.
 ///
 /// # Example
 ///
@@ -43,9 +43,9 @@ pub struct TabsGroup {
 /// let mut processor = DirectiveProcessor::new(config)
 ///     .with_container(TabsDirective::new());
 ///
-/// let input = r#"::: tab macOS
+/// let input = r#":::tab[macOS]
 /// Install with Homebrew.
-/// ::: tab Linux
+/// :::tab[Linux]
 /// Install with apt.
 /// :::"#;
 ///
@@ -244,9 +244,9 @@ mod tests {
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#"::: tab macOS
+        let input = r#":::tab[macOS]
 Install with Homebrew.
-::: tab Linux
+:::tab[Linux]
 Install with apt.
 :::"#;
 
@@ -266,9 +266,9 @@ Install with apt.
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#"::: tab macOS
+        let input = r#":::tab[macOS]
 Content A
-::: tab Linux
+:::tab[Linux]
 Content B
 :::"#;
 
@@ -295,10 +295,10 @@ Content B
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#"::: tab Example
+        let input = r#":::tab[Example]
 
 ```python
-::: tab inside code
+:::tab inside code
 print("hello")
 ```
 
@@ -307,7 +307,7 @@ print("hello")
         let output = processor.process(input);
 
         // Code block content should not be transformed
-        assert!(output.contains("::: tab inside code"));
+        assert!(output.contains(":::tab inside code"));
         assert!(output.contains(r#"<rw-tabs data-id="0">"#));
     }
 
@@ -316,7 +316,7 @@ print("hello")
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#"::: tab
+        let input = r#":::tab
 Content
 :::"#;
 
@@ -332,7 +332,7 @@ Content
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#"::: tab "macOS и Linux"
+        let input = r#":::tab["macOS и Linux"]
 Content
 :::"#;
 
@@ -348,13 +348,13 @@ Content
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#"::: tab A
+        let input = r#":::tab[A]
 Content A
 :::
 
 Some text between.
 
-::: tab B
+:::tab[B]
 Content B
 :::"#;
 
@@ -369,7 +369,7 @@ Content B
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
 
-        let input = r#"::: tab <script>
+        let input = r#":::tab[<script>]
 Content
 :::"#;
 

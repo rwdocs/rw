@@ -3,9 +3,9 @@
 //! Implements CommonMark directive syntax for tabs:
 //!
 //! ```markdown
-//! ::: tab macOS
+//! :::tab[macOS]
 //! Install with Homebrew.
-//! ::: tab Linux
+//! :::tab[Linux]
 //! Install with apt.
 //! :::
 //! ```
@@ -32,9 +32,9 @@
 //! let mut processor = DirectiveProcessor::new(config)
 //!     .with_container(TabsDirective::new());
 //!
-//! let input = r#"::: tab macOS
+//! let input = r#":::tab[macOS]
 //! Install with Homebrew.
-//! ::: tab Linux
+//! :::tab[Linux]
 //! Install with apt.
 //! :::"#;
 //!
