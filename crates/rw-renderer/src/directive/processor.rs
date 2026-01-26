@@ -17,7 +17,6 @@ use super::{
 pub type ReadFileFn = dyn Fn(&Path) -> io::Result<String> + Send;
 
 /// Configuration for the directive processor.
-#[derive(Default)]
 pub struct DirectiveProcessorConfig {
     /// Base directory for resolving relative paths (e.g., for `::include`).
     pub base_dir: PathBuf,
@@ -31,6 +30,12 @@ pub struct DirectiveProcessorConfig {
     ///
     /// Default: 10
     pub max_include_depth: usize,
+}
+
+impl Default for DirectiveProcessorConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DirectiveProcessorConfig {
