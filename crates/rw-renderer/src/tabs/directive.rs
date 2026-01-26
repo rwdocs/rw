@@ -2,8 +2,6 @@
 //!
 //! Implements `ContainerDirective` for tabbed content blocks.
 
-use std::collections::HashMap;
-
 use crate::directive::{
     ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements,
 };
@@ -159,10 +157,6 @@ impl ContainerDirective for TabsDirective {
     }
 
     fn post_process(&mut self, replacements: &mut Replacements) {
-        // Build a map from group ID to group for efficient lookup
-        let groups_map: HashMap<usize, &TabsGroup> =
-            self.groups.iter().map(|g| (g.id, g)).collect();
-
         for group in &self.groups {
             // Replace <rw-tabs data-id="N"> with accessible HTML
             let opening = render_tabs_open(group);
@@ -180,9 +174,6 @@ impl ContainerDirective for TabsDirective {
             replacements.add("</rw-tab>", "</div>");
             replacements.add("</rw-tabs>", "</div>");
         }
-
-        // Add unused variable warning suppression
-        let _ = groups_map;
     }
 
     fn warnings(&self) -> &[String] {

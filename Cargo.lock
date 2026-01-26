@@ -1963,6 +1963,7 @@ dependencies = [
  "pretty_assertions",
  "pulldown-cmark",
  "serde",
+ "tempfile",
 ]
 
 [[package]]
