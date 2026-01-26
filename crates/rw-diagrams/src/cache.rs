@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 /// Contains all parameters that affect the rendered diagram output.
 /// Used to compute a content-based hash for caching.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct DiagramKey<'a> {
+pub struct DiagramKey<'a> {
     /// Diagram source code (after preprocessing).
     pub source: &'a str,
     /// Kroki endpoint (e.g., "plantuml", "mermaid").
@@ -37,7 +37,7 @@ impl DiagramKey<'_> {
     ///
     /// SHA-256 of `"{endpoint}:{format}:{dpi}:{source}"`.
     #[must_use]
-    pub(crate) fn compute_hash(&self) -> String {
+    pub fn compute_hash(&self) -> String {
         let content = format!(
             "{}:{}:{}:{}",
             self.endpoint, self.format, self.dpi, self.source
