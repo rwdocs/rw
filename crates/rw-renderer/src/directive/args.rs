@@ -88,6 +88,61 @@ impl DirectiveArgs {
     pub fn get(&self, key: &str) -> Option<&str> {
         self.attrs.get(key).map(String::as_str)
     }
+
+    /// Reconstruct the original syntax string `[content]{attrs}`.
+    ///
+    /// Used for pass-through when a directive is not handled.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rw_renderer::directive::DirectiveArgs;
+    ///
+    /// let args = DirectiveArgs::parse("hello", r#"#my-id .foo lang="en""#);
+    /// let syntax = args.to_syntax();
+    /// assert!(syntax.starts_with("[hello]"));
+    /// assert!(syntax.contains("#my-id"));
+    /// ```
+    #[must_use]
+    pub fn to_syntax(&self) -> String {
+        let mut result = String::new();
+
+        // Add content in brackets (always include brackets if content is non-empty)
+        if !self.content.is_empty() {
+            result.push('[');
+            result.push_str(&self.content);
+            result.push(']');
+        }
+
+        // Build attributes string
+        let mut attrs_parts = Vec::new();
+
+        if let Some(id) = &self.id {
+            attrs_parts.push(format!("#{id}"));
+        }
+
+        for class in &self.classes {
+            attrs_parts.push(format!(".{class}"));
+        }
+
+        // Sort keys for deterministic output in tests
+        let mut keys: Vec<_> = self.attrs.keys().collect();
+        keys.sort();
+        for key in keys {
+            let value = &self.attrs[key];
+            // Use double quotes and escape internal quotes if needed
+            let escaped = value.replace('"', r#"\""#);
+            attrs_parts.push(format!(r#"{key}="{escaped}""#));
+        }
+
+        if !attrs_parts.is_empty() {
+            result.push('{');
+            result.push_str(&attrs_parts.join(" "));
+            result.push('}');
+        }
+
+        result
+    }
 }
 
 /// Parse a key-value pair from the attributes string.
@@ -227,5 +282,52 @@ mod tests {
     fn test_get_nonexistent() {
         let args = DirectiveArgs::parse("", "foo=bar");
         assert_eq!(args.get("baz"), None);
+    }
+
+    #[test]
+    fn test_to_syntax_empty() {
+        let args = DirectiveArgs::default();
+        assert_eq!(args.to_syntax(), "");
+    }
+
+    #[test]
+    fn test_to_syntax_content_only() {
+        let args = DirectiveArgs::parse("hello", "");
+        assert_eq!(args.to_syntax(), "[hello]");
+    }
+
+    #[test]
+    fn test_to_syntax_with_id() {
+        let args = DirectiveArgs::parse("content", "#my-id");
+        assert_eq!(args.to_syntax(), "[content]{#my-id}");
+    }
+
+    #[test]
+    fn test_to_syntax_with_classes() {
+        let args = DirectiveArgs::parse("content", ".foo .bar");
+        assert_eq!(args.to_syntax(), "[content]{.foo .bar}");
+    }
+
+    #[test]
+    fn test_to_syntax_with_attrs() {
+        let args = DirectiveArgs::parse("content", r#"lang="en""#);
+        assert_eq!(args.to_syntax(), r#"[content]{lang="en"}"#);
+    }
+
+    #[test]
+    fn test_to_syntax_full() {
+        let args = DirectiveArgs::parse("content", r#"#id .class lang="en""#);
+        let syntax = args.to_syntax();
+        assert!(syntax.starts_with("[content]{"));
+        assert!(syntax.contains("#id"));
+        assert!(syntax.contains(".class"));
+        assert!(syntax.contains(r#"lang="en""#));
+        assert!(syntax.ends_with('}'));
+    }
+
+    #[test]
+    fn test_to_syntax_attrs_only() {
+        let args = DirectiveArgs::parse("", "#my-id");
+        assert_eq!(args.to_syntax(), "{#my-id}");
     }
 }

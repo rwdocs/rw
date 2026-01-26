@@ -296,21 +296,13 @@ impl DirectiveProcessor {
                             self.process_with_depth(&md, depth + 1)
                         }
                         DirectiveOutput::Skip => {
-                            // Handler declined, pass through
-                            format!(":::{name}")
+                            // Handler declined, pass through with original syntax
+                            format!(":::{name}{}", args.to_syntax())
                         }
                     }
                 } else {
-                    // No handler, pass through unchanged
-                    format!(
-                        ":::{}{}",
-                        name,
-                        if args.content.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" {}", args.content)
-                        }
-                    )
+                    // No handler, pass through unchanged with original syntax
+                    format!(":::{name}{}", args.to_syntax())
                 }
             }
             ParsedDirective::ContainerEnd { colon_count } => {
@@ -523,8 +515,21 @@ mod tests {
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config);
 
+        // Without brackets
         let output = processor.process(":::unknown\nContent\n:::");
         assert!(output.contains(":::unknown"));
+
+        // With bracket syntax - should preserve content
+        let mut processor2 = DirectiveProcessor::new(DirectiveProcessorConfig::default());
+        let output2 = processor2.process(":::unknown[content]\nBody\n:::");
+        assert!(output2.contains(":::unknown[content]"));
+
+        // With bracket syntax and attributes - should preserve both
+        let mut processor3 = DirectiveProcessor::new(DirectiveProcessorConfig::default());
+        let output3 = processor3.process(":::unknown[Important]{#note-1 .highlight}\nBody\n:::");
+        assert!(output3.contains(":::unknown[Important]"));
+        assert!(output3.contains("#note-1"));
+        assert!(output3.contains(".highlight"));
     }
 
     #[test]
