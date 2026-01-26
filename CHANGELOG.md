@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Project renamed from Docstage to RW**; all crates renamed from `docstage-*` to `rw-*`; configuration file renamed from `docstage.toml` to `rw.toml`; CLI binary renamed from `docstage` to `rw`; default OAuth consumer key changed from `"docstage"` to `"rw"`
+- **Standardized container directive syntax on brackets**; `:::tab[Label]` is now the only supported syntax; space-separated syntax (`::: tab Label`) is no longer recognized; aligns with CommonMark directive specification
 
 ### Added
 
@@ -23,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Criterion benchmarks for `rw-site` crate**; measures page rendering performance (simple, ToC extraction, GFM features, code blocks, varying sizes, cache hit/miss) and site structure operations (page lookup, breadcrumbs, navigation tree building, SiteLoader reload, path resolution); run with `make bench`
 
-- **Tabbed content blocks** using CommonMark directive syntax (`::: tab Label` / `:::`); renders as accessible HTML with ARIA attributes (`role="tablist"`, `role="tab"`, `role="tabpanel"`); interactive tab switching via click and keyboard navigation (Arrow keys, Home, End); first tab selected by default; supports markdown content inside tabs including code blocks, diagrams, and alerts; Material for MkDocs-inspired styling with clean underline indicator and code blocks pinned directly to tabs; focus indicator only shows on keyboard navigation (`:focus-visible`)
+- **Tabbed content blocks** using CommonMark directive syntax (`:::tab[Label]` / `:::`); renders as accessible HTML with ARIA attributes (`role="tablist"`, `role="tab"`, `role="tabpanel"`); interactive tab switching via click and keyboard navigation (Arrow keys, Home, End); first tab selected by default; supports markdown content inside tabs including code blocks, diagrams, and alerts; Material for MkDocs-inspired styling with clean underline indicator and code blocks pinned directly to tabs; focus indicator only shows on keyboard navigation (`:focus-visible`)
 - **`TabsPreprocessor`** in `rw-renderer` for converting directive syntax to intermediate `<rw-tabs>` / `<rw-tab>` elements; 2-state machine (Normal, InTab) handles code fence skipping and warning generation
 - **`TabsProcessor`** in `rw-renderer` for post-processing intermediate `<rw-tabs>` elements to accessible HTML; uses explicit `post_process(&mut String)` method instead of `CodeBlockProcessor` trait (tabs are container directives, not code blocks)
 - **`TabsGroup`** and **`TabMetadata`** types for tab group metadata; exported at crate root

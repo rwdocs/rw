@@ -204,13 +204,6 @@ pub(crate) fn parse_container_line(line: &str) -> Option<ParsedDirective> {
     let after_content = &after_name[content_consumed..];
     let (attrs_str, _) = parse_braces(after_content);
 
-    // For container directives, if no brackets, treat remaining as content
-    let content = if content.is_empty() && attrs_str.is_empty() {
-        after_name.trim().to_string()
-    } else {
-        content
-    };
-
     let args = DirectiveArgs::parse(&content, &attrs_str);
 
     Some(ParsedDirective::ContainerStart {
@@ -306,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_container_with_content() {
-        let result = parse_container_line("::: tab macOS");
+        let result = parse_container_line(":::tab[macOS]");
         let directive = result.unwrap();
 
         match directive {

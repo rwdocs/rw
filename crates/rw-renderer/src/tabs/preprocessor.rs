@@ -1,6 +1,6 @@
 //! Tabs preprocessor for converting CommonMark directives to HTML elements.
 //!
-//! Converts `::: tab` / `:::` syntax to `<rw-tabs>` / `<rw-tab>`
+//! Converts `:::tab` / `:::` syntax to `<rw-tabs>` / `<rw-tab>`
 //! elements that pass through pulldown-cmark unchanged.
 
 use super::fence::FenceTracker;
@@ -30,15 +30,15 @@ pub struct TabsGroup {
 enum State {
     /// Normal markdown processing.
     Normal,
-    /// Inside `::: tab` block.
+    /// Inside `:::tab` block.
     InTab,
 }
 
 /// Preprocessor that converts tab directives to HTML elements.
 ///
 /// Uses a state machine to track nesting and collect metadata:
-/// - `::: tab Label` → starts group (if needed) and opens tab
-/// - `::: tab Label` → closes previous tab, opens new tab in same group
+/// - `:::tab[Label]` → starts group (if needed) and opens tab
+/// - `:::tab[Label]` → closes previous tab, opens new tab in same group
 /// - `:::` (closing) → `</rw-tab></rw-tabs>` (closes tab and container)
 ///
 /// # Example
@@ -47,13 +47,13 @@ enum State {
 /// use rw_renderer::TabsPreprocessor;
 ///
 /// let mut preprocessor = TabsPreprocessor::new();
-/// // First ::: tab starts the group
-/// // ::: tab B implicitly closes ::: tab A
+/// // First :::tab starts the group
+/// // :::tab[B] implicitly closes :::tab[A]
 /// // Final ::: closes the last tab AND the container
 /// let output = preprocessor.process(r#"
-/// ::: tab macOS
+/// :::tab[macOS]
 /// Install with Homebrew.
-/// ::: tab Linux
+/// :::tab[Linux]
 /// Install with apt.
 /// :::
 /// "#);
@@ -152,7 +152,7 @@ impl TabsPreprocessor {
         }
     }
 
-    /// Handle `::: tab Label` directive.
+    /// Handle `:::tab[Label]` directive.
     fn handle_tab(&mut self, label: String, line_num: usize) -> String {
         match self.state {
             State::Normal => {
@@ -242,27 +242,39 @@ enum Directive {
 }
 
 /// Parse a trimmed line for directive syntax.
+///
+/// Supports `:::tab[Label]` bracket syntax only.
 fn parse_directive(trimmed: &str) -> Option<Directive> {
     if !trimmed.starts_with(":::") {
         return None;
     }
 
-    let rest = trimmed[3..].trim();
+    let rest = &trimmed[3..];
 
-    if rest.is_empty() {
+    // Container end: just colons (with optional whitespace after)
+    if rest.trim().is_empty() {
         return Some(Directive::Close);
     }
 
-    if let Some(label_part) = rest.strip_prefix("tab") {
-        // Must be followed by whitespace or end of string (not "tabs", "table", etc.)
-        if label_part.is_empty() || label_part.starts_with(char::is_whitespace) {
-            let label = label_part.trim();
-            let label = if label.is_empty() {
-                "Tab"
-            } else {
-                strip_quotes(label)
-            };
-            return Some(Directive::Tab(label.to_string()));
+    // Check for tab directive with bracket syntax: :::tab[Label]
+    if let Some(after_tab) = rest.strip_prefix("tab") {
+        // Must start with [ for bracket syntax, or be empty/whitespace for no label
+        if after_tab.starts_with('[') {
+            // Parse bracket content
+            if let Some(end_bracket) = after_tab.find(']') {
+                let label = &after_tab[1..end_bracket];
+                let label = if label.is_empty() {
+                    "Tab"
+                } else {
+                    strip_quotes(label)
+                };
+                return Some(Directive::Tab(label.to_string()));
+            }
+        } else if after_tab.is_empty()
+            || after_tab.chars().next().is_some_and(|c| c.is_whitespace())
+        {
+            // :::tab or :::tab with trailing whitespace (no label)
+            return Some(Directive::Tab("Tab".to_string()));
         }
     }
 
@@ -287,19 +299,19 @@ mod tests {
     #[test]
     fn test_parse_directive_tab() {
         assert_eq!(
-            parse_directive("::: tab macOS"),
+            parse_directive(":::tab[macOS]"),
             Some(Directive::Tab("macOS".to_string()))
         );
         assert_eq!(
-            parse_directive("::: tab Linux"),
+            parse_directive(":::tab[Linux]"),
             Some(Directive::Tab("Linux".to_string()))
         );
         assert_eq!(
-            parse_directive("::: tab"),
+            parse_directive(":::tab"),
             Some(Directive::Tab("Tab".to_string()))
         );
         assert_eq!(
-            parse_directive("::: tab  "),
+            parse_directive(":::tab[]"),
             Some(Directive::Tab("Tab".to_string()))
         );
     }
@@ -308,17 +320,17 @@ mod tests {
     fn test_parse_directive_tab_with_quotes() {
         // Double quotes
         assert_eq!(
-            parse_directive(r#"::: tab "macOS и Linux""#),
+            parse_directive(r#":::tab["macOS и Linux"]"#),
             Some(Directive::Tab("macOS и Linux".to_string()))
         );
         // Single quotes
         assert_eq!(
-            parse_directive("::: tab 'Windows'"),
+            parse_directive(":::tab['Windows']"),
             Some(Directive::Tab("Windows".to_string()))
         );
-        // No quotes
+        // No quotes (plain label in brackets)
         assert_eq!(
-            parse_directive("::: tab Plain Label"),
+            parse_directive(":::tab[Plain Label]"),
             Some(Directive::Tab("Plain Label".to_string()))
         );
     }
@@ -341,23 +353,26 @@ mod tests {
 
     #[test]
     fn test_parse_directive_unknown() {
-        assert_eq!(parse_directive("::: tabs"), None); // ::: tabs no longer recognized
+        assert_eq!(parse_directive("::: tabs"), None); // ::: tabs not recognized
         assert_eq!(parse_directive("::: note"), None);
         assert_eq!(parse_directive("::: warning"), None);
         assert_eq!(parse_directive("```rust"), None);
         assert_eq!(parse_directive("regular text"), None);
+        // Space-separated syntax no longer supported
+        assert_eq!(parse_directive("::: tab macOS"), None);
+        assert_eq!(parse_directive("::: tab Linux"), None);
     }
 
     #[test]
     fn test_simple_tabs() {
         let mut pp = TabsPreprocessor::new();
-        // First ::: tab starts the group
-        // ::: tab B implicitly closes ::: tab A
+        // First :::tab starts the group
+        // :::tab[B] implicitly closes :::tab[A]
         // Final ::: closes the last tab AND the container
         let output = pp.process(
-            r#"::: tab macOS
+            r#":::tab[macOS]
 Install with Homebrew.
-::: tab Linux
+:::tab[Linux]
 Install with apt.
 :::"#,
         );
@@ -382,10 +397,10 @@ Install with apt.
     fn test_tabs_with_code_block() {
         let mut pp = TabsPreprocessor::new();
         let output = pp.process(
-            r#"::: tab Example
+            r#":::tab[Example]
 
 ```python
-::: tab inside code
+:::tab inside code
 print("hello")
 ```
 
@@ -393,14 +408,14 @@ print("hello")
         );
 
         // Code block content should not be transformed
-        assert!(output.contains("::: tab inside code"));
+        assert!(output.contains(":::tab inside code"));
         assert!(output.contains(r#"<rw-tabs data-id="0">"#));
     }
 
     #[test]
     fn test_unclosed_tabs_warning() {
         let mut pp = TabsPreprocessor::new();
-        let _output = pp.process("::: tab Test\nContent");
+        let _output = pp.process(":::tab[Test]\nContent");
 
         assert!(pp.warnings().iter().any(|w| w.contains("unclosed")));
     }
@@ -419,13 +434,13 @@ print("hello")
     fn test_multiple_tab_groups() {
         let mut pp = TabsPreprocessor::new();
         let output = pp.process(
-            r#"::: tab A
+            r#":::tab[A]
 Content A
 :::
 
 Some text between.
 
-::: tab B
+:::tab[B]
 Content B
 :::"#,
         );
@@ -443,7 +458,7 @@ Content B
     fn test_tab_without_label() {
         let mut pp = TabsPreprocessor::new();
         let _output = pp.process(
-            r#"::: tab
+            r#":::tab
 Content
 :::"#,
         );
@@ -465,7 +480,7 @@ Content
     fn test_preserves_content_inside_tabs() {
         let mut pp = TabsPreprocessor::new();
         let output = pp.process(
-            r#"::: tab Test
+            r#":::tab[Test]
 
 # Heading
 
@@ -489,13 +504,13 @@ fn main() {}
         let mut pp = TabsPreprocessor::new();
         let output = pp.process(
             r#"~~~
-::: tab inside fence
+:::tab inside fence
 ~~~"#,
         );
 
-        // Should not parse ::: tab inside fence
+        // Should not parse :::tab inside fence
         assert!(!output.contains("<rw-tabs"));
-        assert!(output.contains("::: tab inside fence"));
+        assert!(output.contains(":::tab inside fence"));
     }
 
     #[test]

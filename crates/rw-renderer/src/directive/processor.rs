@@ -498,7 +498,7 @@ mod tests {
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TestNote);
 
-        let output = processor.process("::: note Important\nContent here\n:::");
+        let output = processor.process(":::note[Important]\nContent here\n:::");
         assert!(output.contains(r#"<div class="note" data-title="Important">"#));
         assert!(output.contains("Content here"));
         assert!(output.contains("</div>"));
@@ -518,7 +518,7 @@ mod tests {
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config);
 
-        let output = processor.process("::: unknown\nContent\n:::");
+        let output = processor.process(":::unknown\nContent\n:::");
         assert!(output.contains(":::unknown"));
     }
 
@@ -539,7 +539,7 @@ mod tests {
         let config = DirectiveProcessorConfig::default();
         let mut processor = DirectiveProcessor::new(config).with_container(TestNote);
 
-        let _output = processor.process("::: note\nContent");
+        let _output = processor.process(":::note\nContent");
         let warnings = processor.warnings();
 
         assert!(warnings.iter().any(|w| w.contains("unclosed")));
@@ -591,7 +591,7 @@ mod tests {
         let mut processor =
             DirectiveProcessor::new(config).with_container(TestDetails { depth: 0 });
 
-        let input = "::: details Outer\n::: details Inner\n:::\n:::";
+        let input = ":::details[Outer]\n:::details[Inner]\n:::\n:::";
         let output = processor.process(input);
 
         assert!(output.contains(r#"data-depth="1""#));
