@@ -4,6 +4,7 @@
 //! table of contents, and HTML content.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -108,14 +109,23 @@ fn get_page_impl(
     state: Arc<AppState>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
+    let request_start = Instant::now();
+
     // Load site and resolve source path
+    let site_start = Instant::now();
     let site = state.site_loader.reload_if_needed();
+    let site_ms = site_start.elapsed().as_secs_f64() * 1000.0;
+
+    let resolve_start = Instant::now();
     let source_path = site
         .resolve_source_path(&path)
         .ok_or_else(|| ServerError::PageNotFound(path.clone()))?;
+    let resolve_ms = resolve_start.elapsed().as_secs_f64() * 1000.0;
 
     // Render the page
+    let render_start = Instant::now();
     let result = state.renderer.render(&source_path, &path)?;
+    let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
 
     // Log warnings in verbose mode
     if state.verbose && !result.warnings.is_empty() {
@@ -131,6 +141,16 @@ fn get_page_impl(
     if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH)
         && if_none_match.as_bytes() == etag.as_bytes()
     {
+        tracing::info!(
+            path = %path,
+            site_ms,
+            resolve_ms,
+            render_ms,
+            from_cache = result.from_cache,
+            response = "304 Not Modified",
+            elapsed_ms = request_start.elapsed().as_secs_f64() * 1000.0,
+            "Page request"
+        );
         return Ok(StatusCode::NOT_MODIFIED.into_response());
     }
 
@@ -143,6 +163,7 @@ fn get_page_impl(
     let last_modified: DateTime<Utc> = source_mtime.into();
 
     // Build response
+    let response_start = Instant::now();
     let breadcrumbs = site
         .get_breadcrumbs(&path)
         .into_iter()
@@ -164,6 +185,21 @@ fn get_page_impl(
         toc: result.toc.iter().map(TocResponse::from).collect(),
         content: result.html,
     };
+    let response_build_ms = response_start.elapsed().as_secs_f64() * 1000.0;
+
+    let total_ms = request_start.elapsed().as_secs_f64() * 1000.0;
+
+    tracing::info!(
+        path = %path,
+        site_ms,
+        resolve_ms,
+        render_ms,
+        response_build_ms,
+        from_cache = result.from_cache,
+        response = "200 OK",
+        elapsed_ms = total_ms,
+        "Page request"
+    );
 
     Ok((
         [

@@ -36,13 +36,20 @@ enum Commands {
 }
 
 fn main() {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
-
     let cli = Cli::parse();
     let output = Output::new();
+
+    // Check if verbose flag is set for serve command
+    let verbose = matches!(&cli.command, Commands::Serve(args) if args.verbose);
+
+    // Initialize tracing with appropriate log level
+    // --verbose enables INFO level, otherwise use RUST_LOG or default to WARN
+    let filter = if verbose {
+        EnvFilter::new("info")
+    } else {
+        EnvFilter::from_default_env()
+    };
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let result = match cli.command {
         Commands::Serve(args) => {

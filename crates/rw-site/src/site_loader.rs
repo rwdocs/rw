@@ -39,6 +39,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
 
 use regex::Regex;
 
@@ -141,6 +142,8 @@ impl SiteLoader {
     ///
     /// Panics if internal locks are poisoned.
     pub fn reload_if_needed(&self) -> Arc<Site> {
+        let start = Instant::now();
+
         // Fast path: cache valid
         if self.cache_valid.load(Ordering::Acquire) {
             return self.get();
@@ -155,23 +158,48 @@ impl SiteLoader {
         }
 
         // Try file cache first
+        let file_cache_start = Instant::now();
         if let Some(site) = self.file_cache.get() {
+            let file_cache_ms = file_cache_start.elapsed().as_secs_f64() * 1000.0;
             let site = Arc::new(site);
             *self.current_site.write().unwrap() = site.clone();
             self.cache_valid.store(true, Ordering::Release);
+            tracing::info!(
+                source = "file_cache",
+                file_cache_ms,
+                elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+                "Site reloaded"
+            );
             return site;
         }
+        let file_cache_ms = file_cache_start.elapsed().as_secs_f64() * 1000.0;
 
         // Load from filesystem
+        let fs_start = Instant::now();
         let site = self.load_from_filesystem();
+        let fs_scan_ms = fs_start.elapsed().as_secs_f64() * 1000.0;
+
         let site = Arc::new(site);
 
         // Store in file cache
+        let cache_store_start = Instant::now();
         self.file_cache.set(&site);
+        let cache_store_ms = cache_store_start.elapsed().as_secs_f64() * 1000.0;
 
         // Update current site
         *self.current_site.write().unwrap() = site.clone();
         self.cache_valid.store(true, Ordering::Release);
+
+        let page_count = site.pages().len();
+        tracing::info!(
+            source = "filesystem",
+            page_count,
+            file_cache_check_ms = file_cache_ms,
+            fs_scan_ms,
+            cache_store_ms,
+            elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+            "Site reloaded"
+        );
 
         site
     }
