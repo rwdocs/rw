@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -110,6 +111,8 @@ impl LiveReloadManager {
         site_loader: &Arc<SiteLoader>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
+        let start = Instant::now();
+
         // Filter to only modify/create events
         use notify::EventKind;
         match event.kind {
@@ -119,21 +122,37 @@ impl LiveReloadManager {
 
         for path in &event.paths {
             // Check if path matches watch patterns
+            let pattern_start = Instant::now();
             if !Self::matches_patterns(path, source_dir, watch_patterns) {
                 continue;
             }
+            let pattern_ms = pattern_start.elapsed().as_secs_f64() * 1000.0;
 
             // Invalidate site cache first
+            let invalidate_start = Instant::now();
             site_loader.invalidate();
+            let invalidate_ms = invalidate_start.elapsed().as_secs_f64() * 1000.0;
 
             // Resolve doc path
+            let resolve_start = Instant::now();
             if let Some(doc_path) = Self::resolve_doc_path(path, source_dir, site_loader) {
+                let resolve_ms = resolve_start.elapsed().as_secs_f64() * 1000.0;
+
                 // Broadcast reload event
                 let reload_event = ReloadEvent {
                     event_type: "reload".to_string(),
-                    path: doc_path,
+                    path: doc_path.clone(),
                 };
                 let _ = broadcaster.send(reload_event);
+
+                tracing::info!(
+                    path = %doc_path,
+                    pattern_ms,
+                    invalidate_ms,
+                    resolve_ms,
+                    elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+                    "Live reload event processed"
+                );
             }
         }
     }

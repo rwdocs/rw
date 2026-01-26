@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Performance timing instrumentation** for live reload debugging; structured `tracing::info!` logs with millisecond timing for: `PageRenderer::render()` (file read, tabs preprocessing, markdown rendering, tabs post-processing, cache operations), `DiagramProcessor::post_process()` (source preparation, cache check, Kroki HTTP rendering, placeholder replacement with cache hit/miss counts), `SiteLoader::reload_if_needed()` (file cache check, filesystem scan, cache store), `get_page_impl()` (site reload, path resolution, page rendering, response building), `LiveReloadManager::handle_event()` (pattern matching, cache invalidation, path resolution); enabled via `--verbose` flag or `RUST_LOG=info`
+
 - **Pluggable directives API** in `rw-renderer` for extensible CommonMark directive syntax; trait-based architecture supports inline (`:name[content]{attrs}`), leaf (`::name[content]{attrs}`), and container (`:::name` ... `:::`) directives; two-phase processing model with preprocessing before pulldown-cmark and post-processing after rendering
 - **`directive` module** in `rw-renderer` with core types: `DirectiveArgs` (parsed `[content]{#id .class key="value"}` syntax), `DirectiveContext` (file system access and source location), `DirectiveOutput` (Html/Markdown/Skip output variants), `Replacements` (efficient single-pass string replacement collector)
 - **Directive traits** for type-safe extensibility: `InlineDirective` for inline syntax, `LeafDirective` for leaf blocks with post-processing, `ContainerDirective` for container blocks with start/end callbacks and post-processing
