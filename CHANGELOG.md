@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`FsStorage`** in `rw-storage` for filesystem-based document access; recursive directory scanning with mtime-based title caching; extracts titles from first H1 heading or derives from filename
 - **`MockStorage`** in `rw-storage` (behind `mock` feature flag) for testing without filesystem access; builder methods `with_document()`, `with_content()`, `with_file()` for test setup
 
+### Fixed
+
+- **Path traversal protection in `FsStorage`**; `read()`, `mtime()`, and `exists()` methods now reject paths containing parent directory components (`..`) to prevent reading files outside `source_dir`; returns `StorageError` with `InvalidPath` kind for invalid paths
+
 ### Added
 
 - **Event debouncing for live reload** (RD-031 Phase 1); coalesces multiple filesystem events per save into single events using 100ms debounce window; `EventDebouncer` in `rw-server` with thread-safe `record()` and `drain_ready()` methods; coalescing rules handle all event combinations (Created/Modified/Removed); fixes file deletion bug where `Remove` events were ignored; 4× performance improvement (~800ms → ~195ms) by reducing duplicate site reloads
