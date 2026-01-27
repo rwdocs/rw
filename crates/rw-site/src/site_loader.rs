@@ -29,7 +29,7 @@
 //! let config = SiteLoaderConfig {
 //!     cache_dir: Some(PathBuf::from(".cache")),
 //! };
-//! let loader = Arc::new(SiteLoader::new(storage, config));
+//! let loader = Arc::new(SiteLoader::new(storage, &config));
 //!
 //! // Concurrent access from multiple threads
 //! let site = loader.reload_if_needed();
@@ -83,7 +83,7 @@ impl SiteLoader {
     /// * `storage` - Storage implementation for document scanning
     /// * `config` - Loader configuration
     #[must_use]
-    pub fn new(storage: Arc<dyn Storage>, config: SiteLoaderConfig) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, config: &SiteLoaderConfig) -> Self {
         let file_cache: Box<dyn SiteCache> = match &config.cache_dir {
             Some(dir) => Box::new(FileSiteCache::new(dir.clone())),
             None => Box::new(NullSiteCache),
@@ -178,7 +178,7 @@ impl SiteLoader {
 
     /// Load site from storage and build hierarchy.
     ///
-    /// Uses storage.scan() to get documents, then builds hierarchy based on
+    /// Uses `storage.scan()` to get documents, then builds hierarchy based on
     /// path conventions.
     fn load_from_storage(&self) -> Site {
         let mut builder = SiteBuilder::new();
@@ -345,7 +345,7 @@ mod tests {
     fn create_loader(source_dir: PathBuf) -> SiteLoader {
         let storage = Arc::new(FsStorage::new(source_dir));
         let config = SiteLoaderConfig { cache_dir: None };
-        SiteLoader::new(storage, config)
+        SiteLoader::new(storage, &config)
     }
 
     #[test]

@@ -41,6 +41,10 @@ impl MockStorage {
     }
 
     /// Add a document with the given path and title.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_document(self, path: impl Into<PathBuf>, title: impl Into<String>) -> Self {
         self.documents.write().unwrap().push(Document {
@@ -51,6 +55,10 @@ impl MockStorage {
     }
 
     /// Add content for a path.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_content(self, path: impl Into<PathBuf>, content: impl Into<String>) -> Self {
         self.contents
@@ -61,6 +69,10 @@ impl MockStorage {
     }
 
     /// Add a document with both metadata and content.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_file(
         self,
@@ -83,6 +95,10 @@ impl MockStorage {
     ///
     /// * `path` - Path to the file
     /// * `mtime` - Modification time as seconds since Unix epoch
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_mtime(self, path: impl Into<PathBuf>, mtime: f64) -> Self {
         self.mtimes.write().unwrap().insert(path.into(), mtime);
@@ -211,11 +227,11 @@ mod tests {
 
     #[test]
     fn test_with_mtime() {
-        let storage = MockStorage::new().with_mtime("guide.md", 1234567890.0);
+        let storage = MockStorage::new().with_mtime("guide.md", 1_234_567_890.0);
 
         let mtime = storage.mtime(Path::new("guide.md")).unwrap();
 
-        assert!((mtime - 1234567890.0).abs() < f64::EPSILON);
+        assert!((mtime - 1_234_567_890.0).abs() < f64::EPSILON);
     }
 
     #[test]

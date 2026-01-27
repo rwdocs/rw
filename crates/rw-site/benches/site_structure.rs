@@ -11,7 +11,7 @@ use rw_storage::FsStorage;
 fn create_loader(source_dir: PathBuf) -> SiteLoader {
     let storage = Arc::new(FsStorage::new(source_dir));
     let config = SiteLoaderConfig { cache_dir: None };
-    SiteLoader::new(storage, config)
+    SiteLoader::new(storage, &config)
 }
 
 /// Create a site structure with specified depth and breadth.

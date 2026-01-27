@@ -151,7 +151,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
     let site_loader_config = SiteLoaderConfig {
         cache_dir: config.cache_dir.clone(),
     };
-    let site_loader = Arc::new(SiteLoader::new(Arc::clone(&storage), site_loader_config));
+    let site_loader = Arc::new(SiteLoader::new(Arc::clone(&storage), &site_loader_config));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {
