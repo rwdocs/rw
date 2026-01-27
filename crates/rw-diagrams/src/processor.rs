@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 use ureq::Agent;
@@ -314,13 +314,10 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 
     fn post_process(&mut self, html: &mut String) {
-        let start = Instant::now();
         let diagrams = to_extracted_diagrams(&self.extracted);
         if diagrams.is_empty() {
             return;
         }
-
-        let diagram_count = diagrams.len();
 
         match &self.config.output {
             DiagramOutput::Inline => {
@@ -340,12 +337,6 @@ impl CodeBlockProcessor for DiagramProcessor {
                 );
             }
         }
-
-        tracing::info!(
-            diagram_count,
-            elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
-            "Diagram post-processing completed"
-        );
     }
 
     fn extracted(&self) -> &[ExtractedCodeBlock] {
@@ -390,8 +381,6 @@ impl DiagramProcessor {
         html: &mut String,
         diagrams: &[ExtractedDiagram],
     ) {
-        let prepare_start = Instant::now();
-
         // Collect all replacements for single-pass application
         let mut replacements = Replacements::with_capacity(diagrams.len());
 
@@ -405,13 +394,9 @@ impl DiagramProcessor {
             })
             .collect();
 
-        let prepare_ms = prepare_start.elapsed().as_secs_f64() * 1000.0;
-
         // Separate cache hits from misses
-        let cache_check_start = Instant::now();
         let mut svg_to_render: Vec<(DiagramRequest, CacheInfo)> = Vec::new();
         let mut png_to_render: Vec<(DiagramRequest, CacheInfo)> = Vec::new();
-        let mut cache_hits = 0usize;
 
         for (diagram, source) in prepared {
             let endpoint = diagram.language.kroki_endpoint();
@@ -425,7 +410,6 @@ impl DiagramProcessor {
 
             if let Some(cached_content) = config.cache.get(key) {
                 // Cache hit: add replacement (no allocation needed)
-                cache_hits += 1;
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
                         format!(r#"<figure class="diagram">{cached_content}</figure>"#)
@@ -454,29 +438,12 @@ impl DiagramProcessor {
             }
         }
 
-        let cache_check_ms = cache_check_start.elapsed().as_secs_f64() * 1000.0;
-        let cache_misses = svg_to_render.len() + png_to_render.len();
-
         // Render cache misses and collect replacements
-        let render_start = Instant::now();
         Self::render_and_cache_svg(config, &mut replacements, svg_to_render);
         Self::render_and_cache_png(config, &mut replacements, png_to_render);
-        let render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
 
         // Apply all replacements in a single pass
-        let replace_start = Instant::now();
         replacements.apply(html);
-        let replace_ms = replace_start.elapsed().as_secs_f64() * 1000.0;
-
-        tracing::info!(
-            cache_hits,
-            cache_misses,
-            prepare_ms,
-            cache_check_ms,
-            render_ms,
-            replace_ms,
-            "Diagram inline processing"
-        );
     }
 
     /// Render SVG diagrams, cache results, and collect replacements.

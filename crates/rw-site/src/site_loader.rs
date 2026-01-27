@@ -38,17 +38,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Instant;
 
 use rw_storage::{FsStorage, Storage};
 
 use crate::site::{Site, SiteBuilder};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
-
-/// Convert Duration to milliseconds as f64.
-fn elapsed_ms(start: Instant) -> f64 {
-    start.elapsed().as_secs_f64() * 1000.0
-}
 
 /// Configuration for [`SiteLoader`].
 #[derive(Clone, Debug)]
@@ -152,8 +146,6 @@ impl SiteLoader {
     ///
     /// Panics if internal locks are poisoned.
     pub fn reload_if_needed(&self) -> Arc<Site> {
-        let start = Instant::now();
-
         // Fast path: cache valid
         if self.cache_valid.load(Ordering::Acquire) {
             return self.get();
@@ -168,48 +160,23 @@ impl SiteLoader {
         }
 
         // Try file cache first
-        let file_cache_start = Instant::now();
         if let Some(site) = self.file_cache.get() {
-            let file_cache_ms = elapsed_ms(file_cache_start);
             let site = Arc::new(site);
             *self.current_site.write().unwrap() = site.clone();
             self.cache_valid.store(true, Ordering::Release);
-            tracing::info!(
-                source = "file_cache",
-                file_cache_ms,
-                elapsed_ms = elapsed_ms(start),
-                "Site reloaded"
-            );
             return site;
         }
-        let file_cache_ms = elapsed_ms(file_cache_start);
 
         // Load from storage
-        let storage_start = Instant::now();
         let site = self.load_from_storage();
-        let storage_scan_ms = elapsed_ms(storage_start);
-
         let site = Arc::new(site);
 
         // Store in file cache
-        let cache_store_start = Instant::now();
         self.file_cache.set(&site);
-        let cache_store_ms = elapsed_ms(cache_store_start);
 
         // Update current site
         *self.current_site.write().unwrap() = site.clone();
         self.cache_valid.store(true, Ordering::Release);
-
-        let page_count = site.pages().len();
-        tracing::info!(
-            source = "storage",
-            page_count,
-            file_cache_check_ms = file_cache_ms,
-            storage_scan_ms,
-            cache_store_ms,
-            elapsed_ms = elapsed_ms(start),
-            "Site reloaded"
-        );
 
         site
     }
@@ -277,8 +244,6 @@ impl SiteLoader {
             let idx = builder.add_page(doc.title.clone(), url_path, doc.path.clone(), parent_idx);
             path_to_idx.insert(doc.path.clone(), idx);
         }
-
-        tracing::debug!(document_count = documents.len(), "Site scan completed");
 
         builder.build()
     }
