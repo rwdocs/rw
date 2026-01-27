@@ -6,7 +6,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
 
 use rw_diagrams::{DiagramProcessor, FileCache};
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsPreprocessor, TabsProcessor, TocEntry};
@@ -168,8 +167,6 @@ impl PageRenderer {
         source_path: &Path,
         base_path: &str,
     ) -> Result<PageRenderResult, RenderError> {
-        let render_start = Instant::now();
-
         if !source_path.exists() {
             return Err(RenderError::FileNotFound(source_path.to_path_buf()));
         }
@@ -177,12 +174,6 @@ impl PageRenderer {
         let source_mtime = get_mtime(source_path)?;
 
         if let Some(cached) = self.cache.get(base_path, source_mtime) {
-            tracing::info!(
-                path = %base_path,
-                from_cache = true,
-                elapsed_ms = render_start.elapsed().as_secs_f64() * 1000.0,
-                "Page rendered"
-            );
             return Ok(PageRenderResult {
                 html: cached.html,
                 title: cached.meta.title,
@@ -192,61 +183,35 @@ impl PageRenderer {
             });
         }
 
-        let file_read_start = Instant::now();
         let markdown_text = self.read_file(source_path)?;
-        let file_read_ms = file_read_start.elapsed().as_secs_f64() * 1000.0;
 
         // Preprocess tabs directives
-        let tabs_start = Instant::now();
         let mut tabs_preprocessor = TabsPreprocessor::new();
         let processed_markdown = tabs_preprocessor.process(&markdown_text);
         let tabs_warnings = tabs_preprocessor.warnings().to_vec();
         let tabs_groups = tabs_preprocessor.into_groups();
-        let tabs_preprocess_ms = tabs_start.elapsed().as_secs_f64() * 1000.0;
 
         let mut renderer = self.create_renderer(base_path);
-        let has_diagrams = self.kroki_url.is_some();
         if let Some(processor) = self.create_diagram_processor() {
             renderer = renderer.with_processor(processor);
         }
 
-        let markdown_start = Instant::now();
         let mut result = renderer.render_markdown(&processed_markdown);
-        let markdown_ms = markdown_start.elapsed().as_secs_f64() * 1000.0;
 
         // Post-process tabs (not a CodeBlockProcessor - tabs are container directives)
-        let tabs_post_start = Instant::now();
         if !tabs_groups.is_empty() {
             let mut tabs_processor = TabsProcessor::new(tabs_groups);
             tabs_processor.post_process(&mut result.html);
             result.warnings.extend(tabs_processor.warnings().to_vec());
         }
         result.warnings.extend(tabs_warnings);
-        let tabs_post_ms = tabs_post_start.elapsed().as_secs_f64() * 1000.0;
 
-        let cache_start = Instant::now();
         self.cache.set(
             base_path,
             &result.html,
             result.title.as_deref(),
             source_mtime,
             &result.toc,
-        );
-        let cache_ms = cache_start.elapsed().as_secs_f64() * 1000.0;
-
-        let total_ms = render_start.elapsed().as_secs_f64() * 1000.0;
-
-        tracing::info!(
-            path = %base_path,
-            from_cache = false,
-            has_diagrams,
-            file_read_ms,
-            tabs_preprocess_ms,
-            markdown_ms,
-            tabs_post_ms,
-            cache_ms,
-            elapsed_ms = total_ms,
-            "Page rendered"
         );
 
         Ok(PageRenderResult {

@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -162,7 +162,6 @@ impl LiveReloadManager {
             }
 
             debouncer.record(path.clone(), kind);
-            tracing::debug!(path = %path.display(), ?kind, "Recorded filesystem event");
         }
     }
 
@@ -173,8 +172,6 @@ impl LiveReloadManager {
         site_loader: &Arc<SiteLoader>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
-        let start = Instant::now();
-
         // Resolve doc path based on event kind
         let doc_path = match fs_event.kind {
             FsEventKind::Modified => {
@@ -211,16 +208,9 @@ impl LiveReloadManager {
         // Broadcast reload event
         let reload_event = ReloadEvent {
             event_type: "reload".to_string(),
-            path: doc_path.clone(),
+            path: doc_path,
         };
         let _ = broadcaster.send(reload_event);
-
-        tracing::info!(
-            path = %doc_path,
-            kind = ?fs_event.kind,
-            elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
-            "Live reload event processed"
-        );
     }
 
     /// Compute documentation path from filesystem path for deleted files.
