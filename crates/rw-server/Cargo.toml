@@ -15,6 +15,7 @@ embed-assets = ["dep:rust-embed"]
 rw-site = { workspace = true }
 rw-config = { workspace = true }
 rw-renderer = { workspace = true, features = ["serde"] }
+rw-storage = { workspace = true }
 
 # HTTP framework
 axum = { version = "0.8", features = ["ws", "macros"] }

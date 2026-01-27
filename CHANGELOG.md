@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Project renamed from Docstage to RW**; all crates renamed from `docstage-*` to `rw-*`; configuration file renamed from `docstage.toml` to `rw.toml`; CLI binary renamed from `docstage` to `rw`; default OAuth consumer key changed from `"docstage"` to `"rw"`
 - **Standardized container directive syntax on brackets**; `:::tab[Label]` is now the only supported syntax; space-separated syntax (`::: tab Label`) is no longer recognized; aligns with CommonMark directive specification
+- **`SiteLoader` refactored to use `Storage` trait** (RD-033); decouples site loading from filesystem operations; moved mtime caching and H1 title extraction to `FsStorage`; enables unit testing with `MockStorage` without real filesystem access; hierarchy is now derived from flat document list using path conventions (`index.md` as section landing pages)
+- **`SiteLoader::with_storage()` is now public** and accepts `Arc<dyn Storage>` (was `Box<dyn Storage>`); enables sharing storage between `SiteLoader` and `PageRenderer` for consistency
+- **`PageRenderer` now optionally uses `Storage` trait** via `with_storage()` builder method; when storage is set, reads files through the storage backend instead of direct filesystem access; requires `source_dir` in config for path resolution
+- **`PageRendererConfig` has new `source_dir` field** for resolving absolute paths to relative paths when using `Storage`
+
+### Added
+
+- **`rw-storage` crate** for storage abstraction; provides `Storage` trait with `scan()`, `read()`, and `exists()` methods for document access
+- **`Document` struct** in `rw-storage` with `path` (relative `PathBuf`) and `title` (extracted or filename-derived) fields
+- **`StorageError` type** with `StorageErrorKind` enum (`NotFound`, `PermissionDenied`, `AlreadyExists`, `InvalidPath`, `Unavailable`, `RateLimited`, `Timeout`, `Other`) and `ErrorStatus` enum for retry guidance (`Retriable`, `Fatal`, `Unknown`)
+- **`FsStorage`** in `rw-storage` for filesystem-based document access; recursive directory scanning with mtime-based title caching; extracts titles from first H1 heading or derives from filename
+- **`MockStorage`** in `rw-storage` (behind `mock` feature flag) for testing without filesystem access; builder methods `with_document()`, `with_content()`, `with_file()` for test setup
 
 ### Added
 
