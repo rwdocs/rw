@@ -1,14 +1,13 @@
-//! Site loading from filesystem.
+//! Site loading from storage.
 //!
-//! Provides [`SiteLoader`] for building [`Site`] structures by scanning
-//! markdown source directories. Includes optional file-based caching.
+//! Provides [`SiteLoader`] for building [`Site`] structures from a [`Storage`]
+//! backend. Includes optional file-based caching.
 //!
 //! # Architecture
 //!
-//! The loader scans a source directory recursively:
+//! The loader uses a [`Storage`] implementation to scan for documents:
 //! - `index.md` files become section landing pages
 //! - Other `.md` files become standalone pages
-//! - Files starting with `.` or `_` are skipped
 //! - Directories without `index.md` have their children promoted to parent level
 //!
 //! # Thread Safety
@@ -18,19 +17,12 @@
 //! - `reload_if_needed()` uses double-checked locking for efficient cache validation
 //! - `invalidate()` is lock-free (atomic flag)
 //!
-//! # Performance
-//!
-//! The loader uses mtime caching to minimize file I/O:
-//! - File mtimes are tracked between reloads
-//! - Only files with changed mtimes are re-read for title extraction
-//! - Unchanged files reuse cached titles
-//!
 //! # Example
 //!
 //! ```ignore
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
-//! use rw_site::site_loader::{SiteLoader, SiteLoaderConfig};
+//! use rw_site::{SiteLoader, SiteLoaderConfig};
 //!
 //! let config = SiteLoaderConfig {
 //!     source_dir: PathBuf::from("docs"),
@@ -43,13 +35,12 @@
 //! ```
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Instant, SystemTime};
+use std::time::Instant;
 
-use regex::Regex;
+use rw_storage::{FsStorage, Storage};
 
 use crate::site::{Site, SiteBuilder};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
@@ -68,31 +59,11 @@ pub struct SiteLoaderConfig {
     pub cache_dir: Option<PathBuf>,
 }
 
-/// Cached file metadata for incremental title extraction.
-#[derive(Clone, Debug)]
-struct CachedFile {
-    /// File modification time.
-    mtime: SystemTime,
-    /// Extracted title from the file.
-    title: String,
-}
-
-/// Statistics for a single scan operation.
-#[derive(Default)]
-struct ScanStats {
-    /// Total markdown files encountered.
-    file_count: usize,
-    /// Files with cached titles (mtime unchanged).
-    cached_count: usize,
-    /// Files that were read (new or mtime changed).
-    read_count: usize,
-}
-
-/// Loads site structure from filesystem.
+/// Loads site structure from storage.
 ///
-/// Scans a source directory for markdown files and builds a [`Site`] structure.
-/// Uses `index.md` files as section landing pages. Extracts titles from the
-/// first H1 heading in each document, falling back to filename-based titles.
+/// Uses a [`Storage`] implementation to scan for markdown files and builds a
+/// [`Site`] structure. Uses `index.md` files as section landing pages. Titles
+/// are provided by the storage (extracted or stored depending on backend).
 ///
 /// # Thread Safety
 ///
@@ -100,13 +71,9 @@ struct ScanStats {
 /// - Uses internal `RwLock<Arc<Site>>` for the current site snapshot
 /// - Uses `Mutex<()>` for serializing reload operations
 /// - Uses `AtomicBool` for cache validity tracking
-///
-/// # Performance
-///
-/// Uses mtime caching to avoid re-reading unchanged files during reload.
-/// File mtimes and extracted titles are cached between reloads.
 pub struct SiteLoader {
     config: SiteLoaderConfig,
+    storage: Arc<dyn Storage>,
     file_cache: Box<dyn SiteCache>,
     /// Mutex for serializing reload operations.
     reload_lock: Mutex<()>,
@@ -114,25 +81,28 @@ pub struct SiteLoader {
     current_site: RwLock<Arc<Site>>,
     /// Cache validity flag.
     cache_valid: AtomicBool,
-    h1_regex: Regex,
-    /// Mtime cache for incremental title extraction.
-    /// Maps absolute file paths to (mtime, extracted_title).
-    mtime_cache: Mutex<HashMap<PathBuf, CachedFile>>,
 }
 
 impl SiteLoader {
-    /// Create a new site loader.
+    /// Create a new site loader with filesystem storage.
     ///
     /// # Arguments
     ///
     /// * `config` - Loader configuration
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal regex for H1 heading extraction fails to compile.
-    /// This should never happen as the regex is a compile-time constant.
     #[must_use]
     pub fn new(config: SiteLoaderConfig) -> Self {
+        let storage = Arc::new(FsStorage::new(config.source_dir.clone()));
+        Self::with_storage(config, storage)
+    }
+
+    /// Create a new site loader with custom storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Loader configuration
+    /// * `storage` - Storage implementation for document scanning
+    #[must_use]
+    pub fn with_storage(config: SiteLoaderConfig, storage: Arc<dyn Storage>) -> Self {
         let file_cache: Box<dyn SiteCache> = match &config.cache_dir {
             Some(dir) => Box::new(FileSiteCache::new(dir.clone())),
             None => Box::new(NullSiteCache),
@@ -143,13 +113,11 @@ impl SiteLoader {
 
         Self {
             config,
+            storage,
             file_cache,
             reload_lock: Mutex::new(()),
             current_site: RwLock::new(initial_site),
             cache_valid: AtomicBool::new(false),
-            // Regex for extracting first H1 heading
-            h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
-            mtime_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -170,7 +138,7 @@ impl SiteLoader {
         self.current_site.read().unwrap().clone()
     }
 
-    /// Reload site from filesystem if cache is invalid.
+    /// Reload site from storage if cache is invalid.
     ///
     /// Uses double-checked locking pattern:
     /// 1. Fast path: return current site if cache valid
@@ -216,10 +184,10 @@ impl SiteLoader {
         }
         let file_cache_ms = elapsed_ms(file_cache_start);
 
-        // Load from filesystem
-        let fs_start = Instant::now();
-        let site = self.load_from_filesystem();
-        let fs_scan_ms = elapsed_ms(fs_start);
+        // Load from storage
+        let storage_start = Instant::now();
+        let site = self.load_from_storage();
+        let storage_scan_ms = elapsed_ms(storage_start);
 
         let site = Arc::new(site);
 
@@ -234,10 +202,10 @@ impl SiteLoader {
 
         let page_count = site.pages().len();
         tracing::info!(
-            source = "filesystem",
+            source = "storage",
             page_count,
             file_cache_check_ms = file_cache_ms,
-            fs_scan_ms,
+            storage_scan_ms,
             cache_store_ms,
             elapsed_ms = elapsed_ms(start),
             "Site reloaded"
@@ -261,253 +229,156 @@ impl SiteLoader {
         &self.config.source_dir
     }
 
-    /// Scan filesystem and build site structure.
+    /// Load site from storage and build hierarchy.
     ///
-    /// Uses mtime caching to avoid re-reading unchanged files.
-    /// Single traversal builds site structure with inline title extraction.
-    fn load_from_filesystem(&self) -> Site {
+    /// Uses storage.scan() to get documents, then builds hierarchy based on
+    /// path conventions.
+    fn load_from_storage(&self) -> Site {
         let mut builder = SiteBuilder::new(self.config.source_dir.clone());
 
-        if !self.config.source_dir.exists() {
+        // Scan storage for documents
+        let documents = match self.storage.scan() {
+            Ok(docs) => docs,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to scan storage");
+                return builder.build();
+            }
+        };
+
+        if documents.is_empty() {
             return builder.build();
         }
 
-        // Track statistics
-        let mut stats = ScanStats::default();
+        // Sort documents: index.md files first (at each level), then alphabetical
+        // This ensures parent pages are created before their children
+        let mut sorted_docs: Vec<_> = documents.iter().collect();
+        sorted_docs.sort_by(|a, b| {
+            let a_is_index = a.path.file_name().is_some_and(|n| n == "index.md");
+            let b_is_index = b.path.file_name().is_some_and(|n| n == "index.md");
+            let a_depth = a.path.components().count();
+            let b_depth = b.path.components().count();
 
-        // Handle root index.md specially
-        let root_index = self.config.source_dir.join("index.md");
-        let root_idx = if root_index.exists() {
-            let title = self
-                .get_cached_title(&root_index, &mut stats)
-                .unwrap_or_else(|| "Home".to_string());
-            let source_path = PathBuf::from("index.md");
-            Some(builder.add_page(title, "/".to_string(), source_path, None))
-        } else {
-            None
-        };
+            // Sort by depth first (shallower first), then index.md before others,
+            // then alphabetical
+            a_depth
+                .cmp(&b_depth)
+                .then_with(|| b_is_index.cmp(&a_is_index)) // true > false, so reverse
+                .then_with(|| a.path.cmp(&b.path))
+        });
 
-        self.scan_directory(
-            &self.config.source_dir,
-            "",
-            &mut builder,
-            root_idx,
-            &mut stats,
-        );
+        // Track added pages by their source path for parent lookup
+        let mut path_to_idx: HashMap<PathBuf, usize> = HashMap::new();
 
-        tracing::debug!(
-            file_count = stats.file_count,
-            cached_count = stats.cached_count,
-            read_count = stats.read_count,
-            "Site scan completed"
-        );
+        // Process documents in sorted order
+        for doc in sorted_docs {
+            let url_path = Self::source_path_to_url(&doc.path);
+            let parent_idx = Self::find_parent(&doc.path, &path_to_idx);
+
+            let idx = builder.add_page(doc.title.clone(), url_path, doc.path.clone(), parent_idx);
+            path_to_idx.insert(doc.path.clone(), idx);
+        }
+
+        tracing::debug!(document_count = documents.len(), "Site scan completed");
 
         builder.build()
     }
 
-    /// Get title for a file, using mtime cache when possible.
+    /// Convert source path to URL path.
     ///
-    /// Checks if file's mtime matches cached mtime. If so, returns cached title.
-    /// Otherwise, reads file to extract title and updates cache.
-    fn get_cached_title(&self, file_path: &Path, stats: &mut ScanStats) -> Option<String> {
-        stats.file_count += 1;
+    /// Examples:
+    /// - `"index.md"` -> `"/"`
+    /// - `"guide.md"` -> `"/guide"`
+    /// - `"domain/index.md"` -> `"/domain"`
+    /// - `"domain/setup.md"` -> `"/domain/setup"`
+    fn source_path_to_url(source_path: &Path) -> String {
+        let path_str = source_path.to_string_lossy();
 
-        // Get current mtime
-        let current_mtime = fs::metadata(file_path).ok().and_then(|m| m.modified().ok());
-
-        // Check cache
-        {
-            let cache = self.mtime_cache.lock().unwrap();
-            if let (Some(cached), Some(mtime)) = (cache.get(file_path), current_mtime)
-                && cached.mtime == mtime
-            {
-                stats.cached_count += 1;
-                return Some(cached.title.clone());
-            }
+        // Handle root index.md
+        if path_str == "index.md" {
+            return "/".to_string();
         }
 
-        // Cache miss - read file
-        stats.read_count += 1;
-        let title = self.extract_title_from_content(file_path);
+        // Remove .md extension
+        let without_ext = path_str.strip_suffix(".md").unwrap_or(&path_str);
 
-        // Update cache
-        if let (Some(title), Some(mtime)) = (&title, current_mtime) {
-            let mut cache = self.mtime_cache.lock().unwrap();
-            cache.insert(
-                file_path.to_path_buf(),
-                CachedFile {
-                    mtime,
-                    title: title.clone(),
-                },
-            );
+        // Handle directory index files
+        if let Some(without_index) = without_ext.strip_suffix("/index") {
+            return format!("/{without_index}");
+        }
+        if without_ext == "index" {
+            return "/".to_string();
         }
 
-        title
+        format!("/{without_ext}")
     }
 
-    /// Extract title from first H1 heading in markdown file.
-    fn extract_title_from_content(&self, file_path: &Path) -> Option<String> {
-        let content = fs::read_to_string(file_path).ok()?;
-        self.h1_regex
-            .captures(&content)
-            .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().trim().to_string())
-    }
-
-    /// Recursively scan directory and add pages to builder.
+    /// Find parent page index for a document.
     ///
-    /// Returns list of page indices added at this directory level.
-    fn scan_directory(
-        &self,
-        dir_path: &Path,
-        base_path: &str,
-        builder: &mut SiteBuilder,
-        parent_idx: Option<usize>,
-        stats: &mut ScanStats,
-    ) -> Vec<usize> {
-        let Ok(entries) = fs::read_dir(dir_path) else {
-            return Vec::new();
-        };
+    /// Uses path conventions to determine parent:
+    /// - `"guide.md"` -> parent is `"/"` (root) if `"index.md"` exists
+    /// - `"domain/setup.md"` -> parent is `"/domain"` if `"domain/index.md"` exists
+    /// - Directories without `index.md` promote children to grandparent
+    fn find_parent(source_path: &Path, path_to_idx: &HashMap<PathBuf, usize>) -> Option<usize> {
+        let path_str = source_path.to_string_lossy();
 
-        // Collect entries with cached file_type to avoid repeated stat calls in sort.
-        // On macOS/APFS, file_type() requires a stat syscall per call.
-        let mut entries: Vec<_> = entries
-            .filter_map(Result::ok)
-            .map(|e| {
-                let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
-                let name_lower = e.file_name().to_string_lossy().to_lowercase();
-                (e, is_dir, name_lower)
-            })
-            .collect();
-
-        // Sort: directories first, then alphabetical by name
-        entries.sort_by(|(_, a_is_dir, a_name), (_, b_is_dir, b_name)| {
-            b_is_dir.cmp(a_is_dir).then_with(|| a_name.cmp(b_name))
-        });
-
-        let mut indices = Vec::new();
-
-        for (entry, is_dir, name_lower) in entries {
-            // Skip hidden and underscore-prefixed files/dirs
-            if name_lower.starts_with('.') || name_lower.starts_with('_') {
-                continue;
-            }
-
-            // Skip common non-documentation directories
-            if is_dir
-                && matches!(
-                    name_lower.as_str(),
-                    "node_modules"
-                        | "target"
-                        | "dist"
-                        | "build"
-                        | ".cache"
-                        | "vendor"
-                        | "__pycache__"
-                )
-            {
-                continue;
-            }
-
-            let path = entry.path();
-
-            if is_dir {
-                if let Some(result) =
-                    self.process_directory(&path, base_path, builder, parent_idx, stats)
-                {
-                    indices.extend(result);
-                }
-            } else if path.extension().is_some_and(|e| e == "md")
-                && !name_lower.ends_with("index.md")
-            {
-                let idx = self.process_file(&path, base_path, builder, parent_idx, stats);
-                indices.push(idx);
-            }
+        // Root index.md has no parent
+        if path_str == "index.md" {
+            return None;
         }
 
-        indices
-    }
+        // Get the parent directory
+        let parent_dir = source_path.parent()?;
 
-    /// Process a directory into page(s).
-    fn process_directory(
-        &self,
-        dir_path: &Path,
-        base_path: &str,
-        builder: &mut SiteBuilder,
-        parent_idx: Option<usize>,
-        stats: &mut ScanStats,
-    ) -> Option<Vec<usize>> {
-        let dir_name = dir_path.file_name()?.to_string_lossy();
-        let item_path = if base_path.is_empty() {
-            format!("/{dir_name}")
-        } else {
-            format!("{base_path}/{dir_name}")
-        };
-
-        let index_file = dir_path.join("index.md");
-
-        if !index_file.exists() {
-            // No index.md - promote children to parent level
-            let child_indices =
-                self.scan_directory(dir_path, &item_path, builder, parent_idx, stats);
-            return (!child_indices.is_empty()).then_some(child_indices);
+        if parent_dir.as_os_str().is_empty() {
+            // Top-level file (e.g., "guide.md")
+            // Parent is root index.md if it exists
+            let root_index = PathBuf::from("index.md");
+            return path_to_idx.get(&root_index).copied();
         }
 
-        // Create page for this directory
-        let title = self
-            .get_cached_title(&index_file, stats)
-            .unwrap_or_else(|| Self::title_from_name(&dir_name));
-        let source_path = index_file
-            .strip_prefix(&self.config.source_dir)
-            .unwrap_or(&index_file)
-            .to_path_buf();
-        let page_idx = builder.add_page(title, item_path.clone(), source_path, parent_idx);
+        // Look for index.md in parent directory
+        let parent_index = parent_dir.join("index.md");
+        if let Some(&idx) = path_to_idx.get(&parent_index) {
+            return Some(idx);
+        }
 
-        // Scan children with this page as parent
-        self.scan_directory(dir_path, &item_path, builder, Some(page_idx), stats);
+        // No index.md in parent - recursively check grandparent
+        // We need to find the grandparent by looking at parent_dir's parent
+        let grandparent_dir = parent_dir.parent()?;
+        if grandparent_dir.as_os_str().is_empty() {
+            // Parent is at root level, check for root index.md
+            let root_index = PathBuf::from("index.md");
+            return path_to_idx.get(&root_index).copied();
+        }
 
-        Some(vec![page_idx])
+        // Look for index.md in grandparent
+        let grandparent_index = grandparent_dir.join("index.md");
+        if let Some(&idx) = path_to_idx.get(&grandparent_index) {
+            return Some(idx);
+        }
+
+        // Continue recursion with grandparent's index
+        Self::find_parent_up(grandparent_dir, path_to_idx)
     }
 
-    /// Process a markdown file into a page.
-    fn process_file(
-        &self,
-        file_path: &Path,
-        base_path: &str,
-        builder: &mut SiteBuilder,
-        parent_idx: Option<usize>,
-        stats: &mut ScanStats,
-    ) -> usize {
-        let file_name = file_path.file_stem().unwrap_or_default().to_string_lossy();
-        let item_path = if base_path.is_empty() {
-            format!("/{file_name}")
-        } else {
-            format!("{base_path}/{file_name}")
-        };
+    /// Helper to find parent by walking up directory tree.
+    fn find_parent_up(dir: &Path, path_to_idx: &HashMap<PathBuf, usize>) -> Option<usize> {
+        let parent_dir = dir.parent()?;
 
-        let title = self
-            .get_cached_title(file_path, stats)
-            .unwrap_or_else(|| Self::title_from_name(&file_name));
-        let source_path = file_path
-            .strip_prefix(&self.config.source_dir)
-            .unwrap_or(file_path)
-            .to_path_buf();
-        builder.add_page(title, item_path, source_path, parent_idx)
-    }
+        if parent_dir.as_os_str().is_empty() {
+            // At root, check for root index.md
+            let root_index = PathBuf::from("index.md");
+            return path_to_idx.get(&root_index).copied();
+        }
 
-    /// Generate title from file/directory name.
-    fn title_from_name(name: &str) -> String {
-        name.replace(['-', '_'], " ")
-            .split_whitespace()
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => first.to_uppercase().chain(chars).collect(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
+        // Check for index.md in parent
+        let parent_index = parent_dir.join("index.md");
+        if let Some(&idx) = path_to_idx.get(&parent_index) {
+            return Some(idx);
+        }
+
+        // Continue up
+        Self::find_parent_up(parent_dir, path_to_idx)
     }
 }
 
@@ -515,6 +386,7 @@ impl SiteLoader {
 mod tests {
     // Ensure SiteLoader is Send + Sync for use with Arc
     static_assertions::assert_impl_all!(super::SiteLoader: Send, Sync);
+    use std::fs;
     use std::sync::Arc;
 
     use super::*;
@@ -860,17 +732,6 @@ mod tests {
     }
 
     #[test]
-    fn test_title_from_name() {
-        assert_eq!(SiteLoader::title_from_name("setup-guide"), "Setup Guide");
-        assert_eq!(SiteLoader::title_from_name("my_page"), "My Page");
-        assert_eq!(
-            SiteLoader::title_from_name("complex-name_here"),
-            "Complex Name Here"
-        );
-        assert_eq!(SiteLoader::title_from_name("simple"), "Simple");
-    }
-
-    #[test]
     fn test_source_dir_getter() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
@@ -1008,5 +869,77 @@ mod tests {
         // Reload should see new title
         let site2 = loader.reload_if_needed();
         assert_eq!(site2.get_page("/guide").unwrap().title, "Updated Title");
+    }
+
+    #[test]
+    fn test_source_path_to_url() {
+        assert_eq!(SiteLoader::source_path_to_url(Path::new("index.md")), "/");
+        assert_eq!(
+            SiteLoader::source_path_to_url(Path::new("guide.md")),
+            "/guide"
+        );
+        assert_eq!(
+            SiteLoader::source_path_to_url(Path::new("domain/index.md")),
+            "/domain"
+        );
+        assert_eq!(
+            SiteLoader::source_path_to_url(Path::new("domain/setup.md")),
+            "/domain/setup"
+        );
+        assert_eq!(
+            SiteLoader::source_path_to_url(Path::new("a/b/c.md")),
+            "/a/b/c"
+        );
+    }
+
+    #[test]
+    fn test_nested_hierarchy_with_multiple_levels() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir_all(source_dir.join("level1/level2")).unwrap();
+        fs::write(source_dir.join("index.md"), "# Home").unwrap();
+        fs::write(source_dir.join("level1/index.md"), "# Level 1").unwrap();
+        fs::write(source_dir.join("level1/level2/index.md"), "# Level 2").unwrap();
+        fs::write(source_dir.join("level1/level2/page.md"), "# Deep Page").unwrap();
+
+        let config = SiteLoaderConfig {
+            source_dir,
+            cache_dir: None,
+        };
+        let loader = SiteLoader::new(config);
+
+        let site = loader.reload_if_needed();
+
+        // Check root
+        let root = site.get_page("/").unwrap();
+        assert_eq!(root.title, "Home");
+
+        // Check level 1
+        let level1 = site.get_page("/level1").unwrap();
+        assert_eq!(level1.title, "Level 1");
+
+        // Check level 1 is child of root
+        let root_children = site.get_children("/");
+        assert!(root_children.iter().any(|c| c.path == "/level1"));
+
+        // Check level 2
+        let level2 = site.get_page("/level1/level2").unwrap();
+        assert_eq!(level2.title, "Level 2");
+
+        // Check level 2 is child of level 1
+        let level1_children = site.get_children("/level1");
+        assert!(level1_children.iter().any(|c| c.path == "/level1/level2"));
+
+        // Check deep page
+        let deep = site.get_page("/level1/level2/page").unwrap();
+        assert_eq!(deep.title, "Deep Page");
+
+        // Check deep page is child of level 2
+        let level2_children = site.get_children("/level1/level2");
+        assert!(
+            level2_children
+                .iter()
+                .any(|c| c.path == "/level1/level2/page")
+        );
     }
 }

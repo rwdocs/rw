@@ -1983,6 +1983,7 @@ dependencies = [
  "rw-config",
  "rw-renderer",
  "rw-site",
+ "rw-storage",
  "serde",
  "serde_json",
  "tempfile",
@@ -2002,12 +2003,23 @@ dependencies = [
  "regex",
  "rw-diagrams",
  "rw-renderer",
+ "rw-storage",
  "serde",
  "serde_json",
  "static_assertions",
  "tempfile",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "rw-storage"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "regex",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

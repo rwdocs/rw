@@ -70,6 +70,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use rw_site::{PageRenderer, PageRendererConfig, SiteLoader, SiteLoaderConfig};
+use rw_storage::FsStorage;
 use state::AppState;
 use tokio::sync::broadcast;
 
@@ -131,8 +132,12 @@ impl Default for ServerConfig {
 ///
 /// Returns an error if the server fails to start.
 pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
-    // Create PageRenderer
+    // Create shared storage backend
+    let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::new(config.source_dir.clone()));
+
+    // Create PageRenderer with shared storage
     let renderer_config = PageRendererConfig {
+        source_dir: Some(config.source_dir.clone()),
         cache_dir: config.cache_dir.clone(),
         version: config.version.clone(),
         extract_title: true,
@@ -141,14 +146,14 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         config_file: config.config_file.clone(),
         dpi: config.dpi,
     };
-    let renderer = PageRenderer::new(renderer_config);
+    let renderer = PageRenderer::new(renderer_config).with_storage(Arc::clone(&storage));
 
-    // Create SiteLoader
+    // Create SiteLoader with shared storage
     let site_loader_config = SiteLoaderConfig {
         source_dir: config.source_dir.clone(),
         cache_dir: config.cache_dir.clone(),
     };
-    let site_loader = Arc::new(SiteLoader::new(site_loader_config));
+    let site_loader = Arc::new(SiteLoader::with_storage(site_loader_config, storage));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {

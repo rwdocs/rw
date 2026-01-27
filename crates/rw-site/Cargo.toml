@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 rw-diagrams = { workspace = true }
 rw-renderer = { workspace = true, features = ["serde"] }
+rw-storage = { workspace = true }
 
 regex = { workspace = true }
 serde = { workspace = true }
@@ -18,6 +19,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+rw-storage = { workspace = true, features = ["mock"] }
 static_assertions = { workspace = true }
 tempfile = { workspace = true }
 

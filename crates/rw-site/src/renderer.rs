@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use rw_diagrams::{DiagramProcessor, FileCache};
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsPreprocessor, TabsProcessor, TocEntry};
+use rw_storage::Storage;
 
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 
@@ -42,6 +43,10 @@ pub enum RenderError {
 /// Configuration for [`PageRenderer`].
 #[derive(Clone, Debug)]
 pub struct PageRendererConfig {
+    /// Source directory for documents.
+    ///
+    /// Required when using `Storage` to compute relative paths from absolute paths.
+    pub source_dir: Option<PathBuf>,
     /// Cache directory for rendered pages and metadata.
     ///
     /// If `None`, caching is disabled.
@@ -65,6 +70,7 @@ pub struct PageRendererConfig {
 impl Default for PageRendererConfig {
     fn default() -> Self {
         Self {
+            source_dir: None,
             cache_dir: None,
             version: String::new(),
             extract_title: true,
@@ -101,6 +107,8 @@ impl Default for PageRendererConfig {
 /// let result = renderer.render(Path::new("docs/guide.md"), "guide")?;
 /// ```
 pub struct PageRenderer {
+    storage: Option<Arc<dyn Storage>>,
+    source_dir: Option<PathBuf>,
     cache: Box<dyn PageCache>,
     extract_title: bool,
     kroki_url: Option<String>,
@@ -119,6 +127,8 @@ impl PageRenderer {
         };
 
         Self {
+            storage: None,
+            source_dir: config.source_dir,
             cache,
             extract_title: config.extract_title,
             kroki_url: config.kroki_url,
@@ -126,6 +136,16 @@ impl PageRenderer {
             config_file: config.config_file,
             dpi: config.dpi,
         }
+    }
+
+    /// Set the storage backend for reading files.
+    ///
+    /// When set, the renderer uses `storage.read()` instead of direct filesystem access.
+    /// Requires `source_dir` to be set in the config for path resolution.
+    #[must_use]
+    pub fn with_storage(mut self, storage: Arc<dyn Storage>) -> Self {
+        self.storage = Some(storage);
+        self
     }
 
     /// Render a markdown page.
@@ -173,7 +193,7 @@ impl PageRenderer {
         }
 
         let file_read_start = Instant::now();
-        let markdown_text = fs::read_to_string(source_path).map_err(RenderError::Io)?;
+        let markdown_text = self.read_file(source_path)?;
         let file_read_ms = file_read_start.elapsed().as_secs_f64() * 1000.0;
 
         // Preprocess tabs directives
@@ -273,6 +293,26 @@ impl PageRenderer {
     /// * `path` - Document path to invalidate
     pub fn invalidate(&self, path: &str) {
         self.cache.invalidate(path);
+    }
+
+    /// Read file content using storage if available, otherwise direct filesystem.
+    fn read_file(&self, source_path: &Path) -> Result<String, RenderError> {
+        if let (Some(storage), Some(source_dir)) = (&self.storage, &self.source_dir) {
+            // Compute relative path from absolute path
+            let rel_path = source_path
+                .strip_prefix(source_dir)
+                .map_err(|_| RenderError::FileNotFound(source_path.to_path_buf()))?;
+
+            storage.read(rel_path).map_err(|e| match e.kind() {
+                rw_storage::StorageErrorKind::NotFound => {
+                    RenderError::FileNotFound(source_path.to_path_buf())
+                }
+                _ => RenderError::Io(std::io::Error::other(e.to_string())),
+            })
+        } else {
+            // Fallback to direct filesystem access
+            fs::read_to_string(source_path).map_err(RenderError::Io)
+        }
     }
 }
 
@@ -425,5 +465,74 @@ mod tests {
         assert_eq!(result.toc[0].title, "Section 1");
         assert_eq!(result.toc[0].level, 2);
         assert_eq!(result.toc[1].title, "Section 2");
+    }
+
+    #[test]
+    fn test_render_with_storage() {
+        use rw_storage::MockStorage;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().to_path_buf();
+        let file_path = source_dir.join("guide.md");
+
+        // Create file on disk (for mtime check)
+        fs::write(&file_path, "# Guide\n\nContent via storage.").unwrap();
+
+        // Create mock storage with the same content
+        let storage = Arc::new(
+            MockStorage::new().with_content("guide.md", "# Guide\n\nContent via storage."),
+        );
+
+        let config = PageRendererConfig {
+            source_dir: Some(source_dir),
+            extract_title: true,
+            ..Default::default()
+        };
+        let renderer = PageRenderer::new(config).with_storage(storage);
+
+        let result = renderer.render(&file_path, "guide").unwrap();
+        assert!(result.html.contains("<p>Content via storage.</p>"));
+        assert_eq!(result.title, Some("Guide".to_string()));
+    }
+
+    #[test]
+    fn test_render_with_storage_not_found() {
+        use rw_storage::MockStorage;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().to_path_buf();
+        let file_path = source_dir.join("missing.md");
+
+        // Create file on disk (for exists check)
+        fs::write(&file_path, "# Missing").unwrap();
+
+        // Empty storage - file not found
+        let storage = Arc::new(MockStorage::new());
+
+        let config = PageRendererConfig {
+            source_dir: Some(source_dir),
+            extract_title: true,
+            ..Default::default()
+        };
+        let renderer = PageRenderer::new(config).with_storage(storage);
+
+        let result = renderer.render(&file_path, "missing");
+        assert!(matches!(result, Err(RenderError::FileNotFound(_))));
+    }
+
+    #[test]
+    fn test_render_without_storage_uses_filesystem() {
+        let (_temp_dir, file_path) = create_temp_md("# Direct\n\nDirect filesystem read.");
+
+        let config = PageRendererConfig {
+            extract_title: true,
+            ..Default::default()
+        };
+        // No storage set - uses direct filesystem
+        let renderer = PageRenderer::new(config);
+
+        let result = renderer.render(&file_path, "direct").unwrap();
+        assert!(result.html.contains("<p>Direct filesystem read.</p>"));
+        assert_eq!(result.title, Some("Direct".to_string()));
     }
 }

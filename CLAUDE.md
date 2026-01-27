@@ -117,9 +117,16 @@ crates/
 │       ├── lib.rs            # Public API exports
 │       ├── site.rs           # Site, SiteBuilder, Page, NavItem, BreadcrumbItem
 │       ├── site_cache.rs     # SiteCache trait, FileSiteCache, NullSiteCache
-│       ├── site_loader.rs    # SiteLoader, SiteLoaderConfig
+│       ├── site_loader.rs    # SiteLoader, SiteLoaderConfig (uses Storage trait)
 │       ├── renderer.rs       # PageRenderer, PageRendererConfig, PageRenderResult
 │       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
+│
+├── rw-storage/            # Storage abstraction layer
+│   └── src/
+│       ├── lib.rs            # Public API exports
+│       ├── storage.rs        # Storage trait, Document, StorageError, StorageErrorKind
+│       ├── fs.rs             # FsStorage (filesystem with mtime caching)
+│       └── mock.rs           # MockStorage (feature = "mock", for testing)
 │
 ├── rw-config/             # Configuration parsing
 │   └── src/
