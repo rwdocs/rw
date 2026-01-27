@@ -11,7 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 
-use crate::storage::{Document, Storage, StorageError};
+use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
+
+/// Backend identifier for error messages.
+const BACKEND: &str = "Fs";
 
 /// Cached file metadata for incremental title extraction.
 #[derive(Clone, Debug)]
@@ -64,6 +67,23 @@ impl FsStorage {
             h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
             mtime_cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Validate that a path doesn't escape the source directory.
+    ///
+    /// Rejects paths containing parent directory components (`..`) to prevent
+    /// path traversal attacks (e.g., `../../../etc/passwd`).
+    fn validate_path(path: &Path) -> Result<(), StorageError> {
+        let has_parent_dir = path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir));
+
+        if has_parent_dir {
+            return Err(StorageError::new(StorageErrorKind::InvalidPath)
+                .with_path(path)
+                .with_backend(BACKEND));
+        }
+        Ok(())
     }
 
     /// Scan directory recursively and collect documents.
@@ -204,22 +224,24 @@ impl Storage for FsStorage {
     }
 
     fn read(&self, path: &Path) -> Result<String, StorageError> {
+        Self::validate_path(path)?;
         let full_path = self.source_dir.join(path);
         fs::read_to_string(&full_path)
-            .map_err(|e| StorageError::io(e, Some(full_path.clone())).with_backend("Fs"))
+            .map_err(|e| StorageError::io(e, Some(full_path.clone())).with_backend(BACKEND))
     }
 
     fn exists(&self, path: &Path) -> bool {
-        self.source_dir.join(path).exists()
+        Self::validate_path(path).is_ok() && self.source_dir.join(path).exists()
     }
 
     fn mtime(&self, path: &Path) -> Result<f64, StorageError> {
+        Self::validate_path(path)?;
         let full_path = self.source_dir.join(path);
         let metadata = fs::metadata(&full_path)
-            .map_err(|e| StorageError::io(e, Some(full_path.clone())).with_backend("Fs"))?;
+            .map_err(|e| StorageError::io(e, Some(full_path.clone())).with_backend(BACKEND))?;
         let modified = metadata
             .modified()
-            .map_err(|e| StorageError::io(e, Some(full_path)).with_backend("Fs"))?;
+            .map_err(|e| StorageError::io(e, Some(full_path)).with_backend(BACKEND))?;
         Ok(modified
             .duration_since(UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64()))
@@ -511,5 +533,54 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind(), StorageErrorKind::NotFound);
         assert_eq!(err.backend(), Some("Fs"));
+    }
+
+    #[test]
+    fn test_read_rejects_path_traversal() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let result = storage.read(Path::new("../etc/passwd"));
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), StorageErrorKind::InvalidPath);
+        assert_eq!(err.backend(), Some("Fs"));
+    }
+
+    #[test]
+    fn test_read_rejects_nested_path_traversal() {
+        let temp_dir = create_test_dir();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let result = storage.read(Path::new("subdir/../../etc/passwd"));
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), StorageErrorKind::InvalidPath);
+    }
+
+    #[test]
+    fn test_mtime_rejects_path_traversal() {
+        let temp_dir = create_test_dir();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let result = storage.mtime(Path::new("../etc/passwd"));
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), StorageErrorKind::InvalidPath);
+        assert_eq!(err.backend(), Some("Fs"));
+    }
+
+    #[test]
+    fn test_exists_rejects_path_traversal() {
+        let temp_dir = create_test_dir();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+
+        // Path traversal should return false (treated as non-existent)
+        assert!(!storage.exists(Path::new("../etc/passwd")));
     }
 }
