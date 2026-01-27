@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 
@@ -211,6 +211,18 @@ impl Storage for FsStorage {
 
     fn exists(&self, path: &Path) -> bool {
         self.source_dir.join(path).exists()
+    }
+
+    fn mtime(&self, path: &Path) -> Result<f64, StorageError> {
+        let full_path = self.source_dir.join(path);
+        let metadata = fs::metadata(&full_path)
+            .map_err(|e| StorageError::io(e, Some(full_path.clone())).with_backend("Fs"))?;
+        let modified = metadata
+            .modified()
+            .map_err(|e| StorageError::io(e, Some(full_path)).with_backend("Fs"))?;
+        Ok(modified
+            .duration_since(UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_secs_f64()))
     }
 }
 
@@ -469,5 +481,35 @@ mod tests {
             "Complex Name Here"
         );
         assert_eq!(FsStorage::title_from_filename("simple.md"), "Simple");
+    }
+
+    #[test]
+    fn test_mtime_returns_modification_time() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let mtime = storage.mtime(Path::new("guide.md")).unwrap();
+
+        // mtime should be a recent timestamp (within last minute)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        assert!(mtime > now - 60.0);
+        assert!(mtime <= now);
+    }
+
+    #[test]
+    fn test_mtime_missing_file() {
+        let temp_dir = create_test_dir();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let result = storage.mtime(Path::new("nonexistent.md"));
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), StorageErrorKind::NotFound);
+        assert_eq!(err.backend(), Some("Fs"));
     }
 }

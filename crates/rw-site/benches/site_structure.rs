@@ -1,10 +1,18 @@
 //! Benchmarks for site structure operations.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rw_site::{SiteLoader, SiteLoaderConfig};
+use rw_storage::FsStorage;
+
+fn create_loader(source_dir: PathBuf) -> SiteLoader {
+    let storage = Arc::new(FsStorage::new(source_dir));
+    let config = SiteLoaderConfig { cache_dir: None };
+    SiteLoader::new(storage, config)
+}
 
 /// Create a site structure with specified depth and breadth.
 fn create_site_structure(root: &Path, depth: usize, breadth: usize) {
@@ -34,11 +42,7 @@ fn bench_site_get_page(c: &mut Criterion) {
     let source_dir = temp_dir.path().join("docs");
     create_site_structure(&source_dir, 3, 5);
 
-    let config = SiteLoaderConfig {
-        source_dir,
-        cache_dir: None,
-    };
-    let loader = SiteLoader::new(config);
+    let loader = create_loader(source_dir);
     let site = loader.reload_if_needed();
 
     let mut group = c.benchmark_group("site_lookup");
@@ -59,11 +63,7 @@ fn bench_site_breadcrumbs(c: &mut Criterion) {
     let source_dir = temp_dir.path().join("docs");
     create_site_structure(&source_dir, 5, 3);
 
-    let config = SiteLoaderConfig {
-        source_dir,
-        cache_dir: None,
-    };
-    let loader = SiteLoader::new(config);
+    let loader = create_loader(source_dir);
     let site = loader.reload_if_needed();
 
     let mut group = c.benchmark_group("breadcrumbs");
@@ -88,11 +88,7 @@ fn bench_site_navigation(c: &mut Criterion) {
         let source_dir = temp_dir.path().join(format!("docs_{depth}_{breadth}"));
         create_site_structure(&source_dir, depth, breadth);
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
         let site = loader.reload_if_needed();
 
         group.bench_with_input(
@@ -110,11 +106,7 @@ fn bench_siteloader_reload(c: &mut Criterion) {
     let source_dir = temp_dir.path().join("docs");
     create_site_structure(&source_dir, 3, 5);
 
-    let config = SiteLoaderConfig {
-        source_dir,
-        cache_dir: None,
-    };
-    let loader = SiteLoader::new(config);
+    let loader = create_loader(source_dir);
 
     let mut group = c.benchmark_group("siteloader");
 
@@ -145,12 +137,7 @@ fn bench_siteloader_varying_sizes(c: &mut Criterion) {
 
         group.bench_function(label, |b| {
             b.iter_with_setup(
-                || {
-                    SiteLoader::new(SiteLoaderConfig {
-                        source_dir: source_dir.clone(),
-                        cache_dir: None,
-                    })
-                },
+                || create_loader(source_dir.clone()),
                 |loader| loader.reload_if_needed(),
             );
         });
@@ -159,30 +146,26 @@ fn bench_siteloader_varying_sizes(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_resolve_source_path(c: &mut Criterion) {
+fn bench_get_page(c: &mut Criterion) {
     let temp_dir = tempfile::tempdir().unwrap();
     let source_dir = temp_dir.path().join("docs");
     create_site_structure(&source_dir, 4, 4);
 
-    let config = SiteLoaderConfig {
-        source_dir,
-        cache_dir: None,
-    };
-    let loader = SiteLoader::new(config);
+    let loader = create_loader(source_dir);
     let site = loader.reload_if_needed();
 
-    let mut group = c.benchmark_group("resolve_path");
+    let mut group = c.benchmark_group("get_page");
 
     group.bench_function("shallow", |b| {
-        b.iter(|| site.resolve_source_path("/section-0"));
+        b.iter(|| site.get_page("/section-0"));
     });
 
     group.bench_function("deep", |b| {
-        b.iter(|| site.resolve_source_path("/section-0/section-0/section-0/section-0"));
+        b.iter(|| site.get_page("/section-0/section-0/section-0/section-0"));
     });
 
     group.bench_function("not_found", |b| {
-        b.iter(|| site.resolve_source_path("/nonexistent"));
+        b.iter(|| site.get_page("/nonexistent"));
     });
 
     group.finish();
@@ -195,7 +178,7 @@ criterion_group!(
     bench_site_navigation,
     bench_siteloader_reload,
     bench_siteloader_varying_sizes,
-    bench_resolve_source_path,
+    bench_get_page,
 );
 
 criterion_main!(benches);

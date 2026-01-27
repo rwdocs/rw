@@ -10,7 +10,6 @@
 //!
 //! ```json
 //! {
-//!     "source_dir": "/path/to/docs",
 //!     "pages": [
 //!         {"title": "Guide", "path": "/guide", "source_path": "guide.md"}
 //!     ],
@@ -30,7 +29,6 @@ use crate::site::{Page, Site};
 /// Cache format for serialization.
 #[derive(Serialize, Deserialize)]
 struct CachedSite {
-    source_dir: PathBuf,
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
@@ -40,7 +38,6 @@ struct CachedSite {
 impl From<&Site> for CachedSite {
     fn from(site: &Site) -> Self {
         Self {
-            source_dir: site.source_dir().to_path_buf(),
             pages: site.pages().to_vec(),
             children: site.children_indices().to_vec(),
             parents: site.parent_indices().to_vec(),
@@ -51,13 +48,7 @@ impl From<&Site> for CachedSite {
 
 impl From<CachedSite> for Site {
     fn from(cached: CachedSite) -> Self {
-        Site::new(
-            cached.source_dir,
-            cached.pages,
-            cached.children,
-            cached.parents,
-            cached.roots,
-        )
+        Site::new(cached.pages, cached.children, cached.parents, cached.roots)
     }
 }
 
@@ -162,10 +153,9 @@ impl SiteCache for FileSiteCache {
 mod tests {
     use super::*;
     use crate::site::SiteBuilder;
-    use std::path::Path;
 
     fn create_test_site() -> Site {
-        let mut builder = SiteBuilder::new(PathBuf::from("/docs"));
+        let mut builder = SiteBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
             "/".to_string(),
@@ -224,7 +214,6 @@ mod tests {
 
         assert!(loaded.is_some());
         let loaded = loaded.unwrap();
-        assert_eq!(loaded.source_dir(), Path::new("/docs"));
         assert!(loaded.get_page("/").is_some());
         assert!(loaded.get_page("/guide").is_some());
     }
@@ -299,7 +288,6 @@ mod tests {
         let content = fs::read_to_string(cache_dir.join("site.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
 
-        assert!(parsed.get("source_dir").is_some());
         assert!(parsed.get("pages").is_some());
         assert!(parsed.get("children").is_some());
         assert!(parsed.get("parents").is_some());

@@ -12,13 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Project renamed from Docstage to RW**; all crates renamed from `docstage-*` to `rw-*`; configuration file renamed from `docstage.toml` to `rw.toml`; CLI binary renamed from `docstage` to `rw`; default OAuth consumer key changed from `"docstage"` to `"rw"`
 - **Standardized container directive syntax on brackets**; `:::tab[Label]` is now the only supported syntax; space-separated syntax (`::: tab Label`) is no longer recognized; aligns with CommonMark directive specification
 - **`SiteLoader` refactored to use `Storage` trait** (RD-033); decouples site loading from filesystem operations; moved mtime caching and H1 title extraction to `FsStorage`; enables unit testing with `MockStorage` without real filesystem access; hierarchy is now derived from flat document list using path conventions (`index.md` as section landing pages)
-- **`SiteLoader::with_storage()` is now public** and accepts `Arc<dyn Storage>` (was `Box<dyn Storage>`); enables sharing storage between `SiteLoader` and `PageRenderer` for consistency
-- **`PageRenderer` now optionally uses `Storage` trait** via `with_storage()` builder method; when storage is set, reads files through the storage backend instead of direct filesystem access; requires `source_dir` in config for path resolution
-- **`PageRendererConfig` has new `source_dir` field** for resolving absolute paths to relative paths when using `Storage`
+- **`SiteLoader` constructor changed** from `new(config)` and `with_storage(config, storage)` to `new(storage, config)`; storage is now a required parameter; `SiteLoaderConfig` no longer has `source_dir` field
+- **`PageRenderer` constructor changed** to require storage: `new(storage, config)` instead of `new(config).with_storage(storage)`; storage is now a required parameter; `PageRendererConfig` no longer has `source_dir` field; `render()` now takes relative paths instead of absolute paths
+- **`Site` no longer has `source_dir`** field; removed `source_dir()` getter and `resolve_source_path()` method; use `Site::get_page()` to get page by URL path and access `page.source_path` for the relative source path
+- **`Storage` trait has new `mtime()` method** for getting file modification time as seconds since Unix epoch (f64)
+- **`MockStorage` has new `with_mtime()` builder** for setting modification times in tests
 
 ### Added
 
-- **`rw-storage` crate** for storage abstraction; provides `Storage` trait with `scan()`, `read()`, and `exists()` methods for document access
+- **`rw-storage` crate** for storage abstraction; provides `Storage` trait with `scan()`, `read()`, `exists()`, and `mtime()` methods for document access
 - **`Document` struct** in `rw-storage` with `path` (relative `PathBuf`) and `title` (extracted or filename-derived) fields
 - **`StorageError` type** with `StorageErrorKind` enum (`NotFound`, `PermissionDenied`, `AlreadyExists`, `InvalidPath`, `Unavailable`, `RateLimited`, `Timeout`, `Other`) and `ErrorStatus` enum for retry guidance (`Retriable`, `Fatal`, `Unknown`)
 - **`FsStorage`** in `rw-storage` for filesystem-based document access; recursive directory scanning with mtime-based title caching; extracts titles from first H1 heading or derives from filename

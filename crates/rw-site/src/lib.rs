@@ -9,30 +9,35 @@
 //!
 //! ```ignore
 //! use std::path::PathBuf;
+//! use std::sync::Arc;
 //! use rw_site::{SiteLoader, SiteLoaderConfig};
+//! use rw_storage::FsStorage;
 //!
+//! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = SiteLoaderConfig {
-//!     source_dir: PathBuf::from("docs"),
 //!     cache_dir: Some(PathBuf::from(".cache")),
 //! };
-//! let mut loader = SiteLoader::new(config);
-//! let site = loader.load(true);
+//! let loader = SiteLoader::new(storage, config);
+//! let site = loader.reload_if_needed();
 //! let nav = site.navigation();
 //! ```
 //!
 //! # Page Rendering
 //!
 //! ```ignore
-//! use std::path::PathBuf;
+//! use std::path::{Path, PathBuf};
+//! use std::sync::Arc;
 //! use rw_site::{PageRenderer, PageRendererConfig};
+//! use rw_storage::FsStorage;
 //!
+//! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = PageRendererConfig {
 //!     cache_dir: Some(PathBuf::from(".cache")),
 //!     kroki_url: Some("https://kroki.io".to_string()),
 //!     ..Default::default()
 //! };
-//! let renderer = PageRenderer::new(config);
-//! let result = renderer.render(Path::new("docs/guide.md"), "guide")?;
+//! let renderer = PageRenderer::new(storage, config);
+//! let result = renderer.render(Path::new("guide.md"), "guide")?;
 //! ```
 
 mod page_cache;

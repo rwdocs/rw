@@ -3,13 +3,12 @@
 //! Provides [`PageRenderer`] for rendering markdown to HTML with file-based caching
 //! and mtime-based invalidation.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rw_diagrams::{DiagramProcessor, FileCache};
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsPreprocessor, TabsProcessor, TocEntry};
-use rw_storage::Storage;
+use rw_storage::{Storage, StorageErrorKind};
 
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 
@@ -42,10 +41,6 @@ pub enum RenderError {
 /// Configuration for [`PageRenderer`].
 #[derive(Clone, Debug)]
 pub struct PageRendererConfig {
-    /// Source directory for documents.
-    ///
-    /// Required when using `Storage` to compute relative paths from absolute paths.
-    pub source_dir: Option<PathBuf>,
     /// Cache directory for rendered pages and metadata.
     ///
     /// If `None`, caching is disabled.
@@ -69,7 +64,6 @@ pub struct PageRendererConfig {
 impl Default for PageRendererConfig {
     fn default() -> Self {
         Self {
-            source_dir: None,
             cache_dir: None,
             version: String::new(),
             extract_title: true,
@@ -90,8 +84,11 @@ impl Default for PageRendererConfig {
 ///
 /// ```ignore
 /// use std::path::PathBuf;
+/// use std::sync::Arc;
 /// use rw_site::{PageRenderer, PageRendererConfig};
+/// use rw_storage::FsStorage;
 ///
+/// let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 /// let config = PageRendererConfig {
 ///     cache_dir: Some(PathBuf::from(".cache")),
 ///     version: "1.0.0".to_string(),
@@ -102,12 +99,11 @@ impl Default for PageRendererConfig {
 ///     dpi: 192,
 /// };
 ///
-/// let renderer = PageRenderer::new(config);
-/// let result = renderer.render(Path::new("docs/guide.md"), "guide")?;
+/// let renderer = PageRenderer::new(storage, config);
+/// let result = renderer.render(Path::new("guide.md"), "guide")?;
 /// ```
 pub struct PageRenderer {
-    storage: Option<Arc<dyn Storage>>,
-    source_dir: Option<PathBuf>,
+    storage: Arc<dyn Storage>,
     cache: Box<dyn PageCache>,
     extract_title: bool,
     kroki_url: Option<String>,
@@ -117,17 +113,16 @@ pub struct PageRenderer {
 }
 
 impl PageRenderer {
-    /// Create a new page renderer with the given configuration.
+    /// Create a new page renderer with storage and configuration.
     #[must_use]
-    pub fn new(config: PageRendererConfig) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, config: PageRendererConfig) -> Self {
         let cache: Box<dyn PageCache> = match &config.cache_dir {
             Some(dir) => Box::new(FilePageCache::new(dir.clone(), config.version.clone())),
             None => Box::new(NullPageCache),
         };
 
         Self {
-            storage: None,
-            source_dir: config.source_dir,
+            storage,
             cache,
             extract_title: config.extract_title,
             kroki_url: config.kroki_url,
@@ -137,21 +132,11 @@ impl PageRenderer {
         }
     }
 
-    /// Set the storage backend for reading files.
-    ///
-    /// When set, the renderer uses `storage.read()` instead of direct filesystem access.
-    /// Requires `source_dir` to be set in the config for path resolution.
-    #[must_use]
-    pub fn with_storage(mut self, storage: Arc<dyn Storage>) -> Self {
-        self.storage = Some(storage);
-        self
-    }
-
     /// Render a markdown page.
     ///
     /// # Arguments
     ///
-    /// * `source_path` - Absolute path to markdown source file
+    /// * `source_path` - Relative path to markdown source file (e.g., "guide.md")
     /// * `base_path` - URL path for resolving relative links (e.g., "domain-a/guide")
     ///
     /// # Returns
@@ -167,11 +152,14 @@ impl PageRenderer {
         source_path: &Path,
         base_path: &str,
     ) -> Result<PageRenderResult, RenderError> {
-        if !source_path.exists() {
+        if !self.storage.exists(source_path) {
             return Err(RenderError::FileNotFound(source_path.to_path_buf()));
         }
 
-        let source_mtime = get_mtime(source_path)?;
+        let source_mtime = self
+            .storage
+            .mtime(source_path)
+            .map_err(|_| RenderError::FileNotFound(source_path.to_path_buf()))?;
 
         if let Some(cached) = self.cache.get(base_path, source_mtime) {
             return Ok(PageRenderResult {
@@ -183,7 +171,10 @@ impl PageRenderer {
             });
         }
 
-        let markdown_text = self.read_file(source_path)?;
+        let markdown_text = self.storage.read(source_path).map_err(|e| match e.kind() {
+            StorageErrorKind::NotFound => RenderError::FileNotFound(source_path.to_path_buf()),
+            _ => RenderError::Io(std::io::Error::other(e.to_string())),
+        })?;
 
         // Preprocess tabs directives
         let mut tabs_preprocessor = TabsPreprocessor::new();
@@ -259,64 +250,32 @@ impl PageRenderer {
     pub fn invalidate(&self, path: &str) {
         self.cache.invalidate(path);
     }
-
-    /// Read file content using storage if available, otherwise direct filesystem.
-    fn read_file(&self, source_path: &Path) -> Result<String, RenderError> {
-        if let (Some(storage), Some(source_dir)) = (&self.storage, &self.source_dir) {
-            // Compute relative path from absolute path
-            let rel_path = source_path
-                .strip_prefix(source_dir)
-                .map_err(|_| RenderError::FileNotFound(source_path.to_path_buf()))?;
-
-            storage.read(rel_path).map_err(|e| match e.kind() {
-                rw_storage::StorageErrorKind::NotFound => {
-                    RenderError::FileNotFound(source_path.to_path_buf())
-                }
-                _ => RenderError::Io(std::io::Error::other(e.to_string())),
-            })
-        } else {
-            // Fallback to direct filesystem access
-            fs::read_to_string(source_path).map_err(RenderError::Io)
-        }
-    }
-}
-
-/// Get file modification time as seconds since Unix epoch.
-fn get_mtime(path: &Path) -> Result<f64, RenderError> {
-    path.metadata()
-        .map_err(RenderError::Io)?
-        .modified()
-        .map_err(RenderError::Io)
-        .map(|t| {
-            t.duration_since(std::time::UNIX_EPOCH)
-                .map_or(0.0, |d| d.as_secs_f64())
-        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use rw_storage::{FsStorage, MockStorage};
+    use std::fs;
 
-    fn create_temp_md(content: &str) -> (tempfile::TempDir, PathBuf) {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let file_path = temp_dir.path().join("test.md");
-        let mut file = fs::File::create(&file_path).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
-        (temp_dir, file_path)
+    fn create_storage(source_dir: PathBuf) -> Arc<dyn Storage> {
+        Arc::new(FsStorage::new(source_dir))
     }
 
     #[test]
     fn test_render_simple_markdown() {
-        let (_temp_dir, file_path) = create_temp_md("# Hello\n\nWorld");
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().to_path_buf();
+        fs::write(source_dir.join("test.md"), "# Hello\n\nWorld").unwrap();
 
+        let storage = create_storage(source_dir);
         let config = PageRendererConfig {
             extract_title: true,
             ..Default::default()
         };
-        let renderer = PageRenderer::new(config);
+        let renderer = PageRenderer::new(storage, config);
 
-        let result = renderer.render(&file_path, "test").unwrap();
+        let result = renderer.render(Path::new("test.md"), "test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
         assert_eq!(result.title, Some("Hello".to_string()));
         assert!(!result.from_cache);
@@ -324,35 +283,38 @@ mod tests {
 
     #[test]
     fn test_render_file_not_found() {
+        let storage: Arc<dyn Storage> = Arc::new(MockStorage::new());
         let config = PageRendererConfig::default();
-        let renderer = PageRenderer::new(config);
+        let renderer = PageRenderer::new(storage, config);
 
-        let result = renderer.render(Path::new("/nonexistent/file.md"), "test");
+        let result = renderer.render(Path::new("nonexistent.md"), "test");
         assert!(matches!(result, Err(RenderError::FileNotFound(_))));
     }
 
     #[test]
     fn test_render_with_cache() {
         let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().join("docs");
         let cache_dir = temp_dir.path().join("cache");
-        let file_path = temp_dir.path().join("test.md");
-        fs::write(&file_path, "# Cached\n\nContent").unwrap();
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(source_dir.join("test.md"), "# Cached\n\nContent").unwrap();
 
+        let storage = create_storage(source_dir);
         let config = PageRendererConfig {
             cache_dir: Some(cache_dir),
             version: "1.0.0".to_string(),
             extract_title: true,
             ..Default::default()
         };
-        let renderer = PageRenderer::new(config);
+        let renderer = PageRenderer::new(storage, config);
 
         // First render - cache miss
-        let result1 = renderer.render(&file_path, "test").unwrap();
+        let result1 = renderer.render(Path::new("test.md"), "test").unwrap();
         assert!(!result1.from_cache);
         assert_eq!(result1.title, Some("Cached".to_string()));
 
         // Second render - cache hit
-        let result2 = renderer.render(&file_path, "test").unwrap();
+        let result2 = renderer.render(Path::new("test.md"), "test").unwrap();
         assert!(result2.from_cache);
         assert_eq!(result2.title, Some("Cached".to_string()));
         assert_eq!(result1.html, result2.html);
@@ -361,47 +323,52 @@ mod tests {
     #[test]
     fn test_render_cache_invalidation() {
         let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().join("docs");
         let cache_dir = temp_dir.path().join("cache");
-        let file_path = temp_dir.path().join("test.md");
-        fs::write(&file_path, "# Original\n\nContent").unwrap();
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(source_dir.join("test.md"), "# Original\n\nContent").unwrap();
 
+        let storage = create_storage(source_dir);
         let config = PageRendererConfig {
             cache_dir: Some(cache_dir),
             version: "1.0.0".to_string(),
             extract_title: true,
             ..Default::default()
         };
-        let renderer = PageRenderer::new(config);
+        let renderer = PageRenderer::new(storage, config);
 
         // Render and cache
-        let result1 = renderer.render(&file_path, "test").unwrap();
+        let result1 = renderer.render(Path::new("test.md"), "test").unwrap();
         assert!(!result1.from_cache);
 
         // Invalidate
         renderer.invalidate("test");
 
         // Re-render - should be cache miss
-        let result2 = renderer.render(&file_path, "test").unwrap();
+        let result2 = renderer.render(Path::new("test.md"), "test").unwrap();
         assert!(!result2.from_cache);
     }
 
     #[test]
     fn test_render_mtime_invalidation() {
         let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().join("docs");
         let cache_dir = temp_dir.path().join("cache");
-        let file_path = temp_dir.path().join("test.md");
+        fs::create_dir_all(&source_dir).unwrap();
+        let file_path = source_dir.join("test.md");
         fs::write(&file_path, "# Version1\n\nContent").unwrap();
 
+        let storage = create_storage(source_dir);
         let config = PageRendererConfig {
             cache_dir: Some(cache_dir),
             version: "1.0.0".to_string(),
             extract_title: true,
             ..Default::default()
         };
-        let renderer = PageRenderer::new(config);
+        let renderer = PageRenderer::new(storage, config);
 
         // First render
-        let result1 = renderer.render(&file_path, "test").unwrap();
+        let result1 = renderer.render(Path::new("test.md"), "test").unwrap();
         assert!(!result1.from_cache);
         assert_eq!(result1.title, Some("Version1".to_string()));
 
@@ -410,22 +377,29 @@ mod tests {
         fs::write(&file_path, "# Version2\n\nUpdated").unwrap();
 
         // Re-render - should be cache miss due to mtime change
-        let result2 = renderer.render(&file_path, "test").unwrap();
+        let result2 = renderer.render(Path::new("test.md"), "test").unwrap();
         assert!(!result2.from_cache);
         assert_eq!(result2.title, Some("Version2".to_string()));
     }
 
     #[test]
     fn test_render_toc_generation() {
-        let (_temp_dir, file_path) = create_temp_md("# Title\n\n## Section 1\n\n## Section 2");
+        let temp_dir = tempfile::tempdir().unwrap();
+        let source_dir = temp_dir.path().to_path_buf();
+        fs::write(
+            source_dir.join("test.md"),
+            "# Title\n\n## Section 1\n\n## Section 2",
+        )
+        .unwrap();
 
+        let storage = create_storage(source_dir);
         let config = PageRendererConfig {
             extract_title: true,
             ..Default::default()
         };
-        let renderer = PageRenderer::new(config);
+        let renderer = PageRenderer::new(storage, config);
 
-        let result = renderer.render(&file_path, "test").unwrap();
+        let result = renderer.render(Path::new("test.md"), "test").unwrap();
         assert_eq!(result.toc.len(), 2);
         assert_eq!(result.toc[0].title, "Section 1");
         assert_eq!(result.toc[0].level, 2);
@@ -433,71 +407,36 @@ mod tests {
     }
 
     #[test]
-    fn test_render_with_storage() {
-        use rw_storage::MockStorage;
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let source_dir = temp_dir.path().to_path_buf();
-        let file_path = source_dir.join("guide.md");
-
-        // Create file on disk (for mtime check)
-        fs::write(&file_path, "# Guide\n\nContent via storage.").unwrap();
-
-        // Create mock storage with the same content
-        let storage = Arc::new(
-            MockStorage::new().with_content("guide.md", "# Guide\n\nContent via storage."),
+    fn test_render_with_mock_storage() {
+        let storage: Arc<dyn Storage> = Arc::new(
+            MockStorage::new()
+                .with_content("guide.md", "# Guide\n\nContent via storage.")
+                .with_mtime("guide.md", 1000.0),
         );
 
         let config = PageRendererConfig {
-            source_dir: Some(source_dir),
             extract_title: true,
             ..Default::default()
         };
-        let renderer = PageRenderer::new(config).with_storage(storage);
+        let renderer = PageRenderer::new(storage, config);
 
-        let result = renderer.render(&file_path, "guide").unwrap();
+        let result = renderer.render(Path::new("guide.md"), "guide").unwrap();
         assert!(result.html.contains("<p>Content via storage.</p>"));
         assert_eq!(result.title, Some("Guide".to_string()));
     }
 
     #[test]
-    fn test_render_with_storage_not_found() {
-        use rw_storage::MockStorage;
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let source_dir = temp_dir.path().to_path_buf();
-        let file_path = source_dir.join("missing.md");
-
-        // Create file on disk (for exists check)
-        fs::write(&file_path, "# Missing").unwrap();
-
+    fn test_render_with_mock_storage_not_found() {
         // Empty storage - file not found
-        let storage = Arc::new(MockStorage::new());
+        let storage: Arc<dyn Storage> = Arc::new(MockStorage::new());
 
         let config = PageRendererConfig {
-            source_dir: Some(source_dir),
             extract_title: true,
             ..Default::default()
         };
-        let renderer = PageRenderer::new(config).with_storage(storage);
+        let renderer = PageRenderer::new(storage, config);
 
-        let result = renderer.render(&file_path, "missing");
+        let result = renderer.render(Path::new("missing.md"), "missing");
         assert!(matches!(result, Err(RenderError::FileNotFound(_))));
-    }
-
-    #[test]
-    fn test_render_without_storage_uses_filesystem() {
-        let (_temp_dir, file_path) = create_temp_md("# Direct\n\nDirect filesystem read.");
-
-        let config = PageRendererConfig {
-            extract_title: true,
-            ..Default::default()
-        };
-        // No storage set - uses direct filesystem
-        let renderer = PageRenderer::new(config);
-
-        let result = renderer.render(&file_path, "direct").unwrap();
-        assert!(result.html.contains("<p>Direct filesystem read.</p>"));
-        assert_eq!(result.title, Some("Direct".to_string()));
     }
 }

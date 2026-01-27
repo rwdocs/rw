@@ -230,6 +230,17 @@ pub trait Storage: Send + Sync {
     /// Used by `SiteLoader` to determine if `index.md` exists for hierarchy building.
     /// Returns `false` on errors (treats errors as "doesn't exist").
     fn exists(&self, path: &Path) -> bool;
+
+    /// Get modification time as seconds since Unix epoch.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Relative path within the storage (e.g., "guide.md")
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the document doesn't exist or mtime can't be retrieved.
+    fn mtime(&self, path: &Path) -> Result<f64, StorageError>;
 }
 
 #[cfg(test)]
