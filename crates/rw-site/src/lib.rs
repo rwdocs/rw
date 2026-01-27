@@ -17,7 +17,7 @@
 //! let config = SiteLoaderConfig {
 //!     cache_dir: Some(PathBuf::from(".cache")),
 //! };
-//! let loader = SiteLoader::new(storage, config);
+//! let loader = SiteLoader::new(storage, &config);
 //! let site = loader.reload_if_needed();
 //! let nav = site.navigation();
 //! ```
