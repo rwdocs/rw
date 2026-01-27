@@ -23,12 +23,13 @@
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
 //! use rw_site::{SiteLoader, SiteLoaderConfig};
+//! use rw_storage::FsStorage;
 //!
+//! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = SiteLoaderConfig {
-//!     source_dir: PathBuf::from("docs"),
 //!     cache_dir: Some(PathBuf::from(".cache")),
 //! };
-//! let loader = Arc::new(SiteLoader::new(config));
+//! let loader = Arc::new(SiteLoader::new(storage, config));
 //!
 //! // Concurrent access from multiple threads
 //! let site = loader.reload_if_needed();
@@ -39,16 +40,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use rw_storage::{FsStorage, Storage};
+use rw_storage::Storage;
 
 use crate::site::{Site, SiteBuilder};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
 /// Configuration for [`SiteLoader`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SiteLoaderConfig {
-    /// Root directory containing markdown sources.
-    pub source_dir: PathBuf,
     /// Cache directory for site structure (`None` disables caching).
     pub cache_dir: Option<PathBuf>,
 }
@@ -66,7 +65,6 @@ pub struct SiteLoaderConfig {
 /// - Uses `Mutex<()>` for serializing reload operations
 /// - Uses `AtomicBool` for cache validity tracking
 pub struct SiteLoader {
-    config: SiteLoaderConfig,
     storage: Arc<dyn Storage>,
     file_cache: Box<dyn SiteCache>,
     /// Mutex for serializing reload operations.
@@ -78,35 +76,23 @@ pub struct SiteLoader {
 }
 
 impl SiteLoader {
-    /// Create a new site loader with filesystem storage.
+    /// Create a new site loader with storage.
     ///
     /// # Arguments
     ///
-    /// * `config` - Loader configuration
-    #[must_use]
-    pub fn new(config: SiteLoaderConfig) -> Self {
-        let storage = Arc::new(FsStorage::new(config.source_dir.clone()));
-        Self::with_storage(config, storage)
-    }
-
-    /// Create a new site loader with custom storage.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Loader configuration
     /// * `storage` - Storage implementation for document scanning
+    /// * `config` - Loader configuration
     #[must_use]
-    pub fn with_storage(config: SiteLoaderConfig, storage: Arc<dyn Storage>) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, config: SiteLoaderConfig) -> Self {
         let file_cache: Box<dyn SiteCache> = match &config.cache_dir {
             Some(dir) => Box::new(FileSiteCache::new(dir.clone())),
             None => Box::new(NullSiteCache),
         };
 
         // Create initial empty site
-        let initial_site = Arc::new(SiteBuilder::new(config.source_dir.clone()).build());
+        let initial_site = Arc::new(SiteBuilder::new().build());
 
         Self {
-            config,
             storage,
             file_cache,
             reload_lock: Mutex::new(()),
@@ -190,18 +176,12 @@ impl SiteLoader {
         self.file_cache.invalidate();
     }
 
-    /// Get source directory.
-    #[must_use]
-    pub fn source_dir(&self) -> &Path {
-        &self.config.source_dir
-    }
-
     /// Load site from storage and build hierarchy.
     ///
     /// Uses storage.scan() to get documents, then builds hierarchy based on
     /// path conventions.
     fn load_from_storage(&self) -> Site {
-        let mut builder = SiteBuilder::new(self.config.source_dir.clone());
+        let mut builder = SiteBuilder::new();
 
         // Scan storage for documents
         let documents = match self.storage.scan() {
@@ -354,20 +334,24 @@ mod tests {
     use std::fs;
     use std::sync::Arc;
 
+    use rw_storage::FsStorage;
+
     use super::*;
 
     fn create_test_dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
     }
 
+    fn create_loader(source_dir: PathBuf) -> SiteLoader {
+        let storage = Arc::new(FsStorage::new(source_dir));
+        let config = SiteLoaderConfig { cache_dir: None };
+        SiteLoader::new(storage, config)
+    }
+
     #[test]
     fn test_reload_if_needed_missing_dir_returns_empty_site() {
         let temp_dir = create_test_dir();
-        let config = SiteLoaderConfig {
-            source_dir: temp_dir.path().join("nonexistent"),
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(temp_dir.path().join("nonexistent"));
 
         let site = loader.reload_if_needed();
 
@@ -380,11 +364,7 @@ mod tests {
         let source_dir = temp_dir.path().join("docs");
         fs::create_dir(&source_dir).unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -399,11 +379,7 @@ mod tests {
         fs::write(source_dir.join("guide.md"), "# User Guide\n\nContent.").unwrap();
         fs::write(source_dir.join("api.md"), "# API Reference\n\nDocs.").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -423,11 +399,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir: source_dir.clone(),
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -437,10 +409,6 @@ mod tests {
         assert_eq!(page.title, "Welcome");
         assert_eq!(page.path, "/");
         assert_eq!(page.source_path, PathBuf::from("index.md"));
-        // resolve_source_path returns canonicalized path
-        let resolved = site.resolve_source_path("/");
-        let expected = source_dir.join("index.md").canonicalize().unwrap();
-        assert_eq!(resolved, Some(expected));
     }
 
     #[test]
@@ -452,11 +420,7 @@ mod tests {
         fs::write(domain_dir.join("index.md"), "# Domain A\n\nOverview.").unwrap();
         fs::write(domain_dir.join("guide.md"), "# Setup Guide\n\nSteps.").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -479,11 +443,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(source_dir.join("guide.md"), "# My Custom Title\n\nContent.").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -503,11 +463,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -527,11 +483,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -551,11 +503,7 @@ mod tests {
         fs::write(source_dir.join(".hidden.md"), "# Hidden").unwrap();
         fs::write(source_dir.join("visible.md"), "# Visible").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -571,11 +519,7 @@ mod tests {
         fs::write(source_dir.join("_partial.md"), "# Partial").unwrap();
         fs::write(source_dir.join("main.md"), "# Main").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -591,11 +535,7 @@ mod tests {
         fs::create_dir_all(&no_index_dir).unwrap();
         fs::write(no_index_dir.join("child.md"), "# Child Page").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 
@@ -613,11 +553,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         // First reload to populate
         let _ = loader.reload_if_needed();
@@ -636,11 +572,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site1 = loader.reload_if_needed();
         let site2 = loader.reload_if_needed();
@@ -656,11 +588,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir: source_dir.clone(),
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir.clone());
 
         // First reload - should NOT have /new
         let site1 = loader.reload_if_needed();
@@ -679,38 +607,6 @@ mod tests {
     }
 
     #[test]
-    fn test_reload_if_needed_site_has_source_dir() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
-
-        let config = SiteLoaderConfig {
-            source_dir: source_dir.clone(),
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
-
-        let site = loader.reload_if_needed();
-
-        assert_eq!(site.source_dir(), source_dir);
-    }
-
-    #[test]
-    fn test_source_dir_getter() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-
-        let config = SiteLoaderConfig {
-            source_dir: source_dir.clone(),
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
-
-        assert_eq!(loader.source_dir(), source_dir);
-    }
-
-    #[test]
     fn test_concurrent_access() {
         use std::thread;
 
@@ -719,11 +615,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = Arc::new(SiteLoader::new(config));
+        let loader = Arc::new(create_loader(source_dir));
 
         // Spawn multiple threads accessing concurrently
         let handles: Vec<_> = (0..10)
@@ -750,11 +642,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = Arc::new(SiteLoader::new(config));
+        let loader = Arc::new(create_loader(source_dir));
 
         // Initial load
         let _ = loader.reload_if_needed();
@@ -791,11 +679,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(source_dir.join("guide.md"), "# Original Title").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir: source_dir.clone(),
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         // First load
         let site1 = loader.reload_if_needed();
@@ -814,11 +698,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(source_dir.join("guide.md"), "# Original Title").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir: source_dir.clone(),
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir.clone());
 
         // First load
         let site1 = loader.reload_if_needed();
@@ -867,11 +747,7 @@ mod tests {
         fs::write(source_dir.join("level1/level2/index.md"), "# Level 2").unwrap();
         fs::write(source_dir.join("level1/level2/page.md"), "# Deep Page").unwrap();
 
-        let config = SiteLoaderConfig {
-            source_dir,
-            cache_dir: None,
-        };
-        let loader = SiteLoader::new(config);
+        let loader = create_loader(source_dir);
 
         let site = loader.reload_if_needed();
 

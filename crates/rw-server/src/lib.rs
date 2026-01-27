@@ -137,7 +137,6 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
 
     // Create PageRenderer with shared storage
     let renderer_config = PageRendererConfig {
-        source_dir: Some(config.source_dir.clone()),
         cache_dir: config.cache_dir.clone(),
         version: config.version.clone(),
         extract_title: true,
@@ -146,14 +145,13 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         config_file: config.config_file.clone(),
         dpi: config.dpi,
     };
-    let renderer = PageRenderer::new(renderer_config).with_storage(Arc::clone(&storage));
+    let renderer = PageRenderer::new(Arc::clone(&storage), renderer_config);
 
     // Create SiteLoader with shared storage
     let site_loader_config = SiteLoaderConfig {
-        source_dir: config.source_dir.clone(),
         cache_dir: config.cache_dir.clone(),
     };
-    let site_loader = Arc::new(SiteLoader::with_storage(site_loader_config, storage));
+    let site_loader = Arc::new(SiteLoader::new(Arc::clone(&storage), site_loader_config));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {
@@ -172,6 +170,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
 
     // Create app state
     let state = Arc::new(AppState {
+        storage,
         renderer,
         site_loader,
         live_reload,

@@ -55,7 +55,6 @@ pub struct BreadcrumbItem {
 /// and O(d) breadcrumb building where d is the page depth.
 #[derive(Clone)]
 pub struct Site {
-    source_dir: PathBuf,
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
@@ -71,7 +70,6 @@ impl Site {
     /// cache deserialization.
     #[must_use]
     pub(crate) fn new(
-        source_dir: PathBuf,
         pages: Vec<Page>,
         children: Vec<Vec<usize>>,
         parents: Vec<Option<usize>>,
@@ -89,7 +87,6 @@ impl Site {
             .collect();
 
         Self {
-            source_dir,
             pages,
             children,
             parents,
@@ -97,12 +94,6 @@ impl Site {
             path_index,
             source_path_index,
         }
-    }
-
-    /// Get the source directory.
-    #[must_use]
-    pub fn source_dir(&self) -> &Path {
-        &self.source_dir
     }
 
     /// Get page by URL path.
@@ -115,7 +106,7 @@ impl Site {
     ///
     /// Page reference if found, `None` otherwise.
     #[must_use]
-    pub(crate) fn get_page(&self, path: &str) -> Option<&Page> {
+    pub fn get_page(&self, path: &str) -> Option<&Page> {
         let normalized = Self::normalize_path(path);
         self.path_index.get(&normalized).map(|&i| &self.pages[i])
     }
@@ -208,33 +199,6 @@ impl Site {
         self.roots.iter().map(|&i| &self.pages[i]).collect()
     }
 
-    /// Resolve URL path to absolute source file path.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path (e.g., "/guide")
-    ///
-    /// # Returns
-    ///
-    /// Absolute path to source markdown file, or `None` if page not found
-    /// or if the resolved path would escape the source directory (path traversal
-    /// protection).
-    #[must_use]
-    pub fn resolve_source_path(&self, path: &str) -> Option<PathBuf> {
-        let page = self.get_page(path)?;
-        let resolved = self.source_dir.join(&page.source_path);
-
-        // Canonicalize and validate path stays within source_dir (defense-in-depth)
-        let canonical = resolved.canonicalize().ok()?;
-        let canonical_source = self.source_dir.canonicalize().ok()?;
-
-        if canonical.starts_with(&canonical_source) {
-            Some(canonical)
-        } else {
-            None // Path traversal attempt
-        }
-    }
-
     /// Get page by source file path.
     ///
     /// # Arguments
@@ -323,7 +287,6 @@ impl Site {
 
 /// Builder for constructing [`Site`] instances.
 pub(crate) struct SiteBuilder {
-    source_dir: PathBuf,
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
@@ -332,14 +295,9 @@ pub(crate) struct SiteBuilder {
 
 impl SiteBuilder {
     /// Create a new site builder.
-    ///
-    /// # Arguments
-    ///
-    /// * `source_dir` - Root directory containing markdown sources
     #[must_use]
-    pub(crate) fn new(source_dir: PathBuf) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            source_dir,
             pages: Vec::new(),
             children: Vec::new(),
             parents: Vec::new(),
@@ -387,13 +345,7 @@ impl SiteBuilder {
     /// Build the [`Site`] instance.
     #[must_use]
     pub(crate) fn build(self) -> Site {
-        Site::new(
-            self.source_dir,
-            self.pages,
-            self.children,
-            self.parents,
-            self.roots,
-        )
+        Site::new(self.pages, self.children, self.parents, self.roots)
     }
 }
 
@@ -401,15 +353,11 @@ impl SiteBuilder {
 mod tests {
     use super::*;
 
-    fn source_dir() -> PathBuf {
-        PathBuf::from("/docs")
-    }
-
     // Site tests
 
     #[test]
     fn test_get_page_returns_page() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -429,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_get_page_not_found_returns_none() {
-        let site = SiteBuilder::new(source_dir()).build();
+        let site = SiteBuilder::new().build();
 
         let page = site.get_page("/nonexistent");
 
@@ -438,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_get_page_normalizes_path() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -455,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_get_children_returns_children() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         let parent_idx = builder.add_page(
             "Parent".to_string(),
             "/parent".to_string(),
@@ -478,7 +426,7 @@ mod tests {
 
     #[test]
     fn test_get_children_not_found_returns_empty() {
-        let site = SiteBuilder::new(source_dir()).build();
+        let site = SiteBuilder::new().build();
 
         let children = site.get_children("/nonexistent");
 
@@ -487,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_get_children_no_children_returns_empty() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -503,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_empty_path_returns_empty() {
-        let site = SiteBuilder::new(source_dir()).build();
+        let site = SiteBuilder::new().build();
 
         let breadcrumbs = site.get_breadcrumbs("");
 
@@ -512,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_root_page_returns_home() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -530,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_nested_page_returns_ancestors() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         let parent_idx = builder.add_page(
             "Parent".to_string(),
             "/parent".to_string(),
@@ -555,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_not_found_returns_home() {
-        let site = SiteBuilder::new(source_dir()).build();
+        let site = SiteBuilder::new().build();
 
         let breadcrumbs = site.get_breadcrumbs("/nonexistent");
 
@@ -565,7 +513,7 @@ mod tests {
 
     #[test]
     fn test_get_breadcrumbs_with_root_index_excludes_root() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         let root_idx = builder.add_page(
             "Welcome".to_string(),
             "/".to_string(),
@@ -597,7 +545,7 @@ mod tests {
 
     #[test]
     fn test_get_root_pages_returns_roots() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "A".to_string(),
             "/a".to_string(),
@@ -620,148 +568,8 @@ mod tests {
     }
 
     #[test]
-    fn test_source_dir_returns_path() {
-        let site = SiteBuilder::new(source_dir()).build();
-
-        assert_eq!(site.source_dir(), Path::new("/docs"));
-    }
-
-    #[test]
-    fn test_resolve_source_path_returns_absolute_path() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let source_dir = temp_dir.path().to_path_buf();
-        std::fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
-
-        let mut builder = SiteBuilder::new(source_dir.clone());
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let result = site.resolve_source_path("/guide");
-
-        assert!(result.is_some());
-        let resolved = result.unwrap();
-        assert!(resolved.ends_with("guide.md"));
-        assert!(resolved.is_absolute());
-    }
-
-    #[test]
-    fn test_resolve_source_path_nested_page() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let source_dir = temp_dir.path().to_path_buf();
-        std::fs::create_dir_all(source_dir.join("domain/subdomain")).unwrap();
-        std::fs::write(source_dir.join("domain/subdomain/page.md"), "# Page").unwrap();
-
-        let mut builder = SiteBuilder::new(source_dir.clone());
-        builder.add_page(
-            "Deep".to_string(),
-            "/domain/subdomain/page".to_string(),
-            PathBuf::from("domain/subdomain/page.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let result = site.resolve_source_path("/domain/subdomain/page");
-
-        assert!(result.is_some());
-        let resolved = result.unwrap();
-        assert!(resolved.ends_with("domain/subdomain/page.md"));
-    }
-
-    #[test]
-    fn test_resolve_source_path_not_found_returns_none() {
-        let site = SiteBuilder::new(source_dir()).build();
-
-        let result = site.resolve_source_path("/nonexistent");
-
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_resolve_source_path_normalizes_path() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let source_dir = temp_dir.path().to_path_buf();
-        std::fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
-
-        let mut builder = SiteBuilder::new(source_dir.clone());
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let result = site.resolve_source_path("guide");
-
-        assert!(result.is_some());
-        assert!(result.unwrap().ends_with("guide.md"));
-    }
-
-    #[test]
-    fn test_resolve_source_path_blocks_traversal() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let source_dir = temp_dir.path().join("docs");
-        std::fs::create_dir(&source_dir).unwrap();
-
-        // Create a file outside source_dir
-        let outside_file = temp_dir.path().join("secret.txt");
-        std::fs::write(&outside_file, "secret").unwrap();
-
-        let mut builder = SiteBuilder::new(source_dir.clone());
-        // Simulate a malicious source_path that tries to escape source_dir
-        builder.add_page(
-            "Malicious".to_string(),
-            "/malicious".to_string(),
-            PathBuf::from("../secret.txt"),
-            None,
-        );
-        let site = builder.build();
-
-        // Should return None because the resolved path escapes source_dir
-        let result = site.resolve_source_path("/malicious");
-
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_resolve_source_path_allows_symlinks_within_source_dir() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let source_dir = temp_dir.path().to_path_buf();
-        let subdir = source_dir.join("subdir");
-        std::fs::create_dir(&subdir).unwrap();
-
-        // Create actual file and symlink within source_dir
-        let actual_file = subdir.join("actual.md");
-        std::fs::write(&actual_file, "# Actual").unwrap();
-
-        #[cfg(unix)]
-        {
-            let link_path = source_dir.join("link.md");
-            std::os::unix::fs::symlink(&actual_file, &link_path).unwrap();
-
-            let mut builder = SiteBuilder::new(source_dir.clone());
-            builder.add_page(
-                "Link".to_string(),
-                "/link".to_string(),
-                PathBuf::from("link.md"),
-                None,
-            );
-            let site = builder.build();
-
-            // Should succeed because symlink target is within source_dir
-            let result = site.resolve_source_path("/link");
-            assert!(result.is_some());
-        }
-    }
-
-    #[test]
     fn test_get_page_by_source_returns_page() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -779,7 +587,7 @@ mod tests {
 
     #[test]
     fn test_get_page_by_source_nested_path() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Deep".to_string(),
             "/domain/page".to_string(),
@@ -796,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_get_page_by_source_index_file() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Section".to_string(),
             "/section".to_string(),
@@ -813,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_get_page_by_source_not_found_returns_none() {
-        let site = SiteBuilder::new(source_dir()).build();
+        let site = SiteBuilder::new().build();
 
         let page = site.get_page_by_source(Path::new("nonexistent.md"));
 
@@ -824,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_add_page_returns_index() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
 
         let idx = builder.add_page(
             "Guide".to_string(),
@@ -838,7 +646,7 @@ mod tests {
 
     #[test]
     fn test_add_page_increments_index() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
 
         let idx1 = builder.add_page(
             "A".to_string(),
@@ -859,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_add_page_with_parent_links_child() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         let parent_idx = builder.add_page(
             "Parent".to_string(),
             "/parent".to_string(),
@@ -882,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_build_creates_site() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -893,7 +701,6 @@ mod tests {
         let site = builder.build();
 
         assert!(site.get_page("/guide").is_some());
-        assert_eq!(site.source_dir(), Path::new("/docs"));
     }
 
     // Page tests
@@ -928,7 +735,7 @@ mod tests {
 
     #[test]
     fn test_navigation_empty_site_returns_empty_list() {
-        let site = SiteBuilder::new(source_dir()).build();
+        let site = SiteBuilder::new().build();
 
         let nav = site.navigation();
 
@@ -937,7 +744,7 @@ mod tests {
 
     #[test]
     fn test_navigation_flat_site() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -962,7 +769,7 @@ mod tests {
 
     #[test]
     fn test_navigation_nested_site() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         let parent_idx = builder.add_page(
             "Domain A".to_string(),
             "/domain-a".to_string(),
@@ -990,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_navigation_deeply_nested() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         let idx_a = builder.add_page(
             "A".to_string(),
             "/a".to_string(),
@@ -1020,7 +827,7 @@ mod tests {
 
     #[test]
     fn test_navigation_root_page_excluded() {
-        let mut builder = SiteBuilder::new(source_dir());
+        let mut builder = SiteBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
             "/".to_string(),

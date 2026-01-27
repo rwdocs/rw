@@ -4,6 +4,7 @@
 //! table of contents, and HTML content.
 
 use std::sync::Arc;
+use std::time::{Duration, UNIX_EPOCH};
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -108,14 +109,14 @@ fn get_page_impl(
     state: Arc<AppState>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
-    // Load site and resolve source path
+    // Load site and get page to verify it exists
     let site = state.site_loader.reload_if_needed();
-    let source_path = site
-        .resolve_source_path(&path)
+    let page = site
+        .get_page(&path)
         .ok_or_else(|| ServerError::PageNotFound(path.clone()))?;
 
-    // Render the page
-    let result = state.renderer.render(&source_path, &path)?;
+    // Render the page using relative source path
+    let result = state.renderer.render(&page.source_path, &path)?;
 
     // Log warnings in verbose mode
     if state.verbose && !result.warnings.is_empty() {
@@ -134,12 +135,12 @@ fn get_page_impl(
         return Ok(StatusCode::NOT_MODIFIED.into_response());
     }
 
-    // Get last modified time
-    let source_mtime = source_path
-        .metadata()
-        .map_err(ServerError::Io)?
-        .modified()
-        .map_err(ServerError::Io)?;
+    // Get last modified time from storage
+    let source_mtime_f64 = state
+        .storage
+        .mtime(&page.source_path)
+        .map_err(|_| ServerError::PageNotFound(path.clone()))?;
+    let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(source_mtime_f64);
     let last_modified: DateTime<Utc> = source_mtime.into();
 
     // Build response
@@ -157,7 +158,7 @@ fn get_page_impl(
             } else {
                 format!("/{path}")
             },
-            source_file: source_path.display().to_string(),
+            source_file: page.source_path.display().to_string(),
             last_modified: last_modified.to_rfc3339(),
         },
         breadcrumbs,

@@ -30,6 +30,7 @@ use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 pub struct MockStorage {
     documents: RwLock<Vec<Document>>,
     contents: RwLock<HashMap<PathBuf, String>>,
+    mtimes: RwLock<HashMap<PathBuf, f64>>,
 }
 
 impl MockStorage {
@@ -75,6 +76,18 @@ impl MockStorage {
         self.contents.write().unwrap().insert(path, content.into());
         self
     }
+
+    /// Set modification time for a path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file
+    /// * `mtime` - Modification time as seconds since Unix epoch
+    #[must_use]
+    pub fn with_mtime(self, path: impl Into<PathBuf>, mtime: f64) -> Self {
+        self.mtimes.write().unwrap().insert(path.into(), mtime);
+        self
+    }
 }
 
 impl Storage for MockStorage {
@@ -97,6 +110,19 @@ impl Storage for MockStorage {
 
     fn exists(&self, path: &Path) -> bool {
         self.contents.read().unwrap().contains_key(path)
+    }
+
+    fn mtime(&self, path: &Path) -> Result<f64, StorageError> {
+        self.mtimes
+            .read()
+            .unwrap()
+            .get(path)
+            .copied()
+            .ok_or_else(|| {
+                StorageError::new(StorageErrorKind::NotFound)
+                    .with_path(path)
+                    .with_backend("Mock")
+            })
     }
 }
 
@@ -181,5 +207,27 @@ mod tests {
         let storage = MockStorage::new();
 
         assert!(!storage.exists(Path::new("missing.md")));
+    }
+
+    #[test]
+    fn test_with_mtime() {
+        let storage = MockStorage::new().with_mtime("guide.md", 1234567890.0);
+
+        let mtime = storage.mtime(Path::new("guide.md")).unwrap();
+
+        assert!((mtime - 1234567890.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_mtime_missing() {
+        let storage = MockStorage::new();
+
+        let result = storage.mtime(Path::new("missing.md"));
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), StorageErrorKind::NotFound);
+        assert_eq!(err.backend(), Some("Mock"));
+        assert_eq!(err.path(), Some(Path::new("missing.md")));
     }
 }
