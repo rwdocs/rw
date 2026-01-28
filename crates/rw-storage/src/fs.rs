@@ -354,7 +354,7 @@ impl Storage for FsStorage {
                 match shutdown_rx.recv_timeout(Duration::from_millis(50)) {
                     // Shutdown signaled or handle dropped
                     Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}          // Continue draining
+                    Err(mpsc::RecvTimeoutError::Timeout) => {} // Continue draining
                 }
 
                 for event in debouncer.drain_ready() {
