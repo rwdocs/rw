@@ -24,6 +24,7 @@ Edit `rw.toml` with your settings and place `private_key.pem` in the project roo
 cargo install --path crates/rw
 
 # Or build release binary with embedded assets
+# Note: Frontend assets are automatically built by build.rs
 cargo build -p rw --release --features embed-assets
 ```
 
