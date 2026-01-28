@@ -77,7 +77,7 @@ impl StorageEventReceiver {
 /// Uses RAII pattern - dropping the handle stops watching automatically.
 /// Signals shutdown by dropping the internal channel sender.
 pub struct WatchHandle {
-    _shutdown: Option<mpsc::Sender<()>>,
+    shutdown: Option<mpsc::Sender<()>>,
 }
 
 impl WatchHandle {
@@ -87,13 +87,13 @@ impl WatchHandle {
     /// receiver to return `Err(RecvError)` which signals shutdown.
     pub(crate) fn new(shutdown: mpsc::Sender<()>) -> Self {
         Self {
-            _shutdown: Some(shutdown),
+            shutdown: Some(shutdown),
         }
     }
 
     /// Stop watching immediately (consumes the handle).
     pub fn stop(mut self) {
-        self._shutdown.take();
+        self.shutdown.take();
     }
 
     /// Create a no-op handle that does nothing on drop.
@@ -101,7 +101,7 @@ impl WatchHandle {
     /// Used by the default `Storage::watch()` implementation for backends
     /// that don't support change notification.
     pub(crate) fn no_op() -> Self {
-        Self { _shutdown: None }
+        Self { shutdown: None }
     }
 }
 
@@ -139,9 +139,9 @@ mod tests {
 
         tx.send(event.clone()).unwrap();
 
-        let received = receiver.recv();
-        assert!(received.is_some());
-        assert_eq!(received.unwrap(), event);
+        let result = receiver.recv();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), event);
     }
 
     #[test]
@@ -151,8 +151,8 @@ mod tests {
 
         drop(tx);
 
-        let received = receiver.recv();
-        assert!(received.is_none());
+        let result = receiver.recv();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -160,8 +160,8 @@ mod tests {
         let (_tx, rx) = mpsc::channel();
         let receiver = StorageEventReceiver::new(rx);
 
-        let received = receiver.try_recv();
-        assert!(received.is_none());
+        let result = receiver.try_recv();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -176,9 +176,9 @@ mod tests {
 
         tx.send(event.clone()).unwrap();
 
-        let received = receiver.try_recv();
-        assert!(received.is_some());
-        assert_eq!(received.unwrap(), event);
+        let result = receiver.try_recv();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), event);
     }
 
     #[test]
@@ -202,16 +202,16 @@ mod tests {
         }
         drop(tx);
 
-        let received: Vec<_> = receiver.iter().collect();
-        assert_eq!(received, events);
+        let result: Vec<_> = receiver.iter().collect();
+        assert_eq!(result, events);
     }
 
     #[test]
     fn test_receiver_no_op() {
         let receiver = StorageEventReceiver::no_op();
 
-        let received = receiver.try_recv();
-        assert!(received.is_none());
+        let result = receiver.try_recv();
+        assert!(result.is_none());
     }
 
     #[test]

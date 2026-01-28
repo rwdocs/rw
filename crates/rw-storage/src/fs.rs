@@ -71,7 +71,7 @@ impl FsStorage {
     /// This should never happen as the regex is a compile-time constant.
     #[must_use]
     pub fn new(source_dir: PathBuf) -> Self {
-        Self::with_patterns(source_dir, vec!["**/*.md".to_string()])
+        Self::with_patterns(source_dir, &["**/*.md".to_string()])
     }
 
     /// Create a new filesystem storage with custom watch patterns.
@@ -87,7 +87,7 @@ impl FsStorage {
     /// - The internal regex for H1 heading extraction fails to compile
     /// - Any of the provided glob patterns are invalid
     #[must_use]
-    pub fn with_patterns(source_dir: PathBuf, patterns: Vec<String>) -> Self {
+    pub fn with_patterns(source_dir: PathBuf, patterns: &[String]) -> Self {
         let watch_patterns = patterns
             .iter()
             .map(|p| Pattern::new(p).expect("invalid glob pattern"))
@@ -352,8 +352,8 @@ impl Storage for FsStorage {
             loop {
                 // Check for shutdown signal (blocking until timeout or signal)
                 match shutdown_rx.recv_timeout(Duration::from_millis(50)) {
-                    Ok(()) => break,                                    // Shutdown signaled
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break, // Handle dropped
+                    // Shutdown signaled or handle dropped
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {}          // Continue draining
                 }
 
@@ -733,7 +733,7 @@ mod tests {
     // in test environments. The implementation follows the same pattern as LiveReloadManager
     // which works correctly in production.
     #[test]
-    #[ignore]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_detects_file_creation() {
         let temp_dir = create_test_dir();
         let temp_path = temp_dir.path().to_path_buf();
@@ -762,13 +762,12 @@ mod tests {
         let new_md_event = events.iter().find(|e| e.path == Path::new("new.md"));
         assert!(
             new_md_event.is_some(),
-            "Expected event for new.md, got: {:?}",
-            events
+            "Expected event for new.md, got: {events:?}"
         );
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_detects_file_modification() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("existing.md"), "# Original").unwrap();
@@ -794,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_detects_file_deletion() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("to-delete.md"), "# Delete Me").unwrap();
@@ -820,11 +819,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_respects_patterns() {
         let temp_dir = create_test_dir();
         let storage =
-            FsStorage::with_patterns(temp_dir.path().to_path_buf(), vec!["**/*.md".to_string()]);
+            FsStorage::with_patterns(temp_dir.path().to_path_buf(), &["**/*.md".to_string()]);
 
         let (rx, _handle) = storage.watch().unwrap();
 
@@ -852,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_debounces_multiple_events() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("file.md"), "# Original").unwrap();
@@ -884,7 +883,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_handle_stops_watching() {
         let temp_dir = create_test_dir();
         let storage = FsStorage::new(temp_dir.path().to_path_buf());

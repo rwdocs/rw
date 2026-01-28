@@ -24,7 +24,7 @@ pub(crate) struct ReloadEvent {
 pub(crate) struct LiveReloadManager {
     site_loader: Arc<SiteLoader>,
     broadcaster: broadcast::Sender<ReloadEvent>,
-    _watch_handle: Option<WatchHandle>,
+    watch_handle: Option<WatchHandle>,
 }
 
 impl LiveReloadManager {
@@ -42,7 +42,7 @@ impl LiveReloadManager {
         Self {
             site_loader,
             broadcaster,
-            _watch_handle: None,
+            watch_handle: None,
         }
     }
 
@@ -58,7 +58,7 @@ impl LiveReloadManager {
         let (rx, handle) = storage.watch()?;
 
         // Store the watch handle to keep the watcher alive
-        self._watch_handle = Some(handle);
+        self.watch_handle = Some(handle);
 
         // Spawn task to process storage events
         let site_loader = Arc::clone(&self.site_loader);
