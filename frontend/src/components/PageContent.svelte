@@ -8,7 +8,7 @@
   // Initialize tabs when content changes
   $effect(() => {
     if ($page.data && articleRef) {
-      initializeTabs(articleRef);
+      return initializeTabs(articleRef);
     }
   });
 

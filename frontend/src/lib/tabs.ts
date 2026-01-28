@@ -5,36 +5,57 @@
  * to all `.tabs` elements within the container.
  *
  * @param container - The container element to search for tabs
+ * @returns A cleanup function to remove all event listeners
  */
-export function initializeTabs(container: HTMLElement): void {
+export function initializeTabs(container: HTMLElement): () => void {
   const tabContainers = container.querySelectorAll<HTMLElement>(".tabs");
+  const cleanups: (() => void)[] = [];
 
   for (const tabContainer of tabContainers) {
-    initializeTabContainer(tabContainer);
+    cleanups.push(initializeTabContainer(tabContainer));
   }
+
+  return () => {
+    for (const cleanup of cleanups) {
+      cleanup();
+    }
+  };
 }
 
 /**
  * Initialize a single tab container.
+ * @returns A cleanup function to remove all event listeners
  */
-function initializeTabContainer(container: HTMLElement): void {
+function initializeTabContainer(container: HTMLElement): () => void {
   const tablist = container.querySelector<HTMLElement>('[role="tablist"]');
-  if (!tablist) return;
+  if (!tablist) return () => {};
 
   const tabs = Array.from(tablist.querySelectorAll<HTMLElement>('[role="tab"]'));
-  if (tabs.length === 0) return;
+  if (tabs.length === 0) return () => {};
+
+  const clickHandlers: Array<{ tab: HTMLElement; handler: () => void }> = [];
 
   // Add click handlers to all tabs
   for (const tab of tabs) {
-    tab.addEventListener("click", () => {
+    const handler = () => {
       activateTab(container, tab, tabs);
-    });
+    };
+    tab.addEventListener("click", handler);
+    clickHandlers.push({ tab, handler });
   }
 
   // Add keyboard navigation to tablist
-  tablist.addEventListener("keydown", (event) => {
+  const keydownHandler = (event: KeyboardEvent) => {
     handleTabKeydown(event, container, tabs);
-  });
+  };
+  tablist.addEventListener("keydown", keydownHandler);
+
+  return () => {
+    for (const { tab, handler } of clickHandlers) {
+      tab.removeEventListener("click", handler);
+    }
+    tablist.removeEventListener("keydown", keydownHandler);
+  };
 }
 
 /**
