@@ -9,6 +9,8 @@ cargo-dist-version = "0.30.3"
 ci = "github"
 # The installers to generate for each app
 installers = ["shell", "homebrew"]
+# Build with embedded frontend assets
+features = ["rw/embed-assets"]
 # A GitHub repo to push Homebrew formulas to
 tap = "yumike/homebrew-rw"
 # Target platforms to build apps for (Rust target-triple syntax)
