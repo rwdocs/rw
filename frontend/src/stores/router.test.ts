@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { get } from "svelte/store";
-import { extractDocPath, goto, initRouter, path } from "./router";
+import { extractDocPath, goto, initRouter, path, hash } from "./router";
 
 describe("extractDocPath", () => {
   it("strips leading slash from path", () => {
@@ -22,6 +22,11 @@ describe("extractDocPath", () => {
 
 describe("goto", () => {
   beforeEach(() => {
+    Object.defineProperty(window, "location", {
+      value: { origin: "http://localhost:8001" },
+      writable: true,
+      configurable: true,
+    });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
     vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   });
@@ -42,10 +47,29 @@ describe("goto", () => {
     expect(get(path)).toBe("/new-path");
   });
 
-  it("scrolls to top", () => {
+  it("updates hash store when hash is present", () => {
+    goto("/new-path#section");
+
+    expect(get(path)).toBe("/new-path");
+    expect(get(hash)).toBe("section");
+  });
+
+  it("clears hash store when hash is not present", () => {
+    goto("/new-path");
+
+    expect(get(hash)).toBe("");
+  });
+
+  it("scrolls to top when no hash", () => {
     goto("/new-path");
 
     expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+  });
+
+  it("does not scroll when hash is present", () => {
+    goto("/new-path#section");
+
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 });
 
@@ -54,6 +78,11 @@ describe("initRouter", () => {
   let clickHandler: ((e: MouseEvent) => void) | null = null;
 
   beforeEach(() => {
+    Object.defineProperty(window, "location", {
+      value: { origin: "http://localhost:8001", pathname: "/", hash: "" },
+      writable: true,
+      configurable: true,
+    });
     // Capture event handlers
     vi.spyOn(window, "addEventListener").mockImplementation((event, handler) => {
       if (event === "popstate") popstateHandler = handler as (e: PopStateEvent) => void;
@@ -84,13 +113,28 @@ describe("initRouter", () => {
   describe("popstate handler", () => {
     it("updates path store on back/forward navigation", () => {
       Object.defineProperty(window, "location", {
-        value: { pathname: "/back-path" },
+        value: { pathname: "/back-path", hash: "" },
         writable: true,
+        configurable: true,
       });
 
       popstateHandler!({} as PopStateEvent);
 
       expect(get(path)).toBe("/back-path");
+      expect(get(hash)).toBe("");
+    });
+
+    it("updates hash store when navigating to URL with hash", () => {
+      Object.defineProperty(window, "location", {
+        value: { pathname: "/back-path", hash: "#section" },
+        writable: true,
+        configurable: true,
+      });
+
+      popstateHandler!({} as PopStateEvent);
+
+      expect(get(path)).toBe("/back-path");
+      expect(get(hash)).toBe("section");
     });
   });
 

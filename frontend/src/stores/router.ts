@@ -3,6 +3,9 @@ import { writable } from "svelte/store";
 /** Current URL path */
 export const path = writable(window.location.pathname);
 
+/** Current URL hash (without the # prefix) */
+export const hash = writable(window.location.hash.slice(1));
+
 /** Extract document path for API calls (strip leading slash) */
 export function extractDocPath(urlPath: string): string {
   return urlPath.replace(/^\//, "");
@@ -10,10 +13,16 @@ export function extractDocPath(urlPath: string): string {
 
 /** Navigate to a path programmatically */
 export function goto(newPath: string) {
+  const url = new URL(newPath, window.location.origin);
   window.history.pushState({}, "", newPath);
-  path.set(newPath);
-  // Scroll to top on navigation
-  window.scrollTo(0, 0);
+  path.set(url.pathname);
+  hash.set(url.hash.slice(1));
+
+  // If there's a hash, scrolling will be handled by the page component
+  // Otherwise scroll to top
+  if (!url.hash) {
+    window.scrollTo(0, 0);
+  }
 }
 
 /** Check if a link should be handled externally (not by SPA router) */
@@ -34,6 +43,7 @@ export function initRouter() {
   // Handle browser back/forward navigation
   window.addEventListener("popstate", () => {
     path.set(window.location.pathname);
+    hash.set(window.location.hash.slice(1));
   });
 
   // Intercept link clicks for SPA navigation
