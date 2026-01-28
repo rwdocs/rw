@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "MIT"
+
+[workspace.dependencies]
+# Internal crates
+rw-config = { path = "crates/rw-config" }
+rw-confluence = { path = "crates/rw-confluence" }
+rw-diagrams = { path = "crates/rw-diagrams" }
+rw-renderer = { path = "crates/rw-renderer" }
+rw-server = { path = "crates/rw-server" }
+rw-site = { path = "crates/rw-site" }
+rw-storage = { path = "crates/rw-storage" }
+
+# External dependencies
+base64 = "0.22"
+glob = "0.3"
+notify = "7"
+quick-xml = "0.39"
+thiserror = "2"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.9"
+hex = "0.4"
+pretty_assertions = "1.4"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["simd"] }
+pyo3 = { version = "0.27", features = ["extension-module"] }
+rayon = "1.10"
+regex = "1.11"
+serde_json = "1"
+sha2 = "0.10"
+static_assertions = "1.1"
+tempfile = "3"
+tracing = "0.1"
+ureq = { version = "3", features = ["rustls", "json"] }
+
+# OAuth 1.0 RSA-SHA1
+rsa = { version = "0.9", features = ["pem", "sha1"] }
+sha1 = { version = "0.10", features = ["oid"] }
+percent-encoding = "2.3"
+rand = "0.9"
+shellexpand = "3"
+
+# Benchmarking
+criterion = { version = "0.8", features = ["html_reports"] }

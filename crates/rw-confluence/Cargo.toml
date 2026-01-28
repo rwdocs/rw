@@ -1,0 +1,34 @@
+[package]
+name = "rw-confluence"
+description = "Confluence integration for RW"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rw-config = { workspace = true }
+rw-diagrams = { workspace = true }
+rw-renderer = { workspace = true }
+
+quick-xml = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+
+# HTTP client
+ureq = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# OAuth 1.0 RSA-SHA1
+rsa = { workspace = true }
+sha1 = { workspace = true }
+base64 = { workspace = true }
+percent-encoding = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

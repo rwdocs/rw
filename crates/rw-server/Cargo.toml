@@ -1,0 +1,51 @@
+[package]
+name = "rw-server"
+description = "HTTP server for RW documentation engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+embed-assets = ["dep:rust-embed"]
+
+[dependencies]
+# Internal crates
+rw-site = { workspace = true }
+rw-config = { workspace = true }
+rw-renderer = { workspace = true, features = ["serde"] }
+rw-storage = { workspace = true }
+
+# HTTP framework
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = [
+    "fs",
+    "set-header",
+    "compression-gzip",
+    "trace"
+] }
+
+# Async runtime
+tokio = { version = "1", features = ["full", "sync"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utilities
+thiserror = "2"
+tracing = { workspace = true }
+md-5 = "0.10"
+hex = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Static file embedding (optional)
+rust-embed = { version = "8.5", features = ["compression"], optional = true }
+mime_guess = "2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+pretty_assertions = { workspace = true }
+tokio-test = "0.4"
