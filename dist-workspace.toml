@@ -8,8 +8,8 @@ cargo-dist-version = "0.30.3"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell", "homebrew"]
-# Build with embedded frontend assets
+installers = ["shell", "powershell", "homebrew"]
+# Features to pass to cargo build
 features = ["rw/embed-assets"]
 # A GitHub repo to push Homebrew formulas to
 tap = "yumike/homebrew-rw"
