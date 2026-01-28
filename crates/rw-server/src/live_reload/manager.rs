@@ -2,7 +2,6 @@
 //!
 //! Coordinates file watching and WebSocket broadcasting for live reload.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -86,17 +85,19 @@ impl LiveReloadManager {
         let doc_path = match event.kind {
             StorageEventKind::Modified => {
                 // Content change only - use cached site, no traversal needed.
-                // The page renderer will re-read the file on next request.
-                Self::resolve_doc_path_cached(&event.path, site_loader)
+                let site = site_loader.get();
+                site.get_page_by_source(&event.path).map(|p| p.path.clone())
             }
             StorageEventKind::Created => {
                 // New file - must reload to add it to site structure
                 site_loader.invalidate();
-                Self::resolve_doc_path(&event.path, site_loader)
+                let site = site_loader.reload_if_needed();
+                site.get_page_by_source(&event.path).map(|p| p.path.clone())
             }
             StorageEventKind::Removed => {
                 // File deleted - get path from cached site before invalidating
-                let doc_path = Self::resolve_doc_path_cached(&event.path, site_loader);
+                let site = site_loader.get();
+                let doc_path = site.get_page_by_source(&event.path).map(|p| p.path.clone());
                 site_loader.invalidate();
                 doc_path
             }
@@ -112,29 +113,6 @@ impl LiveReloadManager {
             path: doc_path,
         };
         let _ = broadcaster.send(reload_event);
-    }
-
-    /// Resolve relative file system path to documentation URL path.
-    ///
-    /// Triggers a site reload if cache is invalid (for Created events).
-    fn resolve_doc_path(relative_path: &Path, site_loader: &Arc<SiteLoader>) -> Option<String> {
-        let site = site_loader.reload_if_needed();
-        let page = site.get_page_by_source(relative_path)?;
-
-        Some(page.path.clone())
-    }
-
-    /// Resolve relative file system path using cached site (no reload).
-    ///
-    /// Used for Modified events where site structure hasn't changed.
-    fn resolve_doc_path_cached(
-        relative_path: &Path,
-        site_loader: &Arc<SiteLoader>,
-    ) -> Option<String> {
-        let site = site_loader.get();
-        let page = site.get_page_by_source(relative_path)?;
-
-        Some(page.path.clone())
     }
 
     /// Get a receiver for reload events.
