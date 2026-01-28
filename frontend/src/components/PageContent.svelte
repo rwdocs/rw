@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from "../stores/page";
+  import { hash } from "../stores/router";
   import { initializeTabs } from "../lib/tabs";
 
   let articleRef: HTMLElement | undefined = $state();
@@ -8,6 +9,19 @@
   $effect(() => {
     if ($page.data && articleRef) {
       initializeTabs(articleRef);
+    }
+  });
+
+  // Scroll to hash target when content loads or hash changes
+  $effect(() => {
+    if ($page.data && articleRef && $hash) {
+      const target = document.getElementById($hash);
+      if (target) {
+        // Use requestAnimationFrame to ensure DOM is fully rendered
+        requestAnimationFrame(() => {
+          target.scrollIntoView({ behavior: "smooth" });
+        });
+      }
     }
   });
 </script>
