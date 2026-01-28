@@ -20,9 +20,24 @@
     if ($hash && filteredToc.some((entry) => entry.id === $hash)) {
       activeId = $hash;
       isUserScrolling = true;
-      setTimeout(() => {
-        isUserScrolling = false;
-      }, 100);
+
+      // Wait for any browser-initiated scroll to complete
+      const scrollBefore = window.scrollY;
+      requestAnimationFrame(() => {
+        if (window.scrollY === scrollBefore) {
+          // No scroll happened, reset immediately
+          isUserScrolling = false;
+        } else {
+          // Scroll happened, wait for scrollend
+          window.addEventListener(
+            "scrollend",
+            () => {
+              isUserScrolling = false;
+            },
+            { once: true },
+          );
+        }
+      });
     }
   });
 
@@ -32,13 +47,28 @@
     if (element) {
       activeId = id;
       isUserScrolling = true;
+
+      const scrollBefore = window.scrollY;
       element.scrollIntoView({ behavior: "auto" });
       // Update URL hash without jumping
       history.pushState(null, "", `#${id}`);
-      // Re-enable observer updates after instant scroll completes
-      setTimeout(() => {
-        isUserScrolling = false;
-      }, 100);
+
+      // Wait for scroll completion using scrollend event
+      requestAnimationFrame(() => {
+        if (window.scrollY === scrollBefore) {
+          // No scroll happened (element already in view), reset immediately
+          isUserScrolling = false;
+        } else {
+          // Scroll happened, wait for scrollend
+          window.addEventListener(
+            "scrollend",
+            () => {
+              isUserScrolling = false;
+            },
+            { once: true },
+          );
+        }
+      });
     }
   }
 
