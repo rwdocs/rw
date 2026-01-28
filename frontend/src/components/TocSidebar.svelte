@@ -14,12 +14,15 @@
   let activeId = $state<string | null>(null);
   let isUserScrolling = false;
 
-  function scrollToHeading(id: string) {
+  function scrollToHeading(event: MouseEvent, id: string) {
+    event.preventDefault();
     const element = document.getElementById(id);
     if (element) {
       activeId = id;
       isUserScrolling = true;
       element.scrollIntoView({ behavior: "smooth" });
+      // Update URL hash without jumping
+      history.pushState(null, "", `#${id}`);
       // Re-enable observer updates after scroll animation completes
       setTimeout(() => {
         isUserScrolling = false;
@@ -89,14 +92,15 @@
   <ul class="space-y-1.5">
     {#each filteredToc as entry (entry.id)}
       <li class={entry.level === 3 ? "ml-3" : ""}>
-        <button
-          onclick={() => scrollToHeading(entry.id)}
-          class="text-sm leading-snug text-left transition-colors {activeId === entry.id
+        <a
+          href="#{entry.id}"
+          onclick={(e) => scrollToHeading(e, entry.id)}
+          class="block text-sm leading-snug transition-colors {activeId === entry.id
             ? 'text-blue-600 font-medium'
             : 'text-gray-600 hover:text-gray-900'}"
         >
           {entry.title}
-        </button>
+        </a>
       </li>
     {/each}
   </ul>
