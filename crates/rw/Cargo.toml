@@ -1,6 +1,7 @@
 [package]
 name = "rw"
 description = "Documentation engine - CLI"
+repository = "https://github.com/yumike/rw"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
