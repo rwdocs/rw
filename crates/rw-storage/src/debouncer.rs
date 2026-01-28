@@ -1,37 +1,24 @@
-//! Event debouncing for live reload.
+//! Event debouncing for storage change notification.
 //!
-//! Coalesces multiple filesystem events into single events per path,
-//! reducing unnecessary rebuilds when editors emit multiple events per save.
+//! Coalesces multiple storage events into single events per path,
+//! reducing unnecessary processing when editors emit multiple events per save.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// Kind of filesystem event.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FsEventKind {
-    Created,
-    Modified,
-    Removed,
-}
-
-/// A debounced filesystem event.
-#[derive(Clone, Debug)]
-pub(crate) struct FsEvent {
-    pub path: PathBuf,
-    pub kind: FsEventKind,
-}
+use crate::event::{StorageEvent, StorageEventKind};
 
 /// Pending event waiting to be emitted.
 struct PendingEvent {
-    kind: FsEventKind,
+    kind: StorageEventKind,
     deadline: Instant,
 }
 
 /// Thread-safe event debouncer.
 ///
-/// Coalesces raw filesystem events into single events per path using the
+/// Coalesces raw storage events into single events per path using the
 /// coalescing rules defined in RD-031.
 pub(crate) struct EventDebouncer {
     pending: Mutex<HashMap<PathBuf, PendingEvent>>,
@@ -49,9 +36,9 @@ impl EventDebouncer {
 
     /// Record an event.
     ///
-    /// Thread-safe, can be called from the notify callback.
+    /// Thread-safe, can be called from file system watcher callbacks.
     /// Events are coalesced according to the rules in RD-031.
-    pub fn record(&self, path: PathBuf, kind: FsEventKind) {
+    pub fn record(&self, path: PathBuf, kind: StorageEventKind) {
         use std::collections::hash_map::Entry;
 
         let mut pending = self.pending.lock().unwrap();
@@ -80,8 +67,8 @@ impl EventDebouncer {
     ///
     /// Each arm is documented separately per RD-031 coalescing matrix.
     #[allow(clippy::match_same_arms)]
-    fn coalesce(existing: FsEventKind, new: FsEventKind) -> Option<FsEventKind> {
-        use FsEventKind::{Created, Modified, Removed};
+    fn coalesce(existing: StorageEventKind, new: StorageEventKind) -> Option<StorageEventKind> {
+        use StorageEventKind::{Created, Modified, Removed};
 
         match (existing, new) {
             // Created + anything
@@ -103,8 +90,8 @@ impl EventDebouncer {
 
     /// Drain events that have passed their debounce deadline.
     ///
-    /// Thread-safe, called from async task.
-    pub fn drain_ready(&self) -> Vec<FsEvent> {
+    /// Thread-safe, called from watcher thread.
+    pub fn drain_ready(&self) -> Vec<StorageEvent> {
         let mut pending = self.pending.lock().unwrap();
         let now = Instant::now();
 
@@ -119,19 +106,12 @@ impl EventDebouncer {
             .into_iter()
             .map(|path| {
                 let event = pending.remove(&path).expect("path was just found");
-                FsEvent {
+                StorageEvent {
                     path,
                     kind: event.kind,
                 }
             })
             .collect()
-    }
-
-    /// Returns the earliest deadline, for timer scheduling.
-    #[allow(dead_code)]
-    pub fn next_deadline(&self) -> Option<Instant> {
-        let pending = self.pending.lock().unwrap();
-        pending.values().map(|e| e.deadline).min()
     }
 }
 
@@ -145,7 +125,7 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), FsEventKind::Modified);
+        debouncer.record(path.clone(), StorageEventKind::Modified);
 
         // Before deadline
         let events = debouncer.drain_ready();
@@ -157,7 +137,7 @@ mod tests {
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].path, path);
-        assert_eq!(events[0].kind, FsEventKind::Modified);
+        assert_eq!(events[0].kind, StorageEventKind::Modified);
 
         // Should be empty after drain
         let events = debouncer.drain_ready();
@@ -170,15 +150,15 @@ mod tests {
         let path = PathBuf::from("/test/file.md");
 
         // Simulate editor saving: multiple modify events
-        debouncer.record(path.clone(), FsEventKind::Modified);
-        debouncer.record(path.clone(), FsEventKind::Modified);
-        debouncer.record(path.clone(), FsEventKind::Modified);
+        debouncer.record(path.clone(), StorageEventKind::Modified);
+        debouncer.record(path.clone(), StorageEventKind::Modified);
+        debouncer.record(path.clone(), StorageEventKind::Modified);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, FsEventKind::Modified);
+        assert_eq!(events[0].kind, StorageEventKind::Modified);
     }
 
     #[test]
@@ -186,14 +166,14 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), FsEventKind::Created);
-        debouncer.record(path.clone(), FsEventKind::Modified);
+        debouncer.record(path.clone(), StorageEventKind::Created);
+        debouncer.record(path.clone(), StorageEventKind::Modified);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, FsEventKind::Created);
+        assert_eq!(events[0].kind, StorageEventKind::Created);
     }
 
     #[test]
@@ -201,8 +181,8 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), FsEventKind::Created);
-        debouncer.record(path.clone(), FsEventKind::Removed);
+        debouncer.record(path.clone(), StorageEventKind::Created);
+        debouncer.record(path.clone(), StorageEventKind::Removed);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -215,14 +195,14 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), FsEventKind::Modified);
-        debouncer.record(path.clone(), FsEventKind::Removed);
+        debouncer.record(path.clone(), StorageEventKind::Modified);
+        debouncer.record(path.clone(), StorageEventKind::Removed);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, FsEventKind::Removed);
+        assert_eq!(events[0].kind, StorageEventKind::Removed);
     }
 
     #[test]
@@ -230,14 +210,14 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), FsEventKind::Removed);
-        debouncer.record(path.clone(), FsEventKind::Created);
+        debouncer.record(path.clone(), StorageEventKind::Removed);
+        debouncer.record(path.clone(), StorageEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, FsEventKind::Modified);
+        assert_eq!(events[0].kind, StorageEventKind::Modified);
     }
 
     #[test]
@@ -245,14 +225,14 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), FsEventKind::Modified);
-        debouncer.record(path.clone(), FsEventKind::Created);
+        debouncer.record(path.clone(), StorageEventKind::Modified);
+        debouncer.record(path.clone(), StorageEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, FsEventKind::Created);
+        assert_eq!(events[0].kind, StorageEventKind::Created);
     }
 
     #[test]
@@ -261,8 +241,8 @@ mod tests {
         let path1 = PathBuf::from("/test/file1.md");
         let path2 = PathBuf::from("/test/file2.md");
 
-        debouncer.record(path1.clone(), FsEventKind::Modified);
-        debouncer.record(path2.clone(), FsEventKind::Created);
+        debouncer.record(path1.clone(), StorageEventKind::Modified);
+        debouncer.record(path2.clone(), StorageEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -271,26 +251,8 @@ mod tests {
     }
 
     #[test]
-    fn test_next_deadline_empty() {
-        let debouncer = EventDebouncer::new(Duration::from_millis(10));
-        assert!(debouncer.next_deadline().is_none());
-    }
-
-    #[test]
-    fn test_next_deadline_returns_earliest() {
-        let debouncer = EventDebouncer::new(Duration::from_millis(100));
-        let path1 = PathBuf::from("/test/file1.md");
-
-        debouncer.record(path1, FsEventKind::Modified);
-
-        let deadline = debouncer.next_deadline();
-        assert!(deadline.is_some());
-        assert!(deadline.unwrap() > Instant::now());
-    }
-
-    #[test]
     fn test_coalesce_all_combinations() {
-        use FsEventKind::{Created, Modified, Removed};
+        use StorageEventKind::{Created, Modified, Removed};
 
         // Created + *
         assert_eq!(EventDebouncer::coalesce(Created, Created), Some(Created));

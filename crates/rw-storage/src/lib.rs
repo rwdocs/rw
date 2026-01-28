@@ -10,7 +10,7 @@
 //! # Architecture
 //!
 //! The crate provides:
-//! - [`Storage`] trait with `scan()`, `read()`, and `exists()` methods
+//! - [`Storage`] trait with `scan()`, `read()`, `exists()`, and `watch()` methods
 //! - [`FsStorage`] implementation for filesystem backends with mtime caching
 //! - [`MockStorage`] for testing (behind `mock` feature flag)
 //!
@@ -27,11 +27,14 @@
 //! }
 //! ```
 
+pub(crate) mod debouncer;
+mod event;
 mod fs;
 #[cfg(feature = "mock")]
 mod mock;
 mod storage;
 
+pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 pub use fs::FsStorage;
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;

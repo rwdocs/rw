@@ -17,14 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Site` no longer has `source_dir`** field; removed `source_dir()` getter and `resolve_source_path()` method; use `Site::get_page()` to get page by URL path and access `page.source_path` for the relative source path
 - **`Storage` trait has new `mtime()` method** for getting file modification time as seconds since Unix epoch (f64)
 - **`MockStorage` has new `with_mtime()` builder** for setting modification times in tests
+- **`LiveReloadManager` refactored to use `Storage::watch()`** (RD-034 Phase 6); removed direct `notify` crate dependency from `rw-server`; constructor changed from `new(source_dir, watch_patterns, site_loader, broadcaster)` to `new(site_loader, broadcaster)`; `start()` method now accepts `storage: &dyn Storage` parameter; pattern filtering moved to `FsStorage` construction; simplifies live reload architecture and enables testing with `MockStorage`
 
 ### Added
 
-- **`rw-storage` crate** for storage abstraction; provides `Storage` trait with `scan()`, `read()`, `exists()`, and `mtime()` methods for document access
+- **`Storage::watch()` method** (RD-034) for subscribing to storage change events; returns `(StorageEventReceiver, WatchHandle)` tuple; default no-op implementation for backends that don't support change notification; enables reactive updates and testable file watching
+- **`StorageEvent` and `StorageEventKind`** types in `rw-storage` for change notification; `StorageEventKind` has `Created`, `Modified`, and `Removed` variants; events contain relative paths
+- **`StorageEventReceiver`** for receiving storage events; wraps `std::sync::mpsc::Receiver` with `recv()`, `try_recv()`, and `iter()` methods
+- **`WatchHandle`** with RAII cleanup pattern; dropping the handle stops watching automatically; `stop()` method for explicit shutdown
+- **`FsStorage::watch()` implementation** with filesystem watching via `notify` crate; debounces events with 100ms window using `EventDebouncer`; supports glob patterns configured at construction via `FsStorage::with_patterns()`; spawns background thread to process events
+- **`FsStorage::with_patterns()` constructor** for specifying custom watch patterns (e.g., `["**/*.md", "**/*.rst"]`); patterns filter filesystem events before debouncing
+- **`EventDebouncer` in `rw-storage`** for coalescing filesystem events; implements RD-031 event coalescing rules; moved from `rw-server` for reusability
+- **`MockStorage::watch()` implementation** for testing change notification without real filesystem; `emit()`, `emit_created()`, `emit_modified()`, and `emit_removed()` methods for triggering events in tests
+- **`rw-storage` crate** for storage abstraction; provides `Storage` trait with `scan()`, `read()`, `exists()`, `mtime()`, and `watch()` methods for document access
 - **`Document` struct** in `rw-storage` with `path` (relative `PathBuf`) and `title` (extracted or filename-derived) fields
 - **`StorageError` type** with `StorageErrorKind` enum (`NotFound`, `PermissionDenied`, `AlreadyExists`, `InvalidPath`, `Unavailable`, `RateLimited`, `Timeout`, `Other`) and `ErrorStatus` enum for retry guidance (`Retriable`, `Fatal`, `Unknown`)
 - **`FsStorage`** in `rw-storage` for filesystem-based document access; recursive directory scanning with mtime-based title caching; extracts titles from first H1 heading or derives from filename
-- **`MockStorage`** in `rw-storage` (behind `mock` feature flag) for testing without filesystem access; builder methods `with_document()`, `with_content()`, `with_file()` for test setup
+- **`MockStorage`** in `rw-storage` (behind `mock` feature flag) for testing without filesystem access; builder methods `with_document()`, `with_content()`, `with_file()`, `with_mtime()` for test setup
 
 ### Fixed
 
@@ -215,6 +224,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`EventDebouncer` from `rw-server`**; moved to `rw-storage` for reusability as part of Storage abstraction (RD-034); `rw-server` now uses `Storage::watch()` instead of directly using `notify` crate
+- **Direct `notify` dependency from `rw-server`**; file watching is now handled through `Storage::watch()` abstraction
 - **`rw-core` crate**; merged into `rw-confluence`; all Confluence integration functionality is now in a single crate
 - **`MarkdownConverter` type**; replaced by `PageRenderer` in `rw-confluence` with `convert()` renamed to `render()`
 - **`ConvertResult` type alias**; use `RenderResult` from `rw-renderer` (re-exported by `rw-confluence`) instead

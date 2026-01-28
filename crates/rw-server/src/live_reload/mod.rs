@@ -3,7 +3,6 @@
 //! Provides file watching and WebSocket-based reload notifications
 //! to connected clients when source files change.
 
-mod debouncer;
 mod manager;
 mod websocket;
 

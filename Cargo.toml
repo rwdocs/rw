@@ -20,6 +20,8 @@ rw-storage = { path = "crates/rw-storage" }
 
 # External dependencies
 base64 = "0.22"
+glob = "0.3"
+notify = "7"
 quick-xml = "0.39"
 thiserror = "2"
 serde = { version = "1.0", features = ["derive"] }
