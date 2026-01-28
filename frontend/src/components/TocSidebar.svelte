@@ -12,11 +12,18 @@
   let filteredToc = $derived(toc.filter((entry) => entry.level >= 2 && entry.level <= 3));
 
   let activeId = $state<string | null>(null);
+  let isUserScrolling = false;
 
   function scrollToHeading(id: string) {
     const element = document.getElementById(id);
     if (element) {
+      activeId = id;
+      isUserScrolling = true;
       element.scrollIntoView({ behavior: "smooth" });
+      // Re-enable observer updates after scroll animation completes
+      setTimeout(() => {
+        isUserScrolling = false;
+      }, 1000);
     }
   }
 
@@ -34,6 +41,11 @@
           } else {
             visibleHeadings.delete(entry.target.id);
           }
+        }
+
+        // Skip updates during programmatic scrolling
+        if (isUserScrolling) {
+          return;
         }
 
         // Find the topmost visible heading based on ToC order
