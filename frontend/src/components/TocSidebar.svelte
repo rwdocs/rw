@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { hash } from "../stores/router";
   import type { TocEntry } from "../types";
 
   interface Props {
@@ -14,19 +15,30 @@
   let activeId = $state<string | null>(null);
   let isUserScrolling = false;
 
+  // React to hash changes (e.g., when page loads with #hash or when clicking links)
+  $effect(() => {
+    if ($hash && filteredToc.some((entry) => entry.id === $hash)) {
+      activeId = $hash;
+      isUserScrolling = true;
+      setTimeout(() => {
+        isUserScrolling = false;
+      }, 100);
+    }
+  });
+
   function scrollToHeading(event: MouseEvent, id: string) {
     event.preventDefault();
     const element = document.getElementById(id);
     if (element) {
       activeId = id;
       isUserScrolling = true;
-      element.scrollIntoView({ behavior: "smooth" });
+      element.scrollIntoView({ behavior: "instant" });
       // Update URL hash without jumping
       history.pushState(null, "", `#${id}`);
-      // Re-enable observer updates after scroll animation completes
+      // Re-enable observer updates after instant scroll completes
       setTimeout(() => {
         isUserScrolling = false;
-      }, 1000);
+      }, 100);
     }
   }
 
@@ -76,8 +88,8 @@
       }
     }
 
-    // Set initial active heading to first one
-    if (filteredToc.length > 0) {
+    // Set initial active heading to first one (only if no hash-based selection)
+    if (filteredToc.length > 0 && !activeId) {
       activeId = filteredToc[0].id;
     }
 
