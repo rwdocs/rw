@@ -7,12 +7,28 @@ fn main() {
 
         let frontend_dir = Path::new("../../frontend");
 
+        // Helper to run npm commands cross-platform
+        fn run_npm(args: &[&str], cwd: &Path) -> std::io::Result<std::process::Output> {
+            #[cfg(target_os = "windows")]
+            {
+                Command::new("cmd")
+                    .args(["/C", "npm"])
+                    .args(args)
+                    .current_dir(cwd)
+                    .output()
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                Command::new("npm")
+                    .args(args)
+                    .current_dir(cwd)
+                    .output()
+            }
+        }
+
         // Install dependencies if node_modules doesn't exist
         if !frontend_dir.join("node_modules").exists() {
-            let install = Command::new("npm")
-                .current_dir(frontend_dir)
-                .arg("ci")
-                .output()
+            let install = run_npm(&["ci"], frontend_dir)
                 .expect("failed to run npm ci");
 
             if !install.status.success() {
@@ -24,11 +40,7 @@ fn main() {
         }
 
         // Build frontend assets
-        let output = Command::new("npm")
-            .current_dir(frontend_dir)
-            .arg("run")
-            .arg("build")
-            .output()
+        let output = run_npm(&["run", "build"], frontend_dir)
             .expect("failed to build the frontend");
 
         if !output.status.success() {
