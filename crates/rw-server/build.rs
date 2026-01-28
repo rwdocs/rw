@@ -19,17 +19,13 @@ fn main() {
             }
             #[cfg(not(target_os = "windows"))]
             {
-                Command::new("npm")
-                    .args(args)
-                    .current_dir(cwd)
-                    .output()
+                Command::new("npm").args(args).current_dir(cwd).output()
             }
         }
 
         // Install dependencies if node_modules doesn't exist
         if !frontend_dir.join("node_modules").exists() {
-            let install = run_npm(&["ci"], frontend_dir)
-                .expect("failed to run npm ci");
+            let install = run_npm(&["ci"], frontend_dir).expect("failed to run npm ci");
 
             if !install.status.success() {
                 panic!(
@@ -40,8 +36,8 @@ fn main() {
         }
 
         // Build frontend assets
-        let output = run_npm(&["run", "build"], frontend_dir)
-            .expect("failed to build the frontend");
+        let output =
+            run_npm(&["run", "build"], frontend_dir).expect("failed to build the frontend");
 
         if !output.status.success() {
             panic!(
