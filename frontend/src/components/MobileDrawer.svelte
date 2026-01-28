@@ -1,6 +1,7 @@
 <script lang="ts">
   import { mobileMenuOpen, closeMobileMenu } from "../stores/ui";
   import { path } from "../stores/router";
+  import { navigation } from "../stores/navigation";
   import NavigationSidebar from "./NavigationSidebar.svelte";
 
   // Close drawer on route change
@@ -53,6 +54,11 @@
           </svg>
         </button>
       </div>
+      {#if $navigation.error}
+        <div class="p-3 mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded">
+          Failed to load navigation: {$navigation.error}
+        </div>
+      {/if}
       <NavigationSidebar />
     </div>
   </aside>
