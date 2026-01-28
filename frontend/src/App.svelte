@@ -13,8 +13,10 @@
     liveReloadEnabled: false,
   };
 
+  let cleanupRouter: (() => void) | undefined;
+
   onMount(async () => {
-    initRouter();
+    cleanupRouter = initRouter();
 
     let config = defaultConfig;
     try {
@@ -31,6 +33,7 @@
   });
 
   onDestroy(() => {
+    cleanupRouter?.();
     liveReload.stop();
   });
 
