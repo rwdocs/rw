@@ -38,7 +38,7 @@ function initializeTabContainer(container: HTMLElement): () => void {
   // Add click handlers to all tabs
   for (const tab of tabs) {
     const handler = () => {
-      activateTab(container, tab, tabs);
+      activateTab(tab, tabs);
     };
     tab.addEventListener("click", handler);
     clickHandlers.push({ tab, handler });
@@ -46,7 +46,7 @@ function initializeTabContainer(container: HTMLElement): () => void {
 
   // Add keyboard navigation to tablist
   const keydownHandler = (event: KeyboardEvent) => {
-    handleTabKeydown(event, container, tabs);
+    handleTabKeydown(event, tabs);
   };
   tablist.addEventListener("keydown", keydownHandler);
 
@@ -61,11 +61,7 @@ function initializeTabContainer(container: HTMLElement): () => void {
 /**
  * Activate a specific tab and show its panel.
  */
-function activateTab(
-  container: HTMLElement,
-  selectedTab: HTMLElement,
-  allTabs: HTMLElement[],
-): void {
+function activateTab(selectedTab: HTMLElement, allTabs: HTMLElement[]): void {
   // Deactivate all tabs
   for (const tab of allTabs) {
     tab.setAttribute("aria-selected", "false");
@@ -74,7 +70,7 @@ function activateTab(
     // Hide associated panel
     const panelId = tab.getAttribute("aria-controls");
     if (panelId) {
-      const panel = container.querySelector<HTMLElement>(`#${panelId}`);
+      const panel = document.getElementById(panelId);
       if (panel) {
         panel.hidden = true;
       }
@@ -89,7 +85,7 @@ function activateTab(
   // Show associated panel
   const selectedPanelId = selectedTab.getAttribute("aria-controls");
   if (selectedPanelId) {
-    const selectedPanel = container.querySelector<HTMLElement>(`#${selectedPanelId}`);
+    const selectedPanel = document.getElementById(selectedPanelId);
     if (selectedPanel) {
       selectedPanel.hidden = false;
     }
@@ -103,7 +99,7 @@ function activateTab(
  * - Home: Move to first tab
  * - End: Move to last tab
  */
-function handleTabKeydown(event: KeyboardEvent, container: HTMLElement, tabs: HTMLElement[]): void {
+function handleTabKeydown(event: KeyboardEvent, tabs: HTMLElement[]): void {
   const currentTab = event.target as HTMLElement;
   const currentIndex = tabs.indexOf(currentTab);
 
@@ -131,5 +127,5 @@ function handleTabKeydown(event: KeyboardEvent, container: HTMLElement, tabs: HT
   }
 
   event.preventDefault();
-  activateTab(container, tabs[newIndex], tabs);
+  activateTab(tabs[newIndex], tabs);
 }
