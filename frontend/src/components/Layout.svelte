@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { Snippet } from "svelte";
   import { navigation } from "../stores/navigation";
   import { openMobileMenu } from "../stores/ui";
+  import { page } from "../stores/page";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import TocSidebar from "./TocSidebar.svelte";
   import Breadcrumbs from "./Breadcrumbs.svelte";
   import MobileDrawer from "./MobileDrawer.svelte";
-  import { page } from "../stores/page";
-  import type { Snippet } from "svelte";
 
   interface Props {
     children: Snippet;
@@ -64,6 +64,11 @@
           ><span class="text-gray-900">Doc</span><span class="text-gray-400">stage</span></span
         >
       </a>
+      {#if $navigation.error}
+        <div class="p-3 mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded">
+          Failed to load navigation: {$navigation.error}
+        </div>
+      {/if}
       <NavigationSidebar />
     </div>
   </aside>
