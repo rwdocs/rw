@@ -38,17 +38,19 @@ function isExternalLink(href: string, anchor: HTMLAnchorElement): boolean {
   );
 }
 
-/** Initialize router - call once on app mount */
-export function initRouter() {
+/** Initialize router - call once on app mount. Returns cleanup function. */
+export function initRouter(): () => void {
   // Handle browser back/forward navigation
-  window.addEventListener("popstate", () => {
+  const handlePopState = () => {
     path.set(window.location.pathname);
     hash.set(window.location.hash.slice(1));
-  });
+  };
 
   // Intercept link clicks for SPA navigation
-  document.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
+  const handleClick = (e: MouseEvent) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+
     const anchor = target.closest("a");
     if (!anchor) return;
 
@@ -64,5 +66,13 @@ export function initRouter() {
     // Handle internal navigation (links are already resolved by backend)
     e.preventDefault();
     goto(href);
-  });
+  };
+
+  window.addEventListener("popstate", handlePopState);
+  document.addEventListener("click", handleClick);
+
+  return () => {
+    window.removeEventListener("popstate", handlePopState);
+    document.removeEventListener("click", handleClick);
+  };
 }
