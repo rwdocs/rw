@@ -1987,7 +1987,6 @@ dependencies = [
  "rw-renderer",
  "sha2",
  "thiserror",
- "tracing",
  "ureq",
 ]
 

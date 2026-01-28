@@ -224,6 +224,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Unused `tracing` dependency from `rw-diagrams`**; leftover from removed performance instrumentation
 - **`EventDebouncer` from `rw-server`**; moved to `rw-storage` for reusability as part of Storage abstraction (RD-034); `rw-server` now uses `Storage::watch()` instead of directly using `notify` crate
 - **Direct `notify` dependency from `rw-server`**; file watching is now handled through `Storage::watch()` abstraction
 - **`rw-core` crate**; merged into `rw-confluence`; all Confluence integration functionality is now in a single crate
