@@ -100,10 +100,6 @@ impl LiveReloadManager {
                 site_loader.invalidate();
                 doc_path
             }
-            _ => {
-                // Unknown event kind - ignore
-                return;
-            }
         };
 
         let Some(doc_path) = doc_path else {
