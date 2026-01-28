@@ -32,7 +32,7 @@
     if (element) {
       activeId = id;
       isUserScrolling = true;
-      element.scrollIntoView({ behavior: "instant" });
+      element.scrollIntoView({ behavior: "auto" });
       // Update URL hash without jumping
       history.pushState(null, "", `#${id}`);
       // Re-enable observer updates after instant scroll completes

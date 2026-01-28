@@ -19,7 +19,7 @@
       if (target) {
         // Use requestAnimationFrame to ensure DOM is fully rendered
         requestAnimationFrame(() => {
-          target.scrollIntoView({ behavior: "instant" });
+          target.scrollIntoView({ behavior: "auto" });
         });
       }
     }

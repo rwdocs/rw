@@ -97,17 +97,17 @@ test.describe("Page Content", () => {
     // ToC should be visible (has "On this page" heading)
     await expect(page.getByText("On this page")).toBeVisible();
 
-    // Should contain heading buttons
-    await expect(page.getByRole("button", { name: "Features" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Quick Start" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Code Example" })).toBeVisible();
+    // Should contain heading links
+    await expect(page.getByRole("link", { name: "Features" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Quick Start" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Code Example" })).toBeVisible();
   });
 
   test("table of contents scrolls to section on click", async ({ page }) => {
     await page.goto("/");
 
     // Click on Code Example in ToC
-    await page.getByRole("button", { name: "Code Example" }).click();
+    await page.getByRole("link", { name: "Code Example" }).click();
 
     // Code Example heading should be in viewport
     const codeExampleHeading = page.locator("#code-example");
