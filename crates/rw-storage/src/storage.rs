@@ -5,6 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::event::{StorageEventReceiver, WatchHandle};
+
 /// Document metadata returned by storage scan.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Document {
@@ -241,6 +243,19 @@ pub trait Storage: Send + Sync {
     ///
     /// Returns [`StorageError`] if the document doesn't exist or mtime can't be retrieved.
     fn mtime(&self, path: &Path) -> Result<f64, StorageError>;
+
+    /// Start watching for document changes.
+    ///
+    /// Returns a receiver for events and a handle to stop watching.
+    /// Default implementation returns a no-op receiver for backends
+    /// that don't support change notification.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if watching cannot be started (e.g., backend unavailable).
+    fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
+        Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
+    }
 }
 
 #[cfg(test)]

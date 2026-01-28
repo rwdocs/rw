@@ -156,13 +156,8 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {
         let (tx, _rx) = broadcast::channel::<live_reload::ReloadEvent>(100);
-        let mut manager = live_reload::LiveReloadManager::new(
-            config.source_dir.clone(),
-            config.watch_patterns.clone(),
-            Arc::clone(&site_loader),
-            tx,
-        );
-        manager.start()?;
+        let mut manager = live_reload::LiveReloadManager::new(Arc::clone(&site_loader), tx);
+        manager.start(storage.as_ref())?;
         Some(manager)
     } else {
         None

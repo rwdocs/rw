@@ -4,8 +4,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{RwLock, mpsc};
 
+use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
 /// Mock storage for testing.
@@ -26,11 +27,23 @@ use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 /// let docs = storage.scan().unwrap();
 /// let content = storage.read(Path::new("guide.md")).unwrap();
 /// ```
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MockStorage {
     documents: RwLock<Vec<Document>>,
     contents: RwLock<HashMap<PathBuf, String>>,
     mtimes: RwLock<HashMap<PathBuf, f64>>,
+    event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
+}
+
+impl Default for MockStorage {
+    fn default() -> Self {
+        Self {
+            documents: RwLock::new(Vec::new()),
+            contents: RwLock::new(HashMap::new()),
+            mtimes: RwLock::new(HashMap::new()),
+            event_sender: RwLock::new(None),
+        }
+    }
 }
 
 impl MockStorage {
@@ -104,6 +117,55 @@ impl MockStorage {
         self.mtimes.write().unwrap().insert(path.into(), mtime);
         self
     }
+
+    /// Emit a storage event.
+    ///
+    /// Only works if `watch()` has been called first.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    pub fn emit(&self, event: StorageEvent) {
+        if let Some(sender) = self.event_sender.read().unwrap().as_ref() {
+            let _ = sender.send(event);
+        }
+    }
+
+    /// Emit a Created event.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    pub fn emit_created(&self, path: impl Into<PathBuf>) {
+        self.emit(StorageEvent {
+            path: path.into(),
+            kind: StorageEventKind::Created,
+        });
+    }
+
+    /// Emit a Modified event.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    pub fn emit_modified(&self, path: impl Into<PathBuf>) {
+        self.emit(StorageEvent {
+            path: path.into(),
+            kind: StorageEventKind::Modified,
+        });
+    }
+
+    /// Emit a Removed event.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    pub fn emit_removed(&self, path: impl Into<PathBuf>) {
+        self.emit(StorageEvent {
+            path: path.into(),
+            kind: StorageEventKind::Removed,
+        });
+    }
 }
 
 impl Storage for MockStorage {
@@ -139,6 +201,17 @@ impl Storage for MockStorage {
                     .with_path(path)
                     .with_backend("Mock")
             })
+    }
+
+    fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
+        // Create channel
+        let (tx, rx) = mpsc::channel();
+
+        // Store sender for emit methods
+        *self.event_sender.write().unwrap() = Some(tx);
+
+        // Return receiver and no-op handle (MockStorage doesn't need cleanup)
+        Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
     }
 }
 
@@ -245,5 +318,77 @@ mod tests {
         assert_eq!(err.kind(), StorageErrorKind::NotFound);
         assert_eq!(err.backend(), Some("Mock"));
         assert_eq!(err.path(), Some(Path::new("missing.md")));
+    }
+
+    #[test]
+    fn test_watch_and_emit_created() {
+        let storage = MockStorage::new();
+        let (rx, _handle) = storage.watch().unwrap();
+
+        storage.emit_created("new.md");
+
+        let event = rx.try_recv();
+        assert!(event.is_some());
+        let event = event.unwrap();
+        assert_eq!(event.path, PathBuf::from("new.md"));
+        assert_eq!(event.kind, StorageEventKind::Created);
+    }
+
+    #[test]
+    fn test_watch_and_emit_modified() {
+        let storage = MockStorage::new();
+        let (rx, _handle) = storage.watch().unwrap();
+
+        storage.emit_modified("guide.md");
+
+        let event = rx.try_recv();
+        assert!(event.is_some());
+        let event = event.unwrap();
+        assert_eq!(event.path, PathBuf::from("guide.md"));
+        assert_eq!(event.kind, StorageEventKind::Modified);
+    }
+
+    #[test]
+    fn test_watch_and_emit_removed() {
+        let storage = MockStorage::new();
+        let (rx, _handle) = storage.watch().unwrap();
+
+        storage.emit_removed("old.md");
+
+        let event = rx.try_recv();
+        assert!(event.is_some());
+        let event = event.unwrap();
+        assert_eq!(event.path, PathBuf::from("old.md"));
+        assert_eq!(event.kind, StorageEventKind::Removed);
+    }
+
+    #[test]
+    fn test_watch_and_emit_multiple_events() {
+        let storage = MockStorage::new();
+        let (rx, _handle) = storage.watch().unwrap();
+
+        storage.emit_created("a.md");
+        storage.emit_modified("b.md");
+        storage.emit_removed("c.md");
+
+        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
+        assert_eq!(events.len(), 3);
+
+        assert_eq!(events[0].path, PathBuf::from("a.md"));
+        assert_eq!(events[0].kind, StorageEventKind::Created);
+
+        assert_eq!(events[1].path, PathBuf::from("b.md"));
+        assert_eq!(events[1].kind, StorageEventKind::Modified);
+
+        assert_eq!(events[2].path, PathBuf::from("c.md"));
+        assert_eq!(events[2].kind, StorageEventKind::Removed);
+    }
+
+    #[test]
+    fn test_emit_before_watch_does_nothing() {
+        let storage = MockStorage::new();
+
+        // Emit before watch() is called should not panic
+        storage.emit_created("test.md");
     }
 }
