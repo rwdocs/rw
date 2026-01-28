@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **cargo-dist builds** now embed frontend assets in binary to prevent 404 errors on installation
+- **build.rs** automatically builds frontend assets when `embed-assets` feature is enabled
 
 ## [0.1.0]
 
