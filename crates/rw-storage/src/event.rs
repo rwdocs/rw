@@ -7,7 +7,6 @@ use std::sync::mpsc;
 
 /// Kind of storage event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum StorageEventKind {
     /// Document was created.
     Created,
