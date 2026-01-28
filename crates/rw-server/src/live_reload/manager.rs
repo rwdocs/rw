@@ -80,7 +80,9 @@ impl LiveReloadManager {
         site_loader: &Arc<SiteLoader>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
-        // Resolve doc path based on event kind
+        // Resolve doc path based on event kind.
+        // The debouncer already handles editor save patterns (Removed + Created → Modified),
+        // so we can trust the event types directly.
         let doc_path = match event.kind {
             StorageEventKind::Modified => {
                 // Content change only - use cached site, no traversal needed.
@@ -88,17 +90,9 @@ impl LiveReloadManager {
                 Self::resolve_doc_path_cached(&event.path, site_loader)
             }
             StorageEventKind::Created => {
-                // Check if file already exists in cached site. If so, this is really
-                // a modification (editors often save via "write temp + rename" which
-                // appears as a Create event). Only do full reload for genuinely new files.
-                if let Some(path) = Self::resolve_doc_path_cached(&event.path, site_loader) {
-                    // File exists in cached site - treat as modification
-                    Some(path)
-                } else {
-                    // New file - must reload to add it to site structure
-                    site_loader.invalidate();
-                    Self::resolve_doc_path(&event.path, site_loader)
-                }
+                // New file - must reload to add it to site structure
+                site_loader.invalidate();
+                Self::resolve_doc_path(&event.path, site_loader)
             }
             StorageEventKind::Removed => {
                 // File deleted - invalidate and compute path from filename
