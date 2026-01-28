@@ -1,32 +1,12 @@
-# Config files with secrets
-config.toml
-private_key.pem
+# Claude
+/.claude/settings.local.json
+/.mcp.json
+/TASKS.md
 
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-*.so
-
-# Virtual environments
-.venv
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-.claude/settings.local.json
+# Rust
 /target
 
-# Cache directory (contains auto-generated .gitignore)
-.cache/
+# RW
+/.cache
+rw.toml
+private_key.pem
