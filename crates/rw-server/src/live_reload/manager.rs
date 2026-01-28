@@ -95,9 +95,10 @@ impl LiveReloadManager {
                 Self::resolve_doc_path(&event.path, site_loader)
             }
             StorageEventKind::Removed => {
-                // File deleted - invalidate and compute path from filename
+                // File deleted - get path from cached site before invalidating
+                let doc_path = Self::resolve_doc_path_cached(&event.path, site_loader);
                 site_loader.invalidate();
-                Self::compute_doc_path(&event.path)
+                doc_path
             }
             _ => {
                 // Unknown event kind - ignore
@@ -115,33 +116,6 @@ impl LiveReloadManager {
             path: doc_path,
         };
         let _ = broadcaster.send(reload_event);
-    }
-
-    /// Compute documentation path from relative filesystem path for deleted files.
-    fn compute_doc_path(relative_path: &Path) -> Option<String> {
-        // Convert path components to URL segments
-        let segments: Vec<_> = relative_path
-            .with_extension("")
-            .components()
-            .filter_map(|c| match c {
-                std::path::Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
-                _ => None,
-            })
-            .collect();
-
-        // Handle index files: /guide/index -> /guide, /index -> /
-        let path = if segments.last().is_some_and(|s| s == "index") {
-            let parent_segments = &segments[..segments.len() - 1];
-            if parent_segments.is_empty() {
-                "/".to_string()
-            } else {
-                format!("/{}", parent_segments.join("/"))
-            }
-        } else {
-            format!("/{}", segments.join("/"))
-        };
-
-        Some(path)
     }
 
     /// Resolve relative file system path to documentation URL path.
@@ -189,37 +163,5 @@ mod tests {
 
         assert_eq!(json["type"], "reload");
         assert_eq!(json["path"], "/guide");
-    }
-
-    #[test]
-    fn test_compute_doc_path_simple() {
-        let relative_path = Path::new("guide.md");
-
-        let result = LiveReloadManager::compute_doc_path(relative_path);
-        assert_eq!(result, Some("/guide".to_string()));
-    }
-
-    #[test]
-    fn test_compute_doc_path_nested() {
-        let relative_path = Path::new("api/reference.md");
-
-        let result = LiveReloadManager::compute_doc_path(relative_path);
-        assert_eq!(result, Some("/api/reference".to_string()));
-    }
-
-    #[test]
-    fn test_compute_doc_path_index() {
-        let relative_path = Path::new("guide/index.md");
-
-        let result = LiveReloadManager::compute_doc_path(relative_path);
-        assert_eq!(result, Some("/guide".to_string()));
-    }
-
-    #[test]
-    fn test_compute_doc_path_root_index() {
-        let relative_path = Path::new("index.md");
-
-        let result = LiveReloadManager::compute_doc_path(relative_path);
-        assert_eq!(result, Some("/".to_string()));
     }
 }
