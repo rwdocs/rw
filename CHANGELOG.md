@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TOC now correctly highlights the clicked item instead of showing the wrong one
 - TOC items now show pointer cursor on hover
 - Removed animated scroll behavior
+- Prevent memory leaks on frontend
+- Navigation loading errors are now displayed to users
 
 ## [0.1.1]
 
