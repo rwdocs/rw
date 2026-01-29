@@ -425,10 +425,6 @@ impl Site {
         source_path: &Path,
         base_path: &str,
     ) -> Result<RenderResult, RenderError> {
-        if !self.storage.exists(source_path) {
-            return Err(RenderError::FileNotFound(source_path.to_path_buf()));
-        }
-
         let markdown_text = self.storage.read(source_path).map_err(|e| match e.kind() {
             StorageErrorKind::NotFound => RenderError::FileNotFound(source_path.to_path_buf()),
             _ => RenderError::Io(std::io::Error::other(e.to_string())),
