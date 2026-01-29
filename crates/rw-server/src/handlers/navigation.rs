@@ -26,6 +26,9 @@ struct NavItemResponse {
     title: String,
     /// Link target path (with leading slash for frontend).
     path: String,
+    /// Section type if this item is a section root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    section_type: Option<String>,
     /// Child navigation items.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     children: Vec<NavItemResponse>,
@@ -36,6 +39,7 @@ impl From<NavItem> for NavItemResponse {
         Self {
             title: item.title,
             path: to_url_path(&item.path),
+            section_type: item.section_type,
             children: item
                 .children
                 .into_iter()
@@ -63,6 +67,7 @@ mod tests {
         let nav_item = NavItem {
             title: "Guide".to_string(),
             path: "guide".to_string(),
+            section_type: None,
             children: vec![],
         };
         // Convert to NavItemResponse which adds leading slash
