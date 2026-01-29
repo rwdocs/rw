@@ -45,6 +45,11 @@
 
 {#if $page.loading && showSkeleton}
   <LoadingSkeleton />
+{:else if $page.loading && $page.data}
+  <!-- Fast load: show previous content with reduced opacity -->
+  <article class="prose prose-slate max-w-none opacity-50 transition-opacity duration-150">
+    {@html $page.data.content}
+  </article>
 {:else if $page.notFound}
   <div class="flex items-center justify-center h-64">
     <div class="text-center">
