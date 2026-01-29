@@ -29,7 +29,6 @@ use crate::RenderError;
 /// All fields are optional. When a field is `None`, it indicates the metadata
 /// was not explicitly set for this page.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct PageMetadata {
     /// Custom page title (overrides H1 extraction).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,13 +210,13 @@ vars:
     }
 
     #[test]
-    fn test_parse_unknown_field_errors() {
-        let yaml = r#"
+    fn test_parse_unknown_field_ignored() {
+        let yaml = r"
 title: Test
 unknown_field: value
-"#;
-        let result = PageMetadata::from_yaml(yaml);
-        assert!(result.is_err());
+";
+        let result = PageMetadata::from_yaml(yaml).unwrap().unwrap();
+        assert_eq!(result.title, Some("Test".to_string()));
     }
 
     // Merge tests

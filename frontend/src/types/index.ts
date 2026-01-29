@@ -2,7 +2,17 @@
 export interface NavItem {
   title: string;
   path: string;
+  /** Section type if this item is a section root. */
+  section_type?: string;
   children?: NavItem[];
+}
+
+/** Group of navigation items with optional label. */
+export interface NavGroup {
+  /** Group label (null for ungrouped items). */
+  label: string | null;
+  /** Items in this group. */
+  items: NavItem[];
 }
 
 /** Complete navigation tree */

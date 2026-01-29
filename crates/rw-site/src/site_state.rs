@@ -27,6 +27,9 @@ pub struct NavItem {
     pub title: String,
     /// Link target path.
     pub path: String,
+    /// Section type if this item is a section root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_type: Option<String>,
     /// Child navigation items.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<NavItem>,
@@ -309,9 +312,15 @@ impl SiteState {
             .map(|child| self.build_nav_item(child))
             .collect();
 
+        let section_type = self
+            .sections
+            .get(&page.path)
+            .map(|s| s.section_type.clone());
+
         NavItem {
             title: page.title.clone(),
             path: page.path.clone(),
+            section_type,
             children,
         }
     }
@@ -931,6 +940,66 @@ mod tests {
         assert!(!titles.contains(&"Home"));
     }
 
+    #[test]
+    fn test_navigation_includes_section_type() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            PathBuf::from("index.md"),
+            None,
+            None,
+        );
+        builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            PathBuf::from("billing/index.md"),
+            Some(root_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        builder.add_page(
+            "Payments".to_string(),
+            "payments".to_string(),
+            PathBuf::from("payments/index.md"),
+            Some(root_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("system".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        builder.add_page(
+            "Getting Started".to_string(),
+            "getting-started".to_string(),
+            PathBuf::from("getting-started.md"),
+            Some(root_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.navigation();
+
+        assert_eq!(nav.len(), 3);
+
+        // Find items by title
+        let billing = nav.iter().find(|item| item.title == "Billing").unwrap();
+        let payments = nav.iter().find(|item| item.title == "Payments").unwrap();
+        let getting_started = nav
+            .iter()
+            .find(|item| item.title == "Getting Started")
+            .unwrap();
+
+        assert_eq!(billing.section_type, Some("domain".to_string()));
+        assert_eq!(payments.section_type, Some("system".to_string()));
+        assert_eq!(getting_started.section_type, None);
+    }
+
     // NavItem tests
 
     #[test]
@@ -938,6 +1007,7 @@ mod tests {
         let item = NavItem {
             title: "Guide".to_string(),
             path: "guide".to_string(),
+            section_type: None,
             children: Vec::new(),
         };
 
@@ -951,11 +1021,13 @@ mod tests {
         let child = NavItem {
             title: "Child".to_string(),
             path: "parent/child".to_string(),
+            section_type: None,
             children: Vec::new(),
         };
         let item = NavItem {
             title: "Parent".to_string(),
             path: "parent".to_string(),
+            section_type: None,
             children: vec![child],
         };
 
@@ -968,6 +1040,7 @@ mod tests {
         let item = NavItem {
             title: "Guide".to_string(),
             path: "guide".to_string(),
+            section_type: None,
             children: Vec::new(),
         };
 
@@ -983,11 +1056,13 @@ mod tests {
         let child = NavItem {
             title: "Child".to_string(),
             path: "parent/child".to_string(),
+            section_type: None,
             children: Vec::new(),
         };
         let item = NavItem {
             title: "Parent".to_string(),
             path: "parent".to_string(),
+            section_type: None,
             children: vec![child],
         };
 
@@ -998,5 +1073,35 @@ mod tests {
         assert!(json["children"].is_array());
         assert_eq!(json["children"][0]["title"], "Child");
         assert_eq!(json["children"][0]["path"], "parent/child");
+    }
+
+    #[test]
+    fn test_nav_item_serialization_with_section_type() {
+        let item = NavItem {
+            title: "Billing".to_string(),
+            path: "domains/billing".to_string(),
+            section_type: Some("domain".to_string()),
+            children: Vec::new(),
+        };
+
+        let json = serde_json::to_value(&item).unwrap();
+
+        assert_eq!(json["title"], "Billing");
+        assert_eq!(json["path"], "domains/billing");
+        assert_eq!(json["section_type"], "domain");
+    }
+
+    #[test]
+    fn test_nav_item_serialization_skips_none_section_type() {
+        let item = NavItem {
+            title: "Guide".to_string(),
+            path: "guide".to_string(),
+            section_type: None,
+            children: Vec::new(),
+        };
+
+        let json = serde_json::to_value(&item).unwrap();
+
+        assert!(json.get("section_type").is_none()); // Skipped when None
     }
 }
