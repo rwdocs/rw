@@ -22,10 +22,16 @@
     } else if (animationState === "running") {
       // Transition from running to completing
       animationState = "completing";
-      // After completion animation, return to idle
       const timeout = setTimeout(() => {
         animationState = "idle";
       }, 300); // Match the completion animation duration
+      return () => clearTimeout(timeout);
+    } else if (animationState === "completing") {
+      // Already completing - ensure we return to idle
+      // (handles rapid load→complete→load→complete cycles)
+      const timeout = setTimeout(() => {
+        animationState = "idle";
+      }, 300);
       return () => clearTimeout(timeout);
     }
   });
