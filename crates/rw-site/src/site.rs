@@ -438,13 +438,7 @@ impl Site {
         base_path: &str,
     ) -> Result<RenderResult, RenderError> {
         let markdown_text = self.storage.read(source_path)?;
-
-        let mut renderer = self.create_renderer(base_path);
-        if let Some(processor) = self.create_diagram_processor() {
-            renderer = renderer.with_processor(processor);
-        }
-
-        let result = renderer.render_markdown(&markdown_text);
+        let result = self.create_renderer(base_path).render_markdown(&markdown_text);
 
         Ok(RenderResult {
             html: result.html,
@@ -466,6 +460,11 @@ impl Site {
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
+
+        if let Some(processor) = self.create_diagram_processor() {
+            renderer = renderer.with_processor(processor);
+        }
+
         renderer
     }
 
