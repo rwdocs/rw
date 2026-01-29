@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### Added
+
+- Page loading progress indicators: top progress bar and content skeleton
+
 ### Fixed
 
 - Hash fragment navigation now properly scrolls to the target heading
