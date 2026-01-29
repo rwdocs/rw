@@ -256,6 +256,17 @@ pub trait Storage: Send + Sync {
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
         Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
     }
+
+    /// List all directories in the storage.
+    ///
+    /// Returns relative paths to all directories, useful for discovering
+    /// directories that may have metadata files but no `index.md`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if listing fails (e.g., permission denied,
+    /// backend unavailable).
+    fn list_directories(&self) -> Result<Vec<PathBuf>, StorageError>;
 }
 
 #[cfg(test)]

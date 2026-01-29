@@ -70,8 +70,8 @@ pub struct PageRenderResult {
     pub warnings: Vec<String>,
     /// Whether result was served from cache.
     pub from_cache: bool,
-    /// Source file path (relative to storage root).
-    pub source_path: PathBuf,
+    /// Source file path (relative to storage root). `None` for virtual pages.
+    pub source_path: Option<PathBuf>,
     /// Source file modification time (Unix timestamp).
     pub source_mtime: f64,
     /// Breadcrumb navigation items.
@@ -396,14 +396,19 @@ impl Site {
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_string()))?;
 
+        // Get breadcrumbs
+        let breadcrumbs = state.get_breadcrumbs(path);
+
+        // Check if this is a virtual page (no source file)
+        let Some(ref source_path) = page.source_path else {
+            return Ok(self.render_virtual_page(&state, path, page, breadcrumbs));
+        };
+
         // Get source mtime
         let source_mtime = self
             .storage
-            .mtime(&page.source_path)
-            .map_err(|_| RenderError::FileNotFound(page.source_path.clone()))?;
-
-        // Get breadcrumbs
-        let breadcrumbs = state.get_breadcrumbs(path);
+            .mtime(source_path)
+            .map_err(|_| RenderError::FileNotFound(source_path.clone()))?;
 
         // Check page cache
         if let Some(cached) = self.page_cache.get(path, source_mtime) {
@@ -421,7 +426,7 @@ impl Site {
         }
 
         // Render the page
-        let markdown_text = self.storage.read(&page.source_path)?;
+        let markdown_text = self.storage.read(source_path)?;
         let result = self.create_renderer(path).render_markdown(&markdown_text);
 
         // Store in cache
@@ -444,6 +449,58 @@ impl Site {
             breadcrumbs,
             metadata: page.metadata.clone(),
         })
+    }
+
+    /// Render a virtual page (directory with metadata but no index.md).
+    ///
+    /// Generates an HTML list of child pages.
+    #[allow(clippy::unused_self)]
+    fn render_virtual_page(
+        &self,
+        state: &SiteState,
+        path: &str,
+        page: &Page,
+        breadcrumbs: Vec<BreadcrumbItem>,
+    ) -> PageRenderResult {
+        use std::fmt::Write;
+
+        // Get children and generate HTML list
+        let children = state.get_children(path);
+        let mut html = String::new();
+
+        if !children.is_empty() {
+            html.push_str("<ul class=\"child-pages\">\n");
+            for child in children {
+                let description = child
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.description.as_ref())
+                    .map_or(String::new(), |d| format!(" - {d}"));
+                let _ = writeln!(
+                    html,
+                    "  <li><a href=\"/{}\">{}</a>{}</li>",
+                    child.path, child.title, description
+                );
+            }
+            html.push_str("</ul>\n");
+        }
+
+        // Use current time as mtime for virtual pages
+        let source_mtime = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_secs_f64());
+
+        PageRenderResult {
+            html,
+            title: Some(page.title.clone()),
+            toc: Vec::new(),
+            warnings: Vec::new(),
+            from_cache: false,
+            source_path: None,
+            source_mtime,
+            breadcrumbs,
+            metadata: page.metadata.clone(),
+        }
     }
 
     /// Invalidate page cache for a path.
@@ -494,7 +551,9 @@ impl Site {
     /// Load site state from storage and build hierarchy.
     ///
     /// Uses `storage.scan()` to get documents, then builds hierarchy based on
-    /// path conventions. Also loads metadata from YAML sidecar files.
+    /// path conventions. Also loads metadata from YAML sidecar files and discovers
+    /// virtual pages (directories with metadata but no index.md).
+    #[allow(clippy::too_many_lines)]
     fn load_from_storage(&self) -> SiteState {
         let mut builder = SiteStateBuilder::new();
 
@@ -507,59 +566,226 @@ impl Site {
             }
         };
 
-        if documents.is_empty() {
+        // Collect index paths for virtual page detection
+        let index_paths: std::collections::HashSet<PathBuf> = documents
+            .iter()
+            .filter(|doc| doc.path.file_name().is_some_and(|n| n == "index.md"))
+            .map(|doc| doc.path.clone())
+            .collect();
+
+        // Discover virtual pages (directories with metadata but no index.md)
+        let virtual_pages = self.discover_virtual_pages(&index_paths);
+
+        // Create unified list of entries to process
+        #[allow(clippy::items_after_statements)]
+        enum PageEntry<'a> {
+            Document(&'a rw_storage::Document),
+            Virtual(PathBuf, PageMetadata),
+        }
+
+        let mut entries: Vec<PageEntry<'_>> = documents
+            .iter()
+            .map(PageEntry::Document)
+            .chain(
+                virtual_pages
+                    .into_iter()
+                    .map(|(path, meta)| PageEntry::Virtual(path, meta)),
+            )
+            .collect();
+
+        // Sort entries:
+        // 1. By depth (shallower first) - parents before children
+        // 2. Real documents before virtual pages (so root exists before virtual children)
+        // 3. Index.md before other documents
+        // 4. Alphabetically
+        entries.sort_by(|a, b| {
+            let (a_path, a_is_index, a_is_virtual) = match a {
+                PageEntry::Document(doc) => (
+                    &doc.path,
+                    doc.path.file_name().is_some_and(|n| n == "index.md"),
+                    false,
+                ),
+                PageEntry::Virtual(path, _) => (path, true, true),
+            };
+            let (b_path, b_is_index, b_is_virtual) = match b {
+                PageEntry::Document(doc) => (
+                    &doc.path,
+                    doc.path.file_name().is_some_and(|n| n == "index.md"),
+                    false,
+                ),
+                PageEntry::Virtual(path, _) => (path, true, true),
+            };
+
+            let a_depth = a_path.components().count();
+            let b_depth = b_path.components().count();
+
+            a_depth
+                .cmp(&b_depth)
+                // Real documents first, virtual pages second
+                .then_with(|| a_is_virtual.cmp(&b_is_virtual))
+                // Index.md before other documents
+                .then_with(|| b_is_index.cmp(&a_is_index))
+                .then_with(|| a_path.cmp(b_path))
+        });
+
+        if entries.is_empty() {
             return builder.build();
         }
 
-        // Sort documents: index.md files first (at each level), then alphabetical
-        // This ensures parent pages are created before their children
-        let mut sorted_docs: Vec<_> = documents.iter().collect();
-        sorted_docs.sort_by(|a, b| {
-            let a_is_index = a.path.file_name().is_some_and(|n| n == "index.md");
-            let b_is_index = b.path.file_name().is_some_and(|n| n == "index.md");
-            let a_depth = a.path.components().count();
-            let b_depth = b.path.components().count();
-
-            // Sort by depth first (shallower first), then index.md before others,
-            // then alphabetical
-            a_depth
-                .cmp(&b_depth)
-                .then_with(|| b_is_index.cmp(&a_is_index)) // true > false, so reverse
-                .then_with(|| a.path.cmp(&b.path))
-        });
-
-        // Track added pages by their source path for parent lookup
+        // Track added pages by their directory path for parent lookup
+        // For documents: key is parent directory (e.g., "domain" for "domain/index.md")
+        // For virtual pages: key is the directory path
         let mut path_to_idx: HashMap<PathBuf, usize> = HashMap::new();
+
+        // Also track URL paths to page indices for parent lookup
+        let mut url_to_idx: HashMap<String, usize> = HashMap::new();
 
         // Track metadata by directory for inheritance
         let mut dir_metadata: HashMap<PathBuf, PageMetadata> = HashMap::new();
 
-        // Process documents in sorted order
-        for doc in sorted_docs {
-            let url_path = Self::source_path_to_url(&doc.path);
-            let parent_idx = Self::find_parent(&doc.path, &path_to_idx);
+        // Process entries in sorted order
+        for entry in entries {
+            match entry {
+                PageEntry::Document(doc) => {
+                    let url_path = Self::source_path_to_url(&doc.path);
+                    let parent_idx = Self::find_parent_from_url(&url_path, &url_to_idx);
 
-            // Load metadata for this document
-            let metadata = self.load_metadata_for_doc(&doc.path, &dir_metadata);
+                    // Load metadata for this document
+                    let metadata = self.load_metadata_for_doc(&doc.path, &dir_metadata);
 
-            // Store metadata for inheritance if this is an index.md
-            if let Some(ref meta) = metadata
-                && let Some(dir) = metadata_dir(&doc.path)
-            {
-                dir_metadata.insert(dir.to_path_buf(), meta.clone());
+                    // Store metadata for inheritance if this is an index.md
+                    if let Some(ref meta) = metadata
+                        && let Some(dir) = metadata_dir(&doc.path)
+                    {
+                        dir_metadata.insert(dir.to_path_buf(), meta.clone());
+                    }
+
+                    // Use metadata title if present, otherwise use document title
+                    let title = metadata
+                        .as_ref()
+                        .and_then(|m| m.title.clone())
+                        .unwrap_or_else(|| doc.title.clone());
+
+                    let idx = builder.add_page(
+                        title,
+                        url_path.clone(),
+                        Some(doc.path.clone()),
+                        parent_idx,
+                        metadata,
+                    );
+                    path_to_idx.insert(doc.path.clone(), idx);
+                    url_to_idx.insert(url_path, idx);
+                }
+                PageEntry::Virtual(dir_path, metadata) => {
+                    // Convert directory path to URL path
+                    let url_path = dir_path.to_string_lossy().to_string();
+                    let parent_idx = Self::find_parent_from_url(&url_path, &url_to_idx);
+
+                    // Store metadata for inheritance
+                    dir_metadata.insert(dir_path.clone(), metadata.clone());
+
+                    // Use metadata title, fallback to directory name
+                    let title = metadata.title.clone().unwrap_or_else(|| {
+                        dir_path.file_name().map_or("Untitled".to_string(), |n| {
+                            Self::title_from_dir_name(&n.to_string_lossy())
+                        })
+                    });
+
+                    let idx = builder.add_page(
+                        title,
+                        url_path.clone(),
+                        None, // Virtual page has no source file
+                        parent_idx,
+                        Some(metadata),
+                    );
+                    url_to_idx.insert(url_path, idx);
+                }
             }
-
-            // Use metadata title if present, otherwise use document title
-            let title = metadata
-                .as_ref()
-                .and_then(|m| m.title.clone())
-                .unwrap_or_else(|| doc.title.clone());
-
-            let idx = builder.add_page(title, url_path, doc.path.clone(), parent_idx, metadata);
-            path_to_idx.insert(doc.path.clone(), idx);
         }
 
         builder.build()
+    }
+
+    /// Discover virtual pages (directories with metadata but no index.md).
+    fn discover_virtual_pages(
+        &self,
+        index_paths: &std::collections::HashSet<PathBuf>,
+    ) -> Vec<(PathBuf, PageMetadata)> {
+        let directories = match self.storage.list_directories() {
+            Ok(dirs) => dirs,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to list directories");
+                return Vec::new();
+            }
+        };
+
+        let mut virtual_pages = Vec::new();
+
+        for dir in directories {
+            // Check if this directory already has an index.md
+            let index_path = dir.join("index.md");
+            if index_paths.contains(&index_path) {
+                continue;
+            }
+
+            // Try loading metadata for this directory
+            let meta_path = metadata_file_path(&dir, &self.meta_filename);
+            if let Some(metadata) = self.load_metadata_file(&meta_path) {
+                // Only create virtual page if metadata is non-empty
+                if !metadata.is_empty() {
+                    virtual_pages.push((dir, metadata));
+                }
+            }
+        }
+
+        virtual_pages
+    }
+
+    /// Find parent page index from URL path.
+    ///
+    /// Walks up the path hierarchy to find the nearest existing ancestor.
+    /// For example, if `domains/billing/systems/foo` is added but `domains/billing/systems`
+    /// doesn't exist, it will try `domains/billing`, then `domains`, then root ("").
+    fn find_parent_from_url(url_path: &str, url_to_idx: &HashMap<String, usize>) -> Option<usize> {
+        if url_path.is_empty() {
+            return None;
+        }
+
+        // Walk up the path hierarchy to find the nearest existing ancestor
+        let mut current = url_path.to_string();
+        loop {
+            // Remove the last path segment
+            let parent_url = current
+                .rsplit_once('/')
+                .map_or(String::new(), |(parent, _)| parent.to_string());
+
+            // Check if this parent exists
+            if let Some(&idx) = url_to_idx.get(&parent_url) {
+                return Some(idx);
+            }
+
+            // If we've reached root (empty string) and it doesn't exist, give up
+            if parent_url.is_empty() {
+                return None;
+            }
+
+            current = parent_url;
+        }
+    }
+
+    /// Convert directory name to title.
+    fn title_from_dir_name(name: &str) -> String {
+        name.replace(['-', '_'], " ")
+            .split_whitespace()
+            .map(|word| {
+                let mut chars = word.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().chain(chars).collect(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Load metadata for a document, applying inheritance from parent directories.
@@ -570,16 +796,29 @@ impl Site {
     ) -> Option<PageMetadata> {
         // Get the directory containing the document
         let dir = metadata_dir(source_path)?;
-        let meta_path = metadata_file_path(dir, &self.meta_filename);
 
-        // Try to load metadata from file
-        let file_metadata = self.load_metadata_file(&meta_path);
+        // Only index.md files have their own metadata file (directory's meta.yaml)
+        // Other documents just inherit from the directory's metadata
+        let is_index = source_path.file_name().is_some_and(|n| n == "index.md");
 
-        // Get parent metadata for inheritance
-        let parent_metadata = self.get_parent_metadata(dir, dir_metadata);
+        let file_metadata = if is_index {
+            let meta_path = metadata_file_path(dir, &self.meta_filename);
+            self.load_metadata_file(&meta_path)
+        } else {
+            None
+        };
 
-        // Merge with parent metadata if both exist
-        match (parent_metadata, file_metadata) {
+        // Get inherited metadata from the directory
+        // For index.md, we inherit from parent directory
+        // For other files, we inherit from the same directory (the directory's meta.yaml)
+        let inherited_metadata = if is_index {
+            self.get_parent_metadata(dir, dir_metadata)
+        } else {
+            dir_metadata.get(dir).cloned()
+        };
+
+        // Merge with inherited metadata if both exist
+        match (inherited_metadata, file_metadata) {
             (Some(parent), Some(child)) => Some(merge_metadata(&parent, &child)),
             (Some(parent), None) => {
                 // Inherit description and vars but not title or type
@@ -609,6 +848,7 @@ impl Site {
     }
 
     /// Get inherited metadata from parent directory.
+    #[allow(clippy::unused_self)]
     fn get_parent_metadata(
         &self,
         dir: &Path,
@@ -649,75 +889,6 @@ impl Site {
         }
 
         without_ext.to_string()
-    }
-
-    /// Find parent page index for a document.
-    ///
-    /// Uses path conventions to determine parent:
-    /// - `"guide.md"` -> parent is `"/"` (root) if `"index.md"` exists
-    /// - `"domain/setup.md"` -> parent is `"/domain"` if `"domain/index.md"` exists
-    /// - Directories without `index.md` promote children to grandparent
-    fn find_parent(source_path: &Path, path_to_idx: &HashMap<PathBuf, usize>) -> Option<usize> {
-        let path_str = source_path.to_string_lossy();
-
-        // Root index.md has no parent
-        if path_str == "index.md" {
-            return None;
-        }
-
-        // Get the parent directory
-        let parent_dir = source_path.parent()?;
-
-        if parent_dir.as_os_str().is_empty() {
-            // Top-level file (e.g., "guide.md")
-            // Parent is root index.md if it exists
-            let root_index = PathBuf::from("index.md");
-            return path_to_idx.get(&root_index).copied();
-        }
-
-        // Look for index.md in parent directory
-        let parent_index = parent_dir.join("index.md");
-        if let Some(&idx) = path_to_idx.get(&parent_index) {
-            return Some(idx);
-        }
-
-        // No index.md in parent - recursively check grandparent
-        // We need to find the grandparent by looking at parent_dir's parent
-        let grandparent_dir = parent_dir.parent()?;
-        if grandparent_dir.as_os_str().is_empty() {
-            // Parent is at root level, check for root index.md
-            let root_index = PathBuf::from("index.md");
-            return path_to_idx.get(&root_index).copied();
-        }
-
-        // Look for index.md in grandparent
-        let grandparent_index = grandparent_dir.join("index.md");
-        if let Some(&idx) = path_to_idx.get(&grandparent_index) {
-            return Some(idx);
-        }
-
-        // Continue recursion with grandparent's index
-        Self::find_parent_up(grandparent_dir, path_to_idx)
-    }
-
-    /// Helper to find parent by walking up directory tree.
-    fn find_parent_up(dir: &Path, path_to_idx: &HashMap<PathBuf, usize>) -> Option<usize> {
-        let parent_dir = dir.parent()?;
-
-        if parent_dir.as_os_str().is_empty() {
-            // At root, check for root index.md
-            let root_index = PathBuf::from("index.md");
-            return path_to_idx.get(&root_index).copied();
-        }
-
-        // Check for index.md in parent
-        let parent_index = parent_dir.join("index.md");
-        if let Some(&idx) = path_to_idx.get(&parent_index) {
-            return Some(idx);
-        }
-
-        // Continue up
-        Self::find_parent_up(parent_dir, path_to_idx)
     }
 }
 
@@ -807,7 +978,7 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "Welcome");
         assert_eq!(page.path, "");
-        assert_eq!(page.source_path, PathBuf::from("index.md"));
+        assert_eq!(page.source_path, Some(PathBuf::from("index.md")));
     }
 
     #[test]
@@ -827,12 +998,15 @@ mod tests {
         assert!(domain.is_some());
         let domain = domain.unwrap();
         assert_eq!(domain.title, "Domain A");
-        assert_eq!(domain.source_path, PathBuf::from("domain-a/index.md"));
+        assert_eq!(domain.source_path, Some(PathBuf::from("domain-a/index.md")));
 
         let children = state.get_children("domain-a");
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].title, "Setup Guide");
-        assert_eq!(children[0].source_path, PathBuf::from("domain-a/guide.md"));
+        assert_eq!(
+            children[0].source_path,
+            Some(PathBuf::from("domain-a/guide.md"))
+        );
     }
 
     #[test]
@@ -891,7 +1065,7 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "Руководство");
         assert_eq!(page.path, "руководство");
-        assert_eq!(page.source_path, PathBuf::from("руководство.md"));
+        assert_eq!(page.source_path, Some(PathBuf::from("руководство.md")));
     }
 
     #[test]
@@ -942,7 +1116,10 @@ mod tests {
         let roots = state.get_root_pages();
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].path, "no-index/child");
-        assert_eq!(roots[0].source_path, PathBuf::from("no-index/child.md"));
+        assert_eq!(
+            roots[0].source_path,
+            Some(PathBuf::from("no-index/child.md"))
+        );
     }
 
     #[test]
@@ -1199,7 +1376,7 @@ mod tests {
         assert!(result.html.contains("<p>World</p>"));
         assert_eq!(result.title, Some("Hello".to_string()));
         assert!(!result.from_cache);
-        assert_eq!(result.source_path, PathBuf::from("test.md"));
+        assert_eq!(result.source_path, Some(PathBuf::from("test.md")));
     }
 
     #[test]
@@ -1283,5 +1460,216 @@ mod tests {
         assert_eq!(result.toc[0].title, "Section 1");
         assert_eq!(result.toc[0].level, 2);
         assert_eq!(result.toc[1].title, "Section 2");
+    }
+
+    // ========================================================================
+    // Virtual page tests
+    // ========================================================================
+
+    #[test]
+    fn test_virtual_page_discovered_from_metadata() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("my-domain");
+        fs::create_dir_all(&domain_dir).unwrap();
+        // Create meta.yaml but no index.md
+        fs::write(
+            domain_dir.join("meta.yaml"),
+            "title: My Domain\ntype: domain",
+        )
+        .unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        let page = state.get_page("my-domain");
+        assert!(page.is_some());
+        let page = page.unwrap();
+        assert_eq!(page.title, "My Domain");
+        assert!(page.source_path.is_none()); // Virtual page
+        assert!(page.metadata.is_some());
+        assert_eq!(
+            page.metadata.as_ref().unwrap().page_type,
+            Some("domain".to_string())
+        );
+    }
+
+    #[test]
+    fn test_virtual_page_not_created_without_metadata() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("empty-domain");
+        fs::create_dir_all(&domain_dir).unwrap();
+        // No meta.yaml, no index.md
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        // Should not create a virtual page
+        assert!(state.get_page("empty-domain").is_none());
+    }
+
+    #[test]
+    fn test_virtual_page_not_created_with_index_md() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("real-domain");
+        fs::create_dir_all(&domain_dir).unwrap();
+        // Has both meta.yaml and index.md
+        fs::write(
+            domain_dir.join("meta.yaml"),
+            "title: Meta Title\ntype: domain",
+        )
+        .unwrap();
+        fs::write(domain_dir.join("index.md"), "# Real Page").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        let page = state.get_page("real-domain");
+        assert!(page.is_some());
+        let page = page.unwrap();
+        // Should use index.md, not virtual
+        assert!(page.source_path.is_some());
+        // Title from metadata takes precedence
+        assert_eq!(page.title, "Meta Title");
+    }
+
+    #[test]
+    fn test_virtual_page_renders_child_list() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("my-domain");
+        fs::create_dir_all(&domain_dir).unwrap();
+        fs::write(
+            domain_dir.join("meta.yaml"),
+            "title: My Domain\ntype: domain",
+        )
+        .unwrap();
+        fs::write(domain_dir.join("child1.md"), "# Child One").unwrap();
+        fs::write(domain_dir.join("child2.md"), "# Child Two").unwrap();
+
+        let site = create_site(source_dir);
+
+        let result = site.render("my-domain").unwrap();
+
+        // Should have children in HTML
+        assert!(result.html.contains("Child One"));
+        assert!(result.html.contains("Child Two"));
+        assert!(result.html.contains("<ul"));
+        assert!(result.source_path.is_none()); // Virtual
+        assert!(result.toc.is_empty()); // No TOC for virtual
+    }
+
+    #[test]
+    fn test_virtual_page_in_navigation() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("my-domain");
+        fs::create_dir_all(&domain_dir).unwrap();
+        fs::write(
+            domain_dir.join("meta.yaml"),
+            "title: My Domain\ntype: domain",
+        )
+        .unwrap();
+        fs::write(domain_dir.join("child.md"), "# Child Page").unwrap();
+
+        let site = create_site(source_dir);
+
+        let nav = site.navigation();
+
+        assert_eq!(nav.len(), 1);
+        assert_eq!(nav[0].title, "My Domain");
+        assert_eq!(nav[0].path, "my-domain");
+        assert_eq!(nav[0].children.len(), 1);
+        assert_eq!(nav[0].children[0].title, "Child Page");
+    }
+
+    #[test]
+    fn test_nested_virtual_pages() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(source_dir.join("index.md"), "# Home").unwrap();
+
+        // Parent virtual page
+        let parent = source_dir.join("domains");
+        fs::create_dir(&parent).unwrap();
+        fs::write(parent.join("meta.yaml"), "title: Domains\ntype: section").unwrap();
+
+        // Nested virtual page
+        let child = parent.join("billing");
+        fs::create_dir(&child).unwrap();
+        fs::write(child.join("meta.yaml"), "title: Billing\ntype: domain").unwrap();
+
+        // Real page in nested virtual
+        fs::write(child.join("overview.md"), "# Overview").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        // Check parent virtual
+        let domains = state.get_page("domains");
+        assert!(domains.is_some());
+        assert!(domains.unwrap().source_path.is_none());
+
+        // Check child virtual
+        let billing = state.get_page("domains/billing");
+        assert!(billing.is_some());
+        assert!(billing.unwrap().source_path.is_none());
+
+        // Check real page has correct parent
+        let overview = state.get_page("domains/billing/overview");
+        assert!(overview.is_some());
+        assert!(overview.unwrap().source_path.is_some());
+
+        // Check navigation structure
+        let nav = site.navigation();
+        assert_eq!(nav.len(), 1);
+        assert_eq!(nav[0].title, "Domains");
+        assert_eq!(nav[0].children.len(), 1);
+        assert_eq!(nav[0].children[0].title, "Billing");
+        assert_eq!(nav[0].children[0].children.len(), 1);
+        assert_eq!(nav[0].children[0].children[0].title, "Overview");
+    }
+
+    #[test]
+    fn test_virtual_page_title_fallback_to_dir_name() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("my-nice-domain");
+        fs::create_dir_all(&domain_dir).unwrap();
+        // Meta without title
+        fs::write(domain_dir.join("meta.yaml"), "type: domain").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        let page = state.get_page("my-nice-domain");
+        assert!(page.is_some());
+        // Should use titlecased directory name
+        assert_eq!(page.unwrap().title, "My Nice Domain");
+    }
+
+    #[test]
+    fn test_virtual_page_empty_metadata_ignored() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("empty-meta");
+        fs::create_dir_all(&domain_dir).unwrap();
+        // Empty meta.yaml
+        fs::write(domain_dir.join("meta.yaml"), "").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        // Should not create virtual page for empty metadata
+        assert!(state.get_page("empty-meta").is_none());
     }
 }

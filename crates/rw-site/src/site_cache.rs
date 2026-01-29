@@ -169,14 +169,14 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             "/".to_string(),
-            PathBuf::from("index.md"),
+            Some(PathBuf::from("index.md")),
             None,
             None,
         );
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
-            PathBuf::from("guide.md"),
+            Some(PathBuf::from("guide.md")),
             Some(root_idx),
             None,
         );
@@ -242,11 +242,11 @@ mod tests {
         // Check page data
         let home = loaded.get_page("/").unwrap();
         assert_eq!(home.title, "Home");
-        assert_eq!(home.source_path, PathBuf::from("index.md"));
+        assert_eq!(home.source_path, Some(PathBuf::from("index.md")));
 
         let guide = loaded.get_page("/guide").unwrap();
         assert_eq!(guide.title, "Guide");
-        assert_eq!(guide.source_path, PathBuf::from("guide.md"));
+        assert_eq!(guide.source_path, Some(PathBuf::from("guide.md")));
 
         // Check hierarchy
         let children = loaded.get_children("/");

@@ -166,7 +166,10 @@ fn get_page_impl(
         meta: PageMeta {
             title: result.title,
             path: to_url_path(&path),
-            source_file: result.source_path.display().to_string(),
+            source_file: result
+                .source_path
+                .as_ref()
+                .map_or(String::new(), |p| p.display().to_string()),
             last_modified: last_modified.to_rfc3339(),
             description,
             page_type,

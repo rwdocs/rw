@@ -244,6 +244,46 @@ impl FsStorage {
             .collect::<Vec<_>>()
             .join(" ")
     }
+
+    /// Collect all directories recursively.
+    #[allow(clippy::only_used_in_recursion)]
+    fn collect_directories(&self, dir_path: &Path, base_path: &Path) -> Vec<PathBuf> {
+        let Ok(entries) = fs::read_dir(dir_path) else {
+            return Vec::new();
+        };
+
+        let mut directories = Vec::new();
+
+        for entry in entries.filter_map(Result::ok) {
+            let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+            if !is_dir {
+                continue;
+            }
+
+            let name_lower = entry.file_name().to_string_lossy().to_lowercase();
+
+            // Skip hidden and underscore-prefixed directories
+            if name_lower.starts_with('.') || name_lower.starts_with('_') {
+                continue;
+            }
+
+            // Skip common non-documentation directories
+            if matches!(
+                name_lower.as_str(),
+                "node_modules" | "target" | "dist" | "build" | ".cache" | "vendor" | "__pycache__"
+            ) {
+                continue;
+            }
+
+            let rel_path = base_path.join(entry.file_name());
+            directories.push(rel_path.clone());
+
+            // Recurse into subdirectory
+            directories.extend(self.collect_directories(&entry.path(), &rel_path));
+        }
+
+        directories
+    }
 }
 
 impl Storage for FsStorage {
@@ -253,6 +293,14 @@ impl Storage for FsStorage {
         }
 
         Ok(self.scan_directory(&self.source_dir, Path::new("")))
+    }
+
+    fn list_directories(&self) -> Result<Vec<PathBuf>, StorageError> {
+        if !self.source_dir.exists() {
+            return Ok(Vec::new());
+        }
+
+        Ok(self.collect_directories(&self.source_dir, Path::new("")))
     }
 
     fn read(&self, path: &Path) -> Result<String, StorageError> {
@@ -908,5 +956,76 @@ mod tests {
         // Should not receive any events (watcher is stopped)
         let event = rx.try_recv();
         assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_list_directories_empty() {
+        let temp_dir = create_test_dir();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let dirs = storage.list_directories().unwrap();
+
+        assert!(dirs.is_empty());
+    }
+
+    #[test]
+    fn test_list_directories_flat() {
+        let temp_dir = create_test_dir();
+        fs::create_dir(temp_dir.path().join("domain-a")).unwrap();
+        fs::create_dir(temp_dir.path().join("domain-b")).unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let dirs = storage.list_directories().unwrap();
+
+        assert_eq!(dirs.len(), 2);
+        assert!(dirs.contains(&PathBuf::from("domain-a")));
+        assert!(dirs.contains(&PathBuf::from("domain-b")));
+    }
+
+    #[test]
+    fn test_list_directories_nested() {
+        let temp_dir = create_test_dir();
+        fs::create_dir_all(temp_dir.path().join("domain/sub")).unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let dirs = storage.list_directories().unwrap();
+
+        assert_eq!(dirs.len(), 2);
+        assert!(dirs.contains(&PathBuf::from("domain")));
+        assert!(dirs.contains(&PathBuf::from("domain/sub")));
+    }
+
+    #[test]
+    fn test_list_directories_skips_hidden() {
+        let temp_dir = create_test_dir();
+        fs::create_dir(temp_dir.path().join(".hidden")).unwrap();
+        fs::create_dir(temp_dir.path().join("visible")).unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let dirs = storage.list_directories().unwrap();
+
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0], PathBuf::from("visible"));
+    }
+
+    #[test]
+    fn test_list_directories_skips_node_modules() {
+        let temp_dir = create_test_dir();
+        fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
+        fs::create_dir(temp_dir.path().join("docs")).unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let dirs = storage.list_directories().unwrap();
+
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0], PathBuf::from("docs"));
+    }
+
+    #[test]
+    fn test_list_directories_missing_dir() {
+        let storage = FsStorage::new(PathBuf::from("/nonexistent"));
+        let dirs = storage.list_directories().unwrap();
+
+        assert!(dirs.is_empty());
     }
 }
