@@ -398,7 +398,8 @@ impl Site {
         }
 
         // Render the page
-        let result = self.render_page(&page.source_path, cache_key)?;
+        let markdown_text = self.storage.read(&page.source_path)?;
+        let result = self.create_renderer(cache_key).render_markdown(&markdown_text);
 
         // Store in cache
         self.page_cache.set(
@@ -429,23 +430,6 @@ impl Site {
     pub fn invalidate_page(&self, path: &str) {
         let cache_key = path.trim_start_matches('/');
         self.page_cache.invalidate(cache_key);
-    }
-
-    /// Render a page from source path.
-    fn render_page(
-        &self,
-        source_path: &Path,
-        base_path: &str,
-    ) -> Result<RenderResult, RenderError> {
-        let markdown_text = self.storage.read(source_path)?;
-        let result = self.create_renderer(base_path).render_markdown(&markdown_text);
-
-        Ok(RenderResult {
-            html: result.html,
-            title: result.title,
-            toc: result.toc,
-            warnings: result.warnings,
-        })
     }
 
     /// Create a renderer with common configuration.
@@ -633,14 +617,6 @@ impl Site {
         // Continue up
         Self::find_parent_up(parent_dir, path_to_idx)
     }
-}
-
-/// Internal render result (before adding metadata).
-struct RenderResult {
-    html: String,
-    title: Option<String>,
-    toc: Vec<TocEntry>,
-    warnings: Vec<String>,
 }
 
 #[cfg(test)]
