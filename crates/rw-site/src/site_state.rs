@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::metadata::PageMetadata;
+
 /// Navigation item with children for UI tree.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct NavItem {
@@ -33,12 +35,28 @@ pub struct NavItem {
 /// Document page data.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
-    /// Page title (from H1 heading or filename).
+    /// Page title (from H1 heading, filename, or metadata override).
     pub title: String,
     /// URL path without leading slash (e.g., "guide", "domain/page", "" for root).
     pub path: String,
     /// Relative path to source file (e.g., "guide.md").
     pub source_path: PathBuf,
+    /// Page metadata from YAML sidecar file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<PageMetadata>,
+}
+
+/// Section information for sub-sites or categorized content.
+///
+/// A section is created when a page has a `type` set in its metadata.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SectionInfo {
+    /// Section title (from page title).
+    pub title: String,
+    /// URL path to the section root (without leading slash).
+    pub path: String,
+    /// Section type (from metadata `type` field).
+    pub section_type: String,
 }
 
 /// Breadcrumb navigation item.
@@ -66,6 +84,7 @@ pub struct SiteState {
     roots: Vec<usize>,
     path_index: HashMap<String, usize>,
     source_path_index: HashMap<PathBuf, usize>,
+    sections: HashMap<String, SectionInfo>,
 }
 
 impl SiteState {
@@ -79,6 +98,7 @@ impl SiteState {
         children: Vec<Vec<usize>>,
         parents: Vec<Option<usize>>,
         roots: Vec<usize>,
+        sections: HashMap<String, SectionInfo>,
     ) -> Self {
         let path_index = pages
             .iter()
@@ -98,6 +118,7 @@ impl SiteState {
             roots,
             path_index,
             source_path_index,
+            sections,
         }
     }
 
@@ -242,6 +263,18 @@ impl SiteState {
         &self.roots
     }
 
+    /// Get all sections.
+    #[must_use]
+    pub fn sections(&self) -> &HashMap<String, SectionInfo> {
+        &self.sections
+    }
+
+    /// Get a section by path.
+    #[must_use]
+    pub fn get_section(&self, path: &str) -> Option<&SectionInfo> {
+        self.sections.get(path)
+    }
+
     /// Build navigation tree from site structure.
     ///
     /// The root page (path="") is excluded from navigation as it serves
@@ -290,6 +323,7 @@ pub(crate) struct SiteStateBuilder {
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
+    sections: HashMap<String, SectionInfo>,
 }
 
 impl SiteStateBuilder {
@@ -301,6 +335,7 @@ impl SiteStateBuilder {
             children: Vec::new(),
             parents: Vec::new(),
             roots: Vec::new(),
+            sections: HashMap::new(),
         }
     }
 
@@ -312,6 +347,7 @@ impl SiteStateBuilder {
     /// * `path` - URL path (e.g., "/guide")
     /// * `source_path` - Relative path to source file (e.g., "guide.md")
     /// * `parent_idx` - Index of parent page, `None` for root
+    /// * `metadata` - Optional page metadata from YAML sidecar
     ///
     /// # Returns
     ///
@@ -322,12 +358,29 @@ impl SiteStateBuilder {
         path: String,
         source_path: PathBuf,
         parent_idx: Option<usize>,
+        metadata: Option<PageMetadata>,
     ) -> usize {
         let idx = self.pages.len();
+
+        // Register section if page has a type
+        if let Some(ref meta) = metadata
+            && let Some(ref section_type) = meta.page_type
+        {
+            self.sections.insert(
+                path.clone(),
+                SectionInfo {
+                    title: title.clone(),
+                    path: path.clone(),
+                    section_type: section_type.clone(),
+                },
+            );
+        }
+
         self.pages.push(Page {
             title,
             path,
             source_path,
+            metadata,
         });
         self.children.push(Vec::new());
         self.parents.push(parent_idx);
@@ -344,7 +397,13 @@ impl SiteStateBuilder {
     /// Build the [`SiteState`] instance.
     #[must_use]
     pub(crate) fn build(self) -> SiteState {
-        SiteState::new(self.pages, self.children, self.parents, self.roots)
+        SiteState::new(
+            self.pages,
+            self.children,
+            self.parents,
+            self.roots,
+            self.sections,
+        )
     }
 }
 
@@ -361,6 +420,7 @@ mod tests {
             "Guide".to_string(),
             "guide".to_string(),
             PathBuf::from("guide.md"),
+            None,
             None,
         );
         let site = builder.build();
@@ -391,12 +451,14 @@ mod tests {
             "parent".to_string(),
             PathBuf::from("parent/index.md"),
             None,
+            None,
         );
         builder.add_page(
             "Child".to_string(),
             "parent/child".to_string(),
             PathBuf::from("parent/child.md"),
             Some(parent_idx),
+            None,
         );
         let site = builder.build();
 
@@ -423,6 +485,7 @@ mod tests {
             "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
+            None,
         );
         let site = builder.build();
 
@@ -448,6 +511,7 @@ mod tests {
             "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
+            None,
         );
         let site = builder.build();
 
@@ -466,12 +530,14 @@ mod tests {
             "parent".to_string(),
             PathBuf::from("parent/index.md"),
             None,
+            None,
         );
         builder.add_page(
             "Child".to_string(),
             "parent/child".to_string(),
             PathBuf::from("parent/child.md"),
             Some(parent_idx),
+            None,
         );
         let site = builder.build();
 
@@ -501,18 +567,21 @@ mod tests {
             String::new(),
             PathBuf::from("index.md"),
             None,
+            None,
         );
         let domain_idx = builder.add_page(
             "Domain".to_string(),
             "domain".to_string(),
             PathBuf::from("domain/index.md"),
             Some(root_idx),
+            None,
         );
         builder.add_page(
             "Page".to_string(),
             "domain/page".to_string(),
             PathBuf::from("domain/page.md"),
             Some(domain_idx),
+            None,
         );
         let site = builder.build();
 
@@ -533,11 +602,13 @@ mod tests {
             "a".to_string(),
             PathBuf::from("a.md"),
             None,
+            None,
         );
         builder.add_page(
             "B".to_string(),
             "b".to_string(),
             PathBuf::from("b.md"),
+            None,
             None,
         );
         let site = builder.build();
@@ -557,6 +628,7 @@ mod tests {
             "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
+            None,
         );
         let site = builder.build();
 
@@ -575,6 +647,7 @@ mod tests {
             "domain/page".to_string(),
             PathBuf::from("domain/page.md"),
             None,
+            None,
         );
         let site = builder.build();
 
@@ -591,6 +664,7 @@ mod tests {
             "Section".to_string(),
             "section".to_string(),
             PathBuf::from("section/index.md"),
+            None,
             None,
         );
         let site = builder.build();
@@ -621,6 +695,7 @@ mod tests {
             "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
+            None,
         );
 
         assert_eq!(idx, 0);
@@ -635,11 +710,13 @@ mod tests {
             "a".to_string(),
             PathBuf::from("a.md"),
             None,
+            None,
         );
         let idx2 = builder.add_page(
             "B".to_string(),
             "b".to_string(),
             PathBuf::from("b.md"),
+            None,
             None,
         );
 
@@ -655,12 +732,14 @@ mod tests {
             "parent".to_string(),
             PathBuf::from("parent/index.md"),
             None,
+            None,
         );
         builder.add_page(
             "Child".to_string(),
             "parent/child".to_string(),
             PathBuf::from("parent/child.md"),
             Some(parent_idx),
+            None,
         );
         let site = builder.build();
 
@@ -678,6 +757,7 @@ mod tests {
             "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
+            None,
         );
 
         let site = builder.build();
@@ -693,6 +773,7 @@ mod tests {
             title: "Guide".to_string(),
             path: "guide".to_string(),
             source_path: PathBuf::from("guide.md"),
+            metadata: None,
         };
 
         assert_eq!(page.title, "Guide");
@@ -732,11 +813,13 @@ mod tests {
             "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
+            None,
         );
         builder.add_page(
             "API".to_string(),
             "api".to_string(),
             PathBuf::from("api.md"),
+            None,
             None,
         );
         let site = builder.build();
@@ -757,12 +840,14 @@ mod tests {
             "domain-a".to_string(),
             PathBuf::from("domain-a/index.md"),
             None,
+            None,
         );
         builder.add_page(
             "Setup Guide".to_string(),
             "domain-a/guide".to_string(),
             PathBuf::from("domain-a/guide.md"),
             Some(parent_idx),
+            None,
         );
         let site = builder.build();
 
@@ -785,18 +870,21 @@ mod tests {
             "a".to_string(),
             PathBuf::from("a/index.md"),
             None,
+            None,
         );
         let idx_b = builder.add_page(
             "B".to_string(),
             "a/b".to_string(),
             PathBuf::from("a/b/index.md"),
             Some(idx_a),
+            None,
         );
         builder.add_page(
             "C".to_string(),
             "a/b/c".to_string(),
             PathBuf::from("a/b/c/index.md"),
             Some(idx_b),
+            None,
         );
         let site = builder.build();
 
@@ -815,18 +903,21 @@ mod tests {
             String::new(),
             PathBuf::from("index.md"),
             None,
+            None,
         );
         builder.add_page(
             "Domains".to_string(),
             "domains".to_string(),
             PathBuf::from("domains/index.md"),
             Some(root_idx),
+            None,
         );
         builder.add_page(
             "Usage".to_string(),
             "usage".to_string(),
             PathBuf::from("usage/index.md"),
             Some(root_idx),
+            None,
         );
         let site = builder.build();
 

@@ -22,8 +22,8 @@ const mockPageResponse: PageResponse = {
   meta: {
     title: "Test Page",
     path: "/test",
-    source_file: "test.md",
-    last_modified: "2025-01-01T00:00:00Z",
+    sourceFile: "test.md",
+    lastModified: "2025-01-01T00:00:00Z",
   },
   breadcrumbs: [{ title: "Home", path: "/" }],
   toc: [{ level: 2, title: "Section", id: "section" }],

@@ -14,8 +14,11 @@ export interface NavigationTree {
 export interface PageMeta {
   title: string;
   path: string;
-  source_file: string;
-  last_modified: string; // ISO 8601
+  sourceFile: string;
+  lastModified: string; // ISO 8601
+  description?: string;
+  type?: string;
+  vars?: Record<string, unknown>;
 }
 
 /** Breadcrumb navigation item */
@@ -48,4 +51,16 @@ export interface ApiError {
 /** Server config from GET /api/config */
 export interface ConfigResponse {
   liveReloadEnabled: boolean;
+}
+
+/** Section from GET /api/sections */
+export interface Section {
+  title: string;
+  path: string;
+  type: string;
+}
+
+/** Response from GET /api/sections */
+export interface SectionsResponse {
+  sections: Section[];
 }

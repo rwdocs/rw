@@ -116,9 +116,10 @@ crates/
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── site.rs           # Site (unified loading + rendering), SiteConfig, PageRenderResult
-│       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem
+│       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
 │       ├── site_cache.rs     # SiteCache trait, FileSiteCache, NullSiteCache
-│       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
+│       ├── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
+│       └── metadata.rs       # PageMetadata, YAML parsing, merge_metadata()
 │
 ├── rw-storage/            # Storage abstraction layer
 │   └── src/
@@ -129,12 +130,12 @@ crates/
 │
 ├── rw-config/             # Configuration parsing
 │   └── src/
-│       └── lib.rs            # Config, CliSettings, ConfigError
+│       └── lib.rs            # Config, CliSettings, MetadataConfig, ConfigError
 │
 └── rw-server/             # Native HTTP server (axum)
     └── src/
         ├── lib.rs            # Server configuration and entry point
-        ├── handlers/         # API endpoints (config, pages, navigation)
+        ├── handlers/         # API endpoints (config, pages, navigation, sections)
         ├── live_reload/      # File watching and WebSocket broadcasting
         └── static_files.rs   # Static file serving with SPA fallback
 

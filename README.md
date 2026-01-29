@@ -54,6 +54,9 @@ dpi = 192                       # DPI for diagrams (retina)
 enabled = true                  # Enable live reload (default: true)
 watch_patterns = ["**/*.md"]    # Patterns to watch
 
+[metadata]
+name = "meta.yaml"              # Metadata file name (default: meta.yaml)
+
 [confluence]
 base_url = "https://confluence.example.com"
 access_token = "your-token"
@@ -130,6 +133,35 @@ rw confluence update document.md <page-id> --dry-run
 OAuth tokens inherit the authorizing user's permissions. If you get `500` errors on update:
 1. Verify you can edit pages manually in the target space
 2. Regenerate tokens with `rw confluence generate-tokens`
+
+## Page Metadata
+
+Pages can have metadata defined in YAML sidecar files (default: `meta.yaml` in the same directory as `index.md`).
+
+```yaml
+# docs/domain-a/meta.yaml
+title: "My Domain"
+description: "Domain overview"
+type: domain
+vars:
+  owner: team-a
+  priority: 1
+```
+
+### Metadata Fields
+
+- `title` - Custom page title (overrides H1 extraction)
+- `description` - Page description for display
+- `type` - Page type (e.g., "domain", "guide"). Pages with `type` are registered as sections
+- `vars` - Custom variables (key-value pairs)
+
+### Inheritance
+
+Metadata is inherited from parent directories:
+- `title` - Never inherited
+- `description` - Inherited if child doesn't set
+- `type` - Never inherited
+- `vars` - Deep merged (child values override parent keys)
 
 ## Technical Details
 

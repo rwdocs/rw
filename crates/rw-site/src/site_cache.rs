@@ -19,12 +19,13 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::site_state::{Page, SiteState};
+use crate::site_state::{Page, SectionInfo, SiteState};
 
 /// Cache format for serialization.
 #[derive(Serialize, Deserialize)]
@@ -33,6 +34,8 @@ struct CachedSiteState {
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
+    #[serde(default)]
+    sections: HashMap<String, SectionInfo>,
 }
 
 impl From<&SiteState> for CachedSiteState {
@@ -42,13 +45,20 @@ impl From<&SiteState> for CachedSiteState {
             children: site.children_indices().to_vec(),
             parents: site.parent_indices().to_vec(),
             roots: site.root_indices().to_vec(),
+            sections: site.sections().clone(),
         }
     }
 }
 
 impl From<CachedSiteState> for SiteState {
     fn from(cached: CachedSiteState) -> Self {
-        SiteState::new(cached.pages, cached.children, cached.parents, cached.roots)
+        SiteState::new(
+            cached.pages,
+            cached.children,
+            cached.parents,
+            cached.roots,
+            cached.sections,
+        )
     }
 }
 
@@ -161,12 +171,14 @@ mod tests {
             "/".to_string(),
             PathBuf::from("index.md"),
             None,
+            None,
         );
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
             PathBuf::from("guide.md"),
             Some(root_idx),
+            None,
         );
         builder.build()
     }

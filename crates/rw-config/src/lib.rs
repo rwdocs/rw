@@ -63,6 +63,8 @@ pub struct Config {
     diagrams: Option<DiagramsConfigRaw>,
     /// Live reload configuration.
     pub live_reload: LiveReloadConfig,
+    /// Metadata configuration.
+    pub metadata: MetadataConfig,
     /// Confluence configuration.
     pub confluence: Option<ConfluenceConfig>,
 
@@ -78,6 +80,7 @@ pub struct Config {
 }
 
 impl Default for Config {
+    #[allow(clippy::derivable_impls)]
     fn default() -> Self {
         Self::default_with_base(Path::new("."))
     }
@@ -171,6 +174,22 @@ impl Default for LiveReloadConfig {
         Self {
             enabled: true,
             watch_patterns: None,
+        }
+    }
+}
+
+/// Metadata configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct MetadataConfig {
+    /// Filename for metadata sidecar files.
+    pub name: String,
+}
+
+impl Default for MetadataConfig {
+    fn default() -> Self {
+        Self {
+            name: "meta.yaml".to_string(),
         }
     }
 }
@@ -322,6 +341,7 @@ impl Config {
             docs: DocsConfigRaw::default(),
             diagrams: None,
             live_reload: LiveReloadConfig::default(),
+            metadata: MetadataConfig::default(),
             confluence: None,
             docs_resolved: DocsConfig {
                 source_dir: base.join("docs"),
