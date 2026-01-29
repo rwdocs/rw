@@ -17,7 +17,7 @@ const initialState: PageState = {
 };
 
 function createPageStore() {
-  const { subscribe, set } = writable<PageState>(initialState);
+  const { subscribe, set, update } = writable<PageState>(initialState);
   let abortController: AbortController | null = null;
 
   return {
@@ -32,8 +32,9 @@ function createPageStore() {
       abortController = new AbortController();
 
       // Silent mode skips loading state (used for live reload to preserve scroll)
+      // Keep previous data during loading for smooth transitions on fast loads
       if (!options?.silent) {
-        set({ ...initialState, loading: true });
+        update((state) => ({ ...state, loading: true, error: null, notFound: false }));
       }
 
       try {
