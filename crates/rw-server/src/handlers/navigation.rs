@@ -20,8 +20,7 @@ pub(crate) struct NavigationResponse {
 
 /// Handle GET /api/navigation.
 pub(crate) async fn get_navigation(State(state): State<Arc<AppState>>) -> Json<NavigationResponse> {
-    let site = state.site_loader.reload_if_needed();
-    let items = site.navigation();
+    let items = state.site.navigation();
     Json(NavigationResponse { items })
 }
 

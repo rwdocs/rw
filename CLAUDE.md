@@ -115,10 +115,9 @@ crates/
 ├── rw-site/               # Site structure and page rendering
 │   └── src/
 │       ├── lib.rs            # Public API exports
-│       ├── site.rs           # Site, SiteBuilder, Page, NavItem, BreadcrumbItem
+│       ├── site.rs           # Site (unified loading + rendering), SiteConfig, PageRenderResult
+│       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem
 │       ├── site_cache.rs     # SiteCache trait, FileSiteCache, NullSiteCache
-│       ├── site_loader.rs    # SiteLoader, SiteLoaderConfig (uses Storage trait)
-│       ├── renderer.rs       # PageRenderer, PageRendererConfig, PageRenderResult
 │       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
 │
 ├── rw-storage/            # Storage abstraction layer

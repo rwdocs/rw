@@ -1,6 +1,6 @@
 //! Site caching for persistent storage.
 //!
-//! Provides [`SiteCache`] trait and implementations for caching [`Site`] structures:
+//! Provides [`SiteCache`] trait and implementations for caching [`SiteState`] structures:
 //! - [`FileSiteCache`]: File-based cache using JSON serialization
 //! - [`NullSiteCache`]: No-op cache (always returns `None`)
 //!
@@ -24,19 +24,19 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::site::{Page, Site};
+use crate::{Page, SiteState};
 
 /// Cache format for serialization.
 #[derive(Serialize, Deserialize)]
-struct CachedSite {
+struct CachedSiteState {
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
 }
 
-impl From<&Site> for CachedSite {
-    fn from(site: &Site) -> Self {
+impl From<&SiteState> for CachedSiteState {
+    fn from(site: &SiteState) -> Self {
         Self {
             pages: site.pages().to_vec(),
             children: site.children_indices().to_vec(),
@@ -46,23 +46,23 @@ impl From<&Site> for CachedSite {
     }
 }
 
-impl From<CachedSite> for Site {
-    fn from(cached: CachedSite) -> Self {
-        Site::new(cached.pages, cached.children, cached.parents, cached.roots)
+impl From<CachedSiteState> for SiteState {
+    fn from(cached: CachedSiteState) -> Self {
+        SiteState::new(cached.pages, cached.children, cached.parents, cached.roots)
     }
 }
 
 /// Trait for site caching implementations.
 pub(crate) trait SiteCache: Send + Sync {
-    /// Retrieve cached site.
+    /// Retrieve cached site state.
     ///
     /// Returns `None` on cache miss or invalid cache.
-    fn get(&self) -> Option<Site>;
+    fn get(&self) -> Option<SiteState>;
 
-    /// Store site in cache.
-    fn set(&self, site: &Site);
+    /// Store site state in cache.
+    fn set(&self, site: &SiteState);
 
-    /// Remove cached site.
+    /// Remove cached site state.
     fn invalidate(&self);
 }
 
@@ -72,11 +72,11 @@ pub(crate) trait SiteCache: Send + Sync {
 pub(crate) struct NullSiteCache;
 
 impl SiteCache for NullSiteCache {
-    fn get(&self) -> Option<Site> {
+    fn get(&self) -> Option<SiteState> {
         None
     }
 
-    fn set(&self, _site: &Site) {}
+    fn set(&self, _site: &SiteState) {}
 
     fn invalidate(&self) {}
 }
@@ -106,18 +106,18 @@ impl FileSiteCache {
 }
 
 impl SiteCache for FileSiteCache {
-    fn get(&self) -> Option<Site> {
+    fn get(&self) -> Option<SiteState> {
         let cache_path = self.cache_path();
         if !cache_path.exists() {
             return None;
         }
 
         let content = fs::read_to_string(&cache_path).ok()?;
-        let cached: CachedSite = serde_json::from_str(&content).ok()?;
+        let cached: CachedSiteState = serde_json::from_str(&content).ok()?;
         Some(cached.into())
     }
 
-    fn set(&self, site: &Site) {
+    fn set(&self, site: &SiteState) {
         // Ensure cache directory exists
         if let Err(e) = fs::create_dir_all(&self.cache_dir) {
             // Silently ignore errors - cache is optional
@@ -125,7 +125,7 @@ impl SiteCache for FileSiteCache {
             return;
         }
 
-        let cached = CachedSite::from(site);
+        let cached = CachedSiteState::from(site);
         let content = match serde_json::to_string(&cached) {
             Ok(c) => c,
             Err(e) => {
@@ -152,10 +152,10 @@ impl SiteCache for FileSiteCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::site::SiteBuilder;
+    use crate::site_state::SiteStateBuilder;
 
-    fn create_test_site() -> Site {
-        let mut builder = SiteBuilder::new();
+    fn create_test_site() -> SiteState {
+        let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
             "/".to_string(),

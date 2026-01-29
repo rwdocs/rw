@@ -46,8 +46,7 @@
 //!                        │
 //!                        ├─► API routes (Rust handlers)
 //!                        │       │
-//!                        │       └─► Direct call ──► PageRenderer
-//!                        │       └─► Direct call ──► SiteLoader
+//!                        │       └─► Direct call ──► Site (render + structure)
 //!                        │
 //!                        ├─► WebSocket (Rust LiveReloadManager)
 //!                        │       │
@@ -69,7 +68,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use rw_site::{PageRenderer, PageRendererConfig, SiteLoader, SiteLoaderConfig};
+use rw_site::{Site, SiteConfig};
 use rw_storage::FsStorage;
 use state::AppState;
 use tokio::sync::broadcast;
@@ -135,8 +134,8 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
     // Create shared storage backend
     let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::new(config.source_dir.clone()));
 
-    // Create PageRenderer with shared storage
-    let renderer_config = PageRendererConfig {
+    // Create unified Site with storage and configuration
+    let site_config = SiteConfig {
         cache_dir: config.cache_dir.clone(),
         version: config.version.clone(),
         extract_title: true,
@@ -145,18 +144,12 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         config_file: config.config_file.clone(),
         dpi: config.dpi,
     };
-    let renderer = PageRenderer::new(Arc::clone(&storage), renderer_config);
-
-    // Create SiteLoader with shared storage
-    let site_loader_config = SiteLoaderConfig {
-        cache_dir: config.cache_dir.clone(),
-    };
-    let site_loader = Arc::new(SiteLoader::new(Arc::clone(&storage), &site_loader_config));
+    let site = Arc::new(Site::new(Arc::clone(&storage), site_config));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {
         let (tx, _rx) = broadcast::channel::<live_reload::ReloadEvent>(100);
-        let mut manager = live_reload::LiveReloadManager::new(Arc::clone(&site_loader), tx);
+        let mut manager = live_reload::LiveReloadManager::new(Arc::clone(&site), tx);
         manager.start(storage.as_ref())?;
         Some(manager)
     } else {
@@ -165,9 +158,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
 
     // Create app state
     let state = Arc::new(AppState {
-        storage,
-        renderer,
-        site_loader,
+        site,
         live_reload,
         verbose: config.verbose,
         version: config.version.clone(),

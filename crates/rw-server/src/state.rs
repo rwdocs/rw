@@ -4,19 +4,14 @@
 
 use std::sync::Arc;
 
-use rw_site::{PageRenderer, SiteLoader};
-use rw_storage::Storage;
+use rw_site::Site;
 
 use crate::live_reload::LiveReloadManager;
 
 /// Application state shared across all handlers.
 pub(crate) struct AppState {
-    /// Storage backend for reading files.
-    pub(crate) storage: Arc<dyn Storage>,
-    /// Page renderer for markdown to HTML conversion.
-    pub(crate) renderer: PageRenderer,
-    /// Site loader for document structure.
-    pub(crate) site_loader: Arc<SiteLoader>,
+    /// Unified site structure and page renderer.
+    pub(crate) site: Arc<Site>,
     /// Live reload manager (if enabled).
     pub(crate) live_reload: Option<LiveReloadManager>,
     /// Enable verbose output (show warnings).

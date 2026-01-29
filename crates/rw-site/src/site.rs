@@ -1,102 +1,290 @@
-//! Site structure for document hierarchy.
+//! Unified site loading and rendering.
 //!
-//! Provides the core document site structure with efficient path lookups
-//! and traversal operations.
+//! Provides [`Site`] for building [`SiteState`] structures from a [`Storage`]
+//! backend, with integrated page rendering. Includes optional file-based caching.
 //!
 //! # Architecture
 //!
-//! Pages are stored in a flat `Vec<Page>` with parent/children relationships
-//! tracked by indices. This provides:
-//! - O(1) URL path lookups via `path_index` `HashMap`
-//! - O(1) source path lookups via `source_path_index` `HashMap`
-//! - O(d) breadcrumb building where d is the page depth
+//! The [`Site`] combines site structure loading and page rendering:
+//! - `index.md` files become section landing pages
+//! - Other `.md` files become standalone pages
+//! - Directories without `index.md` have their children promoted to parent level
+//!
+//! # Thread Safety
+//!
+//! `Site` is designed for concurrent access:
+//! - `state()` returns `Arc<SiteState>` with minimal locking (just Arc clone)
+//! - `reload_if_needed()` uses double-checked locking for efficient cache validation
+//! - `invalidate()` is lock-free (atomic flag)
+//!
+//! # Example
+//!
+//! ```ignore
+//! use std::path::PathBuf;
+//! use std::sync::Arc;
+//! use rw_site::{Site, SiteConfig};
+//! use rw_storage::FsStorage;
+//!
+//! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
+//! let config = SiteConfig {
+//!     cache_dir: Some(PathBuf::from(".cache")),
+//!     version: "1.0.0".to_string(),
+//!     ..Default::default()
+//! };
+//! let site = Arc::new(Site::new(storage, config));
+//!
+//! // Load site structure
+//! let state = site.reload_if_needed();
+//!
+//! // Render a page
+//! let result = site.render("/guide")?;
+//! ```
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 
-use serde::{Deserialize, Serialize};
+use rw_diagrams::{DiagramProcessor, FileCache};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsPreprocessor, TabsProcessor, TocEntry};
+use rw_storage::{Storage, StorageErrorKind};
 
-/// Navigation item with children for UI tree.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct NavItem {
-    /// Display title.
-    pub title: String,
-    /// Link target path.
-    pub path: String,
-    /// Child navigation items.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub children: Vec<NavItem>,
-}
+use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
+use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
-/// Document page data.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Page {
-    /// Page title (from H1 heading or filename).
-    pub title: String,
-    /// URL path (e.g., "/guide").
-    pub path: String,
-    /// Relative path to source file (e.g., "guide.md").
+// Re-import from crate root for public types, and direct module for internal
+pub(crate) use crate::site_state::{BreadcrumbItem, NavItem, SiteState, SiteStateBuilder};
+
+/// Result of rendering a markdown page.
+#[derive(Clone, Debug)]
+pub struct PageRenderResult {
+    /// Rendered HTML content.
+    pub html: String,
+    /// Title extracted from first H1 heading (if enabled).
+    pub title: Option<String>,
+    /// Table of contents entries.
+    pub toc: Vec<TocEntry>,
+    /// Warnings generated during conversion (e.g., unresolved includes).
+    pub warnings: Vec<String>,
+    /// Whether result was served from cache.
+    pub from_cache: bool,
+    /// Source file path (relative to storage root).
     pub source_path: PathBuf,
+    /// Source file modification time (Unix timestamp).
+    pub source_mtime: f64,
+    /// Breadcrumb navigation items.
+    pub breadcrumbs: Vec<BreadcrumbItem>,
 }
 
-/// Breadcrumb navigation item.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BreadcrumbItem {
-    /// Display title.
-    pub title: String,
-    /// Link target path.
-    pub path: String,
+/// Error returned when page rendering fails.
+#[derive(Debug, thiserror::Error)]
+pub enum RenderError {
+    /// Source file not found.
+    #[error("Source file not found: {}", .0.display())]
+    FileNotFound(PathBuf),
+    /// Page not found in site structure.
+    #[error("Page not found: {0}")]
+    PageNotFound(String),
+    /// I/O error reading source file.
+    #[error("I/O error: {0}")]
+    Io(#[source] std::io::Error),
 }
 
-/// Document site structure with efficient path lookups.
+/// Configuration for [`Site`].
+#[derive(Clone, Debug)]
+pub struct SiteConfig {
+    /// Cache directory for site structure and rendered pages.
+    ///
+    /// If `None`, caching is disabled.
+    pub cache_dir: Option<PathBuf>,
+    /// Application version for cache invalidation.
+    pub version: String,
+    /// Extract title from first H1 heading.
+    pub extract_title: bool,
+    /// Kroki URL for diagram rendering.
+    ///
+    /// If `None`, diagrams are rendered as syntax-highlighted code blocks.
+    pub kroki_url: Option<String>,
+    /// Directories to search for `PlantUML` includes.
+    pub include_dirs: Vec<PathBuf>,
+    /// `PlantUML` config file name (searched in `include_dirs`).
+    pub config_file: Option<String>,
+    /// DPI for diagram rendering (default: 192 for retina).
+    pub dpi: u32,
+}
+
+impl Default for SiteConfig {
+    fn default() -> Self {
+        Self {
+            cache_dir: None,
+            version: String::new(),
+            extract_title: true,
+            kroki_url: None,
+            include_dirs: Vec::new(),
+            config_file: None,
+            dpi: 192,
+        }
+    }
+}
+
+/// Unified site structure and page rendering.
 ///
-/// Stores pages in a flat list with parent/children relationships
-/// tracked by indices. Provides O(1) URL path and source path lookups,
-/// and O(d) breadcrumb building where d is the page depth.
-#[derive(Clone)]
+/// Combines site structure loading from a [`Storage`] implementation with
+/// page rendering functionality. Uses `index.md` files as section landing pages.
+/// Titles are provided by the storage (extracted or stored depending on backend).
+///
+/// # Thread Safety
+///
+/// This struct is designed for concurrent access without external locking:
+/// - Uses internal `RwLock<Arc<SiteState>>` for the current site state snapshot
+/// - Uses `Mutex<()>` for serializing reload operations
+/// - Uses `AtomicBool` for cache validity tracking
 pub struct Site {
-    pages: Vec<Page>,
-    children: Vec<Vec<usize>>,
-    parents: Vec<Option<usize>>,
-    roots: Vec<usize>,
-    path_index: HashMap<String, usize>,
-    source_path_index: HashMap<PathBuf, usize>,
+    storage: Arc<dyn Storage>,
+    // Structure caching
+    structure_cache: Box<dyn SiteCache>,
+    /// Mutex for serializing reload operations.
+    reload_lock: Mutex<()>,
+    /// Current site state snapshot (atomically swappable).
+    current_state: RwLock<Arc<SiteState>>,
+    /// Cache validity flag.
+    cache_valid: AtomicBool,
+    // Page rendering
+    page_cache: Box<dyn PageCache>,
+    extract_title: bool,
+    kroki_url: Option<String>,
+    include_dirs: Vec<PathBuf>,
+    config_file: Option<String>,
+    dpi: u32,
 }
 
 impl Site {
-    /// Create a new site from components.
+    /// Create a new site with storage and configuration.
     ///
-    /// This constructor is primarily used by [`SiteBuilder::build`] and
-    /// cache deserialization.
+    /// # Arguments
+    ///
+    /// * `storage` - Storage implementation for document scanning and reading
+    /// * `config` - Site configuration
     #[must_use]
-    pub(crate) fn new(
-        pages: Vec<Page>,
-        children: Vec<Vec<usize>>,
-        parents: Vec<Option<usize>>,
-        roots: Vec<usize>,
-    ) -> Self {
-        let path_index = pages
-            .iter()
-            .enumerate()
-            .map(|(i, page)| (page.path.clone(), i))
-            .collect();
-        let source_path_index = pages
-            .iter()
-            .enumerate()
-            .map(|(i, page)| (page.source_path.clone(), i))
-            .collect();
+    pub fn new(storage: Arc<dyn Storage>, config: SiteConfig) -> Self {
+        let structure_cache: Box<dyn SiteCache> = match &config.cache_dir {
+            Some(dir) => Box::new(FileSiteCache::new(dir.clone())),
+            None => Box::new(NullSiteCache),
+        };
+
+        let page_cache: Box<dyn PageCache> = match &config.cache_dir {
+            Some(dir) => Box::new(FilePageCache::new(dir.clone(), config.version.clone())),
+            None => Box::new(NullPageCache),
+        };
+
+        // Create initial empty site state
+        let initial_state = Arc::new(SiteStateBuilder::new().build());
 
         Self {
-            pages,
-            children,
-            parents,
-            roots,
-            path_index,
-            source_path_index,
+            storage,
+            structure_cache,
+            reload_lock: Mutex::new(()),
+            current_state: RwLock::new(initial_state),
+            cache_valid: AtomicBool::new(false),
+            page_cache,
+            extract_title: config.extract_title,
+            kroki_url: config.kroki_url,
+            include_dirs: config.include_dirs,
+            config_file: config.config_file,
+            dpi: config.dpi,
         }
     }
 
-    /// Get page by URL path.
+    /// Get current site state snapshot.
+    ///
+    /// Returns an `Arc<SiteState>` that can be used without holding any lock.
+    /// The site state is guaranteed to be internally consistent.
+    ///
+    /// Note: This returns the current snapshot without checking cache validity.
+    /// For most use cases, prefer `reload_if_needed()` which ensures the site
+    /// is up-to-date.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal `RwLock` is poisoned.
+    #[must_use]
+    pub fn state(&self) -> Arc<SiteState> {
+        self.current_state.read().unwrap().clone()
+    }
+
+    /// Get navigation tree.
+    ///
+    /// Reloads site if needed and returns the navigation tree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    #[must_use]
+    pub fn navigation(&self) -> Vec<NavItem> {
+        self.reload_if_needed().navigation()
+    }
+
+    /// Reload site state from storage if cache is invalid.
+    ///
+    /// Uses double-checked locking pattern:
+    /// 1. Fast path: return current site state if cache valid
+    /// 2. Slow path: acquire `reload_lock`, recheck, then reload
+    ///
+    /// # Returns
+    ///
+    /// `Arc<SiteState>` containing the current site state snapshot.
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    pub fn reload_if_needed(&self) -> Arc<SiteState> {
+        // Fast path: cache valid
+        if self.cache_valid.load(Ordering::Acquire) {
+            return self.state();
+        }
+
+        // Slow path: acquire reload lock
+        let _guard = self.reload_lock.lock().unwrap();
+
+        // Double-check after acquiring lock
+        if self.cache_valid.load(Ordering::Acquire) {
+            return self.state();
+        }
+
+        // Try file cache first
+        if let Some(site) = self.structure_cache.get() {
+            let site = Arc::new(site);
+            *self.current_state.write().unwrap() = site.clone();
+            self.cache_valid.store(true, Ordering::Release);
+            return site;
+        }
+
+        // Load from storage
+        let site = self.load_from_storage();
+        let site = Arc::new(site);
+
+        // Store in file cache
+        self.structure_cache.set(&site);
+
+        // Update current state
+        *self.current_state.write().unwrap() = site.clone();
+        self.cache_valid.store(true, Ordering::Release);
+
+        site
+    }
+
+    /// Invalidate cached site state and page caches.
+    ///
+    /// Marks cache as invalid. Next `reload_if_needed()` will reload.
+    /// Current readers continue using their existing `Arc<SiteState>`.
+    pub fn invalidate(&self) {
+        self.cache_valid.store(false, Ordering::Release);
+        self.structure_cache.invalidate();
+    }
+
+    /// Render a page by URL path.
+    ///
+    /// Reloads site if needed, looks up the page, and renders it.
     ///
     /// # Arguments
     ///
@@ -104,826 +292,874 @@ impl Site {
     ///
     /// # Returns
     ///
-    /// Page reference if found, `None` otherwise.
-    #[must_use]
-    pub fn get_page(&self, path: &str) -> Option<&Page> {
-        let normalized = Self::normalize_path(path);
-        self.path_index.get(&normalized).map(|&i| &self.pages[i])
-    }
+    /// `PageRenderResult` with HTML, title, table of contents, and metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns `RenderError::PageNotFound` if page doesn't exist in site.
+    /// Returns `RenderError::FileNotFound` if source file doesn't exist.
+    /// Returns `RenderError::Io` if file cannot be read.
+    pub fn render(&self, path: &str) -> Result<PageRenderResult, RenderError> {
+        // Reload site if needed
+        let state = self.reload_if_needed();
 
-    /// Get children of a page.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path of the parent page
-    ///
-    /// # Returns
-    ///
-    /// Vector of child page references, empty if page not found or has no children.
-    #[must_use]
-    pub(crate) fn get_children(&self, path: &str) -> Vec<&Page> {
-        let normalized = Self::normalize_path(path);
-        self.path_index
-            .get(&normalized)
-            .map(|&i| self.children[i].iter().map(|&j| &self.pages[j]).collect())
-            .unwrap_or_default()
-    }
+        // Look up page by URL path
+        let page = state
+            .get_page(path)
+            .ok_or_else(|| RenderError::PageNotFound(path.to_string()))?;
 
-    /// Build breadcrumbs for a given path.
-    ///
-    /// Returns breadcrumbs starting with "Home" for non-root pages,
-    /// followed by ancestor pages. The current page is not included.
-    ///
-    /// # Note
-    ///
-    /// For unknown paths, returns `[Home]` to provide minimal navigation
-    /// in UI even when the page doesn't exist in the site structure.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path (e.g., "/guide/setup")
-    ///
-    /// # Returns
-    ///
-    /// Vector of breadcrumb items for ancestor navigation.
-    #[must_use]
-    pub fn get_breadcrumbs(&self, path: &str) -> Vec<BreadcrumbItem> {
-        if path.is_empty() {
-            return Vec::new();
+        // Get source mtime
+        let source_mtime = self
+            .storage
+            .mtime(&page.source_path)
+            .map_err(|_| RenderError::FileNotFound(page.source_path.clone()))?;
+
+        // Get breadcrumbs
+        let breadcrumbs = state.get_breadcrumbs(path);
+
+        // Normalize path for cache key (strip leading slash)
+        let cache_key = path.trim_start_matches('/');
+
+        // Check page cache
+        if let Some(cached) = self.page_cache.get(cache_key, source_mtime) {
+            return Ok(PageRenderResult {
+                html: cached.html,
+                title: cached.meta.title,
+                toc: cached.meta.toc,
+                warnings: Vec::new(),
+                from_cache: true,
+                source_path: page.source_path.clone(),
+                source_mtime,
+                breadcrumbs,
+            });
         }
 
-        let normalized = Self::normalize_path(path);
-        let Some(&idx) = self.path_index.get(&normalized) else {
-            // Unknown path - return minimal Home breadcrumb
-            return vec![BreadcrumbItem {
-                title: "Home".to_string(),
-                path: "/".to_string(),
-            }];
-        };
+        // Render the page
+        let result = self.render_page(&page.source_path, cache_key)?;
 
-        // Walk up parent chain
-        let mut ancestors = Vec::new();
-        let mut current = Some(idx);
-        while let Some(i) = current {
-            ancestors.push(&self.pages[i]);
-            current = self.parents[i];
-        }
-
-        // Reverse to root-first, exclude current page and root index.md
-        // (Home breadcrumb already represents "/" so root page would be duplicate)
-        ancestors.reverse();
-
-        let mut breadcrumbs = vec![BreadcrumbItem {
-            title: "Home".to_string(),
-            path: "/".to_string(),
-        }];
-
-        // Skip the last element (current page) and exclude root page (already represented by Home)
-        breadcrumbs.extend(
-            ancestors
-                .iter()
-                .take(ancestors.len().saturating_sub(1))
-                .filter(|page| page.path != "/")
-                .map(|page| BreadcrumbItem {
-                    title: page.title.clone(),
-                    path: page.path.clone(),
-                }),
+        // Store in cache
+        self.page_cache.set(
+            cache_key,
+            &result.html,
+            result.title.as_deref(),
+            source_mtime,
+            &result.toc,
         );
 
-        breadcrumbs
+        Ok(PageRenderResult {
+            html: result.html,
+            title: result.title,
+            toc: result.toc,
+            warnings: result.warnings,
+            from_cache: false,
+            source_path: page.source_path.clone(),
+            source_mtime,
+            breadcrumbs,
+        })
     }
 
-    /// Get root-level pages.
-    #[must_use]
-    pub(crate) fn get_root_pages(&self) -> Vec<&Page> {
-        self.roots.iter().map(|&i| &self.pages[i]).collect()
-    }
-
-    /// Get page by source file path.
+    /// Invalidate page cache for a path.
     ///
     /// # Arguments
     ///
-    /// * `source_path` - Relative path to source file (e.g., "guide.md")
-    ///
-    /// # Returns
-    ///
-    /// Page reference if found, `None` otherwise.
-    #[must_use]
-    pub fn get_page_by_source(&self, source_path: &Path) -> Option<&Page> {
-        self.source_path_index
-            .get(source_path)
-            .map(|&i| &self.pages[i])
+    /// * `path` - Document path to invalidate
+    pub fn invalidate_page(&self, path: &str) {
+        let cache_key = path.trim_start_matches('/');
+        self.page_cache.invalidate(cache_key);
     }
 
-    /// Get all pages (for serialization).
-    #[must_use]
-    pub(crate) fn pages(&self) -> &[Page] {
-        &self.pages
-    }
-
-    /// Get children indices (for serialization).
-    #[must_use]
-    pub(crate) fn children_indices(&self) -> &[Vec<usize>] {
-        &self.children
-    }
-
-    /// Get parent indices (for serialization).
-    #[must_use]
-    pub(crate) fn parent_indices(&self) -> &[Option<usize>] {
-        &self.parents
-    }
-
-    /// Get root indices (for serialization).
-    #[must_use]
-    pub(crate) fn root_indices(&self) -> &[usize] {
-        &self.roots
-    }
-
-    /// Build navigation tree from site structure.
-    ///
-    /// The root page (path="/") is excluded from navigation as it serves
-    /// as the home page content. Navigation shows only top-level sections.
-    ///
-    /// # Returns
-    ///
-    /// List of [`NavItem`] trees for navigation UI.
-    #[must_use]
-    pub fn navigation(&self) -> Vec<NavItem> {
-        if let Some(root_page) = self.get_page("/") {
-            // Root page exists - navigation shows its children (top-level sections)
-            self.get_children(&root_page.path)
-                .into_iter()
-                .map(|page| self.build_nav_item(page))
-                .collect()
-        } else {
-            // No root page - navigation shows all root pages
-            self.get_root_pages()
-                .into_iter()
-                .map(|page| self.build_nav_item(page))
-                .collect()
+    /// Render a page from source path.
+    fn render_page(
+        &self,
+        source_path: &Path,
+        base_path: &str,
+    ) -> Result<RenderResult, RenderError> {
+        if !self.storage.exists(source_path) {
+            return Err(RenderError::FileNotFound(source_path.to_path_buf()));
         }
-    }
 
-    /// Recursively build [`NavItem`] from page.
-    fn build_nav_item(&self, page: &Page) -> NavItem {
-        let children = self
-            .get_children(&page.path)
-            .into_iter()
-            .map(|child| self.build_nav_item(child))
-            .collect();
+        let markdown_text = self.storage.read(source_path).map_err(|e| match e.kind() {
+            StorageErrorKind::NotFound => RenderError::FileNotFound(source_path.to_path_buf()),
+            _ => RenderError::Io(std::io::Error::other(e.to_string())),
+        })?;
 
-        NavItem {
-            title: page.title.clone(),
-            path: page.path.clone(),
-            children,
+        // Preprocess tabs directives
+        let mut tabs_preprocessor = TabsPreprocessor::new();
+        let processed_markdown = tabs_preprocessor.process(&markdown_text);
+        let tabs_warnings = tabs_preprocessor.warnings().to_vec();
+        let tabs_groups = tabs_preprocessor.into_groups();
+
+        let mut renderer = self.create_renderer(base_path);
+        if let Some(processor) = self.create_diagram_processor() {
+            renderer = renderer.with_processor(processor);
         }
-    }
 
-    /// Normalize path to have leading slash.
-    fn normalize_path(path: &str) -> String {
-        format!("/{}", path.trim_start_matches('/'))
-    }
-}
+        let mut result = renderer.render_markdown(&processed_markdown);
 
-/// Builder for constructing [`Site`] instances.
-pub(crate) struct SiteBuilder {
-    pages: Vec<Page>,
-    children: Vec<Vec<usize>>,
-    parents: Vec<Option<usize>>,
-    roots: Vec<usize>,
-}
-
-impl SiteBuilder {
-    /// Create a new site builder.
-    #[must_use]
-    pub(crate) fn new() -> Self {
-        Self {
-            pages: Vec::new(),
-            children: Vec::new(),
-            parents: Vec::new(),
-            roots: Vec::new(),
+        // Post-process tabs (not a CodeBlockProcessor - tabs are container directives)
+        if !tabs_groups.is_empty() {
+            let mut tabs_processor = TabsProcessor::new(tabs_groups);
+            tabs_processor.post_process(&mut result.html);
+            result.warnings.extend(tabs_processor.warnings().to_vec());
         }
+        result.warnings.extend(tabs_warnings);
+
+        Ok(RenderResult {
+            html: result.html,
+            title: result.title,
+            toc: result.toc,
+            warnings: result.warnings,
+        })
     }
 
-    /// Add a page to the site.
+    /// Create a renderer with common configuration.
+    fn create_renderer(&self, base_path: &str) -> MarkdownRenderer<HtmlBackend> {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_gfm(true)
+            .with_base_path(base_path);
+
+        if self.extract_title {
+            renderer = renderer.with_title_extraction();
+        }
+        renderer
+    }
+
+    /// Create a diagram processor if `kroki_url` is configured.
+    fn create_diagram_processor(&self) -> Option<DiagramProcessor> {
+        let url = self.kroki_url.as_ref()?;
+
+        let mut processor = DiagramProcessor::new(url)
+            .include_dirs(&self.include_dirs)
+            .config_file(self.config_file.as_deref())
+            .dpi(self.dpi);
+
+        if let Some(dir) = self.page_cache.diagrams_dir() {
+            processor = processor.with_cache(Arc::new(FileCache::new(dir.to_path_buf())));
+        }
+
+        Some(processor)
+    }
+
+    /// Load site state from storage and build hierarchy.
     ///
-    /// # Arguments
-    ///
-    /// * `title` - Page title
-    /// * `path` - URL path (e.g., "/guide")
-    /// * `source_path` - Relative path to source file (e.g., "guide.md")
-    /// * `parent_idx` - Index of parent page, `None` for root
-    ///
-    /// # Returns
-    ///
-    /// Index of the added page.
-    pub(crate) fn add_page(
-        &mut self,
-        title: String,
-        path: String,
-        source_path: PathBuf,
-        parent_idx: Option<usize>,
-    ) -> usize {
-        let idx = self.pages.len();
-        self.pages.push(Page {
-            title,
-            path,
-            source_path,
+    /// Uses `storage.scan()` to get documents, then builds hierarchy based on
+    /// path conventions.
+    fn load_from_storage(&self) -> SiteState {
+        let mut builder = SiteStateBuilder::new();
+
+        // Scan storage for documents
+        let documents = match self.storage.scan() {
+            Ok(docs) => docs,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to scan storage");
+                return builder.build();
+            }
+        };
+
+        if documents.is_empty() {
+            return builder.build();
+        }
+
+        // Sort documents: index.md files first (at each level), then alphabetical
+        // This ensures parent pages are created before their children
+        let mut sorted_docs: Vec<_> = documents.iter().collect();
+        sorted_docs.sort_by(|a, b| {
+            let a_is_index = a.path.file_name().is_some_and(|n| n == "index.md");
+            let b_is_index = b.path.file_name().is_some_and(|n| n == "index.md");
+            let a_depth = a.path.components().count();
+            let b_depth = b.path.components().count();
+
+            // Sort by depth first (shallower first), then index.md before others,
+            // then alphabetical
+            a_depth
+                .cmp(&b_depth)
+                .then_with(|| b_is_index.cmp(&a_is_index)) // true > false, so reverse
+                .then_with(|| a.path.cmp(&b.path))
         });
-        self.children.push(Vec::new());
-        self.parents.push(parent_idx);
 
-        if let Some(parent) = parent_idx {
-            self.children[parent].push(idx);
-        } else {
-            self.roots.push(idx);
+        // Track added pages by their source path for parent lookup
+        let mut path_to_idx: HashMap<PathBuf, usize> = HashMap::new();
+
+        // Process documents in sorted order
+        for doc in sorted_docs {
+            let url_path = Self::source_path_to_url(&doc.path);
+            let parent_idx = Self::find_parent(&doc.path, &path_to_idx);
+
+            let idx = builder.add_page(doc.title.clone(), url_path, doc.path.clone(), parent_idx);
+            path_to_idx.insert(doc.path.clone(), idx);
         }
 
-        idx
+        builder.build()
     }
 
-    /// Build the [`Site`] instance.
-    #[must_use]
-    pub(crate) fn build(self) -> Site {
-        Site::new(self.pages, self.children, self.parents, self.roots)
+    /// Convert source path to URL path.
+    ///
+    /// Examples:
+    /// - `"index.md"` -> `"/"`
+    /// - `"guide.md"` -> `"/guide"`
+    /// - `"domain/index.md"` -> `"/domain"`
+    /// - `"domain/setup.md"` -> `"/domain/setup"`
+    fn source_path_to_url(source_path: &Path) -> String {
+        let path_str = source_path.to_string_lossy();
+
+        // Handle root index.md
+        if path_str == "index.md" {
+            return "/".to_string();
+        }
+
+        // Remove .md extension
+        let without_ext = path_str.strip_suffix(".md").unwrap_or(&path_str);
+
+        // Handle directory index files
+        if let Some(without_index) = without_ext.strip_suffix("/index") {
+            return format!("/{without_index}");
+        }
+        if without_ext == "index" {
+            return "/".to_string();
+        }
+
+        format!("/{without_ext}")
     }
+
+    /// Find parent page index for a document.
+    ///
+    /// Uses path conventions to determine parent:
+    /// - `"guide.md"` -> parent is `"/"` (root) if `"index.md"` exists
+    /// - `"domain/setup.md"` -> parent is `"/domain"` if `"domain/index.md"` exists
+    /// - Directories without `index.md` promote children to grandparent
+    fn find_parent(source_path: &Path, path_to_idx: &HashMap<PathBuf, usize>) -> Option<usize> {
+        let path_str = source_path.to_string_lossy();
+
+        // Root index.md has no parent
+        if path_str == "index.md" {
+            return None;
+        }
+
+        // Get the parent directory
+        let parent_dir = source_path.parent()?;
+
+        if parent_dir.as_os_str().is_empty() {
+            // Top-level file (e.g., "guide.md")
+            // Parent is root index.md if it exists
+            let root_index = PathBuf::from("index.md");
+            return path_to_idx.get(&root_index).copied();
+        }
+
+        // Look for index.md in parent directory
+        let parent_index = parent_dir.join("index.md");
+        if let Some(&idx) = path_to_idx.get(&parent_index) {
+            return Some(idx);
+        }
+
+        // No index.md in parent - recursively check grandparent
+        // We need to find the grandparent by looking at parent_dir's parent
+        let grandparent_dir = parent_dir.parent()?;
+        if grandparent_dir.as_os_str().is_empty() {
+            // Parent is at root level, check for root index.md
+            let root_index = PathBuf::from("index.md");
+            return path_to_idx.get(&root_index).copied();
+        }
+
+        // Look for index.md in grandparent
+        let grandparent_index = grandparent_dir.join("index.md");
+        if let Some(&idx) = path_to_idx.get(&grandparent_index) {
+            return Some(idx);
+        }
+
+        // Continue recursion with grandparent's index
+        Self::find_parent_up(grandparent_dir, path_to_idx)
+    }
+
+    /// Helper to find parent by walking up directory tree.
+    fn find_parent_up(dir: &Path, path_to_idx: &HashMap<PathBuf, usize>) -> Option<usize> {
+        let parent_dir = dir.parent()?;
+
+        if parent_dir.as_os_str().is_empty() {
+            // At root, check for root index.md
+            let root_index = PathBuf::from("index.md");
+            return path_to_idx.get(&root_index).copied();
+        }
+
+        // Check for index.md in parent
+        let parent_index = parent_dir.join("index.md");
+        if let Some(&idx) = path_to_idx.get(&parent_index) {
+            return Some(idx);
+        }
+
+        // Continue up
+        Self::find_parent_up(parent_dir, path_to_idx)
+    }
+}
+
+/// Internal render result (before adding metadata).
+struct RenderResult {
+    html: String,
+    title: Option<String>,
+    toc: Vec<TocEntry>,
+    warnings: Vec<String>,
 }
 
 #[cfg(test)]
 mod tests {
+    // Ensure Site is Send + Sync for use with Arc
+    static_assertions::assert_impl_all!(super::Site: Send, Sync);
+
+    use std::fs;
+    use std::sync::Arc;
+
+    use rw_storage::FsStorage;
+
     use super::*;
 
-    // Site tests
+    fn create_test_dir() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    fn create_site(source_dir: PathBuf) -> Site {
+        let storage = Arc::new(FsStorage::new(source_dir));
+        let config = SiteConfig::default();
+        Site::new(storage, config)
+    }
+
+    // ========================================================================
+    // Site structure tests
+    // ========================================================================
 
     #[test]
-    fn test_get_page_returns_page() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        let site = builder.build();
+    fn test_reload_if_needed_missing_dir_returns_empty_site() {
+        let temp_dir = create_test_dir();
+        let site = create_site(temp_dir.path().join("nonexistent"));
 
-        let page = site.get_page("/guide");
+        let state = site.reload_if_needed();
 
+        assert!(state.get_root_pages().is_empty());
+    }
+
+    #[test]
+    fn test_reload_if_needed_empty_dir_returns_empty_site() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        assert!(state.get_root_pages().is_empty());
+    }
+
+    #[test]
+    fn test_reload_if_needed_flat_structure_builds_site() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# User Guide\n\nContent.").unwrap();
+        fs::write(source_dir.join("api.md"), "# API Reference\n\nDocs.").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        assert_eq!(state.get_root_pages().len(), 2);
+        assert!(state.get_page("/guide").is_some());
+        assert!(state.get_page("/api").is_some());
+    }
+
+    #[test]
+    fn test_reload_if_needed_root_index_adds_home_page() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("index.md"),
+            "# Welcome\n\nHome page content.",
+        )
+        .unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        let page = state.get_page("/");
         assert!(page.is_some());
         let page = page.unwrap();
-        assert_eq!(page.title, "Guide");
-        assert_eq!(page.path, "/guide");
-        assert_eq!(page.source_path, PathBuf::from("guide.md"));
+        assert_eq!(page.title, "Welcome");
+        assert_eq!(page.path, "/");
+        assert_eq!(page.source_path, PathBuf::from("index.md"));
     }
 
     #[test]
-    fn test_get_page_not_found_returns_none() {
-        let site = SiteBuilder::new().build();
-
-        let page = site.get_page("/nonexistent");
-
-        assert!(page.is_none());
-    }
-
-    #[test]
-    fn test_get_page_normalizes_path() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let page = site.get_page("guide");
-
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().title, "Guide");
-    }
-
-    #[test]
-    fn test_get_children_returns_children() {
-        let mut builder = SiteBuilder::new();
-        let parent_idx = builder.add_page(
-            "Parent".to_string(),
-            "/parent".to_string(),
-            PathBuf::from("parent/index.md"),
-            None,
-        );
-        builder.add_page(
-            "Child".to_string(),
-            "/parent/child".to_string(),
-            PathBuf::from("parent/child.md"),
-            Some(parent_idx),
-        );
-        let site = builder.build();
-
-        let children = site.get_children("/parent");
-
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].title, "Child");
-    }
-
-    #[test]
-    fn test_get_children_not_found_returns_empty() {
-        let site = SiteBuilder::new().build();
-
-        let children = site.get_children("/nonexistent");
-
-        assert!(children.is_empty());
-    }
-
-    #[test]
-    fn test_get_children_no_children_returns_empty() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let children = site.get_children("/guide");
-
-        assert!(children.is_empty());
-    }
-
-    #[test]
-    fn test_get_breadcrumbs_empty_path_returns_empty() {
-        let site = SiteBuilder::new().build();
-
-        let breadcrumbs = site.get_breadcrumbs("");
-
-        assert!(breadcrumbs.is_empty());
-    }
-
-    #[test]
-    fn test_get_breadcrumbs_root_page_returns_home() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let breadcrumbs = site.get_breadcrumbs("/guide");
-
-        assert_eq!(breadcrumbs.len(), 1);
-        assert_eq!(breadcrumbs[0].title, "Home");
-        assert_eq!(breadcrumbs[0].path, "/");
-    }
-
-    #[test]
-    fn test_get_breadcrumbs_nested_page_returns_ancestors() {
-        let mut builder = SiteBuilder::new();
-        let parent_idx = builder.add_page(
-            "Parent".to_string(),
-            "/parent".to_string(),
-            PathBuf::from("parent/index.md"),
-            None,
-        );
-        builder.add_page(
-            "Child".to_string(),
-            "/parent/child".to_string(),
-            PathBuf::from("parent/child.md"),
-            Some(parent_idx),
-        );
-        let site = builder.build();
-
-        let breadcrumbs = site.get_breadcrumbs("/parent/child");
-
-        assert_eq!(breadcrumbs.len(), 2);
-        assert_eq!(breadcrumbs[0].title, "Home");
-        assert_eq!(breadcrumbs[1].title, "Parent");
-        assert_eq!(breadcrumbs[1].path, "/parent");
-    }
-
-    #[test]
-    fn test_get_breadcrumbs_not_found_returns_home() {
-        let site = SiteBuilder::new().build();
-
-        let breadcrumbs = site.get_breadcrumbs("/nonexistent");
-
-        assert_eq!(breadcrumbs.len(), 1);
-        assert_eq!(breadcrumbs[0].title, "Home");
-    }
-
-    #[test]
-    fn test_get_breadcrumbs_with_root_index_excludes_root() {
-        let mut builder = SiteBuilder::new();
-        let root_idx = builder.add_page(
-            "Welcome".to_string(),
-            "/".to_string(),
-            PathBuf::from("index.md"),
-            None,
-        );
-        let domain_idx = builder.add_page(
-            "Domain".to_string(),
-            "/domain".to_string(),
-            PathBuf::from("domain/index.md"),
-            Some(root_idx),
-        );
-        builder.add_page(
-            "Page".to_string(),
-            "/domain/page".to_string(),
-            PathBuf::from("domain/page.md"),
-            Some(domain_idx),
-        );
-        let site = builder.build();
-
-        let breadcrumbs = site.get_breadcrumbs("/domain/page");
-
-        assert_eq!(breadcrumbs.len(), 2);
-        assert_eq!(breadcrumbs[0].title, "Home");
-        assert_eq!(breadcrumbs[0].path, "/");
-        assert_eq!(breadcrumbs[1].title, "Domain");
-        assert_eq!(breadcrumbs[1].path, "/domain");
-    }
-
-    #[test]
-    fn test_get_root_pages_returns_roots() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "A".to_string(),
-            "/a".to_string(),
-            PathBuf::from("a.md"),
-            None,
-        );
-        builder.add_page(
-            "B".to_string(),
-            "/b".to_string(),
-            PathBuf::from("b.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let roots = site.get_root_pages();
-
-        assert_eq!(roots.len(), 2);
-        assert_eq!(roots[0].title, "A");
-        assert_eq!(roots[1].title, "B");
-    }
-
-    #[test]
-    fn test_get_page_by_source_returns_page() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let page = site.get_page_by_source(Path::new("guide.md"));
-
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().title, "Guide");
-        assert_eq!(page.unwrap().path, "/guide");
-    }
-
-    #[test]
-    fn test_get_page_by_source_nested_path() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Deep".to_string(),
-            "/domain/page".to_string(),
-            PathBuf::from("domain/page.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let page = site.get_page_by_source(Path::new("domain/page.md"));
-
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().path, "/domain/page");
-    }
-
-    #[test]
-    fn test_get_page_by_source_index_file() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Section".to_string(),
-            "/section".to_string(),
-            PathBuf::from("section/index.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let page = site.get_page_by_source(Path::new("section/index.md"));
-
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().path, "/section");
-    }
-
-    #[test]
-    fn test_get_page_by_source_not_found_returns_none() {
-        let site = SiteBuilder::new().build();
-
-        let page = site.get_page_by_source(Path::new("nonexistent.md"));
-
-        assert!(page.is_none());
-    }
-
-    // SiteBuilder tests
-
-    #[test]
-    fn test_add_page_returns_index() {
-        let mut builder = SiteBuilder::new();
-
-        let idx = builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-
-        assert_eq!(idx, 0);
-    }
-
-    #[test]
-    fn test_add_page_increments_index() {
-        let mut builder = SiteBuilder::new();
-
-        let idx1 = builder.add_page(
-            "A".to_string(),
-            "/a".to_string(),
-            PathBuf::from("a.md"),
-            None,
-        );
-        let idx2 = builder.add_page(
-            "B".to_string(),
-            "/b".to_string(),
-            PathBuf::from("b.md"),
-            None,
-        );
-
-        assert_eq!(idx1, 0);
-        assert_eq!(idx2, 1);
-    }
-
-    #[test]
-    fn test_add_page_with_parent_links_child() {
-        let mut builder = SiteBuilder::new();
-        let parent_idx = builder.add_page(
-            "Parent".to_string(),
-            "/parent".to_string(),
-            PathBuf::from("parent/index.md"),
-            None,
-        );
-        builder.add_page(
-            "Child".to_string(),
-            "/parent/child".to_string(),
-            PathBuf::from("parent/child.md"),
-            Some(parent_idx),
-        );
-        let site = builder.build();
-
-        let children = site.get_children("/parent");
-
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].path, "/parent/child");
-    }
-
-    #[test]
-    fn test_build_creates_site() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-
-        let site = builder.build();
-
-        assert!(site.get_page("/guide").is_some());
-    }
-
-    // Page tests
-
-    #[test]
-    fn test_page_creation_stores_values() {
-        let page = Page {
-            title: "Guide".to_string(),
-            path: "/guide".to_string(),
-            source_path: PathBuf::from("guide.md"),
-        };
-
-        assert_eq!(page.title, "Guide");
-        assert_eq!(page.path, "/guide");
-        assert_eq!(page.source_path, PathBuf::from("guide.md"));
-    }
-
-    // BreadcrumbItem tests
-
-    #[test]
-    fn test_breadcrumb_item_creation_stores_values() {
-        let item = BreadcrumbItem {
-            title: "Home".to_string(),
-            path: "/".to_string(),
-        };
-
-        assert_eq!(item.title, "Home");
-        assert_eq!(item.path, "/");
-    }
-
-    // Navigation tests
-
-    #[test]
-    fn test_navigation_empty_site_returns_empty_list() {
-        let site = SiteBuilder::new().build();
-
-        let nav = site.navigation();
-
-        assert!(nav.is_empty());
-    }
-
-    #[test]
-    fn test_navigation_flat_site() {
-        let mut builder = SiteBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        builder.add_page(
-            "API".to_string(),
-            "/api".to_string(),
-            PathBuf::from("api.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let nav = site.navigation();
-
-        assert_eq!(nav.len(), 2);
-        let titles: Vec<_> = nav.iter().map(|item| item.title.as_str()).collect();
-        assert!(titles.contains(&"Guide"));
-        assert!(titles.contains(&"API"));
-    }
-
-    #[test]
-    fn test_navigation_nested_site() {
-        let mut builder = SiteBuilder::new();
-        let parent_idx = builder.add_page(
-            "Domain A".to_string(),
-            "/domain-a".to_string(),
-            PathBuf::from("domain-a/index.md"),
-            None,
-        );
-        builder.add_page(
-            "Setup Guide".to_string(),
-            "/domain-a/guide".to_string(),
-            PathBuf::from("domain-a/guide.md"),
-            Some(parent_idx),
-        );
-        let site = builder.build();
-
-        let nav = site.navigation();
-
-        assert_eq!(nav.len(), 1);
-        let domain = &nav[0];
+    fn test_reload_if_needed_nested_structure_builds_site() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("domain-a");
+        fs::create_dir_all(&domain_dir).unwrap();
+        fs::write(domain_dir.join("index.md"), "# Domain A\n\nOverview.").unwrap();
+        fs::write(domain_dir.join("guide.md"), "# Setup Guide\n\nSteps.").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        let domain = state.get_page("/domain-a");
+        assert!(domain.is_some());
+        let domain = domain.unwrap();
         assert_eq!(domain.title, "Domain A");
-        assert_eq!(domain.path, "/domain-a");
-        assert_eq!(domain.children.len(), 1);
-        assert_eq!(domain.children[0].title, "Setup Guide");
-        assert_eq!(domain.children[0].path, "/domain-a/guide");
+        assert_eq!(domain.source_path, PathBuf::from("domain-a/index.md"));
+
+        let children = state.get_children("/domain-a");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].title, "Setup Guide");
+        assert_eq!(children[0].source_path, PathBuf::from("domain-a/guide.md"));
     }
 
     #[test]
-    fn test_navigation_deeply_nested() {
-        let mut builder = SiteBuilder::new();
-        let idx_a = builder.add_page(
-            "A".to_string(),
-            "/a".to_string(),
-            PathBuf::from("a/index.md"),
-            None,
-        );
-        let idx_b = builder.add_page(
-            "B".to_string(),
-            "/a/b".to_string(),
-            PathBuf::from("a/b/index.md"),
-            Some(idx_a),
-        );
-        builder.add_page(
-            "C".to_string(),
-            "/a/b/c".to_string(),
-            PathBuf::from("a/b/c/index.md"),
-            Some(idx_b),
-        );
-        let site = builder.build();
+    fn test_reload_if_needed_extracts_title_from_h1() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# My Custom Title\n\nContent.").unwrap();
 
-        let nav = site.navigation();
+        let site = create_site(source_dir);
 
-        assert_eq!(nav[0].title, "A");
-        assert_eq!(nav[0].children[0].title, "B");
-        assert_eq!(nav[0].children[0].children[0].title, "C");
+        let state = site.reload_if_needed();
+
+        let page = state.get_page("/guide");
+        assert!(page.is_some());
+        assert_eq!(page.unwrap().title, "My Custom Title");
     }
 
     #[test]
-    fn test_navigation_root_page_excluded() {
-        let mut builder = SiteBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            "/".to_string(),
-            PathBuf::from("index.md"),
-            None,
+    fn test_reload_if_needed_falls_back_to_filename() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("setup-guide.md"),
+            "Content without heading.",
+        )
+        .unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        let page = state.get_page("/setup-guide");
+        assert!(page.is_some());
+        assert_eq!(page.unwrap().title, "Setup Guide");
+    }
+
+    #[test]
+    fn test_reload_if_needed_cyrillic_filename() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("руководство.md"),
+            "# Руководство\n\nСодержимое.",
+        )
+        .unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        let page = state.get_page("/руководство");
+        assert!(page.is_some());
+        let page = page.unwrap();
+        assert_eq!(page.title, "Руководство");
+        assert_eq!(page.path, "/руководство");
+        assert_eq!(page.source_path, PathBuf::from("руководство.md"));
+    }
+
+    #[test]
+    fn test_reload_if_needed_skips_hidden_files() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join(".hidden.md"), "# Hidden").unwrap();
+        fs::write(source_dir.join("visible.md"), "# Visible").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        assert!(state.get_page("/.hidden").is_none());
+        assert!(state.get_page("/visible").is_some());
+    }
+
+    #[test]
+    fn test_reload_if_needed_skips_underscore_files() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("_partial.md"), "# Partial").unwrap();
+        fs::write(source_dir.join("main.md"), "# Main").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        assert!(state.get_page("/_partial").is_none());
+        assert!(state.get_page("/main").is_some());
+    }
+
+    #[test]
+    fn test_reload_if_needed_directory_without_index_promotes_children() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let no_index_dir = source_dir.join("no-index");
+        fs::create_dir_all(&no_index_dir).unwrap();
+        fs::write(no_index_dir.join("child.md"), "# Child Page").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        // Child should be at root level (promoted)
+        let roots = state.get_root_pages();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].path, "/no-index/child");
+        assert_eq!(roots[0].source_path, PathBuf::from("no-index/child.md"));
+    }
+
+    #[test]
+    fn test_state_returns_same_arc() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let site = create_site(source_dir);
+
+        // First reload to populate
+        let _ = site.reload_if_needed();
+
+        // state() should return the same Arc
+        let state1 = site.state();
+        let state2 = site.state();
+
+        assert!(Arc::ptr_eq(&state1, &state2));
+    }
+
+    #[test]
+    fn test_reload_if_needed_caches_result() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state1 = site.reload_if_needed();
+        let state2 = site.reload_if_needed();
+
+        // Should return the same Arc (cached)
+        assert!(Arc::ptr_eq(&state1, &state2));
+    }
+
+    #[test]
+    fn test_invalidate_clears_cached_site() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let site = create_site(source_dir.clone());
+
+        // First reload - should NOT have /new
+        let state1 = site.reload_if_needed();
+        assert!(state1.get_page("/new").is_none());
+
+        // Add new file and invalidate
+        fs::write(source_dir.join("new.md"), "# New").unwrap();
+        site.invalidate();
+
+        // Second reload - should have /new now
+        let state2 = site.reload_if_needed();
+        assert!(state2.get_page("/new").is_some());
+
+        // Should be a different Arc (reloaded)
+        assert!(!Arc::ptr_eq(&state1, &state2));
+    }
+
+    #[test]
+    fn test_concurrent_access() {
+        use std::thread;
+
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let site = Arc::new(create_site(source_dir));
+
+        // Spawn multiple threads accessing concurrently
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                let site = Arc::clone(&site);
+                thread::spawn(move || {
+                    let state = site.reload_if_needed();
+                    assert!(state.get_page("/guide").is_some());
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_concurrent_invalidate_and_reload() {
+        use std::thread;
+
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+
+        let site = Arc::new(create_site(source_dir));
+
+        // Initial load
+        let _ = site.reload_if_needed();
+
+        // Spawn threads that invalidate and reload concurrently
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let site = Arc::clone(&site);
+                thread::spawn(move || {
+                    if i % 2 == 0 {
+                        site.invalidate();
+                    } else {
+                        let state = site.reload_if_needed();
+                        // Site should always be valid
+                        assert!(state.get_page("/guide").is_some());
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Final state should be valid
+        let state = site.reload_if_needed();
+        assert!(state.get_page("/guide").is_some());
+    }
+
+    #[test]
+    fn test_mtime_cache_reuses_titles() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Original Title").unwrap();
+
+        let site = create_site(source_dir);
+
+        // First load
+        let state1 = site.reload_if_needed();
+        assert_eq!(state1.get_page("/guide").unwrap().title, "Original Title");
+
+        // Invalidate and reload without changing file - should use cached title
+        site.invalidate();
+        let state2 = site.reload_if_needed();
+        assert_eq!(state2.get_page("/guide").unwrap().title, "Original Title");
+    }
+
+    #[test]
+    fn test_mtime_cache_detects_changes() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Original Title").unwrap();
+
+        let site = create_site(source_dir.clone());
+
+        // First load
+        let state1 = site.reload_if_needed();
+        assert_eq!(state1.get_page("/guide").unwrap().title, "Original Title");
+
+        // Small delay to ensure mtime changes
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Modify file
+        fs::write(source_dir.join("guide.md"), "# Updated Title").unwrap();
+        site.invalidate();
+
+        // Reload should see new title
+        let state2 = site.reload_if_needed();
+        assert_eq!(state2.get_page("/guide").unwrap().title, "Updated Title");
+    }
+
+    #[test]
+    fn test_source_path_to_url() {
+        assert_eq!(Site::source_path_to_url(Path::new("index.md")), "/");
+        assert_eq!(Site::source_path_to_url(Path::new("guide.md")), "/guide");
+        assert_eq!(
+            Site::source_path_to_url(Path::new("domain/index.md")),
+            "/domain"
         );
-        builder.add_page(
-            "Domains".to_string(),
-            "/domains".to_string(),
-            PathBuf::from("domains/index.md"),
-            Some(root_idx),
+        assert_eq!(
+            Site::source_path_to_url(Path::new("domain/setup.md")),
+            "/domain/setup"
         );
-        builder.add_page(
-            "Usage".to_string(),
-            "/usage".to_string(),
-            PathBuf::from("usage/index.md"),
-            Some(root_idx),
+        assert_eq!(Site::source_path_to_url(Path::new("a/b/c.md")), "/a/b/c");
+    }
+
+    #[test]
+    fn test_nested_hierarchy_with_multiple_levels() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir_all(source_dir.join("level1/level2")).unwrap();
+        fs::write(source_dir.join("index.md"), "# Home").unwrap();
+        fs::write(source_dir.join("level1/index.md"), "# Level 1").unwrap();
+        fs::write(source_dir.join("level1/level2/index.md"), "# Level 2").unwrap();
+        fs::write(source_dir.join("level1/level2/page.md"), "# Deep Page").unwrap();
+
+        let site = create_site(source_dir);
+
+        let state = site.reload_if_needed();
+
+        // Check root
+        let root = state.get_page("/").unwrap();
+        assert_eq!(root.title, "Home");
+
+        // Check level 1
+        let level1 = state.get_page("/level1").unwrap();
+        assert_eq!(level1.title, "Level 1");
+
+        // Check level 1 is child of root
+        let root_children = state.get_children("/");
+        assert!(root_children.iter().any(|c| c.path == "/level1"));
+
+        // Check level 2
+        let level2 = state.get_page("/level1/level2").unwrap();
+        assert_eq!(level2.title, "Level 2");
+
+        // Check level 2 is child of level 1
+        let level1_children = state.get_children("/level1");
+        assert!(level1_children.iter().any(|c| c.path == "/level1/level2"));
+
+        // Check deep page
+        let deep = state.get_page("/level1/level2/page").unwrap();
+        assert_eq!(deep.title, "Deep Page");
+
+        // Check deep page is child of level 2
+        let level2_children = state.get_children("/level1/level2");
+        assert!(
+            level2_children
+                .iter()
+                .any(|c| c.path == "/level1/level2/page")
         );
-        let site = builder.build();
-
-        let nav = site.navigation();
-
-        // Navigation should show children of root, not root itself
-        assert_eq!(nav.len(), 2);
-        let titles: Vec<_> = nav.iter().map(|item| item.title.as_str()).collect();
-        assert!(titles.contains(&"Domains"));
-        assert!(titles.contains(&"Usage"));
-        assert!(!titles.contains(&"Home"));
     }
 
-    // NavItem tests
+    // ========================================================================
+    // Rendering tests
+    // ========================================================================
 
     #[test]
-    fn test_nav_item_creation() {
-        let item = NavItem {
-            title: "Guide".to_string(),
-            path: "/guide".to_string(),
-            children: Vec::new(),
-        };
+    fn test_render_simple_markdown() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("test.md"), "# Hello\n\nWorld").unwrap();
 
-        assert_eq!(item.title, "Guide");
-        assert_eq!(item.path, "/guide");
-        assert!(item.children.is_empty());
-    }
-
-    #[test]
-    fn test_nav_item_with_children() {
-        let child = NavItem {
-            title: "Child".to_string(),
-            path: "/parent/child".to_string(),
-            children: Vec::new(),
+        let storage = Arc::new(FsStorage::new(source_dir));
+        let config = SiteConfig {
+            extract_title: true,
+            ..Default::default()
         };
-        let item = NavItem {
-            title: "Parent".to_string(),
-            path: "/parent".to_string(),
-            children: vec![child],
-        };
+        let site = Site::new(storage, config);
 
-        assert_eq!(item.children.len(), 1);
-        assert_eq!(item.children[0].title, "Child");
+        let result = site.render("/test").unwrap();
+        assert!(result.html.contains("<p>World</p>"));
+        assert_eq!(result.title, Some("Hello".to_string()));
+        assert!(!result.from_cache);
+        assert_eq!(result.source_path, PathBuf::from("test.md"));
     }
 
     #[test]
-    fn test_nav_item_serialization_without_children() {
-        let item = NavItem {
-            title: "Guide".to_string(),
-            path: "/guide".to_string(),
-            children: Vec::new(),
-        };
+    fn test_render_page_not_found() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("exists.md"), "# Exists").unwrap();
 
-        let json = serde_json::to_value(&item).unwrap();
+        let site = create_site(source_dir);
 
-        assert_eq!(json["title"], "Guide");
-        assert_eq!(json["path"], "/guide");
-        assert!(json.get("children").is_none()); // Skipped when empty
+        let result = site.render("/nonexistent");
+        assert!(matches!(result, Err(RenderError::PageNotFound(_))));
     }
 
     #[test]
-    fn test_nav_item_serialization_with_children() {
-        let child = NavItem {
-            title: "Child".to_string(),
-            path: "/parent/child".to_string(),
-            children: Vec::new(),
-        };
-        let item = NavItem {
-            title: "Parent".to_string(),
-            path: "/parent".to_string(),
-            children: vec![child],
-        };
+    fn test_render_with_cache() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let cache_dir = temp_dir.path().join("cache");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(source_dir.join("test.md"), "# Cached\n\nContent").unwrap();
 
-        let json = serde_json::to_value(&item).unwrap();
+        let storage = Arc::new(FsStorage::new(source_dir));
+        let config = SiteConfig {
+            cache_dir: Some(cache_dir),
+            version: "1.0.0".to_string(),
+            extract_title: true,
+            ..Default::default()
+        };
+        let site = Site::new(storage, config);
 
-        assert_eq!(json["title"], "Parent");
-        assert_eq!(json["path"], "/parent");
-        assert!(json["children"].is_array());
-        assert_eq!(json["children"][0]["title"], "Child");
-        assert_eq!(json["children"][0]["path"], "/parent/child");
+        // First render - cache miss
+        let result1 = site.render("/test").unwrap();
+        assert!(!result1.from_cache);
+        assert_eq!(result1.title, Some("Cached".to_string()));
+
+        // Second render - cache hit
+        let result2 = site.render("/test").unwrap();
+        assert!(result2.from_cache);
+        assert_eq!(result2.title, Some("Cached".to_string()));
+        assert_eq!(result1.html, result2.html);
+    }
+
+    #[test]
+    fn test_render_includes_breadcrumbs() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        let domain_dir = source_dir.join("domain");
+        fs::create_dir_all(&domain_dir).unwrap();
+        fs::write(source_dir.join("index.md"), "# Home").unwrap();
+        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
+        fs::write(domain_dir.join("page.md"), "# Page").unwrap();
+
+        let site = create_site(source_dir);
+
+        let result = site.render("/domain/page").unwrap();
+
+        assert_eq!(result.breadcrumbs.len(), 2);
+        assert_eq!(result.breadcrumbs[0].title, "Home");
+        assert_eq!(result.breadcrumbs[0].path, "/");
+        assert_eq!(result.breadcrumbs[1].title, "Domain");
+        assert_eq!(result.breadcrumbs[1].path, "/domain");
+    }
+
+    #[test]
+    fn test_render_toc_generation() {
+        let temp_dir = create_test_dir();
+        let source_dir = temp_dir.path().join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(
+            source_dir.join("test.md"),
+            "# Title\n\n## Section 1\n\n## Section 2",
+        )
+        .unwrap();
+
+        let site = create_site(source_dir);
+
+        let result = site.render("/test").unwrap();
+        assert_eq!(result.toc.len(), 2);
+        assert_eq!(result.toc[0].title, "Section 1");
+        assert_eq!(result.toc[0].level, 2);
+        assert_eq!(result.toc[1].title, "Section 2");
     }
 }
