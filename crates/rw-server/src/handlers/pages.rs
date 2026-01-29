@@ -37,7 +37,7 @@ struct PageResponse {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PageMeta {
-    /// Page title (from H1 heading).
+    /// Page title (from H1 heading or metadata).
     title: Option<String>,
     /// URL path.
     path: String,
@@ -45,6 +45,15 @@ struct PageMeta {
     source_file: String,
     /// Last modification time (ISO 8601).
     last_modified: String,
+    /// Page description (from metadata).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    /// Page type (from metadata, indicates a section).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    page_type: Option<String>,
+    /// Custom variables (from metadata).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vars: Option<serde_json::Value>,
 }
 
 /// Breadcrumb item for serialization.
@@ -139,12 +148,29 @@ fn get_page_impl(
 
     // Build response using render result fields directly
     // Add leading slash to path for JSON response (frontend expects URLs with leading slash)
+    let (description, page_type, vars) = if let Some(ref meta) = result.metadata {
+        (
+            meta.description.clone(),
+            meta.page_type.clone(),
+            if meta.vars.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_value(&meta.vars).unwrap_or_default())
+            },
+        )
+    } else {
+        (None, None, None)
+    };
+
     let response = PageResponse {
         meta: PageMeta {
             title: result.title,
             path: to_url_path(&path),
             source_file: result.source_path.display().to_string(),
             last_modified: last_modified.to_rfc3339(),
+            description,
+            page_type,
+            vars,
         },
         breadcrumbs: result
             .breadcrumbs
@@ -217,6 +243,9 @@ mod tests {
             path: "/guide".to_string(),
             source_file: "/docs/guide.md".to_string(),
             last_modified: "2025-01-01T00:00:00Z".to_string(),
+            description: None,
+            page_type: None,
+            vars: None,
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -225,5 +254,32 @@ mod tests {
         assert_eq!(json["path"], "/guide");
         assert_eq!(json["sourceFile"], "/docs/guide.md");
         assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
+        // description, type, and vars should be omitted when None
+        assert!(json.get("description").is_none());
+        assert!(json.get("type").is_none());
+        assert!(json.get("vars").is_none());
+    }
+
+    #[test]
+    fn test_page_meta_serialization_with_metadata() {
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("owner".to_string(), serde_json::json!("team-a"));
+
+        let meta = PageMeta {
+            title: Some("Domain Guide".to_string()),
+            path: "/domain".to_string(),
+            source_file: "/docs/domain/index.md".to_string(),
+            last_modified: "2025-01-01T00:00:00Z".to_string(),
+            description: Some("Domain overview".to_string()),
+            page_type: Some("domain".to_string()),
+            vars: Some(serde_json::to_value(vars).unwrap()),
+        };
+
+        let json = serde_json::to_value(&meta).unwrap();
+
+        assert_eq!(json["title"], "Domain Guide");
+        assert_eq!(json["description"], "Domain overview");
+        assert_eq!(json["type"], "domain");
+        assert_eq!(json["vars"]["owner"], "team-a");
     }
 }

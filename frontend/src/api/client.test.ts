@@ -10,8 +10,8 @@ const mockPage: PageResponse = {
   meta: {
     title: "Test",
     path: "/test",
-    source_file: "test.md",
-    last_modified: "2025-01-01T00:00:00Z",
+    sourceFile: "test.md",
+    lastModified: "2025-01-01T00:00:00Z",
   },
   breadcrumbs: [],
   toc: [],

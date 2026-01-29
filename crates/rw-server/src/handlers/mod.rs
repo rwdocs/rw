@@ -3,6 +3,7 @@
 pub(crate) mod config;
 pub(crate) mod navigation;
 pub(crate) mod pages;
+pub(crate) mod sections;
 
 /// Convert internal path (without leading slash) to URL path (with leading slash).
 ///

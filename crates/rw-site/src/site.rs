@@ -50,6 +50,7 @@ use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry};
 use rw_storage::{Storage, StorageError, StorageErrorKind};
 
+use crate::metadata::{PageMetadata, merge_metadata, metadata_dir, metadata_file_path};
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
@@ -75,6 +76,8 @@ pub struct PageRenderResult {
     pub source_mtime: f64,
     /// Breadcrumb navigation items.
     pub breadcrumbs: Vec<BreadcrumbItem>,
+    /// Page metadata from YAML sidecar file.
+    pub metadata: Option<PageMetadata>,
 }
 
 /// Error returned when page rendering fails.
@@ -123,6 +126,8 @@ pub struct SiteConfig {
     pub config_file: Option<String>,
     /// DPI for diagram rendering (default: 192 for retina).
     pub dpi: u32,
+    /// Metadata file name (default: "meta.yaml").
+    pub meta_filename: String,
 }
 
 impl Default for SiteConfig {
@@ -135,6 +140,7 @@ impl Default for SiteConfig {
             include_dirs: Vec::new(),
             config_file: None,
             dpi: 192,
+            meta_filename: "meta.yaml".to_string(),
         }
     }
 }
@@ -168,6 +174,8 @@ pub struct Site {
     include_dirs: Vec<PathBuf>,
     config_file: Option<String>,
     dpi: u32,
+    /// Metadata file name.
+    meta_filename: String,
 }
 
 impl Site {
@@ -204,6 +212,7 @@ impl Site {
             include_dirs: config.include_dirs,
             config_file: config.config_file,
             dpi: config.dpi,
+            meta_filename: config.meta_filename,
         }
     }
 
@@ -268,6 +277,22 @@ impl Site {
     #[must_use]
     pub fn get_page(&self, path: &str) -> Option<Page> {
         self.reload_if_needed().get_page(path).cloned()
+    }
+
+    /// Get all sections defined in the site.
+    ///
+    /// Reloads site if needed and returns all sections (pages with `type` in metadata).
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    #[must_use]
+    pub fn sections(&self) -> Vec<crate::site_state::SectionInfo> {
+        self.reload_if_needed()
+            .sections()
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Get breadcrumbs for a page.
@@ -391,6 +416,7 @@ impl Site {
                 source_path: page.source_path.clone(),
                 source_mtime,
                 breadcrumbs,
+                metadata: page.metadata.clone(),
             });
         }
 
@@ -416,6 +442,7 @@ impl Site {
             source_path: page.source_path.clone(),
             source_mtime,
             breadcrumbs,
+            metadata: page.metadata.clone(),
         })
     }
 
@@ -467,7 +494,7 @@ impl Site {
     /// Load site state from storage and build hierarchy.
     ///
     /// Uses `storage.scan()` to get documents, then builds hierarchy based on
-    /// path conventions.
+    /// path conventions. Also loads metadata from YAML sidecar files.
     fn load_from_storage(&self) -> SiteState {
         let mut builder = SiteStateBuilder::new();
 
@@ -504,16 +531,95 @@ impl Site {
         // Track added pages by their source path for parent lookup
         let mut path_to_idx: HashMap<PathBuf, usize> = HashMap::new();
 
+        // Track metadata by directory for inheritance
+        let mut dir_metadata: HashMap<PathBuf, PageMetadata> = HashMap::new();
+
         // Process documents in sorted order
         for doc in sorted_docs {
             let url_path = Self::source_path_to_url(&doc.path);
             let parent_idx = Self::find_parent(&doc.path, &path_to_idx);
 
-            let idx = builder.add_page(doc.title.clone(), url_path, doc.path.clone(), parent_idx);
+            // Load metadata for this document
+            let metadata = self.load_metadata_for_doc(&doc.path, &dir_metadata);
+
+            // Store metadata for inheritance if this is an index.md
+            if let Some(ref meta) = metadata
+                && let Some(dir) = metadata_dir(&doc.path)
+            {
+                dir_metadata.insert(dir.to_path_buf(), meta.clone());
+            }
+
+            // Use metadata title if present, otherwise use document title
+            let title = metadata
+                .as_ref()
+                .and_then(|m| m.title.clone())
+                .unwrap_or_else(|| doc.title.clone());
+
+            let idx = builder.add_page(title, url_path, doc.path.clone(), parent_idx, metadata);
             path_to_idx.insert(doc.path.clone(), idx);
         }
 
         builder.build()
+    }
+
+    /// Load metadata for a document, applying inheritance from parent directories.
+    fn load_metadata_for_doc(
+        &self,
+        source_path: &Path,
+        dir_metadata: &HashMap<PathBuf, PageMetadata>,
+    ) -> Option<PageMetadata> {
+        // Get the directory containing the document
+        let dir = metadata_dir(source_path)?;
+        let meta_path = metadata_file_path(dir, &self.meta_filename);
+
+        // Try to load metadata from file
+        let file_metadata = self.load_metadata_file(&meta_path);
+
+        // Get parent metadata for inheritance
+        let parent_metadata = self.get_parent_metadata(dir, dir_metadata);
+
+        // Merge with parent metadata if both exist
+        match (parent_metadata, file_metadata) {
+            (Some(parent), Some(child)) => Some(merge_metadata(&parent, &child)),
+            (Some(parent), None) => {
+                // Inherit description and vars but not title or type
+                Some(PageMetadata {
+                    title: None,
+                    description: parent.description.clone(),
+                    page_type: None,
+                    vars: parent.vars.clone(),
+                })
+            }
+            (None, Some(child)) => Some(child),
+            (None, None) => None,
+        }
+    }
+
+    /// Load metadata from a file.
+    fn load_metadata_file(&self, path: &Path) -> Option<PageMetadata> {
+        let content = self.storage.read(path).ok()?;
+        match PageMetadata::from_yaml(&content) {
+            Ok(Some(meta)) if !meta.is_empty() => Some(meta),
+            Ok(_) => None,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "Failed to parse metadata");
+                None
+            }
+        }
+    }
+
+    /// Get inherited metadata from parent directory.
+    fn get_parent_metadata(
+        &self,
+        dir: &Path,
+        dir_metadata: &HashMap<PathBuf, PageMetadata>,
+    ) -> Option<PageMetadata> {
+        let parent_dir = dir.parent()?;
+        if parent_dir.as_os_str().is_empty() {
+            // Check root metadata
+            return dir_metadata.get(Path::new("")).cloned();
+        }
+        dir_metadata.get(parent_dir).cloned()
     }
 
     /// Convert source path to URL path (without leading slash).

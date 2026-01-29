@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Page metadata support** via YAML sidecar files (`meta.yaml`)
+  - Custom page titles, descriptions, and types
+  - Sub-site/section definitions (directories with `type` set)
+  - Custom variables with inheritance from parent directories
+  - New `/api/sections` endpoint for listing all sections
+  - New `[metadata]` config section with `name` option (default: `meta.yaml`)
 - Page loading progress for slow updates
 
 ### Security

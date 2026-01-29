@@ -100,6 +100,8 @@ pub struct ServerConfig {
     pub verbose: bool,
     /// Application version (for cache invalidation).
     pub version: String,
+    /// Metadata file name (default: "meta.yaml").
+    pub meta_filename: String,
 }
 
 impl Default for ServerConfig {
@@ -117,6 +119,7 @@ impl Default for ServerConfig {
             watch_patterns: None,
             verbose: false,
             version: String::new(),
+            meta_filename: "meta.yaml".to_string(),
         }
     }
 }
@@ -143,6 +146,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         include_dirs: config.include_dirs.clone(),
         config_file: config.config_file.clone(),
         dpi: config.dpi,
+        meta_filename: config.meta_filename.clone(),
     };
     let site = Arc::new(Site::new(Arc::clone(&storage), site_config));
 
@@ -217,5 +221,6 @@ pub fn server_config_from_rw_config(
         watch_patterns: config.live_reload.watch_patterns.clone(),
         verbose,
         version,
+        meta_filename: config.metadata.name.clone(),
     }
 }
