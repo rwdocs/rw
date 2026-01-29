@@ -46,7 +46,7 @@
             <span class="px-1.5">Home</span>
           </a>
         {/if}
-        <h2 class="text-base font-semibold text-gray-900 pl-[28px]">{$navigation.tree.scope.title}</h2>
+        <h2 class="text-xl font-light text-gray-900 pl-[28px]">{$navigation.tree.scope.title}</h2>
       </div>
     {/if}
     <NavTree items={$navigation.tree.items} />
