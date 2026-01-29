@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Scoped navigation now preserved when navigating within a section with cached API responses
 - Hash fragment navigation now properly scrolls to the target heading
 - TOC now correctly highlights the clicked item instead of showing the wrong one
 - TOC items now show pointer cursor on hover
