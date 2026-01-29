@@ -2,10 +2,8 @@
   import { page } from "../stores/page";
   import { hash } from "../stores/router";
   import { initializeTabs } from "../lib/tabs";
+  import { LOADING_SHOW_DELAY } from "../lib/constants";
   import LoadingSkeleton from "./LoadingSkeleton.svelte";
-
-  // Delay before showing skeleton (ms) - prevents "blink" on fast loads
-  const SHOW_DELAY = 150;
 
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
@@ -15,7 +13,7 @@
     if ($page.loading) {
       const timeout = setTimeout(() => {
         showSkeleton = true;
-      }, SHOW_DELAY);
+      }, LOADING_SHOW_DELAY);
       return () => clearTimeout(timeout);
     } else {
       showSkeleton = false;
