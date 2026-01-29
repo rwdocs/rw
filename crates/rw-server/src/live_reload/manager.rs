@@ -82,25 +82,17 @@ impl LiveReloadManager {
         let doc_path = match event.kind {
             StorageEventKind::Modified => {
                 // Content change only - use cached site state, no traversal needed.
-                let state = site.state();
-                state
-                    .get_page_by_source(&event.path)
-                    .map(|p| p.path.clone())
+                site.get_page_by_source(&event.path).map(|p| p.path)
             }
             StorageEventKind::Created => {
                 // New file - must reload to add it to site structure
                 site.invalidate();
-                let state = site.reload_if_needed();
-                state
-                    .get_page_by_source(&event.path)
-                    .map(|p| p.path.clone())
+                site.reload();
+                site.get_page_by_source(&event.path).map(|p| p.path)
             }
             StorageEventKind::Removed => {
                 // File deleted - get path from cached site before invalidating
-                let state = site.state();
-                let doc_path = state
-                    .get_page_by_source(&event.path)
-                    .map(|p| p.path.clone());
+                let doc_path = site.get_page_by_source(&event.path).map(|p| p.path);
                 site.invalidate();
                 doc_path
             }

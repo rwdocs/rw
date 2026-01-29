@@ -53,7 +53,7 @@ use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
 // Re-import from crate root for public types, and direct module for internal
-pub(crate) use crate::site_state::{BreadcrumbItem, NavItem, SiteState, SiteStateBuilder};
+pub(crate) use crate::site_state::{BreadcrumbItem, NavItem, Page, SiteState, SiteStateBuilder};
 
 /// Result of rendering a markdown page.
 #[derive(Clone, Debug)]
@@ -208,7 +208,7 @@ impl Site {
     ///
     /// Panics if the internal `RwLock` is poisoned.
     #[must_use]
-    pub fn state(&self) -> Arc<SiteState> {
+    pub(crate) fn state(&self) -> Arc<SiteState> {
         self.current_state.read().unwrap().clone()
     }
 
@@ -224,6 +224,69 @@ impl Site {
         self.reload_if_needed().navigation()
     }
 
+    /// Get page by source file path.
+    ///
+    /// Returns the page for a given source file path without reloading.
+    /// Uses the current cached state.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_path` - Relative path to source file (e.g., "guide.md")
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    #[must_use]
+    pub fn get_page_by_source(&self, source_path: &Path) -> Option<Page> {
+        self.state().get_page_by_source(source_path).cloned()
+    }
+
+    /// Get page by URL path.
+    ///
+    /// Reloads site if needed and returns the page for a given URL path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - URL path (e.g., "/guide" or "guide")
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    #[must_use]
+    pub fn get_page(&self, path: &str) -> Option<Page> {
+        self.reload_if_needed().get_page(path).cloned()
+    }
+
+    /// Get breadcrumbs for a page.
+    ///
+    /// Reloads site if needed and returns breadcrumb navigation items
+    /// for a given URL path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - URL path (e.g., "/guide/setup")
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    #[must_use]
+    pub fn get_breadcrumbs(&self, path: &str) -> Vec<BreadcrumbItem> {
+        self.reload_if_needed().get_breadcrumbs(path)
+    }
+
+    /// Reload site state from storage if cache is invalid.
+    ///
+    /// Call this to ensure the site structure is up-to-date before
+    /// accessing navigation or rendering pages. Most public methods
+    /// call this automatically.
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    pub fn reload(&self) {
+        let _ = self.reload_if_needed();
+    }
+
     /// Reload site state from storage if cache is invalid.
     ///
     /// Uses double-checked locking pattern:
@@ -237,7 +300,7 @@ impl Site {
     /// # Panics
     ///
     /// Panics if internal locks are poisoned.
-    pub fn reload_if_needed(&self) -> Arc<SiteState> {
+    pub(crate) fn reload_if_needed(&self) -> Arc<SiteState> {
         // Fast path: cache valid
         if self.cache_valid.load(Ordering::Acquire) {
             return self.state();

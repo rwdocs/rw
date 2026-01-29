@@ -43,16 +43,16 @@ fn bench_site_get_page(c: &mut Criterion) {
     create_site_structure(&source_dir, 3, 5);
 
     let site = create_site(source_dir);
-    let state = site.reload_if_needed();
+    site.reload();
 
     let mut group = c.benchmark_group("site_lookup");
 
     group.bench_function("get_page_hit", |b| {
-        b.iter(|| state.get_page_by_source(std::path::Path::new("section-0/section-1/index.md")));
+        b.iter(|| site.get_page_by_source(std::path::Path::new("section-0/section-1/index.md")));
     });
 
     group.bench_function("get_page_miss", |b| {
-        b.iter(|| state.get_page_by_source(std::path::Path::new("nonexistent/path.md")));
+        b.iter(|| site.get_page_by_source(std::path::Path::new("nonexistent/path.md")));
     });
 
     group.finish();
@@ -64,16 +64,16 @@ fn bench_site_breadcrumbs(c: &mut Criterion) {
     create_site_structure(&source_dir, 5, 3);
 
     let site = create_site(source_dir);
-    let state = site.reload_if_needed();
+    site.reload();
 
     let mut group = c.benchmark_group("breadcrumbs");
 
     group.bench_function("depth_2", |b| {
-        b.iter(|| state.get_breadcrumbs("/section-0/section-0"));
+        b.iter(|| site.get_breadcrumbs("/section-0/section-0"));
     });
 
     group.bench_function("depth_5", |b| {
-        b.iter(|| state.get_breadcrumbs("/section-0/section-0/section-0/section-0/section-0"));
+        b.iter(|| site.get_breadcrumbs("/section-0/section-0/section-0/section-0/section-0"));
     });
 
     group.finish();
@@ -89,12 +89,12 @@ fn bench_site_navigation(c: &mut Criterion) {
         create_site_structure(&source_dir, depth, breadth);
 
         let site = create_site(source_dir);
-        let state = site.reload_if_needed();
+        site.reload();
 
         group.bench_with_input(
             BenchmarkId::new("build_tree", format!("d{depth}_b{breadth}")),
-            &state,
-            |b, state| b.iter(|| state.navigation()),
+            &site,
+            |b, site| b.iter(|| site.navigation()),
         );
     }
 
@@ -111,14 +111,14 @@ fn bench_site_reload(c: &mut Criterion) {
     let mut group = c.benchmark_group("site");
 
     // Prime the cache
-    let _ = site.reload_if_needed();
+    site.reload();
 
-    group.bench_function("reload_cached", |b| b.iter(|| site.reload_if_needed()));
+    group.bench_function("reload_cached", |b| b.iter(|| site.reload()));
 
     group.bench_function("reload_after_invalidate", |b| {
         b.iter(|| {
             site.invalidate();
-            site.reload_if_needed()
+            site.reload();
         });
     });
 
@@ -136,10 +136,7 @@ fn bench_site_varying_sizes(c: &mut Criterion) {
         create_site_structure(&source_dir, depth, breadth);
 
         group.bench_function(label, |b| {
-            b.iter_with_setup(
-                || create_site(source_dir.clone()),
-                |site| site.reload_if_needed(),
-            );
+            b.iter_with_setup(|| create_site(source_dir.clone()), |site| site.reload());
         });
     }
 
@@ -152,20 +149,20 @@ fn bench_get_page(c: &mut Criterion) {
     create_site_structure(&source_dir, 4, 4);
 
     let site = create_site(source_dir);
-    let state = site.reload_if_needed();
+    site.reload();
 
     let mut group = c.benchmark_group("get_page");
 
     group.bench_function("shallow", |b| {
-        b.iter(|| state.get_page("/section-0"));
+        b.iter(|| site.get_page("/section-0"));
     });
 
     group.bench_function("deep", |b| {
-        b.iter(|| state.get_page("/section-0/section-0/section-0/section-0"));
+        b.iter(|| site.get_page("/section-0/section-0/section-0/section-0"));
     });
 
     group.bench_function("not_found", |b| {
-        b.iter(|| state.get_page("/nonexistent"));
+        b.iter(|| site.get_page("/nonexistent"));
     });
 
     group.finish();
