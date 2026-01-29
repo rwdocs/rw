@@ -7,7 +7,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-use rw_site::SiteLoader;
+use rw_site::Site;
 use rw_storage::{Storage, StorageEventKind, WatchHandle};
 
 /// Event sent to connected WebSocket clients when files change.
@@ -22,7 +22,7 @@ pub(crate) struct ReloadEvent {
 
 /// Manages file watching and broadcasting reload events.
 pub(crate) struct LiveReloadManager {
-    site_loader: Arc<SiteLoader>,
+    site: Arc<Site>,
     broadcaster: broadcast::Sender<ReloadEvent>,
     watch_handle: Option<WatchHandle>,
 }
@@ -32,15 +32,12 @@ impl LiveReloadManager {
     ///
     /// # Arguments
     ///
-    /// * `site_loader` - Site loader for cache invalidation and path resolution
+    /// * `site` - Site for cache invalidation and path resolution
     /// * `broadcaster` - Broadcast channel sender for reload events
     #[must_use]
-    pub(crate) fn new(
-        site_loader: Arc<SiteLoader>,
-        broadcaster: broadcast::Sender<ReloadEvent>,
-    ) -> Self {
+    pub(crate) fn new(site: Arc<Site>, broadcaster: broadcast::Sender<ReloadEvent>) -> Self {
         Self {
-            site_loader,
+            site,
             broadcaster,
             watch_handle: None,
         }
@@ -61,12 +58,12 @@ impl LiveReloadManager {
         self.watch_handle = Some(handle);
 
         // Spawn task to process storage events
-        let site_loader = Arc::clone(&self.site_loader);
+        let site = Arc::clone(&self.site);
         let broadcaster = self.broadcaster.clone();
 
         std::thread::spawn(move || {
             for event in rx.iter() {
-                Self::handle_storage_event(&event, &site_loader, &broadcaster);
+                Self::handle_storage_event(&event, &site, &broadcaster);
             }
         });
 
@@ -76,7 +73,7 @@ impl LiveReloadManager {
     /// Handle a storage event.
     fn handle_storage_event(
         event: &rw_storage::StorageEvent,
-        site_loader: &Arc<SiteLoader>,
+        site: &Arc<Site>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
         // Resolve doc path based on event kind.
@@ -84,21 +81,27 @@ impl LiveReloadManager {
         // so we can trust the event types directly.
         let doc_path = match event.kind {
             StorageEventKind::Modified => {
-                // Content change only - use cached site, no traversal needed.
-                let site = site_loader.get();
-                site.get_page_by_source(&event.path).map(|p| p.path.clone())
+                // Content change only - use cached site state, no traversal needed.
+                let state = site.state();
+                state
+                    .get_page_by_source(&event.path)
+                    .map(|p| p.path.clone())
             }
             StorageEventKind::Created => {
                 // New file - must reload to add it to site structure
-                site_loader.invalidate();
-                let site = site_loader.reload_if_needed();
-                site.get_page_by_source(&event.path).map(|p| p.path.clone())
+                site.invalidate();
+                let state = site.reload_if_needed();
+                state
+                    .get_page_by_source(&event.path)
+                    .map(|p| p.path.clone())
             }
             StorageEventKind::Removed => {
                 // File deleted - get path from cached site before invalidating
-                let site = site_loader.get();
-                let doc_path = site.get_page_by_source(&event.path).map(|p| p.path.clone());
-                site_loader.invalidate();
+                let state = site.state();
+                let doc_path = state
+                    .get_page_by_source(&event.path)
+                    .map(|p| p.path.clone());
+                site.invalidate();
                 doc_path
             }
         };

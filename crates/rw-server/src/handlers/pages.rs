@@ -109,14 +109,18 @@ fn get_page_impl(
     state: Arc<AppState>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
-    // Load site and get page to verify it exists
-    let site = state.site_loader.reload_if_needed();
-    let page = site
-        .get_page(&path)
-        .ok_or_else(|| ServerError::PageNotFound(path.clone()))?;
+    // Normalize path (add leading slash if needed)
+    let url_path = if path.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{path}")
+    };
 
-    // Render the page using relative source path
-    let result = state.renderer.render(&page.source_path, &path)?;
+    // Render the page using unified Site API
+    let result = state
+        .site
+        .render(&url_path)
+        .map_err(|_| ServerError::PageNotFound(path.clone()))?;
 
     // Log warnings in verbose mode
     if state.verbose && !result.warnings.is_empty() {
@@ -135,33 +139,23 @@ fn get_page_impl(
         return Ok(StatusCode::NOT_MODIFIED.into_response());
     }
 
-    // Get last modified time from storage
-    let source_mtime_f64 = state
-        .storage
-        .mtime(&page.source_path)
-        .map_err(|_| ServerError::PageNotFound(path.clone()))?;
-    let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(source_mtime_f64);
+    // Get last modified time from render result
+    let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
     let last_modified: DateTime<Utc> = source_mtime.into();
 
-    // Build response
-    let breadcrumbs = site
-        .get_breadcrumbs(&path)
-        .into_iter()
-        .map(BreadcrumbResponse::from)
-        .collect();
-
+    // Build response using render result fields directly
     let response = PageResponse {
         meta: PageMeta {
             title: result.title,
-            path: if path.is_empty() {
-                "/".to_string()
-            } else {
-                format!("/{path}")
-            },
-            source_file: page.source_path.display().to_string(),
+            path: url_path,
+            source_file: result.source_path.display().to_string(),
             last_modified: last_modified.to_rfc3339(),
         },
-        breadcrumbs,
+        breadcrumbs: result
+            .breadcrumbs
+            .into_iter()
+            .map(BreadcrumbResponse::from)
+            .collect(),
         toc: result.toc.iter().map(TocResponse::from).collect(),
         content: result.html,
     };

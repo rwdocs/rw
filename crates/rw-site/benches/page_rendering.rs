@@ -3,22 +3,22 @@
 #![allow(clippy::format_push_string)] // Benchmark setup code, performance not critical
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rw_site::{PageRenderer, PageRendererConfig};
+use rw_site::{Site, SiteConfig};
 use rw_storage::FsStorage;
 
-fn create_renderer(source_dir: PathBuf) -> PageRenderer {
+fn create_site(source_dir: PathBuf) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
-    let config = PageRendererConfig::default();
-    PageRenderer::new(storage, config)
+    let config = SiteConfig::default();
+    Site::new(storage, config)
 }
 
-fn create_renderer_with_config(source_dir: PathBuf, config: PageRendererConfig) -> PageRenderer {
+fn create_site_with_config(source_dir: PathBuf, config: SiteConfig) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
-    PageRenderer::new(storage, config)
+    Site::new(storage, config)
 }
 
 /// Generate markdown content with specified structure.
@@ -42,10 +42,10 @@ fn bench_render_simple(c: &mut Criterion) {
     let source_dir = temp_dir.path().to_path_buf();
     fs::write(source_dir.join("simple.md"), "# Hello\n\nSimple content.").unwrap();
 
-    let renderer = create_renderer(source_dir);
+    let site = create_site(source_dir);
 
     c.bench_function("render_simple_markdown", |b| {
-        b.iter(|| renderer.render(Path::new("simple.md"), "simple"));
+        b.iter(|| site.render("/simple"));
     });
 }
 
@@ -55,21 +55,21 @@ fn bench_render_with_toc(c: &mut Criterion) {
     let markdown = generate_markdown(10, 2);
     fs::write(source_dir.join("toc.md"), &markdown).unwrap();
 
-    let config = PageRendererConfig {
+    let config = SiteConfig {
         extract_title: true,
         ..Default::default()
     };
-    let renderer = create_renderer_with_config(source_dir, config);
+    let site = create_site_with_config(source_dir, config);
 
     c.bench_function("render_with_toc_10_headings", |b| {
-        b.iter(|| renderer.render(Path::new("toc.md"), "toc"));
+        b.iter(|| site.render("/toc"));
     });
 }
 
 fn bench_render_varying_sizes(c: &mut Criterion) {
     let temp_dir = tempfile::tempdir().unwrap();
     let source_dir = temp_dir.path().to_path_buf();
-    let renderer = create_renderer(source_dir.clone());
+    let renderer = create_site(source_dir.clone());
 
     let mut group = c.benchmark_group("render_by_size");
 
@@ -79,12 +79,14 @@ fn bench_render_varying_sizes(c: &mut Criterion) {
         fs::write(source_dir.join(&filename), &markdown).unwrap();
 
         let size = markdown.len();
-        let rel_path = PathBuf::from(&filename);
+        let url_path = format!("/doc_{headings}_{paragraphs}");
+        // Invalidate to pick up new file
+        renderer.invalidate();
         group.throughput(Throughput::Bytes(size as u64));
         group.bench_with_input(
             BenchmarkId::new("markdown", format!("{headings}h_{paragraphs}p")),
-            &rel_path,
-            |b, path| b.iter(|| renderer.render(path, "test")),
+            &url_path,
+            |b, path| b.iter(|| renderer.render(path)),
         );
     }
 
@@ -97,28 +99,28 @@ fn bench_render_cached_vs_uncached(c: &mut Criterion) {
     let cache_dir = temp_dir.path().join("cache");
     fs::write(source_dir.join("cached.md"), generate_markdown(10, 3)).unwrap();
 
-    // Uncached renderer
-    let uncached_renderer = create_renderer(source_dir.clone());
+    // Uncached site
+    let uncached_site = create_site(source_dir.clone());
 
-    // Cached renderer
-    let cached_config = PageRendererConfig {
+    // Cached site
+    let cached_config = SiteConfig {
         cache_dir: Some(cache_dir),
         version: "1.0.0".to_string(),
         ..Default::default()
     };
-    let cached_renderer = create_renderer_with_config(source_dir, cached_config);
+    let cached_site = create_site_with_config(source_dir, cached_config);
 
     let mut group = c.benchmark_group("caching");
 
     group.bench_function("render_uncached", |b| {
-        b.iter(|| uncached_renderer.render(Path::new("cached.md"), "test"));
+        b.iter(|| uncached_site.render("/cached"));
     });
 
     // Prime the cache
-    let _ = cached_renderer.render(Path::new("cached.md"), "cached");
+    let _ = cached_site.render("/cached");
 
     group.bench_function("render_cache_hit", |b| {
-        b.iter(|| cached_renderer.render(Path::new("cached.md"), "cached"));
+        b.iter(|| cached_site.render("/cached"));
     });
 
     group.finish();
@@ -143,10 +145,10 @@ This has ~~strikethrough~~ and **bold** and *italic*.
 ";
     fs::write(source_dir.join("gfm.md"), markdown).unwrap();
 
-    let renderer = create_renderer(source_dir);
+    let site = create_site(source_dir);
 
     c.bench_function("render_gfm_features", |b| {
-        b.iter(|| renderer.render(Path::new("gfm.md"), "gfm"));
+        b.iter(|| site.render("/gfm"));
     });
 }
 
@@ -191,10 +193,10 @@ console.log(fibonacci(10));
 "#;
     fs::write(source_dir.join("code.md"), markdown).unwrap();
 
-    let renderer = create_renderer(source_dir);
+    let site = create_site(source_dir);
 
     c.bench_function("render_code_blocks", |b| {
-        b.iter(|| renderer.render(Path::new("code.md"), "code"));
+        b.iter(|| site.render("/code"));
     });
 }
 
@@ -204,12 +206,12 @@ fn bench_render_large_document(c: &mut Criterion) {
     let markdown = generate_markdown(100, 5); // ~100KB document
     fs::write(source_dir.join("large.md"), &markdown).unwrap();
 
-    let renderer = create_renderer(source_dir);
+    let site = create_site(source_dir);
 
     let mut group = c.benchmark_group("large_document");
     group.throughput(Throughput::Bytes(markdown.len() as u64));
     group.bench_function("render", |b| {
-        b.iter(|| renderer.render(Path::new("large.md"), "large"));
+        b.iter(|| site.render("/large"));
     });
     group.finish();
 }
