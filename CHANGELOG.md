@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Page loading progress for slow updates
 
+### Security
+
+- Storage errors no longer expose full filesystem paths in API responses
+
 ### Fixed
 
 - Hash fragment navigation now properly scrolls to the target heading

@@ -259,7 +259,7 @@ impl Storage for FsStorage {
         Self::validate_path(path)?;
         let full_path = self.source_dir.join(path);
         fs::read_to_string(&full_path)
-            .map_err(|e| StorageError::io(e, Some(full_path.clone())).with_backend(BACKEND))
+            .map_err(|e| StorageError::io(e, Some(path.to_path_buf())).with_backend(BACKEND))
     }
 
     fn exists(&self, path: &Path) -> bool {
@@ -270,10 +270,10 @@ impl Storage for FsStorage {
         Self::validate_path(path)?;
         let full_path = self.source_dir.join(path);
         let metadata = fs::metadata(&full_path)
-            .map_err(|e| StorageError::io(e, Some(full_path.clone())).with_backend(BACKEND))?;
+            .map_err(|e| StorageError::io(e, Some(path.to_path_buf())).with_backend(BACKEND))?;
         let modified = metadata
             .modified()
-            .map_err(|e| StorageError::io(e, Some(full_path)).with_backend(BACKEND))?;
+            .map_err(|e| StorageError::io(e, Some(path.to_path_buf())).with_backend(BACKEND))?;
         Ok(modified
             .duration_since(UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64()))

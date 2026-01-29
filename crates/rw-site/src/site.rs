@@ -47,7 +47,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use rw_diagrams::{DiagramProcessor, FileCache};
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsPreprocessor, TabsProcessor, TocEntry};
-use rw_storage::{Storage, StorageErrorKind};
+use rw_storage::{Storage, StorageError, StorageErrorKind};
 
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
@@ -88,6 +88,17 @@ pub enum RenderError {
     /// I/O error reading source file.
     #[error("I/O error: {0}")]
     Io(#[source] std::io::Error),
+}
+
+impl From<StorageError> for RenderError {
+    fn from(e: StorageError) -> Self {
+        match e.kind() {
+            StorageErrorKind::NotFound => {
+                Self::FileNotFound(e.path().map(Path::to_path_buf).unwrap_or_default())
+            }
+            _ => Self::Io(std::io::Error::other(e.to_string())),
+        }
+    }
 }
 
 /// Configuration for [`Site`].
@@ -425,10 +436,7 @@ impl Site {
         source_path: &Path,
         base_path: &str,
     ) -> Result<RenderResult, RenderError> {
-        let markdown_text = self.storage.read(source_path).map_err(|e| match e.kind() {
-            StorageErrorKind::NotFound => RenderError::FileNotFound(source_path.to_path_buf()),
-            _ => RenderError::Io(std::io::Error::other(e.to_string())),
-        })?;
+        let markdown_text = self.storage.read(source_path)?;
 
         // Preprocess tabs directives
         let mut tabs_preprocessor = TabsPreprocessor::new();
