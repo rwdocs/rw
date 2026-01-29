@@ -122,8 +122,7 @@ fn default_read_file(path: &Path) -> io::Result<String> {
 ///     }
 /// }
 ///
-/// let config = DirectiveProcessorConfig::default();
-/// let mut processor = DirectiveProcessor::new(config)
+/// let mut processor = DirectiveProcessor::new()
 ///     .with_inline(KbdDirective);
 ///
 /// let output = processor.process("Press :kbd[Ctrl+C] to copy.");
@@ -140,10 +139,22 @@ pub struct DirectiveProcessor {
     warnings: Vec<String>,
 }
 
+impl Default for DirectiveProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DirectiveProcessor {
-    /// Create a new directive processor with the given configuration.
+    /// Create a new directive processor with default configuration.
     #[must_use]
-    pub fn new(config: DirectiveProcessorConfig) -> Self {
+    pub fn new() -> Self {
+        Self::with_config(DirectiveProcessorConfig::default())
+    }
+
+    /// Create a new directive processor with custom configuration.
+    #[must_use]
+    pub fn with_config(config: DirectiveProcessorConfig) -> Self {
         Self {
             config,
             inline_handlers: Vec::new(),
@@ -465,8 +476,7 @@ mod tests {
 
     #[test]
     fn test_inline_directive() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_inline(TestKbd);
+        let mut processor = DirectiveProcessor::new().with_inline(TestKbd);
 
         let output = processor.process("Press :kbd[Ctrl+C] to copy.");
         assert_eq!(output, "Press <kbd>Ctrl+C</kbd> to copy.");
@@ -474,8 +484,7 @@ mod tests {
 
     #[test]
     fn test_multiple_inline_directives() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_inline(TestKbd);
+        let mut processor = DirectiveProcessor::new().with_inline(TestKbd);
 
         let output = processor.process("Press :kbd[Ctrl+C] then :kbd[Ctrl+V].");
         assert_eq!(output, "Press <kbd>Ctrl+C</kbd> then <kbd>Ctrl+V</kbd>.");
@@ -483,8 +492,7 @@ mod tests {
 
     #[test]
     fn test_leaf_directive() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_leaf(TestYoutube);
+        let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
 
         let output = processor.process("::youtube[dQw4w9WgXcQ]");
         assert!(output.contains("dQw4w9WgXcQ"));
@@ -492,8 +500,7 @@ mod tests {
 
     #[test]
     fn test_container_directive() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TestNote);
+        let mut processor = DirectiveProcessor::new().with_container(TestNote);
 
         let output = processor.process(":::note[Important]\nContent here\n:::");
         assert!(output.contains(r#"<div class="note" data-title="Important">"#));
@@ -503,8 +510,7 @@ mod tests {
 
     #[test]
     fn test_unknown_directive_passthrough() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config);
+        let mut processor = DirectiveProcessor::new();
 
         let output = processor.process(":unknown[content]");
         assert_eq!(output, ":unknown[content]");
@@ -512,20 +518,19 @@ mod tests {
 
     #[test]
     fn test_unknown_container_passthrough() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config);
+        let mut processor = DirectiveProcessor::new();
 
         // Without brackets
         let output = processor.process(":::unknown\nContent\n:::");
         assert!(output.contains(":::unknown"));
 
         // With bracket syntax - should preserve content
-        let mut processor2 = DirectiveProcessor::new(DirectiveProcessorConfig::default());
+        let mut processor2 = DirectiveProcessor::new();
         let output2 = processor2.process(":::unknown[content]\nBody\n:::");
         assert!(output2.contains(":::unknown[content]"));
 
         // With bracket syntax and attributes - should preserve both
-        let mut processor3 = DirectiveProcessor::new(DirectiveProcessorConfig::default());
+        let mut processor3 = DirectiveProcessor::new();
         let output3 = processor3.process(":::unknown[Important]{#note-1 .highlight}\nBody\n:::");
         assert!(output3.contains(":::unknown[Important]"));
         assert!(output3.contains("#note-1"));
@@ -534,8 +539,7 @@ mod tests {
 
     #[test]
     fn test_code_fence_skipping() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_inline(TestKbd);
+        let mut processor = DirectiveProcessor::new().with_inline(TestKbd);
 
         let input = "```\n:kbd[inside fence]\n```\n:kbd[outside]";
         let output = processor.process(input);
@@ -546,8 +550,7 @@ mod tests {
 
     #[test]
     fn test_unclosed_container_warning() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TestNote);
+        let mut processor = DirectiveProcessor::new().with_container(TestNote);
 
         let _output = processor.process(":::note\nContent");
         let warnings = processor.warnings();
@@ -557,8 +560,7 @@ mod tests {
 
     #[test]
     fn test_stray_close_warning() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config);
+        let mut processor = DirectiveProcessor::new();
 
         let output = processor.process(":::");
         let warnings = processor.warnings();
@@ -597,9 +599,8 @@ mod tests {
             }
         }
 
-        let config = DirectiveProcessorConfig::default();
         let mut processor =
-            DirectiveProcessor::new(config).with_container(TestDetails { depth: 0 });
+            DirectiveProcessor::new().with_container(TestDetails { depth: 0 });
 
         let input = ":::details[Outer]\n:::details[Inner]\n:::\n:::";
         let output = processor.process(input);
@@ -641,7 +642,7 @@ mod tests {
         }
 
         let config = DirectiveProcessorConfig::new().with_max_include_depth(3);
-        let mut processor = DirectiveProcessor::new(config).with_leaf(TestInclude);
+        let mut processor = DirectiveProcessor::with_config(config).with_leaf(TestInclude);
 
         let _output = processor.process("::include[start]");
         let warnings = processor.warnings();

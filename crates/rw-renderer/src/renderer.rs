@@ -128,10 +128,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// ```
     /// use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective};
-    /// use rw_renderer::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+    /// use rw_renderer::directive::DirectiveProcessor;
     ///
-    /// let config = DirectiveProcessorConfig::default();
-    /// let processor = DirectiveProcessor::new(config)
+    /// let processor = DirectiveProcessor::new()
     ///     .with_container(TabsDirective::new());
     ///
     /// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
@@ -1062,10 +1061,9 @@ mod tests {
     #[test]
     fn test_with_directives_tabs() {
         use crate::TabsDirective;
-        use crate::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+        use crate::directive::DirectiveProcessor;
 
-        let config = DirectiveProcessorConfig::default();
-        let processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
 
@@ -1089,7 +1087,7 @@ Install with apt.
     fn test_with_directives_inline() {
         use crate::directive::{
             DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor,
-            DirectiveProcessorConfig, InlineDirective,
+            InlineDirective,
         };
 
         struct KbdDirective;
@@ -1104,8 +1102,7 @@ Install with apt.
             }
         }
 
-        let config = DirectiveProcessorConfig::default();
-        let processor = DirectiveProcessor::new(config).with_inline(KbdDirective);
+        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
 
@@ -1117,10 +1114,9 @@ Install with apt.
     #[test]
     fn test_directives_warnings_included() {
         use crate::TabsDirective;
-        use crate::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+        use crate::directive::DirectiveProcessor;
 
-        let config = DirectiveProcessorConfig::default();
-        let processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
 

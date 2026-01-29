@@ -25,8 +25,7 @@
 //! ```
 //! use std::path::Path;
 //! use rw_renderer::directive::{
-//!     DirectiveProcessor, DirectiveProcessorConfig, DirectiveArgs,
-//!     DirectiveContext, DirectiveOutput, InlineDirective,
+//!     DirectiveProcessor, DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective,
 //! };
 //!
 //! struct KbdDirective;
@@ -39,8 +38,7 @@
 //!     }
 //! }
 //!
-//! let config = DirectiveProcessorConfig::default();
-//! let mut processor = DirectiveProcessor::new(config)
+//! let mut processor = DirectiveProcessor::new()
 //!     .with_inline(KbdDirective);
 //!
 //! let output = processor.process("Press :kbd[Ctrl+C] to copy.");

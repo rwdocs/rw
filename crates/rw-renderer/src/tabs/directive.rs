@@ -36,11 +36,10 @@ pub struct TabsGroup {
 /// # Example
 ///
 /// ```
-/// use rw_renderer::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+/// use rw_renderer::directive::DirectiveProcessor;
 /// use rw_renderer::TabsDirective;
 ///
-/// let config = DirectiveProcessorConfig::default();
-/// let mut processor = DirectiveProcessor::new(config)
+/// let mut processor = DirectiveProcessor::new()
 ///     .with_container(TabsDirective::new());
 ///
 /// let input = r#":::tab[macOS]
@@ -231,12 +230,11 @@ fn strip_quotes(s: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+    use crate::directive::DirectiveProcessor;
 
     #[test]
     fn test_simple_tabs() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let input = r":::tab[macOS]
 Install with Homebrew.
@@ -257,8 +255,7 @@ Install with apt.
 
     #[test]
     fn test_post_process() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let input = r":::tab[macOS]
 Content A
@@ -286,8 +283,7 @@ Content B
 
     #[test]
     fn test_tabs_with_code_fence() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let input = r#":::tab[Example]
 
@@ -307,8 +303,7 @@ print("hello")
 
     #[test]
     fn test_tab_without_label() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let input = r":::tab
 Content
@@ -323,8 +318,7 @@ Content
 
     #[test]
     fn test_quoted_label() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let input = r#":::tab["macOS и Linux"]
 Content
@@ -339,8 +333,7 @@ Content
 
     #[test]
     fn test_multiple_tab_groups() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let input = r":::tab[A]
 Content A
@@ -360,8 +353,7 @@ Content B
 
     #[test]
     fn test_html_escaping() {
-        let config = DirectiveProcessorConfig::default();
-        let mut processor = DirectiveProcessor::new(config).with_container(TabsDirective::new());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let input = r":::tab[<script>]
 Content

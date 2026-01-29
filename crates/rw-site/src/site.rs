@@ -46,7 +46,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use rw_diagrams::{DiagramProcessor, FileCache};
-use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsPreprocessor, TabsProcessor, TocEntry};
+use rw_renderer::directive::DirectiveProcessor;
+use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry};
 use rw_storage::{Storage, StorageError, StorageErrorKind};
 
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
@@ -438,26 +439,12 @@ impl Site {
     ) -> Result<RenderResult, RenderError> {
         let markdown_text = self.storage.read(source_path)?;
 
-        // Preprocess tabs directives
-        let mut tabs_preprocessor = TabsPreprocessor::new();
-        let processed_markdown = tabs_preprocessor.process(&markdown_text);
-        let tabs_warnings = tabs_preprocessor.warnings().to_vec();
-        let tabs_groups = tabs_preprocessor.into_groups();
-
         let mut renderer = self.create_renderer(base_path);
         if let Some(processor) = self.create_diagram_processor() {
             renderer = renderer.with_processor(processor);
         }
 
-        let mut result = renderer.render_markdown(&processed_markdown);
-
-        // Post-process tabs (not a CodeBlockProcessor - tabs are container directives)
-        if !tabs_groups.is_empty() {
-            let mut tabs_processor = TabsProcessor::new(tabs_groups);
-            tabs_processor.post_process(&mut result.html);
-            result.warnings.extend(tabs_processor.warnings().to_vec());
-        }
-        result.warnings.extend(tabs_warnings);
+        let result = renderer.render_markdown(&markdown_text);
 
         Ok(RenderResult {
             html: result.html,
@@ -469,9 +456,12 @@ impl Site {
 
     /// Create a renderer with common configuration.
     fn create_renderer(&self, base_path: &str) -> MarkdownRenderer<HtmlBackend> {
+        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_gfm(true)
-            .with_base_path(base_path);
+            .with_base_path(base_path)
+            .with_directives(directives);
 
         if self.extract_title {
             renderer = renderer.with_title_extraction();

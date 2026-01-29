@@ -25,11 +25,10 @@
 //! Use [`TabsDirective`] with [`DirectiveProcessor`](crate::directive::DirectiveProcessor):
 //!
 //! ```
-//! use rw_renderer::directive::{DirectiveProcessor, DirectiveProcessorConfig};
+//! use rw_renderer::directive::DirectiveProcessor;
 //! use rw_renderer::TabsDirective;
 //!
-//! let config = DirectiveProcessorConfig::default();
-//! let mut processor = DirectiveProcessor::new(config)
+//! let mut processor = DirectiveProcessor::new()
 //!     .with_container(TabsDirective::new());
 //!
 //! let input = r#":::tab[macOS]
