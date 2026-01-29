@@ -76,6 +76,7 @@ describe("goto", () => {
 describe("initRouter", () => {
   let popstateHandler: ((e: PopStateEvent) => void) | null = null;
   let clickHandler: ((e: MouseEvent) => void) | null = null;
+  let cleanup: (() => void) | null = null;
 
   beforeEach(() => {
     Object.defineProperty(window, "location", {
@@ -93,13 +94,15 @@ describe("initRouter", () => {
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
     vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 
-    initRouter();
+    cleanup = initRouter();
   });
 
   afterEach(() => {
+    cleanup?.();
     vi.restoreAllMocks();
     popstateHandler = null;
     clickHandler = null;
+    cleanup = null;
   });
 
   it("registers popstate listener", () => {
