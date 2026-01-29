@@ -226,8 +226,7 @@ impl Site {
 
     /// Get page by source file path.
     ///
-    /// Returns the page for a given source file path without reloading.
-    /// Uses the current cached state.
+    /// Reloads site if needed and returns the page for a given source path.
     ///
     /// # Arguments
     ///
@@ -238,7 +237,7 @@ impl Site {
     /// Panics if internal locks are poisoned.
     #[must_use]
     pub fn get_page_by_source(&self, source_path: &Path) -> Option<Page> {
-        self.state().get_page_by_source(source_path).cloned()
+        self.reload_if_needed().get_page_by_source(source_path).cloned()
     }
 
     /// Get page by URL path.
