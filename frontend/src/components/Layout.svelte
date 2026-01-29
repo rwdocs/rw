@@ -48,7 +48,7 @@
   </button>
   <a href="/" class="ml-3">
     <span class="text-lg font-semibold uppercase"
-      ><span class="text-gray-900">Doc</span><span class="text-gray-400">stage</span></span
+      ><span class="text-gray-900">R</span><span class="text-gray-400">W</span></span
     >
   </a>
 </header>
@@ -61,10 +61,10 @@
   <aside
     class="w-[280px] flex-shrink-0 border-r border-gray-200 hidden md:block h-screen sticky top-0 overflow-y-auto"
   >
-    <div class="p-4">
-      <a href="/" class="block mb-5">
+    <div class="pt-6 px-4 pb-4">
+      <a href="/" class="block mb-5 pl-[6px]">
         <span class="text-xl font-semibold uppercase"
-          ><span class="text-gray-900">Doc</span><span class="text-gray-400">stage</span></span
+          ><span class="text-gray-900">R</span><span class="text-gray-400">W</span></span
         >
       </a>
       {#if $navigation.error}
