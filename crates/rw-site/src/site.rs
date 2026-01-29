@@ -260,7 +260,7 @@ impl Site {
     ///
     /// # Arguments
     ///
-    /// * `path` - URL path (e.g., "/guide" or "guide")
+    /// * `path` - URL path without leading slash (e.g., "guide", "domain/page", "" for root)
     ///
     /// # Panics
     ///
@@ -277,7 +277,7 @@ impl Site {
     ///
     /// # Arguments
     ///
-    /// * `path` - URL path (e.g., "/guide/setup")
+    /// * `path` - URL path without leading slash (e.g., "guide/setup", "" for root)
     ///
     /// # Panics
     ///
@@ -351,7 +351,7 @@ impl Site {
     ///
     /// # Arguments
     ///
-    /// * `path` - URL path (e.g., "/guide" or "guide")
+    /// * `path` - URL path without leading slash (e.g., "guide", "domain/page", "" for root)
     ///
     /// # Returns
     ///
@@ -380,11 +380,8 @@ impl Site {
         // Get breadcrumbs
         let breadcrumbs = state.get_breadcrumbs(path);
 
-        // Normalize path for cache key (strip leading slash)
-        let cache_key = path.trim_start_matches('/');
-
         // Check page cache
-        if let Some(cached) = self.page_cache.get(cache_key, source_mtime) {
+        if let Some(cached) = self.page_cache.get(path, source_mtime) {
             return Ok(PageRenderResult {
                 html: cached.html,
                 title: cached.meta.title,
@@ -399,13 +396,11 @@ impl Site {
 
         // Render the page
         let markdown_text = self.storage.read(&page.source_path)?;
-        let result = self
-            .create_renderer(cache_key)
-            .render_markdown(&markdown_text);
+        let result = self.create_renderer(path).render_markdown(&markdown_text);
 
         // Store in cache
         self.page_cache.set(
-            cache_key,
+            path,
             &result.html,
             result.title.as_deref(),
             source_mtime,
@@ -428,10 +423,9 @@ impl Site {
     ///
     /// # Arguments
     ///
-    /// * `path` - Document path to invalidate
+    /// * `path` - Document path without leading slash (e.g., "guide", "" for root)
     pub fn invalidate_page(&self, path: &str) {
-        let cache_key = path.trim_start_matches('/');
-        self.page_cache.invalidate(cache_key);
+        self.page_cache.invalidate(path);
     }
 
     /// Create a renderer with common configuration.
@@ -522,19 +516,19 @@ impl Site {
         builder.build()
     }
 
-    /// Convert source path to URL path.
+    /// Convert source path to URL path (without leading slash).
     ///
     /// Examples:
-    /// - `"index.md"` -> `"/"`
-    /// - `"guide.md"` -> `"/guide"`
-    /// - `"domain/index.md"` -> `"/domain"`
-    /// - `"domain/setup.md"` -> `"/domain/setup"`
+    /// - `"index.md"` -> `""`
+    /// - `"guide.md"` -> `"guide"`
+    /// - `"domain/index.md"` -> `"domain"`
+    /// - `"domain/setup.md"` -> `"domain/setup"`
     fn source_path_to_url(source_path: &Path) -> String {
         let path_str = source_path.to_string_lossy();
 
         // Handle root index.md
         if path_str == "index.md" {
-            return "/".to_string();
+            return String::new();
         }
 
         // Remove .md extension
@@ -542,13 +536,13 @@ impl Site {
 
         // Handle directory index files
         if let Some(without_index) = without_ext.strip_suffix("/index") {
-            return format!("/{without_index}");
+            return without_index.to_string();
         }
         if without_ext == "index" {
-            return "/".to_string();
+            return String::new();
         }
 
-        format!("/{without_ext}")
+        without_ext.to_string()
     }
 
     /// Find parent page index for a document.
@@ -683,8 +677,8 @@ mod tests {
         let state = site.reload_if_needed();
 
         assert_eq!(state.get_root_pages().len(), 2);
-        assert!(state.get_page("/guide").is_some());
-        assert!(state.get_page("/api").is_some());
+        assert!(state.get_page("guide").is_some());
+        assert!(state.get_page("api").is_some());
     }
 
     #[test]
@@ -702,11 +696,11 @@ mod tests {
 
         let state = site.reload_if_needed();
 
-        let page = state.get_page("/");
+        let page = state.get_page("");
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.title, "Welcome");
-        assert_eq!(page.path, "/");
+        assert_eq!(page.path, "");
         assert_eq!(page.source_path, PathBuf::from("index.md"));
     }
 
@@ -723,13 +717,13 @@ mod tests {
 
         let state = site.reload_if_needed();
 
-        let domain = state.get_page("/domain-a");
+        let domain = state.get_page("domain-a");
         assert!(domain.is_some());
         let domain = domain.unwrap();
         assert_eq!(domain.title, "Domain A");
         assert_eq!(domain.source_path, PathBuf::from("domain-a/index.md"));
 
-        let children = state.get_children("/domain-a");
+        let children = state.get_children("domain-a");
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].title, "Setup Guide");
         assert_eq!(children[0].source_path, PathBuf::from("domain-a/guide.md"));
@@ -746,7 +740,7 @@ mod tests {
 
         let state = site.reload_if_needed();
 
-        let page = state.get_page("/guide");
+        let page = state.get_page("guide");
         assert!(page.is_some());
         assert_eq!(page.unwrap().title, "My Custom Title");
     }
@@ -766,7 +760,7 @@ mod tests {
 
         let state = site.reload_if_needed();
 
-        let page = state.get_page("/setup-guide");
+        let page = state.get_page("setup-guide");
         assert!(page.is_some());
         assert_eq!(page.unwrap().title, "Setup Guide");
     }
@@ -786,11 +780,11 @@ mod tests {
 
         let state = site.reload_if_needed();
 
-        let page = state.get_page("/руководство");
+        let page = state.get_page("руководство");
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.title, "Руководство");
-        assert_eq!(page.path, "/руководство");
+        assert_eq!(page.path, "руководство");
         assert_eq!(page.source_path, PathBuf::from("руководство.md"));
     }
 
@@ -806,8 +800,8 @@ mod tests {
 
         let state = site.reload_if_needed();
 
-        assert!(state.get_page("/.hidden").is_none());
-        assert!(state.get_page("/visible").is_some());
+        assert!(state.get_page(".hidden").is_none());
+        assert!(state.get_page("visible").is_some());
     }
 
     #[test]
@@ -822,8 +816,8 @@ mod tests {
 
         let state = site.reload_if_needed();
 
-        assert!(state.get_page("/_partial").is_none());
-        assert!(state.get_page("/main").is_some());
+        assert!(state.get_page("_partial").is_none());
+        assert!(state.get_page("main").is_some());
     }
 
     #[test]
@@ -841,7 +835,7 @@ mod tests {
         // Child should be at root level (promoted)
         let roots = state.get_root_pages();
         assert_eq!(roots.len(), 1);
-        assert_eq!(roots[0].path, "/no-index/child");
+        assert_eq!(roots[0].path, "no-index/child");
         assert_eq!(roots[0].source_path, PathBuf::from("no-index/child.md"));
     }
 
@@ -889,17 +883,17 @@ mod tests {
 
         let site = create_site(source_dir.clone());
 
-        // First reload - should NOT have /new
+        // First reload - should NOT have "new"
         let state1 = site.reload_if_needed();
-        assert!(state1.get_page("/new").is_none());
+        assert!(state1.get_page("new").is_none());
 
         // Add new file and invalidate
         fs::write(source_dir.join("new.md"), "# New").unwrap();
         site.invalidate();
 
-        // Second reload - should have /new now
+        // Second reload - should have "new" now
         let state2 = site.reload_if_needed();
-        assert!(state2.get_page("/new").is_some());
+        assert!(state2.get_page("new").is_some());
 
         // Should be a different Arc (reloaded)
         assert!(!Arc::ptr_eq(&state1, &state2));
@@ -922,7 +916,7 @@ mod tests {
                 let site = Arc::clone(&site);
                 thread::spawn(move || {
                     let state = site.reload_if_needed();
-                    assert!(state.get_page("/guide").is_some());
+                    assert!(state.get_page("guide").is_some());
                 })
             })
             .collect();
@@ -956,7 +950,7 @@ mod tests {
                     } else {
                         let state = site.reload_if_needed();
                         // Site should always be valid
-                        assert!(state.get_page("/guide").is_some());
+                        assert!(state.get_page("guide").is_some());
                     }
                 })
             })
@@ -968,7 +962,7 @@ mod tests {
 
         // Final state should be valid
         let state = site.reload_if_needed();
-        assert!(state.get_page("/guide").is_some());
+        assert!(state.get_page("guide").is_some());
     }
 
     #[test]
@@ -982,12 +976,12 @@ mod tests {
 
         // First load
         let state1 = site.reload_if_needed();
-        assert_eq!(state1.get_page("/guide").unwrap().title, "Original Title");
+        assert_eq!(state1.get_page("guide").unwrap().title, "Original Title");
 
         // Invalidate and reload without changing file - should use cached title
         site.invalidate();
         let state2 = site.reload_if_needed();
-        assert_eq!(state2.get_page("/guide").unwrap().title, "Original Title");
+        assert_eq!(state2.get_page("guide").unwrap().title, "Original Title");
     }
 
     #[test]
@@ -1001,7 +995,7 @@ mod tests {
 
         // First load
         let state1 = site.reload_if_needed();
-        assert_eq!(state1.get_page("/guide").unwrap().title, "Original Title");
+        assert_eq!(state1.get_page("guide").unwrap().title, "Original Title");
 
         // Small delay to ensure mtime changes
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -1012,22 +1006,22 @@ mod tests {
 
         // Reload should see new title
         let state2 = site.reload_if_needed();
-        assert_eq!(state2.get_page("/guide").unwrap().title, "Updated Title");
+        assert_eq!(state2.get_page("guide").unwrap().title, "Updated Title");
     }
 
     #[test]
     fn test_source_path_to_url() {
-        assert_eq!(Site::source_path_to_url(Path::new("index.md")), "/");
-        assert_eq!(Site::source_path_to_url(Path::new("guide.md")), "/guide");
+        assert_eq!(Site::source_path_to_url(Path::new("index.md")), "");
+        assert_eq!(Site::source_path_to_url(Path::new("guide.md")), "guide");
         assert_eq!(
             Site::source_path_to_url(Path::new("domain/index.md")),
-            "/domain"
+            "domain"
         );
         assert_eq!(
             Site::source_path_to_url(Path::new("domain/setup.md")),
-            "/domain/setup"
+            "domain/setup"
         );
-        assert_eq!(Site::source_path_to_url(Path::new("a/b/c.md")), "/a/b/c");
+        assert_eq!(Site::source_path_to_url(Path::new("a/b/c.md")), "a/b/c");
     }
 
     #[test]
@@ -1045,35 +1039,35 @@ mod tests {
         let state = site.reload_if_needed();
 
         // Check root
-        let root = state.get_page("/").unwrap();
+        let root = state.get_page("").unwrap();
         assert_eq!(root.title, "Home");
 
         // Check level 1
-        let level1 = state.get_page("/level1").unwrap();
+        let level1 = state.get_page("level1").unwrap();
         assert_eq!(level1.title, "Level 1");
 
         // Check level 1 is child of root
-        let root_children = state.get_children("/");
-        assert!(root_children.iter().any(|c| c.path == "/level1"));
+        let root_children = state.get_children("");
+        assert!(root_children.iter().any(|c| c.path == "level1"));
 
         // Check level 2
-        let level2 = state.get_page("/level1/level2").unwrap();
+        let level2 = state.get_page("level1/level2").unwrap();
         assert_eq!(level2.title, "Level 2");
 
         // Check level 2 is child of level 1
-        let level1_children = state.get_children("/level1");
-        assert!(level1_children.iter().any(|c| c.path == "/level1/level2"));
+        let level1_children = state.get_children("level1");
+        assert!(level1_children.iter().any(|c| c.path == "level1/level2"));
 
         // Check deep page
-        let deep = state.get_page("/level1/level2/page").unwrap();
+        let deep = state.get_page("level1/level2/page").unwrap();
         assert_eq!(deep.title, "Deep Page");
 
         // Check deep page is child of level 2
-        let level2_children = state.get_children("/level1/level2");
+        let level2_children = state.get_children("level1/level2");
         assert!(
             level2_children
                 .iter()
-                .any(|c| c.path == "/level1/level2/page")
+                .any(|c| c.path == "level1/level2/page")
         );
     }
 
@@ -1095,7 +1089,7 @@ mod tests {
         };
         let site = Site::new(storage, config);
 
-        let result = site.render("/test").unwrap();
+        let result = site.render("test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
         assert_eq!(result.title, Some("Hello".to_string()));
         assert!(!result.from_cache);
@@ -1111,7 +1105,7 @@ mod tests {
 
         let site = create_site(source_dir);
 
-        let result = site.render("/nonexistent");
+        let result = site.render("nonexistent");
         assert!(matches!(result, Err(RenderError::PageNotFound(_))));
     }
 
@@ -1133,12 +1127,12 @@ mod tests {
         let site = Site::new(storage, config);
 
         // First render - cache miss
-        let result1 = site.render("/test").unwrap();
+        let result1 = site.render("test").unwrap();
         assert!(!result1.from_cache);
         assert_eq!(result1.title, Some("Cached".to_string()));
 
         // Second render - cache hit
-        let result2 = site.render("/test").unwrap();
+        let result2 = site.render("test").unwrap();
         assert!(result2.from_cache);
         assert_eq!(result2.title, Some("Cached".to_string()));
         assert_eq!(result1.html, result2.html);
@@ -1156,13 +1150,13 @@ mod tests {
 
         let site = create_site(source_dir);
 
-        let result = site.render("/domain/page").unwrap();
+        let result = site.render("domain/page").unwrap();
 
         assert_eq!(result.breadcrumbs.len(), 2);
         assert_eq!(result.breadcrumbs[0].title, "Home");
-        assert_eq!(result.breadcrumbs[0].path, "/");
+        assert_eq!(result.breadcrumbs[0].path, "");
         assert_eq!(result.breadcrumbs[1].title, "Domain");
-        assert_eq!(result.breadcrumbs[1].path, "/domain");
+        assert_eq!(result.breadcrumbs[1].path, "domain");
     }
 
     #[test]
@@ -1178,7 +1172,7 @@ mod tests {
 
         let site = create_site(source_dir);
 
-        let result = site.render("/test").unwrap();
+        let result = site.render("test").unwrap();
         assert_eq!(result.toc.len(), 2);
         assert_eq!(result.toc[0].title, "Section 1");
         assert_eq!(result.toc[0].level, 2);

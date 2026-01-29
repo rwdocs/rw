@@ -17,6 +17,7 @@ use rw_site::BreadcrumbItem;
 use serde::Serialize;
 
 use crate::error::ServerError;
+use crate::handlers::to_url_path;
 use crate::state::AppState;
 
 /// Response for GET /api/pages/{path}.
@@ -59,7 +60,7 @@ impl From<BreadcrumbItem> for BreadcrumbResponse {
     fn from(item: BreadcrumbItem) -> Self {
         Self {
             title: item.title,
-            path: item.path,
+            path: to_url_path(&item.path),
         }
     }
 }
@@ -109,17 +110,10 @@ fn get_page_impl(
     state: Arc<AppState>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ServerError> {
-    // Normalize path (add leading slash if needed)
-    let url_path = if path.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{path}")
-    };
-
-    // Render the page using unified Site API
+    // Render the page using unified Site API (path is already without leading slash)
     let result = state
         .site
-        .render(&url_path)
+        .render(&path)
         .map_err(|_| ServerError::PageNotFound(path.clone()))?;
 
     // Log warnings in verbose mode
@@ -144,10 +138,11 @@ fn get_page_impl(
     let last_modified: DateTime<Utc> = source_mtime.into();
 
     // Build response using render result fields directly
+    // Add leading slash to path for JSON response (frontend expects URLs with leading slash)
     let response = PageResponse {
         meta: PageMeta {
             title: result.title,
-            path: url_path,
+            path: to_url_path(&path),
             source_file: result.source_path.display().to_string(),
             last_modified: last_modified.to_rfc3339(),
         },

@@ -35,7 +35,7 @@ pub struct NavItem {
 pub struct Page {
     /// Page title (from H1 heading or filename).
     pub title: String,
-    /// URL path (e.g., "/guide").
+    /// URL path without leading slash (e.g., "guide", "domain/page", "" for root).
     pub path: String,
     /// Relative path to source file (e.g., "guide.md").
     pub source_path: PathBuf,
@@ -105,31 +105,29 @@ impl SiteState {
     ///
     /// # Arguments
     ///
-    /// * `path` - URL path (e.g., "/guide" or "guide")
+    /// * `path` - URL path without leading slash (e.g., "guide", "domain/page", "" for root)
     ///
     /// # Returns
     ///
     /// Page reference if found, `None` otherwise.
     #[must_use]
     pub fn get_page(&self, path: &str) -> Option<&Page> {
-        let normalized = Self::normalize_path(path);
-        self.path_index.get(&normalized).map(|&i| &self.pages[i])
+        self.path_index.get(path).map(|&i| &self.pages[i])
     }
 
     /// Get children of a page.
     ///
     /// # Arguments
     ///
-    /// * `path` - URL path of the parent page
+    /// * `path` - URL path without leading slash (e.g., "guide", "" for root)
     ///
     /// # Returns
     ///
     /// Vector of child page references, empty if page not found or has no children.
     #[must_use]
     pub(crate) fn get_children(&self, path: &str) -> Vec<&Page> {
-        let normalized = Self::normalize_path(path);
         self.path_index
-            .get(&normalized)
+            .get(path)
             .map(|&i| self.children[i].iter().map(|&j| &self.pages[j]).collect())
             .unwrap_or_default()
     }
@@ -146,23 +144,23 @@ impl SiteState {
     ///
     /// # Arguments
     ///
-    /// * `path` - URL path (e.g., "/guide/setup")
+    /// * `path` - URL path without leading slash (e.g., "guide/setup", "" for root)
     ///
     /// # Returns
     ///
     /// Vector of breadcrumb items for ancestor navigation.
+    /// Paths in breadcrumbs are also without leading slash (empty string for root).
     #[must_use]
     pub fn get_breadcrumbs(&self, path: &str) -> Vec<BreadcrumbItem> {
         if path.is_empty() {
             return Vec::new();
         }
 
-        let normalized = Self::normalize_path(path);
-        let Some(&idx) = self.path_index.get(&normalized) else {
+        let Some(&idx) = self.path_index.get(path) else {
             // Unknown path - return minimal Home breadcrumb
             return vec![BreadcrumbItem {
                 title: "Home".to_string(),
-                path: "/".to_string(),
+                path: String::new(),
             }];
         };
 
@@ -175,12 +173,12 @@ impl SiteState {
         }
 
         // Reverse to root-first, exclude current page and root index.md
-        // (Home breadcrumb already represents "/" so root page would be duplicate)
+        // (Home breadcrumb already represents root so root page would be duplicate)
         ancestors.reverse();
 
         let mut breadcrumbs = vec![BreadcrumbItem {
             title: "Home".to_string(),
-            path: "/".to_string(),
+            path: String::new(),
         }];
 
         // Skip the last element (current page) and exclude root page (already represented by Home)
@@ -188,7 +186,7 @@ impl SiteState {
             ancestors
                 .iter()
                 .take(ancestors.len().saturating_sub(1))
-                .filter(|page| page.path != "/")
+                .filter(|page| !page.path.is_empty())
                 .map(|page| BreadcrumbItem {
                     title: page.title.clone(),
                     path: page.path.clone(),
@@ -246,15 +244,16 @@ impl SiteState {
 
     /// Build navigation tree from site structure.
     ///
-    /// The root page (path="/") is excluded from navigation as it serves
+    /// The root page (path="") is excluded from navigation as it serves
     /// as the home page content. Navigation shows only top-level sections.
     ///
     /// # Returns
     ///
     /// List of [`NavItem`] trees for navigation UI.
+    /// Paths in navigation items are without leading slash.
     #[must_use]
     pub fn navigation(&self) -> Vec<NavItem> {
-        if let Some(root_page) = self.get_page("/") {
+        if let Some(root_page) = self.get_page("") {
             // Root page exists - navigation shows its children (top-level sections)
             self.get_children(&root_page.path)
                 .into_iter()
@@ -282,11 +281,6 @@ impl SiteState {
             path: page.path.clone(),
             children,
         }
-    }
-
-    /// Normalize path to have leading slash.
-    fn normalize_path(path: &str) -> String {
-        format!("/{}", path.trim_start_matches('/'))
     }
 }
 
@@ -365,36 +359,7 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_string(),
-            "/guide".to_string(),
-            PathBuf::from("guide.md"),
-            None,
-        );
-        let site = builder.build();
-
-        let page = site.get_page("/guide");
-
-        assert!(page.is_some());
-        let page = page.unwrap();
-        assert_eq!(page.title, "Guide");
-        assert_eq!(page.path, "/guide");
-        assert_eq!(page.source_path, PathBuf::from("guide.md"));
-    }
-
-    #[test]
-    fn test_get_page_not_found_returns_none() {
-        let site = SiteStateBuilder::new().build();
-
-        let page = site.get_page("/nonexistent");
-
-        assert!(page.is_none());
-    }
-
-    #[test]
-    fn test_get_page_normalizes_path() {
-        let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "/guide".to_string(),
+            "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
         );
@@ -403,7 +368,19 @@ mod tests {
         let page = site.get_page("guide");
 
         assert!(page.is_some());
-        assert_eq!(page.unwrap().title, "Guide");
+        let page = page.unwrap();
+        assert_eq!(page.title, "Guide");
+        assert_eq!(page.path, "guide");
+        assert_eq!(page.source_path, PathBuf::from("guide.md"));
+    }
+
+    #[test]
+    fn test_get_page_not_found_returns_none() {
+        let site = SiteStateBuilder::new().build();
+
+        let page = site.get_page("nonexistent");
+
+        assert!(page.is_none());
     }
 
     #[test]
@@ -411,19 +388,19 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         let parent_idx = builder.add_page(
             "Parent".to_string(),
-            "/parent".to_string(),
+            "parent".to_string(),
             PathBuf::from("parent/index.md"),
             None,
         );
         builder.add_page(
             "Child".to_string(),
-            "/parent/child".to_string(),
+            "parent/child".to_string(),
             PathBuf::from("parent/child.md"),
             Some(parent_idx),
         );
         let site = builder.build();
 
-        let children = site.get_children("/parent");
+        let children = site.get_children("parent");
 
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].title, "Child");
@@ -433,7 +410,7 @@ mod tests {
     fn test_get_children_not_found_returns_empty() {
         let site = SiteStateBuilder::new().build();
 
-        let children = site.get_children("/nonexistent");
+        let children = site.get_children("nonexistent");
 
         assert!(children.is_empty());
     }
@@ -443,13 +420,13 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_string(),
-            "/guide".to_string(),
+            "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
         );
         let site = builder.build();
 
-        let children = site.get_children("/guide");
+        let children = site.get_children("guide");
 
         assert!(children.is_empty());
     }
@@ -468,17 +445,17 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_string(),
-            "/guide".to_string(),
+            "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
         );
         let site = builder.build();
 
-        let breadcrumbs = site.get_breadcrumbs("/guide");
+        let breadcrumbs = site.get_breadcrumbs("guide");
 
         assert_eq!(breadcrumbs.len(), 1);
         assert_eq!(breadcrumbs[0].title, "Home");
-        assert_eq!(breadcrumbs[0].path, "/");
+        assert_eq!(breadcrumbs[0].path, "");
     }
 
     #[test]
@@ -486,31 +463,31 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         let parent_idx = builder.add_page(
             "Parent".to_string(),
-            "/parent".to_string(),
+            "parent".to_string(),
             PathBuf::from("parent/index.md"),
             None,
         );
         builder.add_page(
             "Child".to_string(),
-            "/parent/child".to_string(),
+            "parent/child".to_string(),
             PathBuf::from("parent/child.md"),
             Some(parent_idx),
         );
         let site = builder.build();
 
-        let breadcrumbs = site.get_breadcrumbs("/parent/child");
+        let breadcrumbs = site.get_breadcrumbs("parent/child");
 
         assert_eq!(breadcrumbs.len(), 2);
         assert_eq!(breadcrumbs[0].title, "Home");
         assert_eq!(breadcrumbs[1].title, "Parent");
-        assert_eq!(breadcrumbs[1].path, "/parent");
+        assert_eq!(breadcrumbs[1].path, "parent");
     }
 
     #[test]
     fn test_get_breadcrumbs_not_found_returns_home() {
         let site = SiteStateBuilder::new().build();
 
-        let breadcrumbs = site.get_breadcrumbs("/nonexistent");
+        let breadcrumbs = site.get_breadcrumbs("nonexistent");
 
         assert_eq!(breadcrumbs.len(), 1);
         assert_eq!(breadcrumbs[0].title, "Home");
@@ -521,31 +498,31 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Welcome".to_string(),
-            "/".to_string(),
+            String::new(),
             PathBuf::from("index.md"),
             None,
         );
         let domain_idx = builder.add_page(
             "Domain".to_string(),
-            "/domain".to_string(),
+            "domain".to_string(),
             PathBuf::from("domain/index.md"),
             Some(root_idx),
         );
         builder.add_page(
             "Page".to_string(),
-            "/domain/page".to_string(),
+            "domain/page".to_string(),
             PathBuf::from("domain/page.md"),
             Some(domain_idx),
         );
         let site = builder.build();
 
-        let breadcrumbs = site.get_breadcrumbs("/domain/page");
+        let breadcrumbs = site.get_breadcrumbs("domain/page");
 
         assert_eq!(breadcrumbs.len(), 2);
         assert_eq!(breadcrumbs[0].title, "Home");
-        assert_eq!(breadcrumbs[0].path, "/");
+        assert_eq!(breadcrumbs[0].path, "");
         assert_eq!(breadcrumbs[1].title, "Domain");
-        assert_eq!(breadcrumbs[1].path, "/domain");
+        assert_eq!(breadcrumbs[1].path, "domain");
     }
 
     #[test]
@@ -553,13 +530,13 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "A".to_string(),
-            "/a".to_string(),
+            "a".to_string(),
             PathBuf::from("a.md"),
             None,
         );
         builder.add_page(
             "B".to_string(),
-            "/b".to_string(),
+            "b".to_string(),
             PathBuf::from("b.md"),
             None,
         );
@@ -577,7 +554,7 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_string(),
-            "/guide".to_string(),
+            "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
         );
@@ -587,7 +564,7 @@ mod tests {
 
         assert!(page.is_some());
         assert_eq!(page.unwrap().title, "Guide");
-        assert_eq!(page.unwrap().path, "/guide");
+        assert_eq!(page.unwrap().path, "guide");
     }
 
     #[test]
@@ -595,7 +572,7 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Deep".to_string(),
-            "/domain/page".to_string(),
+            "domain/page".to_string(),
             PathBuf::from("domain/page.md"),
             None,
         );
@@ -604,7 +581,7 @@ mod tests {
         let page = site.get_page_by_source(Path::new("domain/page.md"));
 
         assert!(page.is_some());
-        assert_eq!(page.unwrap().path, "/domain/page");
+        assert_eq!(page.unwrap().path, "domain/page");
     }
 
     #[test]
@@ -612,7 +589,7 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Section".to_string(),
-            "/section".to_string(),
+            "section".to_string(),
             PathBuf::from("section/index.md"),
             None,
         );
@@ -621,7 +598,7 @@ mod tests {
         let page = site.get_page_by_source(Path::new("section/index.md"));
 
         assert!(page.is_some());
-        assert_eq!(page.unwrap().path, "/section");
+        assert_eq!(page.unwrap().path, "section");
     }
 
     #[test]
@@ -641,7 +618,7 @@ mod tests {
 
         let idx = builder.add_page(
             "Guide".to_string(),
-            "/guide".to_string(),
+            "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
         );
@@ -655,13 +632,13 @@ mod tests {
 
         let idx1 = builder.add_page(
             "A".to_string(),
-            "/a".to_string(),
+            "a".to_string(),
             PathBuf::from("a.md"),
             None,
         );
         let idx2 = builder.add_page(
             "B".to_string(),
-            "/b".to_string(),
+            "b".to_string(),
             PathBuf::from("b.md"),
             None,
         );
@@ -675,22 +652,22 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         let parent_idx = builder.add_page(
             "Parent".to_string(),
-            "/parent".to_string(),
+            "parent".to_string(),
             PathBuf::from("parent/index.md"),
             None,
         );
         builder.add_page(
             "Child".to_string(),
-            "/parent/child".to_string(),
+            "parent/child".to_string(),
             PathBuf::from("parent/child.md"),
             Some(parent_idx),
         );
         let site = builder.build();
 
-        let children = site.get_children("/parent");
+        let children = site.get_children("parent");
 
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].path, "/parent/child");
+        assert_eq!(children[0].path, "parent/child");
     }
 
     #[test]
@@ -698,14 +675,14 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_string(),
-            "/guide".to_string(),
+            "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
         );
 
         let site = builder.build();
 
-        assert!(site.get_page("/guide").is_some());
+        assert!(site.get_page("guide").is_some());
     }
 
     // Page tests
@@ -714,12 +691,12 @@ mod tests {
     fn test_page_creation_stores_values() {
         let page = Page {
             title: "Guide".to_string(),
-            path: "/guide".to_string(),
+            path: "guide".to_string(),
             source_path: PathBuf::from("guide.md"),
         };
 
         assert_eq!(page.title, "Guide");
-        assert_eq!(page.path, "/guide");
+        assert_eq!(page.path, "guide");
         assert_eq!(page.source_path, PathBuf::from("guide.md"));
     }
 
@@ -729,11 +706,11 @@ mod tests {
     fn test_breadcrumb_item_creation_stores_values() {
         let item = BreadcrumbItem {
             title: "Home".to_string(),
-            path: "/".to_string(),
+            path: String::new(),
         };
 
         assert_eq!(item.title, "Home");
-        assert_eq!(item.path, "/");
+        assert_eq!(item.path, "");
     }
 
     // Navigation tests
@@ -752,13 +729,13 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_string(),
-            "/guide".to_string(),
+            "guide".to_string(),
             PathBuf::from("guide.md"),
             None,
         );
         builder.add_page(
             "API".to_string(),
-            "/api".to_string(),
+            "api".to_string(),
             PathBuf::from("api.md"),
             None,
         );
@@ -777,13 +754,13 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         let parent_idx = builder.add_page(
             "Domain A".to_string(),
-            "/domain-a".to_string(),
+            "domain-a".to_string(),
             PathBuf::from("domain-a/index.md"),
             None,
         );
         builder.add_page(
             "Setup Guide".to_string(),
-            "/domain-a/guide".to_string(),
+            "domain-a/guide".to_string(),
             PathBuf::from("domain-a/guide.md"),
             Some(parent_idx),
         );
@@ -794,10 +771,10 @@ mod tests {
         assert_eq!(nav.len(), 1);
         let domain = &nav[0];
         assert_eq!(domain.title, "Domain A");
-        assert_eq!(domain.path, "/domain-a");
+        assert_eq!(domain.path, "domain-a");
         assert_eq!(domain.children.len(), 1);
         assert_eq!(domain.children[0].title, "Setup Guide");
-        assert_eq!(domain.children[0].path, "/domain-a/guide");
+        assert_eq!(domain.children[0].path, "domain-a/guide");
     }
 
     #[test]
@@ -805,19 +782,19 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         let idx_a = builder.add_page(
             "A".to_string(),
-            "/a".to_string(),
+            "a".to_string(),
             PathBuf::from("a/index.md"),
             None,
         );
         let idx_b = builder.add_page(
             "B".to_string(),
-            "/a/b".to_string(),
+            "a/b".to_string(),
             PathBuf::from("a/b/index.md"),
             Some(idx_a),
         );
         builder.add_page(
             "C".to_string(),
-            "/a/b/c".to_string(),
+            "a/b/c".to_string(),
             PathBuf::from("a/b/c/index.md"),
             Some(idx_b),
         );
@@ -835,19 +812,19 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
-            "/".to_string(),
+            String::new(),
             PathBuf::from("index.md"),
             None,
         );
         builder.add_page(
             "Domains".to_string(),
-            "/domains".to_string(),
+            "domains".to_string(),
             PathBuf::from("domains/index.md"),
             Some(root_idx),
         );
         builder.add_page(
             "Usage".to_string(),
-            "/usage".to_string(),
+            "usage".to_string(),
             PathBuf::from("usage/index.md"),
             Some(root_idx),
         );
@@ -869,12 +846,12 @@ mod tests {
     fn test_nav_item_creation() {
         let item = NavItem {
             title: "Guide".to_string(),
-            path: "/guide".to_string(),
+            path: "guide".to_string(),
             children: Vec::new(),
         };
 
         assert_eq!(item.title, "Guide");
-        assert_eq!(item.path, "/guide");
+        assert_eq!(item.path, "guide");
         assert!(item.children.is_empty());
     }
 
@@ -882,12 +859,12 @@ mod tests {
     fn test_nav_item_with_children() {
         let child = NavItem {
             title: "Child".to_string(),
-            path: "/parent/child".to_string(),
+            path: "parent/child".to_string(),
             children: Vec::new(),
         };
         let item = NavItem {
             title: "Parent".to_string(),
-            path: "/parent".to_string(),
+            path: "parent".to_string(),
             children: vec![child],
         };
 
@@ -899,14 +876,14 @@ mod tests {
     fn test_nav_item_serialization_without_children() {
         let item = NavItem {
             title: "Guide".to_string(),
-            path: "/guide".to_string(),
+            path: "guide".to_string(),
             children: Vec::new(),
         };
 
         let json = serde_json::to_value(&item).unwrap();
 
         assert_eq!(json["title"], "Guide");
-        assert_eq!(json["path"], "/guide");
+        assert_eq!(json["path"], "guide");
         assert!(json.get("children").is_none()); // Skipped when empty
     }
 
@@ -914,21 +891,21 @@ mod tests {
     fn test_nav_item_serialization_with_children() {
         let child = NavItem {
             title: "Child".to_string(),
-            path: "/parent/child".to_string(),
+            path: "parent/child".to_string(),
             children: Vec::new(),
         };
         let item = NavItem {
             title: "Parent".to_string(),
-            path: "/parent".to_string(),
+            path: "parent".to_string(),
             children: vec![child],
         };
 
         let json = serde_json::to_value(&item).unwrap();
 
         assert_eq!(json["title"], "Parent");
-        assert_eq!(json["path"], "/parent");
+        assert_eq!(json["path"], "parent");
         assert!(json["children"].is_array());
         assert_eq!(json["children"][0]["title"], "Child");
-        assert_eq!(json["children"][0]["path"], "/parent/child");
+        assert_eq!(json["children"][0]["path"], "parent/child");
     }
 }

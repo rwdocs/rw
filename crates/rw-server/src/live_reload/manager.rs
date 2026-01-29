@@ -10,6 +10,8 @@ use tokio::sync::broadcast;
 use rw_site::Site;
 use rw_storage::{Storage, StorageEventKind, WatchHandle};
 
+use crate::handlers::to_url_path;
+
 /// Event sent to connected WebSocket clients when files change.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ReloadEvent {
@@ -101,10 +103,10 @@ impl LiveReloadManager {
             return;
         };
 
-        // Broadcast reload event
+        // Broadcast reload event with URL path (add leading slash for frontend)
         let reload_event = ReloadEvent {
             event_type: "reload".to_string(),
-            path: doc_path,
+            path: to_url_path(&doc_path),
         };
         let _ = broadcaster.send(reload_event);
     }
