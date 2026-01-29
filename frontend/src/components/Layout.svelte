@@ -8,6 +8,7 @@
   import TocSidebar from "./TocSidebar.svelte";
   import Breadcrumbs from "./Breadcrumbs.svelte";
   import MobileDrawer from "./MobileDrawer.svelte";
+  import LoadingBar from "./LoadingBar.svelte";
 
   interface Props {
     children: Snippet;
@@ -24,6 +25,8 @@
     }
   });
 </script>
+
+<LoadingBar loading={$page.loading} />
 
 <!-- Mobile Header -->
 <header
