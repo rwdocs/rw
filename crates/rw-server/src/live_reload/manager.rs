@@ -85,9 +85,8 @@ impl LiveReloadManager {
                 site.get_page_by_source(&event.path).map(|p| p.path)
             }
             StorageEventKind::Created => {
-                // New file - must reload to add it to site structure
+                // New file - invalidate so next access reloads site structure
                 site.invalidate();
-                site.reload();
                 site.get_page_by_source(&event.path).map(|p| p.path)
             }
             StorageEventKind::Removed => {
