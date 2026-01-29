@@ -81,6 +81,9 @@
     <div class="max-w-6xl mx-auto px-4 md:px-8 pt-6 pb-12">
       {#if $page.data}
         <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
+      {:else if $page.loading}
+        <!-- Reserve breadcrumb space during first load -->
+        <div class="h-6 mb-4"></div>
       {/if}
       <div class="flex">
         <!-- Main Content -->
@@ -88,12 +91,14 @@
           {@render children()}
         </main>
 
-        <!-- Table of Contents Sidebar -->
-        {#if $page.data && $page.data.toc.length > 0}
+        <!-- Table of Contents Sidebar - reserve space during loading for consistent skeleton layout -->
+        {#if $page.loading || ($page.data && $page.data.toc.length > 0)}
           <aside class="w-[240px] flex-shrink-0 hidden lg:block">
-            <div class="pl-8 sticky top-6">
-              <TocSidebar toc={$page.data.toc} />
-            </div>
+            {#if $page.data && $page.data.toc.length > 0}
+              <div class="pl-8 sticky top-6">
+                <TocSidebar toc={$page.data.toc} />
+              </div>
+            {/if}
           </aside>
         {/if}
       </div>
