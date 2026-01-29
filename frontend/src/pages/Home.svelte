@@ -11,7 +11,9 @@
     if (state.data) {
       const pageScope = state.data.meta.navigationScope;
       const currentScope = get(navigation).currentScope;
-      if (pageScope !== currentScope) {
+      // Only update navigation if we have scope information from the page.
+      // Skip if navigationScope is undefined (e.g., from cached response).
+      if (pageScope !== undefined && pageScope !== currentScope) {
         navigation.loadScope(pageScope);
       }
     }
