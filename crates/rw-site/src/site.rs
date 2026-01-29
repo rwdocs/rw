@@ -399,7 +399,9 @@ impl Site {
 
         // Render the page
         let markdown_text = self.storage.read(&page.source_path)?;
-        let result = self.create_renderer(cache_key).render_markdown(&markdown_text);
+        let result = self
+            .create_renderer(cache_key)
+            .render_markdown(&markdown_text);
 
         // Store in cache
         self.page_cache.set(

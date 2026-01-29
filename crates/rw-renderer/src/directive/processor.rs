@@ -599,8 +599,7 @@ mod tests {
             }
         }
 
-        let mut processor =
-            DirectiveProcessor::new().with_container(TestDetails { depth: 0 });
+        let mut processor = DirectiveProcessor::new().with_container(TestDetails { depth: 0 });
 
         let input = ":::details[Outer]\n:::details[Inner]\n:::\n:::";
         let output = processor.process(input);

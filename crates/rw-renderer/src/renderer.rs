@@ -1086,8 +1086,7 @@ Install with apt.
     #[test]
     fn test_with_directives_inline() {
         use crate::directive::{
-            DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor,
-            InlineDirective,
+            DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor, InlineDirective,
         };
 
         struct KbdDirective;
