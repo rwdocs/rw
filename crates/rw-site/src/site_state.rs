@@ -181,6 +181,29 @@ impl SiteState {
             .unwrap_or_default()
     }
 
+    /// Get children of a page that have markdown content in their subtree.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - URL path without leading slash (e.g., "guide", "" for root)
+    ///
+    /// # Returns
+    ///
+    /// Vector of child page references that have content, empty if page not found or has no children with content.
+    #[must_use]
+    fn get_children_with_content(&self, path: &str) -> Vec<&Page> {
+        self.path_index
+            .get(path)
+            .map(|&i| {
+                self.children[i]
+                    .iter()
+                    .filter(|&&j| self.has_content_in_subtree(j))
+                    .map(|&j| &self.pages[j])
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Build breadcrumbs for a given path.
     ///
     /// Returns breadcrumbs starting with "Home" for non-root pages,
@@ -251,6 +274,16 @@ impl SiteState {
         self.roots.iter().map(|&i| &self.pages[i]).collect()
     }
 
+    /// Get root-level pages that have markdown content in their subtree.
+    #[must_use]
+    fn get_root_pages_with_content(&self) -> Vec<&Page> {
+        self.roots
+            .iter()
+            .filter(|&&i| self.has_content_in_subtree(i))
+            .map(|&i| &self.pages[i])
+            .collect()
+    }
+
     /// Get page by source file path.
     ///
     /// # Arguments
@@ -307,6 +340,7 @@ impl SiteState {
     ///
     /// The root page (path="") is excluded from navigation as it serves
     /// as the home page content. Navigation shows only top-level sections.
+    /// Only includes pages that have markdown content in their subtree.
     ///
     /// # Returns
     ///
@@ -316,13 +350,13 @@ impl SiteState {
     pub fn navigation(&self) -> Vec<NavItem> {
         if let Some(root_page) = self.get_page("") {
             // Root page exists - navigation shows its children (top-level sections)
-            self.get_children(&root_page.path)
+            self.get_children_with_content(&root_page.path)
                 .into_iter()
                 .map(|page| self.build_nav_item(page))
                 .collect()
         } else {
             // No root page - navigation shows all root pages
-            self.get_root_pages()
+            self.get_root_pages_with_content()
                 .into_iter()
                 .map(|page| self.build_nav_item(page))
                 .collect()
@@ -330,9 +364,11 @@ impl SiteState {
     }
 
     /// Recursively build [`NavItem`] from page.
+    ///
+    /// Only includes children that have markdown content in their subtree.
     fn build_nav_item(&self, page: &Page) -> NavItem {
         let children = self
-            .get_children(&page.path)
+            .get_children_with_content(&page.path)
             .into_iter()
             .map(|child| self.build_nav_item(child))
             .collect();
@@ -363,12 +399,12 @@ impl SiteState {
         if scope_path.is_empty() {
             // Root scope: show children of root page with sections as leaves
             let items = if let Some(root_page) = self.get_page("") {
-                self.get_children(&root_page.path)
+                self.get_children_with_content(&root_page.path)
                     .into_iter()
                     .map(|page| self.build_nav_item_with_section_cutoff(page))
                     .collect()
             } else {
-                self.get_root_pages()
+                self.get_root_pages_with_content()
                     .into_iter()
                     .map(|page| self.build_nav_item_with_section_cutoff(page))
                     .collect()
@@ -388,7 +424,7 @@ impl SiteState {
 
             // Get children of this section
             let items = self
-                .get_children(scope_path)
+                .get_children_with_content(scope_path)
                 .into_iter()
                 .map(|page| self.build_nav_item_with_section_cutoff(page))
                 .collect();
@@ -441,6 +477,7 @@ impl SiteState {
     /// Build [`NavItem`] but stop recursion at section boundaries.
     ///
     /// Sections become leaf nodes - they don't include their children.
+    /// Only includes children that have markdown content in their subtree.
     fn build_nav_item_with_section_cutoff(&self, page: &Page) -> NavItem {
         let is_section = self.sections.contains_key(&page.path);
 
@@ -448,7 +485,7 @@ impl SiteState {
         let children = if is_section {
             Vec::new()
         } else {
-            self.get_children(&page.path)
+            self.get_children_with_content(&page.path)
                 .into_iter()
                 .map(|child| self.build_nav_item_with_section_cutoff(child))
                 .collect()
@@ -489,6 +526,22 @@ impl SiteState {
             current = parent.to_string();
         }
         None
+    }
+
+    /// Check if a page has markdown content in its subtree.
+    ///
+    /// A page has content if it has a `source_path` (is a real markdown file)
+    /// or any of its descendants have a `source_path`.
+    fn has_content_in_subtree(&self, idx: usize) -> bool {
+        // If this page has a source path, it has content
+        if self.pages[idx].source_path.is_some() {
+            return true;
+        }
+
+        // Check if any children have content
+        self.children[idx]
+            .iter()
+            .any(|&child_idx| self.has_content_in_subtree(child_idx))
     }
 }
 
@@ -1605,5 +1658,172 @@ mod tests {
         assert!(nav.items.is_empty());
         assert!(nav.scope.is_none());
         assert!(nav.parent_scope.is_none());
+    }
+
+    // Content filtering tests
+
+    #[test]
+    fn test_navigation_excludes_virtual_pages_without_content() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            Some(PathBuf::from("index.md")),
+            None,
+            None,
+        );
+        // Virtual page (no source_path) with no children
+        builder.add_page(
+            "Empty Section".to_string(),
+            "empty".to_string(),
+            None, // Virtual page
+            Some(root_idx),
+            None,
+        );
+        // Real page
+        builder.add_page(
+            "Guide".to_string(),
+            "guide".to_string(),
+            Some(PathBuf::from("guide.md")),
+            Some(root_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.navigation();
+
+        // Only the real page should be in navigation
+        assert_eq!(nav.len(), 1);
+        assert_eq!(nav[0].title, "Guide");
+    }
+
+    #[test]
+    fn test_navigation_includes_virtual_pages_with_content_in_subtree() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            Some(PathBuf::from("index.md")),
+            None,
+            None,
+        );
+        // Virtual page (no source_path) but has a child with content
+        let section_idx = builder.add_page(
+            "Section".to_string(),
+            "section".to_string(),
+            None, // Virtual page
+            Some(root_idx),
+            None,
+        );
+        // Real child page
+        builder.add_page(
+            "Child".to_string(),
+            "section/child".to_string(),
+            Some(PathBuf::from("section/child.md")),
+            Some(section_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.navigation();
+
+        // Section should be included because it has a child with content
+        assert_eq!(nav.len(), 1);
+        assert_eq!(nav[0].title, "Section");
+        assert_eq!(nav[0].children.len(), 1);
+        assert_eq!(nav[0].children[0].title, "Child");
+    }
+
+    #[test]
+    fn test_navigation_filters_nested_virtual_pages_without_content() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            Some(PathBuf::from("index.md")),
+            None,
+            None,
+        );
+        // Virtual page with content
+        let section_idx = builder.add_page(
+            "Section".to_string(),
+            "section".to_string(),
+            None,
+            Some(root_idx),
+            None,
+        );
+        // Empty virtual child (should be filtered)
+        builder.add_page(
+            "Empty Child".to_string(),
+            "section/empty".to_string(),
+            None,
+            Some(section_idx),
+            None,
+        );
+        // Real child page
+        builder.add_page(
+            "Real Child".to_string(),
+            "section/real".to_string(),
+            Some(PathBuf::from("section/real.md")),
+            Some(section_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.navigation();
+
+        // Section should be included, but only the real child
+        assert_eq!(nav.len(), 1);
+        assert_eq!(nav[0].title, "Section");
+        assert_eq!(nav[0].children.len(), 1);
+        assert_eq!(nav[0].children[0].title, "Real Child");
+    }
+
+    #[test]
+    fn test_scoped_navigation_filters_content() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            Some(PathBuf::from("index.md")),
+            None,
+            None,
+        );
+        // Section with type
+        let billing_idx = builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            Some(PathBuf::from("billing/index.md")),
+            Some(root_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        // Empty virtual child (should be filtered)
+        builder.add_page(
+            "Empty".to_string(),
+            "billing/empty".to_string(),
+            None,
+            Some(billing_idx),
+            None,
+        );
+        // Real child
+        builder.add_page(
+            "Payments".to_string(),
+            "billing/payments".to_string(),
+            Some(PathBuf::from("billing/payments.md")),
+            Some(billing_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.scoped_navigation("billing");
+
+        // Only real child should be in scoped navigation
+        assert_eq!(nav.items.len(), 1);
+        assert_eq!(nav.items[0].title, "Payments");
     }
 }
