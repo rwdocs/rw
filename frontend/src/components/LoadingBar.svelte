@@ -1,37 +1,32 @@
 <script lang="ts">
   import { LOADING_SHOW_DELAY } from "../lib/constants";
 
+  const COMPLETION_DURATION = 300;
+
   interface Props {
     loading: boolean;
   }
 
   let { loading }: Props = $props();
 
-  // Track animation state: 'idle' | 'running' | 'completing'
-  let animationState = $state<"idle" | "running" | "completing">("idle");
+  type AnimationState = "idle" | "running" | "completing";
+  let animationState = $state<AnimationState>("idle");
 
   $effect(() => {
     if (loading) {
-      // Only show progress bar if loading takes longer than SHOW_DELAY
+      // Only show progress bar if loading takes longer than threshold
       const timeout = setTimeout(() => {
-        if (loading) {
-          animationState = "running";
-        }
+        animationState = "running";
       }, LOADING_SHOW_DELAY);
       return () => clearTimeout(timeout);
-    } else if (animationState === "running") {
-      // Transition from running to completing
+    }
+
+    // Not loading - if bar was visible, animate completion then hide
+    if (animationState !== "idle") {
       animationState = "completing";
       const timeout = setTimeout(() => {
         animationState = "idle";
-      }, 300); // Match the completion animation duration
-      return () => clearTimeout(timeout);
-    } else if (animationState === "completing") {
-      // Already completing - ensure we return to idle
-      // (handles rapid load→complete→load→complete cycles)
-      const timeout = setTimeout(() => {
-        animationState = "idle";
-      }, 300);
+      }, COMPLETION_DURATION);
       return () => clearTimeout(timeout);
     }
   });
@@ -84,6 +79,11 @@
       transform: scaleX(1);
       opacity: 0;
     }
+  }
+
+  .animate-trickle,
+  .animate-complete {
+    will-change: transform, opacity;
   }
 
   .animate-trickle {
