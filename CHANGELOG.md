@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Page loading progress indicators: top progress bar and content skeleton
-  - 150ms delay threshold prevents "blink" on fast-loading pages
+- Page loading progress for slow updates
 
 ### Fixed
 
