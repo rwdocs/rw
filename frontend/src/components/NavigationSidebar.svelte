@@ -10,7 +10,7 @@
 {:else if $navigation.tree}
   <nav>
     {#if $navigation.tree.scope}
-      <div class="mb-5 pb-4 border-b border-gray-200">
+      <div class="mb-5">
         {#if $navigation.tree.parentScope}
           <a
             href={$navigation.tree.parentScope.path}
