@@ -62,6 +62,31 @@ pub struct SectionInfo {
     pub section_type: String,
 }
 
+/// Information about a navigation scope for the frontend.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ScopeInfo {
+    /// URL path to the scope (with leading slash for frontend).
+    pub path: String,
+    /// Display title.
+    pub title: String,
+    /// Section type.
+    #[serde(rename = "type")]
+    pub section_type: String,
+}
+
+/// Result of scoped navigation query.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ScopedNavigation {
+    /// Navigation items for this scope.
+    pub items: Vec<NavItem>,
+    /// Current scope info (None at root).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ScopeInfo>,
+    /// Parent scope for back navigation (None at root or if no parent section).
+    #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
+    pub parent_scope: Option<ScopeInfo>,
+}
+
 /// Breadcrumb navigation item.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BreadcrumbItem {
@@ -323,6 +348,147 @@ impl SiteState {
             section_type,
             children,
         }
+    }
+
+    /// Build navigation scoped to a section.
+    ///
+    /// If `scope_path` is empty, returns root navigation with sections as leaves.
+    /// If `scope_path` points to a section, returns that section's children.
+    ///
+    /// # Arguments
+    ///
+    /// * `scope_path` - Path to scope (without leading slash), empty for root scope.
+    #[must_use]
+    pub fn scoped_navigation(&self, scope_path: &str) -> ScopedNavigation {
+        if scope_path.is_empty() {
+            // Root scope: show children of root page with sections as leaves
+            let items = if let Some(root_page) = self.get_page("") {
+                self.get_children(&root_page.path)
+                    .into_iter()
+                    .map(|page| self.build_nav_item_with_section_cutoff(page))
+                    .collect()
+            } else {
+                self.get_root_pages()
+                    .into_iter()
+                    .map(|page| self.build_nav_item_with_section_cutoff(page))
+                    .collect()
+            };
+
+            ScopedNavigation {
+                items,
+                scope: None,
+                parent_scope: None,
+            }
+        } else {
+            // Section scope: show section's children
+            let Some(section) = self.sections.get(scope_path) else {
+                // Not a valid section, return empty navigation
+                return ScopedNavigation::default();
+            };
+
+            // Get children of this section
+            let items = self
+                .get_children(scope_path)
+                .into_iter()
+                .map(|page| self.build_nav_item_with_section_cutoff(page))
+                .collect();
+
+            // Build scope info
+            let scope = Some(ScopeInfo {
+                path: format!("/{scope_path}"),
+                title: section.title.clone(),
+                section_type: section.section_type.clone(),
+            });
+
+            // Find parent section for back navigation
+            let parent_scope = self.find_parent_section(scope_path);
+
+            ScopedNavigation {
+                items,
+                scope,
+                parent_scope,
+            }
+        }
+    }
+
+    /// Determine the navigation scope for a page.
+    ///
+    /// Returns the path of the section this page belongs to (empty for root).
+    ///
+    /// # Arguments
+    ///
+    /// * `page_path` - URL path without leading slash.
+    #[must_use]
+    pub fn get_navigation_scope(&self, page_path: &str) -> String {
+        // If the page itself is a section, that's the scope
+        if self.sections.contains_key(page_path) {
+            return page_path.to_string();
+        }
+
+        // Walk up the path to find the nearest section ancestor
+        let mut current = page_path.to_string();
+        while let Some((parent, _)) = current.rsplit_once('/') {
+            if self.sections.contains_key(parent) {
+                return parent.to_string();
+            }
+            current = parent.to_string();
+        }
+
+        // No section ancestor found, return root scope
+        String::new()
+    }
+
+    /// Build [`NavItem`] but stop recursion at section boundaries.
+    ///
+    /// Sections become leaf nodes - they don't include their children.
+    fn build_nav_item_with_section_cutoff(&self, page: &Page) -> NavItem {
+        let is_section = self.sections.contains_key(&page.path);
+
+        // Sections become leaf nodes - don't include children
+        let children = if is_section {
+            Vec::new()
+        } else {
+            self.get_children(&page.path)
+                .into_iter()
+                .map(|child| self.build_nav_item_with_section_cutoff(child))
+                .collect()
+        };
+
+        let section_type = self
+            .sections
+            .get(&page.path)
+            .map(|s| s.section_type.clone());
+
+        NavItem {
+            title: page.title.clone(),
+            path: page.path.clone(),
+            section_type,
+            children,
+        }
+    }
+
+    /// Find the nearest ancestor section for back navigation.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - URL path without leading slash.
+    ///
+    /// # Returns
+    ///
+    /// `ScopeInfo` for the parent section, or `None` if at root level.
+    fn find_parent_section(&self, path: &str) -> Option<ScopeInfo> {
+        let mut current = path.to_string();
+        while let Some((parent, _)) = current.rsplit_once('/') {
+            if let Some(section) = self.sections.get(parent) {
+                return Some(ScopeInfo {
+                    path: format!("/{parent}"),
+                    title: section.title.clone(),
+                    section_type: section.section_type.clone(),
+                });
+            }
+            current = parent.to_string();
+        }
+        None
     }
 }
 
@@ -1103,5 +1269,341 @@ mod tests {
         let json = serde_json::to_value(&item).unwrap();
 
         assert!(json.get("section_type").is_none()); // Skipped when None
+    }
+
+    // Scoped navigation tests
+
+    #[test]
+    fn test_scoped_navigation_root_scope() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            Some(PathBuf::from("index.md")),
+            None,
+            None,
+        );
+        builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            Some(PathBuf::from("billing/index.md")),
+            Some(root_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        builder.add_page(
+            "Guide".to_string(),
+            "guide".to_string(),
+            Some(PathBuf::from("guide.md")),
+            Some(root_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.scoped_navigation("");
+
+        // Root scope should have no scope info
+        assert!(nav.scope.is_none());
+        assert!(nav.parent_scope.is_none());
+
+        // Should show both items
+        assert_eq!(nav.items.len(), 2);
+
+        // Billing (a section) should have no children in root scope
+        let billing = nav.items.iter().find(|i| i.title == "Billing").unwrap();
+        assert!(billing.children.is_empty());
+        assert_eq!(billing.section_type, Some("domain".to_string()));
+    }
+
+    #[test]
+    fn test_scoped_navigation_sections_are_leaves_in_root() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            Some(PathBuf::from("index.md")),
+            None,
+            None,
+        );
+        let billing_idx = builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            Some(PathBuf::from("billing/index.md")),
+            Some(root_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        // Add child under section
+        builder.add_page(
+            "Payments".to_string(),
+            "billing/payments".to_string(),
+            Some(PathBuf::from("billing/payments.md")),
+            Some(billing_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.scoped_navigation("");
+
+        // Billing is a section, so it should have no children in root scope
+        let billing = nav.items.iter().find(|i| i.title == "Billing").unwrap();
+        assert!(billing.children.is_empty());
+    }
+
+    #[test]
+    fn test_scoped_navigation_section_scope() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            Some(PathBuf::from("index.md")),
+            None,
+            None,
+        );
+        let billing_idx = builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            Some(PathBuf::from("billing/index.md")),
+            Some(root_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        builder.add_page(
+            "Payments".to_string(),
+            "billing/payments".to_string(),
+            Some(PathBuf::from("billing/payments.md")),
+            Some(billing_idx),
+            None,
+        );
+        builder.add_page(
+            "Invoicing".to_string(),
+            "billing/invoicing".to_string(),
+            Some(PathBuf::from("billing/invoicing.md")),
+            Some(billing_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.scoped_navigation("billing");
+
+        // Should have scope info
+        assert!(nav.scope.is_some());
+        let scope = nav.scope.unwrap();
+        assert_eq!(scope.path, "/billing");
+        assert_eq!(scope.title, "Billing");
+        assert_eq!(scope.section_type, "domain");
+
+        // No parent section
+        assert!(nav.parent_scope.is_none());
+
+        // Should show billing's children
+        assert_eq!(nav.items.len(), 2);
+        let titles: Vec<_> = nav.items.iter().map(|i| i.title.as_str()).collect();
+        assert!(titles.contains(&"Payments"));
+        assert!(titles.contains(&"Invoicing"));
+    }
+
+    #[test]
+    fn test_scoped_navigation_nested_sections() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            "Home".to_string(),
+            String::new(),
+            Some(PathBuf::from("index.md")),
+            None,
+            None,
+        );
+        let billing_idx = builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            Some(PathBuf::from("billing/index.md")),
+            Some(root_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        let payments_idx = builder.add_page(
+            "Payments".to_string(),
+            "billing/payments".to_string(),
+            Some(PathBuf::from("billing/payments/index.md")),
+            Some(billing_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("system".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        builder.add_page(
+            "API".to_string(),
+            "billing/payments/api".to_string(),
+            Some(PathBuf::from("billing/payments/api.md")),
+            Some(payments_idx),
+            None,
+        );
+        let site = builder.build();
+
+        // Request navigation for nested section
+        let nav = site.scoped_navigation("billing/payments");
+
+        // Should have scope info
+        let scope = nav.scope.as_ref().unwrap();
+        assert_eq!(scope.path, "/billing/payments");
+        assert_eq!(scope.title, "Payments");
+        assert_eq!(scope.section_type, "system");
+
+        // Should have parent scope pointing to billing
+        let parent = nav.parent_scope.as_ref().unwrap();
+        assert_eq!(parent.path, "/billing");
+        assert_eq!(parent.title, "Billing");
+        assert_eq!(parent.section_type, "domain");
+
+        // Should show payments' children
+        assert_eq!(nav.items.len(), 1);
+        assert_eq!(nav.items[0].title, "API");
+    }
+
+    #[test]
+    fn test_get_navigation_scope_page_is_section() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            Some(PathBuf::from("billing/index.md")),
+            None,
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        let site = builder.build();
+
+        let scope = site.get_navigation_scope("billing");
+
+        assert_eq!(scope, "billing");
+    }
+
+    #[test]
+    fn test_get_navigation_scope_page_inside_section() {
+        let mut builder = SiteStateBuilder::new();
+        let billing_idx = builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            Some(PathBuf::from("billing/index.md")),
+            None,
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        builder.add_page(
+            "Payments".to_string(),
+            "billing/payments".to_string(),
+            Some(PathBuf::from("billing/payments.md")),
+            Some(billing_idx),
+            None,
+        );
+        let site = builder.build();
+
+        let scope = site.get_navigation_scope("billing/payments");
+
+        assert_eq!(scope, "billing");
+    }
+
+    #[test]
+    fn test_get_navigation_scope_page_deeply_nested() {
+        let mut builder = SiteStateBuilder::new();
+        let billing_idx = builder.add_page(
+            "Billing".to_string(),
+            "billing".to_string(),
+            Some(PathBuf::from("billing/index.md")),
+            None,
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("domain".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        let payments_idx = builder.add_page(
+            "Payments".to_string(),
+            "billing/payments".to_string(),
+            Some(PathBuf::from("billing/payments/index.md")),
+            Some(billing_idx),
+            Some(PageMetadata {
+                title: None,
+                description: None,
+                page_type: Some("system".to_string()),
+                vars: HashMap::new(),
+            }),
+        );
+        builder.add_page(
+            "API".to_string(),
+            "billing/payments/api".to_string(),
+            Some(PathBuf::from("billing/payments/api.md")),
+            Some(payments_idx),
+            None,
+        );
+        let site = builder.build();
+
+        // API page should belong to the payments section (nearest ancestor)
+        let scope = site.get_navigation_scope("billing/payments/api");
+        assert_eq!(scope, "billing/payments");
+    }
+
+    #[test]
+    fn test_get_navigation_scope_page_not_in_section() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            "Guide".to_string(),
+            "guide".to_string(),
+            Some(PathBuf::from("guide.md")),
+            None,
+            None,
+        );
+        let site = builder.build();
+
+        let scope = site.get_navigation_scope("guide");
+
+        assert_eq!(scope, ""); // Root scope
+    }
+
+    #[test]
+    fn test_scoped_navigation_invalid_scope_returns_empty() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            "Guide".to_string(),
+            "guide".to_string(),
+            Some(PathBuf::from("guide.md")),
+            None,
+            None,
+        );
+        let site = builder.build();
+
+        let nav = site.scoped_navigation("nonexistent");
+
+        // Should return empty navigation for invalid scope
+        assert!(nav.items.is_empty());
+        assert!(nav.scope.is_none());
+        assert!(nav.parent_scope.is_none());
     }
 }

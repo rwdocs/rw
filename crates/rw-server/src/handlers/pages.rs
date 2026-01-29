@@ -54,6 +54,8 @@ struct PageMeta {
     /// Custom variables (from metadata).
     #[serde(skip_serializing_if = "Option::is_none")]
     vars: Option<serde_json::Value>,
+    /// Navigation scope path (without leading slash, empty for root scope).
+    navigation_scope: String,
 }
 
 /// Breadcrumb item for serialization.
@@ -162,6 +164,9 @@ fn get_page_impl(
         (None, None, None)
     };
 
+    // Get navigation scope for this page
+    let navigation_scope = state.site.get_navigation_scope(&path);
+
     let response = PageResponse {
         meta: PageMeta {
             title: result.title,
@@ -174,6 +179,7 @@ fn get_page_impl(
             description,
             page_type,
             vars,
+            navigation_scope,
         },
         breadcrumbs: result
             .breadcrumbs
@@ -249,6 +255,7 @@ mod tests {
             description: None,
             page_type: None,
             vars: None,
+            navigation_scope: String::new(),
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -257,6 +264,7 @@ mod tests {
         assert_eq!(json["path"], "/guide");
         assert_eq!(json["sourceFile"], "/docs/guide.md");
         assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
+        assert_eq!(json["navigationScope"], "");
         // description, type, and vars should be omitted when None
         assert!(json.get("description").is_none());
         assert!(json.get("type").is_none());
@@ -276,6 +284,7 @@ mod tests {
             description: Some("Domain overview".to_string()),
             page_type: Some("domain".to_string()),
             vars: Some(serde_json::to_value(vars).unwrap()),
+            navigation_scope: "domain".to_string(),
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -284,5 +293,6 @@ mod tests {
         assert_eq!(json["description"], "Domain overview");
         assert_eq!(json["type"], "domain");
         assert_eq!(json["vars"]["owner"], "team-a");
+        assert_eq!(json["navigationScope"], "domain");
     }
 }

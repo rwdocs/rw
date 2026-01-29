@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Directories with metadata appear in navigation with auto-generated child index
   - Virtual pages render a list of child pages with links and descriptions
   - Supports nested virtual pages for organizing section hierarchies
+- **Scoped section navigation** for hierarchical documentation sites
+  - Navigation scopes to current section when viewing pages inside a section
+  - Sections are leaf nodes in parent scope (no subpage expansion)
+  - Back navigation to parent scope or Home from within sections
+  - `navigationScope` field added to page API response
+  - `scope` and `parentScope` fields added to navigation API response
+  - Supports `?scope=` query parameter in `/api/navigation`
 - Page loading progress for slow updates
 
 ### Security

@@ -14,6 +14,17 @@
     navigation.expandOnlyTo(currentPath);
   });
 
+  // Watch for page scope changes and reload navigation if needed
+  const unsubscribePage = page.subscribe((state) => {
+    if (state.data) {
+      const pageScope = state.data.meta.navigationScope;
+      const currentScope = get(navigation).currentScope;
+      if (pageScope !== currentScope) {
+        navigation.loadScope(pageScope);
+      }
+    }
+  });
+
   onMount(() => {
     return liveReload.onReload(() => {
       page.load(extractDocPath(get(path)), { bypassCache: true, silent: true });
@@ -22,6 +33,7 @@
 
   onDestroy(() => {
     unsubscribePath();
+    unsubscribePage();
   });
 </script>
 
