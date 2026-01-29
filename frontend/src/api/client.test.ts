@@ -4,6 +4,8 @@ import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 
 const mockNavTree: NavigationTree = {
   items: [{ title: "Home", path: "/" }],
+  scope: null,
+  parentScope: null,
 };
 
 const mockPage: PageResponse = {
@@ -12,6 +14,7 @@ const mockPage: PageResponse = {
     path: "/test",
     sourceFile: "test.md",
     lastModified: "2025-01-01T00:00:00Z",
+    navigationScope: "",
   },
   breadcrumbs: [],
   toc: [],

@@ -7,6 +7,8 @@ export interface NavigationState {
   loading: boolean;
   error: string | null;
   collapsed: Set<string>;
+  /** Current scope path (without leading slash, empty for root). */
+  currentScope: string;
 }
 
 const initialState: NavigationState = {
@@ -14,6 +16,7 @@ const initialState: NavigationState = {
   loading: true,
   error: null,
   collapsed: new Set(),
+  currentScope: "",
 };
 
 /** Collect all paths with children from the navigation tree */
@@ -46,7 +49,7 @@ function createNavigationStore() {
   return {
     subscribe,
 
-    /** Load navigation tree from API */
+    /** Load navigation tree from API for the root scope */
     async load(options?: { bypassCache?: boolean }) {
       update((state) => ({ ...state, loading: true, error: null }));
       try {
@@ -58,6 +61,27 @@ function createNavigationStore() {
           tree,
           loading: false,
           collapsed: new Set(allParentPaths),
+          currentScope: "",
+        }));
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        update((state) => ({ ...state, error: message, loading: false }));
+      }
+    },
+
+    /** Load navigation tree for a specific scope */
+    async loadScope(scope: string, options?: { bypassCache?: boolean }) {
+      update((state) => ({ ...state, loading: true, error: null }));
+      try {
+        const tree = await fetchNavigation({ ...options, scope: scope || undefined });
+        // Collapse all parent items by default
+        const allParentPaths = collectParentPaths(tree.items);
+        update((state) => ({
+          ...state,
+          tree,
+          loading: false,
+          collapsed: new Set(allParentPaths),
+          currentScope: scope,
         }));
       } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";

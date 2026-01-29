@@ -55,7 +55,9 @@ use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
 // Re-import from crate root for public types, and direct module for internal
-pub(crate) use crate::site_state::{BreadcrumbItem, NavItem, Page, SiteState, SiteStateBuilder};
+pub(crate) use crate::site_state::{
+    BreadcrumbItem, NavItem, Page, ScopedNavigation, SiteState, SiteStateBuilder,
+};
 
 /// Result of rendering a markdown page.
 #[derive(Clone, Debug)]
@@ -243,6 +245,38 @@ impl Site {
     #[must_use]
     pub fn navigation(&self) -> Vec<NavItem> {
         self.reload_if_needed().navigation()
+    }
+
+    /// Get scoped navigation tree.
+    ///
+    /// Reloads site if needed and returns navigation scoped to the specified section.
+    ///
+    /// # Arguments
+    ///
+    /// * `scope_path` - Path to scope (without leading slash), empty for root scope.
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    #[must_use]
+    pub fn scoped_navigation(&self, scope_path: &str) -> ScopedNavigation {
+        self.reload_if_needed().scoped_navigation(scope_path)
+    }
+
+    /// Get navigation scope for a page.
+    ///
+    /// Reloads site if needed and returns the scope path for the given page.
+    ///
+    /// # Arguments
+    ///
+    /// * `page_path` - URL path without leading slash.
+    ///
+    /// # Panics
+    ///
+    /// Panics if internal locks are poisoned.
+    #[must_use]
+    pub fn get_navigation_scope(&self, page_path: &str) -> String {
+        self.reload_if_needed().get_navigation_scope(page_path)
     }
 
     /// Get page by source file path.

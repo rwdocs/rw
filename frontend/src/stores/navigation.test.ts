@@ -29,6 +29,8 @@ const mockTree: NavigationTree = {
     },
     { title: "API", path: "/api" },
   ],
+  scope: null,
+  parentScope: null,
 };
 
 describe("collectParentPaths", () => {

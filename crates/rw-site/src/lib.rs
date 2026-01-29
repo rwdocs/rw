@@ -35,7 +35,7 @@ pub(crate) mod site_state;
 
 pub use metadata::PageMetadata;
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
-pub use site_state::{BreadcrumbItem, NavItem, Page, SectionInfo};
+pub use site_state::{BreadcrumbItem, NavItem, Page, ScopeInfo, ScopedNavigation, SectionInfo};
 
 // Re-export TocEntry from rw-renderer for convenience
 pub use rw_renderer::TocEntry;

@@ -15,9 +15,23 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** Complete navigation tree */
+/** Information about a navigation scope. */
+export interface ScopeInfo {
+  /** URL path (with leading slash). */
+  path: string;
+  /** Display title. */
+  title: string;
+  /** Section type (e.g., "domain", "system"). */
+  type: string;
+}
+
+/** Complete navigation tree with scope information */
 export interface NavigationTree {
   items: NavItem[];
+  /** Current scope info (null at root). */
+  scope: ScopeInfo | null;
+  /** Parent scope for back navigation (null at root or if no parent section). */
+  parentScope: ScopeInfo | null;
 }
 
 /** Page metadata from GET /api/pages/{path} */
@@ -29,6 +43,8 @@ export interface PageMeta {
   description?: string;
   type?: string;
   vars?: Record<string, unknown>;
+  /** Navigation scope path (without leading slash, empty for root scope). */
+  navigationScope: string;
 }
 
 /** Breadcrumb navigation item */

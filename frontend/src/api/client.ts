@@ -28,9 +28,21 @@ export class NotFoundError extends Error {
   }
 }
 
+/** Options for fetching navigation */
+export interface FetchNavigationOptions extends FetchOptions {
+  /** Scope path (without leading slash) to load navigation for a specific section. */
+  scope?: string;
+}
+
 /** Fetch the navigation tree */
-export async function fetchNavigation(options?: FetchOptions): Promise<NavigationTree> {
-  const response = await fetch(`${API_BASE}/navigation`, buildRequestInit(options));
+export async function fetchNavigation(options?: FetchNavigationOptions): Promise<NavigationTree> {
+  const params = new URLSearchParams();
+  if (options?.scope) {
+    params.set("scope", options.scope);
+  }
+  const url = params.toString() ? `${API_BASE}/navigation?${params}` : `${API_BASE}/navigation`;
+
+  const response = await fetch(url, buildRequestInit(options));
   if (!response.ok) {
     throw new Error(`Failed to fetch navigation: ${response.status} ${response.statusText}`);
   }
