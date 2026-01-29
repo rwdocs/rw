@@ -49,7 +49,7 @@ export function initRouter(): () => void {
   // Intercept link clicks for SPA navigation
   const handleClick = (e: MouseEvent) => {
     const target = e.target;
-    if (!(target instanceof HTMLElement)) return;
+    if (!(target instanceof Element)) return;
 
     const anchor = target.closest("a");
     if (!anchor) return;
