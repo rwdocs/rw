@@ -2,7 +2,6 @@
 //!
 //! This crate provides:
 //! - [`Site`]: Unified site structure and page rendering
-//! - [`SiteState`]: Document hierarchy with efficient path lookups
 //! - Navigation tree building for UI presentation
 //!
 //! # Quick Start
@@ -21,9 +20,8 @@
 //! };
 //! let site = Arc::new(Site::new(storage, config));
 //!
-//! // Load site structure
-//! let state = site.reload_if_needed();
-//! let nav = state.navigation();
+//! // Get navigation
+//! let nav = site.navigation();
 //!
 //! // Render a page
 //! let result = site.render("/guide")?;
@@ -35,7 +33,7 @@ mod site_cache;
 pub(crate) mod site_state;
 
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
-pub use site_state::{BreadcrumbItem, NavItem, Page, SiteState};
+pub use site_state::{BreadcrumbItem, NavItem, Page};
 
 // Re-export TocEntry from rw-renderer for convenience
 pub use rw_renderer::TocEntry;

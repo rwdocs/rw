@@ -24,7 +24,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Page, SiteState};
+use crate::site_state::{Page, SiteState};
 
 /// Cache format for serialization.
 #[derive(Serialize, Deserialize)]
