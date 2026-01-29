@@ -275,19 +275,6 @@ impl Site {
 
     /// Reload site state from storage if cache is invalid.
     ///
-    /// Call this to ensure the site structure is up-to-date before
-    /// accessing navigation or rendering pages. Most public methods
-    /// call this automatically.
-    ///
-    /// # Panics
-    ///
-    /// Panics if internal locks are poisoned.
-    pub fn reload(&self) {
-        let _ = self.reload_if_needed();
-    }
-
-    /// Reload site state from storage if cache is invalid.
-    ///
     /// Uses double-checked locking pattern:
     /// 1. Fast path: return current site state if cache valid
     /// 2. Slow path: acquire `reload_lock`, recheck, then reload

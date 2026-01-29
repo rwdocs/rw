@@ -43,7 +43,7 @@ fn bench_site_get_page(c: &mut Criterion) {
     create_site_structure(&source_dir, 3, 5);
 
     let site = create_site(source_dir);
-    site.reload();
+    let _ = site.navigation();
 
     let mut group = c.benchmark_group("site_lookup");
 
@@ -64,7 +64,7 @@ fn bench_site_breadcrumbs(c: &mut Criterion) {
     create_site_structure(&source_dir, 5, 3);
 
     let site = create_site(source_dir);
-    site.reload();
+    let _ = site.navigation();
 
     let mut group = c.benchmark_group("breadcrumbs");
 
@@ -89,7 +89,7 @@ fn bench_site_navigation(c: &mut Criterion) {
         create_site_structure(&source_dir, depth, breadth);
 
         let site = create_site(source_dir);
-        site.reload();
+        let _ = site.navigation();
 
         group.bench_with_input(
             BenchmarkId::new("build_tree", format!("d{depth}_b{breadth}")),
@@ -111,14 +111,14 @@ fn bench_site_reload(c: &mut Criterion) {
     let mut group = c.benchmark_group("site");
 
     // Prime the cache
-    site.reload();
+    let _ = site.navigation();
 
-    group.bench_function("reload_cached", |b| b.iter(|| site.reload()));
+    group.bench_function("reload_cached", |b| b.iter(|| site.navigation()));
 
     group.bench_function("reload_after_invalidate", |b| {
         b.iter(|| {
             site.invalidate();
-            site.reload();
+            let _ = site.navigation();
         });
     });
 
@@ -136,7 +136,7 @@ fn bench_site_varying_sizes(c: &mut Criterion) {
         create_site_structure(&source_dir, depth, breadth);
 
         group.bench_function(label, |b| {
-            b.iter_with_setup(|| create_site(source_dir.clone()), |site| site.reload());
+            b.iter_with_setup(|| create_site(source_dir.clone()), |site| site.navigation());
         });
     }
 
@@ -149,7 +149,7 @@ fn bench_get_page(c: &mut Criterion) {
     create_site_structure(&source_dir, 4, 4);
 
     let site = create_site(source_dir);
-    site.reload();
+    let _ = site.navigation();
 
     let mut group = c.benchmark_group("get_page");
 
