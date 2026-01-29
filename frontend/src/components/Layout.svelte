@@ -62,7 +62,7 @@
     class="w-[280px] flex-shrink-0 border-r border-gray-200 hidden md:block h-screen sticky top-0 overflow-y-auto"
   >
     <div class="p-4">
-      <a href="/" class="block mb-6">
+      <a href="/" class="block mb-5">
         <span class="text-xl font-semibold uppercase"
           ><span class="text-gray-900">Doc</span><span class="text-gray-400">stage</span></span
         >

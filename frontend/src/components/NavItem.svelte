@@ -28,11 +28,11 @@
     {#if hasChildren}
       <button
         onclick={toggleExpanded}
-        class="w-4 h-4 flex items-center justify-center text-gray-400 hover:text-gray-600 mr-0.5"
+        class="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded mr-0.5"
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
         <svg
-          class="w-3 h-3 transition-transform {isExpanded ? 'rotate-90' : 'rotate-0'}"
+          class="w-3.5 h-3.5 transition-transform {isExpanded ? 'rotate-90' : 'rotate-0'}"
           fill="currentColor"
           viewBox="0 0 20 20"
         >
@@ -45,13 +45,13 @@
         </svg>
       </button>
     {:else}
-      <!-- Spacer matches expand button: w-4 (16px) + mr-0.5 (2px) = 18px -->
-      <span class="w-[18px]"></span>
+      <!-- Spacer matches expand button: w-5 (20px) + mr-0.5 (2px) = 22px -->
+      <span class="w-[22px]"></span>
     {/if}
 
     <a
       href={item.path}
-      class="flex-1 py-1 px-1.5 rounded text-sm transition-colors {isActive
+      class="flex-1 py-1.5 px-1.5 rounded text-sm transition-colors {isActive
         ? 'text-blue-700 font-medium'
         : 'text-gray-700 hover:text-gray-900'}"
     >
