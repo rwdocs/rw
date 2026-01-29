@@ -4,7 +4,23 @@
   import { initializeTabs } from "../lib/tabs";
   import LoadingSkeleton from "./LoadingSkeleton.svelte";
 
+  // Delay before showing skeleton (ms) - prevents "blink" on fast loads
+  const SHOW_DELAY = 150;
+
   let articleRef: HTMLElement | undefined = $state();
+  let showSkeleton = $state(false);
+
+  // Show skeleton only if loading takes longer than SHOW_DELAY
+  $effect(() => {
+    if ($page.loading) {
+      const timeout = setTimeout(() => {
+        showSkeleton = true;
+      }, SHOW_DELAY);
+      return () => clearTimeout(timeout);
+    } else {
+      showSkeleton = false;
+    }
+  });
 
   // Initialize tabs when content changes
   $effect(() => {
@@ -27,7 +43,7 @@
   });
 </script>
 
-{#if $page.loading}
+{#if $page.loading && showSkeleton}
   <LoadingSkeleton />
 {:else if $page.notFound}
   <div class="flex items-center justify-center h-64">
