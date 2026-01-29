@@ -50,27 +50,12 @@ function createNavigationStore() {
     subscribe,
 
     /** Load navigation tree from API for the root scope */
-    async load(options?: { bypassCache?: boolean }) {
-      update((state) => ({ ...state, loading: true, error: null }));
-      try {
-        const tree = await fetchNavigation(options);
-        // Collapse all parent items by default
-        const allParentPaths = collectParentPaths(tree.items);
-        update((state) => ({
-          ...state,
-          tree,
-          loading: false,
-          collapsed: new Set(allParentPaths),
-          currentScope: "",
-        }));
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        update((state) => ({ ...state, error: message, loading: false }));
-      }
+    async load(options?: { bypassCache?: boolean }): Promise<void> {
+      return this.loadScope("", options);
     },
 
     /** Load navigation tree for a specific scope */
-    async loadScope(scope: string, options?: { bypassCache?: boolean }) {
+    async loadScope(scope: string, options?: { bypassCache?: boolean }): Promise<void> {
       update((state) => ({ ...state, loading: true, error: null }));
       try {
         const tree = await fetchNavigation({ ...options, scope: scope || undefined });

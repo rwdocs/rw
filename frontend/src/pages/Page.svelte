@@ -5,6 +5,7 @@
   import { page } from "../stores/page";
   import { navigation } from "../stores/navigation";
   import { liveReload } from "../stores/liveReload";
+  import { watchPageScope } from "../lib/scopeWatcher";
   import PageContent from "../components/PageContent.svelte";
 
   // Load page when path changes using store subscription
@@ -14,18 +15,7 @@
     navigation.expandOnlyTo(currentPath);
   });
 
-  // Watch for page scope changes and reload navigation if needed
-  const unsubscribePage = page.subscribe((state) => {
-    if (state.data) {
-      const pageScope = state.data.meta.navigationScope;
-      const currentScope = get(navigation).currentScope;
-      // Only update navigation if we have scope information from the page.
-      // Skip if navigationScope is undefined (e.g., from cached response).
-      if (pageScope !== undefined && pageScope !== currentScope) {
-        navigation.loadScope(pageScope);
-      }
-    }
-  });
+  const unsubscribePage = watchPageScope(page);
 
   onMount(() => {
     return liveReload.onReload(() => {
