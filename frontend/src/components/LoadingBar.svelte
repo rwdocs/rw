@@ -1,12 +1,11 @@
 <script lang="ts">
+  import { LOADING_SHOW_DELAY } from "../lib/constants";
+
   interface Props {
     loading: boolean;
   }
 
   let { loading }: Props = $props();
-
-  // Delay before showing progress bar (ms) - prevents "blink" on fast loads
-  const SHOW_DELAY = 150;
 
   // Track animation state: 'idle' | 'running' | 'completing'
   let animationState = $state<"idle" | "running" | "completing">("idle");
@@ -18,7 +17,7 @@
         if (loading) {
           animationState = "running";
         }
-      }, SHOW_DELAY);
+      }, LOADING_SHOW_DELAY);
       return () => clearTimeout(timeout);
     } else if (animationState === "running") {
       // Transition from running to completing
