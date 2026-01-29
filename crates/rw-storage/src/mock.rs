@@ -32,6 +32,7 @@ pub struct MockStorage {
     documents: RwLock<Vec<Document>>,
     contents: RwLock<HashMap<PathBuf, String>>,
     mtimes: RwLock<HashMap<PathBuf, f64>>,
+    directories: RwLock<Vec<PathBuf>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
 }
 
@@ -41,6 +42,7 @@ impl Default for MockStorage {
             documents: RwLock::new(Vec::new()),
             contents: RwLock::new(HashMap::new()),
             mtimes: RwLock::new(HashMap::new()),
+            directories: RwLock::new(Vec::new()),
             event_sender: RwLock::new(None),
         }
     }
@@ -115,6 +117,17 @@ impl MockStorage {
     #[must_use]
     pub fn with_mtime(self, path: impl Into<PathBuf>, mtime: f64) -> Self {
         self.mtimes.write().unwrap().insert(path.into(), mtime);
+        self
+    }
+
+    /// Add a directory to the storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    #[must_use]
+    pub fn with_directory(self, path: impl Into<PathBuf>) -> Self {
+        self.directories.write().unwrap().push(path.into());
         self
     }
 
@@ -212,6 +225,10 @@ impl Storage for MockStorage {
 
         // Return receiver and no-op handle (MockStorage doesn't need cleanup)
         Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
+    }
+
+    fn list_directories(&self) -> Result<Vec<PathBuf>, StorageError> {
+        Ok(self.directories.read().unwrap().clone())
     }
 }
 
@@ -390,5 +407,27 @@ mod tests {
 
         // Emit before watch() is called should not panic
         storage.emit_created("test.md");
+    }
+
+    #[test]
+    fn test_with_directory() {
+        let storage = MockStorage::new()
+            .with_directory("domain")
+            .with_directory("domain/sub");
+
+        let dirs = storage.list_directories().unwrap();
+
+        assert_eq!(dirs.len(), 2);
+        assert_eq!(dirs[0], PathBuf::from("domain"));
+        assert_eq!(dirs[1], PathBuf::from("domain/sub"));
+    }
+
+    #[test]
+    fn test_list_directories_empty() {
+        let storage = MockStorage::new();
+
+        let dirs = storage.list_directories().unwrap();
+
+        assert!(dirs.is_empty());
     }
 }

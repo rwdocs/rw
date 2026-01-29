@@ -163,6 +163,26 @@ Metadata is inherited from parent directories:
 - `type` - Never inherited
 - `vars` - Deep merged (child values override parent keys)
 
+### Virtual Pages
+
+Directories with `meta.yaml` but no `index.md` become virtual pages:
+- Appear in navigation with their metadata title
+- Render an auto-generated list of child pages
+- Support nested virtual pages for organizing content hierarchies
+
+Example structure:
+```
+docs/
+├── index.md           # Home page
+├── domains/
+│   ├── meta.yaml      # Virtual page: "Domains"
+│   ├── billing/
+│   │   ├── meta.yaml  # Virtual page: "Billing"
+│   │   └── api.md     # Real page under Billing
+│   └── users/
+│       └── index.md   # Real page (has index.md)
+```
+
 ## Technical Details
 
 - Native Rust CLI (no Python runtime required)

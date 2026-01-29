@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Pages with `type` metadata are grouped under labels (e.g., "Domains", "Systems")
   - Groups appear alphabetically, ungrouped pages appear after groups
   - `section_type` field added to `/api/navigation` response
+- **Virtual pages** for directories with `meta.yaml` but no `index.md`
+  - Directories with metadata appear in navigation with auto-generated child index
+  - Virtual pages render a list of child pages with links and descriptions
+  - Supports nested virtual pages for organizing section hierarchies
 - Page loading progress for slow updates
 
 ### Security
