@@ -193,7 +193,7 @@ describe("page store", () => {
       await firstLoad;
     });
 
-    it("resets state to loading when load is called", async () => {
+    it("preserves previous data during new load for smooth transitions", async () => {
       // First load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
       await page.load("first");
@@ -203,9 +203,9 @@ describe("page store", () => {
       mockFetchPage.mockReturnValue(new Promise(() => {}));
       page.load("second");
 
-      // State should be reset with data cleared
+      // Previous data should be preserved for smooth transitions, loading should be true
       const state = get(page);
-      expect(state.data).toBeNull();
+      expect(state.data).not.toBeNull();
       expect(state.loading).toBe(true);
     });
 
