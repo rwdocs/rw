@@ -241,7 +241,6 @@ impl Storage for MockStorage {
         // Return receiver and no-op handle (MockStorage doesn't need cleanup)
         Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
     }
-
 }
 
 #[cfg(test)]
@@ -442,5 +441,4 @@ mod tests {
         // Emit before watch() is called should not panic
         storage.emit_created("test.md");
     }
-
 }
