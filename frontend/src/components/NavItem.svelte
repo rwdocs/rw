@@ -28,7 +28,7 @@
     {#if hasChildren}
       <button
         onclick={toggleExpanded}
-        class="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded mr-0.5"
+        class="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded mr-0.5"
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
         <svg

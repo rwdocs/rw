@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed animated scroll behavior
 - Prevent memory leaks on frontend
 - Navigation loading errors are now displayed to users
+- Navigation backlink contrast improved for better visibility and accessibility
 
 ## [0.1.1]
 
