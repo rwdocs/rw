@@ -46,33 +46,51 @@ export function getParentPaths(path: string): string[] {
 function createNavigationStore() {
   const { subscribe, set, update } = writable<NavigationState>(initialState);
 
+  // Track in-flight request for cancellation
+  let currentController: AbortController | null = null;
+
+  const loadScope = async (scope: string, options?: { bypassCache?: boolean }): Promise<void> => {
+    // Abort any in-flight request
+    currentController?.abort();
+    const controller = new AbortController();
+    currentController = controller;
+
+    update((state) => ({ ...state, loading: true, error: null }));
+    try {
+      const tree = await fetchNavigation({
+        ...options,
+        scope: scope || undefined,
+        signal: controller.signal,
+      });
+      // Only update if this request wasn't aborted
+      if (controller.signal.aborted) return;
+      // Collapse all parent items by default
+      const allParentPaths = collectParentPaths(tree.items);
+      update((state) => ({
+        ...state,
+        tree,
+        loading: false,
+        collapsed: new Set(allParentPaths),
+        currentScope: scope,
+      }));
+    } catch (e) {
+      // Silently ignore aborted requests
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      const message = e instanceof Error ? e.message : "Unknown error";
+      update((state) => ({ ...state, error: message, loading: false }));
+    }
+  };
+
   return {
     subscribe,
 
     /** Load navigation tree from API for the root scope */
-    async load(options?: { bypassCache?: boolean }): Promise<void> {
-      return this.loadScope("", options);
+    load: (options?: { bypassCache?: boolean }): Promise<void> => {
+      return loadScope("", options);
     },
 
     /** Load navigation tree for a specific scope */
-    async loadScope(scope: string, options?: { bypassCache?: boolean }): Promise<void> {
-      update((state) => ({ ...state, loading: true, error: null }));
-      try {
-        const tree = await fetchNavigation({ ...options, scope: scope || undefined });
-        // Collapse all parent items by default
-        const allParentPaths = collectParentPaths(tree.items);
-        update((state) => ({
-          ...state,
-          tree,
-          loading: false,
-          collapsed: new Set(allParentPaths),
-          currentScope: scope,
-        }));
-      } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        update((state) => ({ ...state, error: message, loading: false }));
-      }
-    },
+    loadScope,
 
     /** Toggle collapsed state of a navigation item */
     toggle(path: string) {
