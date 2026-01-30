@@ -13,7 +13,7 @@
 //!
 //! Metadata is inherited from parent directories with specific rules:
 //! - `title`: Never inherited (must be set explicitly per page)
-//! - `description`: Inherited if child doesn't set it
+//! - `description`: Never inherited (must be set explicitly per page)
 //! - `page_type`: Never inherited
 //! - `vars`: Deep merged (child values override parent keys)
 
@@ -89,23 +89,18 @@ pub enum MetadataError {
 /// # Inheritance Rules
 ///
 /// - `title`: Never inherited (child's value or `None`)
-/// - `description`: Inherited if child doesn't set it
+/// - `description`: Never inherited (child's value or `None`)
 /// - `page_type`: Never inherited (child's value or `None`)
 /// - `vars`: Deep merged (child values override parent keys)
 #[must_use]
 pub fn merge_metadata(parent: &PageMetadata, child: &PageMetadata) -> PageMetadata {
     // Start with child values for non-inherited fields
     let mut merged = PageMetadata {
-        title: child.title.clone(),         // Never inherited
-        page_type: child.page_type.clone(), // Never inherited
+        title: child.title.clone(),             // Never inherited
+        description: child.description.clone(), // Never inherited
+        page_type: child.page_type.clone(),     // Never inherited
         ..Default::default()
     };
-
-    // Description: inherit if child doesn't set
-    merged.description = child
-        .description
-        .clone()
-        .or_else(|| parent.description.clone());
 
     // Vars: deep merge (parent first, child overrides)
     let mut vars = parent.vars.clone();
@@ -117,10 +112,7 @@ pub fn merge_metadata(parent: &PageMetadata, child: &PageMetadata) -> PageMetada
     merged
 }
 
-/// Get the directory path for a source file's metadata.
-///
-/// For `index.md` files, returns the containing directory.
-/// For other files, returns the parent directory.
+/// Get the parent directory of a source file for metadata lookup.
 #[must_use]
 pub fn metadata_dir(source_path: &Path) -> Option<&Path> {
     source_path.parent()
@@ -253,18 +245,21 @@ unknown_field: value
     }
 
     #[test]
-    fn test_merge_description_inherited() {
+    fn test_merge_description_not_inherited() {
         let parent = PageMetadata {
             description: Some("Parent description".to_string()),
             ..Default::default()
         };
         let child = PageMetadata::default();
         let merged = merge_metadata(&parent, &child);
-        assert_eq!(merged.description, Some("Parent description".to_string()));
+        assert!(
+            merged.description.is_none(),
+            "description should not be inherited"
+        );
     }
 
     #[test]
-    fn test_merge_description_child_overrides() {
+    fn test_merge_description_child_preserved() {
         let parent = PageMetadata {
             description: Some("Parent description".to_string()),
             ..Default::default()
