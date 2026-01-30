@@ -358,12 +358,6 @@ impl SiteState {
         &self.sections
     }
 
-    /// Get precomputed `has_content` flags (for serialization).
-    #[must_use]
-    pub(crate) fn has_content(&self) -> &[bool] {
-        &self.has_content
-    }
-
     /// Build navigation tree from site structure.
     ///
     /// The root page (path="") is excluded from navigation as it serves
