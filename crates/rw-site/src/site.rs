@@ -856,7 +856,7 @@ impl Site {
     fn load_metadata_file(&self, path: &Path) -> Option<PageMetadata> {
         let content = self.storage.read(path).ok()?;
         match PageMetadata::from_yaml(&content) {
-            Ok(Some(meta)) if !meta.is_empty() => Some(meta),
+            Ok(meta) if !meta.is_empty() => Some(meta),
             Ok(_) => None,
             Err(e) => {
                 tracing::warn!(path = %path.display(), error = %e, "Failed to parse metadata");
