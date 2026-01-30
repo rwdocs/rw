@@ -556,31 +556,44 @@ impl Site {
 
     /// Load site state from storage and build hierarchy.
     ///
-    /// Uses `storage.scan()` to get documents, then builds hierarchy based on
-    /// path conventions. Also loads metadata from YAML sidecar files and discovers
-    /// virtual pages (directories with metadata but no index.md).
+    /// Uses `storage.scan()` to get documents and metadata files, then builds hierarchy
+    /// based on path conventions. Virtual pages (directories with metadata but no index.md)
+    /// are derived from the scan result.
     #[allow(clippy::too_many_lines)]
     fn load_from_storage(&self) -> SiteState {
         let mut builder = SiteStateBuilder::new();
 
-        // Scan storage for documents
-        let documents = match self.storage.scan() {
-            Ok(docs) => docs,
+        // Scan storage for documents and metadata files
+        let scan_result = match self.storage.scan() {
+            Ok(result) => result,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to scan storage");
                 return builder.build();
             }
         };
 
-        // Collect index paths for virtual page detection
-        let index_paths: std::collections::HashSet<PathBuf> = documents
+        // Collect directories that have index.md
+        let index_dirs: std::collections::HashSet<PathBuf> = scan_result
+            .documents
             .iter()
             .filter(|doc| doc.path.file_name().is_some_and(|n| n == "index.md"))
-            .map(|doc| doc.path.clone())
+            .filter_map(|doc| doc.path.parent())
+            .map(Path::to_path_buf)
             .collect();
 
-        // Discover virtual pages (directories with metadata but no index.md)
-        let virtual_pages = self.discover_virtual_pages(&index_paths);
+        // Derive virtual pages from metadata files in directories without index.md
+        let virtual_pages: Vec<(PathBuf, PageMetadata)> = scan_result
+            .metadata_files
+            .iter()
+            .filter(|mf| !index_dirs.contains(&mf.dir_path))
+            .filter_map(|mf| {
+                let metadata = self.load_metadata_file(&mf.file_path)?;
+                if metadata.is_empty() {
+                    return None;
+                }
+                Some((mf.dir_path.clone(), metadata))
+            })
+            .collect();
 
         // Create unified list of entries to process
         #[allow(clippy::items_after_statements)]
@@ -589,7 +602,8 @@ impl Site {
             Virtual(PathBuf, PageMetadata),
         }
 
-        let mut entries: Vec<PageEntry<'_>> = documents
+        let mut entries: Vec<PageEntry<'_>> = scan_result
+            .documents
             .iter()
             .map(PageEntry::Document)
             .chain(
@@ -710,41 +724,6 @@ impl Site {
         }
 
         builder.build()
-    }
-
-    /// Discover virtual pages (directories with metadata but no index.md).
-    fn discover_virtual_pages(
-        &self,
-        index_paths: &std::collections::HashSet<PathBuf>,
-    ) -> Vec<(PathBuf, PageMetadata)> {
-        let directories = match self.storage.list_directories() {
-            Ok(dirs) => dirs,
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to list directories");
-                return Vec::new();
-            }
-        };
-
-        let mut virtual_pages = Vec::new();
-
-        for dir in directories {
-            // Check if this directory already has an index.md
-            let index_path = dir.join("index.md");
-            if index_paths.contains(&index_path) {
-                continue;
-            }
-
-            // Try loading metadata for this directory
-            let meta_path = metadata_file_path(&dir, &self.meta_filename);
-            if let Some(metadata) = self.load_metadata_file(&meta_path) {
-                // Only create virtual page if metadata is non-empty
-                if !metadata.is_empty() {
-                    virtual_pages.push((dir, metadata));
-                }
-            }
-        }
-
-        virtual_pages
     }
 
     /// Find parent page index from URL path.
