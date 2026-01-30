@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
+use crate::storage::{Document, MetadataFile, ScanResult, Storage, StorageError, StorageErrorKind};
 
 /// Mock storage for testing.
 ///
@@ -32,7 +32,7 @@ pub struct MockStorage {
     documents: RwLock<Vec<Document>>,
     contents: RwLock<HashMap<PathBuf, String>>,
     mtimes: RwLock<HashMap<PathBuf, f64>>,
-    directories: RwLock<Vec<PathBuf>>,
+    metadata_files: RwLock<Vec<MetadataFile>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
 }
 
@@ -42,7 +42,7 @@ impl Default for MockStorage {
             documents: RwLock::new(Vec::new()),
             contents: RwLock::new(HashMap::new()),
             mtimes: RwLock::new(HashMap::new()),
-            directories: RwLock::new(Vec::new()),
+            metadata_files: RwLock::new(Vec::new()),
             event_sender: RwLock::new(None),
         }
     }
@@ -120,14 +120,26 @@ impl MockStorage {
         self
     }
 
-    /// Add a directory to the storage.
+    /// Add a metadata file to the storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `dir_path` - Directory this metadata applies to
+    /// * `file_path` - Full path to the metadata file
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_directory(self, path: impl Into<PathBuf>) -> Self {
-        self.directories.write().unwrap().push(path.into());
+    pub fn with_metadata_file(
+        self,
+        dir_path: impl Into<PathBuf>,
+        file_path: impl Into<PathBuf>,
+    ) -> Self {
+        self.metadata_files.write().unwrap().push(MetadataFile {
+            dir_path: dir_path.into(),
+            file_path: file_path.into(),
+        });
         self
     }
 
@@ -182,8 +194,11 @@ impl MockStorage {
 }
 
 impl Storage for MockStorage {
-    fn scan(&self) -> Result<Vec<Document>, StorageError> {
-        Ok(self.documents.read().unwrap().clone())
+    fn scan(&self) -> Result<ScanResult, StorageError> {
+        Ok(ScanResult {
+            documents: self.documents.read().unwrap().clone(),
+            metadata_files: self.metadata_files.read().unwrap().clone(),
+        })
     }
 
     fn read(&self, path: &Path) -> Result<String, StorageError> {
@@ -227,9 +242,6 @@ impl Storage for MockStorage {
         Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
     }
 
-    fn list_directories(&self) -> Result<Vec<PathBuf>, StorageError> {
-        Ok(self.directories.read().unwrap().clone())
-    }
 }
 
 #[cfg(test)]
@@ -246,9 +258,10 @@ mod tests {
     #[test]
     fn test_new_empty() {
         let storage = MockStorage::new();
-        let docs = storage.scan().unwrap();
+        let result = storage.scan().unwrap();
 
-        assert!(docs.is_empty());
+        assert!(result.documents.is_empty());
+        assert!(result.metadata_files.is_empty());
     }
 
     #[test]
@@ -257,13 +270,13 @@ mod tests {
             .with_document("guide.md", "Guide")
             .with_document("api.md", "API");
 
-        let docs = storage.scan().unwrap();
+        let result = storage.scan().unwrap();
 
-        assert_eq!(docs.len(), 2);
-        assert_eq!(docs[0].path, PathBuf::from("guide.md"));
-        assert_eq!(docs[0].title, "Guide");
-        assert_eq!(docs[1].path, PathBuf::from("api.md"));
-        assert_eq!(docs[1].title, "API");
+        assert_eq!(result.documents.len(), 2);
+        assert_eq!(result.documents[0].path, PathBuf::from("guide.md"));
+        assert_eq!(result.documents[0].title, "Guide");
+        assert_eq!(result.documents[1].path, PathBuf::from("api.md"));
+        assert_eq!(result.documents[1].title, "API");
     }
 
     #[test]
@@ -280,12 +293,33 @@ mod tests {
         let storage =
             MockStorage::new().with_file("guide.md", "User Guide", "# User Guide\n\nContent.");
 
-        let docs = storage.scan().unwrap();
+        let result = storage.scan().unwrap();
         let content = storage.read(Path::new("guide.md")).unwrap();
 
-        assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].title, "User Guide");
+        assert_eq!(result.documents.len(), 1);
+        assert_eq!(result.documents[0].title, "User Guide");
         assert_eq!(content, "# User Guide\n\nContent.");
+    }
+
+    #[test]
+    fn test_with_metadata_file() {
+        let storage = MockStorage::new()
+            .with_metadata_file("domain", "domain/meta.yaml")
+            .with_metadata_file("", "meta.yaml");
+
+        let result = storage.scan().unwrap();
+
+        assert_eq!(result.metadata_files.len(), 2);
+        assert_eq!(result.metadata_files[0].dir_path, PathBuf::from("domain"));
+        assert_eq!(
+            result.metadata_files[0].file_path,
+            PathBuf::from("domain/meta.yaml")
+        );
+        assert_eq!(result.metadata_files[1].dir_path, PathBuf::from(""));
+        assert_eq!(
+            result.metadata_files[1].file_path,
+            PathBuf::from("meta.yaml")
+        );
     }
 
     #[test]
@@ -409,25 +443,4 @@ mod tests {
         storage.emit_created("test.md");
     }
 
-    #[test]
-    fn test_with_directory() {
-        let storage = MockStorage::new()
-            .with_directory("domain")
-            .with_directory("domain/sub");
-
-        let dirs = storage.list_directories().unwrap();
-
-        assert_eq!(dirs.len(), 2);
-        assert_eq!(dirs[0], PathBuf::from("domain"));
-        assert_eq!(dirs[1], PathBuf::from("domain/sub"));
-    }
-
-    #[test]
-    fn test_list_directories_empty() {
-        let storage = MockStorage::new();
-
-        let dirs = storage.list_directories().unwrap();
-
-        assert!(dirs.is_empty());
-    }
 }

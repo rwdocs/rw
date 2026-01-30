@@ -16,6 +16,24 @@ pub struct Document {
     pub title: String,
 }
 
+/// A metadata file discovered during scan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MetadataFile {
+    /// Directory this metadata applies to (e.g., "domain").
+    pub dir_path: PathBuf,
+    /// Full path to the metadata file (e.g., "domain/meta.yaml").
+    pub file_path: PathBuf,
+}
+
+/// Result of scanning storage.
+#[derive(Clone, Debug, Default)]
+pub struct ScanResult {
+    /// All documents found during scan.
+    pub documents: Vec<Document>,
+    /// All metadata files found during scan.
+    pub metadata_files: Vec<MetadataFile>,
+}
+
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -205,16 +223,16 @@ impl std::error::Error for StorageError {
 /// Implementations handle backend-specific details like caching, title extraction,
 /// and path resolution.
 pub trait Storage: Send + Sync {
-    /// Scan and return all documents.
+    /// Scan and return all documents and metadata files.
     ///
-    /// Returns a flat list of documents. Hierarchy is derived by the consumer
-    /// (`SiteLoader`) based on path conventions.
+    /// Returns a [`ScanResult`] containing documents and metadata files.
+    /// Hierarchy is derived by the consumer (`SiteLoader`) based on path conventions.
     ///
     /// # Errors
     ///
     /// Returns [`StorageError`] if scanning fails (e.g., permission denied,
     /// backend unavailable).
-    fn scan(&self) -> Result<Vec<Document>, StorageError>;
+    fn scan(&self) -> Result<ScanResult, StorageError>;
 
     /// Read full content for rendering.
     ///
@@ -256,17 +274,6 @@ pub trait Storage: Send + Sync {
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
         Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
     }
-
-    /// List all directories in the storage.
-    ///
-    /// Returns relative paths to all directories, useful for discovering
-    /// directories that may have metadata files but no `index.md`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] if listing fails (e.g., permission denied,
-    /// backend unavailable).
-    fn list_directories(&self) -> Result<Vec<PathBuf>, StorageError>;
 }
 
 #[cfg(test)]

@@ -135,7 +135,10 @@ impl Default for ServerConfig {
 /// Returns an error if the server fails to start.
 pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
     // Create shared storage backend
-    let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::new(config.source_dir.clone()));
+    let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::with_meta_filename(
+        config.source_dir.clone(),
+        &config.meta_filename,
+    ));
 
     // Create unified Site with storage and configuration
     let site_config = SiteConfig {
