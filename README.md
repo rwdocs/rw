@@ -159,7 +159,7 @@ vars:
 
 Metadata is inherited from parent directories:
 - `title` - Never inherited
-- `description` - Inherited if child doesn't set
+- `description` - Never inherited
 - `type` - Never inherited
 - `vars` - Deep merged (child values override parent keys)
 

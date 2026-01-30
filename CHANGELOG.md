@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Description no longer inherited** from parent metadata - must be set explicitly per page
 - Metadata YAML files now ignore unknown fields instead of failing to parse
 
 ### Fixed
