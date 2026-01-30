@@ -225,14 +225,14 @@ impl SiteState {
         if let Some(&idx) = self.path_index.get(path) {
             self.children[idx]
                 .iter()
-                .filter(|&&j| self.has_content_in_subtree(j))
+                .filter(|&&j| self.has_content[j])
                 .map(|&j| &self.pages[j])
                 .collect()
         } else if path.is_empty() {
             // No root page exists, return root pages as fallback
             self.roots
                 .iter()
-                .filter(|&&i| self.has_content_in_subtree(i))
+                .filter(|&&i| self.has_content[i])
                 .map(|&i| &self.pages[i])
                 .collect()
         } else {
@@ -491,16 +491,6 @@ impl SiteState {
             current = parent.to_string();
         }
         None
-    }
-
-    /// Check if a page has markdown content in its subtree.
-    ///
-    /// A page has content if it has a `source_path` (is a real markdown file)
-    /// or any of its descendants have a `source_path`.
-    ///
-    /// This is an O(1) lookup using precomputed values.
-    fn has_content_in_subtree(&self, idx: usize) -> bool {
-        self.has_content[idx]
     }
 }
 
