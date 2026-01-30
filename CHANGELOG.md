@@ -10,13 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Page metadata support via YAML sidecar files (`meta.yaml`)
-- Navigation sections grouping groups pages by `type` in sidebar
+- Navigation sections grouping pages by `type` in sidebar
 - Scoped section navigation for hierarchical documentation sites
 - Page loading progress for slow updates
 
 ### Security
 
 - Storage errors no longer expose full filesystem paths in API responses
+- Virtual page titles are now HTML-escaped to prevent XSS
 
 ### Fixed
 
