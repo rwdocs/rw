@@ -56,7 +56,7 @@ use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
 // Re-import from crate root for public types, and direct module for internal
 pub(crate) use crate::site_state::{
-    BreadcrumbItem, NavItem, Page, ScopedNavigation, SiteState, SiteStateBuilder,
+    BreadcrumbItem, Page, ScopedNavigation, SiteState, SiteStateBuilder,
 };
 
 /// Result of rendering a markdown page.
@@ -233,18 +233,6 @@ impl Site {
     #[must_use]
     pub(crate) fn state(&self) -> Arc<SiteState> {
         self.current_state.read().unwrap().clone()
-    }
-
-    /// Get navigation tree.
-    ///
-    /// Reloads site if needed and returns the navigation tree.
-    ///
-    /// # Panics
-    ///
-    /// Panics if internal locks are poisoned.
-    #[must_use]
-    pub fn navigation(&self) -> Vec<NavItem> {
-        self.reload_if_needed().navigation()
     }
 
     /// Get scoped navigation tree.
@@ -1597,13 +1585,13 @@ mod tests {
 
         let site = create_site(source_dir);
 
-        let nav = site.navigation();
+        let nav = site.scoped_navigation("");
 
-        assert_eq!(nav.len(), 1);
-        assert_eq!(nav[0].title, "My Domain");
-        assert_eq!(nav[0].path, "my-domain");
-        assert_eq!(nav[0].children.len(), 1);
-        assert_eq!(nav[0].children[0].title, "Child Page");
+        assert_eq!(nav.items.len(), 1);
+        assert_eq!(nav.items[0].title, "My Domain");
+        assert_eq!(nav.items[0].path, "my-domain");
+        // Section is a leaf in root scope (scoped navigation)
+        assert!(nav.items[0].children.is_empty());
     }
 
     #[test]
@@ -1645,14 +1633,25 @@ mod tests {
         assert!(overview.is_some());
         assert!(overview.unwrap().source_path.is_some());
 
-        // Check navigation structure
-        let nav = site.navigation();
-        assert_eq!(nav.len(), 1);
-        assert_eq!(nav[0].title, "Domains");
-        assert_eq!(nav[0].children.len(), 1);
-        assert_eq!(nav[0].children[0].title, "Billing");
-        assert_eq!(nav[0].children[0].children.len(), 1);
-        assert_eq!(nav[0].children[0].children[0].title, "Overview");
+        // Check navigation structure via scoped navigation
+        // Domains section in root scope
+        let root_nav = site.scoped_navigation("");
+        assert_eq!(root_nav.items.len(), 1);
+        assert_eq!(root_nav.items[0].title, "Domains");
+        // Sections are leaves in root scope
+        assert!(root_nav.items[0].children.is_empty());
+
+        // Navigate into Domains section
+        let domains_nav = site.scoped_navigation("domains");
+        assert_eq!(domains_nav.items.len(), 1);
+        assert_eq!(domains_nav.items[0].title, "Billing");
+        // Billing is also a section, so it's a leaf in domains scope
+        assert!(domains_nav.items[0].children.is_empty());
+
+        // Navigate into Billing section
+        let billing_nav = site.scoped_navigation("domains/billing");
+        assert_eq!(billing_nav.items.len(), 1);
+        assert_eq!(billing_nav.items[0].title, "Overview");
     }
 
     #[test]
