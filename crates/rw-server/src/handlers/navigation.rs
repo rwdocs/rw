@@ -64,7 +64,7 @@ struct NavItemResponse {
     /// Link target path (with leading slash for frontend).
     path: String,
     /// Section type if this item is a section root.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "sectionType", skip_serializing_if = "Option::is_none")]
     section_type: Option<String>,
     /// Child navigation items.
     #[serde(skip_serializing_if = "Vec::is_empty")]

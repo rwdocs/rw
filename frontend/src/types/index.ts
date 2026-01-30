@@ -3,7 +3,7 @@ export interface NavItem {
   title: string;
   path: string;
   /** Section type if this item is a section root. */
-  section_type?: string;
+  sectionType?: string;
   children?: NavItem[];
 }
 
