@@ -76,7 +76,7 @@ pub struct ScopeInfo {
 
 /// Result of scoped navigation query.
 #[derive(Clone, Debug, Default, Serialize)]
-pub struct ScopedNavigation {
+pub struct Navigation {
     /// Navigation items for this scope.
     pub items: Vec<NavItem>,
     /// Current scope info (None at root).
@@ -367,7 +367,7 @@ impl SiteState {
     ///
     /// * `scope_path` - Path to scope (without leading slash), empty for root scope.
     #[must_use]
-    pub fn scoped_navigation(&self, scope_path: &str) -> ScopedNavigation {
+    pub fn navigation(&self, scope_path: &str) -> Navigation {
         if scope_path.is_empty() {
             // Root scope: show children of root page with sections as leaves
             let items = if let Some(root_page) = self.get_page("") {
@@ -382,7 +382,7 @@ impl SiteState {
                     .collect()
             };
 
-            ScopedNavigation {
+            Navigation {
                 items,
                 scope: None,
                 parent_scope: None,
@@ -391,7 +391,7 @@ impl SiteState {
             // Section scope: show section's children
             let Some(section) = self.sections.get(scope_path) else {
                 // Not a valid section, return empty navigation
-                return ScopedNavigation::default();
+                return Navigation::default();
             };
 
             // Get children of this section
@@ -411,7 +411,7 @@ impl SiteState {
             // Find parent section for back navigation
             let parent_scope = self.find_parent_section(scope_path);
 
-            ScopedNavigation {
+            Navigation {
                 items,
                 scope,
                 parent_scope,
@@ -991,16 +991,16 @@ mod tests {
     // Navigation tests
 
     #[test]
-    fn test_scoped_navigation_empty_site_returns_empty_list() {
+    fn test_navigation_empty_site_returns_empty_list() {
         let site = SiteStateBuilder::new().build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         assert!(nav.items.is_empty());
     }
 
     #[test]
-    fn test_scoped_navigation_flat_site() {
+    fn test_navigation_flat_site() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_string(),
@@ -1018,7 +1018,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         assert_eq!(nav.items.len(), 2);
         let titles: Vec<_> = nav.items.iter().map(|item| item.title.as_str()).collect();
@@ -1027,7 +1027,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_nested_site() {
+    fn test_navigation_nested_site() {
         let mut builder = SiteStateBuilder::new();
         let parent_idx = builder.add_page(
             "Domain A".to_string(),
@@ -1045,7 +1045,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         assert_eq!(nav.items.len(), 1);
         let domain = &nav.items[0];
@@ -1058,7 +1058,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_deeply_nested() {
+    fn test_navigation_deeply_nested() {
         let mut builder = SiteStateBuilder::new();
         let idx_a = builder.add_page(
             "A".to_string(),
@@ -1083,7 +1083,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         // Non-section pages expand children recursively
         assert_eq!(nav.items[0].title, "A");
@@ -1092,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_root_page_excluded() {
+    fn test_navigation_root_page_excluded() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1117,7 +1117,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         // Navigation should show children of root, not root itself
         assert_eq!(nav.items.len(), 2);
@@ -1128,7 +1128,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_includes_section_type() {
+    fn test_navigation_includes_section_type() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1170,7 +1170,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         assert_eq!(nav.items.len(), 3);
 
@@ -1296,7 +1296,7 @@ mod tests {
     // Scoped navigation tests
 
     #[test]
-    fn test_scoped_navigation_root_scope() {
+    fn test_navigation_root_scope() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1326,7 +1326,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         // Root scope should have no scope info
         assert!(nav.scope.is_none());
@@ -1342,7 +1342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_sections_are_leaves_in_root() {
+    fn test_navigation_sections_are_leaves_in_root() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1373,7 +1373,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         // Billing is a section, so it should have no children in root scope
         let billing = nav.items.iter().find(|i| i.title == "Billing").unwrap();
@@ -1381,7 +1381,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_section_scope() {
+    fn test_navigation_section_scope() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1418,7 +1418,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("billing");
+        let nav = site.navigation("billing");
 
         // Should have scope info
         assert!(nav.scope.is_some());
@@ -1438,7 +1438,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_nested_sections() {
+    fn test_navigation_nested_sections() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1481,7 +1481,7 @@ mod tests {
         let site = builder.build();
 
         // Request navigation for nested section
-        let nav = site.scoped_navigation("billing/payments");
+        let nav = site.navigation("billing/payments");
 
         // Should have scope info
         let scope = nav.scope.as_ref().unwrap();
@@ -1610,7 +1610,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_invalid_scope_returns_empty() {
+    fn test_navigation_invalid_scope_returns_empty() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_string(),
@@ -1621,7 +1621,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("nonexistent");
+        let nav = site.navigation("nonexistent");
 
         // Should return empty navigation for invalid scope
         assert!(nav.items.is_empty());
@@ -1632,7 +1632,7 @@ mod tests {
     // Content filtering tests
 
     #[test]
-    fn test_scoped_navigation_excludes_virtual_pages_without_content() {
+    fn test_navigation_excludes_virtual_pages_without_content() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1659,7 +1659,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         // Only the real page should be in navigation
         assert_eq!(nav.items.len(), 1);
@@ -1667,7 +1667,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_includes_virtual_pages_with_content_in_subtree() {
+    fn test_navigation_includes_virtual_pages_with_content_in_subtree() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1694,7 +1694,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         // Section should be included because it has a child with content
         assert_eq!(nav.items.len(), 1);
@@ -1704,7 +1704,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_filters_nested_virtual_pages_without_content() {
+    fn test_navigation_filters_nested_virtual_pages_without_content() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1739,7 +1739,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         // Section should be included, but only the real child
         assert_eq!(nav.items.len(), 1);
@@ -1749,7 +1749,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scoped_navigation_filters_content() {
+    fn test_navigation_filters_content() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             "Home".to_string(),
@@ -1789,7 +1789,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let nav = site.scoped_navigation("billing");
+        let nav = site.navigation("billing");
 
         // Only real child should be in scoped navigation
         assert_eq!(nav.items.len(), 1);

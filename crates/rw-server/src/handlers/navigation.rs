@@ -97,7 +97,7 @@ pub(crate) async fn get_navigation(
         .as_deref()
         .map_or("", |s| s.strip_prefix('/').unwrap_or(s));
 
-    let scoped_nav = state.site.scoped_navigation(scope_path);
+    let scoped_nav = state.site.navigation(scope_path);
 
     Json(NavigationResponse {
         items: scoped_nav

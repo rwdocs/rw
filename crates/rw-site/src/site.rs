@@ -56,7 +56,7 @@ use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
 // Re-import from crate root for public types, and direct module for internal
 pub(crate) use crate::site_state::{
-    BreadcrumbItem, Page, ScopedNavigation, SiteState, SiteStateBuilder,
+    BreadcrumbItem, Page, Navigation, SiteState, SiteStateBuilder,
 };
 
 /// Result of rendering a markdown page.
@@ -247,8 +247,8 @@ impl Site {
     ///
     /// Panics if internal locks are poisoned.
     #[must_use]
-    pub fn scoped_navigation(&self, scope_path: &str) -> ScopedNavigation {
-        self.reload_if_needed().scoped_navigation(scope_path)
+    pub fn navigation(&self, scope_path: &str) -> Navigation {
+        self.reload_if_needed().navigation(scope_path)
     }
 
     /// Get navigation scope for a page.
@@ -1585,7 +1585,7 @@ mod tests {
 
         let site = create_site(source_dir);
 
-        let nav = site.scoped_navigation("");
+        let nav = site.navigation("");
 
         assert_eq!(nav.items.len(), 1);
         assert_eq!(nav.items[0].title, "My Domain");
@@ -1635,21 +1635,21 @@ mod tests {
 
         // Check navigation structure via scoped navigation
         // Domains section in root scope
-        let root_nav = site.scoped_navigation("");
+        let root_nav = site.navigation("");
         assert_eq!(root_nav.items.len(), 1);
         assert_eq!(root_nav.items[0].title, "Domains");
         // Sections are leaves in root scope
         assert!(root_nav.items[0].children.is_empty());
 
         // Navigate into Domains section
-        let domains_nav = site.scoped_navigation("domains");
+        let domains_nav = site.navigation("domains");
         assert_eq!(domains_nav.items.len(), 1);
         assert_eq!(domains_nav.items[0].title, "Billing");
         // Billing is also a section, so it's a leaf in domains scope
         assert!(domains_nav.items[0].children.is_empty());
 
         // Navigate into Billing section
-        let billing_nav = site.scoped_navigation("domains/billing");
+        let billing_nav = site.navigation("domains/billing");
         assert_eq!(billing_nav.items.len(), 1);
         assert_eq!(billing_nav.items[0].title, "Overview");
     }
