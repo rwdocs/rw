@@ -51,20 +51,18 @@ pub struct PageMetadata {
 impl PageMetadata {
     /// Parse metadata from YAML content.
     ///
-    /// Returns `None` for empty content, `Some(metadata)` for valid YAML,
-    /// or an error for invalid YAML.
+    /// Returns metadata for valid YAML (empty content returns a default instance).
     ///
     /// # Errors
     ///
     /// Returns an error if the YAML is malformed.
-    pub fn from_yaml(content: &str) -> Result<Option<Self>, MetadataError> {
+    pub fn from_yaml(content: &str) -> Result<Self, MetadataError> {
         let trimmed = content.trim();
         if trimmed.is_empty() {
-            return Ok(Some(Self::default()));
+            return Ok(Self::default());
         }
 
         serde_yaml::from_str(trimmed)
-            .map(Some)
             .map_err(|e| MetadataError::Parse(format!("Invalid YAML: {e}")))
     }
 
@@ -154,7 +152,7 @@ mod tests {
     fn test_parse_empty_yaml() {
         let result = PageMetadata::from_yaml("");
         assert!(result.is_ok());
-        let meta = result.unwrap().unwrap();
+        let meta = result.unwrap();
         assert!(meta.is_empty());
     }
 
@@ -162,7 +160,7 @@ mod tests {
     fn test_parse_whitespace_only() {
         let result = PageMetadata::from_yaml("   \n\t  ");
         assert!(result.is_ok());
-        let meta = result.unwrap().unwrap();
+        let meta = result.unwrap();
         assert!(meta.is_empty());
     }
 
@@ -171,7 +169,7 @@ mod tests {
         let yaml = "title: My Page";
         let result = PageMetadata::from_yaml(yaml);
         assert!(result.is_ok());
-        let meta = result.unwrap().unwrap();
+        let meta = result.unwrap();
         assert_eq!(meta.title, Some("My Page".to_string()));
         assert!(meta.description.is_none());
         assert!(meta.page_type.is_none());
@@ -193,7 +191,7 @@ vars:
 "#;
         let result = PageMetadata::from_yaml(yaml);
         assert!(result.is_ok());
-        let meta = result.unwrap().unwrap();
+        let meta = result.unwrap();
         assert_eq!(meta.title, Some("My Domain".to_string()));
         assert_eq!(meta.description, Some("Domain overview".to_string()));
         assert_eq!(meta.page_type, Some("domain".to_string()));
@@ -215,7 +213,7 @@ vars:
 title: Test
 unknown_field: value
 ";
-        let result = PageMetadata::from_yaml(yaml).unwrap().unwrap();
+        let result = PageMetadata::from_yaml(yaml).unwrap();
         assert_eq!(result.title, Some("Test".to_string()));
     }
 
