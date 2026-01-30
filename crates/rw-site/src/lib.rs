@@ -21,7 +21,7 @@
 //! let site = Arc::new(Site::new(storage, config));
 //!
 //! // Get navigation (root scope)
-//! let nav = site.scoped_navigation("");
+//! let nav = site.navigation("");
 //!
 //! // Render a page
 //! let result = site.render("/guide")?;
@@ -35,7 +35,7 @@ pub(crate) mod site_state;
 
 pub use metadata::PageMetadata;
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
-pub use site_state::{BreadcrumbItem, NavItem, Page, ScopeInfo, ScopedNavigation, SectionInfo};
+pub use site_state::{BreadcrumbItem, NavItem, Page, ScopeInfo, Navigation, SectionInfo};
 
 // Re-export TocEntry from rw-renderer for convenience
 pub use rw_renderer::TocEntry;
