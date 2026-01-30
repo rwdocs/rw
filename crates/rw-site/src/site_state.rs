@@ -269,6 +269,7 @@ impl SiteState {
     }
 
     /// Get root-level pages.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn get_root_pages(&self) -> Vec<&Page> {
         self.roots.iter().map(|&i| &self.pages[i]).collect()
@@ -328,12 +329,6 @@ impl SiteState {
     #[must_use]
     pub fn sections(&self) -> &HashMap<String, SectionInfo> {
         &self.sections
-    }
-
-    /// Get a section by path.
-    #[must_use]
-    pub fn get_section(&self, path: &str) -> Option<&SectionInfo> {
-        self.sections.get(path)
     }
 
     /// Build navigation tree from site structure.

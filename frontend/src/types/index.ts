@@ -78,15 +78,3 @@ export interface ApiError {
 export interface ConfigResponse {
   liveReloadEnabled: boolean;
 }
-
-/** Section from GET /api/sections */
-export interface Section {
-  title: string;
-  path: string;
-  type: string;
-}
-
-/** Response from GET /api/sections */
-export interface SectionsResponse {
-  sections: Section[];
-}

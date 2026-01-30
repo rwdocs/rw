@@ -313,22 +313,6 @@ impl Site {
         self.reload_if_needed().get_page(path).cloned()
     }
 
-    /// Get all sections defined in the site.
-    ///
-    /// Reloads site if needed and returns all sections (pages with `type` in metadata).
-    ///
-    /// # Panics
-    ///
-    /// Panics if internal locks are poisoned.
-    #[must_use]
-    pub fn sections(&self) -> Vec<crate::site_state::SectionInfo> {
-        self.reload_if_needed()
-            .sections()
-            .values()
-            .cloned()
-            .collect()
-    }
-
     /// Get breadcrumbs for a page.
     ///
     /// Reloads site if needed and returns breadcrumb navigation items
