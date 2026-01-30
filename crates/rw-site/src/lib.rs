@@ -20,8 +20,8 @@
 //! };
 //! let site = Arc::new(Site::new(storage, config));
 //!
-//! // Get navigation
-//! let nav = site.navigation();
+//! // Get navigation (root scope)
+//! let nav = site.scoped_navigation("");
 //!
 //! // Render a page
 //! let result = site.render("/guide")?;

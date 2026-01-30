@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Description no longer inherited** from parent metadata - must be set explicitly per page
+- Removed `Site::navigation()` from public API - use `scoped_navigation("")` instead
 - Metadata YAML files now ignore unknown fields instead of failing to parse
 - Navigation content filtering now uses precomputed values for O(1) lookup (was O(N*D) recursive)
 
