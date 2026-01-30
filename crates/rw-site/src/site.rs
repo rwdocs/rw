@@ -806,10 +806,10 @@ impl Site {
         match (inherited_metadata, file_metadata) {
             (Some(parent), Some(child)) => Some(merge_metadata(&parent, &child)),
             (Some(parent), None) => {
-                // Inherit description and vars but not title or type
+                // Inherit only vars, not title, description, or type
                 Some(PageMetadata {
                     title: None,
-                    description: parent.description.clone(),
+                    description: None,
                     page_type: None,
                     vars: parent.vars.clone(),
                 })
