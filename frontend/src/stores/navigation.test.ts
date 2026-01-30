@@ -137,7 +137,62 @@ describe("navigation store", () => {
 
       await navigation.load({ bypassCache: true });
 
-      expect(mockFetchNavigation).toHaveBeenCalledWith({ bypassCache: true });
+      expect(mockFetchNavigation).toHaveBeenCalledWith(
+        expect.objectContaining({ bypassCache: true }),
+      );
+    });
+
+    it("aborts previous request when new load starts", async () => {
+      let firstResolve: (value: NavigationTree) => void;
+      const firstPromise = new Promise<NavigationTree>((resolve) => {
+        firstResolve = resolve;
+      });
+
+      const secondTree: NavigationTree = {
+        items: [{ path: "/second", title: "Second", children: [] }],
+        scope: null,
+        parentScope: null,
+      };
+
+      mockFetchNavigation
+        .mockImplementationOnce(() => firstPromise)
+        .mockResolvedValueOnce(secondTree);
+
+      // Start first request (don't await)
+      void navigation.loadScope("first");
+
+      // Start second request before first completes
+      const secondLoad = navigation.loadScope("second");
+
+      // First request's signal should be aborted
+      const firstCall = mockFetchNavigation.mock.calls[0]?.[0] as { signal: AbortSignal };
+      expect(firstCall.signal.aborted).toBe(true);
+
+      // Second request's signal should not be aborted
+      const secondCall = mockFetchNavigation.mock.calls[1]?.[0] as { signal: AbortSignal };
+      expect(secondCall.signal.aborted).toBe(false);
+
+      // Resolve first request (should be ignored)
+      firstResolve!(mockTree);
+      await secondLoad;
+
+      // State should have second tree, not first
+      const state = get(navigation);
+      expect(state.tree).toEqual(secondTree);
+      expect(state.currentScope).toBe("second");
+    });
+
+    it("silently ignores AbortError", async () => {
+      const abortError = new DOMException("Aborted", "AbortError");
+      mockFetchNavigation.mockRejectedValue(abortError);
+
+      await navigation.load();
+
+      const state = get(navigation);
+      // Should not set error for AbortError
+      expect(state.error).toBeNull();
+      // Should still be loading since we didn't complete
+      expect(state.loading).toBe(true);
     });
   });
 
