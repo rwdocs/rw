@@ -28,10 +28,10 @@ export interface ScopeInfo {
 /** Complete navigation tree with scope information */
 export interface NavigationTree {
   items: NavItem[];
-  /** Current scope info (null at root). */
-  scope: ScopeInfo | null;
-  /** Parent scope for back navigation (null at root or if no parent section). */
-  parentScope: ScopeInfo | null;
+  /** Current scope info (omitted at root). */
+  scope?: ScopeInfo;
+  /** Parent scope for back navigation (omitted at root or if no parent section). */
+  parentScope?: ScopeInfo;
 }
 
 /** Page metadata from GET /api/pages/{path} */

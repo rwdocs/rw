@@ -29,8 +29,6 @@ const mockTree: NavigationTree = {
     },
     { title: "API", path: "/api" },
   ],
-  scope: null,
-  parentScope: null,
 };
 
 describe("collectParentPaths", () => {
@@ -150,8 +148,6 @@ describe("navigation store", () => {
 
       const secondTree: NavigationTree = {
         items: [{ path: "/second", title: "Second", children: [] }],
-        scope: null,
-        parentScope: null,
       };
 
       mockFetchNavigation
