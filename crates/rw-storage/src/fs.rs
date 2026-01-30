@@ -225,7 +225,7 @@ impl FsStorage {
                     path: rel_path,
                     title,
                 });
-            } else if name_lower == self.meta_filename.to_lowercase() {
+            } else if entry.file_name().to_string_lossy() == self.meta_filename {
                 // Collect metadata file
                 let file_path = base_path.join(entry.file_name());
                 result.metadata_files.push(MetadataFile {
