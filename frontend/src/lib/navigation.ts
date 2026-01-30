@@ -23,10 +23,10 @@ export function groupNavItems(items: NavItem[]): NavGroup[] {
   const ungrouped: NavItem[] = [];
 
   for (const item of items) {
-    if (item.section_type) {
-      const group = typedGroups.get(item.section_type) ?? [];
+    if (item.sectionType) {
+      const group = typedGroups.get(item.sectionType) ?? [];
       group.push(item);
-      typedGroups.set(item.section_type, group);
+      typedGroups.set(item.sectionType, group);
     } else {
       ungrouped.push(item);
     }
