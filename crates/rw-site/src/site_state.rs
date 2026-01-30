@@ -113,6 +113,31 @@ pub struct SiteState {
     path_index: HashMap<String, usize>,
     source_path_index: HashMap<PathBuf, usize>,
     sections: HashMap<String, SectionInfo>,
+    has_content: Vec<bool>,
+}
+
+/// Compute which pages have markdown content in their subtree.
+///
+/// Uses post-order DFS to compute the values efficiently in O(N) time.
+fn compute_has_content(pages: &[Page], children: &[Vec<usize>], roots: &[usize]) -> Vec<bool> {
+    fn dfs(idx: usize, pages: &[Page], children: &[Vec<usize>], result: &mut [bool]) {
+        // Process children first (post-order)
+        for &child in &children[idx] {
+            dfs(child, pages, children, result);
+        }
+        // Page has content if it has source_path OR any child has content
+        result[idx] =
+            pages[idx].source_path.is_some() || children[idx].iter().any(|&c| result[c]);
+    }
+
+    let mut has_content = vec![false; pages.len()];
+
+    // Traverse from roots to ensure all pages are visited
+    for &root in roots {
+        dfs(root, pages, children, &mut has_content);
+    }
+
+    has_content
 }
 
 impl SiteState {
@@ -138,6 +163,7 @@ impl SiteState {
             .enumerate()
             .filter_map(|(i, page)| page.source_path.clone().map(|sp| (sp, i)))
             .collect();
+        let has_content = compute_has_content(&pages, &children, &roots);
 
         Self {
             pages,
@@ -147,6 +173,7 @@ impl SiteState {
             path_index,
             source_path_index,
             sections,
+            has_content,
         }
     }
 
@@ -329,6 +356,12 @@ impl SiteState {
     #[must_use]
     pub fn sections(&self) -> &HashMap<String, SectionInfo> {
         &self.sections
+    }
+
+    /// Get precomputed `has_content` flags (for serialization).
+    #[must_use]
+    pub(crate) fn has_content(&self) -> &[bool] {
+        &self.has_content
     }
 
     /// Build navigation tree from site structure.
@@ -527,16 +560,10 @@ impl SiteState {
     ///
     /// A page has content if it has a `source_path` (is a real markdown file)
     /// or any of its descendants have a `source_path`.
+    ///
+    /// This is an O(1) lookup using precomputed values.
     fn has_content_in_subtree(&self, idx: usize) -> bool {
-        // If this page has a source path, it has content
-        if self.pages[idx].source_path.is_some() {
-            return true;
-        }
-
-        // Check if any children have content
-        self.children[idx]
-            .iter()
-            .any(|&child_idx| self.has_content_in_subtree(child_idx))
+        self.has_content[idx]
     }
 }
 

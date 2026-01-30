@@ -36,6 +36,8 @@ struct CachedSiteState {
     roots: Vec<usize>,
     #[serde(default)]
     sections: HashMap<String, SectionInfo>,
+    #[serde(default)]
+    has_content: Vec<bool>,
 }
 
 impl From<&SiteState> for CachedSiteState {
@@ -46,6 +48,7 @@ impl From<&SiteState> for CachedSiteState {
             parents: site.parent_indices().to_vec(),
             roots: site.root_indices().to_vec(),
             sections: site.sections().clone(),
+            has_content: site.has_content().to_vec(),
         }
     }
 }
