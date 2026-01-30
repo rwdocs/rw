@@ -135,7 +135,7 @@ crates/
 └── rw-server/             # Native HTTP server (axum)
     └── src/
         ├── lib.rs            # Server configuration and entry point
-        ├── handlers/         # API endpoints (config, pages, navigation, sections)
+        ├── handlers/         # API endpoints (config, pages, navigation)
         ├── live_reload/      # File watching and WebSocket broadcasting
         └── static_files.rs   # Static file serving with SPA fallback
 

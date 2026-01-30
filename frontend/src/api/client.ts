@@ -1,4 +1,4 @@
-import type { ConfigResponse, NavigationTree, PageResponse, SectionsResponse } from "../types";
+import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 
 const API_BASE = "/api";
 
@@ -66,15 +66,6 @@ export async function fetchConfig(): Promise<ConfigResponse> {
   const response = await fetch(`${API_BASE}/config`);
   if (!response.ok) {
     throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`);
-  }
-  return response.json();
-}
-
-/** Fetch all sections */
-export async function fetchSections(options?: FetchOptions): Promise<SectionsResponse> {
-  const response = await fetch(`${API_BASE}/sections`, buildRequestInit(options));
-  if (!response.ok) {
-    throw new Error(`Failed to fetch sections: ${response.status} ${response.statusText}`);
   }
   return response.json();
 }

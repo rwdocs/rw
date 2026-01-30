@@ -13,7 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Custom page titles, descriptions, and types
   - Sub-site/section definitions (directories with `type` set)
   - Custom variables with inheritance from parent directories
-  - New `/api/sections` endpoint for listing all sections
   - New `[metadata]` config section with `name` option (default: `meta.yaml`)
 - **Navigation sections grouping** groups pages by `type` in sidebar
   - Pages with `type` metadata are grouped under labels (e.g., "Domains", "Systems")
