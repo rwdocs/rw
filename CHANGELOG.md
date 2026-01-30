@@ -9,26 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Page metadata support** via YAML sidecar files (`meta.yaml`)
-  - Custom page titles, descriptions, and types
-  - Sub-site/section definitions (directories with `type` set)
-  - Custom variables with inheritance from parent directories
-  - New `[metadata]` config section with `name` option (default: `meta.yaml`)
-- **Navigation sections grouping** groups pages by `type` in sidebar
-  - Pages with `type` metadata are grouped under labels (e.g., "Domains", "Systems")
-  - Groups appear alphabetically, ungrouped pages appear after groups
-  - `section_type` field added to `/api/navigation` response
-- **Virtual pages** for directories with `meta.yaml` but no `index.md`
-  - Directories with metadata appear in navigation
-  - Virtual pages render h1 with title only
-  - Supports nested virtual pages for organizing section hierarchies
-- **Scoped section navigation** for hierarchical documentation sites
-  - Navigation scopes to current section when viewing pages inside a section
-  - Sections are leaf nodes in parent scope (no subpage expansion)
-  - Back navigation to parent scope or Home from within sections
-  - `navigationScope` field added to page API response
-  - `scope` and `parentScope` fields added to navigation API response
-  - Supports `?scope=` query parameter in `/api/navigation`
+- Page metadata support via YAML sidecar files (`meta.yaml`)
+- Navigation sections grouping groups pages by `type` in sidebar
+- Scoped section navigation for hierarchical documentation sites
 - Page loading progress for slow updates
 
 ### Security
