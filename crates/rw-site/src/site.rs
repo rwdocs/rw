@@ -652,12 +652,7 @@ impl Site {
             return builder.build();
         }
 
-        // Track added pages by their directory path for parent lookup
-        // For documents: key is parent directory (e.g., "domain" for "domain/index.md")
-        // For virtual pages: key is the directory path
-        let mut path_to_idx: HashMap<PathBuf, usize> = HashMap::new();
-
-        // Also track URL paths to page indices for parent lookup
+        // Track URL paths to page indices for parent lookup
         let mut url_to_idx: HashMap<String, usize> = HashMap::new();
 
         // Track metadata by directory for inheritance
@@ -693,7 +688,6 @@ impl Site {
                         parent_idx,
                         metadata,
                     );
-                    path_to_idx.insert(doc.path.clone(), idx);
                     url_to_idx.insert(url_path, idx);
                 }
                 PageEntry::Virtual(dir_path, metadata) => {
