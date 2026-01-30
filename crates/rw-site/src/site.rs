@@ -47,7 +47,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use rw_diagrams::{DiagramProcessor, FileCache};
 use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
 use rw_storage::{Storage, StorageError, StorageErrorKind};
 
 use crate::metadata::{PageMetadata, merge_metadata, metadata_dir, metadata_file_path};
@@ -472,7 +472,7 @@ impl Site {
             .map_or(0.0, |d| d.as_secs_f64());
 
         PageRenderResult {
-            html: format!("<h1>{}</h1>\n", page.title),
+            html: format!("<h1>{}</h1>\n", escape_html(&page.title)),
             title: Some(page.title.clone()),
             toc: Vec::new(),
             warnings: Vec::new(),
