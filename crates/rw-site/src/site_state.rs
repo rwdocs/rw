@@ -210,6 +210,9 @@ impl SiteState {
 
     /// Get children of a page that have markdown content in their subtree.
     ///
+    /// When `path` is empty and no root page exists, returns root-level pages
+    /// with content as a fallback. This handles sites without an `index.md`.
+    ///
     /// # Arguments
     ///
     /// * `path` - URL path without leading slash (e.g., "guide", "" for root)
@@ -219,16 +222,22 @@ impl SiteState {
     /// Vector of child page references that have content, empty if page not found or has no children with content.
     #[must_use]
     fn get_children_with_content(&self, path: &str) -> Vec<&Page> {
-        self.path_index
-            .get(path)
-            .map(|&i| {
-                self.children[i]
-                    .iter()
-                    .filter(|&&j| self.has_content_in_subtree(j))
-                    .map(|&j| &self.pages[j])
-                    .collect()
-            })
-            .unwrap_or_default()
+        if let Some(&idx) = self.path_index.get(path) {
+            self.children[idx]
+                .iter()
+                .filter(|&&j| self.has_content_in_subtree(j))
+                .map(|&j| &self.pages[j])
+                .collect()
+        } else if path.is_empty() {
+            // No root page exists, return root pages as fallback
+            self.roots
+                .iter()
+                .filter(|&&i| self.has_content_in_subtree(i))
+                .map(|&i| &self.pages[i])
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Build breadcrumbs for a given path.
@@ -302,16 +311,6 @@ impl SiteState {
         self.roots.iter().map(|&i| &self.pages[i]).collect()
     }
 
-    /// Get root-level pages that have markdown content in their subtree.
-    #[must_use]
-    fn get_root_pages_with_content(&self) -> Vec<&Page> {
-        self.roots
-            .iter()
-            .filter(|&&i| self.has_content_in_subtree(i))
-            .map(|&i| &self.pages[i])
-            .collect()
-    }
-
     /// Get page by source file path.
     ///
     /// # Arguments
@@ -369,18 +368,12 @@ impl SiteState {
     #[must_use]
     pub fn navigation(&self, scope_path: &str) -> Navigation {
         if scope_path.is_empty() {
-            // Root scope: show children of root page with sections as leaves
-            let items = if let Some(root_page) = self.get_page("") {
-                self.get_children_with_content(&root_page.path)
-                    .into_iter()
-                    .map(|page| self.build_nav_item_with_section_cutoff(page))
-                    .collect()
-            } else {
-                self.get_root_pages_with_content()
-                    .into_iter()
-                    .map(|page| self.build_nav_item_with_section_cutoff(page))
-                    .collect()
-            };
+            // Root scope: show children of root page (or root pages if no index.md)
+            let items = self
+                .get_children_with_content("")
+                .into_iter()
+                .map(|page| self.build_nav_item_with_section_cutoff(page))
+                .collect();
 
             Navigation {
                 items,
