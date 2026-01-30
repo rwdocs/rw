@@ -297,7 +297,6 @@ impl FsStorage {
             .collect::<Vec<_>>()
             .join(" ")
     }
-
 }
 
 impl Storage for FsStorage {
@@ -618,8 +617,7 @@ mod tests {
         fs::write(domain_dir.join("config.yml"), "title: Domain Title").unwrap();
         fs::write(domain_dir.join("meta.yaml"), "ignored").unwrap(); // Should be ignored
 
-        let storage =
-            FsStorage::with_meta_filename(temp_dir.path().to_path_buf(), "config.yml");
+        let storage = FsStorage::with_meta_filename(temp_dir.path().to_path_buf(), "config.yml");
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
@@ -1034,5 +1032,4 @@ mod tests {
         let event = rx.try_recv();
         assert!(event.is_none());
     }
-
 }

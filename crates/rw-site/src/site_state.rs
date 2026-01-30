@@ -126,8 +126,7 @@ fn compute_has_content(pages: &[Page], children: &[Vec<usize>], roots: &[usize])
             dfs(child, pages, children, result);
         }
         // Page has content if it has source_path OR any child has content
-        result[idx] =
-            pages[idx].source_path.is_some() || children[idx].iter().any(|&c| result[c]);
+        result[idx] = pages[idx].source_path.is_some() || children[idx].iter().any(|&c| result[c]);
     }
 
     let mut has_content = vec![false; pages.len()];
@@ -1158,8 +1157,16 @@ mod tests {
         assert_eq!(nav.items.len(), 3);
 
         // Find items by title
-        let billing = nav.items.iter().find(|item| item.title == "Billing").unwrap();
-        let payments = nav.items.iter().find(|item| item.title == "Payments").unwrap();
+        let billing = nav
+            .items
+            .iter()
+            .find(|item| item.title == "Billing")
+            .unwrap();
+        let payments = nav
+            .items
+            .iter()
+            .find(|item| item.title == "Payments")
+            .unwrap();
         let getting_started = nav
             .items
             .iter()

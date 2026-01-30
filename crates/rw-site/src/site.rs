@@ -55,9 +55,7 @@ use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
 // Re-import from crate root for public types, and direct module for internal
-pub(crate) use crate::site_state::{
-    BreadcrumbItem, Page, Navigation, SiteState, SiteStateBuilder,
-};
+pub(crate) use crate::site_state::{BreadcrumbItem, Navigation, Page, SiteState, SiteStateBuilder};
 
 /// Result of rendering a markdown page.
 #[derive(Clone, Debug)]
