@@ -248,10 +248,14 @@ mod tests {
         assert_eq!(guide.title, "Guide");
         assert_eq!(guide.source_path, Some(PathBuf::from("guide.md")));
 
-        // Check hierarchy
-        let children = loaded.get_children("/");
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].path, "/guide");
+        // Check hierarchy via root navigation (non-section pages expand children)
+        // The test site uses "/" as root path; navigation("") returns root pages
+        let nav = loaded.navigation("");
+        assert_eq!(nav.items.len(), 1);
+        assert_eq!(nav.items[0].path, "/");
+        // Home has one child: Guide
+        assert_eq!(nav.items[0].children.len(), 1);
+        assert_eq!(nav.items[0].children[0].path, "/guide");
     }
 
     #[test]

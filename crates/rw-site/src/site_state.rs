@@ -190,23 +190,6 @@ impl SiteState {
         self.path_index.get(path).map(|&i| &self.pages[i])
     }
 
-    /// Get children of a page.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash (e.g., "guide", "" for root)
-    ///
-    /// # Returns
-    ///
-    /// Vector of child page references, empty if page not found or has no children.
-    #[must_use]
-    pub(crate) fn get_children(&self, path: &str) -> Vec<&Page> {
-        self.path_index
-            .get(path)
-            .map(|&i| self.children[i].iter().map(|&j| &self.pages[j]).collect())
-            .unwrap_or_default()
-    }
-
     /// Get children of a page that have markdown content in their subtree.
     ///
     /// When `path` is empty and no root page exists, returns root-level pages
@@ -620,57 +603,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_children_returns_children() {
-        let mut builder = SiteStateBuilder::new();
-        let parent_idx = builder.add_page(
-            "Parent".to_string(),
-            "parent".to_string(),
-            Some(PathBuf::from("parent/index.md")),
-            None,
-            None,
-        );
-        builder.add_page(
-            "Child".to_string(),
-            "parent/child".to_string(),
-            Some(PathBuf::from("parent/child.md")),
-            Some(parent_idx),
-            None,
-        );
-        let site = builder.build();
-
-        let children = site.get_children("parent");
-
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].title, "Child");
-    }
-
-    #[test]
-    fn test_get_children_not_found_returns_empty() {
-        let site = SiteStateBuilder::new().build();
-
-        let children = site.get_children("nonexistent");
-
-        assert!(children.is_empty());
-    }
-
-    #[test]
-    fn test_get_children_no_children_returns_empty() {
-        let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
-            None,
-            None,
-        );
-        let site = builder.build();
-
-        let children = site.get_children("guide");
-
-        assert!(children.is_empty());
-    }
-
-    #[test]
     fn test_get_breadcrumbs_empty_path_returns_empty() {
         let site = SiteStateBuilder::new().build();
 
@@ -908,7 +840,10 @@ mod tests {
             "parent".to_string(),
             Some(PathBuf::from("parent/index.md")),
             None,
-            None,
+            Some(PageMetadata {
+                page_type: Some("section".to_string()),
+                ..Default::default()
+            }),
         );
         builder.add_page(
             "Child".to_string(),
@@ -919,10 +854,10 @@ mod tests {
         );
         let site = builder.build();
 
-        let children = site.get_children("parent");
-
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].path, "parent/child");
+        // Verify child is linked via scoped navigation
+        let nav = site.navigation("parent");
+        assert_eq!(nav.items.len(), 1);
+        assert_eq!(nav.items[0].path, "parent/child");
     }
 
     #[test]

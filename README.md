@@ -167,7 +167,7 @@ Metadata is inherited from parent directories:
 
 Directories with `meta.yaml` but no `index.md` become virtual pages:
 - Appear in navigation with their metadata title
-- Render an auto-generated list of child pages
+- Render h1 with title only (no content body)
 - Support nested virtual pages for organizing content hierarchies
 
 Example structure:

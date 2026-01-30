@@ -457,45 +457,22 @@ impl Site {
 
     /// Render a virtual page (directory with metadata but no index.md).
     ///
-    /// Generates an HTML list of child pages.
+    /// Returns an h1 with the page title.
     #[allow(clippy::unused_self)]
     fn render_virtual_page(
         &self,
-        state: &SiteState,
-        path: &str,
+        _state: &SiteState,
+        _path: &str,
         page: &Page,
         breadcrumbs: Vec<BreadcrumbItem>,
     ) -> PageRenderResult {
-        use std::fmt::Write;
-
-        // Get children and generate HTML list
-        let children = state.get_children(path);
-        let mut html = String::new();
-
-        if !children.is_empty() {
-            html.push_str("<ul class=\"child-pages\">\n");
-            for child in children {
-                let description = child
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.description.as_ref())
-                    .map_or(String::new(), |d| format!(" - {d}"));
-                let _ = writeln!(
-                    html,
-                    "  <li><a href=\"/{}\">{}</a>{}</li>",
-                    child.path, child.title, description
-                );
-            }
-            html.push_str("</ul>\n");
-        }
-
         // Use current time as mtime for virtual pages
         let source_mtime = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64());
 
         PageRenderResult {
-            html,
+            html: format!("<h1>{}</h1>\n", page.title),
             title: Some(page.title.clone()),
             toc: Vec::new(),
             warnings: Vec::new(),
@@ -977,13 +954,16 @@ mod tests {
         assert_eq!(domain.title, "Domain A");
         assert_eq!(domain.source_path, Some(PathBuf::from("domain-a/index.md")));
 
-        let children = state.get_children("domain-a");
-        assert_eq!(children.len(), 1);
-        assert_eq!(children[0].title, "Setup Guide");
-        assert_eq!(
-            children[0].source_path,
-            Some(PathBuf::from("domain-a/guide.md"))
-        );
+        // Verify child via root navigation (non-section pages expand their children)
+        let nav = state.navigation("");
+        assert_eq!(nav.items.len(), 1);
+        assert_eq!(nav.items[0].path, "domain-a");
+        assert_eq!(nav.items[0].children.len(), 1);
+        assert_eq!(nav.items[0].children[0].title, "Setup Guide");
+
+        // Verify child page details
+        let child = state.get_page("domain-a/guide").unwrap();
+        assert_eq!(child.source_path, Some(PathBuf::from("domain-a/guide.md")));
     }
 
     #[test]
@@ -1306,28 +1286,26 @@ mod tests {
         let level1 = state.get_page("level1").unwrap();
         assert_eq!(level1.title, "Level 1");
 
-        // Check level 1 is child of root
-        let root_children = state.get_children("");
-        assert!(root_children.iter().any(|c| c.path == "level1"));
-
         // Check level 2
         let level2 = state.get_page("level1/level2").unwrap();
         assert_eq!(level2.title, "Level 2");
-
-        // Check level 2 is child of level 1
-        let level1_children = state.get_children("level1");
-        assert!(level1_children.iter().any(|c| c.path == "level1/level2"));
 
         // Check deep page
         let deep = state.get_page("level1/level2/page").unwrap();
         assert_eq!(deep.title, "Deep Page");
 
-        // Check deep page is child of level 2
-        let level2_children = state.get_children("level1/level2");
-        assert!(
-            level2_children
-                .iter()
-                .any(|c| c.path == "level1/level2/page")
+        // Verify nested hierarchy via root navigation (non-section pages expand children)
+        let root_nav = state.navigation("");
+        assert_eq!(root_nav.items.len(), 1);
+        assert_eq!(root_nav.items[0].path, "level1");
+        // level1 contains level2
+        assert_eq!(root_nav.items[0].children.len(), 1);
+        assert_eq!(root_nav.items[0].children[0].path, "level1/level2");
+        // level2 contains deep page
+        assert_eq!(root_nav.items[0].children[0].children.len(), 1);
+        assert_eq!(
+            root_nav.items[0].children[0].children[0].path,
+            "level1/level2/page"
         );
     }
 
@@ -1516,7 +1494,7 @@ mod tests {
     }
 
     #[test]
-    fn test_virtual_page_renders_child_list() {
+    fn test_virtual_page_renders_title_only() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
         let domain_dir = source_dir.join("my-domain");
@@ -1533,10 +1511,9 @@ mod tests {
 
         let result = site.render("my-domain").unwrap();
 
-        // Should have children in HTML
-        assert!(result.html.contains("Child One"));
-        assert!(result.html.contains("Child Two"));
-        assert!(result.html.contains("<ul"));
+        // Virtual pages render h1 with title only
+        assert_eq!(result.html, "<h1>My Domain</h1>\n");
+        assert_eq!(result.title, Some("My Domain".to_string()));
         assert!(result.source_path.is_none()); // Virtual
         assert!(result.toc.is_empty()); // No TOC for virtual
     }

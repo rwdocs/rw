@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Groups appear alphabetically, ungrouped pages appear after groups
   - `section_type` field added to `/api/navigation` response
 - **Virtual pages** for directories with `meta.yaml` but no `index.md`
-  - Directories with metadata appear in navigation with auto-generated child index
-  - Virtual pages render a list of child pages with links and descriptions
+  - Directories with metadata appear in navigation
+  - Virtual pages render h1 with title only
   - Supports nested virtual pages for organizing section hierarchies
 - **Scoped section navigation** for hierarchical documentation sites
   - Navigation scopes to current section when viewing pages inside a section
