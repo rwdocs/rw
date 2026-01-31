@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scoped section navigation for hierarchical documentation sites
 - Page loading progress for slow updates
 
+### Changed
+
+- **Storage API redesign**: `Document` and `Metadata` structs now use `dir`/`name` fields instead of full paths, with `path()` and `document_path()` methods for reconstruction
+- Metadata file naming convention is now encapsulated in Storage via `meta()` method
+- Removed `meta_filename` from `SiteConfig` (now configured via `FsStorage`)
+
 ### Security
 
 - Storage errors no longer expose full filesystem paths in API responses

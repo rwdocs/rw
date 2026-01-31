@@ -18,7 +18,6 @@
 //! - `vars`: Deep merged (child values override parent keys)
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -110,22 +109,6 @@ pub fn merge_metadata(parent: &PageMetadata, child: &PageMetadata) -> PageMetada
     merged.vars = vars;
 
     merged
-}
-
-/// Get the parent directory of a source file for metadata lookup.
-#[must_use]
-pub fn metadata_dir(source_path: &Path) -> Option<&Path> {
-    source_path.parent()
-}
-
-/// Get the metadata file path for a directory.
-#[must_use]
-pub fn metadata_file_path(dir: &Path, meta_filename: &str) -> std::path::PathBuf {
-    if dir.as_os_str().is_empty() {
-        std::path::PathBuf::from(meta_filename)
-    } else {
-        dir.join(meta_filename)
-    }
 }
 
 impl From<MetadataError> for RenderError {
@@ -338,39 +321,5 @@ unknown_field: value
             ..Default::default()
         };
         assert!(!meta.is_empty());
-    }
-
-    // metadata_dir tests
-
-    #[test]
-    fn test_metadata_dir_root_file() {
-        let path = Path::new("guide.md");
-        assert_eq!(metadata_dir(path), Some(Path::new("")));
-    }
-
-    #[test]
-    fn test_metadata_dir_nested_file() {
-        let path = Path::new("domain/guide.md");
-        assert_eq!(metadata_dir(path), Some(Path::new("domain")));
-    }
-
-    #[test]
-    fn test_metadata_dir_index_file() {
-        let path = Path::new("domain/index.md");
-        assert_eq!(metadata_dir(path), Some(Path::new("domain")));
-    }
-
-    // metadata_file_path tests
-
-    #[test]
-    fn test_metadata_file_path_root() {
-        let path = metadata_file_path(Path::new(""), "meta.yaml");
-        assert_eq!(path, std::path::PathBuf::from("meta.yaml"));
-    }
-
-    #[test]
-    fn test_metadata_file_path_nested() {
-        let path = metadata_file_path(Path::new("domain"), "meta.yaml");
-        assert_eq!(path, std::path::PathBuf::from("domain/meta.yaml"));
     }
 }

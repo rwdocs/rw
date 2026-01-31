@@ -50,7 +50,7 @@ use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
 use rw_storage::{Storage, StorageError, StorageErrorKind};
 
-use crate::metadata::{PageMetadata, merge_metadata, metadata_dir, metadata_file_path};
+use crate::metadata::{PageMetadata, merge_metadata};
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
@@ -126,8 +126,6 @@ pub struct SiteConfig {
     pub config_file: Option<String>,
     /// DPI for diagram rendering (default: 192 for retina).
     pub dpi: u32,
-    /// Metadata file name (default: "meta.yaml").
-    pub meta_filename: String,
 }
 
 impl Default for SiteConfig {
@@ -140,7 +138,6 @@ impl Default for SiteConfig {
             include_dirs: Vec::new(),
             config_file: None,
             dpi: 192,
-            meta_filename: "meta.yaml".to_string(),
         }
     }
 }
@@ -174,8 +171,6 @@ pub struct Site {
     include_dirs: Vec<PathBuf>,
     config_file: Option<String>,
     dpi: u32,
-    /// Metadata file name.
-    meta_filename: String,
 }
 
 impl Site {
@@ -212,7 +207,6 @@ impl Site {
             include_dirs: config.include_dirs,
             config_file: config.config_file,
             dpi: config.dpi,
-            meta_filename: config.meta_filename,
         }
     }
 
@@ -551,22 +545,22 @@ impl Site {
         let index_dirs: std::collections::HashSet<PathBuf> = scan_result
             .documents
             .iter()
-            .filter(|doc| doc.path.file_name().is_some_and(|n| n == "index.md"))
-            .filter_map(|doc| doc.path.parent())
-            .map(Path::to_path_buf)
+            .filter(|doc| doc.name == "index.md")
+            .map(|doc| doc.dir.clone())
             .collect();
 
-        // Derive virtual pages from metadata files in directories without index.md
+        // Derive virtual pages from metadata in directories without index.md
         let virtual_pages: Vec<(PathBuf, PageMetadata)> = scan_result
-            .metadata_files
+            .metadata
             .iter()
-            .filter(|mf| !index_dirs.contains(&mf.dir_path))
-            .filter_map(|mf| {
-                let metadata = self.load_metadata_file(&mf.file_path)?;
+            .filter(|m| !index_dirs.contains(&m.dir))
+            .filter_map(|m| {
+                let content = self.storage.meta(&m.document_path()).ok()?;
+                let metadata = PageMetadata::from_yaml(&content).ok()?;
                 if metadata.is_empty() {
                     return None;
                 }
-                Some((mf.dir_path.clone(), metadata))
+                Some((m.dir.clone(), metadata))
             })
             .collect();
 
@@ -595,20 +589,12 @@ impl Site {
         // 4. Alphabetically
         entries.sort_by(|a, b| {
             let (a_path, a_is_index, a_is_virtual) = match a {
-                PageEntry::Document(doc) => (
-                    &doc.path,
-                    doc.path.file_name().is_some_and(|n| n == "index.md"),
-                    false,
-                ),
-                PageEntry::Virtual(path, _) => (path, true, true),
+                PageEntry::Document(doc) => (doc.path(), doc.name == "index.md", false),
+                PageEntry::Virtual(path, _) => (path.clone(), true, true),
             };
             let (b_path, b_is_index, b_is_virtual) = match b {
-                PageEntry::Document(doc) => (
-                    &doc.path,
-                    doc.path.file_name().is_some_and(|n| n == "index.md"),
-                    false,
-                ),
-                PageEntry::Virtual(path, _) => (path, true, true),
+                PageEntry::Document(doc) => (doc.path(), doc.name == "index.md", false),
+                PageEntry::Virtual(path, _) => (path.clone(), true, true),
             };
 
             let a_depth = a_path.components().count();
@@ -620,7 +606,7 @@ impl Site {
                 .then_with(|| a_is_virtual.cmp(&b_is_virtual))
                 // Index.md before other documents
                 .then_with(|| b_is_index.cmp(&a_is_index))
-                .then_with(|| a_path.cmp(b_path))
+                .then_with(|| a_path.cmp(&b_path))
         });
 
         if entries.is_empty() {
@@ -637,17 +623,16 @@ impl Site {
         for entry in entries {
             match entry {
                 PageEntry::Document(doc) => {
-                    let url_path = Self::source_path_to_url(&doc.path);
+                    let doc_path = doc.path();
+                    let url_path = Self::source_path_to_url(&doc_path);
                     let parent_idx = Self::find_parent_from_url(&url_path, &url_to_idx);
 
                     // Load metadata for this document
-                    let metadata = self.load_metadata_for_doc(&doc.path, &dir_metadata);
+                    let metadata = self.load_metadata_for_doc(doc, &dir_metadata);
 
                     // Store metadata for inheritance if this is an index.md
-                    if let Some(ref meta) = metadata
-                        && let Some(dir) = metadata_dir(&doc.path)
-                    {
-                        dir_metadata.insert(dir.to_path_buf(), meta.clone());
+                    if let Some(ref meta) = metadata {
+                        dir_metadata.insert(doc.dir.clone(), meta.clone());
                     }
 
                     // Use metadata title if present, otherwise use document title
@@ -659,7 +644,7 @@ impl Site {
                     let idx = builder.add_page(
                         title,
                         url_path.clone(),
-                        Some(doc.path.clone()),
+                        Some(doc_path),
                         parent_idx,
                         metadata,
                     );
@@ -745,19 +730,15 @@ impl Site {
     /// Load metadata for a document, applying inheritance from parent directories.
     fn load_metadata_for_doc(
         &self,
-        source_path: &Path,
+        doc: &rw_storage::Document,
         dir_metadata: &HashMap<PathBuf, PageMetadata>,
     ) -> Option<PageMetadata> {
-        // Get the directory containing the document
-        let dir = metadata_dir(source_path)?;
+        let is_index = doc.name == "index.md";
 
         // Only index.md files have their own metadata file (directory's meta.yaml)
         // Other documents just inherit from the directory's metadata
-        let is_index = source_path.file_name().is_some_and(|n| n == "index.md");
-
         let file_metadata = if is_index {
-            let meta_path = metadata_file_path(dir, &self.meta_filename);
-            self.load_metadata_file(&meta_path)
+            self.load_metadata_for_path(&doc.path())
         } else {
             None
         };
@@ -766,9 +747,9 @@ impl Site {
         // For index.md, we inherit from parent directory
         // For other files, we inherit from the same directory (the directory's meta.yaml)
         let inherited_metadata = if is_index {
-            self.get_parent_metadata(dir, dir_metadata)
+            self.get_parent_metadata(&doc.dir, dir_metadata)
         } else {
-            dir_metadata.get(dir).cloned()
+            dir_metadata.get(&doc.dir).cloned()
         };
 
         // Merge with inherited metadata if both exist
@@ -788,9 +769,9 @@ impl Site {
         }
     }
 
-    /// Load metadata from a file.
-    fn load_metadata_file(&self, path: &Path) -> Option<PageMetadata> {
-        let content = self.storage.read(path).ok()?;
+    /// Load metadata for a document path using storage.
+    fn load_metadata_for_path(&self, path: &Path) -> Option<PageMetadata> {
+        let content = self.storage.meta(path).ok()?;
         match PageMetadata::from_yaml(&content) {
             Ok(meta) if !meta.is_empty() => Some(meta),
             Ok(_) => None,

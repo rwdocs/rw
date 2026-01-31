@@ -39,5 +39,5 @@ pub use fs::FsStorage;
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
 pub use storage::{
-    Document, ErrorStatus, MetadataFile, ScanResult, Storage, StorageError, StorageErrorKind,
+    Document, ErrorStatus, Metadata, ScanResult, Storage, StorageError, StorageErrorKind,
 };
