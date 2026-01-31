@@ -2021,8 +2021,12 @@ dependencies = [
  "notify",
  "pretty_assertions",
  "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
  "tempfile",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]

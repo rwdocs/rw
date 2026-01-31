@@ -48,9 +48,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use rw_diagrams::{DiagramProcessor, FileCache};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
-use rw_storage::{Storage, StorageError, StorageErrorKind};
-
-use crate::metadata::{PageMetadata, merge_metadata};
+use rw_storage::{PageMetadata, Storage, StorageError, StorageErrorKind};
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
@@ -65,22 +63,6 @@ fn url_depth(path: &str) -> usize {
         0
     } else {
         path.matches('/').count() + 1
-    }
-}
-
-/// Get the parent URL path.
-///
-/// Examples:
-/// - `""` -> `None` (root has no parent)
-/// - `"guide"` -> `Some("")`
-/// - `"domain/billing"` -> `Some("domain")`
-fn url_parent(path: &str) -> Option<&str> {
-    if path.is_empty() {
-        return None;
-    }
-    match path.rfind('/') {
-        Some(idx) => Some(&path[..idx]),
-        None => Some(""),
     }
 }
 
@@ -422,6 +404,9 @@ impl Site {
             .mtime(path)
             .map_err(|_| RenderError::FileNotFound(path.to_string()))?;
 
+        // Load metadata lazily from storage (with inheritance applied)
+        let metadata = self.load_metadata(path);
+
         // Check page cache
         if let Some(cached) = self.page_cache.get(path, source_mtime) {
             return Ok(PageRenderResult {
@@ -433,7 +418,7 @@ impl Site {
                 has_content: page.has_content,
                 source_mtime,
                 breadcrumbs,
-                metadata: page.metadata.clone(),
+                metadata,
             });
         }
 
@@ -459,18 +444,17 @@ impl Site {
             has_content: page.has_content,
             source_mtime,
             breadcrumbs,
-            metadata: page.metadata.clone(),
+            metadata,
         })
     }
 
     /// Render a virtual page (directory with metadata but no index.md).
     ///
     /// Returns an h1 with the page title.
-    #[allow(clippy::unused_self)]
     fn render_virtual_page(
         &self,
         _state: &SiteState,
-        _path: &str,
+        path: &str,
         page: &Page,
         breadcrumbs: Vec<BreadcrumbItem>,
     ) -> PageRenderResult {
@@ -478,6 +462,9 @@ impl Site {
         let source_mtime = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64());
+
+        // Load metadata lazily from storage (with inheritance applied)
+        let metadata = self.load_metadata(path);
 
         PageRenderResult {
             html: format!("<h1>{}</h1>\n", escape_html(&page.title)),
@@ -488,7 +475,7 @@ impl Site {
             has_content: false,
             source_mtime,
             breadcrumbs,
-            metadata: page.metadata.clone(),
+            metadata,
         }
     }
 
@@ -542,6 +529,10 @@ impl Site {
     /// Uses `storage.scan()` to get documents (including virtual pages), then builds
     /// hierarchy based on path conventions. Virtual pages are identified by
     /// `has_content=false` flag.
+    ///
+    /// Page titles are determined by:
+    /// 1. Metadata title from storage (if page has `page_type`)
+    /// 2. Document title from storage (extracted from H1 or filename)
     fn load_from_storage(&self) -> SiteState {
         let mut builder = SiteStateBuilder::new();
 
@@ -571,61 +562,25 @@ impl Site {
         // Track URL paths to page indices for parent lookup
         let mut url_to_idx: HashMap<String, usize> = HashMap::new();
 
-        // Track metadata by URL path for inheritance
-        let mut path_metadata: HashMap<String, PageMetadata> = HashMap::new();
-
         // Process documents in sorted order
         for doc in &documents {
             let url_path = &doc.path;
             let parent_idx = Self::find_parent_from_url(url_path, &url_to_idx);
 
-            // Load metadata if document has metadata file
-            let metadata = if doc.has_metadata {
-                self.load_metadata_for_doc(doc, &path_metadata)
-            } else {
-                // Inherit only vars from parent (no metadata file for this document)
-                Self::get_inherited_vars(url_path, &path_metadata)
-            };
-
-            // Store metadata for inheritance
-            if let Some(ref meta) = metadata {
-                path_metadata.insert(url_path.clone(), meta.clone());
-            }
-
-            // Use metadata title if present, otherwise use document title
-            let title = metadata
-                .as_ref()
-                .and_then(|m| m.title.clone())
-                .unwrap_or_else(|| doc.title.clone());
+            // Load title from metadata if available, otherwise use document title
+            let title = self.load_title_for_doc(&doc.path).unwrap_or_else(|| doc.title.clone());
 
             let idx = builder.add_page(
                 title,
                 url_path.clone(),
                 doc.has_content,
                 parent_idx,
-                metadata,
+                doc.page_type.clone(),
             );
             url_to_idx.insert(url_path.clone(), idx);
         }
 
         builder.build()
-    }
-
-    /// Get inherited vars from parent URL path (without title, description, or type).
-    fn get_inherited_vars(
-        url_path: &str,
-        path_metadata: &HashMap<String, PageMetadata>,
-    ) -> Option<PageMetadata> {
-        // Get parent's metadata
-        let parent_path = url_parent(url_path)?;
-        let parent = path_metadata.get(parent_path)?;
-
-        Some(PageMetadata {
-            title: None,
-            description: None,
-            page_type: None,
-            vars: parent.vars.clone(),
-        })
     }
 
     /// Find parent page index from URL path.
@@ -643,43 +598,21 @@ impl Site {
         None
     }
 
-    /// Load metadata for a document, applying inheritance from parent URL paths.
-    fn load_metadata_for_doc(
-        &self,
-        doc: &rw_storage::Document,
-        path_metadata: &HashMap<String, PageMetadata>,
-    ) -> Option<PageMetadata> {
-        // Load metadata for this document's URL path
-        let file_metadata = self.load_metadata_for_url(&doc.path);
-
-        // Get inherited metadata from parent URL path
-        let inherited_metadata = url_parent(&doc.path).and_then(|p| path_metadata.get(p).cloned());
-
-        // Merge with inherited metadata if both exist
-        match (inherited_metadata, file_metadata) {
-            (Some(parent), Some(child)) => Some(merge_metadata(&parent, &child)),
-            (Some(parent), None) => {
-                // Inherit only vars, not title, description, or type
-                Some(PageMetadata {
-                    title: None,
-                    description: None,
-                    page_type: None,
-                    vars: parent.vars.clone(),
-                })
-            }
-            (None, Some(child)) => Some(child),
-            (None, None) => None,
-        }
+    /// Load title from metadata for a path.
+    fn load_title_for_doc(&self, path: &str) -> Option<String> {
+        self.storage
+            .meta(path)
+            .ok()
+            .flatten()
+            .and_then(|m| m.title)
     }
 
-    /// Load metadata for a URL path using storage.
-    fn load_metadata_for_url(&self, url_path: &str) -> Option<PageMetadata> {
-        let content = self.storage.meta(url_path).ok()?;
-        match PageMetadata::from_yaml(&content) {
-            Ok(meta) if !meta.is_empty() => Some(meta),
-            Ok(_) => None,
+    /// Load metadata for a path (lazy loading).
+    fn load_metadata(&self, path: &str) -> Option<PageMetadata> {
+        match self.storage.meta(path) {
+            Ok(meta) => meta,
             Err(e) => {
-                tracing::warn!(url_path = %url_path, error = %e, "Failed to parse metadata");
+                tracing::warn!(path = %path, error = %e, "Failed to load metadata");
                 None
             }
         }
@@ -1265,11 +1198,11 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "My Domain");
         assert!(!page.has_content); // Virtual page
-        assert!(page.metadata.is_some());
-        assert_eq!(
-            page.metadata.as_ref().unwrap().page_type,
-            Some("domain".to_string())
-        );
+
+        // page_type is tracked via sections map
+        let section = state.sections().get("my-domain");
+        assert!(section.is_some());
+        assert_eq!(section.unwrap().section_type, "domain");
     }
 
     #[test]
