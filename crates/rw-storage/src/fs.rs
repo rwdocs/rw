@@ -16,7 +16,9 @@ use regex::Regex;
 
 use crate::debouncer::EventDebouncer;
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::storage::{Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind};
+use crate::storage::{
+    Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind, meta_path_for_document,
+};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -440,19 +442,7 @@ impl Storage for FsStorage {
 
     fn meta(&self, path: &Path) -> Result<String, StorageError> {
         Self::validate_path(path)?;
-
-        // Determine metadata file path based on document name
-        let meta_path = if path.file_name().is_some_and(|n| n == "index.md") {
-            // index.md → meta.yaml in same directory
-            path.parent()
-                .unwrap_or(Path::new(""))
-                .join(&self.meta_filename)
-        } else {
-            // guide.md → guide.meta.yaml (future support)
-            let stem = path.file_stem().unwrap_or_default();
-            path.with_file_name(format!("{}.meta.yaml", stem.to_string_lossy()))
-        };
-
+        let meta_path = meta_path_for_document(path, &self.meta_filename);
         self.read(&meta_path)
     }
 }
