@@ -8,7 +8,7 @@ use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use crate::storage::{
-    Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind, meta_path_for_document,
+    Document, ScanResult, Storage, StorageError, StorageErrorKind, meta_path_for_document,
 };
 
 /// Extract directory and filename from a path.
@@ -44,7 +44,6 @@ pub struct MockStorage {
     documents: RwLock<Vec<Document>>,
     contents: RwLock<HashMap<PathBuf, String>>,
     mtimes: RwLock<HashMap<PathBuf, f64>>,
-    metadata: RwLock<Vec<Metadata>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
 }
 
@@ -54,7 +53,6 @@ impl Default for MockStorage {
             documents: RwLock::new(Vec::new()),
             contents: RwLock::new(HashMap::new()),
             mtimes: RwLock::new(HashMap::new()),
-            metadata: RwLock::new(Vec::new()),
             event_sender: RwLock::new(None),
         }
     }
@@ -70,6 +68,7 @@ impl MockStorage {
     /// Add a document with the given path and title.
     ///
     /// The path is split into directory and filename components.
+    /// The document has `has_content=true` and `has_metadata=false`.
     ///
     /// # Panics
     ///
@@ -82,6 +81,54 @@ impl MockStorage {
             dir,
             name,
             title: title.into(),
+            has_content: true,
+            has_metadata: false,
+        });
+        self
+    }
+
+    /// Add a document with metadata.
+    ///
+    /// The path is split into directory and filename components.
+    /// The document has `has_content=true` and `has_metadata=true`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    #[must_use]
+    pub fn with_document_and_metadata(
+        self,
+        path: impl Into<PathBuf>,
+        title: impl Into<String>,
+    ) -> Self {
+        let path: PathBuf = path.into();
+        let (dir, name) = split_path(&path);
+        self.documents.write().unwrap().push(Document {
+            dir,
+            name,
+            title: title.into(),
+            has_content: true,
+            has_metadata: true,
+        });
+        self
+    }
+
+    /// Add a virtual page (metadata only, no content).
+    ///
+    /// Virtual pages always have `name: "index.md"`.
+    /// The document has `has_content=false` and `has_metadata=true`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    #[must_use]
+    pub fn with_virtual_page(self, dir: impl Into<PathBuf>, title: impl Into<String>) -> Self {
+        self.documents.write().unwrap().push(Document {
+            dir: dir.into(),
+            name: "index.md".to_string(),
+            title: title.into(),
+            has_content: false,
+            has_metadata: true,
         });
         self
     }
@@ -100,9 +147,10 @@ impl MockStorage {
         self
     }
 
-    /// Add a document with both metadata and content.
+    /// Add a document with both document entry and content.
     ///
     /// The path is split into directory and filename components.
+    /// The document has `has_content=true` and `has_metadata=false`.
     ///
     /// # Panics
     ///
@@ -120,6 +168,8 @@ impl MockStorage {
             dir,
             name,
             title: title.into(),
+            has_content: true,
+            has_metadata: false,
         });
         self.contents.write().unwrap().insert(path, content.into());
         self
@@ -138,25 +188,6 @@ impl MockStorage {
     #[must_use]
     pub fn with_mtime(self, path: impl Into<PathBuf>, mtime: f64) -> Self {
         self.mtimes.write().unwrap().insert(path.into(), mtime);
-        self
-    }
-
-    /// Add a metadata entry to the storage.
-    ///
-    /// # Arguments
-    ///
-    /// * `dir` - Directory containing the metadata file
-    /// * `name` - Target document name (e.g., "index.md")
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
-    #[must_use]
-    pub fn with_metadata(self, dir: impl Into<PathBuf>, name: impl Into<String>) -> Self {
-        self.metadata.write().unwrap().push(Metadata {
-            dir: dir.into(),
-            name: name.into(),
-        });
         self
     }
 
@@ -214,7 +245,6 @@ impl Storage for MockStorage {
     fn scan(&self) -> Result<ScanResult, StorageError> {
         Ok(ScanResult {
             documents: self.documents.read().unwrap().clone(),
-            metadata: self.metadata.read().unwrap().clone(),
         })
     }
 
@@ -282,7 +312,6 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert!(result.documents.is_empty());
-        assert!(result.metadata.is_empty());
     }
 
     #[test]
@@ -296,6 +325,8 @@ mod tests {
         assert_eq!(result.documents.len(), 2);
         assert_eq!(result.documents[0].path(), PathBuf::from("guide.md"));
         assert_eq!(result.documents[0].title, "Guide");
+        assert!(result.documents[0].has_content);
+        assert!(!result.documents[0].has_metadata);
         assert_eq!(result.documents[1].path(), PathBuf::from("api.md"));
         assert_eq!(result.documents[1].title, "API");
     }
@@ -319,30 +350,39 @@ mod tests {
 
         assert_eq!(result.documents.len(), 1);
         assert_eq!(result.documents[0].title, "User Guide");
+        assert!(result.documents[0].has_content);
+        assert!(!result.documents[0].has_metadata);
         assert_eq!(content, "# User Guide\n\nContent.");
     }
 
     #[test]
-    fn test_with_metadata() {
+    fn test_with_document_and_metadata() {
         let storage = MockStorage::new()
-            .with_metadata("domain", "index.md")
-            .with_metadata("", "index.md");
+            .with_document_and_metadata("domain/index.md", "Domain")
+            .with_content("domain/meta.yaml", "title: Domain");
 
         let result = storage.scan().unwrap();
 
-        assert_eq!(result.metadata.len(), 2);
-        assert_eq!(result.metadata[0].dir, PathBuf::from("domain"));
-        assert_eq!(result.metadata[0].name, "index.md");
-        assert_eq!(
-            result.metadata[0].document_path(),
-            PathBuf::from("domain/index.md")
-        );
-        assert_eq!(result.metadata[1].dir, PathBuf::from(""));
-        assert_eq!(result.metadata[1].name, "index.md");
-        assert_eq!(
-            result.metadata[1].document_path(),
-            PathBuf::from("index.md")
-        );
+        assert_eq!(result.documents.len(), 1);
+        assert_eq!(result.documents[0].path(), PathBuf::from("domain/index.md"));
+        assert!(result.documents[0].has_content);
+        assert!(result.documents[0].has_metadata);
+    }
+
+    #[test]
+    fn test_with_virtual_page() {
+        let storage = MockStorage::new()
+            .with_virtual_page("domain", "Domain Title")
+            .with_content("domain/meta.yaml", "title: Domain Title");
+
+        let result = storage.scan().unwrap();
+
+        assert_eq!(result.documents.len(), 1);
+        let doc = &result.documents[0];
+        assert_eq!(doc.path(), PathBuf::from("domain/index.md"));
+        assert_eq!(doc.title, "Domain Title");
+        assert!(!doc.has_content);
+        assert!(doc.has_metadata);
     }
 
     #[test]
