@@ -499,13 +499,16 @@ impl Storage for FsStorage {
     }
 
     fn exists(&self, path: &str) -> bool {
-        Self::validate_path(path).is_ok() && self.resolve_content(path).is_some()
+        Self::validate_path(path).is_ok()
+            && (self.resolve_content(path).is_some() || self.resolve_meta(path).is_some())
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Self::validate_path(path)?;
+        // Try content file first, fall back to metadata file (for virtual pages)
         let full_path = self
             .resolve_content(path)
+            .or_else(|| self.resolve_meta(path))
             .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
         let metadata = fs::metadata(&full_path)
             .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))?;
