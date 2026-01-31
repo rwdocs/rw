@@ -149,7 +149,6 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         include_dirs: config.include_dirs.clone(),
         config_file: config.config_file.clone(),
         dpi: config.dpi,
-        meta_filename: config.meta_filename.clone(),
     };
     let site = Arc::new(Site::new(Arc::clone(&storage), site_config));
 

@@ -16,7 +16,7 @@ use regex::Regex;
 
 use crate::debouncer::EventDebouncer;
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::storage::{Document, MetadataFile, ScanResult, Storage, StorageError, StorageErrorKind};
+use crate::storage::{Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -219,18 +219,18 @@ impl FsStorage {
                 self.scan_directory(&path, &rel_path, result);
             } else if path.extension().is_some_and(|e| e == "md") {
                 // Process markdown file
-                let rel_path = base_path.join(entry.file_name());
                 let title = self.get_title(&path, &name_lower);
                 result.documents.push(Document {
-                    path: rel_path,
+                    dir: base_path.to_path_buf(),
+                    name: entry.file_name().to_string_lossy().into_owned(),
                     title,
                 });
             } else if entry.file_name().to_string_lossy() == self.meta_filename {
                 // Collect metadata file
-                let file_path = base_path.join(entry.file_name());
-                result.metadata_files.push(MetadataFile {
-                    dir_path: base_path.to_path_buf(),
-                    file_path,
+                // For meta.yaml, the target document is always index.md
+                result.metadata.push(Metadata {
+                    dir: base_path.to_path_buf(),
+                    name: "index.md".to_string(),
                 });
             }
         }
@@ -437,6 +437,24 @@ impl Storage for FsStorage {
 
         Ok((StorageEventReceiver::new(event_rx), handle))
     }
+
+    fn meta(&self, path: &Path) -> Result<String, StorageError> {
+        Self::validate_path(path)?;
+
+        // Determine metadata file path based on document name
+        let meta_path = if path.file_name().is_some_and(|n| n == "index.md") {
+            // index.md → meta.yaml in same directory
+            path.parent()
+                .unwrap_or(Path::new(""))
+                .join(&self.meta_filename)
+        } else {
+            // guide.md → guide.meta.yaml (future support)
+            let stem = path.file_stem().unwrap_or_default();
+            path.with_file_name(format!("{}.meta.yaml", stem.to_string_lossy()))
+        };
+
+        self.read(&meta_path)
+    }
 }
 
 #[cfg(test)]
@@ -463,7 +481,7 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert!(result.documents.is_empty());
-        assert!(result.metadata_files.is_empty());
+        assert!(result.metadata.is_empty());
     }
 
     #[test]
@@ -472,7 +490,7 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert!(result.documents.is_empty());
-        assert!(result.metadata_files.is_empty());
+        assert!(result.metadata.is_empty());
     }
 
     #[test]
@@ -488,10 +506,10 @@ mod tests {
         let paths: Vec<_> = result
             .documents
             .iter()
-            .map(|d| d.path.to_str().unwrap())
+            .map(|d| d.path().to_string_lossy().into_owned())
             .collect();
-        assert!(paths.contains(&"api.md"));
-        assert!(paths.contains(&"guide.md"));
+        assert!(paths.iter().any(|p| p == "api.md"));
+        assert!(paths.iter().any(|p| p == "guide.md"));
     }
 
     #[test]
@@ -509,10 +527,10 @@ mod tests {
         let paths: Vec<_> = result
             .documents
             .iter()
-            .map(|d| d.path.to_str().unwrap())
+            .map(|d| d.path().to_string_lossy().into_owned())
             .collect();
-        assert!(paths.contains(&"domain/index.md"));
-        assert!(paths.contains(&"domain/guide.md"));
+        assert!(paths.iter().any(|p| p == "domain/index.md"));
+        assert!(paths.iter().any(|p| p == "domain/guide.md"));
     }
 
     #[test]
@@ -557,7 +575,7 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path, PathBuf::from("visible.md"));
+        assert_eq!(result.documents[0].path(), PathBuf::from("visible.md"));
     }
 
     #[test]
@@ -570,7 +588,7 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path, PathBuf::from("main.md"));
+        assert_eq!(result.documents[0].path(), PathBuf::from("main.md"));
     }
 
     #[test]
@@ -585,11 +603,11 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path, PathBuf::from("main.md"));
+        assert_eq!(result.documents[0].path(), PathBuf::from("main.md"));
     }
 
     #[test]
-    fn test_scan_collects_metadata_files() {
+    fn test_scan_collects_metadata() {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
@@ -600,11 +618,12 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.metadata_files.len(), 1);
-        assert_eq!(result.metadata_files[0].dir_path, PathBuf::from("domain"));
+        assert_eq!(result.metadata.len(), 1);
+        assert_eq!(result.metadata[0].dir, PathBuf::from("domain"));
+        assert_eq!(result.metadata[0].name, "index.md");
         assert_eq!(
-            result.metadata_files[0].file_path,
-            PathBuf::from("domain/meta.yaml")
+            result.metadata[0].document_path(),
+            PathBuf::from("domain/index.md")
         );
     }
 
@@ -621,11 +640,9 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.metadata_files.len(), 1);
-        assert_eq!(
-            result.metadata_files[0].file_path,
-            PathBuf::from("domain/config.yml")
-        );
+        assert_eq!(result.metadata.len(), 1);
+        assert_eq!(result.metadata[0].dir, PathBuf::from("domain"));
+        assert_eq!(result.metadata[0].name, "index.md");
     }
 
     #[test]
@@ -638,12 +655,52 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.metadata_files.len(), 1);
-        assert_eq!(result.metadata_files[0].dir_path, PathBuf::from(""));
+        assert_eq!(result.metadata.len(), 1);
+        assert_eq!(result.metadata[0].dir, PathBuf::from(""));
+        assert_eq!(result.metadata[0].name, "index.md");
         assert_eq!(
-            result.metadata_files[0].file_path,
-            PathBuf::from("meta.yaml")
+            result.metadata[0].document_path(),
+            PathBuf::from("index.md")
         );
+    }
+
+    #[test]
+    fn test_meta_for_index() {
+        let temp_dir = create_test_dir();
+        let domain_dir = temp_dir.path().join("domain");
+        fs::create_dir(&domain_dir).unwrap();
+        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
+        fs::write(domain_dir.join("meta.yaml"), "title: Domain Title").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let content = storage.meta(Path::new("domain/index.md")).unwrap();
+
+        assert_eq!(content, "title: Domain Title");
+    }
+
+    #[test]
+    fn test_meta_for_root_index() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
+        fs::write(temp_dir.path().join("meta.yaml"), "title: Home").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let content = storage.meta(Path::new("index.md")).unwrap();
+
+        assert_eq!(content, "title: Home");
+    }
+
+    #[test]
+    fn test_meta_not_found() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
+        // No meta.yaml
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let result = storage.meta(Path::new("index.md"));
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), StorageErrorKind::NotFound);
     }
 
     #[test]

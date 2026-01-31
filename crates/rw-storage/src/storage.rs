@@ -10,19 +10,63 @@ use crate::event::{StorageEventReceiver, WatchHandle};
 /// Document metadata returned by storage scan.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Document {
-    /// Storage path (e.g., "guide.md", "domain/index.md").
-    pub path: PathBuf,
+    /// Directory containing the document (e.g., "domain/billing").
+    /// Empty `PathBuf` for root-level files.
+    pub dir: PathBuf,
+    /// Document filename (e.g., "guide.md", "index.md").
+    pub name: String,
     /// Document title (extracted or stored).
     pub title: String,
 }
 
+impl Document {
+    /// Full path to the document.
+    ///
+    /// Reconstructs the path from `dir` and `name`.
+    ///
+    /// # Examples
+    ///
+    /// - `dir: "", name: "guide.md"` → `"guide.md"`
+    /// - `dir: "domain", name: "index.md"` → `"domain/index.md"`
+    #[must_use]
+    pub fn path(&self) -> PathBuf {
+        if self.dir.as_os_str().is_empty() {
+            PathBuf::from(&self.name)
+        } else {
+            self.dir.join(&self.name)
+        }
+    }
+}
+
 /// A metadata file discovered during scan.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MetadataFile {
-    /// Directory this metadata applies to (e.g., "domain").
-    pub dir_path: PathBuf,
-    /// Full path to the metadata file (e.g., "domain/meta.yaml").
-    pub file_path: PathBuf,
+pub struct Metadata {
+    /// Directory containing the metadata file (e.g., "domain/billing").
+    /// Empty `PathBuf` for root-level metadata.
+    pub dir: PathBuf,
+    /// Target document name this metadata applies to (e.g., "index.md").
+    /// For `meta.yaml` files, this is always `"index.md"`.
+    /// For future `guide.meta.yaml` files, this would be `"guide.md"`.
+    pub name: String,
+}
+
+impl Metadata {
+    /// Path to the document this metadata applies to.
+    ///
+    /// Reconstructs the path from `dir` and `name`.
+    ///
+    /// # Examples
+    ///
+    /// - `dir: "", name: "index.md"` → `"index.md"`
+    /// - `dir: "domain", name: "index.md"` → `"domain/index.md"`
+    #[must_use]
+    pub fn document_path(&self) -> PathBuf {
+        if self.dir.as_os_str().is_empty() {
+            PathBuf::from(&self.name)
+        } else {
+            self.dir.join(&self.name)
+        }
+    }
 }
 
 /// Result of scanning storage.
@@ -30,8 +74,8 @@ pub struct MetadataFile {
 pub struct ScanResult {
     /// All documents found during scan.
     pub documents: Vec<Document>,
-    /// All metadata files found during scan.
-    pub metadata_files: Vec<MetadataFile>,
+    /// All metadata entries found during scan.
+    pub metadata: Vec<Metadata>,
 }
 
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
@@ -274,6 +318,21 @@ pub trait Storage: Send + Sync {
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
         Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
     }
+
+    /// Read metadata content for a document.
+    ///
+    /// Storage knows the naming convention:
+    /// - `"domain/index.md"` → reads `"domain/meta.yaml"`
+    /// - `"domain/guide.md"` → reads `"domain/guide.meta.yaml"` (future)
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Document path (e.g., `"domain/billing/index.md"`)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::NotFound`](StorageErrorKind::NotFound) if metadata file doesn't exist.
+    fn meta(&self, path: &Path) -> Result<String, StorageError>;
 }
 
 #[cfg(test)]
@@ -283,12 +342,35 @@ mod tests {
     #[test]
     fn test_document_creation() {
         let doc = Document {
-            path: PathBuf::from("guide.md"),
+            dir: PathBuf::new(),
+            name: "guide.md".to_string(),
             title: "Guide".to_string(),
         };
 
-        assert_eq!(doc.path, PathBuf::from("guide.md"));
+        assert_eq!(doc.path(), PathBuf::from("guide.md"));
         assert_eq!(doc.title, "Guide");
+    }
+
+    #[test]
+    fn test_document_path_root_level() {
+        let doc = Document {
+            dir: PathBuf::new(),
+            name: "guide.md".to_string(),
+            title: "Guide".to_string(),
+        };
+
+        assert_eq!(doc.path(), PathBuf::from("guide.md"));
+    }
+
+    #[test]
+    fn test_document_path_nested() {
+        let doc = Document {
+            dir: PathBuf::from("domain/billing"),
+            name: "index.md".to_string(),
+            title: "Billing".to_string(),
+        };
+
+        assert_eq!(doc.path(), PathBuf::from("domain/billing/index.md"));
     }
 
     #[test]
