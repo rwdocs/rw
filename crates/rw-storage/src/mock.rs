@@ -337,9 +337,7 @@ impl Storage for MockStorage {
 
         // If the requested path doesn't have its own metadata,
         // clear title/description/page_type (only vars are inherited)
-        if !has_own_meta
-            && let Some(ref mut meta) = accumulated
-        {
+        if !has_own_meta && let Some(ref mut meta) = accumulated {
             meta.title = None;
             meta.description = None;
             meta.page_type = None;
@@ -418,10 +416,7 @@ mod tests {
         assert_eq!(result.documents.len(), 1);
         assert_eq!(result.documents[0].path, "domain");
         assert!(result.documents[0].has_content);
-        assert_eq!(
-            result.documents[0].page_type,
-            Some("domain".to_string())
-        );
+        assert_eq!(result.documents[0].page_type, Some("domain".to_string()));
     }
 
     #[test]
