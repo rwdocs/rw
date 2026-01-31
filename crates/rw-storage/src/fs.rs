@@ -353,13 +353,16 @@ impl FsStorage {
 
         // Handle metadata file
         if has_meta_file && let Some(ref meta_path) = meta_file_path {
-            // Read metadata file to extract page_type
-            let page_type = fs::read_to_string(meta_path)
-                .ok()
-                .and_then(|content| extract_yaml_type(&content));
+            // Read metadata file to extract title and page_type
+            let content = fs::read_to_string(meta_path).ok();
+            let meta_title = content.as_ref().and_then(|c| extract_yaml_title(c));
+            let page_type = content.as_ref().and_then(|c| extract_yaml_type(c));
 
             if let Some(idx) = index_doc_idx {
-                // index.md exists - set page_type from metadata
+                // index.md exists - apply metadata title and page_type
+                if let Some(title) = meta_title {
+                    result.documents[idx].title = title;
+                }
                 result.documents[idx].page_type = page_type;
             } else {
                 // No index.md - check if metadata is useful before creating virtual page
