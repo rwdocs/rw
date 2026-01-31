@@ -395,7 +395,7 @@ impl Site {
 
         // Check if this is a virtual page (no content file)
         if !page.has_content {
-            return Ok(self.render_virtual_page(&state, path, page, breadcrumbs));
+            return Ok(self.render_virtual_page(path, page, breadcrumbs));
         }
 
         // Get source mtime using URL path (Storage maps to file internally)
@@ -453,15 +453,12 @@ impl Site {
     /// Returns an h1 with the page title.
     fn render_virtual_page(
         &self,
-        _state: &SiteState,
         path: &str,
         page: &Page,
         breadcrumbs: Vec<BreadcrumbItem>,
     ) -> PageRenderResult {
-        // Use current time as mtime for virtual pages
-        let source_mtime = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0.0, |d| d.as_secs_f64());
+        // Get mtime from metadata file
+        let source_mtime = self.storage.mtime(path).unwrap_or(0.0);
 
         // Load metadata lazily from storage (with inheritance applied)
         let metadata = self.load_metadata(path);
