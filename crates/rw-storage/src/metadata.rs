@@ -19,6 +19,30 @@
 
 use std::collections::HashMap;
 
+/// Build ancestor chain for a URL path.
+///
+/// Returns ancestors from root to the path itself.
+/// E.g., `"domain/billing/api"` → `["", "domain", "domain/billing", "domain/billing/api"]`
+#[must_use]
+pub fn build_ancestor_chain(path: &str) -> Vec<String> {
+    let mut ancestors = vec![String::new()]; // Root is always first
+
+    if !path.is_empty() {
+        let parts: Vec<&str> = path.split('/').collect();
+        let mut current = String::new();
+        for part in parts {
+            if current.is_empty() {
+                current = part.to_string();
+            } else {
+                current = format!("{current}/{part}");
+            }
+            ancestors.push(current.clone());
+        }
+    }
+
+    ancestors
+}
+
 use serde::{Deserialize, Serialize};
 
 /// Page metadata loaded from YAML sidecar files.
@@ -313,5 +337,28 @@ unknown_field: value
             ..Default::default()
         };
         assert!(!meta.is_empty());
+    }
+
+    // build_ancestor_chain tests
+
+    #[test]
+    fn test_build_ancestor_chain_empty_path() {
+        let ancestors = build_ancestor_chain("");
+        assert_eq!(ancestors, vec![""]);
+    }
+
+    #[test]
+    fn test_build_ancestor_chain_single_segment() {
+        let ancestors = build_ancestor_chain("guide");
+        assert_eq!(ancestors, vec!["", "guide"]);
+    }
+
+    #[test]
+    fn test_build_ancestor_chain_multi_segment() {
+        let ancestors = build_ancestor_chain("domain/billing/api");
+        assert_eq!(
+            ancestors,
+            vec!["", "domain", "domain/billing", "domain/billing/api"]
+        );
     }
 }

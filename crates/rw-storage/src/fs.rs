@@ -23,7 +23,7 @@ use regex::Regex;
 
 use crate::debouncer::EventDebouncer;
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::metadata::{PageMetadata, merge_metadata};
+use crate::metadata::{PageMetadata, build_ancestor_chain, merge_metadata};
 use crate::storage::{
     Document, ScanResult, Storage, StorageError, StorageErrorKind, extract_yaml_title,
     extract_yaml_type,
@@ -624,7 +624,7 @@ impl Storage for FsStorage {
         Self::validate_path(path)?;
 
         // Build ancestor chain: ["", "domain", "domain/billing"] for "domain/billing/api"
-        let ancestors = Self::build_ancestor_chain(path);
+        let ancestors = build_ancestor_chain(path);
 
         // Walk ancestors from root to leaf, merging metadata
         let mut accumulated: Option<PageMetadata> = None;
@@ -680,31 +680,6 @@ impl Storage for FsStorage {
         }
 
         Ok(accumulated)
-    }
-}
-
-impl FsStorage {
-    /// Build ancestor chain for a URL path.
-    ///
-    /// Returns ancestors from root to the path itself.
-    /// E.g., "domain/billing/api" → ["", "domain", "domain/billing", "domain/billing/api"]
-    fn build_ancestor_chain(path: &str) -> Vec<String> {
-        let mut ancestors = vec![String::new()]; // Root is always first
-
-        if !path.is_empty() {
-            let parts: Vec<&str> = path.split('/').collect();
-            let mut current = String::new();
-            for part in parts {
-                if current.is_empty() {
-                    current = part.to_string();
-                } else {
-                    current = format!("{current}/{part}");
-                }
-                ancestors.push(current.clone());
-            }
-        }
-
-        ancestors
     }
 }
 
