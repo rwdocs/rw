@@ -2,21 +2,21 @@
 //!
 //! Provides the core [`Storage`] trait for abstracting document scanning and retrieval,
 //! along with [`StorageError`] for unified error handling across backends.
+//!
+//! # URL Path Convention
+//!
+//! All path parameters in Storage methods are **URL paths**, not file paths:
+//! - `""` - root (home page)
+//! - `"guide"` - standalone page
+//! - `"domain"` - directory with index
+//! - `"domain/billing"` - nested page
+//!
+//! Storage implementations (like [`FsStorage`](crate::FsStorage)) handle the mapping
+//! from URL paths to their internal storage format.
 
 use std::path::{Path, PathBuf};
 
 use crate::event::{StorageEventReceiver, WatchHandle};
-
-/// Join directory and filename into a path.
-///
-/// Handles the edge case where `dir` is empty (root-level files).
-fn join_dir_name(dir: &Path, name: &str) -> PathBuf {
-    if dir.as_os_str().is_empty() {
-        PathBuf::from(name)
-    } else {
-        dir.join(name)
-    }
-}
 
 /// Extract title from YAML content using simple string parsing.
 ///
@@ -40,25 +40,6 @@ pub(crate) fn extract_yaml_title(content: &str) -> Option<String> {
     None
 }
 
-/// Compute metadata file path for a document.
-///
-/// Implements the naming convention:
-/// - `"domain/index.md"` with `meta.yaml` → `"domain/meta.yaml"`
-/// - `"domain/guide.md"` → `"domain/guide.meta.yaml"` (future support)
-pub(crate) fn meta_path_for_document(doc_path: &Path, meta_filename: &str) -> PathBuf {
-    if doc_path.file_name().is_some_and(|n| n == "index.md") {
-        // index.md → meta.yaml in same directory
-        doc_path
-            .parent()
-            .unwrap_or(Path::new(""))
-            .join(meta_filename)
-    } else {
-        // guide.md → guide.meta.yaml (future support)
-        let stem = doc_path.file_stem().unwrap_or_default();
-        doc_path.with_file_name(format!("{}.meta.yaml", stem.to_string_lossy()))
-    }
-}
-
 /// Document metadata returned by storage scan.
 ///
 /// Documents can be either real pages (with content) or virtual pages (metadata only).
@@ -69,14 +50,18 @@ pub(crate) fn meta_path_for_document(doc_path: &Path, meta_filename: &str) -> Pa
 /// | true | true | Real page with metadata |
 /// | false | true | Virtual page (directory with metadata only) |
 /// | false | false | Never returned by Storage |
+///
+/// # Path Convention
+///
+/// The `path` field contains URL paths, not file paths:
+/// - `""` - root (maps to `index.md`)
+/// - `"guide"` - standalone page (maps to `guide.md` or `guide/index.md`)
+/// - `"domain"` - directory section (maps to `domain/index.md`)
+/// - `"domain/billing"` - nested page
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Document {
-    /// Directory containing the document (e.g., "domain/billing").
-    /// Empty `PathBuf` for root-level files.
-    pub dir: PathBuf,
-    /// Document filename (e.g., "guide.md", "index.md").
-    /// Virtual pages always have `name: "index.md"`.
-    pub name: String,
+    /// URL path (e.g., "", "guide", "domain", "domain/billing").
+    pub path: String,
     /// Document title (extracted or stored).
     /// - Content pages: from H1 or filename fallback
     /// - Virtual pages: from metadata YAML `title` field or directory name fallback
@@ -85,21 +70,6 @@ pub struct Document {
     pub has_content: bool,
     /// True if meta.yaml exists.
     pub has_metadata: bool,
-}
-
-impl Document {
-    /// Full path to the document.
-    ///
-    /// Reconstructs the path from `dir` and `name`.
-    ///
-    /// # Examples
-    ///
-    /// - `dir: "", name: "guide.md"` → `"guide.md"`
-    /// - `dir: "domain", name: "index.md"` → `"domain/index.md"`
-    #[must_use]
-    pub fn path(&self) -> PathBuf {
-        join_dir_name(&self.dir, &self.name)
-    }
 }
 
 /// Result of scanning storage.
@@ -300,11 +270,21 @@ impl std::error::Error for StorageError {
 /// Provides a unified interface for accessing documents regardless of backend.
 /// Implementations handle backend-specific details like caching, title extraction,
 /// and path resolution.
+///
+/// # URL Paths
+///
+/// All path parameters are **URL paths**, not file paths:
+/// - `""` - root (home page)
+/// - `"guide"` - standalone page
+/// - `"domain"` - directory with index
+/// - `"domain/billing"` - nested page
+///
+/// Storage implementations map URL paths to their internal storage format.
 pub trait Storage: Send + Sync {
     /// Scan and return all documents and metadata files.
     ///
-    /// Returns a [`ScanResult`] containing documents and metadata files.
-    /// Hierarchy is derived by the consumer (`SiteLoader`) based on path conventions.
+    /// Returns a [`ScanResult`] containing documents with URL paths.
+    /// Hierarchy is derived by the consumer (`Site`) based on path conventions.
     ///
     /// # Errors
     ///
@@ -316,33 +296,33 @@ pub trait Storage: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// * `path` - Relative path within the storage (e.g., "guide.md")
+    /// * `path` - URL path (e.g., "guide", "domain/billing", "" for root)
     ///
     /// # Errors
     ///
     /// Returns [`StorageError`] if the document doesn't exist or can't be read.
-    fn read(&self, path: &Path) -> Result<String, StorageError>;
+    fn read(&self, path: &str) -> Result<String, StorageError>;
 
-    /// Check if a document exists at the given path.
+    /// Check if a document exists at the given URL path.
     ///
-    /// Used by `SiteLoader` to determine if `index.md` exists for hierarchy building.
     /// Returns `false` on errors (treats errors as "doesn't exist").
-    fn exists(&self, path: &Path) -> bool;
+    fn exists(&self, path: &str) -> bool;
 
     /// Get modification time as seconds since Unix epoch.
     ///
     /// # Arguments
     ///
-    /// * `path` - Relative path within the storage (e.g., "guide.md")
+    /// * `path` - URL path (e.g., "guide", "domain/billing", "" for root)
     ///
     /// # Errors
     ///
     /// Returns [`StorageError`] if the document doesn't exist or mtime can't be retrieved.
-    fn mtime(&self, path: &Path) -> Result<f64, StorageError>;
+    fn mtime(&self, path: &str) -> Result<f64, StorageError>;
 
     /// Start watching for document changes.
     ///
     /// Returns a receiver for events and a handle to stop watching.
+    /// Events contain URL paths, not file paths.
     /// Default implementation returns a no-op receiver for backends
     /// that don't support change notification.
     ///
@@ -353,20 +333,18 @@ pub trait Storage: Send + Sync {
         Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
     }
 
-    /// Read metadata content for a document.
+    /// Read metadata content for a URL path.
     ///
-    /// Storage knows the naming convention:
-    /// - `"domain/index.md"` → reads `"domain/meta.yaml"`
-    /// - `"domain/guide.md"` → reads `"domain/guide.meta.yaml"` (future)
+    /// Storage knows the naming convention internally.
     ///
     /// # Arguments
     ///
-    /// * `path` - Document path (e.g., `"domain/billing/index.md"`)
+    /// * `path` - URL path (e.g., "domain/billing", "" for root)
     ///
     /// # Errors
     ///
     /// Returns [`StorageError::NotFound`](StorageErrorKind::NotFound) if metadata file doesn't exist.
-    fn meta(&self, path: &Path) -> Result<String, StorageError>;
+    fn meta(&self, path: &str) -> Result<String, StorageError>;
 }
 
 #[cfg(test)]
@@ -374,32 +352,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_document_path_root_level() {
+    fn test_document_root() {
         let doc = Document {
-            dir: PathBuf::new(),
-            name: "guide.md".to_string(),
+            path: String::new(),
+            title: "Home".to_string(),
+            has_content: true,
+            has_metadata: false,
+        };
+
+        assert_eq!(doc.path, "");
+        assert_eq!(doc.title, "Home");
+        assert!(doc.has_content);
+        assert!(!doc.has_metadata);
+    }
+
+    #[test]
+    fn test_document_standalone() {
+        let doc = Document {
+            path: "guide".to_string(),
             title: "Guide".to_string(),
             has_content: true,
             has_metadata: false,
         };
 
-        assert_eq!(doc.path(), PathBuf::from("guide.md"));
+        assert_eq!(doc.path, "guide");
         assert_eq!(doc.title, "Guide");
         assert!(doc.has_content);
         assert!(!doc.has_metadata);
     }
 
     #[test]
-    fn test_document_path_nested() {
+    fn test_document_nested() {
         let doc = Document {
-            dir: PathBuf::from("domain/billing"),
-            name: "index.md".to_string(),
+            path: "domain/billing".to_string(),
             title: "Billing".to_string(),
             has_content: true,
             has_metadata: true,
         };
 
-        assert_eq!(doc.path(), PathBuf::from("domain/billing/index.md"));
+        assert_eq!(doc.path, "domain/billing");
         assert!(doc.has_content);
         assert!(doc.has_metadata);
     }
@@ -407,14 +398,13 @@ mod tests {
     #[test]
     fn test_virtual_document() {
         let doc = Document {
-            dir: PathBuf::from("domains"),
-            name: "index.md".to_string(),
+            path: "domains".to_string(),
             title: "Domains".to_string(),
             has_content: false,
             has_metadata: true,
         };
 
-        assert_eq!(doc.path(), PathBuf::from("domains/index.md"));
+        assert_eq!(doc.path, "domains");
         assert!(!doc.has_content);
         assert!(doc.has_metadata);
     }
@@ -587,29 +577,5 @@ mod tests {
     fn test_error_status_default() {
         let status = ErrorStatus::default();
         assert_eq!(status, ErrorStatus::Permanent);
-    }
-
-    #[test]
-    fn test_meta_path_for_index_in_subdir() {
-        let path = meta_path_for_document(Path::new("domain/index.md"), "meta.yaml");
-        assert_eq!(path, PathBuf::from("domain/meta.yaml"));
-    }
-
-    #[test]
-    fn test_meta_path_for_index_at_root() {
-        let path = meta_path_for_document(Path::new("index.md"), "meta.yaml");
-        assert_eq!(path, PathBuf::from("meta.yaml"));
-    }
-
-    #[test]
-    fn test_meta_path_for_non_index_file() {
-        let path = meta_path_for_document(Path::new("domain/guide.md"), "meta.yaml");
-        assert_eq!(path, PathBuf::from("domain/guide.meta.yaml"));
-    }
-
-    #[test]
-    fn test_meta_path_with_custom_filename() {
-        let path = meta_path_for_document(Path::new("domain/index.md"), "config.yml");
-        assert_eq!(path, PathBuf::from("domain/config.yml"));
     }
 }

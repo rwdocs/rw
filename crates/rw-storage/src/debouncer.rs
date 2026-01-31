@@ -8,7 +8,19 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::event::{StorageEvent, StorageEventKind};
+use crate::event::StorageEventKind;
+
+/// A debounced event with file path (not URL path).
+///
+/// The debouncer works with file system paths internally. Conversion to
+/// URL paths happens at the `FsStorage::watch()` boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DebouncedEvent {
+    /// File system path.
+    pub path: PathBuf,
+    /// Kind of change.
+    pub kind: StorageEventKind,
+}
 
 /// Pending event waiting to be emitted.
 struct PendingEvent {
@@ -91,7 +103,8 @@ impl EventDebouncer {
     /// Drain events that have passed their debounce deadline.
     ///
     /// Thread-safe, called from watcher thread.
-    pub fn drain_ready(&self) -> Vec<StorageEvent> {
+    /// Returns events with file system paths (not URL paths).
+    pub fn drain_ready(&self) -> Vec<DebouncedEvent> {
         let mut pending = self.pending.lock().unwrap();
         let now = Instant::now();
 
@@ -106,7 +119,7 @@ impl EventDebouncer {
             .into_iter()
             .map(|path| {
                 let event = pending.remove(&path).expect("path was just found");
-                StorageEvent {
+                DebouncedEvent {
                     path,
                     kind: event.kind,
                 }
