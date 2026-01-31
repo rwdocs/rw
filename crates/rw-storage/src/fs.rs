@@ -352,9 +352,7 @@ impl FsStorage {
         }
 
         // Handle metadata file
-        if has_meta_file
-            && let Some(ref meta_path) = meta_file_path
-        {
+        if has_meta_file && let Some(ref meta_path) = meta_file_path {
             // Read metadata file to extract page_type
             let page_type = fs::read_to_string(meta_path)
                 .ok()
@@ -365,8 +363,7 @@ impl FsStorage {
                 result.documents[idx].page_type = page_type;
             } else {
                 // No index.md - check if metadata is useful before creating virtual page
-                if let Some(title) =
-                    Self::get_virtual_page_title(meta_path, Path::new(url_prefix))
+                if let Some(title) = Self::get_virtual_page_title(meta_path, Path::new(url_prefix))
                 {
                     result.documents.push(Document {
                         path: url_prefix.to_string(),
@@ -676,9 +673,7 @@ impl Storage for FsStorage {
 
         // If the requested path doesn't have its own metadata file,
         // clear title/description/page_type (only vars are inherited)
-        if !has_own_meta
-            && let Some(ref mut meta) = accumulated
-        {
+        if !has_own_meta && let Some(ref mut meta) = accumulated {
             meta.title = None;
             meta.description = None;
             meta.page_type = None;

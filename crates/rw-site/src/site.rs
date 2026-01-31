@@ -45,12 +45,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
+use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
+use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 use rw_diagrams::{DiagramProcessor, FileCache};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
 use rw_storage::{PageMetadata, Storage, StorageError, StorageErrorKind};
-use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
-use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 
 /// Get the depth of a URL path.
 ///
@@ -568,7 +568,9 @@ impl Site {
             let parent_idx = Self::find_parent_from_url(url_path, &url_to_idx);
 
             // Load title from metadata if available, otherwise use document title
-            let title = self.load_title_for_doc(&doc.path).unwrap_or_else(|| doc.title.clone());
+            let title = self
+                .load_title_for_doc(&doc.path)
+                .unwrap_or_else(|| doc.title.clone());
 
             let idx = builder.add_page(
                 title,
@@ -600,11 +602,7 @@ impl Site {
 
     /// Load title from metadata for a path.
     fn load_title_for_doc(&self, path: &str) -> Option<String> {
-        self.storage
-            .meta(path)
-            .ok()
-            .flatten()
-            .and_then(|m| m.title)
+        self.storage.meta(path).ok().flatten().and_then(|m| m.title)
     }
 
     /// Load metadata for a path (lazy loading).
