@@ -564,22 +564,16 @@ impl Site {
 
         // Process documents in sorted order
         for doc in &documents {
-            let url_path = &doc.path;
-            let parent_idx = Self::find_parent_from_url(url_path, &url_to_idx);
-
-            // Load title from metadata if available, otherwise use document title
-            let title = self
-                .load_title_for_doc(&doc.path)
-                .unwrap_or_else(|| doc.title.clone());
+            let parent_idx = Self::find_parent_from_url(&doc.path, &url_to_idx);
 
             let idx = builder.add_page(
-                title,
-                url_path.clone(),
+                doc.title.clone(),
+                doc.path.clone(),
                 doc.has_content,
                 parent_idx,
                 doc.page_type.clone(),
             );
-            url_to_idx.insert(url_path.clone(), idx);
+            url_to_idx.insert(doc.path.clone(), idx);
         }
 
         builder.build()
@@ -598,11 +592,6 @@ impl Site {
             current = parent_url;
         }
         None
-    }
-
-    /// Load title from metadata for a path.
-    fn load_title_for_doc(&self, path: &str) -> Option<String> {
-        self.storage.meta(path).ok().flatten().and_then(|m| m.title)
     }
 
     /// Load metadata for a path (lazy loading).
