@@ -37,7 +37,7 @@ mod storage;
 
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 pub use fs::FsStorage;
-pub use metadata::{MetadataError, PageMetadata, merge_metadata};
+pub use metadata::{MetadataError, PageMetadata};
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
 pub use storage::{Document, ErrorStatus, ScanResult, Storage, StorageError, StorageErrorKind};

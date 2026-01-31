@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::metadata::{PageMetadata, merge_metadata};
+use crate::metadata::{PageMetadata, build_ancestor_chain, merge_metadata};
 use crate::storage::{Document, ScanResult, Storage, StorageError, StorageErrorKind};
 
 /// Mock storage for testing.
@@ -251,24 +251,6 @@ impl MockStorage {
             kind: StorageEventKind::Removed,
         });
     }
-
-    /// Build ancestor chain for inheritance.
-    fn build_ancestor_chain(path: &str) -> Vec<String> {
-        let mut ancestors = vec![String::new()];
-        if !path.is_empty() {
-            let parts: Vec<&str> = path.split('/').collect();
-            let mut current = String::new();
-            for part in parts {
-                if current.is_empty() {
-                    current = part.to_string();
-                } else {
-                    current = format!("{current}/{part}");
-                }
-                ancestors.push(current.clone());
-            }
-        }
-        ancestors
-    }
 }
 
 impl Storage for MockStorage {
@@ -321,7 +303,7 @@ impl Storage for MockStorage {
 
     fn meta(&self, path: &str) -> Result<Option<PageMetadata>, StorageError> {
         let metadata_store = self.metadata.read().unwrap();
-        let ancestors = Self::build_ancestor_chain(path);
+        let ancestors = build_ancestor_chain(path);
 
         let mut accumulated: Option<PageMetadata> = None;
         let has_own_meta = metadata_store.contains_key(path);
