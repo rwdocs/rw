@@ -50,7 +50,7 @@ use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
 use rw_diagrams::{DiagramProcessor, FileCache};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
-use rw_storage::{PageMetadata, Storage, StorageError, StorageErrorKind};
+use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 
 /// Get the depth of a URL path.
 ///
@@ -89,7 +89,7 @@ pub struct PageRenderResult {
     /// Breadcrumb navigation items.
     pub breadcrumbs: Vec<BreadcrumbItem>,
     /// Page metadata from YAML sidecar file.
-    pub metadata: Option<PageMetadata>,
+    pub metadata: Option<Metadata>,
 }
 
 /// Error returned when page rendering fails.
@@ -606,7 +606,7 @@ impl Site {
     }
 
     /// Load metadata for a path (lazy loading).
-    fn load_metadata(&self, path: &str) -> Option<PageMetadata> {
+    fn load_metadata(&self, path: &str) -> Option<Metadata> {
         match self.storage.meta(path) {
             Ok(meta) => meta,
             Err(e) => {

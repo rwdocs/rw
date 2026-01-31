@@ -124,7 +124,7 @@ crates/
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── storage.rs        # Storage trait, Document, StorageError, StorageErrorKind
-│       ├── metadata.rs       # PageMetadata, YAML parsing, merge_metadata()
+│       ├── metadata.rs       # Metadata, YAML parsing, merge_metadata()
 │       ├── fs.rs             # FsStorage (filesystem with mtime caching)
 │       └── mock.rs           # MockStorage (feature = "mock", for testing)
 │

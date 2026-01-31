@@ -1,6 +1,6 @@
 //! Page metadata support via YAML sidecar files.
 //!
-//! Provides [`PageMetadata`] for storing page-level configuration and
+//! Provides [`Metadata`] for storing page-level configuration and
 //! [`merge_metadata`] for implementing inheritance.
 //!
 //! # Metadata Files
@@ -50,7 +50,7 @@ use serde::{Deserialize, Serialize};
 /// All fields are optional. When a field is `None`, it indicates the metadata
 /// was not explicitly set for this page.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PageMetadata {
+pub struct Metadata {
     /// Custom page title (overrides H1 extraction).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -69,7 +69,7 @@ pub struct PageMetadata {
     pub vars: HashMap<String, serde_json::Value>,
 }
 
-impl PageMetadata {
+impl Metadata {
     /// Parse metadata from YAML content.
     ///
     /// Returns metadata for valid YAML (empty content returns a default instance).
@@ -114,9 +114,9 @@ pub enum MetadataError {
 /// - `page_type`: Never inherited (child's value or `None`)
 /// - `vars`: Deep merged (child values override parent keys)
 #[must_use]
-pub fn merge_metadata(parent: &PageMetadata, child: &PageMetadata) -> PageMetadata {
+pub fn merge_metadata(parent: &Metadata, child: &Metadata) -> Metadata {
     // Start with child values for non-inherited fields
-    let mut merged = PageMetadata {
+    let mut merged = Metadata {
         title: child.title.clone(),             // Never inherited
         description: child.description.clone(), // Never inherited
         page_type: child.page_type.clone(),     // Never inherited
@@ -137,11 +137,11 @@ pub fn merge_metadata(parent: &PageMetadata, child: &PageMetadata) -> PageMetada
 mod tests {
     use super::*;
 
-    // PageMetadata parsing tests
+    // Metadata parsing tests
 
     #[test]
     fn test_parse_empty_yaml() {
-        let result = PageMetadata::from_yaml("");
+        let result = Metadata::from_yaml("");
         assert!(result.is_ok());
         let meta = result.unwrap();
         assert!(meta.is_empty());
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_parse_whitespace_only() {
-        let result = PageMetadata::from_yaml("   \n\t  ");
+        let result = Metadata::from_yaml("   \n\t  ");
         assert!(result.is_ok());
         let meta = result.unwrap();
         assert!(meta.is_empty());
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn test_parse_title_only() {
         let yaml = "title: My Page";
-        let result = PageMetadata::from_yaml(yaml);
+        let result = Metadata::from_yaml(yaml);
         assert!(result.is_ok());
         let meta = result.unwrap();
         assert_eq!(meta.title, Some("My Page".to_string()));
@@ -180,7 +180,7 @@ vars:
     - important
     - core
 "#;
-        let result = PageMetadata::from_yaml(yaml);
+        let result = Metadata::from_yaml(yaml);
         assert!(result.is_ok());
         let meta = result.unwrap();
         assert_eq!(meta.title, Some("My Domain".to_string()));
@@ -194,7 +194,7 @@ vars:
     #[test]
     fn test_parse_invalid_yaml() {
         let yaml = "title: [invalid yaml";
-        let result = PageMetadata::from_yaml(yaml);
+        let result = Metadata::from_yaml(yaml);
         assert!(result.is_err());
     }
 
@@ -204,7 +204,7 @@ vars:
 title: Test
 unknown_field: value
 ";
-        let result = PageMetadata::from_yaml(yaml).unwrap();
+        let result = Metadata::from_yaml(yaml).unwrap();
         assert_eq!(result.title, Some("Test".to_string()));
     }
 
@@ -212,30 +212,30 @@ unknown_field: value
 
     #[test]
     fn test_merge_empty_parent_and_child() {
-        let parent = PageMetadata::default();
-        let child = PageMetadata::default();
+        let parent = Metadata::default();
+        let child = Metadata::default();
         let merged = merge_metadata(&parent, &child);
         assert!(merged.is_empty());
     }
 
     #[test]
     fn test_merge_title_not_inherited() {
-        let parent = PageMetadata {
+        let parent = Metadata {
             title: Some("Parent Title".to_string()),
             ..Default::default()
         };
-        let child = PageMetadata::default();
+        let child = Metadata::default();
         let merged = merge_metadata(&parent, &child);
         assert!(merged.title.is_none(), "title should not be inherited");
     }
 
     #[test]
     fn test_merge_title_child_wins() {
-        let parent = PageMetadata {
+        let parent = Metadata {
             title: Some("Parent Title".to_string()),
             ..Default::default()
         };
-        let child = PageMetadata {
+        let child = Metadata {
             title: Some("Child Title".to_string()),
             ..Default::default()
         };
@@ -245,11 +245,11 @@ unknown_field: value
 
     #[test]
     fn test_merge_description_not_inherited() {
-        let parent = PageMetadata {
+        let parent = Metadata {
             description: Some("Parent description".to_string()),
             ..Default::default()
         };
-        let child = PageMetadata::default();
+        let child = Metadata::default();
         let merged = merge_metadata(&parent, &child);
         assert!(
             merged.description.is_none(),
@@ -259,11 +259,11 @@ unknown_field: value
 
     #[test]
     fn test_merge_description_child_preserved() {
-        let parent = PageMetadata {
+        let parent = Metadata {
             description: Some("Parent description".to_string()),
             ..Default::default()
         };
-        let child = PageMetadata {
+        let child = Metadata {
             description: Some("Child description".to_string()),
             ..Default::default()
         };
@@ -273,11 +273,11 @@ unknown_field: value
 
     #[test]
     fn test_merge_page_type_not_inherited() {
-        let parent = PageMetadata {
+        let parent = Metadata {
             page_type: Some("domain".to_string()),
             ..Default::default()
         };
-        let child = PageMetadata::default();
+        let child = Metadata::default();
         let merged = merge_metadata(&parent, &child);
         assert!(
             merged.page_type.is_none(),
@@ -295,11 +295,11 @@ unknown_field: value
         child_vars.insert("key2".to_string(), serde_json::json!("child2"));
         child_vars.insert("key3".to_string(), serde_json::json!("child3"));
 
-        let parent = PageMetadata {
+        let parent = Metadata {
             vars: parent_vars,
             ..Default::default()
         };
-        let child = PageMetadata {
+        let child = Metadata {
             vars: child_vars,
             ..Default::default()
         };
@@ -315,13 +315,13 @@ unknown_field: value
 
     #[test]
     fn test_is_empty_default() {
-        let meta = PageMetadata::default();
+        let meta = Metadata::default();
         assert!(meta.is_empty());
     }
 
     #[test]
     fn test_is_empty_with_title() {
-        let meta = PageMetadata {
+        let meta = Metadata {
             title: Some("Title".to_string()),
             ..Default::default()
         };
@@ -332,7 +332,7 @@ unknown_field: value
     fn test_is_empty_with_vars() {
         let mut vars = HashMap::new();
         vars.insert("key".to_string(), serde_json::json!("value"));
-        let meta = PageMetadata {
+        let meta = Metadata {
             vars,
             ..Default::default()
         };

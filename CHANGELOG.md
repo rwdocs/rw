@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Storage API redesign**: `Document` now includes `has_content` and `page_type` fields for unified document model. Virtual pages (directories with metadata but no `index.md`) are now discovered by Storage instead of Site
-- `PageMetadata` moved from rw-site to rw-storage for reuse by future storage backends
-- `Storage.meta()` now returns `Option<PageMetadata>` with inheritance applied (vars are inherited, title/description/page_type are not)
+- `Metadata` moved from rw-site to rw-storage for reuse by future storage backends
+- `Storage.meta()` now returns `Option<Metadata>` with inheritance applied (vars are inherited, title/description/page_type are not)
 - Site uses lazy metadata loading during render instead of eager loading during scan
 - Metadata file naming convention is now encapsulated in Storage via `meta()` method
 

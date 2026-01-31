@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::metadata::{PageMetadata, build_ancestor_chain, merge_metadata};
+use crate::metadata::{Metadata, build_ancestor_chain, merge_metadata};
 use crate::storage::{Document, ScanResult, Storage, StorageError, StorageErrorKind};
 
 /// Mock storage for testing.
@@ -34,7 +34,7 @@ pub struct MockStorage {
     /// Modification times keyed by URL path.
     mtimes: RwLock<HashMap<String, f64>>,
     /// Metadata keyed by URL path.
-    metadata: RwLock<HashMap<String, PageMetadata>>,
+    metadata: RwLock<HashMap<String, Metadata>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
 }
 
@@ -182,7 +182,7 @@ impl MockStorage {
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_metadata(self, path: impl Into<String>, metadata: PageMetadata) -> Self {
+    pub fn with_metadata(self, path: impl Into<String>, metadata: Metadata) -> Self {
         self.metadata.write().unwrap().insert(path.into(), metadata);
         self
     }
@@ -301,11 +301,11 @@ impl Storage for MockStorage {
         Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
     }
 
-    fn meta(&self, path: &str) -> Result<Option<PageMetadata>, StorageError> {
+    fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
         let metadata_store = self.metadata.read().unwrap();
         let ancestors = build_ancestor_chain(path);
 
-        let mut accumulated: Option<PageMetadata> = None;
+        let mut accumulated: Option<Metadata> = None;
         let has_own_meta = metadata_store.contains_key(path);
 
         for ancestor in &ancestors {
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn test_meta_returns_stored_metadata() {
-        let meta = PageMetadata {
+        let meta = Metadata {
             title: Some("Domain Title".to_string()),
             page_type: Some("domain".to_string()),
             ..Default::default()
@@ -471,13 +471,13 @@ mod tests {
 
     #[test]
     fn test_meta_inheritance() {
-        let root_meta = PageMetadata {
+        let root_meta = Metadata {
             vars: [("org".to_string(), serde_json::json!("acme"))]
                 .into_iter()
                 .collect(),
             ..Default::default()
         };
-        let child_meta = PageMetadata {
+        let child_meta = Metadata {
             title: Some("Child".to_string()),
             vars: [("team".to_string(), serde_json::json!("core"))]
                 .into_iter()

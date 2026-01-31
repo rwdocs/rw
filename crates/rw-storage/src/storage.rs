@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::event::{StorageEventReceiver, WatchHandle};
-use crate::metadata::PageMetadata;
+use crate::metadata::Metadata;
 
 /// Extract a simple string field from YAML content.
 ///
@@ -346,7 +346,7 @@ pub trait Storage: Send + Sync {
 
     /// Read metadata for a URL path with inheritance applied.
     ///
-    /// Returns full [`PageMetadata`] with vars merged from ancestors.
+    /// Returns full [`Metadata`] with vars merged from ancestors.
     /// Each backend handles its own format and inheritance strategy.
     ///
     /// # Arguments
@@ -358,7 +358,7 @@ pub trait Storage: Send + Sync {
     /// - `Ok(Some(metadata))` - Metadata exists and was parsed successfully
     /// - `Ok(None)` - No metadata file exists for this path or any ancestor
     /// - `Err(StorageError)` - I/O error or parse error
-    fn meta(&self, path: &str) -> Result<Option<PageMetadata>, StorageError>;
+    fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError>;
 }
 
 #[cfg(test)]
