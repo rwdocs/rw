@@ -32,8 +32,6 @@ pub(crate) mod site;
 mod site_cache;
 pub(crate) mod site_state;
 
-// Re-export Metadata from rw-storage
-pub use rw_storage::Metadata;
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
 pub use site_state::{BreadcrumbItem, NavItem, Navigation, Page, ScopeInfo, SectionInfo};
 
