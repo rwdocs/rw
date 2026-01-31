@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rw_site::{Site, SiteConfig};
-use rw_storage::FsStorage;
+use rw_storage_fs::FsStorage;
 
 fn create_site(source_dir: PathBuf) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));

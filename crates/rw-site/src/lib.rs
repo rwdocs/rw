@@ -10,7 +10,7 @@
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
 //! use rw_site::{Site, SiteConfig};
-//! use rw_storage::FsStorage;
+//! use rw_storage_fs::FsStorage;
 //!
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = SiteConfig {

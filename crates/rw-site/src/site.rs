@@ -23,7 +23,7 @@
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
 //! use rw_site::{Site, SiteConfig};
-//! use rw_storage::FsStorage;
+//! use rw_storage_fs::FsStorage;
 //!
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = SiteConfig {
@@ -608,21 +608,15 @@ mod tests {
     // Ensure Site is Send + Sync for use with Arc
     static_assertions::assert_impl_all!(super::Site: Send, Sync);
 
-    use std::fs;
     use std::sync::Arc;
 
-    use rw_storage::FsStorage;
+    use rw_storage::MockStorage;
 
     use super::*;
 
-    fn create_test_dir() -> tempfile::TempDir {
-        tempfile::tempdir().unwrap()
-    }
-
-    fn create_site(source_dir: PathBuf) -> Site {
-        let storage = Arc::new(FsStorage::new(source_dir));
+    fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = SiteConfig::default();
-        Site::new(storage, config)
+        Site::new(Arc::new(storage), config)
     }
 
     // ========================================================================
@@ -630,22 +624,9 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_reload_if_needed_missing_dir_returns_empty_site() {
-        let temp_dir = create_test_dir();
-        let site = create_site(temp_dir.path().join("nonexistent"));
-
-        let state = site.reload_if_needed();
-
-        assert!(state.get_root_pages().is_empty());
-    }
-
-    #[test]
-    fn test_reload_if_needed_empty_dir_returns_empty_site() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-
-        let site = create_site(source_dir);
+    fn test_reload_if_needed_empty_storage_returns_empty_site() {
+        let storage = MockStorage::new();
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -654,13 +635,11 @@ mod tests {
 
     #[test]
     fn test_reload_if_needed_flat_structure_builds_site() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# User Guide\n\nContent.").unwrap();
-        fs::write(source_dir.join("api.md"), "# API Reference\n\nDocs.").unwrap();
+        let storage = MockStorage::new()
+            .with_document("guide", "User Guide")
+            .with_document("api", "API Reference");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -671,16 +650,10 @@ mod tests {
 
     #[test]
     fn test_reload_if_needed_root_index_adds_home_page() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(
-            source_dir.join("index.md"),
-            "# Welcome\n\nHome page content.",
-        )
-        .unwrap();
+        let storage = MockStorage::new()
+            .with_file("", "Welcome", "# Welcome\n\nHome page content.");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -694,14 +667,11 @@ mod tests {
 
     #[test]
     fn test_reload_if_needed_nested_structure_builds_site() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("domain-a");
-        fs::create_dir_all(&domain_dir).unwrap();
-        fs::write(domain_dir.join("index.md"), "# Domain A\n\nOverview.").unwrap();
-        fs::write(domain_dir.join("guide.md"), "# Setup Guide\n\nSteps.").unwrap();
+        let storage = MockStorage::new()
+            .with_file("domain-a", "Domain A", "# Domain A\n\nOverview.")
+            .with_file("domain-a/guide", "Setup Guide", "# Setup Guide\n\nSteps.");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -724,13 +694,11 @@ mod tests {
     }
 
     #[test]
-    fn test_reload_if_needed_extracts_title_from_h1() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# My Custom Title\n\nContent.").unwrap();
+    fn test_reload_if_needed_page_titles_from_storage() {
+        let storage = MockStorage::new()
+            .with_document("guide", "My Custom Title");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -740,37 +708,11 @@ mod tests {
     }
 
     #[test]
-    fn test_reload_if_needed_falls_back_to_filename() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(
-            source_dir.join("setup-guide.md"),
-            "Content without heading.",
-        )
-        .unwrap();
+    fn test_reload_if_needed_cyrillic_path() {
+        let storage = MockStorage::new()
+            .with_document("руководство", "Руководство");
 
-        let site = create_site(source_dir);
-
-        let state = site.reload_if_needed();
-
-        let page = state.get_page("setup-guide");
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().title, "Setup Guide");
-    }
-
-    #[test]
-    fn test_reload_if_needed_cyrillic_filename() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(
-            source_dir.join("руководство.md"),
-            "# Руководство\n\nСодержимое.",
-        )
-        .unwrap();
-
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -783,46 +725,12 @@ mod tests {
     }
 
     #[test]
-    fn test_reload_if_needed_skips_hidden_files() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join(".hidden.md"), "# Hidden").unwrap();
-        fs::write(source_dir.join("visible.md"), "# Visible").unwrap();
-
-        let site = create_site(source_dir);
-
-        let state = site.reload_if_needed();
-
-        assert!(state.get_page(".hidden").is_none());
-        assert!(state.get_page("visible").is_some());
-    }
-
-    #[test]
-    fn test_reload_if_needed_skips_underscore_files() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("_partial.md"), "# Partial").unwrap();
-        fs::write(source_dir.join("main.md"), "# Main").unwrap();
-
-        let site = create_site(source_dir);
-
-        let state = site.reload_if_needed();
-
-        assert!(state.get_page("_partial").is_none());
-        assert!(state.get_page("main").is_some());
-    }
-
-    #[test]
     fn test_reload_if_needed_directory_without_index_promotes_children() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let no_index_dir = source_dir.join("no-index");
-        fs::create_dir_all(&no_index_dir).unwrap();
-        fs::write(no_index_dir.join("child.md"), "# Child Page").unwrap();
+        // MockStorage simulates child promotion by just providing the child at path
+        let storage = MockStorage::new()
+            .with_document("no-index/child", "Child Page");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -835,12 +743,10 @@ mod tests {
 
     #[test]
     fn test_state_returns_same_arc() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+        let storage = MockStorage::new()
+            .with_document("guide", "Guide");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         // First reload to populate
         let _ = site.reload_if_needed();
@@ -854,12 +760,10 @@ mod tests {
 
     #[test]
     fn test_reload_if_needed_caches_result() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+        let storage = MockStorage::new()
+            .with_document("guide", "Guide");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state1 = site.reload_if_needed();
         let state2 = site.reload_if_needed();
@@ -869,27 +773,21 @@ mod tests {
     }
 
     #[test]
-    fn test_invalidate_clears_cached_site() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+    fn test_invalidate_clears_cached_state() {
+        let storage = MockStorage::new()
+            .with_document("guide", "Guide");
 
-        let site = create_site(source_dir.clone());
+        let site = create_site_with_storage(storage);
 
-        // First reload - should NOT have "new"
+        // First reload
         let state1 = site.reload_if_needed();
-        assert!(state1.get_page("new").is_none());
+        assert!(state1.get_page("guide").is_some());
 
-        // Add new file and invalidate
-        fs::write(source_dir.join("new.md"), "# New").unwrap();
+        // Invalidate cache
         site.invalidate();
 
-        // Second reload - should have "new" now
+        // Second reload - should be a different Arc
         let state2 = site.reload_if_needed();
-        assert!(state2.get_page("new").is_some());
-
-        // Should be a different Arc (reloaded)
         assert!(!Arc::ptr_eq(&state1, &state2));
     }
 
@@ -897,12 +795,10 @@ mod tests {
     fn test_concurrent_access() {
         use std::thread;
 
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+        let storage = MockStorage::new()
+            .with_document("guide", "Guide");
 
-        let site = Arc::new(create_site(source_dir));
+        let site = Arc::new(create_site_with_storage(storage));
 
         // Spawn multiple threads accessing concurrently
         let handles: Vec<_> = (0..10)
@@ -924,12 +820,10 @@ mod tests {
     fn test_concurrent_invalidate_and_reload() {
         use std::thread;
 
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+        let storage = MockStorage::new()
+            .with_document("guide", "Guide");
 
-        let site = Arc::new(create_site(source_dir));
+        let site = Arc::new(create_site_with_storage(storage));
 
         // Initial load
         let _ = site.reload_if_needed();
@@ -960,60 +854,14 @@ mod tests {
     }
 
     #[test]
-    fn test_mtime_cache_reuses_titles() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Original Title").unwrap();
-
-        let site = create_site(source_dir);
-
-        // First load
-        let state1 = site.reload_if_needed();
-        assert_eq!(state1.get_page("guide").unwrap().title, "Original Title");
-
-        // Invalidate and reload without changing file - should use cached title
-        site.invalidate();
-        let state2 = site.reload_if_needed();
-        assert_eq!(state2.get_page("guide").unwrap().title, "Original Title");
-    }
-
-    #[test]
-    fn test_mtime_cache_detects_changes() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Original Title").unwrap();
-
-        let site = create_site(source_dir.clone());
-
-        // First load
-        let state1 = site.reload_if_needed();
-        assert_eq!(state1.get_page("guide").unwrap().title, "Original Title");
-
-        // Small delay to ensure mtime changes
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        // Modify file
-        fs::write(source_dir.join("guide.md"), "# Updated Title").unwrap();
-        site.invalidate();
-
-        // Reload should see new title
-        let state2 = site.reload_if_needed();
-        assert_eq!(state2.get_page("guide").unwrap().title, "Updated Title");
-    }
-
-    #[test]
     fn test_nested_hierarchy_with_multiple_levels() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir_all(source_dir.join("level1/level2")).unwrap();
-        fs::write(source_dir.join("index.md"), "# Home").unwrap();
-        fs::write(source_dir.join("level1/index.md"), "# Level 1").unwrap();
-        fs::write(source_dir.join("level1/level2/index.md"), "# Level 2").unwrap();
-        fs::write(source_dir.join("level1/level2/page.md"), "# Deep Page").unwrap();
+        let storage = MockStorage::new()
+            .with_file("", "Home", "# Home")
+            .with_file("level1", "Level 1", "# Level 1")
+            .with_file("level1/level2", "Level 2", "# Level 2")
+            .with_file("level1/level2/page", "Deep Page", "# Deep Page");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -1054,17 +902,15 @@ mod tests {
 
     #[test]
     fn test_render_simple_markdown() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("test.md"), "# Hello\n\nWorld").unwrap();
+        let storage = MockStorage::new()
+            .with_file("test", "Hello", "# Hello\n\nWorld")
+            .with_mtime("test", 1000.0);
 
-        let storage = Arc::new(FsStorage::new(source_dir));
         let config = SiteConfig {
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(storage, config);
+        let site = Site::new(Arc::new(storage), config);
 
         let result = site.render("test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
@@ -1075,12 +921,10 @@ mod tests {
 
     #[test]
     fn test_render_page_not_found() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("exists.md"), "# Exists").unwrap();
+        let storage = MockStorage::new()
+            .with_document("exists", "Exists");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let result = site.render("nonexistent");
         assert!(matches!(result, Err(RenderError::PageNotFound(_))));
@@ -1088,20 +932,20 @@ mod tests {
 
     #[test]
     fn test_render_with_cache() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
+        let temp_dir = tempfile::tempdir().unwrap();
         let cache_dir = temp_dir.path().join("cache");
-        fs::create_dir_all(&source_dir).unwrap();
-        fs::write(source_dir.join("test.md"), "# Cached\n\nContent").unwrap();
 
-        let storage = Arc::new(FsStorage::new(source_dir));
+        let storage = MockStorage::new()
+            .with_file("test", "Cached", "# Cached\n\nContent")
+            .with_mtime("test", 1000.0);
+
         let config = SiteConfig {
             cache_dir: Some(cache_dir),
             version: "1.0.0".to_string(),
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(storage, config);
+        let site = Site::new(Arc::new(storage), config);
 
         // First render - cache miss
         let result1 = site.render("test").unwrap();
@@ -1117,15 +961,13 @@ mod tests {
 
     #[test]
     fn test_render_includes_breadcrumbs() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("domain");
-        fs::create_dir_all(&domain_dir).unwrap();
-        fs::write(source_dir.join("index.md"), "# Home").unwrap();
-        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-        fs::write(domain_dir.join("page.md"), "# Page").unwrap();
+        let storage = MockStorage::new()
+            .with_file("", "Home", "# Home")
+            .with_file("domain", "Domain", "# Domain")
+            .with_file("domain/page", "Page", "# Page")
+            .with_mtime("domain/page", 1000.0);
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let result = site.render("domain/page").unwrap();
 
@@ -1138,16 +980,11 @@ mod tests {
 
     #[test]
     fn test_render_toc_generation() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(
-            source_dir.join("test.md"),
-            "# Title\n\n## Section 1\n\n## Section 2",
-        )
-        .unwrap();
+        let storage = MockStorage::new()
+            .with_file("test", "Title", "# Title\n\n## Section 1\n\n## Section 2")
+            .with_mtime("test", 1000.0);
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let result = site.render("test").unwrap();
         assert_eq!(result.toc.len(), 2);
@@ -1161,19 +998,11 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_virtual_page_discovered_from_metadata() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("my-domain");
-        fs::create_dir_all(&domain_dir).unwrap();
-        // Create meta.yaml but no index.md
-        fs::write(
-            domain_dir.join("meta.yaml"),
-            "title: My Domain\ntype: domain",
-        )
-        .unwrap();
+    fn test_virtual_page_discovered_from_storage() {
+        let storage = MockStorage::new()
+            .with_virtual_page_and_type("my-domain", "My Domain", "domain");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -1190,63 +1019,33 @@ mod tests {
     }
 
     #[test]
-    fn test_virtual_page_not_created_without_metadata() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("empty-domain");
-        fs::create_dir_all(&domain_dir).unwrap();
-        // No meta.yaml, no index.md
+    fn test_real_page_with_type() {
+        // Has both content and page_type
+        let storage = MockStorage::new()
+            .with_document_and_type("real-domain", "Meta Title", "domain");
 
-        let site = create_site(source_dir);
-
-        let state = site.reload_if_needed();
-
-        // Should not create a virtual page
-        assert!(state.get_page("empty-domain").is_none());
-    }
-
-    #[test]
-    fn test_virtual_page_not_created_with_index_md() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("real-domain");
-        fs::create_dir_all(&domain_dir).unwrap();
-        // Has both meta.yaml and index.md
-        fs::write(
-            domain_dir.join("meta.yaml"),
-            "title: Meta Title\ntype: domain",
-        )
-        .unwrap();
-        fs::write(domain_dir.join("index.md"), "# Real Page").unwrap();
-
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
         let page = state.get_page("real-domain");
         assert!(page.is_some());
         let page = page.unwrap();
-        // Should use index.md, not virtual
+        // Should have content
         assert!(page.has_content);
-        // Title from metadata takes precedence
+        // Title from storage
         assert_eq!(page.title, "Meta Title");
     }
 
     #[test]
     fn test_virtual_page_renders_title_only() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("my-domain");
-        fs::create_dir_all(&domain_dir).unwrap();
-        fs::write(
-            domain_dir.join("meta.yaml"),
-            "title: My Domain\ntype: domain",
-        )
-        .unwrap();
-        fs::write(domain_dir.join("child1.md"), "# Child One").unwrap();
-        fs::write(domain_dir.join("child2.md"), "# Child Two").unwrap();
+        let storage = MockStorage::new()
+            .with_virtual_page_and_type("my-domain", "My Domain", "domain")
+            .with_mtime("my-domain", 1000.0)
+            .with_document("my-domain/child1", "Child One")
+            .with_document("my-domain/child2", "Child Two");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let result = site.render("my-domain").unwrap();
 
@@ -1259,18 +1058,11 @@ mod tests {
 
     #[test]
     fn test_virtual_page_in_navigation() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("my-domain");
-        fs::create_dir_all(&domain_dir).unwrap();
-        fs::write(
-            domain_dir.join("meta.yaml"),
-            "title: My Domain\ntype: domain",
-        )
-        .unwrap();
-        fs::write(domain_dir.join("child.md"), "# Child Page").unwrap();
+        let storage = MockStorage::new()
+            .with_virtual_page_and_type("my-domain", "My Domain", "domain")
+            .with_document("my-domain/child", "Child Page");
 
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let nav = site.navigation("");
 
@@ -1283,25 +1075,16 @@ mod tests {
 
     #[test]
     fn test_nested_virtual_pages() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        fs::create_dir_all(&source_dir).unwrap();
-        fs::write(source_dir.join("index.md"), "# Home").unwrap();
+        let storage = MockStorage::new()
+            .with_file("", "Home", "# Home")
+            // Parent virtual page
+            .with_virtual_page_and_type("domains", "Domains", "section")
+            // Nested virtual page
+            .with_virtual_page_and_type("domains/billing", "Billing", "domain")
+            // Real page in nested virtual
+            .with_document("domains/billing/overview", "Overview");
 
-        // Parent virtual page
-        let parent = source_dir.join("domains");
-        fs::create_dir(&parent).unwrap();
-        fs::write(parent.join("meta.yaml"), "title: Domains\ntype: section").unwrap();
-
-        // Nested virtual page
-        let child = parent.join("billing");
-        fs::create_dir(&child).unwrap();
-        fs::write(child.join("meta.yaml"), "title: Billing\ntype: domain").unwrap();
-
-        // Real page in nested virtual
-        fs::write(child.join("overview.md"), "# Overview").unwrap();
-
-        let site = create_site(source_dir);
+        let site = create_site_with_storage(storage);
 
         let state = site.reload_if_needed();
 
@@ -1339,41 +1122,5 @@ mod tests {
         let billing_nav = site.navigation("domains/billing");
         assert_eq!(billing_nav.items.len(), 1);
         assert_eq!(billing_nav.items[0].title, "Overview");
-    }
-
-    #[test]
-    fn test_virtual_page_title_fallback_to_dir_name() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("my-nice-domain");
-        fs::create_dir_all(&domain_dir).unwrap();
-        // Meta without title
-        fs::write(domain_dir.join("meta.yaml"), "type: domain").unwrap();
-
-        let site = create_site(source_dir);
-
-        let state = site.reload_if_needed();
-
-        let page = state.get_page("my-nice-domain");
-        assert!(page.is_some());
-        // Should use titlecased directory name
-        assert_eq!(page.unwrap().title, "My Nice Domain");
-    }
-
-    #[test]
-    fn test_virtual_page_empty_metadata_ignored() {
-        let temp_dir = create_test_dir();
-        let source_dir = temp_dir.path().join("docs");
-        let domain_dir = source_dir.join("empty-meta");
-        fs::create_dir_all(&domain_dir).unwrap();
-        // Empty meta.yaml
-        fs::write(domain_dir.join("meta.yaml"), "").unwrap();
-
-        let site = create_site(source_dir);
-
-        let state = site.reload_if_needed();
-
-        // Should not create virtual page for empty metadata
-        assert!(state.get_page("empty-meta").is_none());
     }
 }

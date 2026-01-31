@@ -41,7 +41,11 @@ pub struct StorageEventReceiver {
 
 impl StorageEventReceiver {
     /// Create a new receiver from a channel receiver.
-    pub(crate) fn new(rx: mpsc::Receiver<StorageEvent>) -> Self {
+    ///
+    /// Typically used by Storage backend implementations to create
+    /// the receiver returned from `watch()`.
+    #[must_use]
+    pub fn new(rx: mpsc::Receiver<StorageEvent>) -> Self {
         Self { rx }
     }
 
@@ -72,7 +76,8 @@ impl StorageEventReceiver {
     ///
     /// Used by the default `Storage::watch()` implementation for backends
     /// that don't support change notification.
-    pub(crate) fn no_op() -> Self {
+    #[must_use]
+    pub fn no_op() -> Self {
         let (_tx, rx) = mpsc::channel();
         Self { rx }
     }
@@ -91,7 +96,11 @@ impl WatchHandle {
     ///
     /// When the handle is dropped, the sender is dropped, causing the
     /// receiver to return `Err(RecvError)` which signals shutdown.
-    pub(crate) fn new(shutdown: mpsc::Sender<()>) -> Self {
+    ///
+    /// Typically used by Storage backend implementations to create
+    /// the handle returned from `watch()`.
+    #[must_use]
+    pub fn new(shutdown: mpsc::Sender<()>) -> Self {
         Self {
             shutdown: Some(shutdown),
         }
@@ -106,7 +115,8 @@ impl WatchHandle {
     ///
     /// Used by the default `Storage::watch()` implementation for backends
     /// that don't support change notification.
-    pub(crate) fn no_op() -> Self {
+    #[must_use]
+    pub fn no_op() -> Self {
         Self { shutdown: None }
     }
 }

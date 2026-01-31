@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Storage.meta()` now returns `Option<Metadata>` with inheritance applied (vars are inherited, title/description/page_type are not)
 - Site uses lazy metadata loading during render instead of eager loading during scan
 - Metadata file naming convention is now encapsulated in Storage via `meta()` method
+- **Storage crate split**: `rw-storage` now contains only the core `Storage` trait, error types, event types, `Metadata` struct, and `MockStorage`. Filesystem implementation moved to new `rw-storage-fs` crate with `FsStorage`, enabling future backends like `rw-storage-s3` or `rw-storage-redis`
 
 ### Security
 

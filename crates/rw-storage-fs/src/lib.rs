@@ -1,14 +1,30 @@
-//! Filesystem storage implementation.
+//! Filesystem storage implementation for RW documentation engine.
 //!
-//! Provides [`FsStorage`] for reading documents from the local filesystem
-//! with mtime-based caching for title extraction.
+//! This crate provides [`FsStorage`], a filesystem-based implementation of the
+//! [`Storage`](rw_storage::Storage) trait. It handles:
 //!
-//! # URL to File Path Mapping
+//! - Recursive directory scanning for markdown files
+//! - Title extraction from H1 headings with mtime caching
+//! - Metadata loading from YAML sidecar files with inheritance
+//! - File watching with event debouncing
 //!
-//! `FsStorage` maps URL paths to filesystem paths:
-//! - `""` → `index.md`
-//! - `"guide"` → `guide/index.md` or `guide.md` (directory preferred)
-//! - `"domain/billing"` → `domain/billing/index.md` or `domain/billing.md`
+//! # Example
+//!
+//! ```ignore
+//! use std::path::PathBuf;
+//! use rw_storage::Storage;
+//! use rw_storage_fs::FsStorage;
+//!
+//! let storage = FsStorage::new(PathBuf::from("docs"));
+//! let documents = storage.scan()?;
+//! for doc in documents.documents {
+//!     println!("{}: {}", doc.path, doc.title);
+//! }
+//! ```
+
+mod debouncer;
+mod inheritance;
+mod yaml;
 
 use std::collections::HashMap;
 use std::fs;
@@ -21,13 +37,13 @@ use glob::Pattern;
 use notify::{RecursiveMode, Watcher};
 use regex::Regex;
 
-use crate::debouncer::EventDebouncer;
-use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::metadata::{Metadata, build_ancestor_chain, merge_metadata};
-use crate::storage::{
-    Document, ScanResult, Storage, StorageError, StorageErrorKind, extract_yaml_title,
-    extract_yaml_type,
+use debouncer::EventDebouncer;
+use inheritance::{build_ancestor_chain, merge_metadata};
+use rw_storage::{
+    Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind,
+    StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle,
 };
+use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -51,12 +67,13 @@ struct CachedFile {
 ///
 /// ```ignore
 /// use std::path::PathBuf;
-/// use rw_storage::{FsStorage, Storage};
+/// use rw_storage::Storage;
+/// use rw_storage_fs::FsStorage;
 ///
 /// let storage = FsStorage::new(PathBuf::from("docs"));
 /// let result = storage.scan()?;
 /// for doc in result.documents {
-///     println!("{}: {}", doc.path.display(), doc.title);
+///     println!("{}: {}", doc.path, doc.title);
 /// }
 /// ```
 pub struct FsStorage {
@@ -653,7 +670,7 @@ impl Storage for FsStorage {
                 }
             };
 
-            let meta = match Metadata::from_yaml(&content) {
+            let meta = match parse_metadata(&content) {
                 Ok(m) if !m.is_empty() => m,
                 Ok(_) => continue, // Empty metadata
                 Err(e) => {
@@ -692,7 +709,7 @@ impl Storage for FsStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::StorageErrorKind;
+    use rw_storage::StorageErrorKind;
 
     fn assert_send_sync<T: Send + Sync>() {}
 

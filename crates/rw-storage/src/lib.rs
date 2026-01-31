@@ -10,33 +10,32 @@
 //! # Architecture
 //!
 //! The crate provides:
-//! - [`Storage`] trait with `scan()`, `read()`, `exists()`, and `watch()` methods
-//! - [`FsStorage`] implementation for filesystem backends with mtime caching
+//! - [`Storage`] trait with `scan()`, `read()`, `exists()`, `mtime()`, `watch()`, and `meta()` methods
 //! - [`MockStorage`] for testing (behind `mock` feature flag)
+//!
+//! For filesystem storage, use the `rw-storage-fs` crate which provides [`FsStorage`](https://docs.rs/rw-storage-fs).
 //!
 //! # Example
 //!
 //! ```ignore
 //! use std::path::PathBuf;
-//! use rw_storage::{FsStorage, Storage};
+//! use rw_storage::Storage;
+//! use rw_storage_fs::FsStorage;
 //!
 //! let storage = FsStorage::new(PathBuf::from("docs"));
 //! let documents = storage.scan()?;
-//! for doc in documents {
-//!     println!("{}: {}", doc.path.display(), doc.title);
+//! for doc in documents.documents {
+//!     println!("{}: {}", doc.path, doc.title);
 //! }
 //! ```
 
-pub(crate) mod debouncer;
 mod event;
-mod fs;
 mod metadata;
 #[cfg(feature = "mock")]
 mod mock;
 mod storage;
 
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-pub use fs::FsStorage;
 pub use metadata::{Metadata, MetadataError};
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;

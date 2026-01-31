@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::event::StorageEventKind;
+use rw_storage::StorageEventKind;
 
 /// A debounced event with file path (not URL path).
 ///
