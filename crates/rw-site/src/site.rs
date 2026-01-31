@@ -650,8 +650,8 @@ mod tests {
 
     #[test]
     fn test_reload_if_needed_root_index_adds_home_page() {
-        let storage = MockStorage::new()
-            .with_file("", "Welcome", "# Welcome\n\nHome page content.");
+        let storage =
+            MockStorage::new().with_file("", "Welcome", "# Welcome\n\nHome page content.");
 
         let site = create_site_with_storage(storage);
 
@@ -695,8 +695,7 @@ mod tests {
 
     #[test]
     fn test_reload_if_needed_page_titles_from_storage() {
-        let storage = MockStorage::new()
-            .with_document("guide", "My Custom Title");
+        let storage = MockStorage::new().with_document("guide", "My Custom Title");
 
         let site = create_site_with_storage(storage);
 
@@ -709,8 +708,7 @@ mod tests {
 
     #[test]
     fn test_reload_if_needed_cyrillic_path() {
-        let storage = MockStorage::new()
-            .with_document("руководство", "Руководство");
+        let storage = MockStorage::new().with_document("руководство", "Руководство");
 
         let site = create_site_with_storage(storage);
 
@@ -727,8 +725,7 @@ mod tests {
     #[test]
     fn test_reload_if_needed_directory_without_index_promotes_children() {
         // MockStorage simulates child promotion by just providing the child at path
-        let storage = MockStorage::new()
-            .with_document("no-index/child", "Child Page");
+        let storage = MockStorage::new().with_document("no-index/child", "Child Page");
 
         let site = create_site_with_storage(storage);
 
@@ -743,8 +740,7 @@ mod tests {
 
     #[test]
     fn test_state_returns_same_arc() {
-        let storage = MockStorage::new()
-            .with_document("guide", "Guide");
+        let storage = MockStorage::new().with_document("guide", "Guide");
 
         let site = create_site_with_storage(storage);
 
@@ -760,8 +756,7 @@ mod tests {
 
     #[test]
     fn test_reload_if_needed_caches_result() {
-        let storage = MockStorage::new()
-            .with_document("guide", "Guide");
+        let storage = MockStorage::new().with_document("guide", "Guide");
 
         let site = create_site_with_storage(storage);
 
@@ -774,8 +769,7 @@ mod tests {
 
     #[test]
     fn test_invalidate_clears_cached_state() {
-        let storage = MockStorage::new()
-            .with_document("guide", "Guide");
+        let storage = MockStorage::new().with_document("guide", "Guide");
 
         let site = create_site_with_storage(storage);
 
@@ -795,8 +789,7 @@ mod tests {
     fn test_concurrent_access() {
         use std::thread;
 
-        let storage = MockStorage::new()
-            .with_document("guide", "Guide");
+        let storage = MockStorage::new().with_document("guide", "Guide");
 
         let site = Arc::new(create_site_with_storage(storage));
 
@@ -820,8 +813,7 @@ mod tests {
     fn test_concurrent_invalidate_and_reload() {
         use std::thread;
 
-        let storage = MockStorage::new()
-            .with_document("guide", "Guide");
+        let storage = MockStorage::new().with_document("guide", "Guide");
 
         let site = Arc::new(create_site_with_storage(storage));
 
@@ -921,8 +913,7 @@ mod tests {
 
     #[test]
     fn test_render_page_not_found() {
-        let storage = MockStorage::new()
-            .with_document("exists", "Exists");
+        let storage = MockStorage::new().with_document("exists", "Exists");
 
         let site = create_site_with_storage(storage);
 
@@ -999,8 +990,8 @@ mod tests {
 
     #[test]
     fn test_virtual_page_discovered_from_storage() {
-        let storage = MockStorage::new()
-            .with_virtual_page_and_type("my-domain", "My Domain", "domain");
+        let storage =
+            MockStorage::new().with_virtual_page_and_type("my-domain", "My Domain", "domain");
 
         let site = create_site_with_storage(storage);
 
@@ -1021,8 +1012,8 @@ mod tests {
     #[test]
     fn test_real_page_with_type() {
         // Has both content and page_type
-        let storage = MockStorage::new()
-            .with_document_and_type("real-domain", "Meta Title", "domain");
+        let storage =
+            MockStorage::new().with_document_and_type("real-domain", "Meta Title", "domain");
 
         let site = create_site_with_storage(storage);
 

@@ -57,8 +57,7 @@ pub(crate) fn parse_metadata(content: &str) -> Result<Metadata, MetadataError> {
         return Ok(Metadata::default());
     }
 
-    serde_yaml::from_str(trimmed)
-        .map_err(|e| MetadataError::Parse(format!("Invalid YAML: {e}")))
+    serde_yaml::from_str(trimmed).map_err(|e| MetadataError::Parse(format!("Invalid YAML: {e}")))
 }
 
 #[cfg(test)]
