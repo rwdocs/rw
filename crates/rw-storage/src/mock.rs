@@ -8,7 +8,7 @@ use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use crate::metadata::Metadata;
-use crate::storage::{Document, ScanResult, Storage, StorageError, StorageErrorKind};
+use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
 /// Mock storage for testing.
 ///
@@ -261,10 +261,8 @@ impl MockStorage {
 }
 
 impl Storage for MockStorage {
-    fn scan(&self) -> Result<ScanResult, StorageError> {
-        Ok(ScanResult {
-            documents: self.documents.read().unwrap().clone(),
-        })
+    fn scan(&self) -> Result<Vec<Document>, StorageError> {
+        Ok(self.documents.read().unwrap().clone())
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
@@ -328,9 +326,9 @@ mod tests {
     #[test]
     fn test_new_empty() {
         let storage = MockStorage::new();
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert!(result.documents.is_empty());
+        assert!(docs.is_empty());
     }
 
     #[test]
@@ -339,15 +337,15 @@ mod tests {
             .with_document("guide", "Guide")
             .with_document("api", "API");
 
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 2);
-        assert_eq!(result.documents[0].path, "guide");
-        assert_eq!(result.documents[0].title, "Guide");
-        assert!(result.documents[0].has_content);
-        assert!(result.documents[0].page_type.is_none());
-        assert_eq!(result.documents[1].path, "api");
-        assert_eq!(result.documents[1].title, "API");
+        assert_eq!(docs.len(), 2);
+        assert_eq!(docs[0].path, "guide");
+        assert_eq!(docs[0].title, "Guide");
+        assert!(docs[0].has_content);
+        assert!(docs[0].page_type.is_none());
+        assert_eq!(docs[1].path, "api");
+        assert_eq!(docs[1].title, "API");
     }
 
     #[test]
@@ -364,13 +362,13 @@ mod tests {
         let storage =
             MockStorage::new().with_file("guide", "User Guide", "# User Guide\n\nContent.");
 
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
         let content = storage.read("guide").unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].title, "User Guide");
-        assert!(result.documents[0].has_content);
-        assert!(result.documents[0].page_type.is_none());
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].title, "User Guide");
+        assert!(docs[0].has_content);
+        assert!(docs[0].page_type.is_none());
         assert_eq!(content, "# User Guide\n\nContent.");
     }
 
@@ -378,22 +376,22 @@ mod tests {
     fn test_with_document_and_type() {
         let storage = MockStorage::new().with_document_and_type("domain", "Domain", "domain");
 
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path, "domain");
-        assert!(result.documents[0].has_content);
-        assert_eq!(result.documents[0].page_type, Some("domain".to_string()));
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].path, "domain");
+        assert!(docs[0].has_content);
+        assert_eq!(docs[0].page_type, Some("domain".to_string()));
     }
 
     #[test]
     fn test_with_virtual_page() {
         let storage = MockStorage::new().with_virtual_page("domain", "Domain Title");
 
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        let doc = &result.documents[0];
+        assert_eq!(docs.len(), 1);
+        let doc = &docs[0];
         assert_eq!(doc.path, "domain");
         assert_eq!(doc.title, "Domain Title");
         assert!(!doc.has_content);
@@ -405,10 +403,10 @@ mod tests {
         let storage =
             MockStorage::new().with_virtual_page_and_type("domain", "Domain Title", "section");
 
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        let doc = &result.documents[0];
+        assert_eq!(docs.len(), 1);
+        let doc = &docs[0];
         assert!(!doc.has_content);
         assert_eq!(doc.page_type, Some("section".to_string()));
     }

@@ -534,15 +534,13 @@ impl Site {
         let mut builder = SiteStateBuilder::new();
 
         // Scan storage for documents (including virtual pages)
-        let scan_result = match self.storage.scan() {
-            Ok(result) => result,
+        let mut documents = match self.storage.scan() {
+            Ok(docs) => docs,
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to scan storage");
                 return builder.build();
             }
         };
-
-        let mut documents = scan_result.documents;
 
         // Sort documents: parents before children, real pages before virtual, by path
         documents.sort_by(|a, b| {

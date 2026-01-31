@@ -17,7 +17,7 @@
 //!
 //! let storage = FsStorage::new(PathBuf::from("docs"));
 //! let documents = storage.scan()?;
-//! for doc in documents.documents {
+//! for doc in documents {
 //!     println!("{}: {}", doc.path, doc.title);
 //! }
 //! ```
@@ -40,8 +40,8 @@ use regex::Regex;
 use debouncer::EventDebouncer;
 use inheritance::{build_ancestor_chain, merge_metadata};
 use rw_storage::{
-    Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind, StorageEvent,
-    StorageEventKind, StorageEventReceiver, WatchHandle,
+    Document, Metadata, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
+    StorageEventReceiver, WatchHandle,
 };
 use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 
@@ -71,8 +71,8 @@ struct CachedFile {
 /// use rw_storage_fs::FsStorage;
 ///
 /// let storage = FsStorage::new(PathBuf::from("docs"));
-/// let result = storage.scan()?;
-/// for doc in result.documents {
+/// let documents = storage.scan()?;
+/// for doc in documents {
 ///     println!("{}: {}", doc.path, doc.title);
 /// }
 /// ```
@@ -270,7 +270,7 @@ impl FsStorage {
     ///    - If no matching document: creates entry with `has_content=false, has_metadata=true`
     ///
     /// Documents are returned with URL paths, not file paths.
-    fn scan_directory(&self, dir_path: &Path, url_prefix: &str, result: &mut ScanResult) {
+    fn scan_directory(&self, dir_path: &Path, url_prefix: &str, documents: &mut Vec<Document>) {
         let Ok(entries) = fs::read_dir(dir_path) else {
             return;
         };
@@ -327,7 +327,7 @@ impl FsStorage {
                 } else {
                     format!("{url_prefix}/{child_name}")
                 };
-                self.scan_directory(&path, &child_url, result);
+                self.scan_directory(&path, &child_url, documents);
             } else if path.extension().is_some_and(|e| e == "md") {
                 // Process markdown file
                 let title = self.get_title(&path, &name_lower);
@@ -358,9 +358,9 @@ impl FsStorage {
                 };
 
                 if is_index {
-                    index_doc_idx = Some(result.documents.len());
+                    index_doc_idx = Some(documents.len());
                 }
-                result.documents.push(doc);
+                documents.push(doc);
             } else if entry.file_name().to_string_lossy() == self.meta_filename {
                 // Found metadata file
                 has_meta_file = true;
@@ -378,14 +378,14 @@ impl FsStorage {
             if let Some(idx) = index_doc_idx {
                 // index.md exists - apply metadata title and page_type
                 if let Some(title) = meta_title {
-                    result.documents[idx].title = title;
+                    documents[idx].title = title;
                 }
-                result.documents[idx].page_type = page_type;
+                documents[idx].page_type = page_type;
             } else {
                 // No index.md - check if metadata is useful before creating virtual page
                 if let Some(title) = Self::get_virtual_page_title(meta_path, Path::new(url_prefix))
                 {
-                    result.documents.push(Document {
+                    documents.push(Document {
                         path: url_prefix.to_string(),
                         title,
                         has_content: false,
@@ -496,14 +496,14 @@ impl FsStorage {
 }
 
 impl Storage for FsStorage {
-    fn scan(&self) -> Result<ScanResult, StorageError> {
+    fn scan(&self) -> Result<Vec<Document>, StorageError> {
         if !self.source_dir.exists() {
-            return Ok(ScanResult::default());
+            return Ok(Vec::new());
         }
 
-        let mut result = ScanResult::default();
-        self.scan_directory(&self.source_dir, "", &mut result);
-        Ok(result)
+        let mut documents = Vec::new();
+        self.scan_directory(&self.source_dir, "", &mut documents);
+        Ok(documents)
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
@@ -727,17 +727,17 @@ mod tests {
         let temp_dir = create_test_dir();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert!(result.documents.is_empty());
+        assert!(docs.is_empty());
     }
 
     #[test]
     fn test_scan_missing_dir() {
         let storage = FsStorage::new(PathBuf::from("/nonexistent"));
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert!(result.documents.is_empty());
+        assert!(docs.is_empty());
     }
 
     #[test]
@@ -747,10 +747,10 @@ mod tests {
         fs::write(temp_dir.path().join("api.md"), "# API Reference\n\nDocs.").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 2);
-        let paths: Vec<_> = result.documents.iter().map(|d| d.path.as_str()).collect();
+        assert_eq!(docs.len(), 2);
+        let paths: Vec<_> = docs.iter().map(|d| d.path.as_str()).collect();
         assert!(paths.contains(&"api"));
         assert!(paths.contains(&"guide"));
     }
@@ -764,10 +764,10 @@ mod tests {
         fs::write(domain_dir.join("guide.md"), "# Domain Guide\n\nSteps.").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 2);
-        let paths: Vec<_> = result.documents.iter().map(|d| d.path.as_str()).collect();
+        assert_eq!(docs.len(), 2);
+        let paths: Vec<_> = docs.iter().map(|d| d.path.as_str()).collect();
         assert!(paths.contains(&"domain"));
         assert!(paths.contains(&"domain/guide"));
     }
@@ -782,10 +782,10 @@ mod tests {
         .unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].title, "My Custom Title");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].title, "My Custom Title");
     }
 
     #[test]
@@ -798,10 +798,10 @@ mod tests {
         .unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].title, "Setup Guide");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].title, "Setup Guide");
     }
 
     #[test]
@@ -811,10 +811,10 @@ mod tests {
         fs::write(temp_dir.path().join("visible.md"), "# Visible").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path, "visible");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].path, "visible");
     }
 
     #[test]
@@ -824,10 +824,10 @@ mod tests {
         fs::write(temp_dir.path().join("main.md"), "# Main").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path, "main");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].path, "main");
     }
 
     #[test]
@@ -839,10 +839,10 @@ mod tests {
         fs::write(temp_dir.path().join("main.md"), "# Main").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path, "main");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].path, "main");
     }
 
     #[test]
@@ -854,10 +854,10 @@ mod tests {
         fs::write(domain_dir.join("meta.yaml"), "type: domain").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        let doc = &result.documents[0];
+        assert_eq!(docs.len(), 1);
+        let doc = &docs[0];
         assert_eq!(doc.path, "domain");
         assert!(doc.has_content);
         assert_eq!(doc.page_type, Some("domain".to_string()));
@@ -873,10 +873,10 @@ mod tests {
         fs::write(domain_dir.join("meta.yaml"), "ignored").unwrap(); // Should be ignored
 
         let storage = FsStorage::with_meta_filename(temp_dir.path().to_path_buf(), "config.yml");
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        let doc = &result.documents[0];
+        assert_eq!(docs.len(), 1);
+        let doc = &docs[0];
         assert!(doc.has_content);
         assert_eq!(doc.page_type, Some("section".to_string()));
     }
@@ -888,10 +888,10 @@ mod tests {
         fs::write(temp_dir.path().join("meta.yaml"), "title: Home Title").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        let doc = &result.documents[0];
+        assert_eq!(docs.len(), 1);
+        let doc = &docs[0];
         assert_eq!(doc.path, "");
         assert!(doc.has_content);
         assert!(doc.page_type.is_none()); // No type field in metadata
@@ -906,10 +906,10 @@ mod tests {
         fs::write(domain_dir.join("meta.yaml"), "title: Domain Title").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        let doc = &result.documents[0];
+        assert_eq!(docs.len(), 1);
+        let doc = &docs[0];
         assert_eq!(doc.path, "domain");
         assert_eq!(doc.title, "Domain Title");
         assert!(!doc.has_content); // Virtual page
@@ -925,10 +925,10 @@ mod tests {
         fs::write(domain_dir.join("meta.yaml"), "type: domain").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert_eq!(result.documents.len(), 1);
-        let doc = &result.documents[0];
+        assert_eq!(docs.len(), 1);
+        let doc = &docs[0];
         assert_eq!(doc.title, "My Nice Domain"); // Fallback to directory name
         assert_eq!(doc.page_type, Some("domain".to_string()));
     }
@@ -941,9 +941,9 @@ mod tests {
         // No meta.yaml, no index.md
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.scan().unwrap();
+        let docs = storage.scan().unwrap();
 
-        assert!(result.documents.is_empty());
+        assert!(docs.is_empty());
     }
 
     #[test]
@@ -1184,12 +1184,12 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
 
         // First scan
-        let result1 = storage.scan().unwrap();
-        assert_eq!(result1.documents[0].title, "Original Title");
+        let docs1 = storage.scan().unwrap();
+        assert_eq!(docs1[0].title, "Original Title");
 
         // Second scan without changes - should use cache
-        let result2 = storage.scan().unwrap();
-        assert_eq!(result2.documents[0].title, "Original Title");
+        let docs2 = storage.scan().unwrap();
+        assert_eq!(docs2[0].title, "Original Title");
     }
 
     #[test]
@@ -1200,8 +1200,8 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
 
         // First scan
-        let result1 = storage.scan().unwrap();
-        assert_eq!(result1.documents[0].title, "Original Title");
+        let docs1 = storage.scan().unwrap();
+        assert_eq!(docs1[0].title, "Original Title");
 
         // Small delay to ensure mtime changes
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -1210,8 +1210,8 @@ mod tests {
         fs::write(temp_dir.path().join("guide.md"), "# Updated Title").unwrap();
 
         // Second scan should see new title
-        let result2 = storage.scan().unwrap();
-        assert_eq!(result2.documents[0].title, "Updated Title");
+        let docs2 = storage.scan().unwrap();
+        assert_eq!(docs2[0].title, "Updated Title");
     }
 
     #[test]

@@ -43,16 +43,6 @@ pub struct Document {
     pub page_type: Option<String>,
 }
 
-/// Result of scanning storage.
-///
-/// Contains all documents found during scan, including virtual pages
-/// (directories with metadata but no index.md).
-#[derive(Clone, Debug, Default)]
-pub struct ScanResult {
-    /// All documents found during scan, including virtual pages.
-    pub documents: Vec<Document>,
-}
-
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -252,16 +242,16 @@ impl std::error::Error for StorageError {
 ///
 /// Storage implementations map URL paths to their internal storage format.
 pub trait Storage: Send + Sync {
-    /// Scan and return all documents and metadata files.
+    /// Scan and return all documents.
     ///
-    /// Returns a [`ScanResult`] containing documents with URL paths.
-    /// Hierarchy is derived by the consumer (`Site`) based on path conventions.
+    /// Returns documents with URL paths. Hierarchy is derived by the consumer
+    /// (`Site`) based on path conventions.
     ///
     /// # Errors
     ///
     /// Returns [`StorageError`] if scanning fails (e.g., permission denied,
     /// backend unavailable).
-    fn scan(&self) -> Result<ScanResult, StorageError>;
+    fn scan(&self) -> Result<Vec<Document>, StorageError>;
 
     /// Read full content for rendering.
     ///

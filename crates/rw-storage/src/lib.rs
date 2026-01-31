@@ -24,7 +24,7 @@
 //!
 //! let storage = FsStorage::new(PathBuf::from("docs"));
 //! let documents = storage.scan()?;
-//! for doc in documents.documents {
+//! for doc in documents {
 //!     println!("{}: {}", doc.path, doc.title);
 //! }
 //! ```
@@ -39,4 +39,4 @@ pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandl
 pub use metadata::{Metadata, MetadataError};
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
-pub use storage::{Document, ErrorStatus, ScanResult, Storage, StorageError, StorageErrorKind};
+pub use storage::{Document, ErrorStatus, Storage, StorageError, StorageErrorKind};
