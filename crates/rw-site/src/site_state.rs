@@ -555,13 +555,7 @@ mod tests {
     #[test]
     fn test_get_page_returns_page() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            true,
-            None,
-            None,
-        );
+        builder.add_page("Guide".to_string(), "guide".to_string(), true, None, None);
         let site = builder.build();
 
         let page = site.get_page("guide");
@@ -570,7 +564,7 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "Guide");
         assert_eq!(page.path, "guide");
-        assert_eq!(page.has_content, true);
+        assert!(page.has_content);
     }
 
     #[test]
@@ -594,13 +588,7 @@ mod tests {
     #[test]
     fn test_get_breadcrumbs_root_page_returns_home() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            true,
-            None,
-            None,
-        );
+        builder.add_page("Guide".to_string(), "guide".to_string(), true, None, None);
         let site = builder.build();
 
         let breadcrumbs = site.get_breadcrumbs("guide");
@@ -613,13 +601,8 @@ mod tests {
     #[test]
     fn test_get_breadcrumbs_nested_page_returns_ancestors() {
         let mut builder = SiteStateBuilder::new();
-        let parent_idx = builder.add_page(
-            "Parent".to_string(),
-            "parent".to_string(),
-            true,
-            None,
-            None,
-        );
+        let parent_idx =
+            builder.add_page("Parent".to_string(), "parent".to_string(), true, None, None);
         builder.add_page(
             "Child".to_string(),
             "parent/child".to_string(),
@@ -650,13 +633,7 @@ mod tests {
     #[test]
     fn test_get_breadcrumbs_with_root_index_excludes_root() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Welcome".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Welcome".to_string(), String::new(), true, None, None);
         let domain_idx = builder.add_page(
             "Domain".to_string(),
             "domain".to_string(),
@@ -685,20 +662,8 @@ mod tests {
     #[test]
     fn test_get_root_pages_returns_roots() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "A".to_string(),
-            "a".to_string(),
-            true,
-            None,
-            None,
-        );
-        builder.add_page(
-            "B".to_string(),
-            "b".to_string(),
-            true,
-            None,
-            None,
-        );
+        builder.add_page("A".to_string(), "a".to_string(), true, None, None);
+        builder.add_page("B".to_string(), "b".to_string(), true, None, None);
         let site = builder.build();
 
         let roots = site.get_root_pages();
@@ -714,13 +679,7 @@ mod tests {
     fn test_add_page_returns_index() {
         let mut builder = SiteStateBuilder::new();
 
-        let idx = builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            true,
-            None,
-            None,
-        );
+        let idx = builder.add_page("Guide".to_string(), "guide".to_string(), true, None, None);
 
         assert_eq!(idx, 0);
     }
@@ -729,20 +688,8 @@ mod tests {
     fn test_add_page_increments_index() {
         let mut builder = SiteStateBuilder::new();
 
-        let idx1 = builder.add_page(
-            "A".to_string(),
-            "a".to_string(),
-            true,
-            None,
-            None,
-        );
-        let idx2 = builder.add_page(
-            "B".to_string(),
-            "b".to_string(),
-            true,
-            None,
-            None,
-        );
+        let idx1 = builder.add_page("A".to_string(), "a".to_string(), true, None, None);
+        let idx2 = builder.add_page("B".to_string(), "b".to_string(), true, None, None);
 
         assert_eq!(idx1, 0);
         assert_eq!(idx2, 1);
@@ -779,13 +726,7 @@ mod tests {
     #[test]
     fn test_build_creates_site() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            true,
-            None,
-            None,
-        );
+        builder.add_page("Guide".to_string(), "guide".to_string(), true, None, None);
 
         let site = builder.build();
 
@@ -805,7 +746,7 @@ mod tests {
 
         assert_eq!(page.title, "Guide");
         assert_eq!(page.path, "guide");
-        assert_eq!(page.has_content, true);
+        assert!(page.has_content);
     }
 
     // BreadcrumbItem tests
@@ -835,20 +776,8 @@ mod tests {
     #[test]
     fn test_navigation_flat_site() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            true,
-            None,
-            None,
-        );
-        builder.add_page(
-            "API".to_string(),
-            "api".to_string(),
-            true,
-            None,
-            None,
-        );
+        builder.add_page("Guide".to_string(), "guide".to_string(), true, None, None);
+        builder.add_page("API".to_string(), "api".to_string(), true, None, None);
         let site = builder.build();
 
         let nav = site.navigation("");
@@ -893,20 +822,8 @@ mod tests {
     #[test]
     fn test_navigation_deeply_nested() {
         let mut builder = SiteStateBuilder::new();
-        let idx_a = builder.add_page(
-            "A".to_string(),
-            "a".to_string(),
-            true,
-            None,
-            None,
-        );
-        let idx_b = builder.add_page(
-            "B".to_string(),
-            "a/b".to_string(),
-            true,
-            Some(idx_a),
-            None,
-        );
+        let idx_a = builder.add_page("A".to_string(), "a".to_string(), true, None, None);
+        let idx_b = builder.add_page("B".to_string(), "a/b".to_string(), true, Some(idx_a), None);
         builder.add_page(
             "C".to_string(),
             "a/b/c".to_string(),
@@ -927,13 +844,7 @@ mod tests {
     #[test]
     fn test_navigation_root_page_excluded() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         builder.add_page(
             "Domains".to_string(),
             "domains".to_string(),
@@ -963,13 +874,7 @@ mod tests {
     #[test]
     fn test_navigation_includes_section_type() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
@@ -1139,13 +1044,7 @@ mod tests {
     #[test]
     fn test_navigation_root_scope() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
@@ -1185,13 +1084,7 @@ mod tests {
     #[test]
     fn test_navigation_sections_are_leaves_in_root() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
@@ -1224,13 +1117,7 @@ mod tests {
     #[test]
     fn test_navigation_section_scope() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
@@ -1281,13 +1168,7 @@ mod tests {
     #[test]
     fn test_navigation_nested_sections() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
@@ -1436,13 +1317,7 @@ mod tests {
     #[test]
     fn test_get_navigation_scope_page_not_in_section() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            true,
-            None,
-            None,
-        );
+        builder.add_page("Guide".to_string(), "guide".to_string(), true, None, None);
         let site = builder.build();
 
         let scope = site.get_navigation_scope("guide");
@@ -1453,13 +1328,7 @@ mod tests {
     #[test]
     fn test_navigation_invalid_scope_returns_empty() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            true,
-            None,
-            None,
-        );
+        builder.add_page("Guide".to_string(), "guide".to_string(), true, None, None);
         let site = builder.build();
 
         let nav = site.navigation("nonexistent");
@@ -1475,13 +1344,7 @@ mod tests {
     #[test]
     fn test_navigation_excludes_virtual_pages_without_content() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         // Virtual page (no content) with no children
         builder.add_page(
             "Empty Section".to_string(),
@@ -1510,13 +1373,7 @@ mod tests {
     #[test]
     fn test_navigation_includes_virtual_pages_with_content_in_subtree() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         // Virtual page (no content) but has a child with content
         let section_idx = builder.add_page(
             "Section".to_string(),
@@ -1547,13 +1404,7 @@ mod tests {
     #[test]
     fn test_navigation_filters_nested_virtual_pages_without_content() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         // Virtual page with content
         let section_idx = builder.add_page(
             "Section".to_string(),
@@ -1592,13 +1443,7 @@ mod tests {
     #[test]
     fn test_navigation_filters_content() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            String::new(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), String::new(), true, None, None);
         // Section with type
         let billing_idx = builder.add_page(
             "Billing".to_string(),

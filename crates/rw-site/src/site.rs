@@ -127,9 +127,11 @@ pub enum RenderError {
 impl From<StorageError> for RenderError {
     fn from(e: StorageError) -> Self {
         match e.kind() {
-            StorageErrorKind::NotFound => {
-                Self::FileNotFound(e.path().map(|p| p.to_string_lossy().to_string()).unwrap_or_default())
-            }
+            StorageErrorKind::NotFound => Self::FileNotFound(
+                e.path()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            ),
             _ => Self::Io(std::io::Error::other(e.to_string())),
         }
     }
@@ -582,7 +584,7 @@ impl Site {
                 self.load_metadata_for_doc(doc, &path_metadata)
             } else {
                 // Inherit only vars from parent (no metadata file for this document)
-                self.get_inherited_vars(url_path, &path_metadata)
+                Self::get_inherited_vars(url_path, &path_metadata)
             };
 
             // Store metadata for inheritance
@@ -611,7 +613,6 @@ impl Site {
 
     /// Get inherited vars from parent URL path (without title, description, or type).
     fn get_inherited_vars(
-        &self,
         url_path: &str,
         path_metadata: &HashMap<String, PageMetadata>,
     ) -> Option<PageMetadata> {
@@ -683,7 +684,6 @@ impl Site {
             }
         }
     }
-
 }
 
 #[cfg(test)]
@@ -772,7 +772,7 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "Welcome");
         assert_eq!(page.path, "");
-        assert_eq!(page.has_content, true);
+        assert!(page.has_content);
     }
 
     #[test]
@@ -792,7 +792,7 @@ mod tests {
         assert!(domain.is_some());
         let domain = domain.unwrap();
         assert_eq!(domain.title, "Domain A");
-        assert_eq!(domain.has_content, true);
+        assert!(domain.has_content);
 
         // Verify child via root navigation (non-section pages expand their children)
         let nav = state.navigation("");
@@ -803,7 +803,7 @@ mod tests {
 
         // Verify child page details
         let child = state.get_page("domain-a/guide").unwrap();
-        assert_eq!(child.has_content, true);
+        assert!(child.has_content);
     }
 
     #[test]
@@ -862,7 +862,7 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "Руководство");
         assert_eq!(page.path, "руководство");
-        assert_eq!(page.has_content, true);
+        assert!(page.has_content);
     }
 
     #[test]
@@ -1153,7 +1153,7 @@ mod tests {
         assert!(result.html.contains("<p>World</p>"));
         assert_eq!(result.title, Some("Hello".to_string()));
         assert!(!result.from_cache);
-        assert_eq!(result.has_content, true);
+        assert!(result.has_content);
     }
 
     #[test]
@@ -1264,7 +1264,7 @@ mod tests {
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.title, "My Domain");
-        assert!(page.has_content == false); // Virtual page
+        assert!(!page.has_content); // Virtual page
         assert!(page.metadata.is_some());
         assert_eq!(
             page.metadata.as_ref().unwrap().page_type,
@@ -1336,7 +1336,7 @@ mod tests {
         // Virtual pages render h1 with title only
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
         assert_eq!(result.title, Some("My Domain".to_string()));
-        assert!(result.has_content == false); // Virtual
+        assert!(!result.has_content); // Virtual
         assert!(result.toc.is_empty()); // No TOC for virtual
     }
 
@@ -1391,12 +1391,12 @@ mod tests {
         // Check parent virtual
         let domains = state.get_page("domains");
         assert!(domains.is_some());
-        assert!(domains.unwrap().has_content == false);
+        assert!(!domains.unwrap().has_content);
 
         // Check child virtual
         let billing = state.get_page("domains/billing");
         assert!(billing.is_some());
-        assert!(billing.unwrap().has_content == false);
+        assert!(!billing.unwrap().has_content);
 
         // Check real page has correct parent
         let overview = state.get_page("domains/billing/overview");

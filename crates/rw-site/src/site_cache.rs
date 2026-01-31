@@ -166,13 +166,7 @@ mod tests {
 
     fn create_test_site() -> SiteState {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page(
-            "Home".to_string(),
-            "/".to_string(),
-            true,
-            None,
-            None,
-        );
+        let root_idx = builder.add_page("Home".to_string(), "/".to_string(), true, None, None);
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
@@ -242,11 +236,11 @@ mod tests {
         // Check page data
         let home = loaded.get_page("/").unwrap();
         assert_eq!(home.title, "Home");
-        assert_eq!(home.has_content, true);
+        assert!(home.has_content);
 
         let guide = loaded.get_page("/guide").unwrap();
         assert_eq!(guide.title, "Guide");
-        assert_eq!(guide.has_content, true);
+        assert!(guide.has_content);
 
         // Check hierarchy via root navigation (non-section pages expand children)
         // The test site uses "/" as root path; navigation("") returns root pages
