@@ -23,7 +23,7 @@ use regex::Regex;
 
 use crate::debouncer::EventDebouncer;
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::metadata::{PageMetadata, build_ancestor_chain, merge_metadata};
+use crate::metadata::{Metadata, build_ancestor_chain, merge_metadata};
 use crate::storage::{
     Document, ScanResult, Storage, StorageError, StorageErrorKind, extract_yaml_title,
     extract_yaml_type,
@@ -620,14 +620,14 @@ impl Storage for FsStorage {
         Ok((StorageEventReceiver::new(event_rx), handle))
     }
 
-    fn meta(&self, path: &str) -> Result<Option<PageMetadata>, StorageError> {
+    fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
         Self::validate_path(path)?;
 
         // Build ancestor chain: ["", "domain", "domain/billing"] for "domain/billing/api"
         let ancestors = build_ancestor_chain(path);
 
         // Walk ancestors from root to leaf, merging metadata
-        let mut accumulated: Option<PageMetadata> = None;
+        let mut accumulated: Option<Metadata> = None;
         let mut has_own_meta = false;
 
         for ancestor in &ancestors {
@@ -647,7 +647,7 @@ impl Storage for FsStorage {
                 }
             };
 
-            let meta = match PageMetadata::from_yaml(&content) {
+            let meta = match Metadata::from_yaml(&content) {
                 Ok(m) if !m.is_empty() => m,
                 Ok(_) => continue, // Empty metadata
                 Err(e) => {
