@@ -11,52 +11,12 @@
 //! - `"domain"` - directory with index
 //! - `"domain/billing"` - nested page
 //!
-//! Storage implementations (like [`FsStorage`](crate::FsStorage)) handle the mapping
-//! from URL paths to their internal storage format.
+//! Storage implementations handle the mapping from URL paths to their internal storage format.
 
 use std::path::{Path, PathBuf};
 
 use crate::event::{StorageEventReceiver, WatchHandle};
 use crate::metadata::Metadata;
-
-/// Extract a simple string field from YAML content.
-///
-/// Handles `field: Foo`, `field: "Foo"`, `field: 'Foo'`.
-/// Returns `None` if no valid field is found.
-fn extract_yaml_field(content: &str, field_name: &str) -> Option<String> {
-    let prefix = format!("{field_name}:");
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix(&prefix) {
-            let value = rest.trim();
-            // Strip optional quotes
-            let value = value.strip_prefix('"').unwrap_or(value);
-            let value = value.strip_suffix('"').unwrap_or(value);
-            let value = value.strip_prefix('\'').unwrap_or(value);
-            let value = value.strip_suffix('\'').unwrap_or(value);
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Extract title from YAML content using simple string parsing.
-///
-/// Handles `title: Foo`, `title: "Foo"`, `title: 'Foo'`.
-/// Returns `None` if no valid title field is found.
-pub(crate) fn extract_yaml_title(content: &str) -> Option<String> {
-    extract_yaml_field(content, "title")
-}
-
-/// Extract type from YAML content using simple string parsing.
-///
-/// Handles `type: Foo`, `type: "Foo"`, `type: 'Foo'`.
-/// Returns `None` if no valid type field is found.
-pub(crate) fn extract_yaml_type(content: &str) -> Option<String> {
-    extract_yaml_field(content, "type")
-}
 
 /// Document metadata returned by storage scan.
 ///
@@ -421,40 +381,6 @@ mod tests {
         assert_eq!(doc.path, "domains");
         assert!(!doc.has_content);
         assert_eq!(doc.page_type, Some("section".to_string()));
-    }
-
-    #[test]
-    fn test_extract_yaml_title_simple() {
-        assert_eq!(
-            extract_yaml_title("title: My Title"),
-            Some("My Title".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_yaml_title_quoted() {
-        assert_eq!(
-            extract_yaml_title("title: \"My Title\""),
-            Some("My Title".to_string())
-        );
-        assert_eq!(
-            extract_yaml_title("title: 'My Title'"),
-            Some("My Title".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_yaml_title_with_other_fields() {
-        let yaml = "type: domain\ntitle: My Title\ndescription: Some description";
-        assert_eq!(extract_yaml_title(yaml), Some("My Title".to_string()));
-    }
-
-    #[test]
-    fn test_extract_yaml_title_none() {
-        assert_eq!(extract_yaml_title("type: domain"), None);
-        assert_eq!(extract_yaml_title(""), None);
-        assert_eq!(extract_yaml_title("title:"), None);
-        assert_eq!(extract_yaml_title("title: "), None);
     }
 
     #[test]

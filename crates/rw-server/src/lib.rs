@@ -69,7 +69,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use rw_site::{Site, SiteConfig};
-use rw_storage::FsStorage;
+use rw_storage_fs::FsStorage;
 use state::AppState;
 use tokio::sync::broadcast;
 

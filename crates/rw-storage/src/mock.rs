@@ -1,18 +1,22 @@
 //! Mock storage implementation for testing.
 //!
 //! Provides [`MockStorage`] for unit testing without filesystem access.
+//! This implementation returns metadata exactly as set - no inheritance logic.
 
 use std::collections::HashMap;
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::metadata::{Metadata, build_ancestor_chain, merge_metadata};
+use crate::metadata::Metadata;
 use crate::storage::{Document, ScanResult, Storage, StorageError, StorageErrorKind};
 
 /// Mock storage for testing.
 ///
 /// Stores documents and content in memory. Use the builder methods
 /// to configure the mock with test data.
+///
+/// Unlike `FsStorage`, this implementation does NOT apply metadata inheritance.
+/// Metadata is returned exactly as set via `with_metadata()`.
 ///
 /// # Example
 ///
@@ -178,6 +182,9 @@ impl MockStorage {
 
     /// Add metadata for a URL path.
     ///
+    /// Note: Unlike `FsStorage`, metadata is returned exactly as set.
+    /// No inheritance logic is applied.
+    ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
@@ -302,30 +309,8 @@ impl Storage for MockStorage {
     }
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
-        let metadata_store = self.metadata.read().unwrap();
-        let ancestors = build_ancestor_chain(path);
-
-        let mut accumulated: Option<Metadata> = None;
-        let has_own_meta = metadata_store.contains_key(path);
-
-        for ancestor in &ancestors {
-            if let Some(meta) = metadata_store.get(ancestor) {
-                accumulated = Some(match accumulated {
-                    Some(parent) => merge_metadata(&parent, meta),
-                    None => meta.clone(),
-                });
-            }
-        }
-
-        // If the requested path doesn't have its own metadata,
-        // clear title/description/page_type (only vars are inherited)
-        if !has_own_meta && let Some(ref mut meta) = accumulated {
-            meta.title = None;
-            meta.description = None;
-            meta.page_type = None;
-        }
-
-        Ok(accumulated)
+        // Simple lookup - no inheritance
+        Ok(self.metadata.read().unwrap().get(path).cloned())
     }
 }
 
@@ -470,29 +455,19 @@ mod tests {
     }
 
     #[test]
-    fn test_meta_inheritance() {
+    fn test_meta_no_inheritance() {
+        // MockStorage does NOT implement inheritance
         let root_meta = Metadata {
             vars: [("org".to_string(), serde_json::json!("acme"))]
                 .into_iter()
                 .collect(),
             ..Default::default()
         };
-        let child_meta = Metadata {
-            title: Some("Child".to_string()),
-            vars: [("team".to_string(), serde_json::json!("core"))]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
-        let storage = MockStorage::new()
-            .with_metadata("", root_meta)
-            .with_metadata("child", child_meta);
+        let storage = MockStorage::new().with_metadata("", root_meta);
 
-        let result = storage.meta("child").unwrap().unwrap();
-
-        assert_eq!(result.title, Some("Child".to_string()));
-        assert_eq!(result.vars.get("org"), Some(&serde_json::json!("acme")));
-        assert_eq!(result.vars.get("team"), Some(&serde_json::json!("core")));
+        // Child path has no metadata set - should return None
+        let result = storage.meta("child").unwrap();
+        assert!(result.is_none());
     }
 
     #[test]

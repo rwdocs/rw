@@ -17,6 +17,7 @@ rw-renderer = { path = "crates/rw-renderer" }
 rw-server = { path = "crates/rw-server" }
 rw-site = { path = "crates/rw-site" }
 rw-storage = { path = "crates/rw-storage" }
+rw-storage-fs = { path = "crates/rw-storage-fs" }
 
 # External dependencies
 base64 = "0.22"

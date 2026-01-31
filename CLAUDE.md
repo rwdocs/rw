@@ -120,13 +120,20 @@ crates/
 │       ├── site_cache.rs     # SiteCache trait, FileSiteCache, NullSiteCache
 │       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
 │
-├── rw-storage/            # Storage abstraction layer
+├── rw-storage/            # Storage abstraction layer (core traits)
 │   └── src/
 │       ├── lib.rs            # Public API exports
-│       ├── storage.rs        # Storage trait, Document, StorageError, StorageErrorKind
-│       ├── metadata.rs       # Metadata, YAML parsing, merge_metadata()
-│       ├── fs.rs             # FsStorage (filesystem with mtime caching)
+│       ├── storage.rs        # Storage trait, Document, ScanResult, StorageError
+│       ├── event.rs          # StorageEvent, StorageEventKind, WatchHandle, StorageEventReceiver
+│       ├── metadata.rs       # Metadata struct (data types only)
 │       └── mock.rs           # MockStorage (feature = "mock", for testing)
+│
+├── rw-storage-fs/         # Filesystem storage backend
+│   └── src/
+│       ├── lib.rs            # FsStorage implementation
+│       ├── debouncer.rs      # EventDebouncer for file system events
+│       ├── inheritance.rs    # Metadata inheritance (build_ancestor_chain, merge_metadata)
+│       └── yaml.rs           # YAML parsing helpers
 │
 ├── rw-config/             # Configuration parsing
 │   └── src/
