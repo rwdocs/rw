@@ -41,7 +41,7 @@
 //! ```
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -53,6 +53,36 @@ use rw_storage::{Storage, StorageError, StorageErrorKind};
 use crate::metadata::{PageMetadata, merge_metadata};
 use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
 use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
+
+/// Get the depth of a URL path.
+///
+/// Examples:
+/// - `""` -> 0 (root)
+/// - `"guide"` -> 1
+/// - `"domain/billing"` -> 2
+fn url_depth(path: &str) -> usize {
+    if path.is_empty() {
+        0
+    } else {
+        path.matches('/').count() + 1
+    }
+}
+
+/// Get the parent URL path.
+///
+/// Examples:
+/// - `""` -> `None` (root has no parent)
+/// - `"guide"` -> `Some("")`
+/// - `"domain/billing"` -> `Some("domain")`
+fn url_parent(path: &str) -> Option<&str> {
+    if path.is_empty() {
+        return None;
+    }
+    match path.rfind('/') {
+        Some(idx) => Some(&path[..idx]),
+        None => Some(""),
+    }
+}
 
 // Re-import from crate root for public types, and direct module for internal
 pub(crate) use crate::site_state::{BreadcrumbItem, Navigation, Page, SiteState, SiteStateBuilder};
@@ -70,8 +100,8 @@ pub struct PageRenderResult {
     pub warnings: Vec<String>,
     /// Whether result was served from cache.
     pub from_cache: bool,
-    /// Source file path (relative to storage root). `None` for virtual pages.
-    pub source_path: Option<PathBuf>,
+    /// Whether the page has content (real page vs virtual page).
+    pub has_content: bool,
     /// Source file modification time (Unix timestamp).
     pub source_mtime: f64,
     /// Breadcrumb navigation items.
@@ -83,9 +113,9 @@ pub struct PageRenderResult {
 /// Error returned when page rendering fails.
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
-    /// Source file not found.
-    #[error("Source file not found: {}", .0.display())]
-    FileNotFound(PathBuf),
+    /// Content not found for page.
+    #[error("Content not found: {0}")]
+    FileNotFound(String),
     /// Page not found in site structure.
     #[error("Page not found: {0}")]
     PageNotFound(String),
@@ -98,7 +128,7 @@ impl From<StorageError> for RenderError {
     fn from(e: StorageError) -> Self {
         match e.kind() {
             StorageErrorKind::NotFound => {
-                Self::FileNotFound(e.path().map(Path::to_path_buf).unwrap_or_default())
+                Self::FileNotFound(e.path().map(|p| p.to_string_lossy().to_string()).unwrap_or_default())
             }
             _ => Self::Io(std::io::Error::other(e.to_string())),
         }
@@ -259,24 +289,6 @@ impl Site {
         self.reload_if_needed().get_navigation_scope(page_path)
     }
 
-    /// Get page by source file path.
-    ///
-    /// Reloads site if needed and returns the page for a given source path.
-    ///
-    /// # Arguments
-    ///
-    /// * `source_path` - Relative path to source file (e.g., "guide.md")
-    ///
-    /// # Panics
-    ///
-    /// Panics if internal locks are poisoned.
-    #[must_use]
-    pub fn get_page_by_source(&self, source_path: &Path) -> Option<Page> {
-        self.reload_if_needed()
-            .get_page_by_source(source_path)
-            .cloned()
-    }
-
     /// Get page by URL path.
     ///
     /// Reloads site if needed and returns the page for a given URL path.
@@ -397,16 +409,16 @@ impl Site {
         // Get breadcrumbs
         let breadcrumbs = state.get_breadcrumbs(path);
 
-        // Check if this is a virtual page (no source file)
-        let Some(ref source_path) = page.source_path else {
+        // Check if this is a virtual page (no content file)
+        if !page.has_content {
             return Ok(self.render_virtual_page(&state, path, page, breadcrumbs));
-        };
+        }
 
-        // Get source mtime
+        // Get source mtime using URL path (Storage maps to file internally)
         let source_mtime = self
             .storage
-            .mtime(source_path)
-            .map_err(|_| RenderError::FileNotFound(source_path.clone()))?;
+            .mtime(path)
+            .map_err(|_| RenderError::FileNotFound(path.to_string()))?;
 
         // Check page cache
         if let Some(cached) = self.page_cache.get(path, source_mtime) {
@@ -416,15 +428,15 @@ impl Site {
                 toc: cached.meta.toc,
                 warnings: Vec::new(),
                 from_cache: true,
-                source_path: page.source_path.clone(),
+                has_content: page.has_content,
                 source_mtime,
                 breadcrumbs,
                 metadata: page.metadata.clone(),
             });
         }
 
-        // Render the page
-        let markdown_text = self.storage.read(source_path)?;
+        // Render the page using URL path (Storage maps to file internally)
+        let markdown_text = self.storage.read(path)?;
         let result = self.create_renderer(path).render_markdown(&markdown_text);
 
         // Store in cache
@@ -442,7 +454,7 @@ impl Site {
             toc: result.toc,
             warnings: result.warnings,
             from_cache: false,
-            source_path: page.source_path.clone(),
+            has_content: page.has_content,
             source_mtime,
             breadcrumbs,
             metadata: page.metadata.clone(),
@@ -471,7 +483,7 @@ impl Site {
             toc: Vec::new(),
             warnings: Vec::new(),
             from_cache: false,
-            source_path: None,
+            has_content: false,
             source_mtime,
             breadcrumbs,
             metadata: page.metadata.clone(),
@@ -542,19 +554,12 @@ impl Site {
 
         let mut documents = scan_result.documents;
 
-        // Sort documents: parents before children, index.md first, real pages before virtual
+        // Sort documents: parents before children, real pages before virtual, by path
         documents.sort_by(|a, b| {
-            a.dir
-                .components()
-                .count()
-                .cmp(&b.dir.components().count())
-                .then_with(|| {
-                    (a.name == "index.md")
-                        .cmp(&(b.name == "index.md"))
-                        .reverse()
-                })
+            url_depth(&a.path)
+                .cmp(&url_depth(&b.path))
                 .then_with(|| a.has_content.cmp(&b.has_content).reverse())
-                .then_with(|| a.path().cmp(&b.path()))
+                .then_with(|| a.path.cmp(&b.path))
         });
 
         if documents.is_empty() {
@@ -564,28 +569,25 @@ impl Site {
         // Track URL paths to page indices for parent lookup
         let mut url_to_idx: HashMap<String, usize> = HashMap::new();
 
-        // Track metadata by directory for inheritance
-        let mut dir_metadata: HashMap<PathBuf, PageMetadata> = HashMap::new();
+        // Track metadata by URL path for inheritance
+        let mut path_metadata: HashMap<String, PageMetadata> = HashMap::new();
 
         // Process documents in sorted order
         for doc in &documents {
-            let doc_path = doc.path();
-            let url_path = Self::source_path_to_url(&doc_path);
-            let parent_idx = Self::find_parent_from_url(&url_path, &url_to_idx);
+            let url_path = &doc.path;
+            let parent_idx = Self::find_parent_from_url(url_path, &url_to_idx);
 
             // Load metadata if document has metadata file
             let metadata = if doc.has_metadata {
-                self.load_metadata_for_doc(doc, &dir_metadata)
+                self.load_metadata_for_doc(doc, &path_metadata)
             } else {
                 // Inherit only vars from parent (no metadata file for this document)
-                self.get_inherited_vars(&doc.dir, doc.name == "index.md", &dir_metadata)
+                self.get_inherited_vars(url_path, &path_metadata)
             };
 
-            // Store metadata for inheritance if this is an index.md
-            if doc.name == "index.md"
-                && let Some(ref meta) = metadata
-            {
-                dir_metadata.insert(doc.dir.clone(), meta.clone());
+            // Store metadata for inheritance
+            if let Some(ref meta) = metadata {
+                path_metadata.insert(url_path.clone(), meta.clone());
             }
 
             // Use metadata title if present, otherwise use document title
@@ -594,38 +596,34 @@ impl Site {
                 .and_then(|m| m.title.clone())
                 .unwrap_or_else(|| doc.title.clone());
 
-            // source_path is None for virtual pages (has_content=false)
-            let source_path = if doc.has_content {
-                Some(doc_path)
-            } else {
-                None
-            };
-
-            let idx = builder.add_page(title, url_path.clone(), source_path, parent_idx, metadata);
-            url_to_idx.insert(url_path, idx);
+            let idx = builder.add_page(
+                title,
+                url_path.clone(),
+                doc.has_content,
+                parent_idx,
+                metadata,
+            );
+            url_to_idx.insert(url_path.clone(), idx);
         }
 
         builder.build()
     }
 
-    /// Get inherited vars from parent directory (without title, description, or type).
+    /// Get inherited vars from parent URL path (without title, description, or type).
     fn get_inherited_vars(
         &self,
-        dir: &Path,
-        is_index: bool,
-        dir_metadata: &HashMap<PathBuf, PageMetadata>,
+        url_path: &str,
+        path_metadata: &HashMap<String, PageMetadata>,
     ) -> Option<PageMetadata> {
-        let parent = if is_index {
-            self.get_parent_metadata(dir, dir_metadata)
-        } else {
-            dir_metadata.get(dir).cloned()
-        }?;
+        // Get parent's metadata
+        let parent_path = url_parent(url_path)?;
+        let parent = path_metadata.get(parent_path)?;
 
         Some(PageMetadata {
             title: None,
             description: None,
             page_type: None,
-            vars: parent.vars,
+            vars: parent.vars.clone(),
         })
     }
 
@@ -644,30 +642,17 @@ impl Site {
         None
     }
 
-    /// Load metadata for a document, applying inheritance from parent directories.
+    /// Load metadata for a document, applying inheritance from parent URL paths.
     fn load_metadata_for_doc(
         &self,
         doc: &rw_storage::Document,
-        dir_metadata: &HashMap<PathBuf, PageMetadata>,
+        path_metadata: &HashMap<String, PageMetadata>,
     ) -> Option<PageMetadata> {
-        let is_index = doc.name == "index.md";
+        // Load metadata for this document's URL path
+        let file_metadata = self.load_metadata_for_url(&doc.path);
 
-        // Only index.md files have their own metadata file (directory's meta.yaml)
-        // Other documents just inherit from the directory's metadata
-        let file_metadata = if is_index {
-            self.load_metadata_for_path(&doc.path())
-        } else {
-            None
-        };
-
-        // Get inherited metadata from the directory
-        // For index.md, we inherit from parent directory
-        // For other files, we inherit from the same directory (the directory's meta.yaml)
-        let inherited_metadata = if is_index {
-            self.get_parent_metadata(&doc.dir, dir_metadata)
-        } else {
-            dir_metadata.get(&doc.dir).cloned()
-        };
+        // Get inherited metadata from parent URL path
+        let inherited_metadata = url_parent(&doc.path).and_then(|p| path_metadata.get(p).cloned());
 
         // Merge with inherited metadata if both exist
         match (inherited_metadata, file_metadata) {
@@ -686,62 +671,19 @@ impl Site {
         }
     }
 
-    /// Load metadata for a document path using storage.
-    fn load_metadata_for_path(&self, path: &Path) -> Option<PageMetadata> {
-        let content = self.storage.meta(path).ok()?;
+    /// Load metadata for a URL path using storage.
+    fn load_metadata_for_url(&self, url_path: &str) -> Option<PageMetadata> {
+        let content = self.storage.meta(url_path).ok()?;
         match PageMetadata::from_yaml(&content) {
             Ok(meta) if !meta.is_empty() => Some(meta),
             Ok(_) => None,
             Err(e) => {
-                tracing::warn!(path = %path.display(), error = %e, "Failed to parse metadata");
+                tracing::warn!(url_path = %url_path, error = %e, "Failed to parse metadata");
                 None
             }
         }
     }
 
-    /// Get inherited metadata from parent directory.
-    #[allow(clippy::unused_self)]
-    fn get_parent_metadata(
-        &self,
-        dir: &Path,
-        dir_metadata: &HashMap<PathBuf, PageMetadata>,
-    ) -> Option<PageMetadata> {
-        let parent_dir = dir.parent()?;
-        if parent_dir.as_os_str().is_empty() {
-            // Check root metadata
-            return dir_metadata.get(Path::new("")).cloned();
-        }
-        dir_metadata.get(parent_dir).cloned()
-    }
-
-    /// Convert source path to URL path (without leading slash).
-    ///
-    /// Examples:
-    /// - `"index.md"` -> `""`
-    /// - `"guide.md"` -> `"guide"`
-    /// - `"domain/index.md"` -> `"domain"`
-    /// - `"domain/setup.md"` -> `"domain/setup"`
-    fn source_path_to_url(source_path: &Path) -> String {
-        let path_str = source_path.to_string_lossy();
-
-        // Handle root index.md
-        if path_str == "index.md" {
-            return String::new();
-        }
-
-        // Remove .md extension
-        let without_ext = path_str.strip_suffix(".md").unwrap_or(&path_str);
-
-        // Handle directory index files
-        if let Some(without_index) = without_ext.strip_suffix("/index") {
-            return without_index.to_string();
-        }
-        if without_ext == "index" {
-            return String::new();
-        }
-
-        without_ext.to_string()
-    }
 }
 
 #[cfg(test)]
@@ -830,7 +772,7 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "Welcome");
         assert_eq!(page.path, "");
-        assert_eq!(page.source_path, Some(PathBuf::from("index.md")));
+        assert_eq!(page.has_content, true);
     }
 
     #[test]
@@ -850,7 +792,7 @@ mod tests {
         assert!(domain.is_some());
         let domain = domain.unwrap();
         assert_eq!(domain.title, "Domain A");
-        assert_eq!(domain.source_path, Some(PathBuf::from("domain-a/index.md")));
+        assert_eq!(domain.has_content, true);
 
         // Verify child via root navigation (non-section pages expand their children)
         let nav = state.navigation("");
@@ -861,7 +803,7 @@ mod tests {
 
         // Verify child page details
         let child = state.get_page("domain-a/guide").unwrap();
-        assert_eq!(child.source_path, Some(PathBuf::from("domain-a/guide.md")));
+        assert_eq!(child.has_content, true);
     }
 
     #[test]
@@ -920,7 +862,7 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "Руководство");
         assert_eq!(page.path, "руководство");
-        assert_eq!(page.source_path, Some(PathBuf::from("руководство.md")));
+        assert_eq!(page.has_content, true);
     }
 
     #[test]
@@ -971,10 +913,7 @@ mod tests {
         let roots = state.get_root_pages();
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].path, "no-index/child");
-        assert_eq!(
-            roots[0].source_path,
-            Some(PathBuf::from("no-index/child.md"))
-        );
+        assert!(roots[0].has_content);
     }
 
     #[test]
@@ -1148,21 +1087,6 @@ mod tests {
     }
 
     #[test]
-    fn test_source_path_to_url() {
-        assert_eq!(Site::source_path_to_url(Path::new("index.md")), "");
-        assert_eq!(Site::source_path_to_url(Path::new("guide.md")), "guide");
-        assert_eq!(
-            Site::source_path_to_url(Path::new("domain/index.md")),
-            "domain"
-        );
-        assert_eq!(
-            Site::source_path_to_url(Path::new("domain/setup.md")),
-            "domain/setup"
-        );
-        assert_eq!(Site::source_path_to_url(Path::new("a/b/c.md")), "a/b/c");
-    }
-
-    #[test]
     fn test_nested_hierarchy_with_multiple_levels() {
         let temp_dir = create_test_dir();
         let source_dir = temp_dir.path().join("docs");
@@ -1229,7 +1153,7 @@ mod tests {
         assert!(result.html.contains("<p>World</p>"));
         assert_eq!(result.title, Some("Hello".to_string()));
         assert!(!result.from_cache);
-        assert_eq!(result.source_path, Some(PathBuf::from("test.md")));
+        assert_eq!(result.has_content, true);
     }
 
     #[test]
@@ -1340,7 +1264,7 @@ mod tests {
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.title, "My Domain");
-        assert!(page.source_path.is_none()); // Virtual page
+        assert!(page.has_content == false); // Virtual page
         assert!(page.metadata.is_some());
         assert_eq!(
             page.metadata.as_ref().unwrap().page_type,
@@ -1386,7 +1310,7 @@ mod tests {
         assert!(page.is_some());
         let page = page.unwrap();
         // Should use index.md, not virtual
-        assert!(page.source_path.is_some());
+        assert!(page.has_content);
         // Title from metadata takes precedence
         assert_eq!(page.title, "Meta Title");
     }
@@ -1412,7 +1336,7 @@ mod tests {
         // Virtual pages render h1 with title only
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
         assert_eq!(result.title, Some("My Domain".to_string()));
-        assert!(result.source_path.is_none()); // Virtual
+        assert!(result.has_content == false); // Virtual
         assert!(result.toc.is_empty()); // No TOC for virtual
     }
 
@@ -1467,17 +1391,17 @@ mod tests {
         // Check parent virtual
         let domains = state.get_page("domains");
         assert!(domains.is_some());
-        assert!(domains.unwrap().source_path.is_none());
+        assert!(domains.unwrap().has_content == false);
 
         // Check child virtual
         let billing = state.get_page("domains/billing");
         assert!(billing.is_some());
-        assert!(billing.unwrap().source_path.is_none());
+        assert!(billing.unwrap().has_content == false);
 
         // Check real page has correct parent
         let overview = state.get_page("domains/billing/overview");
         assert!(overview.is_some());
-        assert!(overview.unwrap().source_path.is_some());
+        assert!(overview.unwrap().has_content);
 
         // Check navigation structure via scoped navigation
         // Domains section in root scope

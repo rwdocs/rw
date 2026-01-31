@@ -3,23 +3,10 @@
 //! Provides [`MockStorage`] for unit testing without filesystem access.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::storage::{
-    Document, ScanResult, Storage, StorageError, StorageErrorKind, meta_path_for_document,
-};
-
-/// Extract directory and filename from a path.
-fn split_path(path: &Path) -> (PathBuf, String) {
-    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    (dir, name)
-}
+use crate::storage::{Document, ScanResult, Storage, StorageError, StorageErrorKind};
 
 /// Mock storage for testing.
 ///
@@ -29,21 +16,22 @@ fn split_path(path: &Path) -> (PathBuf, String) {
 /// # Example
 ///
 /// ```ignore
-/// use std::path::PathBuf;
 /// use rw_storage::{MockStorage, Storage};
 ///
 /// let storage = MockStorage::new()
-///     .with_document("guide.md", "User Guide")
-///     .with_content("guide.md", "# User Guide\n\nContent.");
+///     .with_document("guide", "User Guide")
+///     .with_content("guide", "# User Guide\n\nContent.");
 ///
 /// let docs = storage.scan().unwrap();
-/// let content = storage.read(Path::new("guide.md")).unwrap();
+/// let content = storage.read("guide").unwrap();
 /// ```
 #[derive(Debug)]
 pub struct MockStorage {
     documents: RwLock<Vec<Document>>,
-    contents: RwLock<HashMap<PathBuf, String>>,
-    mtimes: RwLock<HashMap<PathBuf, f64>>,
+    /// Contents keyed by URL path.
+    contents: RwLock<HashMap<String, String>>,
+    /// Modification times keyed by URL path.
+    mtimes: RwLock<HashMap<String, f64>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
 }
 
@@ -65,21 +53,17 @@ impl MockStorage {
         Self::default()
     }
 
-    /// Add a document with the given path and title.
+    /// Add a document with the given URL path and title.
     ///
-    /// The path is split into directory and filename components.
     /// The document has `has_content=true` and `has_metadata=false`.
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_document(self, path: impl Into<PathBuf>, title: impl Into<String>) -> Self {
-        let path: PathBuf = path.into();
-        let (dir, name) = split_path(&path);
+    pub fn with_document(self, path: impl Into<String>, title: impl Into<String>) -> Self {
         self.documents.write().unwrap().push(Document {
-            dir,
-            name,
+            path: path.into(),
             title: title.into(),
             has_content: true,
             has_metadata: false,
@@ -89,7 +73,6 @@ impl MockStorage {
 
     /// Add a document with metadata.
     ///
-    /// The path is split into directory and filename components.
     /// The document has `has_content=true` and `has_metadata=true`.
     ///
     /// # Panics
@@ -98,14 +81,11 @@ impl MockStorage {
     #[must_use]
     pub fn with_document_and_metadata(
         self,
-        path: impl Into<PathBuf>,
+        path: impl Into<String>,
         title: impl Into<String>,
     ) -> Self {
-        let path: PathBuf = path.into();
-        let (dir, name) = split_path(&path);
         self.documents.write().unwrap().push(Document {
-            dir,
-            name,
+            path: path.into(),
             title: title.into(),
             has_content: true,
             has_metadata: true,
@@ -115,17 +95,15 @@ impl MockStorage {
 
     /// Add a virtual page (metadata only, no content).
     ///
-    /// Virtual pages always have `name: "index.md"`.
     /// The document has `has_content=false` and `has_metadata=true`.
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_virtual_page(self, dir: impl Into<PathBuf>, title: impl Into<String>) -> Self {
+    pub fn with_virtual_page(self, path: impl Into<String>, title: impl Into<String>) -> Self {
         self.documents.write().unwrap().push(Document {
-            dir: dir.into(),
-            name: "index.md".to_string(),
+            path: path.into(),
             title: title.into(),
             has_content: false,
             has_metadata: true,
@@ -133,13 +111,13 @@ impl MockStorage {
         self
     }
 
-    /// Add content for a path.
+    /// Add content for a URL path.
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_content(self, path: impl Into<PathBuf>, content: impl Into<String>) -> Self {
+    pub fn with_content(self, path: impl Into<String>, content: impl Into<String>) -> Self {
         self.contents
             .write()
             .unwrap()
@@ -149,7 +127,6 @@ impl MockStorage {
 
     /// Add a document with both document entry and content.
     ///
-    /// The path is split into directory and filename components.
     /// The document has `has_content=true` and `has_metadata=false`.
     ///
     /// # Panics
@@ -158,15 +135,13 @@ impl MockStorage {
     #[must_use]
     pub fn with_file(
         self,
-        path: impl Into<PathBuf>,
+        path: impl Into<String>,
         title: impl Into<String>,
         content: impl Into<String>,
     ) -> Self {
-        let path: PathBuf = path.into();
-        let (dir, name) = split_path(&path);
+        let path: String = path.into();
         self.documents.write().unwrap().push(Document {
-            dir,
-            name,
+            path: path.clone(),
             title: title.into(),
             has_content: true,
             has_metadata: false,
@@ -175,18 +150,18 @@ impl MockStorage {
         self
     }
 
-    /// Set modification time for a path.
+    /// Set modification time for a URL path.
     ///
     /// # Arguments
     ///
-    /// * `path` - Path to the file
+    /// * `path` - URL path
     /// * `mtime` - Modification time as seconds since Unix epoch
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_mtime(self, path: impl Into<PathBuf>, mtime: f64) -> Self {
+    pub fn with_mtime(self, path: impl Into<String>, mtime: f64) -> Self {
         self.mtimes.write().unwrap().insert(path.into(), mtime);
         self
     }
@@ -209,7 +184,7 @@ impl MockStorage {
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
-    pub fn emit_created(&self, path: impl Into<PathBuf>) {
+    pub fn emit_created(&self, path: impl Into<String>) {
         self.emit(StorageEvent {
             path: path.into(),
             kind: StorageEventKind::Created,
@@ -221,7 +196,7 @@ impl MockStorage {
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
-    pub fn emit_modified(&self, path: impl Into<PathBuf>) {
+    pub fn emit_modified(&self, path: impl Into<String>) {
         self.emit(StorageEvent {
             path: path.into(),
             kind: StorageEventKind::Modified,
@@ -233,11 +208,22 @@ impl MockStorage {
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
-    pub fn emit_removed(&self, path: impl Into<PathBuf>) {
+    pub fn emit_removed(&self, path: impl Into<String>) {
         self.emit(StorageEvent {
             path: path.into(),
             kind: StorageEventKind::Removed,
         });
+    }
+
+    /// Resolve URL path to metadata path.
+    ///
+    /// For mock storage, metadata is stored at `{path}/meta.yaml`.
+    fn resolve_meta_path(path: &str) -> String {
+        if path.is_empty() {
+            "meta.yaml".to_string()
+        } else {
+            format!("{path}/meta.yaml")
+        }
     }
 }
 
@@ -248,7 +234,7 @@ impl Storage for MockStorage {
         })
     }
 
-    fn read(&self, path: &Path) -> Result<String, StorageError> {
+    fn read(&self, path: &str) -> Result<String, StorageError> {
         self.contents
             .read()
             .unwrap()
@@ -261,11 +247,11 @@ impl Storage for MockStorage {
             })
     }
 
-    fn exists(&self, path: &Path) -> bool {
+    fn exists(&self, path: &str) -> bool {
         self.contents.read().unwrap().contains_key(path)
     }
 
-    fn mtime(&self, path: &Path) -> Result<f64, StorageError> {
+    fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         self.mtimes
             .read()
             .unwrap()
@@ -289,8 +275,8 @@ impl Storage for MockStorage {
         Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
     }
 
-    fn meta(&self, path: &Path) -> Result<String, StorageError> {
-        let meta_path = meta_path_for_document(path, "meta.yaml");
+    fn meta(&self, path: &str) -> Result<String, StorageError> {
+        let meta_path = Self::resolve_meta_path(path);
         self.read(&meta_path)
     }
 }
@@ -317,25 +303,25 @@ mod tests {
     #[test]
     fn test_with_document() {
         let storage = MockStorage::new()
-            .with_document("guide.md", "Guide")
-            .with_document("api.md", "API");
+            .with_document("guide", "Guide")
+            .with_document("api", "API");
 
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 2);
-        assert_eq!(result.documents[0].path(), PathBuf::from("guide.md"));
+        assert_eq!(result.documents[0].path, "guide");
         assert_eq!(result.documents[0].title, "Guide");
         assert!(result.documents[0].has_content);
         assert!(!result.documents[0].has_metadata);
-        assert_eq!(result.documents[1].path(), PathBuf::from("api.md"));
+        assert_eq!(result.documents[1].path, "api");
         assert_eq!(result.documents[1].title, "API");
     }
 
     #[test]
     fn test_with_content() {
-        let storage = MockStorage::new().with_content("guide.md", "# Guide\n\nContent.");
+        let storage = MockStorage::new().with_content("guide", "# Guide\n\nContent.");
 
-        let content = storage.read(Path::new("guide.md")).unwrap();
+        let content = storage.read("guide").unwrap();
 
         assert_eq!(content, "# Guide\n\nContent.");
     }
@@ -343,10 +329,10 @@ mod tests {
     #[test]
     fn test_with_file() {
         let storage =
-            MockStorage::new().with_file("guide.md", "User Guide", "# User Guide\n\nContent.");
+            MockStorage::new().with_file("guide", "User Guide", "# User Guide\n\nContent.");
 
         let result = storage.scan().unwrap();
-        let content = storage.read(Path::new("guide.md")).unwrap();
+        let content = storage.read("guide").unwrap();
 
         assert_eq!(result.documents.len(), 1);
         assert_eq!(result.documents[0].title, "User Guide");
@@ -358,13 +344,13 @@ mod tests {
     #[test]
     fn test_with_document_and_metadata() {
         let storage = MockStorage::new()
-            .with_document_and_metadata("domain/index.md", "Domain")
+            .with_document_and_metadata("domain", "Domain")
             .with_content("domain/meta.yaml", "title: Domain");
 
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path(), PathBuf::from("domain/index.md"));
+        assert_eq!(result.documents[0].path, "domain");
         assert!(result.documents[0].has_content);
         assert!(result.documents[0].has_metadata);
     }
@@ -379,7 +365,7 @@ mod tests {
 
         assert_eq!(result.documents.len(), 1);
         let doc = &result.documents[0];
-        assert_eq!(doc.path(), PathBuf::from("domain/index.md"));
+        assert_eq!(doc.path, "domain");
         assert_eq!(doc.title, "Domain Title");
         assert!(!doc.has_content);
         assert!(doc.has_metadata);
@@ -387,22 +373,24 @@ mod tests {
 
     #[test]
     fn test_read_missing() {
+        use std::path::Path;
+
         let storage = MockStorage::new();
 
-        let result = storage.read(Path::new("missing.md"));
+        let result = storage.read("missing");
 
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), StorageErrorKind::NotFound);
         assert_eq!(err.backend(), Some("Mock"));
-        assert_eq!(err.path(), Some(Path::new("missing.md")));
+        assert_eq!(err.path(), Some(Path::new("missing")));
     }
 
     #[test]
     fn test_meta_for_index() {
         let storage = MockStorage::new().with_content("domain/meta.yaml", "title: Domain Title");
 
-        let content = storage.meta(Path::new("domain/index.md")).unwrap();
+        let content = storage.meta("domain").unwrap();
 
         assert_eq!(content, "title: Domain Title");
     }
@@ -411,7 +399,7 @@ mod tests {
     fn test_meta_for_root_index() {
         let storage = MockStorage::new().with_content("meta.yaml", "title: Home");
 
-        let content = storage.meta(Path::new("index.md")).unwrap();
+        let content = storage.meta("").unwrap();
 
         assert_eq!(content, "title: Home");
     }
@@ -420,7 +408,7 @@ mod tests {
     fn test_meta_not_found() {
         let storage = MockStorage::new();
 
-        let result = storage.meta(Path::new("index.md"));
+        let result = storage.meta("");
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), StorageErrorKind::NotFound);
@@ -428,38 +416,40 @@ mod tests {
 
     #[test]
     fn test_exists_true() {
-        let storage = MockStorage::new().with_content("guide.md", "content");
+        let storage = MockStorage::new().with_content("guide", "content");
 
-        assert!(storage.exists(Path::new("guide.md")));
+        assert!(storage.exists("guide"));
     }
 
     #[test]
     fn test_exists_false() {
         let storage = MockStorage::new();
 
-        assert!(!storage.exists(Path::new("missing.md")));
+        assert!(!storage.exists("missing"));
     }
 
     #[test]
     fn test_with_mtime() {
-        let storage = MockStorage::new().with_mtime("guide.md", 1_234_567_890.0);
+        let storage = MockStorage::new().with_mtime("guide", 1_234_567_890.0);
 
-        let mtime = storage.mtime(Path::new("guide.md")).unwrap();
+        let mtime = storage.mtime("guide").unwrap();
 
         assert!((mtime - 1_234_567_890.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_mtime_missing() {
+        use std::path::Path;
+
         let storage = MockStorage::new();
 
-        let result = storage.mtime(Path::new("missing.md"));
+        let result = storage.mtime("missing");
 
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), StorageErrorKind::NotFound);
         assert_eq!(err.backend(), Some("Mock"));
-        assert_eq!(err.path(), Some(Path::new("missing.md")));
+        assert_eq!(err.path(), Some(Path::new("missing")));
     }
 
     #[test]
@@ -467,12 +457,12 @@ mod tests {
         let storage = MockStorage::new();
         let (rx, _handle) = storage.watch().unwrap();
 
-        storage.emit_created("new.md");
+        storage.emit_created("new");
 
         let event = rx.try_recv();
         assert!(event.is_some());
         let event = event.unwrap();
-        assert_eq!(event.path, PathBuf::from("new.md"));
+        assert_eq!(event.path, "new");
         assert_eq!(event.kind, StorageEventKind::Created);
     }
 
@@ -481,12 +471,12 @@ mod tests {
         let storage = MockStorage::new();
         let (rx, _handle) = storage.watch().unwrap();
 
-        storage.emit_modified("guide.md");
+        storage.emit_modified("guide");
 
         let event = rx.try_recv();
         assert!(event.is_some());
         let event = event.unwrap();
-        assert_eq!(event.path, PathBuf::from("guide.md"));
+        assert_eq!(event.path, "guide");
         assert_eq!(event.kind, StorageEventKind::Modified);
     }
 
@@ -495,12 +485,12 @@ mod tests {
         let storage = MockStorage::new();
         let (rx, _handle) = storage.watch().unwrap();
 
-        storage.emit_removed("old.md");
+        storage.emit_removed("old");
 
         let event = rx.try_recv();
         assert!(event.is_some());
         let event = event.unwrap();
-        assert_eq!(event.path, PathBuf::from("old.md"));
+        assert_eq!(event.path, "old");
         assert_eq!(event.kind, StorageEventKind::Removed);
     }
 
@@ -509,20 +499,20 @@ mod tests {
         let storage = MockStorage::new();
         let (rx, _handle) = storage.watch().unwrap();
 
-        storage.emit_created("a.md");
-        storage.emit_modified("b.md");
-        storage.emit_removed("c.md");
+        storage.emit_created("a");
+        storage.emit_modified("b");
+        storage.emit_removed("c");
 
         let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
         assert_eq!(events.len(), 3);
 
-        assert_eq!(events[0].path, PathBuf::from("a.md"));
+        assert_eq!(events[0].path, "a");
         assert_eq!(events[0].kind, StorageEventKind::Created);
 
-        assert_eq!(events[1].path, PathBuf::from("b.md"));
+        assert_eq!(events[1].path, "b");
         assert_eq!(events[1].kind, StorageEventKind::Modified);
 
-        assert_eq!(events[2].path, PathBuf::from("c.md"));
+        assert_eq!(events[2].path, "c");
         assert_eq!(events[2].kind, StorageEventKind::Removed);
     }
 
@@ -531,6 +521,6 @@ mod tests {
         let storage = MockStorage::new();
 
         // Emit before watch() is called should not panic
-        storage.emit_created("test.md");
+        storage.emit_created("test");
     }
 }

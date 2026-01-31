@@ -1,8 +1,14 @@
 //! Storage event types for change notification.
 //!
 //! Provides types for subscribing to storage changes through the [`Storage::watch`](crate::Storage::watch) method.
+//!
+//! # URL Paths
+//!
+//! Events contain URL paths, not file paths:
+//! - `""` - root page changed
+//! - `"guide"` - guide page changed
+//! - `"domain/billing"` - nested page changed
 
-use std::path::PathBuf;
 use std::sync::mpsc;
 
 /// Kind of storage event.
@@ -19,8 +25,8 @@ pub enum StorageEventKind {
 /// A storage change event.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageEvent {
-    /// Relative path to the document (e.g., "guide.md", "domain/index.md").
-    pub path: PathBuf,
+    /// URL path (e.g., "", "guide", "domain/billing").
+    pub path: String,
     /// Kind of change.
     pub kind: StorageEventKind,
 }
@@ -119,11 +125,11 @@ mod tests {
     #[test]
     fn test_storage_event_creation() {
         let event = StorageEvent {
-            path: PathBuf::from("guide.md"),
+            path: "guide".to_string(),
             kind: StorageEventKind::Modified,
         };
 
-        assert_eq!(event.path, PathBuf::from("guide.md"));
+        assert_eq!(event.path, "guide");
         assert_eq!(event.kind, StorageEventKind::Modified);
     }
 
@@ -133,7 +139,7 @@ mod tests {
         let receiver = StorageEventReceiver::new(rx);
 
         let event = StorageEvent {
-            path: PathBuf::from("test.md"),
+            path: "test".to_string(),
             kind: StorageEventKind::Created,
         };
 
@@ -170,7 +176,7 @@ mod tests {
         let receiver = StorageEventReceiver::new(rx);
 
         let event = StorageEvent {
-            path: PathBuf::from("test.md"),
+            path: "test".to_string(),
             kind: StorageEventKind::Modified,
         };
 
@@ -188,11 +194,11 @@ mod tests {
 
         let events = vec![
             StorageEvent {
-                path: PathBuf::from("a.md"),
+                path: "a".to_string(),
                 kind: StorageEventKind::Created,
             },
             StorageEvent {
-                path: PathBuf::from("b.md"),
+                path: "b".to_string(),
                 kind: StorageEventKind::Modified,
             },
         ];

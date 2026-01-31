@@ -2,6 +2,13 @@
 //!
 //! Provides [`FsStorage`] for reading documents from the local filesystem
 //! with mtime-based caching for title extraction.
+//!
+//! # URL to File Path Mapping
+//!
+//! FsStorage maps URL paths to filesystem paths:
+//! - `""` → `index.md`
+//! - `"guide"` → `guide/index.md` or `guide.md` (directory preferred)
+//! - `"domain/billing"` → `domain/billing/index.md` or `domain/billing.md`
 
 use std::collections::HashMap;
 use std::fs;
@@ -18,7 +25,6 @@ use crate::debouncer::EventDebouncer;
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use crate::storage::{
     Document, ScanResult, Storage, StorageError, StorageErrorKind, extract_yaml_title,
-    meta_path_for_document,
 };
 
 /// Backend identifier for error messages.
@@ -154,21 +160,82 @@ impl FsStorage {
         }
     }
 
-    /// Validate that a path doesn't escape the source directory.
+    /// Validate that a URL path doesn't contain path traversal attempts.
     ///
-    /// Rejects paths containing parent directory components (`..`) to prevent
-    /// path traversal attacks (e.g., `../../../etc/passwd`).
-    fn validate_path(path: &Path) -> Result<(), StorageError> {
-        let has_parent_dir = path
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir));
-
-        if has_parent_dir {
+    /// Rejects paths containing `..` to prevent path traversal attacks.
+    fn validate_path(path: &str) -> Result<(), StorageError> {
+        if path.contains("..") {
             return Err(StorageError::new(StorageErrorKind::InvalidPath)
                 .with_path(path)
                 .with_backend(BACKEND));
         }
         Ok(())
+    }
+
+    /// Resolve URL path to content file path.
+    ///
+    /// Resolution order:
+    /// 1. `{path}/index.md` (directory structure preferred)
+    /// 2. `{path}.md` (standalone file fallback)
+    ///
+    /// Returns `None` if no content file exists.
+    fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
+        if url_path.is_empty() {
+            let index = self.source_dir.join("index.md");
+            return index.exists().then_some(index);
+        }
+
+        // Prefer directory/index.md
+        let index_path = self.source_dir.join(format!("{url_path}/index.md"));
+        if index_path.exists() {
+            return Some(index_path);
+        }
+
+        // Fall back to standalone file
+        let file_path = self.source_dir.join(format!("{url_path}.md"));
+        file_path.exists().then_some(file_path)
+    }
+
+    /// Resolve URL path to metadata file path.
+    ///
+    /// Metadata is always in a directory's meta.yaml file:
+    /// - `""` → `meta.yaml`
+    /// - `"domain"` → `domain/meta.yaml`
+    fn resolve_meta(&self, url_path: &str) -> PathBuf {
+        if url_path.is_empty() {
+            self.source_dir.join(&self.meta_filename)
+        } else {
+            self.source_dir.join(format!("{url_path}/{}", self.meta_filename))
+        }
+    }
+
+    /// Convert file path to URL path.
+    ///
+    /// Examples:
+    /// - `index.md` → `""`
+    /// - `guide.md` → `"guide"`
+    /// - `domain/index.md` → `"domain"`
+    /// - `domain/setup.md` → `"domain/setup"`
+    fn file_path_to_url(rel_path: &Path) -> String {
+        let path_str = rel_path.to_string_lossy();
+
+        // Handle root index.md
+        if path_str == "index.md" {
+            return String::new();
+        }
+
+        // Remove .md extension
+        let without_ext = path_str.strip_suffix(".md").unwrap_or(&path_str);
+
+        // Handle directory index files
+        if let Some(without_index) = without_ext.strip_suffix("/index") {
+            return without_index.to_string();
+        }
+        if without_ext == "index" {
+            return String::new();
+        }
+
+        without_ext.to_string()
     }
 
     /// Scan directory recursively and collect documents.
@@ -178,7 +245,9 @@ impl FsStorage {
     /// 2. Scans all meta.yaml files:
     ///    - If matching document exists (same dir, `index.md`): sets `has_metadata=true`
     ///    - If no matching document: creates entry with `has_content=false, has_metadata=true`
-    fn scan_directory(&self, dir_path: &Path, base_path: &Path, result: &mut ScanResult) {
+    ///
+    /// Documents are returned with URL paths, not file paths.
+    fn scan_directory(&self, dir_path: &Path, url_prefix: &str, result: &mut ScanResult) {
         let Ok(entries) = fs::read_dir(dir_path) else {
             return;
         };
@@ -229,16 +298,37 @@ impl FsStorage {
 
             if is_dir {
                 // Recurse into subdirectory
-                let rel_path = base_path.join(entry.file_name());
-                self.scan_directory(&path, &rel_path, result);
+                let child_name = entry.file_name().to_string_lossy().into_owned();
+                let child_url = if url_prefix.is_empty() {
+                    child_name
+                } else {
+                    format!("{url_prefix}/{child_name}")
+                };
+                self.scan_directory(&path, &child_url, result);
             } else if path.extension().is_some_and(|e| e == "md") {
                 // Process markdown file
                 let title = self.get_title(&path, &name_lower);
                 let is_index = name_lower == "index.md";
 
+                // Compute URL path
+                let url_path = if is_index {
+                    // index.md → directory URL (e.g., "domain")
+                    url_prefix.to_string()
+                } else {
+                    // guide.md → "guide" or "domain/guide"
+                    let stem = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    if url_prefix.is_empty() {
+                        stem
+                    } else {
+                        format!("{url_prefix}/{stem}")
+                    }
+                };
+
                 let doc = Document {
-                    dir: base_path.to_path_buf(),
-                    name: entry.file_name().to_string_lossy().into_owned(),
+                    path: url_path,
                     title,
                     has_content: true,
                     has_metadata: false, // Will be updated if meta.yaml exists
@@ -262,10 +352,10 @@ impl FsStorage {
                 result.documents[idx].has_metadata = true;
             } else if let Some(ref meta_path) = meta_file_path {
                 // No index.md - check if metadata is useful before creating virtual page
-                if let Some(title) = Self::get_virtual_page_title(meta_path, base_path) {
+                if let Some(title) = Self::get_virtual_page_title(meta_path, Path::new(url_prefix))
+                {
                     result.documents.push(Document {
-                        dir: base_path.to_path_buf(),
-                        name: "index.md".to_string(),
+                        path: url_prefix.to_string(),
                         title,
                         has_content: false,
                         has_metadata: true,
@@ -381,29 +471,33 @@ impl Storage for FsStorage {
         }
 
         let mut result = ScanResult::default();
-        self.scan_directory(&self.source_dir, Path::new(""), &mut result);
+        self.scan_directory(&self.source_dir, "", &mut result);
         Ok(result)
     }
 
-    fn read(&self, path: &Path) -> Result<String, StorageError> {
+    fn read(&self, path: &str) -> Result<String, StorageError> {
         Self::validate_path(path)?;
-        let full_path = self.source_dir.join(path);
+        let full_path = self
+            .resolve_content(path)
+            .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
         fs::read_to_string(&full_path)
-            .map_err(|e| StorageError::io(e, Some(path.to_path_buf())).with_backend(BACKEND))
+            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
     }
 
-    fn exists(&self, path: &Path) -> bool {
-        Self::validate_path(path).is_ok() && self.source_dir.join(path).exists()
+    fn exists(&self, path: &str) -> bool {
+        Self::validate_path(path).is_ok() && self.resolve_content(path).is_some()
     }
 
-    fn mtime(&self, path: &Path) -> Result<f64, StorageError> {
+    fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Self::validate_path(path)?;
-        let full_path = self.source_dir.join(path);
+        let full_path = self
+            .resolve_content(path)
+            .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
         let metadata = fs::metadata(&full_path)
-            .map_err(|e| StorageError::io(e, Some(path.to_path_buf())).with_backend(BACKEND))?;
+            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))?;
         let modified = metadata
             .modified()
-            .map_err(|e| StorageError::io(e, Some(path.to_path_buf())).with_backend(BACKEND))?;
+            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))?;
         Ok(modified
             .duration_since(UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64()))
@@ -488,17 +582,19 @@ impl Storage for FsStorage {
                 }
 
                 for event in debouncer.drain_ready() {
-                    // Convert full path to relative path
+                    // Convert full file path to relative path, then to URL path
                     let Ok(rel_path) = event.path.strip_prefix(&source_dir_for_drain) else {
                         continue;
                     };
 
-                    let relative_event = StorageEvent {
-                        path: rel_path.to_path_buf(),
+                    let url_path = FsStorage::file_path_to_url(rel_path);
+
+                    let storage_event = StorageEvent {
+                        path: url_path,
                         kind: event.kind,
                     };
 
-                    if event_tx.send(relative_event).is_err() {
+                    if event_tx.send(storage_event).is_err() {
                         // Receiver dropped, exit thread
                         return;
                     }
@@ -513,10 +609,14 @@ impl Storage for FsStorage {
         Ok((StorageEventReceiver::new(event_rx), handle))
     }
 
-    fn meta(&self, path: &Path) -> Result<String, StorageError> {
+    fn meta(&self, path: &str) -> Result<String, StorageError> {
         Self::validate_path(path)?;
-        let meta_path = meta_path_for_document(path, &self.meta_filename);
-        self.read(&meta_path)
+        let meta_path = self.resolve_meta(path);
+        if !meta_path.exists() {
+            return Err(StorageError::not_found(path).with_backend(BACKEND));
+        }
+        fs::read_to_string(&meta_path)
+            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
     }
 }
 
@@ -564,13 +664,9 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 2);
-        let paths: Vec<_> = result
-            .documents
-            .iter()
-            .map(|d| d.path().to_string_lossy().into_owned())
-            .collect();
-        assert!(paths.iter().any(|p| p == "api.md"));
-        assert!(paths.iter().any(|p| p == "guide.md"));
+        let paths: Vec<_> = result.documents.iter().map(|d| d.path.as_str()).collect();
+        assert!(paths.iter().any(|p| *p == "api"));
+        assert!(paths.iter().any(|p| *p == "guide"));
     }
 
     #[test]
@@ -585,13 +681,9 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 2);
-        let paths: Vec<_> = result
-            .documents
-            .iter()
-            .map(|d| d.path().to_string_lossy().into_owned())
-            .collect();
-        assert!(paths.iter().any(|p| p == "domain/index.md"));
-        assert!(paths.iter().any(|p| p == "domain/guide.md"));
+        let paths: Vec<_> = result.documents.iter().map(|d| d.path.as_str()).collect();
+        assert!(paths.iter().any(|p| *p == "domain"));
+        assert!(paths.iter().any(|p| *p == "domain/guide"));
     }
 
     #[test]
@@ -636,7 +728,7 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path(), PathBuf::from("visible.md"));
+        assert_eq!(result.documents[0].path, "visible");
     }
 
     #[test]
@@ -649,7 +741,7 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path(), PathBuf::from("main.md"));
+        assert_eq!(result.documents[0].path, "main");
     }
 
     #[test]
@@ -664,7 +756,7 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.documents[0].path(), PathBuf::from("main.md"));
+        assert_eq!(result.documents[0].path, "main");
     }
 
     #[test]
@@ -680,7 +772,7 @@ mod tests {
 
         assert_eq!(result.documents.len(), 1);
         let doc = &result.documents[0];
-        assert_eq!(doc.path(), PathBuf::from("domain/index.md"));
+        assert_eq!(doc.path, "domain");
         assert!(doc.has_content);
         assert!(doc.has_metadata);
     }
@@ -714,7 +806,7 @@ mod tests {
 
         assert_eq!(result.documents.len(), 1);
         let doc = &result.documents[0];
-        assert_eq!(doc.path(), PathBuf::from("index.md"));
+        assert_eq!(doc.path, "");
         assert!(doc.has_content);
         assert!(doc.has_metadata);
     }
@@ -732,7 +824,7 @@ mod tests {
 
         assert_eq!(result.documents.len(), 1);
         let doc = &result.documents[0];
-        assert_eq!(doc.path(), PathBuf::from("domain/index.md"));
+        assert_eq!(doc.path, "domain");
         assert_eq!(doc.title, "Domain Title");
         assert!(!doc.has_content); // Virtual page
         assert!(doc.has_metadata);
@@ -768,7 +860,7 @@ mod tests {
     }
 
     #[test]
-    fn test_meta_for_index() {
+    fn test_meta_for_domain() {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
@@ -776,19 +868,19 @@ mod tests {
         fs::write(domain_dir.join("meta.yaml"), "title: Domain Title").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let content = storage.meta(Path::new("domain/index.md")).unwrap();
+        let content = storage.meta("domain").unwrap();
 
         assert_eq!(content, "title: Domain Title");
     }
 
     #[test]
-    fn test_meta_for_root_index() {
+    fn test_meta_for_root() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
         fs::write(temp_dir.path().join("meta.yaml"), "title: Home").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let content = storage.meta(Path::new("index.md")).unwrap();
+        let content = storage.meta("").unwrap();
 
         assert_eq!(content, "title: Home");
     }
@@ -800,7 +892,7 @@ mod tests {
         // No meta.yaml
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.meta(Path::new("index.md"));
+        let result = storage.meta("");
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind(), StorageErrorKind::NotFound);
@@ -812,7 +904,7 @@ mod tests {
         fs::write(temp_dir.path().join("guide.md"), "# Guide\n\nContent here.").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let content = storage.read(Path::new("guide.md")).unwrap();
+        let content = storage.read("guide").unwrap();
 
         assert_eq!(content, "# Guide\n\nContent here.");
     }
@@ -822,11 +914,16 @@ mod tests {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
+        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
         fs::write(domain_dir.join("guide.md"), "# Domain Guide").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let content = storage.read(Path::new("domain/guide.md")).unwrap();
+        // Read the domain index
+        let content = storage.read("domain").unwrap();
+        assert_eq!(content, "# Domain");
 
+        // Read a child page
+        let content = storage.read("domain/guide").unwrap();
         assert_eq!(content, "# Domain Guide");
     }
 
@@ -835,7 +932,7 @@ mod tests {
         let temp_dir = create_test_dir();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.read(Path::new("nonexistent.md"));
+        let result = storage.read("nonexistent");
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -850,7 +947,7 @@ mod tests {
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
 
-        assert!(storage.exists(Path::new("guide.md")));
+        assert!(storage.exists("guide"));
     }
 
     #[test]
@@ -859,17 +956,19 @@ mod tests {
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
 
-        assert!(!storage.exists(Path::new("nonexistent.md")));
+        assert!(!storage.exists("nonexistent"));
     }
 
     #[test]
-    fn test_exists_returns_true_for_directory() {
+    fn test_exists_returns_true_for_directory_with_index() {
         let temp_dir = create_test_dir();
-        fs::create_dir(temp_dir.path().join("subdir")).unwrap();
+        let subdir = temp_dir.path().join("subdir");
+        fs::create_dir(&subdir).unwrap();
+        fs::write(subdir.join("index.md"), "# Subdir").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
 
-        assert!(storage.exists(Path::new("subdir")));
+        assert!(storage.exists("subdir"));
     }
 
     #[test]
@@ -925,12 +1024,80 @@ mod tests {
     }
 
     #[test]
+    fn test_file_path_to_url() {
+        assert_eq!(FsStorage::file_path_to_url(Path::new("index.md")), "");
+        assert_eq!(FsStorage::file_path_to_url(Path::new("guide.md")), "guide");
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("domain/index.md")),
+            "domain"
+        );
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("domain/setup.md")),
+            "domain/setup"
+        );
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("a/b/c.md")),
+            "a/b/c"
+        );
+    }
+
+    #[test]
+    fn test_resolve_content_root() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let resolved = storage.resolve_content("");
+
+        assert!(resolved.is_some());
+        assert!(resolved.unwrap().ends_with("index.md"));
+    }
+
+    #[test]
+    fn test_resolve_content_prefers_directory_index() {
+        let temp_dir = create_test_dir();
+        let domain_dir = temp_dir.path().join("domain");
+        fs::create_dir(&domain_dir).unwrap();
+        fs::write(domain_dir.join("index.md"), "# Domain Index").unwrap();
+        // Also create a standalone file (should be ignored)
+        fs::write(temp_dir.path().join("domain.md"), "# Domain Standalone").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let resolved = storage.resolve_content("domain");
+
+        assert!(resolved.is_some());
+        assert!(resolved.unwrap().ends_with("domain/index.md"));
+    }
+
+    #[test]
+    fn test_resolve_content_falls_back_to_standalone() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let resolved = storage.resolve_content("guide");
+
+        assert!(resolved.is_some());
+        assert!(resolved.unwrap().ends_with("guide.md"));
+    }
+
+    #[test]
+    fn test_resolve_content_not_found() {
+        let temp_dir = create_test_dir();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let resolved = storage.resolve_content("nonexistent");
+
+        assert!(resolved.is_none());
+    }
+
+    #[test]
     fn test_mtime_returns_modification_time() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let mtime = storage.mtime(Path::new("guide.md")).unwrap();
+        let mtime = storage.mtime("guide").unwrap();
 
         // mtime should be a recent timestamp (within last minute)
         let now = std::time::SystemTime::now()
@@ -946,7 +1113,7 @@ mod tests {
         let temp_dir = create_test_dir();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.mtime(Path::new("nonexistent.md"));
+        let result = storage.mtime("nonexistent");
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -960,7 +1127,7 @@ mod tests {
         fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.read(Path::new("../etc/passwd"));
+        let result = storage.read("../etc/passwd");
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -973,7 +1140,7 @@ mod tests {
         let temp_dir = create_test_dir();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.read(Path::new("subdir/../../etc/passwd"));
+        let result = storage.read("subdir/../../etc/passwd");
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -985,7 +1152,7 @@ mod tests {
         let temp_dir = create_test_dir();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let result = storage.mtime(Path::new("../etc/passwd"));
+        let result = storage.mtime("../etc/passwd");
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1000,7 +1167,7 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
 
         // Path traversal should return false (treated as non-existent)
-        assert!(!storage.exists(Path::new("../etc/passwd")));
+        assert!(!storage.exists("../etc/passwd"));
     }
 
     #[test]
@@ -1041,11 +1208,11 @@ mod tests {
 
         assert!(!events.is_empty(), "Expected to receive at least one event");
 
-        // Find the event for new.md
-        let new_md_event = events.iter().find(|e| e.path == Path::new("new.md"));
+        // Find the event for new (URL path, not file path)
+        let new_event = events.iter().find(|e| e.path == "new");
         assert!(
-            new_md_event.is_some(),
-            "Expected event for new.md, got: {events:?}"
+            new_event.is_some(),
+            "Expected event for 'new', got: {events:?}"
         );
     }
 
@@ -1067,11 +1234,11 @@ mod tests {
         // Wait for debounce + processing
         std::thread::sleep(Duration::from_millis(250));
 
-        // Should receive modified event
+        // Should receive modified event (URL path)
         let event = rx.try_recv();
         assert!(event.is_some(), "Expected to receive event");
         let event = event.unwrap();
-        assert_eq!(event.path, PathBuf::from("existing.md"));
+        assert_eq!(event.path, "existing");
         assert_eq!(event.kind, StorageEventKind::Modified);
     }
 
@@ -1093,11 +1260,11 @@ mod tests {
         // Wait for debounce + processing
         std::thread::sleep(Duration::from_millis(250));
 
-        // Should receive removed event
+        // Should receive removed event (URL path)
         let event = rx.try_recv();
         assert!(event.is_some(), "Expected to receive event");
         let event = event.unwrap();
-        assert_eq!(event.path, PathBuf::from("to-delete.md"));
+        assert_eq!(event.path, "to-delete");
         assert_eq!(event.kind, StorageEventKind::Removed);
     }
 
@@ -1122,11 +1289,11 @@ mod tests {
         // Wait for debounce + processing
         std::thread::sleep(Duration::from_millis(250));
 
-        // Should only receive event for .md file
+        // Should only receive event for .md file (URL path)
         let event = rx.try_recv();
         assert!(event.is_some(), "Expected to receive event for .md file");
         let event = event.unwrap();
-        assert_eq!(event.path, PathBuf::from("doc.md"));
+        assert_eq!(event.path, "doc");
 
         // No more events
         let event = rx.try_recv();

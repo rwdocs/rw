@@ -11,7 +11,7 @@
 //! ```json
 //! {
 //!     "pages": [
-//!         {"title": "Guide", "path": "/guide", "source_path": "guide.md"}
+//!         {"title": "Guide", "path": "/guide", "has_content": true}
 //!     ],
 //!     "children": [[1, 2], []],
 //!     "parents": [null, 0],
@@ -169,14 +169,14 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             "/".to_string(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
         builder.add_page(
             "Guide".to_string(),
             "/guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             Some(root_idx),
             None,
         );
@@ -242,11 +242,11 @@ mod tests {
         // Check page data
         let home = loaded.get_page("/").unwrap();
         assert_eq!(home.title, "Home");
-        assert_eq!(home.source_path, Some(PathBuf::from("index.md")));
+        assert_eq!(home.has_content, true);
 
         let guide = loaded.get_page("/guide").unwrap();
         assert_eq!(guide.title, "Guide");
-        assert_eq!(guide.source_path, Some(PathBuf::from("guide.md")));
+        assert_eq!(guide.has_content, true);
 
         // Check hierarchy via root navigation (non-section pages expand children)
         // The test site uses "/" as root path; navigation("") returns root pages

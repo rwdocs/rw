@@ -10,11 +10,10 @@
 //! Pages are stored in a flat `Vec<Page>` with parent/children relationships
 //! tracked by indices. This provides:
 //! - O(1) URL path lookups via `path_index` `HashMap`
-//! - O(1) source path lookups via `source_path_index` `HashMap`
+//! - O(1) URL path lookups via `path_index` `HashMap`
 //! - O(d) breadcrumb building where d is the page depth
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -42,8 +41,8 @@ pub struct Page {
     pub title: String,
     /// URL path without leading slash (e.g., "guide", "domain/page", "" for root).
     pub path: String,
-    /// Relative path to source file (e.g., "guide.md"). `None` for virtual pages.
-    pub source_path: Option<PathBuf>,
+    /// True if page has content (real page). False for virtual pages (metadata only).
+    pub has_content: bool,
     /// Page metadata from YAML sidecar file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<PageMetadata>,
@@ -111,32 +110,35 @@ pub struct SiteState {
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
     path_index: HashMap<String, usize>,
-    source_path_index: HashMap<PathBuf, usize>,
     sections: HashMap<String, SectionInfo>,
-    has_content: Vec<bool>,
+    subtree_has_content: Vec<bool>,
 }
 
 /// Compute which pages have markdown content in their subtree.
 ///
 /// Uses post-order DFS to compute the values efficiently in O(N) time.
-fn compute_has_content(pages: &[Page], children: &[Vec<usize>], roots: &[usize]) -> Vec<bool> {
+fn compute_subtree_has_content(
+    pages: &[Page],
+    children: &[Vec<usize>],
+    roots: &[usize],
+) -> Vec<bool> {
     fn dfs(idx: usize, pages: &[Page], children: &[Vec<usize>], result: &mut [bool]) {
         // Process children first (post-order)
         for &child in &children[idx] {
             dfs(child, pages, children, result);
         }
-        // Page has content if it has source_path OR any child has content
-        result[idx] = pages[idx].source_path.is_some() || children[idx].iter().any(|&c| result[c]);
+        // Page has content if it has content OR any child has content
+        result[idx] = pages[idx].has_content || children[idx].iter().any(|&c| result[c]);
     }
 
-    let mut has_content = vec![false; pages.len()];
+    let mut subtree_has_content = vec![false; pages.len()];
 
     // Traverse from roots to ensure all pages are visited
     for &root in roots {
-        dfs(root, pages, children, &mut has_content);
+        dfs(root, pages, children, &mut subtree_has_content);
     }
 
-    has_content
+    subtree_has_content
 }
 
 impl SiteState {
@@ -157,12 +159,7 @@ impl SiteState {
             .enumerate()
             .map(|(i, page)| (page.path.clone(), i))
             .collect();
-        let source_path_index: HashMap<PathBuf, usize> = pages
-            .iter()
-            .enumerate()
-            .filter_map(|(i, page)| page.source_path.clone().map(|sp| (sp, i)))
-            .collect();
-        let has_content = compute_has_content(&pages, &children, &roots);
+        let subtree_has_content = compute_subtree_has_content(&pages, &children, &roots);
 
         Self {
             pages,
@@ -170,9 +167,8 @@ impl SiteState {
             parents,
             roots,
             path_index,
-            source_path_index,
             sections,
-            has_content,
+            subtree_has_content,
         }
     }
 
@@ -207,14 +203,14 @@ impl SiteState {
         if let Some(&idx) = self.path_index.get(path) {
             self.children[idx]
                 .iter()
-                .filter(|&&j| self.has_content[j])
+                .filter(|&&j| self.subtree_has_content[j])
                 .map(|&j| &self.pages[j])
                 .collect()
         } else if path.is_empty() {
             // No root page exists, return root pages as fallback
             self.roots
                 .iter()
-                .filter(|&&i| self.has_content[i])
+                .filter(|&&i| self.subtree_has_content[i])
                 .map(|&i| &self.pages[i])
                 .collect()
         } else {
@@ -291,22 +287,6 @@ impl SiteState {
     #[must_use]
     pub(crate) fn get_root_pages(&self) -> Vec<&Page> {
         self.roots.iter().map(|&i| &self.pages[i]).collect()
-    }
-
-    /// Get page by source file path.
-    ///
-    /// # Arguments
-    ///
-    /// * `source_path` - Relative path to source file (e.g., "guide.md")
-    ///
-    /// # Returns
-    ///
-    /// Page reference if found, `None` otherwise.
-    #[must_use]
-    pub fn get_page_by_source(&self, source_path: &Path) -> Option<&Page> {
-        self.source_path_index
-            .get(source_path)
-            .map(|&i| &self.pages[i])
     }
 
     /// Get all pages (for serialization).
@@ -504,7 +484,7 @@ impl SiteStateBuilder {
     ///
     /// * `title` - Page title
     /// * `path` - URL path (e.g., "/guide")
-    /// * `source_path` - Relative path to source file (e.g., "guide.md"), `None` for virtual pages
+    /// * `has_content` - True if page has content (real page), false for virtual pages
     /// * `parent_idx` - Index of parent page, `None` for root
     /// * `metadata` - Optional page metadata from YAML sidecar
     ///
@@ -515,7 +495,7 @@ impl SiteStateBuilder {
         &mut self,
         title: String,
         path: String,
-        source_path: Option<PathBuf>,
+        has_content: bool,
         parent_idx: Option<usize>,
         metadata: Option<PageMetadata>,
     ) -> usize {
@@ -538,7 +518,7 @@ impl SiteStateBuilder {
         self.pages.push(Page {
             title,
             path,
-            source_path,
+            has_content,
             metadata,
         });
         self.children.push(Vec::new());
@@ -578,7 +558,7 @@ mod tests {
         builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             None,
             None,
         );
@@ -590,7 +570,7 @@ mod tests {
         let page = page.unwrap();
         assert_eq!(page.title, "Guide");
         assert_eq!(page.path, "guide");
-        assert_eq!(page.source_path, Some(PathBuf::from("guide.md")));
+        assert_eq!(page.has_content, true);
     }
 
     #[test]
@@ -617,7 +597,7 @@ mod tests {
         builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             None,
             None,
         );
@@ -636,14 +616,14 @@ mod tests {
         let parent_idx = builder.add_page(
             "Parent".to_string(),
             "parent".to_string(),
-            Some(PathBuf::from("parent/index.md")),
+            true,
             None,
             None,
         );
         builder.add_page(
             "Child".to_string(),
             "parent/child".to_string(),
-            Some(PathBuf::from("parent/child.md")),
+            true,
             Some(parent_idx),
             None,
         );
@@ -673,21 +653,21 @@ mod tests {
         let root_idx = builder.add_page(
             "Welcome".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
         let domain_idx = builder.add_page(
             "Domain".to_string(),
             "domain".to_string(),
-            Some(PathBuf::from("domain/index.md")),
+            true,
             Some(root_idx),
             None,
         );
         builder.add_page(
             "Page".to_string(),
             "domain/page".to_string(),
-            Some(PathBuf::from("domain/page.md")),
+            true,
             Some(domain_idx),
             None,
         );
@@ -708,14 +688,14 @@ mod tests {
         builder.add_page(
             "A".to_string(),
             "a".to_string(),
-            Some(PathBuf::from("a.md")),
+            true,
             None,
             None,
         );
         builder.add_page(
             "B".to_string(),
             "b".to_string(),
-            Some(PathBuf::from("b.md")),
+            true,
             None,
             None,
         );
@@ -728,70 +708,6 @@ mod tests {
         assert_eq!(roots[1].title, "B");
     }
 
-    #[test]
-    fn test_get_page_by_source_returns_page() {
-        let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Guide".to_string(),
-            "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
-            None,
-            None,
-        );
-        let site = builder.build();
-
-        let page = site.get_page_by_source(Path::new("guide.md"));
-
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().title, "Guide");
-        assert_eq!(page.unwrap().path, "guide");
-    }
-
-    #[test]
-    fn test_get_page_by_source_nested_path() {
-        let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Deep".to_string(),
-            "domain/page".to_string(),
-            Some(PathBuf::from("domain/page.md")),
-            None,
-            None,
-        );
-        let site = builder.build();
-
-        let page = site.get_page_by_source(Path::new("domain/page.md"));
-
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().path, "domain/page");
-    }
-
-    #[test]
-    fn test_get_page_by_source_index_file() {
-        let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            "Section".to_string(),
-            "section".to_string(),
-            Some(PathBuf::from("section/index.md")),
-            None,
-            None,
-        );
-        let site = builder.build();
-
-        let page = site.get_page_by_source(Path::new("section/index.md"));
-
-        assert!(page.is_some());
-        assert_eq!(page.unwrap().path, "section");
-    }
-
-    #[test]
-    fn test_get_page_by_source_not_found_returns_none() {
-        let site = SiteStateBuilder::new().build();
-
-        let page = site.get_page_by_source(Path::new("nonexistent.md"));
-
-        assert!(page.is_none());
-    }
-
     // SiteStateBuilder tests
 
     #[test]
@@ -801,7 +717,7 @@ mod tests {
         let idx = builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             None,
             None,
         );
@@ -816,14 +732,14 @@ mod tests {
         let idx1 = builder.add_page(
             "A".to_string(),
             "a".to_string(),
-            Some(PathBuf::from("a.md")),
+            true,
             None,
             None,
         );
         let idx2 = builder.add_page(
             "B".to_string(),
             "b".to_string(),
-            Some(PathBuf::from("b.md")),
+            true,
             None,
             None,
         );
@@ -838,7 +754,7 @@ mod tests {
         let parent_idx = builder.add_page(
             "Parent".to_string(),
             "parent".to_string(),
-            Some(PathBuf::from("parent/index.md")),
+            true,
             None,
             Some(PageMetadata {
                 page_type: Some("section".to_string()),
@@ -848,7 +764,7 @@ mod tests {
         builder.add_page(
             "Child".to_string(),
             "parent/child".to_string(),
-            Some(PathBuf::from("parent/child.md")),
+            true,
             Some(parent_idx),
             None,
         );
@@ -866,7 +782,7 @@ mod tests {
         builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             None,
             None,
         );
@@ -883,13 +799,13 @@ mod tests {
         let page = Page {
             title: "Guide".to_string(),
             path: "guide".to_string(),
-            source_path: Some(PathBuf::from("guide.md")),
+            has_content: true,
             metadata: None,
         };
 
         assert_eq!(page.title, "Guide");
         assert_eq!(page.path, "guide");
-        assert_eq!(page.source_path, Some(PathBuf::from("guide.md")));
+        assert_eq!(page.has_content, true);
     }
 
     // BreadcrumbItem tests
@@ -922,14 +838,14 @@ mod tests {
         builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             None,
             None,
         );
         builder.add_page(
             "API".to_string(),
             "api".to_string(),
-            Some(PathBuf::from("api.md")),
+            true,
             None,
             None,
         );
@@ -949,14 +865,14 @@ mod tests {
         let parent_idx = builder.add_page(
             "Domain A".to_string(),
             "domain-a".to_string(),
-            Some(PathBuf::from("domain-a/index.md")),
+            true,
             None,
             None,
         );
         builder.add_page(
             "Setup Guide".to_string(),
             "domain-a/guide".to_string(),
-            Some(PathBuf::from("domain-a/guide.md")),
+            true,
             Some(parent_idx),
             None,
         );
@@ -980,21 +896,21 @@ mod tests {
         let idx_a = builder.add_page(
             "A".to_string(),
             "a".to_string(),
-            Some(PathBuf::from("a/index.md")),
+            true,
             None,
             None,
         );
         let idx_b = builder.add_page(
             "B".to_string(),
             "a/b".to_string(),
-            Some(PathBuf::from("a/b/index.md")),
+            true,
             Some(idx_a),
             None,
         );
         builder.add_page(
             "C".to_string(),
             "a/b/c".to_string(),
-            Some(PathBuf::from("a/b/c/index.md")),
+            true,
             Some(idx_b),
             None,
         );
@@ -1014,21 +930,21 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
         builder.add_page(
             "Domains".to_string(),
             "domains".to_string(),
-            Some(PathBuf::from("domains/index.md")),
+            true,
             Some(root_idx),
             None,
         );
         builder.add_page(
             "Usage".to_string(),
             "usage".to_string(),
-            Some(PathBuf::from("usage/index.md")),
+            true,
             Some(root_idx),
             None,
         );
@@ -1050,14 +966,14 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
         builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             Some(root_idx),
             Some(PageMetadata {
                 title: None,
@@ -1069,7 +985,7 @@ mod tests {
         builder.add_page(
             "Payments".to_string(),
             "payments".to_string(),
-            Some(PathBuf::from("payments/index.md")),
+            true,
             Some(root_idx),
             Some(PageMetadata {
                 title: None,
@@ -1081,7 +997,7 @@ mod tests {
         builder.add_page(
             "Getting Started".to_string(),
             "getting-started".to_string(),
-            Some(PathBuf::from("getting-started.md")),
+            true,
             Some(root_idx),
             None,
         );
@@ -1226,14 +1142,14 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
         builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             Some(root_idx),
             Some(PageMetadata {
                 title: None,
@@ -1245,7 +1161,7 @@ mod tests {
         builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             Some(root_idx),
             None,
         );
@@ -1272,14 +1188,14 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             Some(root_idx),
             Some(PageMetadata {
                 title: None,
@@ -1292,7 +1208,7 @@ mod tests {
         builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
-            Some(PathBuf::from("billing/payments.md")),
+            true,
             Some(billing_idx),
             None,
         );
@@ -1311,14 +1227,14 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             Some(root_idx),
             Some(PageMetadata {
                 title: None,
@@ -1330,14 +1246,14 @@ mod tests {
         builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
-            Some(PathBuf::from("billing/payments.md")),
+            true,
             Some(billing_idx),
             None,
         );
         builder.add_page(
             "Invoicing".to_string(),
             "billing/invoicing".to_string(),
-            Some(PathBuf::from("billing/invoicing.md")),
+            true,
             Some(billing_idx),
             None,
         );
@@ -1368,14 +1284,14 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             Some(root_idx),
             Some(PageMetadata {
                 title: None,
@@ -1387,7 +1303,7 @@ mod tests {
         let payments_idx = builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
-            Some(PathBuf::from("billing/payments/index.md")),
+            true,
             Some(billing_idx),
             Some(PageMetadata {
                 title: None,
@@ -1399,7 +1315,7 @@ mod tests {
         builder.add_page(
             "API".to_string(),
             "billing/payments/api".to_string(),
-            Some(PathBuf::from("billing/payments/api.md")),
+            true,
             Some(payments_idx),
             None,
         );
@@ -1431,7 +1347,7 @@ mod tests {
         builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             None,
             Some(PageMetadata {
                 title: None,
@@ -1453,7 +1369,7 @@ mod tests {
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             None,
             Some(PageMetadata {
                 title: None,
@@ -1465,7 +1381,7 @@ mod tests {
         builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
-            Some(PathBuf::from("billing/payments.md")),
+            true,
             Some(billing_idx),
             None,
         );
@@ -1482,7 +1398,7 @@ mod tests {
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             None,
             Some(PageMetadata {
                 title: None,
@@ -1494,7 +1410,7 @@ mod tests {
         let payments_idx = builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
-            Some(PathBuf::from("billing/payments/index.md")),
+            true,
             Some(billing_idx),
             Some(PageMetadata {
                 title: None,
@@ -1506,7 +1422,7 @@ mod tests {
         builder.add_page(
             "API".to_string(),
             "billing/payments/api".to_string(),
-            Some(PathBuf::from("billing/payments/api.md")),
+            true,
             Some(payments_idx),
             None,
         );
@@ -1523,7 +1439,7 @@ mod tests {
         builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             None,
             None,
         );
@@ -1540,7 +1456,7 @@ mod tests {
         builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             None,
             None,
         );
@@ -1562,15 +1478,15 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
-        // Virtual page (no source_path) with no children
+        // Virtual page (no content) with no children
         builder.add_page(
             "Empty Section".to_string(),
             "empty".to_string(),
-            None, // Virtual page
+            false, // Virtual page
             Some(root_idx),
             None,
         );
@@ -1578,7 +1494,7 @@ mod tests {
         builder.add_page(
             "Guide".to_string(),
             "guide".to_string(),
-            Some(PathBuf::from("guide.md")),
+            true,
             Some(root_idx),
             None,
         );
@@ -1597,15 +1513,15 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
-        // Virtual page (no source_path) but has a child with content
+        // Virtual page (no content) but has a child with content
         let section_idx = builder.add_page(
             "Section".to_string(),
             "section".to_string(),
-            None, // Virtual page
+            false, // Virtual page
             Some(root_idx),
             None,
         );
@@ -1613,7 +1529,7 @@ mod tests {
         builder.add_page(
             "Child".to_string(),
             "section/child".to_string(),
-            Some(PathBuf::from("section/child.md")),
+            true,
             Some(section_idx),
             None,
         );
@@ -1634,7 +1550,7 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
@@ -1642,7 +1558,7 @@ mod tests {
         let section_idx = builder.add_page(
             "Section".to_string(),
             "section".to_string(),
-            None,
+            false, // virtual page
             Some(root_idx),
             None,
         );
@@ -1650,7 +1566,7 @@ mod tests {
         builder.add_page(
             "Empty Child".to_string(),
             "section/empty".to_string(),
-            None,
+            false, // virtual page
             Some(section_idx),
             None,
         );
@@ -1658,7 +1574,7 @@ mod tests {
         builder.add_page(
             "Real Child".to_string(),
             "section/real".to_string(),
-            Some(PathBuf::from("section/real.md")),
+            true,
             Some(section_idx),
             None,
         );
@@ -1679,7 +1595,7 @@ mod tests {
         let root_idx = builder.add_page(
             "Home".to_string(),
             String::new(),
-            Some(PathBuf::from("index.md")),
+            true,
             None,
             None,
         );
@@ -1687,7 +1603,7 @@ mod tests {
         let billing_idx = builder.add_page(
             "Billing".to_string(),
             "billing".to_string(),
-            Some(PathBuf::from("billing/index.md")),
+            true,
             Some(root_idx),
             Some(PageMetadata {
                 title: None,
@@ -1700,7 +1616,7 @@ mod tests {
         builder.add_page(
             "Empty".to_string(),
             "billing/empty".to_string(),
-            None,
+            false, // virtual page
             Some(billing_idx),
             None,
         );
@@ -1708,7 +1624,7 @@ mod tests {
         builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
-            Some(PathBuf::from("billing/payments.md")),
+            true,
             Some(billing_idx),
             None,
         );
