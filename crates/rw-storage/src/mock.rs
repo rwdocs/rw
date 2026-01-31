@@ -7,7 +7,19 @@ use std::path::{Path, PathBuf};
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::storage::{Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind};
+use crate::storage::{
+    Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind, meta_path_for_document,
+};
+
+/// Extract directory and filename from a path.
+fn split_path(path: &Path) -> (PathBuf, String) {
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    (dir, name)
+}
 
 /// Mock storage for testing.
 ///
@@ -65,11 +77,7 @@ impl MockStorage {
     #[must_use]
     pub fn with_document(self, path: impl Into<PathBuf>, title: impl Into<String>) -> Self {
         let path: PathBuf = path.into();
-        let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let (dir, name) = split_path(&path);
         self.documents.write().unwrap().push(Document {
             dir,
             name,
@@ -107,11 +115,7 @@ impl MockStorage {
         content: impl Into<String>,
     ) -> Self {
         let path: PathBuf = path.into();
-        let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+        let (dir, name) = split_path(&path);
         self.documents.write().unwrap().push(Document {
             dir,
             name,
@@ -256,16 +260,7 @@ impl Storage for MockStorage {
     }
 
     fn meta(&self, path: &Path) -> Result<String, StorageError> {
-        // Determine metadata file path based on document name
-        let meta_path = if path.file_name().is_some_and(|n| n == "index.md") {
-            // index.md → meta.yaml in same directory
-            path.parent().unwrap_or(Path::new("")).join("meta.yaml")
-        } else {
-            // guide.md → guide.meta.yaml (future support)
-            let stem = path.file_stem().unwrap_or_default();
-            path.with_file_name(format!("{}.meta.yaml", stem.to_string_lossy()))
-        };
-
+        let meta_path = meta_path_for_document(path, "meta.yaml");
         self.read(&meta_path)
     }
 }

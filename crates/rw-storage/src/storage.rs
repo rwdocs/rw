@@ -7,6 +7,36 @@ use std::path::{Path, PathBuf};
 
 use crate::event::{StorageEventReceiver, WatchHandle};
 
+/// Join directory and filename into a path.
+///
+/// Handles the edge case where `dir` is empty (root-level files).
+fn join_dir_name(dir: &Path, name: &str) -> PathBuf {
+    if dir.as_os_str().is_empty() {
+        PathBuf::from(name)
+    } else {
+        dir.join(name)
+    }
+}
+
+/// Compute metadata file path for a document.
+///
+/// Implements the naming convention:
+/// - `"domain/index.md"` with `meta.yaml` → `"domain/meta.yaml"`
+/// - `"domain/guide.md"` → `"domain/guide.meta.yaml"` (future support)
+pub(crate) fn meta_path_for_document(doc_path: &Path, meta_filename: &str) -> PathBuf {
+    if doc_path.file_name().is_some_and(|n| n == "index.md") {
+        // index.md → meta.yaml in same directory
+        doc_path
+            .parent()
+            .unwrap_or(Path::new(""))
+            .join(meta_filename)
+    } else {
+        // guide.md → guide.meta.yaml (future support)
+        let stem = doc_path.file_stem().unwrap_or_default();
+        doc_path.with_file_name(format!("{}.meta.yaml", stem.to_string_lossy()))
+    }
+}
+
 /// Document metadata returned by storage scan.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Document {
@@ -30,11 +60,7 @@ impl Document {
     /// - `dir: "domain", name: "index.md"` → `"domain/index.md"`
     #[must_use]
     pub fn path(&self) -> PathBuf {
-        if self.dir.as_os_str().is_empty() {
-            PathBuf::from(&self.name)
-        } else {
-            self.dir.join(&self.name)
-        }
+        join_dir_name(&self.dir, &self.name)
     }
 }
 
@@ -61,11 +87,7 @@ impl Metadata {
     /// - `dir: "domain", name: "index.md"` → `"domain/index.md"`
     #[must_use]
     pub fn document_path(&self) -> PathBuf {
-        if self.dir.as_os_str().is_empty() {
-            PathBuf::from(&self.name)
-        } else {
-            self.dir.join(&self.name)
-        }
+        join_dir_name(&self.dir, &self.name)
     }
 }
 
@@ -340,18 +362,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_document_creation() {
-        let doc = Document {
-            dir: PathBuf::new(),
-            name: "guide.md".to_string(),
-            title: "Guide".to_string(),
-        };
-
-        assert_eq!(doc.path(), PathBuf::from("guide.md"));
-        assert_eq!(doc.title, "Guide");
-    }
-
-    #[test]
     fn test_document_path_root_level() {
         let doc = Document {
             dir: PathBuf::new(),
@@ -360,6 +370,7 @@ mod tests {
         };
 
         assert_eq!(doc.path(), PathBuf::from("guide.md"));
+        assert_eq!(doc.title, "Guide");
     }
 
     #[test]
@@ -507,5 +518,29 @@ mod tests {
     fn test_error_status_default() {
         let status = ErrorStatus::default();
         assert_eq!(status, ErrorStatus::Permanent);
+    }
+
+    #[test]
+    fn test_meta_path_for_index_in_subdir() {
+        let path = meta_path_for_document(Path::new("domain/index.md"), "meta.yaml");
+        assert_eq!(path, PathBuf::from("domain/meta.yaml"));
+    }
+
+    #[test]
+    fn test_meta_path_for_index_at_root() {
+        let path = meta_path_for_document(Path::new("index.md"), "meta.yaml");
+        assert_eq!(path, PathBuf::from("meta.yaml"));
+    }
+
+    #[test]
+    fn test_meta_path_for_non_index_file() {
+        let path = meta_path_for_document(Path::new("domain/guide.md"), "meta.yaml");
+        assert_eq!(path, PathBuf::from("domain/guide.meta.yaml"));
+    }
+
+    #[test]
+    fn test_meta_path_with_custom_filename() {
+        let path = meta_path_for_document(Path::new("domain/index.md"), "config.yml");
+        assert_eq!(path, PathBuf::from("domain/config.yml"));
     }
 }
