@@ -48,11 +48,11 @@ fn bench_site_get_page(c: &mut Criterion) {
     let mut group = c.benchmark_group("site_lookup");
 
     group.bench_function("get_page_hit", |b| {
-        b.iter(|| site.get_page_by_source(std::path::Path::new("section-0/section-1/index.md")));
+        b.iter(|| site.get_page("/section-0/section-1"));
     });
 
     group.bench_function("get_page_miss", |b| {
-        b.iter(|| site.get_page_by_source(std::path::Path::new("nonexistent/path.md")));
+        b.iter(|| site.get_page("/nonexistent/path"));
     });
 
     group.finish();

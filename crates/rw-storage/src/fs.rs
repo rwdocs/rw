@@ -5,7 +5,7 @@
 //!
 //! # URL to File Path Mapping
 //!
-//! FsStorage maps URL paths to filesystem paths:
+//! `FsStorage` maps URL paths to filesystem paths:
 //! - `""` → `index.md`
 //! - `"guide"` → `guide/index.md` or `guide.md` (directory preferred)
 //! - `"domain/billing"` → `domain/billing/index.md` or `domain/billing.md`
@@ -205,7 +205,8 @@ impl FsStorage {
         if url_path.is_empty() {
             self.source_dir.join(&self.meta_filename)
         } else {
-            self.source_dir.join(format!("{url_path}/{}", self.meta_filename))
+            self.source_dir
+                .join(format!("{url_path}/{}", self.meta_filename))
         }
     }
 
@@ -665,8 +666,8 @@ mod tests {
 
         assert_eq!(result.documents.len(), 2);
         let paths: Vec<_> = result.documents.iter().map(|d| d.path.as_str()).collect();
-        assert!(paths.iter().any(|p| *p == "api"));
-        assert!(paths.iter().any(|p| *p == "guide"));
+        assert!(paths.contains(&"api"));
+        assert!(paths.contains(&"guide"));
     }
 
     #[test]
@@ -682,8 +683,8 @@ mod tests {
 
         assert_eq!(result.documents.len(), 2);
         let paths: Vec<_> = result.documents.iter().map(|d| d.path.as_str()).collect();
-        assert!(paths.iter().any(|p| *p == "domain"));
-        assert!(paths.iter().any(|p| *p == "domain/guide"));
+        assert!(paths.contains(&"domain"));
+        assert!(paths.contains(&"domain/guide"));
     }
 
     #[test]
@@ -1035,10 +1036,7 @@ mod tests {
             FsStorage::file_path_to_url(Path::new("domain/setup.md")),
             "domain/setup"
         );
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("a/b/c.md")),
-            "a/b/c"
-        );
+        assert_eq!(FsStorage::file_path_to_url(Path::new("a/b/c.md")), "a/b/c");
     }
 
     #[test]

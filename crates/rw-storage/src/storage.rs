@@ -44,7 +44,7 @@ pub(crate) fn extract_yaml_title(content: &str) -> Option<String> {
 ///
 /// Documents can be either real pages (with content) or virtual pages (metadata only).
 ///
-/// | has_content | has_metadata | Meaning |
+/// | `has_content` | `has_metadata` | Meaning |
 /// |-------------|--------------|---------|
 /// | true | false | Real page without metadata |
 /// | true | true | Real page with metadata |
