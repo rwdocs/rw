@@ -16,9 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Storage API redesign**: `Document` and `Metadata` structs now use `dir`/`name` fields instead of full paths, with `path()` and `document_path()` methods for reconstruction
+- **Storage API redesign**: `Document` now includes `has_content` and `has_metadata` flags for unified document model. Virtual pages (directories with metadata but no `index.md`) are now discovered by Storage instead of Site
+- `Metadata` struct removed - `ScanResult` now returns only documents (including virtual pages)
 - Metadata file naming convention is now encapsulated in Storage via `meta()` method
-- Removed `meta_filename` from `SiteConfig` (now configured via `FsStorage`)
 
 ### Security
 

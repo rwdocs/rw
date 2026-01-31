@@ -17,7 +17,8 @@ use regex::Regex;
 use crate::debouncer::EventDebouncer;
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use crate::storage::{
-    Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind, meta_path_for_document,
+    Document, ScanResult, Storage, StorageError, StorageErrorKind, extract_yaml_title,
+    meta_path_for_document,
 };
 
 /// Backend identifier for error messages.
@@ -170,7 +171,13 @@ impl FsStorage {
         Ok(())
     }
 
-    /// Scan directory recursively and collect documents and metadata files.
+    /// Scan directory recursively and collect documents.
+    ///
+    /// This method:
+    /// 1. Scans all .md files as entries with `has_content=true`
+    /// 2. Scans all meta.yaml files:
+    ///    - If matching document exists (same dir, `index.md`): sets `has_metadata=true`
+    ///    - If no matching document: creates entry with `has_content=false, has_metadata=true`
     fn scan_directory(&self, dir_path: &Path, base_path: &Path, result: &mut ScanResult) {
         let Ok(entries) = fs::read_dir(dir_path) else {
             return;
@@ -190,6 +197,11 @@ impl FsStorage {
         entries.sort_by(|(_, a_is_dir, a_name), (_, b_is_dir, b_name)| {
             b_is_dir.cmp(a_is_dir).then_with(|| a_name.cmp(b_name))
         });
+
+        // Track if we found index.md and meta.yaml in this directory
+        let mut index_doc_idx: Option<usize> = None;
+        let mut has_meta_file = false;
+        let mut meta_file_path: Option<PathBuf> = None;
 
         for (entry, is_dir, name_lower) in entries {
             // Skip hidden and underscore-prefixed files/dirs
@@ -222,20 +234,87 @@ impl FsStorage {
             } else if path.extension().is_some_and(|e| e == "md") {
                 // Process markdown file
                 let title = self.get_title(&path, &name_lower);
-                result.documents.push(Document {
+                let is_index = name_lower == "index.md";
+
+                let doc = Document {
                     dir: base_path.to_path_buf(),
                     name: entry.file_name().to_string_lossy().into_owned(),
                     title,
-                });
+                    has_content: true,
+                    has_metadata: false, // Will be updated if meta.yaml exists
+                };
+
+                if is_index {
+                    index_doc_idx = Some(result.documents.len());
+                }
+                result.documents.push(doc);
             } else if entry.file_name().to_string_lossy() == self.meta_filename {
-                // Collect metadata file
-                // For meta.yaml, the target document is always index.md
-                result.metadata.push(Metadata {
-                    dir: base_path.to_path_buf(),
-                    name: "index.md".to_string(),
-                });
+                // Found metadata file
+                has_meta_file = true;
+                meta_file_path = Some(path);
             }
         }
+
+        // Handle metadata file
+        if has_meta_file {
+            if let Some(idx) = index_doc_idx {
+                // index.md exists - set has_metadata flag
+                result.documents[idx].has_metadata = true;
+            } else if let Some(ref meta_path) = meta_file_path {
+                // No index.md - check if metadata is useful before creating virtual page
+                if let Some(title) = self.get_virtual_page_title(meta_path, base_path) {
+                    result.documents.push(Document {
+                        dir: base_path.to_path_buf(),
+                        name: "index.md".to_string(),
+                        title,
+                        has_content: false,
+                        has_metadata: true,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Get title for a virtual page from its metadata file.
+    ///
+    /// Returns `None` if the metadata file is empty or doesn't contain useful content.
+    fn get_virtual_page_title(&self, meta_path: &Path, dir_path: &Path) -> Option<String> {
+        // Try to read and check metadata content
+        let content = fs::read_to_string(meta_path).ok()?;
+        let content_trimmed = content.trim();
+
+        // Empty or whitespace-only metadata is not useful
+        if content_trimmed.is_empty() {
+            return None;
+        }
+
+        // Try to extract title from YAML
+        if let Some(title) = extract_yaml_title(&content) {
+            return Some(title);
+        }
+
+        // Metadata has content but no title - still useful, fallback to directory name
+        Some(
+            dir_path
+                .file_name()
+                .map(|n| Self::title_from_dir_name(&n.to_string_lossy()))
+                .unwrap_or_else(|| "Untitled".to_string()),
+        )
+    }
+
+    /// Generate title from directory name.
+    fn title_from_dir_name(name: &str) -> String {
+        name.replace(['-', '_'], " ")
+            .split_whitespace()
+            .map(|word| {
+                let mut chars = word.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().chain(chars).collect(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     /// Get title for a file, using mtime cache when possible.
@@ -471,7 +550,6 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert!(result.documents.is_empty());
-        assert!(result.metadata.is_empty());
     }
 
     #[test]
@@ -480,7 +558,6 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert!(result.documents.is_empty());
-        assert!(result.metadata.is_empty());
     }
 
     #[test]
@@ -597,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_collects_metadata() {
+    fn test_scan_sets_has_metadata_flag() {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
@@ -608,13 +685,10 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.metadata.len(), 1);
-        assert_eq!(result.metadata[0].dir, PathBuf::from("domain"));
-        assert_eq!(result.metadata[0].name, "index.md");
-        assert_eq!(
-            result.metadata[0].document_path(),
-            PathBuf::from("domain/index.md")
-        );
+        let doc = &result.documents[0];
+        assert_eq!(doc.path(), PathBuf::from("domain/index.md"));
+        assert!(doc.has_content);
+        assert!(doc.has_metadata);
     }
 
     #[test]
@@ -630,13 +704,13 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.metadata.len(), 1);
-        assert_eq!(result.metadata[0].dir, PathBuf::from("domain"));
-        assert_eq!(result.metadata[0].name, "index.md");
+        let doc = &result.documents[0];
+        assert!(doc.has_content);
+        assert!(doc.has_metadata);
     }
 
     #[test]
-    fn test_scan_collects_root_metadata() {
+    fn test_scan_sets_has_metadata_for_root() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
         fs::write(temp_dir.path().join("meta.yaml"), "title: Home Title").unwrap();
@@ -645,13 +719,58 @@ mod tests {
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
-        assert_eq!(result.metadata.len(), 1);
-        assert_eq!(result.metadata[0].dir, PathBuf::from(""));
-        assert_eq!(result.metadata[0].name, "index.md");
-        assert_eq!(
-            result.metadata[0].document_path(),
-            PathBuf::from("index.md")
-        );
+        let doc = &result.documents[0];
+        assert_eq!(doc.path(), PathBuf::from("index.md"));
+        assert!(doc.has_content);
+        assert!(doc.has_metadata);
+    }
+
+    #[test]
+    fn test_scan_creates_virtual_page() {
+        let temp_dir = create_test_dir();
+        let domain_dir = temp_dir.path().join("domain");
+        fs::create_dir(&domain_dir).unwrap();
+        // No index.md, only meta.yaml
+        fs::write(domain_dir.join("meta.yaml"), "title: Domain Title").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let result = storage.scan().unwrap();
+
+        assert_eq!(result.documents.len(), 1);
+        let doc = &result.documents[0];
+        assert_eq!(doc.path(), PathBuf::from("domain/index.md"));
+        assert_eq!(doc.title, "Domain Title");
+        assert!(!doc.has_content); // Virtual page
+        assert!(doc.has_metadata);
+    }
+
+    #[test]
+    fn test_scan_virtual_page_title_fallback() {
+        let temp_dir = create_test_dir();
+        let domain_dir = temp_dir.path().join("my-nice-domain");
+        fs::create_dir(&domain_dir).unwrap();
+        // No title in meta.yaml
+        fs::write(domain_dir.join("meta.yaml"), "type: domain").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let result = storage.scan().unwrap();
+
+        assert_eq!(result.documents.len(), 1);
+        let doc = &result.documents[0];
+        assert_eq!(doc.title, "My Nice Domain"); // Fallback to directory name
+    }
+
+    #[test]
+    fn test_scan_no_virtual_page_without_metadata() {
+        let temp_dir = create_test_dir();
+        let domain_dir = temp_dir.path().join("empty-domain");
+        fs::create_dir(&domain_dir).unwrap();
+        // No meta.yaml, no index.md
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let result = storage.scan().unwrap();
+
+        assert!(result.documents.is_empty());
     }
 
     #[test]

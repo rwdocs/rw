@@ -18,6 +18,28 @@ fn join_dir_name(dir: &Path, name: &str) -> PathBuf {
     }
 }
 
+/// Extract title from YAML content using simple string parsing.
+///
+/// Handles `title: Foo`, `title: "Foo"`, `title: 'Foo'`.
+/// Returns `None` if no valid title field is found.
+pub(crate) fn extract_yaml_title(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("title:") {
+            let title = rest.trim();
+            // Strip optional quotes
+            let title = title.strip_prefix('"').unwrap_or(title);
+            let title = title.strip_suffix('"').unwrap_or(title);
+            let title = title.strip_prefix('\'').unwrap_or(title);
+            let title = title.strip_suffix('\'').unwrap_or(title);
+            if !title.is_empty() {
+                return Some(title.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Compute metadata file path for a document.
 ///
 /// Implements the naming convention:
@@ -38,15 +60,31 @@ pub(crate) fn meta_path_for_document(doc_path: &Path, meta_filename: &str) -> Pa
 }
 
 /// Document metadata returned by storage scan.
+///
+/// Documents can be either real pages (with content) or virtual pages (metadata only).
+///
+/// | has_content | has_metadata | Meaning |
+/// |-------------|--------------|---------|
+/// | true | false | Real page without metadata |
+/// | true | true | Real page with metadata |
+/// | false | true | Virtual page (directory with metadata only) |
+/// | false | false | Never returned by Storage |
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Document {
     /// Directory containing the document (e.g., "domain/billing").
     /// Empty `PathBuf` for root-level files.
     pub dir: PathBuf,
     /// Document filename (e.g., "guide.md", "index.md").
+    /// Virtual pages always have `name: "index.md"`.
     pub name: String,
     /// Document title (extracted or stored).
+    /// - Content pages: from H1 or filename fallback
+    /// - Virtual pages: from metadata YAML `title` field or directory name fallback
     pub title: String,
+    /// True if .md file exists.
+    pub has_content: bool,
+    /// True if meta.yaml exists.
+    pub has_metadata: bool,
 }
 
 impl Document {
@@ -64,40 +102,14 @@ impl Document {
     }
 }
 
-/// A metadata file discovered during scan.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Metadata {
-    /// Directory containing the metadata file (e.g., "domain/billing").
-    /// Empty `PathBuf` for root-level metadata.
-    pub dir: PathBuf,
-    /// Target document name this metadata applies to (e.g., "index.md").
-    /// For `meta.yaml` files, this is always `"index.md"`.
-    /// For future `guide.meta.yaml` files, this would be `"guide.md"`.
-    pub name: String,
-}
-
-impl Metadata {
-    /// Path to the document this metadata applies to.
-    ///
-    /// Reconstructs the path from `dir` and `name`.
-    ///
-    /// # Examples
-    ///
-    /// - `dir: "", name: "index.md"` → `"index.md"`
-    /// - `dir: "domain", name: "index.md"` → `"domain/index.md"`
-    #[must_use]
-    pub fn document_path(&self) -> PathBuf {
-        join_dir_name(&self.dir, &self.name)
-    }
-}
-
 /// Result of scanning storage.
+///
+/// Contains all documents found during scan, including virtual pages
+/// (directories with metadata but no index.md).
 #[derive(Clone, Debug, Default)]
 pub struct ScanResult {
-    /// All documents found during scan.
+    /// All documents found during scan, including virtual pages.
     pub documents: Vec<Document>,
-    /// All metadata entries found during scan.
-    pub metadata: Vec<Metadata>,
 }
 
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
@@ -367,10 +379,14 @@ mod tests {
             dir: PathBuf::new(),
             name: "guide.md".to_string(),
             title: "Guide".to_string(),
+            has_content: true,
+            has_metadata: false,
         };
 
         assert_eq!(doc.path(), PathBuf::from("guide.md"));
         assert_eq!(doc.title, "Guide");
+        assert!(doc.has_content);
+        assert!(!doc.has_metadata);
     }
 
     #[test]
@@ -379,9 +395,62 @@ mod tests {
             dir: PathBuf::from("domain/billing"),
             name: "index.md".to_string(),
             title: "Billing".to_string(),
+            has_content: true,
+            has_metadata: true,
         };
 
         assert_eq!(doc.path(), PathBuf::from("domain/billing/index.md"));
+        assert!(doc.has_content);
+        assert!(doc.has_metadata);
+    }
+
+    #[test]
+    fn test_virtual_document() {
+        let doc = Document {
+            dir: PathBuf::from("domains"),
+            name: "index.md".to_string(),
+            title: "Domains".to_string(),
+            has_content: false,
+            has_metadata: true,
+        };
+
+        assert_eq!(doc.path(), PathBuf::from("domains/index.md"));
+        assert!(!doc.has_content);
+        assert!(doc.has_metadata);
+    }
+
+    #[test]
+    fn test_extract_yaml_title_simple() {
+        assert_eq!(
+            extract_yaml_title("title: My Title"),
+            Some("My Title".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_yaml_title_quoted() {
+        assert_eq!(
+            extract_yaml_title("title: \"My Title\""),
+            Some("My Title".to_string())
+        );
+        assert_eq!(
+            extract_yaml_title("title: 'My Title'"),
+            Some("My Title".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_yaml_title_with_other_fields() {
+        let yaml = "type: domain\ntitle: My Title\ndescription: Some description";
+        assert_eq!(extract_yaml_title(yaml), Some("My Title".to_string()));
+    }
+
+    #[test]
+    fn test_extract_yaml_title_none() {
+        assert_eq!(extract_yaml_title("type: domain"), None);
+        assert_eq!(extract_yaml_title(""), None);
+        assert_eq!(extract_yaml_title("title:"), None);
+        assert_eq!(extract_yaml_title("title: "), None);
     }
 
     #[test]

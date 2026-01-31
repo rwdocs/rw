@@ -525,14 +525,13 @@ impl Site {
 
     /// Load site state from storage and build hierarchy.
     ///
-    /// Uses `storage.scan()` to get documents and metadata files, then builds hierarchy
-    /// based on path conventions. Virtual pages (directories with metadata but no index.md)
-    /// are derived from the scan result.
-    #[allow(clippy::too_many_lines)]
+    /// Uses `storage.scan()` to get documents (including virtual pages), then builds
+    /// hierarchy based on path conventions. Virtual pages are identified by
+    /// `has_content=false` flag.
     fn load_from_storage(&self) -> SiteState {
         let mut builder = SiteStateBuilder::new();
 
-        // Scan storage for documents and metadata files
+        // Scan storage for documents (including virtual pages)
         let scan_result = match self.storage.scan() {
             Ok(result) => result,
             Err(e) => {
@@ -541,75 +540,29 @@ impl Site {
             }
         };
 
-        // Collect directories that have index.md
-        let index_dirs: std::collections::HashSet<PathBuf> = scan_result
-            .documents
-            .iter()
-            .filter(|doc| doc.name == "index.md")
-            .map(|doc| doc.dir.clone())
-            .collect();
+        let mut documents = scan_result.documents;
 
-        // Derive virtual pages from metadata in directories without index.md
-        let virtual_pages: Vec<(PathBuf, PageMetadata)> = scan_result
-            .metadata
-            .iter()
-            .filter(|m| !index_dirs.contains(&m.dir))
-            .filter_map(|m| {
-                let content = self.storage.meta(&m.document_path()).ok()?;
-                let metadata = PageMetadata::from_yaml(&content).ok()?;
-                if metadata.is_empty() {
-                    return None;
-                }
-                Some((m.dir.clone(), metadata))
-            })
-            .collect();
-
-        // Create unified list of entries to process
-        #[allow(clippy::items_after_statements)]
-        enum PageEntry<'a> {
-            Document(&'a rw_storage::Document),
-            Virtual(PathBuf, PageMetadata),
-        }
-
-        let mut entries: Vec<PageEntry<'_>> = scan_result
-            .documents
-            .iter()
-            .map(PageEntry::Document)
-            .chain(
-                virtual_pages
-                    .into_iter()
-                    .map(|(path, meta)| PageEntry::Virtual(path, meta)),
-            )
-            .collect();
-
-        // Sort entries:
-        // 1. By depth (shallower first) - parents before children
-        // 2. Real documents before virtual pages (so root exists before virtual children)
-        // 3. Index.md before other documents
+        // Sort documents:
+        // 1. By directory depth (shallower first) - parents before children
+        // 2. Index.md before other documents (so directory page exists before its children)
+        // 3. Real documents before virtual pages (when at same level)
         // 4. Alphabetically
-        entries.sort_by(|a, b| {
-            let (a_path, a_is_index, a_is_virtual) = match a {
-                PageEntry::Document(doc) => (doc.path(), doc.name == "index.md", false),
-                PageEntry::Virtual(path, _) => (path.clone(), true, true),
-            };
-            let (b_path, b_is_index, b_is_virtual) = match b {
-                PageEntry::Document(doc) => (doc.path(), doc.name == "index.md", false),
-                PageEntry::Virtual(path, _) => (path.clone(), true, true),
-            };
+        documents.sort_by(|a, b| {
+            // Use directory depth for sorting (not file path depth)
+            // This ensures index.md files are processed before sibling files
+            let a_dir_depth = a.dir.components().count();
+            let b_dir_depth = b.dir.components().count();
 
-            let a_depth = a_path.components().count();
-            let b_depth = b_path.components().count();
-
-            a_depth
-                .cmp(&b_depth)
-                // Real documents first, virtual pages second
-                .then_with(|| a_is_virtual.cmp(&b_is_virtual))
-                // Index.md before other documents
-                .then_with(|| b_is_index.cmp(&a_is_index))
-                .then_with(|| a_path.cmp(&b_path))
+            a_dir_depth
+                .cmp(&b_dir_depth)
+                // Index.md before other documents (so directory page exists first)
+                .then_with(|| (a.name == "index.md").cmp(&(b.name == "index.md")).reverse())
+                // Real documents first, virtual pages second (within same document type)
+                .then_with(|| a.has_content.cmp(&b.has_content).reverse())
+                .then_with(|| a.path().cmp(&b.path()))
         });
 
-        if entries.is_empty() {
+        if documents.is_empty() {
             return builder.build();
         }
 
@@ -619,65 +572,67 @@ impl Site {
         // Track metadata by directory for inheritance
         let mut dir_metadata: HashMap<PathBuf, PageMetadata> = HashMap::new();
 
-        // Process entries in sorted order
-        for entry in entries {
-            match entry {
-                PageEntry::Document(doc) => {
-                    let doc_path = doc.path();
-                    let url_path = Self::source_path_to_url(&doc_path);
-                    let parent_idx = Self::find_parent_from_url(&url_path, &url_to_idx);
+        // Process documents in sorted order
+        for doc in &documents {
+            let doc_path = doc.path();
+            let url_path = Self::source_path_to_url(&doc_path);
+            let parent_idx = Self::find_parent_from_url(&url_path, &url_to_idx);
 
-                    // Load metadata for this document
-                    let metadata = self.load_metadata_for_doc(doc, &dir_metadata);
+            // Load metadata if document has metadata file
+            let metadata = if doc.has_metadata {
+                self.load_metadata_for_doc(doc, &dir_metadata)
+            } else {
+                // Inherit only vars from parent (no metadata file for this document)
+                self.get_inherited_vars(&doc.dir, doc.name == "index.md", &dir_metadata)
+            };
 
-                    // Store metadata for inheritance if this is an index.md
-                    if let Some(ref meta) = metadata {
-                        dir_metadata.insert(doc.dir.clone(), meta.clone());
-                    }
-
-                    // Use metadata title if present, otherwise use document title
-                    let title = metadata
-                        .as_ref()
-                        .and_then(|m| m.title.clone())
-                        .unwrap_or_else(|| doc.title.clone());
-
-                    let idx = builder.add_page(
-                        title,
-                        url_path.clone(),
-                        Some(doc_path),
-                        parent_idx,
-                        metadata,
-                    );
-                    url_to_idx.insert(url_path, idx);
-                }
-                PageEntry::Virtual(dir_path, metadata) => {
-                    // Convert directory path to URL path
-                    let url_path = dir_path.to_string_lossy().to_string();
-                    let parent_idx = Self::find_parent_from_url(&url_path, &url_to_idx);
-
-                    // Store metadata for inheritance
-                    dir_metadata.insert(dir_path.clone(), metadata.clone());
-
-                    // Use metadata title, fallback to directory name
-                    let title = metadata.title.clone().unwrap_or_else(|| {
-                        dir_path.file_name().map_or("Untitled".to_string(), |n| {
-                            Self::title_from_dir_name(&n.to_string_lossy())
-                        })
-                    });
-
-                    let idx = builder.add_page(
-                        title,
-                        url_path.clone(),
-                        None, // Virtual page has no source file
-                        parent_idx,
-                        Some(metadata),
-                    );
-                    url_to_idx.insert(url_path, idx);
-                }
+            // Store metadata for inheritance if this is an index.md
+            if doc.name == "index.md"
+                && let Some(ref meta) = metadata
+            {
+                dir_metadata.insert(doc.dir.clone(), meta.clone());
             }
+
+            // Use metadata title if present, otherwise use document title
+            let title = metadata
+                .as_ref()
+                .and_then(|m| m.title.clone())
+                .unwrap_or_else(|| doc.title.clone());
+
+            // source_path is None for virtual pages (has_content=false)
+            let source_path = if doc.has_content {
+                Some(doc_path)
+            } else {
+                None
+            };
+
+            let idx = builder.add_page(title, url_path.clone(), source_path, parent_idx, metadata);
+            url_to_idx.insert(url_path, idx);
         }
 
         builder.build()
+    }
+
+    /// Get inherited vars from parent directory.
+    fn get_inherited_vars(
+        &self,
+        dir: &Path,
+        is_index: bool,
+        dir_metadata: &HashMap<PathBuf, PageMetadata>,
+    ) -> Option<PageMetadata> {
+        let inherited = if is_index {
+            self.get_parent_metadata(dir, dir_metadata)
+        } else {
+            dir_metadata.get(dir).cloned()
+        };
+
+        // Inherit only vars, not title, description, or type
+        inherited.map(|parent| PageMetadata {
+            title: None,
+            description: None,
+            page_type: None,
+            vars: parent.vars.clone(),
+        })
     }
 
     /// Find parent page index from URL path.
@@ -710,21 +665,6 @@ impl Site {
 
             current = parent_url;
         }
-    }
-
-    /// Convert directory name to title.
-    fn title_from_dir_name(name: &str) -> String {
-        name.replace(['-', '_'], " ")
-            .split_whitespace()
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => first.to_uppercase().chain(chars).collect(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
     }
 
     /// Load metadata for a document, applying inheritance from parent directories.
