@@ -40,8 +40,8 @@ use regex::Regex;
 use debouncer::EventDebouncer;
 use inheritance::{build_ancestor_chain, merge_metadata};
 use rw_storage::{
-    Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind,
-    StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle,
+    Document, Metadata, ScanResult, Storage, StorageError, StorageErrorKind, StorageEvent,
+    StorageEventKind, StorageEventReceiver, WatchHandle,
 };
 use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 
