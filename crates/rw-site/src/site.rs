@@ -542,22 +542,13 @@ impl Site {
 
         let mut documents = scan_result.documents;
 
-        // Sort documents:
-        // 1. By directory depth (shallower first) - parents before children
-        // 2. Index.md before other documents (so directory page exists before its children)
-        // 3. Real documents before virtual pages (when at same level)
-        // 4. Alphabetically
+        // Sort documents: parents before children, index.md first, real pages before virtual
         documents.sort_by(|a, b| {
-            // Use directory depth for sorting (not file path depth)
-            // This ensures index.md files are processed before sibling files
-            let a_dir_depth = a.dir.components().count();
-            let b_dir_depth = b.dir.components().count();
-
-            a_dir_depth
-                .cmp(&b_dir_depth)
-                // Index.md before other documents (so directory page exists first)
+            a.dir
+                .components()
+                .count()
+                .cmp(&b.dir.components().count())
                 .then_with(|| (a.name == "index.md").cmp(&(b.name == "index.md")).reverse())
-                // Real documents first, virtual pages second (within same document type)
                 .then_with(|| a.has_content.cmp(&b.has_content).reverse())
                 .then_with(|| a.path().cmp(&b.path()))
         });
@@ -613,58 +604,40 @@ impl Site {
         builder.build()
     }
 
-    /// Get inherited vars from parent directory.
+    /// Get inherited vars from parent directory (without title, description, or type).
     fn get_inherited_vars(
         &self,
         dir: &Path,
         is_index: bool,
         dir_metadata: &HashMap<PathBuf, PageMetadata>,
     ) -> Option<PageMetadata> {
-        let inherited = if is_index {
+        let parent = if is_index {
             self.get_parent_metadata(dir, dir_metadata)
         } else {
             dir_metadata.get(dir).cloned()
-        };
+        }?;
 
-        // Inherit only vars, not title, description, or type
-        inherited.map(|parent| PageMetadata {
+        Some(PageMetadata {
             title: None,
             description: None,
             page_type: None,
-            vars: parent.vars.clone(),
+            vars: parent.vars,
         })
     }
 
     /// Find parent page index from URL path.
     ///
     /// Walks up the path hierarchy to find the nearest existing ancestor.
-    /// For example, if `domains/billing/systems/foo` is added but `domains/billing/systems`
-    /// doesn't exist, it will try `domains/billing`, then `domains`, then root ("").
     fn find_parent_from_url(url_path: &str, url_to_idx: &HashMap<String, usize>) -> Option<usize> {
-        if url_path.is_empty() {
-            return None;
-        }
-
-        // Walk up the path hierarchy to find the nearest existing ancestor
-        let mut current = url_path.to_string();
-        loop {
-            // Remove the last path segment
-            let parent_url = current
-                .rsplit_once('/')
-                .map_or(String::new(), |(parent, _)| parent.to_string());
-
-            // Check if this parent exists
-            if let Some(&idx) = url_to_idx.get(&parent_url) {
+        let mut current = url_path;
+        while !current.is_empty() {
+            let parent_url = current.rsplit_once('/').map_or("", |(parent, _)| parent);
+            if let Some(&idx) = url_to_idx.get(parent_url) {
                 return Some(idx);
             }
-
-            // If we've reached root (empty string) and it doesn't exist, give up
-            if parent_url.is_empty() {
-                return None;
-            }
-
             current = parent_url;
         }
+        None
     }
 
     /// Load metadata for a document, applying inheritance from parent directories.
