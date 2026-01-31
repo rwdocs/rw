@@ -201,13 +201,16 @@ impl FsStorage {
     /// Metadata is always in a directory's meta.yaml file:
     /// - `""` → `meta.yaml`
     /// - `"domain"` → `domain/meta.yaml`
-    fn resolve_meta(&self, url_path: &str) -> PathBuf {
-        if url_path.is_empty() {
+    ///
+    /// Returns `None` if no metadata file exists.
+    fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
+        let meta_path = if url_path.is_empty() {
             self.source_dir.join(&self.meta_filename)
         } else {
             self.source_dir
                 .join(format!("{url_path}/{}", self.meta_filename))
-        }
+        };
+        meta_path.exists().then_some(meta_path)
     }
 
     /// Convert file path to URL path.
@@ -612,10 +615,9 @@ impl Storage for FsStorage {
 
     fn meta(&self, path: &str) -> Result<String, StorageError> {
         Self::validate_path(path)?;
-        let meta_path = self.resolve_meta(path);
-        if !meta_path.exists() {
-            return Err(StorageError::not_found(path).with_backend(BACKEND));
-        }
+        let meta_path = self
+            .resolve_meta(path)
+            .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
         fs::read_to_string(&meta_path)
             .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))
     }
