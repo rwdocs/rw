@@ -279,27 +279,21 @@ impl FsStorage {
     ///
     /// Returns `None` if the metadata file is empty or doesn't contain useful content.
     fn get_virtual_page_title(&self, meta_path: &Path, dir_path: &Path) -> Option<String> {
-        // Try to read and check metadata content
         let content = fs::read_to_string(meta_path).ok()?;
-        let content_trimmed = content.trim();
 
-        // Empty or whitespace-only metadata is not useful
-        if content_trimmed.is_empty() {
+        if content.trim().is_empty() {
             return None;
         }
 
-        // Try to extract title from YAML
-        if let Some(title) = extract_yaml_title(&content) {
-            return Some(title);
-        }
-
-        // Metadata has content but no title - still useful, fallback to directory name
-        Some(
+        // Try to extract title from YAML, fallback to directory name
+        let title = extract_yaml_title(&content).unwrap_or_else(|| {
             dir_path
                 .file_name()
                 .map(|n| Self::title_from_dir_name(&n.to_string_lossy()))
-                .unwrap_or_else(|| "Untitled".to_string()),
-        )
+                .unwrap_or_else(|| "Untitled".to_string())
+        });
+
+        Some(title)
     }
 
     /// Generate title from directory name.
