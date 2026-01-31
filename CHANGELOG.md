@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - Storage errors no longer expose full filesystem paths in API responses
-- Virtual page titles are now HTML-escaped to prevent XSS
 
 ### Fixed
 
