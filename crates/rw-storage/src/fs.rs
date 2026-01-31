@@ -262,7 +262,7 @@ impl FsStorage {
                 result.documents[idx].has_metadata = true;
             } else if let Some(ref meta_path) = meta_file_path {
                 // No index.md - check if metadata is useful before creating virtual page
-                if let Some(title) = self.get_virtual_page_title(meta_path, base_path) {
+                if let Some(title) = Self::get_virtual_page_title(meta_path, base_path) {
                     result.documents.push(Document {
                         dir: base_path.to_path_buf(),
                         name: "index.md".to_string(),
@@ -278,7 +278,7 @@ impl FsStorage {
     /// Get title for a virtual page from its metadata file.
     ///
     /// Returns `None` if the metadata file is empty or doesn't contain useful content.
-    fn get_virtual_page_title(&self, meta_path: &Path, dir_path: &Path) -> Option<String> {
+    fn get_virtual_page_title(meta_path: &Path, dir_path: &Path) -> Option<String> {
         let content = fs::read_to_string(meta_path).ok()?;
 
         if content.trim().is_empty() {
@@ -287,10 +287,10 @@ impl FsStorage {
 
         // Try to extract title from YAML, fallback to directory name
         let title = extract_yaml_title(&content).unwrap_or_else(|| {
-            dir_path
-                .file_name()
-                .map(|n| Self::title_from_dir_name(&n.to_string_lossy()))
-                .unwrap_or_else(|| "Untitled".to_string())
+            dir_path.file_name().map_or_else(
+                || "Untitled".to_string(),
+                |n| Self::title_from_dir_name(&n.to_string_lossy()),
+            )
         });
 
         Some(title)

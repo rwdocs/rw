@@ -548,7 +548,11 @@ impl Site {
                 .components()
                 .count()
                 .cmp(&b.dir.components().count())
-                .then_with(|| (a.name == "index.md").cmp(&(b.name == "index.md")).reverse())
+                .then_with(|| {
+                    (a.name == "index.md")
+                        .cmp(&(b.name == "index.md"))
+                        .reverse()
+                })
                 .then_with(|| a.has_content.cmp(&b.has_content).reverse())
                 .then_with(|| a.path().cmp(&b.path()))
         });

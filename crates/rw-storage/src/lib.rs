@@ -38,6 +38,4 @@ pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandl
 pub use fs::FsStorage;
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
-pub use storage::{
-    Document, ErrorStatus, ScanResult, Storage, StorageError, StorageErrorKind,
-};
+pub use storage::{Document, ErrorStatus, ScanResult, Storage, StorageError, StorageErrorKind};
