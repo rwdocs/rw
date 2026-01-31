@@ -17,8 +17,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::metadata::PageMetadata;
-
 /// Navigation item with children for UI tree.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct NavItem {
@@ -43,9 +41,6 @@ pub struct Page {
     pub path: String,
     /// True if page has content (real page). False for virtual pages (metadata only).
     pub has_content: bool,
-    /// Page metadata from YAML sidecar file.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<PageMetadata>,
 }
 
 /// Section information for sub-sites or categorized content.
@@ -486,7 +481,7 @@ impl SiteStateBuilder {
     /// * `path` - URL path (e.g., "/guide")
     /// * `has_content` - True if page has content (real page), false for virtual pages
     /// * `parent_idx` - Index of parent page, `None` for root
-    /// * `metadata` - Optional page metadata from YAML sidecar
+    /// * `page_type` - Optional page type from metadata (creates section if present)
     ///
     /// # Returns
     ///
@@ -497,14 +492,12 @@ impl SiteStateBuilder {
         path: String,
         has_content: bool,
         parent_idx: Option<usize>,
-        metadata: Option<PageMetadata>,
+        page_type: Option<String>,
     ) -> usize {
         let idx = self.pages.len();
 
         // Register section if page has a type
-        if let Some(ref meta) = metadata
-            && let Some(ref section_type) = meta.page_type
-        {
+        if let Some(ref section_type) = page_type {
             self.sections.insert(
                 path.clone(),
                 SectionInfo {
@@ -519,7 +512,6 @@ impl SiteStateBuilder {
             title,
             path,
             has_content,
-            metadata,
         });
         self.children.push(Vec::new());
         self.parents.push(parent_idx);
@@ -703,10 +695,7 @@ mod tests {
             "parent".to_string(),
             true,
             None,
-            Some(PageMetadata {
-                page_type: Some("section".to_string()),
-                ..Default::default()
-            }),
+            Some("section".to_string()),
         );
         builder.add_page(
             "Child".to_string(),
@@ -741,7 +730,6 @@ mod tests {
             title: "Guide".to_string(),
             path: "guide".to_string(),
             has_content: true,
-            metadata: None,
         };
 
         assert_eq!(page.title, "Guide");
@@ -880,24 +868,14 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         builder.add_page(
             "Payments".to_string(),
             "payments".to_string(),
             true,
             Some(root_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("system".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("system".to_string()),
         );
         builder.add_page(
             "Getting Started".to_string(),
@@ -1050,12 +1028,7 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         builder.add_page(
             "Guide".to_string(),
@@ -1090,12 +1063,7 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         // Add child under section
         builder.add_page(
@@ -1123,12 +1091,7 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         builder.add_page(
             "Payments".to_string(),
@@ -1174,24 +1137,14 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         let payments_idx = builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
             true,
             Some(billing_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("system".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("system".to_string()),
         );
         builder.add_page(
             "API".to_string(),
@@ -1230,12 +1183,7 @@ mod tests {
             "billing".to_string(),
             true,
             None,
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         let site = builder.build();
 
@@ -1252,12 +1200,7 @@ mod tests {
             "billing".to_string(),
             true,
             None,
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         builder.add_page(
             "Payments".to_string(),
@@ -1281,24 +1224,14 @@ mod tests {
             "billing".to_string(),
             true,
             None,
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         let payments_idx = builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
             true,
             Some(billing_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("system".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("system".to_string()),
         );
         builder.add_page(
             "API".to_string(),
@@ -1450,12 +1383,7 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some(PageMetadata {
-                title: None,
-                description: None,
-                page_type: Some("domain".to_string()),
-                vars: HashMap::new(),
-            }),
+            Some("domain".to_string()),
         );
         // Empty virtual child (should be filtered)
         builder.add_page(

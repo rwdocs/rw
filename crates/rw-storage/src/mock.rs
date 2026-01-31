@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
+use crate::metadata::{PageMetadata, merge_metadata};
 use crate::storage::{Document, ScanResult, Storage, StorageError, StorageErrorKind};
 
 /// Mock storage for testing.
@@ -32,6 +33,8 @@ pub struct MockStorage {
     contents: RwLock<HashMap<String, String>>,
     /// Modification times keyed by URL path.
     mtimes: RwLock<HashMap<String, f64>>,
+    /// Metadata keyed by URL path.
+    metadata: RwLock<HashMap<String, PageMetadata>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
 }
 
@@ -41,6 +44,7 @@ impl Default for MockStorage {
             documents: RwLock::new(Vec::new()),
             contents: RwLock::new(HashMap::new()),
             mtimes: RwLock::new(HashMap::new()),
+            metadata: RwLock::new(HashMap::new()),
             event_sender: RwLock::new(None),
         }
     }
@@ -55,7 +59,7 @@ impl MockStorage {
 
     /// Add a document with the given URL path and title.
     ///
-    /// The document has `has_content=true` and `has_metadata=false`.
+    /// The document has `has_content=true` and no `page_type`.
     ///
     /// # Panics
     ///
@@ -66,36 +70,37 @@ impl MockStorage {
             path: path.into(),
             title: title.into(),
             has_content: true,
-            has_metadata: false,
+            page_type: None,
         });
         self
     }
 
-    /// Add a document with metadata.
+    /// Add a document with a page type (section).
     ///
-    /// The document has `has_content=true` and `has_metadata=true`.
+    /// The document has `has_content=true` and the specified `page_type`.
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_document_and_metadata(
+    pub fn with_document_and_type(
         self,
         path: impl Into<String>,
         title: impl Into<String>,
+        page_type: impl Into<String>,
     ) -> Self {
         self.documents.write().unwrap().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: true,
-            has_metadata: true,
+            page_type: Some(page_type.into()),
         });
         self
     }
 
-    /// Add a virtual page (metadata only, no content).
+    /// Add a virtual page (no content, with optional type).
     ///
-    /// The document has `has_content=false` and `has_metadata=true`.
+    /// The document has `has_content=false`.
     ///
     /// # Panics
     ///
@@ -106,7 +111,28 @@ impl MockStorage {
             path: path.into(),
             title: title.into(),
             has_content: false,
-            has_metadata: true,
+            page_type: None,
+        });
+        self
+    }
+
+    /// Add a virtual page with a page type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    #[must_use]
+    pub fn with_virtual_page_and_type(
+        self,
+        path: impl Into<String>,
+        title: impl Into<String>,
+        page_type: impl Into<String>,
+    ) -> Self {
+        self.documents.write().unwrap().push(Document {
+            path: path.into(),
+            title: title.into(),
+            has_content: false,
+            page_type: Some(page_type.into()),
         });
         self
     }
@@ -127,7 +153,7 @@ impl MockStorage {
 
     /// Add a document with both document entry and content.
     ///
-    /// The document has `has_content=true` and `has_metadata=false`.
+    /// The document has `has_content=true` and no `page_type`.
     ///
     /// # Panics
     ///
@@ -144,9 +170,20 @@ impl MockStorage {
             path: path.clone(),
             title: title.into(),
             has_content: true,
-            has_metadata: false,
+            page_type: None,
         });
         self.contents.write().unwrap().insert(path, content.into());
+        self
+    }
+
+    /// Add metadata for a URL path.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    #[must_use]
+    pub fn with_metadata(self, path: impl Into<String>, metadata: PageMetadata) -> Self {
+        self.metadata.write().unwrap().insert(path.into(), metadata);
         self
     }
 
@@ -215,15 +252,22 @@ impl MockStorage {
         });
     }
 
-    /// Resolve URL path to metadata path.
-    ///
-    /// For mock storage, metadata is stored at `{path}/meta.yaml`.
-    fn resolve_meta_path(path: &str) -> String {
-        if path.is_empty() {
-            "meta.yaml".to_string()
-        } else {
-            format!("{path}/meta.yaml")
+    /// Build ancestor chain for inheritance.
+    fn build_ancestor_chain(path: &str) -> Vec<String> {
+        let mut ancestors = vec![String::new()];
+        if !path.is_empty() {
+            let parts: Vec<&str> = path.split('/').collect();
+            let mut current = String::new();
+            for part in parts {
+                if current.is_empty() {
+                    current = part.to_string();
+                } else {
+                    current = format!("{current}/{part}");
+                }
+                ancestors.push(current.clone());
+            }
         }
+        ancestors
     }
 }
 
@@ -275,9 +319,33 @@ impl Storage for MockStorage {
         Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
     }
 
-    fn meta(&self, path: &str) -> Result<String, StorageError> {
-        let meta_path = Self::resolve_meta_path(path);
-        self.read(&meta_path)
+    fn meta(&self, path: &str) -> Result<Option<PageMetadata>, StorageError> {
+        let metadata_store = self.metadata.read().unwrap();
+        let ancestors = Self::build_ancestor_chain(path);
+
+        let mut accumulated: Option<PageMetadata> = None;
+        let has_own_meta = metadata_store.contains_key(path);
+
+        for ancestor in &ancestors {
+            if let Some(meta) = metadata_store.get(ancestor) {
+                accumulated = Some(match accumulated {
+                    Some(parent) => merge_metadata(&parent, meta),
+                    None => meta.clone(),
+                });
+            }
+        }
+
+        // If the requested path doesn't have its own metadata,
+        // clear title/description/page_type (only vars are inherited)
+        if !has_own_meta
+            && let Some(ref mut meta) = accumulated
+        {
+            meta.title = None;
+            meta.description = None;
+            meta.page_type = None;
+        }
+
+        Ok(accumulated)
     }
 }
 
@@ -312,7 +380,7 @@ mod tests {
         assert_eq!(result.documents[0].path, "guide");
         assert_eq!(result.documents[0].title, "Guide");
         assert!(result.documents[0].has_content);
-        assert!(!result.documents[0].has_metadata);
+        assert!(result.documents[0].page_type.is_none());
         assert_eq!(result.documents[1].path, "api");
         assert_eq!(result.documents[1].title, "API");
     }
@@ -337,29 +405,28 @@ mod tests {
         assert_eq!(result.documents.len(), 1);
         assert_eq!(result.documents[0].title, "User Guide");
         assert!(result.documents[0].has_content);
-        assert!(!result.documents[0].has_metadata);
+        assert!(result.documents[0].page_type.is_none());
         assert_eq!(content, "# User Guide\n\nContent.");
     }
 
     #[test]
-    fn test_with_document_and_metadata() {
-        let storage = MockStorage::new()
-            .with_document_and_metadata("domain", "Domain")
-            .with_content("domain/meta.yaml", "title: Domain");
+    fn test_with_document_and_type() {
+        let storage = MockStorage::new().with_document_and_type("domain", "Domain", "domain");
 
         let result = storage.scan().unwrap();
 
         assert_eq!(result.documents.len(), 1);
         assert_eq!(result.documents[0].path, "domain");
         assert!(result.documents[0].has_content);
-        assert!(result.documents[0].has_metadata);
+        assert_eq!(
+            result.documents[0].page_type,
+            Some("domain".to_string())
+        );
     }
 
     #[test]
     fn test_with_virtual_page() {
-        let storage = MockStorage::new()
-            .with_virtual_page("domain", "Domain Title")
-            .with_content("domain/meta.yaml", "title: Domain Title");
+        let storage = MockStorage::new().with_virtual_page("domain", "Domain Title");
 
         let result = storage.scan().unwrap();
 
@@ -368,7 +435,20 @@ mod tests {
         assert_eq!(doc.path, "domain");
         assert_eq!(doc.title, "Domain Title");
         assert!(!doc.has_content);
-        assert!(doc.has_metadata);
+        assert!(doc.page_type.is_none());
+    }
+
+    #[test]
+    fn test_with_virtual_page_and_type() {
+        let storage =
+            MockStorage::new().with_virtual_page_and_type("domain", "Domain Title", "section");
+
+        let result = storage.scan().unwrap();
+
+        assert_eq!(result.documents.len(), 1);
+        let doc = &result.documents[0];
+        assert!(!doc.has_content);
+        assert_eq!(doc.page_type, Some("section".to_string()));
     }
 
     #[test]
@@ -387,31 +467,55 @@ mod tests {
     }
 
     #[test]
-    fn test_meta_for_index() {
-        let storage = MockStorage::new().with_content("domain/meta.yaml", "title: Domain Title");
+    fn test_meta_returns_stored_metadata() {
+        let meta = PageMetadata {
+            title: Some("Domain Title".to_string()),
+            page_type: Some("domain".to_string()),
+            ..Default::default()
+        };
+        let storage = MockStorage::new().with_metadata("domain", meta.clone());
 
-        let content = storage.meta("domain").unwrap();
+        let result = storage.meta("domain").unwrap();
 
-        assert_eq!(content, "title: Domain Title");
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert_eq!(result.title, Some("Domain Title".to_string()));
+        assert_eq!(result.page_type, Some("domain".to_string()));
     }
 
     #[test]
-    fn test_meta_for_root_index() {
-        let storage = MockStorage::new().with_content("meta.yaml", "title: Home");
-
-        let content = storage.meta("").unwrap();
-
-        assert_eq!(content, "title: Home");
-    }
-
-    #[test]
-    fn test_meta_not_found() {
+    fn test_meta_returns_none_when_no_metadata() {
         let storage = MockStorage::new();
 
-        let result = storage.meta("");
+        let result = storage.meta("").unwrap();
 
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind(), StorageErrorKind::NotFound);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_meta_inheritance() {
+        let root_meta = PageMetadata {
+            vars: [("org".to_string(), serde_json::json!("acme"))]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let child_meta = PageMetadata {
+            title: Some("Child".to_string()),
+            vars: [("team".to_string(), serde_json::json!("core"))]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let storage = MockStorage::new()
+            .with_metadata("", root_meta)
+            .with_metadata("child", child_meta);
+
+        let result = storage.meta("child").unwrap().unwrap();
+
+        assert_eq!(result.title, Some("Child".to_string()));
+        assert_eq!(result.vars.get("org"), Some(&serde_json::json!("acme")));
+        assert_eq!(result.vars.get("team"), Some(&serde_json::json!("core")));
     }
 
     #[test]

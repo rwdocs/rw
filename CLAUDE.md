@@ -118,13 +118,13 @@ crates/
 │       ├── site.rs           # Site (unified loading + rendering), SiteConfig, PageRenderResult
 │       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
 │       ├── site_cache.rs     # SiteCache trait, FileSiteCache, NullSiteCache
-│       ├── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
-│       └── metadata.rs       # PageMetadata, YAML parsing, merge_metadata()
+│       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
 │
 ├── rw-storage/            # Storage abstraction layer
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── storage.rs        # Storage trait, Document, StorageError, StorageErrorKind
+│       ├── metadata.rs       # PageMetadata, YAML parsing, merge_metadata()
 │       ├── fs.rs             # FsStorage (filesystem with mtime caching)
 │       └── mock.rs           # MockStorage (feature = "mock", for testing)
 │

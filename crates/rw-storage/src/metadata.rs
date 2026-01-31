@@ -21,8 +21,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::RenderError;
-
 /// Page metadata loaded from YAML sidecar files.
 ///
 /// All fields are optional. When a field is `None`, it indicates the metadata
@@ -109,12 +107,6 @@ pub fn merge_metadata(parent: &PageMetadata, child: &PageMetadata) -> PageMetada
     merged.vars = vars;
 
     merged
-}
-
-impl From<MetadataError> for RenderError {
-    fn from(e: MetadataError) -> Self {
-        RenderError::Io(std::io::Error::other(e.to_string()))
-    }
 }
 
 #[cfg(test)]

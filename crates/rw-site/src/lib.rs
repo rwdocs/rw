@@ -27,13 +27,13 @@
 //! let result = site.render("/guide")?;
 //! ```
 
-mod metadata;
 mod page_cache;
 pub(crate) mod site;
 mod site_cache;
 pub(crate) mod site_state;
 
-pub use metadata::PageMetadata;
+// Re-export PageMetadata from rw-storage
+pub use rw_storage::PageMetadata;
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
 pub use site_state::{BreadcrumbItem, NavItem, Navigation, Page, ScopeInfo, SectionInfo};
 

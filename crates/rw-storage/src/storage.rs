@@ -17,39 +17,51 @@
 use std::path::{Path, PathBuf};
 
 use crate::event::{StorageEventReceiver, WatchHandle};
+use crate::metadata::PageMetadata;
 
-/// Extract title from YAML content using simple string parsing.
+/// Extract a simple string field from YAML content.
 ///
-/// Handles `title: Foo`, `title: "Foo"`, `title: 'Foo'`.
-/// Returns `None` if no valid title field is found.
-pub(crate) fn extract_yaml_title(content: &str) -> Option<String> {
+/// Handles `field: Foo`, `field: "Foo"`, `field: 'Foo'`.
+/// Returns `None` if no valid field is found.
+fn extract_yaml_field(content: &str, field_name: &str) -> Option<String> {
+    let prefix = format!("{field_name}:");
     for line in content.lines() {
         let line = line.trim();
-        if let Some(rest) = line.strip_prefix("title:") {
-            let title = rest.trim();
+        if let Some(rest) = line.strip_prefix(&prefix) {
+            let value = rest.trim();
             // Strip optional quotes
-            let title = title.strip_prefix('"').unwrap_or(title);
-            let title = title.strip_suffix('"').unwrap_or(title);
-            let title = title.strip_prefix('\'').unwrap_or(title);
-            let title = title.strip_suffix('\'').unwrap_or(title);
-            if !title.is_empty() {
-                return Some(title.to_string());
+            let value = value.strip_prefix('"').unwrap_or(value);
+            let value = value.strip_suffix('"').unwrap_or(value);
+            let value = value.strip_prefix('\'').unwrap_or(value);
+            let value = value.strip_suffix('\'').unwrap_or(value);
+            if !value.is_empty() {
+                return Some(value.to_string());
             }
         }
     }
     None
 }
 
+/// Extract title from YAML content using simple string parsing.
+///
+/// Handles `title: Foo`, `title: "Foo"`, `title: 'Foo'`.
+/// Returns `None` if no valid title field is found.
+pub(crate) fn extract_yaml_title(content: &str) -> Option<String> {
+    extract_yaml_field(content, "title")
+}
+
+/// Extract type from YAML content using simple string parsing.
+///
+/// Handles `type: Foo`, `type: "Foo"`, `type: 'Foo'`.
+/// Returns `None` if no valid type field is found.
+pub(crate) fn extract_yaml_type(content: &str) -> Option<String> {
+    extract_yaml_field(content, "type")
+}
+
 /// Document metadata returned by storage scan.
 ///
 /// Documents can be either real pages (with content) or virtual pages (metadata only).
-///
-/// | `has_content` | `has_metadata` | Meaning |
-/// |-------------|--------------|---------|
-/// | true | false | Real page without metadata |
-/// | true | true | Real page with metadata |
-/// | false | true | Virtual page (directory with metadata only) |
-/// | false | false | Never returned by Storage |
+/// Virtual pages are directories with metadata but no `index.md`.
 ///
 /// # Path Convention
 ///
@@ -62,14 +74,13 @@ pub(crate) fn extract_yaml_title(content: &str) -> Option<String> {
 pub struct Document {
     /// URL path (e.g., "", "guide", "domain", "domain/billing").
     pub path: String,
-    /// Document title (extracted or stored).
-    /// - Content pages: from H1 or filename fallback
-    /// - Virtual pages: from metadata YAML `title` field or directory name fallback
+    /// Document title (resolved: metadata.title > H1 > filename).
     pub title: String,
     /// True if .md file exists.
     pub has_content: bool,
-    /// True if meta.yaml exists.
-    pub has_metadata: bool,
+    /// Page type from metadata (e.g., "domain", "guide").
+    /// Used for section detection. Not inherited.
+    pub page_type: Option<String>,
 }
 
 /// Result of scanning storage.
@@ -333,18 +344,21 @@ pub trait Storage: Send + Sync {
         Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
     }
 
-    /// Read metadata content for a URL path.
+    /// Read metadata for a URL path with inheritance applied.
     ///
-    /// Storage knows the naming convention internally.
+    /// Returns full [`PageMetadata`] with vars merged from ancestors.
+    /// Each backend handles its own format and inheritance strategy.
     ///
     /// # Arguments
     ///
     /// * `path` - URL path (e.g., "domain/billing", "" for root)
     ///
-    /// # Errors
+    /// # Returns
     ///
-    /// Returns [`StorageError::NotFound`](StorageErrorKind::NotFound) if metadata file doesn't exist.
-    fn meta(&self, path: &str) -> Result<String, StorageError>;
+    /// - `Ok(Some(metadata))` - Metadata exists and was parsed successfully
+    /// - `Ok(None)` - No metadata file exists for this path or any ancestor
+    /// - `Err(StorageError)` - I/O error or parse error
+    fn meta(&self, path: &str) -> Result<Option<PageMetadata>, StorageError>;
 }
 
 #[cfg(test)]
@@ -357,13 +371,13 @@ mod tests {
             path: String::new(),
             title: "Home".to_string(),
             has_content: true,
-            has_metadata: false,
+            page_type: None,
         };
 
         assert_eq!(doc.path, "");
         assert_eq!(doc.title, "Home");
         assert!(doc.has_content);
-        assert!(!doc.has_metadata);
+        assert!(doc.page_type.is_none());
     }
 
     #[test]
@@ -372,27 +386,27 @@ mod tests {
             path: "guide".to_string(),
             title: "Guide".to_string(),
             has_content: true,
-            has_metadata: false,
+            page_type: None,
         };
 
         assert_eq!(doc.path, "guide");
         assert_eq!(doc.title, "Guide");
         assert!(doc.has_content);
-        assert!(!doc.has_metadata);
+        assert!(doc.page_type.is_none());
     }
 
     #[test]
-    fn test_document_nested() {
+    fn test_document_nested_with_type() {
         let doc = Document {
             path: "domain/billing".to_string(),
             title: "Billing".to_string(),
             has_content: true,
-            has_metadata: true,
+            page_type: Some("domain".to_string()),
         };
 
         assert_eq!(doc.path, "domain/billing");
         assert!(doc.has_content);
-        assert!(doc.has_metadata);
+        assert_eq!(doc.page_type, Some("domain".to_string()));
     }
 
     #[test]
@@ -401,12 +415,12 @@ mod tests {
             path: "domains".to_string(),
             title: "Domains".to_string(),
             has_content: false,
-            has_metadata: true,
+            page_type: Some("section".to_string()),
         };
 
         assert_eq!(doc.path, "domains");
         assert!(!doc.has_content);
-        assert!(doc.has_metadata);
+        assert_eq!(doc.page_type, Some("section".to_string()));
     }
 
     #[test]
