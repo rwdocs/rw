@@ -387,8 +387,12 @@ impl FsStorage {
 
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
-        let refs = self.scanner.scan();
-        let documents = refs.iter().filter_map(|r| self.build_document(r)).collect();
+        let documents = self
+            .scanner
+            .scan()
+            .into_iter()
+            .filter_map(|r| self.build_document(&r))
+            .collect();
         Ok(documents)
     }
 
