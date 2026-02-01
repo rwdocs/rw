@@ -205,7 +205,10 @@ mod tests {
         assert_eq!(file_path_to_url(Path::new("index.md")), "");
         assert_eq!(file_path_to_url(Path::new("guide.md")), "guide");
         assert_eq!(file_path_to_url(Path::new("domain/index.md")), "domain");
-        assert_eq!(file_path_to_url(Path::new("domain/setup.md")), "domain/setup");
+        assert_eq!(
+            file_path_to_url(Path::new("domain/setup.md")),
+            "domain/setup"
+        );
         assert_eq!(file_path_to_url(Path::new("a/b/c.md")), "a/b/c");
         assert_eq!(file_path_to_url(Path::new("index/index.md")), "index");
     }
