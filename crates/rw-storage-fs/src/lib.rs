@@ -50,6 +50,30 @@ use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
 
+/// Convert a slug (kebab-case or snake_case) to title case.
+///
+/// Replaces `-` and `_` with spaces, then capitalizes the first letter of each word.
+///
+/// # Examples
+///
+/// ```ignore
+/// assert_eq!(titlecase_from_slug("setup-guide"), "Setup Guide");
+/// assert_eq!(titlecase_from_slug("my_page"), "My Page");
+/// ```
+fn titlecase_from_slug(slug: &str) -> String {
+    slug.replace(['-', '_'], " ")
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Cached file metadata for incremental title extraction.
 #[derive(Clone, Debug)]
 struct CachedFile {
@@ -174,7 +198,7 @@ impl FsStorage {
             .map(|p| Pattern::new(p).expect("invalid glob pattern"))
             .collect();
 
-        let scanner = Scanner::new(source_dir.clone(), meta_filename);
+        let scanner = Scanner::new(&source_dir, meta_filename);
 
         Self {
             source_dir,
@@ -309,17 +333,7 @@ impl FsStorage {
 
     /// Generate title from directory name.
     fn title_from_dir_name(name: &str) -> String {
-        name.replace(['-', '_'], " ")
-            .split_whitespace()
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => first.to_uppercase().chain(chars).collect(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
+        titlecase_from_slug(name)
     }
 
     /// Get title for a file, using mtime cache when possible.
@@ -370,18 +384,7 @@ impl FsStorage {
     fn title_from_filename(name_lower: &str) -> String {
         // Remove .md extension
         let name = name_lower.strip_suffix(".md").unwrap_or(name_lower);
-
-        name.replace(['-', '_'], " ")
-            .split_whitespace()
-            .map(|word| {
-                let mut chars = word.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => first.to_uppercase().chain(chars).collect(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
+        titlecase_from_slug(name)
     }
 }
 

@@ -238,7 +238,7 @@ impl Site {
     /// Panics if the internal `RwLock` is poisoned.
     #[must_use]
     pub(crate) fn state(&self) -> Arc<SiteState> {
-        self.current_state.read().unwrap().clone()
+        Arc::clone(&self.current_state.read().unwrap())
     }
 
     /// Get scoped navigation tree.
