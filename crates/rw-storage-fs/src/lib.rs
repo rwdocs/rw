@@ -247,22 +247,15 @@ impl FsStorage {
     /// Returns `None` if the ref produces no valid document (e.g., empty meta.yaml
     /// for a virtual page).
     fn build_document(&self, doc_ref: &DocumentRef) -> Option<Document> {
-        // Separate sources into .md file and meta file
-        let md_file = doc_ref
-            .sources
-            .iter()
-            .find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")));
-        let meta_file = doc_ref.sources.iter().find(|p| {
-            p.file_name()
-                .is_some_and(|n| n.to_string_lossy() == self.meta_filename)
-        });
-
         // Read metadata if present
-        let meta_content = meta_file.and_then(|p| fs::read_to_string(p).ok());
+        let meta_content = doc_ref
+            .meta_path
+            .as_ref()
+            .and_then(|p| fs::read_to_string(p).ok());
         let meta_title = meta_content.as_ref().and_then(|c| extract_yaml_title(c));
         let page_type = meta_content.as_ref().and_then(|c| extract_yaml_type(c));
 
-        if let Some(md_path) = md_file {
+        if let Some(md_path) = &doc_ref.content_path {
             // Real page with content
             let name_lower = md_path
                 .file_name()
@@ -277,7 +270,7 @@ impl FsStorage {
                 has_content: true,
                 page_type,
             })
-        } else if let Some(meta_path) = meta_file {
+        } else if let Some(meta_path) = &doc_ref.meta_path {
             // Virtual page (meta.yaml only)
             let title = Self::get_virtual_page_title(meta_path, Path::new(&doc_ref.url_path))?;
 

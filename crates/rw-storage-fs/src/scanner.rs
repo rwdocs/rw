@@ -15,8 +15,10 @@ use std::path::{Path, PathBuf};
 pub(crate) struct DocumentRef {
     /// URL path (e.g., "", "domain", "domain/guide")
     pub url_path: String,
-    /// Source files (.md and/or meta.yaml as absolute paths)
-    pub sources: Vec<PathBuf>,
+    /// Path to content file (.md), if present
+    pub content_path: Option<PathBuf>,
+    /// Path to metadata file (e.g., meta.yaml), if present
+    pub meta_path: Option<PathBuf>,
 }
 
 /// Discovers document references by walking the filesystem.
@@ -108,7 +110,8 @@ impl Scanner {
                     let url_path = file_path_to_url(Path::new(&entry.file_name()), url_prefix);
                     refs.push(DocumentRef {
                         url_path,
-                        sources: vec![path],
+                        content_path: Some(path),
+                        meta_path: None,
                     });
                 }
             } else if entry.file_name().to_string_lossy() == self.meta_filename {
@@ -117,26 +120,12 @@ impl Scanner {
         }
 
         // Handle index.md and/or meta.yaml at this directory level
-        match (index_md_path, meta_path) {
-            (Some(idx), Some(meta)) => {
-                // Both exist - create single DocumentRef with both sources
+        match (&index_md_path, &meta_path) {
+            (Some(_), _) | (None, Some(_)) => {
                 refs.push(DocumentRef {
                     url_path: url_prefix.to_string(),
-                    sources: vec![idx, meta],
-                });
-            }
-            (Some(idx), None) => {
-                // Only index.md
-                refs.push(DocumentRef {
-                    url_path: url_prefix.to_string(),
-                    sources: vec![idx],
-                });
-            }
-            (None, Some(meta)) => {
-                // Only meta.yaml - virtual page
-                refs.push(DocumentRef {
-                    url_path: url_prefix.to_string(),
-                    sources: vec![meta],
+                    content_path: index_md_path,
+                    meta_path,
                 });
             }
             (None, None) => {
@@ -225,12 +214,20 @@ mod tests {
         assert_eq!(refs.len(), 2);
 
         let guide_ref = refs.iter().find(|r| r.url_path == "guide").unwrap();
-        assert_eq!(guide_ref.sources.len(), 1);
-        assert!(guide_ref.sources[0].ends_with("guide.md"));
+        assert!(guide_ref
+            .content_path
+            .as_ref()
+            .unwrap()
+            .ends_with("guide.md"));
+        assert!(guide_ref.meta_path.is_none());
 
         let domain_ref = refs.iter().find(|r| r.url_path == "domain").unwrap();
-        assert_eq!(domain_ref.sources.len(), 1);
-        assert!(domain_ref.sources[0].ends_with("index.md"));
+        assert!(domain_ref
+            .content_path
+            .as_ref()
+            .unwrap()
+            .ends_with("index.md"));
+        assert!(domain_ref.meta_path.is_none());
     }
 
     #[test]
@@ -246,8 +243,8 @@ mod tests {
 
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].url_path, "domain");
-        assert_eq!(refs[0].sources.len(), 1);
-        assert!(refs[0].sources[0].ends_with("meta.yaml"));
+        assert!(refs[0].content_path.is_none());
+        assert!(refs[0].meta_path.as_ref().unwrap().ends_with("meta.yaml"));
     }
 
     #[test]
@@ -263,16 +260,12 @@ mod tests {
 
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].url_path, "domain");
-        assert_eq!(refs[0].sources.len(), 2);
-
-        // Check both files are present (order doesn't matter)
-        let sources_str: Vec<_> = refs[0]
-            .sources
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
-        assert!(sources_str.iter().any(|s| s.ends_with("index.md")));
-        assert!(sources_str.iter().any(|s| s.ends_with("meta.yaml")));
+        assert!(refs[0]
+            .content_path
+            .as_ref()
+            .unwrap()
+            .ends_with("index.md"));
+        assert!(refs[0].meta_path.as_ref().unwrap().ends_with("meta.yaml"));
     }
 
     #[test]
@@ -349,15 +342,12 @@ mod tests {
         let refs = scanner.scan();
 
         assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].sources.len(), 2);
-
         // Should include config.yml, not meta.yaml
-        let sources_str: Vec<_> = refs[0]
-            .sources
-            .iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
-        assert!(sources_str.iter().any(|s| s.ends_with("config.yml")));
-        assert!(!sources_str.iter().any(|s| s.ends_with("meta.yaml")));
+        assert!(refs[0]
+            .content_path
+            .as_ref()
+            .unwrap()
+            .ends_with("index.md"));
+        assert!(refs[0].meta_path.as_ref().unwrap().ends_with("config.yml"));
     }
 }
