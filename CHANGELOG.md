@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Storage::scan()` now returns `Vec<Document>` directly instead of `ScanResult` wrapper
 - `FsStorage::scan()` no longer sorts results or filters `node_modules`/`target`/`_` prefixed paths - sorting is presentation logic handled by Site, and directory filtering is user responsibility via `source_dir` configuration
 - **Scanner extraction**: `FsStorage` now uses a separate `Scanner` struct for document discovery, separating filesystem walking (Phase 1) from document building (Phase 2). This improves testability and enables future partial scanning optimizations
+- `DocumentRef` now uses explicit `content_path` and `meta_path` fields instead of `sources: Vec<PathBuf>`, making file type identification the Scanner's responsibility
 
 ### Security
 
