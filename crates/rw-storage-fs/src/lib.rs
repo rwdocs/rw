@@ -275,8 +275,8 @@ impl FsStorage {
             return;
         };
 
-        // Collect entries with cached file_type to avoid repeated stat calls in sort.
-        let mut entries: Vec<_> = entries
+        // Collect entries with cached file_type to avoid repeated stat calls in the loop.
+        let entries: Vec<_> = entries
             .filter_map(Result::ok)
             .map(|e| {
                 let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
@@ -285,35 +285,14 @@ impl FsStorage {
             })
             .collect();
 
-        // Sort: directories first, then alphabetical by name
-        entries.sort_by(|(_, a_is_dir, a_name), (_, b_is_dir, b_name)| {
-            b_is_dir.cmp(a_is_dir).then_with(|| a_name.cmp(b_name))
-        });
-
         // Track if we found index.md and meta.yaml in this directory
         let mut index_doc_idx: Option<usize> = None;
         let mut has_meta_file = false;
         let mut meta_file_path: Option<PathBuf> = None;
 
         for (entry, is_dir, name_lower) in entries {
-            // Skip hidden and underscore-prefixed files/dirs
-            if name_lower.starts_with('.') || name_lower.starts_with('_') {
-                continue;
-            }
-
-            // Skip common non-documentation directories
-            if is_dir
-                && matches!(
-                    name_lower.as_str(),
-                    "node_modules"
-                        | "target"
-                        | "dist"
-                        | "build"
-                        | ".cache"
-                        | "vendor"
-                        | "__pycache__"
-                )
-            {
+            // Skip hidden files/dirs
+            if name_lower.starts_with('.') {
                 continue;
             }
 
@@ -815,34 +794,6 @@ mod tests {
 
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].path, "visible");
-    }
-
-    #[test]
-    fn test_scan_skips_underscore_files() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("_partial.md"), "# Partial").unwrap();
-        fs::write(temp_dir.path().join("main.md"), "# Main").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].path, "main");
-    }
-
-    #[test]
-    fn test_scan_skips_node_modules() {
-        let temp_dir = create_test_dir();
-        let node_modules = temp_dir.path().join("node_modules");
-        fs::create_dir(&node_modules).unwrap();
-        fs::write(node_modules.join("package.md"), "# Package").unwrap();
-        fs::write(temp_dir.path().join("main.md"), "# Main").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let docs = storage.scan().unwrap();
-
-        assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].path, "main");
     }
 
     #[test]

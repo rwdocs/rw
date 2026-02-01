@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Metadata file naming convention is now encapsulated in Storage via `meta()` method
 - **Storage crate split**: `rw-storage` now contains only the core `Storage` trait, error types, event types, `Metadata` struct, and `MockStorage`. Filesystem implementation moved to new `rw-storage-fs` crate with `FsStorage`, enabling future backends like `rw-storage-s3` or `rw-storage-redis`
 - `Storage::scan()` now returns `Vec<Document>` directly instead of `ScanResult` wrapper
+- `FsStorage::scan()` no longer sorts results or filters `node_modules`/`target`/`_` prefixed paths - sorting is presentation logic handled by Site, and directory filtering is user responsibility via `source_dir` configuration
 
 ### Security
 
