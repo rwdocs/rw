@@ -130,7 +130,8 @@ crates/
 │
 ├── rw-storage-fs/         # Filesystem storage backend
 │   └── src/
-│       ├── lib.rs            # FsStorage implementation
+│       ├── lib.rs            # FsStorage implementation, build_document()
+│       ├── scanner.rs        # Scanner for document discovery (filesystem walking)
 │       ├── debouncer.rs      # EventDebouncer for file system events
 │       ├── inheritance.rs    # Metadata inheritance (build_ancestor_chain, merge_metadata)
 │       └── yaml.rs           # YAML parsing helpers

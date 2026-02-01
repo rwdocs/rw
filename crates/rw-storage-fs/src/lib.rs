@@ -24,6 +24,7 @@
 
 mod debouncer;
 mod inheritance;
+mod scanner;
 mod yaml;
 
 use std::collections::HashMap;
@@ -43,6 +44,7 @@ use rw_storage::{
     Document, Metadata, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
     StorageEventReceiver, WatchHandle,
 };
+use scanner::{DocumentRef, Scanner, file_path_to_url};
 use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 
 /// Backend identifier for error messages.
@@ -79,6 +81,8 @@ struct CachedFile {
 pub struct FsStorage {
     /// Root directory for document storage.
     source_dir: PathBuf,
+    /// Scanner for document discovery.
+    scanner: Scanner,
     /// Regex for extracting first H1 heading.
     h1_regex: Regex,
     /// Mtime cache for incremental title extraction.
@@ -170,8 +174,11 @@ impl FsStorage {
             .map(|p| Pattern::new(p).expect("invalid glob pattern"))
             .collect();
 
+        let scanner = Scanner::new(source_dir.clone(), meta_filename.to_string());
+
         Self {
             source_dir,
+            scanner,
             h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
             mtime_cache: Mutex::new(HashMap::new()),
             watch_patterns,
@@ -232,138 +239,57 @@ impl FsStorage {
         meta_path.exists().then_some(meta_path)
     }
 
-    /// Convert file path to URL path with optional base prefix.
+    /// Build a `Document` from a `DocumentRef`.
     ///
-    /// Examples (with empty base):
-    /// - `index.md` → `""`
-    /// - `guide.md` → `"guide"`
-    /// - `domain/index.md` → `"domain"`
-    /// - `domain/setup.md` → `"domain/setup"`
+    /// Converts discovery results (file references) into full Document structs
+    /// by reading file contents and extracting titles/metadata.
     ///
-    /// Examples (with base):
-    /// - `index.md`, base `"domain"` → `"domain"`
-    /// - `guide.md`, base `"domain"` → `"domain/guide"`
-    fn file_path_to_url(rel_path: &Path, base: &str) -> String {
-        let path_str = rel_path.to_string_lossy();
+    /// Returns `None` if the ref produces no valid document (e.g., empty meta.yaml
+    /// for a virtual page).
+    fn build_document(&self, doc_ref: &DocumentRef) -> Option<Document> {
+        // Separate sources into .md file and meta file
+        let md_file = doc_ref
+            .sources
+            .iter()
+            .find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")));
+        let meta_file = doc_ref.sources.iter().find(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy() == self.meta_filename)
+        });
 
-        // Remove .md extension
-        let without_ext = path_str.strip_suffix(".md").unwrap_or(&path_str);
+        // Read metadata if present
+        let meta_content = meta_file.and_then(|p| fs::read_to_string(p).ok());
+        let meta_title = meta_content.as_ref().and_then(|c| extract_yaml_title(c));
+        let page_type = meta_content.as_ref().and_then(|c| extract_yaml_type(c));
 
-        // Handle index files
-        let path_part = if without_ext == "index" {
-            ""
-        } else if let Some(without_index) = without_ext.strip_suffix("/index") {
-            without_index
-        } else {
-            without_ext
-        };
+        if let Some(md_path) = md_file {
+            // Real page with content
+            let name_lower = md_path
+                .file_name()
+                .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
 
-        // Combine with base
-        match (base.is_empty(), path_part.is_empty()) {
-            (true, _) => path_part.to_string(),
-            (false, true) => base.to_string(),
-            (false, false) => format!("{base}/{path_part}"),
-        }
-    }
+            // Title priority: meta > H1 > filename
+            let title = meta_title.unwrap_or_else(|| self.get_title(md_path, &name_lower));
 
-    /// Scan directory recursively and collect documents.
-    ///
-    /// This method:
-    /// 1. Scans all .md files as entries with `has_content=true`
-    /// 2. Scans all meta.yaml files:
-    ///    - If matching document exists (same dir, `index.md`): sets `has_metadata=true`
-    ///    - If no matching document: creates entry with `has_content=false, has_metadata=true`
-    ///
-    /// Documents are returned with URL paths, not file paths.
-    fn scan_directory(&self, dir_path: &Path, url_prefix: &str, documents: &mut Vec<Document>) {
-        let Ok(entries) = fs::read_dir(dir_path) else {
-            return;
-        };
-
-        // Collect entries with cached file_type to avoid repeated stat calls in the loop.
-        let entries: Vec<_> = entries
-            .filter_map(Result::ok)
-            .map(|e| {
-                let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
-                let name_lower = e.file_name().to_string_lossy().to_lowercase();
-                (e, is_dir, name_lower)
+            Some(Document {
+                path: doc_ref.url_path.clone(),
+                title,
+                has_content: true,
+                page_type,
             })
-            .collect();
+        } else if let Some(meta_path) = meta_file {
+            // Virtual page (meta.yaml only)
+            let title = Self::get_virtual_page_title(meta_path, Path::new(&doc_ref.url_path))?;
 
-        // Track if we found index.md and meta.yaml in this directory
-        let mut index_doc_idx: Option<usize> = None;
-        let mut has_meta_file = false;
-        let mut meta_file_path: Option<PathBuf> = None;
-
-        for (entry, is_dir, name_lower) in entries {
-            // Skip hidden files/dirs
-            if name_lower.starts_with('.') {
-                continue;
-            }
-
-            let path = entry.path();
-
-            if is_dir {
-                // Recurse into subdirectory
-                let child_name = entry.file_name().to_string_lossy().into_owned();
-                let child_url = if url_prefix.is_empty() {
-                    child_name
-                } else {
-                    format!("{url_prefix}/{child_name}")
-                };
-                self.scan_directory(&path, &child_url, documents);
-            } else if path.extension().is_some_and(|e| e == "md") {
-                // Process markdown file
-                let title = self.get_title(&path, &name_lower);
-                let is_index = name_lower == "index.md";
-
-                // Compute URL path
-                let url_path =
-                    Self::file_path_to_url(Path::new(&entry.file_name()), url_prefix);
-
-                let doc = Document {
-                    path: url_path,
-                    title,
-                    has_content: true,
-                    page_type: None, // Will be updated if meta.yaml exists
-                };
-
-                if is_index {
-                    index_doc_idx = Some(documents.len());
-                }
-                documents.push(doc);
-            } else if entry.file_name().to_string_lossy() == self.meta_filename {
-                // Found metadata file
-                has_meta_file = true;
-                meta_file_path = Some(path);
-            }
-        }
-
-        // Handle metadata file
-        if has_meta_file && let Some(ref meta_path) = meta_file_path {
-            // Read metadata file to extract title and page_type
-            let content = fs::read_to_string(meta_path).ok();
-            let meta_title = content.as_ref().and_then(|c| extract_yaml_title(c));
-            let page_type = content.as_ref().and_then(|c| extract_yaml_type(c));
-
-            if let Some(idx) = index_doc_idx {
-                // index.md exists - apply metadata title and page_type
-                if let Some(title) = meta_title {
-                    documents[idx].title = title;
-                }
-                documents[idx].page_type = page_type;
-            } else {
-                // No index.md - check if metadata is useful before creating virtual page
-                if let Some(title) = Self::get_virtual_page_title(meta_path, Path::new(url_prefix))
-                {
-                    documents.push(Document {
-                        path: url_prefix.to_string(),
-                        title,
-                        has_content: false,
-                        page_type,
-                    });
-                }
-            }
+            Some(Document {
+                path: doc_ref.url_path.clone(),
+                title,
+                has_content: false,
+                page_type,
+            })
+        } else {
+            // No sources - shouldn't happen but handle gracefully
+            None
         }
     }
 
@@ -468,12 +394,8 @@ impl FsStorage {
 
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
-        if !self.source_dir.exists() {
-            return Ok(Vec::new());
-        }
-
-        let mut documents = Vec::new();
-        self.scan_directory(&self.source_dir, "", &mut documents);
+        let refs = self.scanner.scan();
+        let documents = refs.iter().filter_map(|r| self.build_document(r)).collect();
         Ok(documents)
     }
 
@@ -592,7 +514,7 @@ impl Storage for FsStorage {
                         continue;
                     };
 
-                    let url_path = FsStorage::file_path_to_url(rel_path, "");
+                    let url_path = file_path_to_url(rel_path, "");
 
                     let storage_event = StorageEvent {
                         path: url_path,
@@ -1171,45 +1093,7 @@ mod tests {
         assert_eq!(FsStorage::title_from_filename("simple.md"), "Simple");
     }
 
-    #[test]
-    fn test_file_path_to_url() {
-        // Without base
-        assert_eq!(FsStorage::file_path_to_url(Path::new("index.md"), ""), "");
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("guide.md"), ""),
-            "guide"
-        );
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("domain/index.md"), ""),
-            "domain"
-        );
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("domain/setup.md"), ""),
-            "domain/setup"
-        );
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("a/b/c.md"), ""),
-            "a/b/c"
-        );
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("index/index.md"), ""),
-            "index"
-        );
-
-        // With base
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("index.md"), "domain"),
-            "domain"
-        );
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("guide.md"), "domain"),
-            "domain/guide"
-        );
-        assert_eq!(
-            FsStorage::file_path_to_url(Path::new("setup.md"), "a/b"),
-            "a/b/setup"
-        );
-    }
+    // Note: file_path_to_url tests are in scanner.rs
 
     #[test]
     fn test_resolve_content_root() {
