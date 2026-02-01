@@ -1,5 +1,6 @@
 # Claude
 /.claude/settings.local.json
+/.worktrees
 /.mcp.json
 /TASKS.md
 
