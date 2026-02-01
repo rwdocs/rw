@@ -214,19 +214,23 @@ mod tests {
         assert_eq!(refs.len(), 2);
 
         let guide_ref = refs.iter().find(|r| r.url_path == "guide").unwrap();
-        assert!(guide_ref
-            .content_path
-            .as_ref()
-            .unwrap()
-            .ends_with("guide.md"));
+        assert!(
+            guide_ref
+                .content_path
+                .as_ref()
+                .unwrap()
+                .ends_with("guide.md")
+        );
         assert!(guide_ref.meta_path.is_none());
 
         let domain_ref = refs.iter().find(|r| r.url_path == "domain").unwrap();
-        assert!(domain_ref
-            .content_path
-            .as_ref()
-            .unwrap()
-            .ends_with("index.md"));
+        assert!(
+            domain_ref
+                .content_path
+                .as_ref()
+                .unwrap()
+                .ends_with("index.md")
+        );
         assert!(domain_ref.meta_path.is_none());
     }
 
@@ -260,11 +264,7 @@ mod tests {
 
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].url_path, "domain");
-        assert!(refs[0]
-            .content_path
-            .as_ref()
-            .unwrap()
-            .ends_with("index.md"));
+        assert!(refs[0].content_path.as_ref().unwrap().ends_with("index.md"));
         assert!(refs[0].meta_path.as_ref().unwrap().ends_with("meta.yaml"));
     }
 
@@ -343,11 +343,7 @@ mod tests {
 
         assert_eq!(refs.len(), 1);
         // Should include config.yml, not meta.yaml
-        assert!(refs[0]
-            .content_path
-            .as_ref()
-            .unwrap()
-            .ends_with("index.md"));
+        assert!(refs[0].content_path.as_ref().unwrap().ends_with("index.md"));
         assert!(refs[0].meta_path.as_ref().unwrap().ends_with("config.yml"));
     }
 }
