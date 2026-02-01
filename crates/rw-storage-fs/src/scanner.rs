@@ -17,7 +17,7 @@ pub(crate) struct DocumentRef {
     pub url_path: String,
     /// Path to content file (.md), if present
     pub content_path: Option<PathBuf>,
-    /// Path to metadata file (e.g., meta.yaml), if present
+    /// Path to metadata file (e.g., "meta.yaml"), if present
     pub meta_path: Option<PathBuf>,
 }
 
@@ -41,10 +41,10 @@ impl Scanner {
     ///
     /// * `source_dir` - Root directory to scan
     /// * `meta_filename` - Name of metadata files (e.g., "meta.yaml")
-    pub fn new(source_dir: PathBuf, meta_filename: String) -> Self {
+    pub fn new(source_dir: PathBuf, meta_filename: &str) -> Self {
         Self {
             source_dir,
-            meta_filename,
+            meta_filename: meta_filename.to_string(),
         }
     }
 
@@ -208,7 +208,7 @@ mod tests {
         fs::create_dir(&domain_dir).unwrap();
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
 
-        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml".to_string());
+        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml");
         let refs = scanner.scan();
 
         assert_eq!(refs.len(), 2);
@@ -238,7 +238,7 @@ mod tests {
         // No index.md, only meta.yaml
         fs::write(domain_dir.join("meta.yaml"), "title: Domain").unwrap();
 
-        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml".to_string());
+        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml");
         let refs = scanner.scan();
 
         assert_eq!(refs.len(), 1);
@@ -255,7 +255,7 @@ mod tests {
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
         fs::write(domain_dir.join("meta.yaml"), "type: section").unwrap();
 
-        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml".to_string());
+        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml");
         let refs = scanner.scan();
 
         assert_eq!(refs.len(), 1);
@@ -274,7 +274,7 @@ mod tests {
         fs::write(temp_dir.path().join(".hidden.md"), "# Hidden").unwrap();
         fs::write(temp_dir.path().join("visible.md"), "# Visible").unwrap();
 
-        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml".to_string());
+        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml");
         let refs = scanner.scan();
 
         assert_eq!(refs.len(), 1);
@@ -285,7 +285,7 @@ mod tests {
     fn test_scan_empty_dir() {
         let temp_dir = create_test_dir();
 
-        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml".to_string());
+        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml");
         let refs = scanner.scan();
 
         assert!(refs.is_empty());
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_scan_missing_dir() {
-        let scanner = Scanner::new(PathBuf::from("/nonexistent"), "meta.yaml".to_string());
+        let scanner = Scanner::new(PathBuf::from("/nonexistent"), "meta.yaml");
         let refs = scanner.scan();
 
         assert!(refs.is_empty());
@@ -317,7 +317,7 @@ mod tests {
         fs::create_dir(&l2).unwrap();
         fs::write(l2.join("index.md"), "# L2").unwrap();
 
-        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml".to_string());
+        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "meta.yaml");
         let refs = scanner.scan();
 
         assert_eq!(refs.len(), 4);
@@ -338,7 +338,7 @@ mod tests {
         fs::write(domain_dir.join("config.yml"), "type: section").unwrap();
         fs::write(domain_dir.join("meta.yaml"), "ignored").unwrap();
 
-        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "config.yml".to_string());
+        let scanner = Scanner::new(temp_dir.path().to_path_buf(), "config.yml");
         let refs = scanner.scan();
 
         assert_eq!(refs.len(), 1);
