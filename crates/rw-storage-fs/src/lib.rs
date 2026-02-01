@@ -25,6 +25,7 @@
 mod debouncer;
 mod inheritance;
 mod scanner;
+mod source;
 mod yaml;
 
 use std::collections::HashMap;
