@@ -142,68 +142,12 @@ impl Scanner {
     }
 }
 
-/// Convert file path to URL path with optional base prefix.
-///
-/// Examples (with empty base):
-/// - `index.md` -> `""`
-/// - `guide.md` -> `"guide"`
-/// - `domain/index.md` -> `"domain"`
-/// - `domain/setup.md` -> `"domain/setup"`
-///
-/// Examples (with base):
-/// - `index.md`, base `"domain"` -> `"domain"`
-/// - `guide.md`, base `"domain"` -> `"domain/guide"`
-pub(crate) fn file_path_to_url(rel_path: &Path, base: &str) -> String {
-    let path_str = rel_path.to_string_lossy();
-
-    // Remove .md extension
-    let without_ext = path_str.strip_suffix(".md").unwrap_or(&path_str);
-
-    // Handle index files
-    let path_part = if without_ext == "index" {
-        ""
-    } else if let Some(without_index) = without_ext.strip_suffix("/index") {
-        without_index
-    } else {
-        without_ext
-    };
-
-    // Combine with base
-    match (base.is_empty(), path_part.is_empty()) {
-        (true, _) => path_part.to_string(),
-        (false, true) => base.to_string(),
-        (false, false) => format!("{base}/{path_part}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn create_test_dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
-    }
-
-    #[test]
-    fn test_file_path_to_url() {
-        // Without base
-        assert_eq!(file_path_to_url(Path::new("index.md"), ""), "");
-        assert_eq!(file_path_to_url(Path::new("guide.md"), ""), "guide");
-        assert_eq!(file_path_to_url(Path::new("domain/index.md"), ""), "domain");
-        assert_eq!(
-            file_path_to_url(Path::new("domain/setup.md"), ""),
-            "domain/setup"
-        );
-        assert_eq!(file_path_to_url(Path::new("a/b/c.md"), ""), "a/b/c");
-        assert_eq!(file_path_to_url(Path::new("index/index.md"), ""), "index");
-
-        // With base
-        assert_eq!(file_path_to_url(Path::new("index.md"), "domain"), "domain");
-        assert_eq!(
-            file_path_to_url(Path::new("guide.md"), "domain"),
-            "domain/guide"
-        );
-        assert_eq!(file_path_to_url(Path::new("setup.md"), "a/b"), "a/b/setup");
     }
 
     #[test]
