@@ -45,7 +45,8 @@ use rw_storage::{
     Document, Metadata, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
     StorageEventReceiver, WatchHandle,
 };
-use scanner::{DocumentRef, Scanner, file_path_to_url};
+use scanner::{DocumentRef, Scanner};
+use source::file_path_to_url;
 use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 
 /// Backend identifier for error messages.
@@ -515,7 +516,7 @@ impl Storage for FsStorage {
                         continue;
                     };
 
-                    let url_path = file_path_to_url(rel_path, "");
+                    let url_path = file_path_to_url(rel_path);
 
                     let storage_event = StorageEvent {
                         path: url_path,
@@ -1094,7 +1095,7 @@ mod tests {
         assert_eq!(FsStorage::title_from_filename("simple.md"), "Simple");
     }
 
-    // Note: file_path_to_url tests are in scanner.rs
+    // Note: file_path_to_url tests are in source.rs
 
     #[test]
     fn test_resolve_content_root() {

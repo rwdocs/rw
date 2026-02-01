@@ -53,7 +53,7 @@ impl SourceFile {
 
         // Determine kind and url_path based on filename
         if filename_str.ends_with(".md") {
-            let url_path = compute_url_path(rel_path, &filename_str);
+            let url_path = file_path_to_url(rel_path);
             Some(Self {
                 url_path,
                 kind: SourceKind::Content,
@@ -73,8 +73,23 @@ impl SourceFile {
     }
 }
 
-/// Compute URL path for a content file (.md).
-fn compute_url_path(rel_path: &Path, filename: &str) -> String {
+/// Convert a relative file path to a URL path.
+///
+/// Handles `.md` extension stripping, `index.md` special case,
+/// and Windows path separator normalization.
+///
+/// # Examples
+///
+/// - `index.md` -> `""`
+/// - `guide.md` -> `"guide"`
+/// - `domain/index.md` -> `"domain"`
+/// - `domain/setup.md` -> `"domain/setup"`
+pub(crate) fn file_path_to_url(rel_path: &Path) -> String {
+    let filename = rel_path
+        .file_name()
+        .map(|f| f.to_string_lossy())
+        .unwrap_or_default();
+
     if filename == "index.md" {
         // index.md -> parent directory's url_path
         parent_url_path(rel_path)
@@ -183,5 +198,15 @@ mod tests {
         // Should not match default meta filename
         let result = SourceFile::classify(path, &filename, source, "meta.yaml");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_file_path_to_url() {
+        assert_eq!(file_path_to_url(Path::new("index.md")), "");
+        assert_eq!(file_path_to_url(Path::new("guide.md")), "guide");
+        assert_eq!(file_path_to_url(Path::new("domain/index.md")), "domain");
+        assert_eq!(file_path_to_url(Path::new("domain/setup.md")), "domain/setup");
+        assert_eq!(file_path_to_url(Path::new("a/b/c.md")), "a/b/c");
+        assert_eq!(file_path_to_url(Path::new("index/index.md")), "index");
     }
 }
