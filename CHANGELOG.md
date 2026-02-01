@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scanner extraction**: `FsStorage` now uses a separate `Scanner` struct for document discovery, separating filesystem walking (Phase 1) from document building (Phase 2). This improves testability and enables future partial scanning optimizations
 - `DocumentRef` now uses explicit `content_path` and `meta_path` fields instead of `sources: Vec<PathBuf>`, making file type identification the Scanner's responsibility
 - `Scanner::new()` now accepts `&Path` instead of `PathBuf` to avoid unnecessary cloning
-- **Scanner refactoring**: Replaced recursive `scan_directory()` with stack-based iteration and HashMap-based grouping. Extracted file classification logic into `SourceFile` struct (`source.rs`), separating concerns between file type detection and document grouping
+- **Scanner refactoring**: Replaced recursive `scan_directory()` with stack-based iteration and HashMap-based grouping. Extracted file classification logic into `SourceFile::classify()` method (`source.rs`), separating concerns between filtering (done by Scanner) and URL path computation (done by SourceFile)
 - Extracted `titlecase_from_slug()` utility to eliminate duplicated title generation logic
 - Use explicit `Arc::clone()` in `Site` for clarity
 - Remove unnecessary `alignments.clone()` in table rendering (already owned)

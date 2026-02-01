@@ -76,16 +76,15 @@ impl Scanner {
 
             for entry in entries.filter_map(Result::ok) {
                 let path = entry.path();
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
+                let filename = entry.file_name();
 
                 // Skip hidden entries
-                if name_str.starts_with('.') {
+                if filename.to_string_lossy().starts_with('.') {
                     continue;
                 }
 
                 // Use symlink_metadata to detect symlinks correctly
-                let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+                let Ok(metadata) = fs::symlink_metadata(&path) else {
                     continue;
                 };
 
@@ -100,9 +99,9 @@ impl Scanner {
                     continue;
                 }
 
-                // Try to classify as source file
+                // Classify as source file (filtering already done above)
                 if let Some(source) =
-                    SourceFile::from_entry(&entry, &self.source_dir, &self.meta_filename)
+                    SourceFile::classify(path, &filename, &self.source_dir, &self.meta_filename)
                 {
                     files.push(source);
                 }
@@ -117,32 +116,26 @@ impl Scanner {
         let mut docs: HashMap<String, DocumentRef> = HashMap::new();
 
         for file in files {
-            let doc = docs.entry(file.url_path.clone()).or_insert_with(|| DocumentRef {
-                url_path: file.url_path,
-                content_path: None,
-                meta_path: None,
-            });
+            let doc = docs
+                .entry(file.url_path.clone())
+                .or_insert_with(|| DocumentRef {
+                    url_path: file.url_path,
+                    content_path: None,
+                    meta_path: None,
+                });
 
-            match file.kind {
-                SourceKind::Content => {
-                    if doc.content_path.is_some() {
-                        tracing::warn!(
-                            url_path = %doc.url_path,
-                            "Multiple content files for same url_path, using last"
-                        );
-                    }
-                    doc.content_path = Some(file.path);
-                }
-                SourceKind::Metadata => {
-                    if doc.meta_path.is_some() {
-                        tracing::warn!(
-                            url_path = %doc.url_path,
-                            "Multiple metadata files for same url_path, using last"
-                        );
-                    }
-                    doc.meta_path = Some(file.path);
-                }
+            let (target, kind_name) = match file.kind {
+                SourceKind::Content => (&mut doc.content_path, "content"),
+                SourceKind::Metadata => (&mut doc.meta_path, "metadata"),
+            };
+
+            if target.is_some() {
+                tracing::warn!(
+                    url_path = %doc.url_path,
+                    "Multiple {kind_name} files for same url_path, using last"
+                );
             }
+            *target = Some(file.path);
         }
 
         docs.into_values().collect()
