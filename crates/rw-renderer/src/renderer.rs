@@ -362,7 +362,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 self.output.push_str("<dd>");
             }
             Tag::Table(alignments) => {
-                self.table.start(alignments.clone());
+                self.table.start(alignments);
                 self.output.push_str("<table>");
             }
             Tag::TableHead => {

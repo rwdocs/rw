@@ -336,7 +336,7 @@ impl Site {
         // Try file cache first
         if let Some(site) = self.structure_cache.get() {
             let site = Arc::new(site);
-            *self.current_state.write().unwrap() = site.clone();
+            *self.current_state.write().unwrap() = Arc::clone(&site);
             self.cache_valid.store(true, Ordering::Release);
             return site;
         }
@@ -349,7 +349,7 @@ impl Site {
         self.structure_cache.set(&site);
 
         // Update current state
-        *self.current_state.write().unwrap() = site.clone();
+        *self.current_state.write().unwrap() = Arc::clone(&site);
         self.cache_valid.store(true, Ordering::Release);
 
         site

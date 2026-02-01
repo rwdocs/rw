@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DocumentRef` now uses explicit `content_path` and `meta_path` fields instead of `sources: Vec<PathBuf>`, making file type identification the Scanner's responsibility
 - `Scanner::new()` now accepts `&Path` instead of `PathBuf` to avoid unnecessary cloning
 - Extracted `titlecase_from_slug()` utility to eliminate duplicated title generation logic
-- Use explicit `Arc::clone()` in `Site::state()` for clarity
+- Use explicit `Arc::clone()` in `Site` for clarity
+- Remove unnecessary `alignments.clone()` in table rendering (already owned)
 
 ### Security
 
