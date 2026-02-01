@@ -174,7 +174,7 @@ impl FsStorage {
             .map(|p| Pattern::new(p).expect("invalid glob pattern"))
             .collect();
 
-        let scanner = Scanner::new(source_dir.clone(), meta_filename.to_string());
+        let scanner = Scanner::new(source_dir.clone(), meta_filename);
 
         Self {
             source_dir,
