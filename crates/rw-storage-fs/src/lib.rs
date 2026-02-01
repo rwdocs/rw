@@ -232,33 +232,38 @@ impl FsStorage {
         meta_path.exists().then_some(meta_path)
     }
 
-    /// Convert file path to URL path.
+    /// Convert file path to URL path with optional base prefix.
     ///
-    /// Examples:
+    /// Examples (with empty base):
     /// - `index.md` → `""`
     /// - `guide.md` → `"guide"`
     /// - `domain/index.md` → `"domain"`
     /// - `domain/setup.md` → `"domain/setup"`
-    fn file_path_to_url(rel_path: &Path) -> String {
+    ///
+    /// Examples (with base):
+    /// - `index.md`, base `"domain"` → `"domain"`
+    /// - `guide.md`, base `"domain"` → `"domain/guide"`
+    fn file_path_to_url(rel_path: &Path, base: &str) -> String {
         let path_str = rel_path.to_string_lossy();
-
-        // Handle root index.md
-        if path_str == "index.md" {
-            return String::new();
-        }
 
         // Remove .md extension
         let without_ext = path_str.strip_suffix(".md").unwrap_or(&path_str);
 
-        // Handle directory index files
-        if let Some(without_index) = without_ext.strip_suffix("/index") {
-            return without_index.to_string();
-        }
-        if without_ext == "index" {
-            return String::new();
-        }
+        // Handle index files
+        let path_part = if without_ext == "index" {
+            ""
+        } else if let Some(without_index) = without_ext.strip_suffix("/index") {
+            without_index
+        } else {
+            without_ext
+        };
 
-        without_ext.to_string()
+        // Combine with base
+        match (base.is_empty(), path_part.is_empty()) {
+            (true, _) => path_part.to_string(),
+            (false, true) => base.to_string(),
+            (false, false) => format!("{base}/{path_part}"),
+        }
     }
 
     /// Scan directory recursively and collect documents.
@@ -313,21 +318,8 @@ impl FsStorage {
                 let is_index = name_lower == "index.md";
 
                 // Compute URL path
-                let url_path = if is_index {
-                    // index.md → directory URL (e.g., "domain")
-                    url_prefix.to_string()
-                } else {
-                    // guide.md → "guide" or "domain/guide"
-                    let stem = path
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    if url_prefix.is_empty() {
-                        stem
-                    } else {
-                        format!("{url_prefix}/{stem}")
-                    }
-                };
+                let url_path =
+                    Self::file_path_to_url(Path::new(&entry.file_name()), url_prefix);
 
                 let doc = Document {
                     path: url_path,
@@ -600,7 +592,7 @@ impl Storage for FsStorage {
                         continue;
                     };
 
-                    let url_path = FsStorage::file_path_to_url(rel_path);
+                    let url_path = FsStorage::file_path_to_url(rel_path, "");
 
                     let storage_event = StorageEvent {
                         path: url_path,
@@ -1181,17 +1173,42 @@ mod tests {
 
     #[test]
     fn test_file_path_to_url() {
-        assert_eq!(FsStorage::file_path_to_url(Path::new("index.md")), "");
-        assert_eq!(FsStorage::file_path_to_url(Path::new("guide.md")), "guide");
+        // Without base
+        assert_eq!(FsStorage::file_path_to_url(Path::new("index.md"), ""), "");
         assert_eq!(
-            FsStorage::file_path_to_url(Path::new("domain/index.md")),
+            FsStorage::file_path_to_url(Path::new("guide.md"), ""),
+            "guide"
+        );
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("domain/index.md"), ""),
             "domain"
         );
         assert_eq!(
-            FsStorage::file_path_to_url(Path::new("domain/setup.md")),
+            FsStorage::file_path_to_url(Path::new("domain/setup.md"), ""),
             "domain/setup"
         );
-        assert_eq!(FsStorage::file_path_to_url(Path::new("a/b/c.md")), "a/b/c");
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("a/b/c.md"), ""),
+            "a/b/c"
+        );
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("index/index.md"), ""),
+            "index"
+        );
+
+        // With base
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("index.md"), "domain"),
+            "domain"
+        );
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("guide.md"), "domain"),
+            "domain/guide"
+        );
+        assert_eq!(
+            FsStorage::file_path_to_url(Path::new("setup.md"), "a/b"),
+            "a/b/setup"
+        );
     }
 
     #[test]
