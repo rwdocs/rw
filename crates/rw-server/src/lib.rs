@@ -211,21 +211,19 @@ pub fn server_config_from_rw_config(
     version: String,
     verbose: bool,
 ) -> ServerConfig {
-    // Auto-detect README.md as homepage fallback
-    let readme_path = if config.docs_resolved.source_dir.join("index.md").exists() {
-        None
-    } else {
-        let project_root = config
-            .config_path
-            .as_ref()
-            .and_then(|p| p.parent())
-            .map_or_else(
-                || std::env::current_dir().unwrap_or_default(),
-                Path::to_path_buf,
-            );
-        let readme = project_root.join("README.md");
-        readme.exists().then_some(readme)
-    };
+    // Auto-detect README.md as homepage fallback.
+    // Always pass the path; FsStorage decides at runtime whether to use it
+    // (index.md takes priority in resolve_content and scan).
+    let project_root = config
+        .config_path
+        .as_ref()
+        .and_then(|p| p.parent())
+        .map(Path::to_path_buf)
+        .or_else(|| std::env::current_dir().ok());
+
+    let readme_path = project_root
+        .map(|root| root.join("README.md"))
+        .filter(|p| p.exists());
 
     ServerConfig {
         host: config.server.host.clone(),
