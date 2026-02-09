@@ -428,13 +428,9 @@ impl FsStorage {
     /// Watches the README.md file directly. Events are recorded into the
     /// shared debouncer.
     fn watch_readme(
-        readme_path: Option<&Path>,
+        readme_path: &Path,
         debouncer: &std::sync::Arc<EventDebouncer>,
-    ) -> Result<Option<notify::RecommendedWatcher>, StorageError> {
-        let Some(readme_path) = readme_path else {
-            return Ok(None);
-        };
-
+    ) -> Result<notify::RecommendedWatcher, StorageError> {
         let debouncer = std::sync::Arc::clone(debouncer);
 
         let mut watcher =
@@ -463,7 +459,7 @@ impl FsStorage {
                     .with_source(e)
             })?;
 
-        Ok(Some(watcher))
+        Ok(watcher)
     }
 }
 
@@ -582,7 +578,11 @@ impl Storage for FsStorage {
         let watcher = std::sync::Arc::new(std::sync::Mutex::new(watcher));
 
         // Optionally set up a second watcher for README.md (outside source_dir)
-        let readme_watcher = Self::watch_readme(self.readme_path.as_deref(), &debouncer)?;
+        let readme_watcher = self
+            .readme_path
+            .as_deref()
+            .map(|p| Self::watch_readme(p, &debouncer))
+            .transpose()?;
 
         // Spawn thread to drain debouncer and send to channel
         let source_dir_for_drain = self.source_dir.clone();
