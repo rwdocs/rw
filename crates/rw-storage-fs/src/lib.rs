@@ -31,7 +31,7 @@ mod yaml;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, LazyLock, Mutex, mpsc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use glob::Pattern;
@@ -50,6 +50,9 @@ use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
+
+/// Compiled regex for extracting the first H1 heading from markdown.
+static H1_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^#\s+(.+)$").unwrap());
 
 /// Create a storage error from a notify error.
 fn notify_error(e: notify::Error) -> StorageError {
@@ -163,8 +166,6 @@ pub struct FsStorage {
     source_dir: PathBuf,
     /// Scanner for document discovery.
     scanner: Scanner,
-    /// Regex for extracting first H1 heading.
-    h1_regex: Regex,
     /// Mtime cache for incremental title extraction.
     mtime_cache: Mutex<HashMap<PathBuf, CachedFile>>,
     /// Patterns for file watching (e.g., "**/*.md").
@@ -186,11 +187,6 @@ impl FsStorage {
     /// # Arguments
     ///
     /// * `source_dir` - Root directory containing markdown files
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal regex for H1 heading extraction fails to compile.
-    /// This should never happen as the regex is a compile-time constant.
     #[must_use]
     pub fn new(source_dir: PathBuf) -> Self {
         Self::with_patterns(source_dir, &["**/*.md".to_string()])
@@ -204,10 +200,6 @@ impl FsStorage {
     ///
     /// * `source_dir` - Root directory containing markdown files
     /// * `meta_filename` - Name of metadata files (e.g., "meta.yaml")
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal regex for H1 heading extraction fails to compile.
     #[must_use]
     pub fn with_meta_filename(source_dir: PathBuf, meta_filename: &str) -> Self {
         Self::with_patterns_and_meta(source_dir, &["**/*.md".to_string()], meta_filename)
@@ -224,9 +216,7 @@ impl FsStorage {
     ///
     /// # Panics
     ///
-    /// Panics if:
-    /// - The internal regex for H1 heading extraction fails to compile
-    /// - Any of the provided glob patterns are invalid
+    /// Panics if any of the provided glob patterns are invalid.
     #[must_use]
     pub fn with_patterns(source_dir: PathBuf, patterns: &[String]) -> Self {
         Self::with_patterns_and_meta(source_dir, patterns, DEFAULT_META_FILENAME)
@@ -242,9 +232,7 @@ impl FsStorage {
     ///
     /// # Panics
     ///
-    /// Panics if:
-    /// - The internal regex for H1 heading extraction fails to compile
-    /// - Any of the provided glob patterns are invalid
+    /// Panics if any of the provided glob patterns are invalid.
     #[must_use]
     pub fn with_patterns_and_meta(
         source_dir: PathBuf,
@@ -261,7 +249,6 @@ impl FsStorage {
         Self {
             source_dir,
             scanner,
-            h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
             mtime_cache: Mutex::new(HashMap::new()),
             watch_patterns,
             meta_filename: meta_filename.to_string(),
@@ -405,7 +392,7 @@ impl FsStorage {
     /// Extract title from first H1 heading in markdown file.
     fn extract_title_from_content(&self, file_path: &Path) -> Option<String> {
         let content = fs::read_to_string(file_path).ok()?;
-        let caps = self.h1_regex.captures(&content)?;
+        let caps = H1_REGEX.captures(&content)?;
         Some(caps[1].trim().to_string())
     }
 
