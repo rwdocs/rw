@@ -12,7 +12,11 @@ use rw_storage::{Metadata, MetadataError};
 fn extract_yaml_field(content: &str, field_name: &str) -> Option<String> {
     let prefix = format!("{field_name}:");
     content.lines().find_map(|line| {
-        let value = line.trim().strip_prefix(&prefix)?.trim().trim_matches(['"', '\'']);
+        let value = line
+            .trim()
+            .strip_prefix(&prefix)?
+            .trim()
+            .trim_matches(['"', '\'']);
         (!value.is_empty()).then(|| value.to_string())
     })
 }
