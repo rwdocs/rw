@@ -29,7 +29,6 @@ mod source;
 mod yaml;
 
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -426,8 +425,7 @@ impl FsStorage {
 
     /// Set up a file watcher for README.md (outside `source_dir`).
     ///
-    /// Watches the parent directory of README.md non-recursively, filtering
-    /// events to only the README.md filename. Events are recorded into the
+    /// Watches the README.md file directly. Events are recorded into the
     /// shared debouncer.
     fn watch_readme(
         readme_path: Option<&Path>,
@@ -436,11 +434,7 @@ impl FsStorage {
         let Some(readme_path) = readme_path else {
             return Ok(None);
         };
-        let Some(readme_parent) = readme_path.parent() else {
-            return Ok(None);
-        };
 
-        let readme_filename = readme_path.file_name().map(OsStr::to_os_string);
         let debouncer = std::sync::Arc::clone(debouncer);
 
         let mut watcher =
@@ -451,12 +445,7 @@ impl FsStorage {
                     };
 
                     for path in event.paths {
-                        if readme_filename
-                            .as_ref()
-                            .is_some_and(|name| path.file_name() == Some(name))
-                        {
-                            debouncer.record(path, kind);
-                        }
+                        debouncer.record(path, kind);
                     }
                 }
             })
@@ -467,7 +456,7 @@ impl FsStorage {
             })?;
 
         watcher
-            .watch(readme_parent, RecursiveMode::NonRecursive)
+            .watch(readme_path, RecursiveMode::NonRecursive)
             .map_err(|e| {
                 StorageError::new(StorageErrorKind::Other)
                     .with_backend(BACKEND)
