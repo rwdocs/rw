@@ -431,8 +431,8 @@ impl FsStorage {
         let readme_filename = readme_path.file_name().map(OsStr::to_os_string);
         let debouncer_for_readme = std::sync::Arc::clone(debouncer);
 
-        let mut watcher = notify::recommended_watcher(
-            move |res: Result<notify::Event, notify::Error>| {
+        let mut watcher =
+            notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
                     let kind = match event.kind {
                         notify::EventKind::Create(_) => StorageEventKind::Created,
@@ -450,13 +450,12 @@ impl FsStorage {
                         }
                     }
                 }
-            },
-        )
-        .map_err(|e| {
-            StorageError::new(StorageErrorKind::Other)
-                .with_backend(BACKEND)
-                .with_source(e)
-        })?;
+            })
+            .map_err(|e| {
+                StorageError::new(StorageErrorKind::Other)
+                    .with_backend(BACKEND)
+                    .with_source(e)
+            })?;
 
         watcher
             .watch(readme_parent, RecursiveMode::NonRecursive)
