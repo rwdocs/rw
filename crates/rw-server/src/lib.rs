@@ -64,7 +64,7 @@ mod state;
 mod static_files;
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -102,6 +102,8 @@ pub struct ServerConfig {
     pub version: String,
     /// Metadata file name (default: "meta.yaml").
     pub meta_filename: String,
+    /// Optional README.md path to use as homepage fallback.
+    pub readme_path: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -120,6 +122,7 @@ impl Default for ServerConfig {
             verbose: false,
             version: String::new(),
             meta_filename: "meta.yaml".to_string(),
+            readme_path: None,
         }
     }
 }
@@ -135,10 +138,12 @@ impl Default for ServerConfig {
 /// Returns an error if the server fails to start.
 pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
     // Create shared storage backend
-    let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::with_meta_filename(
-        config.source_dir.clone(),
-        &config.meta_filename,
-    ));
+    let mut fs_storage =
+        FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename);
+    if let Some(ref readme_path) = config.readme_path {
+        fs_storage = fs_storage.with_readme(readme_path.clone());
+    }
+    let storage: Arc<dyn rw_storage::Storage> = Arc::new(fs_storage);
 
     // Create unified Site with storage and configuration
     let site_config = SiteConfig {
@@ -206,6 +211,20 @@ pub fn server_config_from_rw_config(
     version: String,
     verbose: bool,
 ) -> ServerConfig {
+    // Auto-detect README.md as homepage fallback
+    let readme_path = if !config.docs_resolved.source_dir.join("index.md").exists() {
+        let project_root = config
+            .config_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let readme = project_root.join("README.md");
+        readme.exists().then_some(readme)
+    } else {
+        None
+    };
+
     ServerConfig {
         host: config.server.host.clone(),
         port: config.server.port,
@@ -224,5 +243,6 @@ pub fn server_config_from_rw_config(
         verbose,
         version,
         meta_filename: config.metadata.name.clone(),
+        readme_path,
     }
 }
