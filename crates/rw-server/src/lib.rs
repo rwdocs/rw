@@ -138,7 +138,8 @@ impl Default for ServerConfig {
 /// Returns an error if the server fails to start.
 pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
     // Create shared storage backend
-    let mut storage = FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename);
+    let mut storage =
+        FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename);
     if let Some(readme_path) = config.readme_path.clone() {
         storage = storage.with_readme(readme_path);
     }
