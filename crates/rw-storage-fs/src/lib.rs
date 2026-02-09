@@ -581,6 +581,7 @@ impl Storage for FsStorage {
         let readme_watcher = self
             .readme_path
             .as_deref()
+            .filter(|p| p.exists())
             .map(|p| Self::watch_readme(p, &debouncer))
             .transpose()?;
 
