@@ -117,6 +117,8 @@ pub struct FsStorage {
     watch_patterns: Vec<Pattern>,
     /// Metadata file name (e.g., "meta.yaml").
     meta_filename: String,
+    /// Optional path to README.md used as homepage fallback.
+    readme_path: Option<PathBuf>,
 }
 
 /// Default metadata filename.
@@ -209,7 +211,15 @@ impl FsStorage {
             mtime_cache: Mutex::new(HashMap::new()),
             watch_patterns,
             meta_filename: meta_filename.to_string(),
+            readme_path: None,
         }
+    }
+
+    /// Set a README.md path to use as homepage fallback when `docs/index.md` doesn't exist.
+    #[must_use]
+    pub fn with_readme(mut self, readme_path: PathBuf) -> Self {
+        self.readme_path = Some(readme_path);
+        self
     }
 
     /// Validate that a URL path doesn't contain path traversal attempts.
@@ -226,7 +236,11 @@ impl FsStorage {
 
     /// Resolve URL path to content file path.
     ///
-    /// Resolution order:
+    /// For root path (`""`):
+    /// 1. `source_dir/index.md`
+    /// 2. `readme_path` (if configured via [`with_readme`](Self::with_readme))
+    ///
+    /// For other paths:
     /// 1. `{path}/index.md` (directory structure preferred)
     /// 2. `{path}.md` (standalone file fallback)
     ///
@@ -234,7 +248,15 @@ impl FsStorage {
     fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
         if url_path.is_empty() {
             let index = self.source_dir.join("index.md");
-            return index.exists().then_some(index);
+            if index.exists() {
+                return Some(index);
+            }
+            if let Some(ref readme) = self.readme_path {
+                if readme.exists() {
+                    return Some(readme.clone());
+                }
+            }
+            return None;
         }
 
         // Prefer directory/index.md
@@ -392,12 +414,29 @@ impl FsStorage {
 
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
-        let documents = self
+        let mut documents: Vec<Document> = self
             .scanner
             .scan()
             .into_iter()
             .filter_map(|r| self.build_document(&r))
             .collect();
+
+        // Inject README.md as homepage if no root document found
+        if let Some(ref readme_path) = self.readme_path
+            && !documents.iter().any(|d| d.path.is_empty())
+            && readme_path.exists()
+        {
+            let title = self
+                .extract_title_from_content(readme_path)
+                .unwrap_or_else(|| "Home".to_string());
+            documents.push(Document {
+                path: String::new(),
+                title,
+                has_content: true,
+                page_type: None,
+            });
+        }
+
         Ok(documents)
     }
 
@@ -1414,5 +1453,107 @@ mod tests {
         // Should not receive any events (watcher is stopped)
         let event = rx.try_recv();
         assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_readme_as_homepage_when_no_index() {
+        let temp_dir = create_test_dir();
+        let project_root = temp_dir.path();
+        let source_dir = project_root.join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(project_root.join("README.md"), "# My Project\n\nWelcome.").unwrap();
+
+        let readme_path = project_root.join("README.md");
+        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let content = storage.read("").unwrap();
+
+        assert_eq!(content, "# My Project\n\nWelcome.");
+    }
+
+    #[test]
+    fn test_readme_does_not_override_existing_index() {
+        let temp_dir = create_test_dir();
+        let project_root = temp_dir.path();
+        let source_dir = project_root.join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("index.md"), "# Docs Home").unwrap();
+        fs::write(project_root.join("README.md"), "# README Content").unwrap();
+
+        let readme_path = project_root.join("README.md");
+        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let content = storage.read("").unwrap();
+
+        assert_eq!(content, "# Docs Home");
+    }
+
+    #[test]
+    fn test_scan_includes_readme_as_homepage() {
+        let temp_dir = create_test_dir();
+        let project_root = temp_dir.path();
+        let source_dir = project_root.join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
+        fs::write(project_root.join("README.md"), "# My Project").unwrap();
+
+        let readme_path = project_root.join("README.md");
+        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let docs = storage.scan().unwrap();
+
+        assert_eq!(docs.len(), 2);
+        let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
+        assert_eq!(home.title, "My Project");
+        assert!(home.has_content);
+    }
+
+    #[test]
+    fn test_scan_does_not_inject_readme_when_index_exists() {
+        let temp_dir = create_test_dir();
+        let project_root = temp_dir.path();
+        let source_dir = project_root.join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(source_dir.join("index.md"), "# Docs Home").unwrap();
+        fs::write(project_root.join("README.md"), "# README").unwrap();
+
+        let readme_path = project_root.join("README.md");
+        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let docs = storage.scan().unwrap();
+
+        let homes: Vec<_> = docs.iter().filter(|d| d.path.is_empty()).collect();
+        assert_eq!(homes.len(), 1);
+        assert_eq!(homes[0].title, "Docs Home");
+    }
+
+    #[test]
+    fn test_exists_returns_true_for_readme_homepage() {
+        let temp_dir = create_test_dir();
+        let project_root = temp_dir.path();
+        let source_dir = project_root.join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(project_root.join("README.md"), "# Home").unwrap();
+
+        let readme_path = project_root.join("README.md");
+        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+
+        assert!(storage.exists(""));
+    }
+
+    #[test]
+    fn test_mtime_works_for_readme_homepage() {
+        let temp_dir = create_test_dir();
+        let project_root = temp_dir.path();
+        let source_dir = project_root.join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(project_root.join("README.md"), "# Home").unwrap();
+
+        let readme_path = project_root.join("README.md");
+        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+
+        let mtime = storage.mtime("").unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        assert!(mtime > now - 60.0);
+        assert!(mtime <= now);
     }
 }
