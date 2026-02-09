@@ -535,11 +535,65 @@ impl Storage for FsStorage {
         // Keep watcher alive in Arc
         let watcher = std::sync::Arc::new(std::sync::Mutex::new(watcher));
 
+        // Optionally set up a second watcher for README.md (outside source_dir)
+        let readme_watcher: Option<notify::RecommendedWatcher> =
+            if let Some(ref readme_path) = self.readme_path {
+                if let Some(readme_parent) = readme_path.parent() {
+                    let readme_filename = readme_path
+                        .file_name()
+                        .map(|f| f.to_os_string());
+                    let debouncer_for_readme = std::sync::Arc::clone(&debouncer);
+
+                    let mut rw = notify::recommended_watcher(
+                        move |res: Result<notify::Event, notify::Error>| {
+                            if let Ok(event) = res {
+                                let kind = match event.kind {
+                                    notify::EventKind::Create(_) => StorageEventKind::Created,
+                                    notify::EventKind::Modify(_) => StorageEventKind::Modified,
+                                    notify::EventKind::Remove(_) => StorageEventKind::Removed,
+                                    _ => return,
+                                };
+
+                                for path in event.paths {
+                                    // Only process events for the README.md file itself
+                                    let matches = readme_filename
+                                        .as_ref()
+                                        .is_some_and(|name| path.file_name() == Some(name));
+
+                                    if matches {
+                                        debouncer_for_readme.record(path, kind);
+                                    }
+                                }
+                            }
+                        },
+                    )
+                    .map_err(|e| {
+                        StorageError::new(StorageErrorKind::Other)
+                            .with_backend(BACKEND)
+                            .with_source(e)
+                    })?;
+
+                    rw.watch(readme_parent, RecursiveMode::NonRecursive)
+                        .map_err(|e| {
+                            StorageError::new(StorageErrorKind::Other)
+                                .with_backend(BACKEND)
+                                .with_source(e)
+                        })?;
+
+                    Some(rw)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
         // Spawn thread to drain debouncer and send to channel
         let source_dir_for_drain = self.source_dir.clone();
         std::thread::spawn(move || {
-            // Keep watcher reference alive in this thread
+            // Keep watcher references alive in this thread
             let _watcher_guard = watcher;
+            let _readme_watcher_guard = readme_watcher;
 
             loop {
                 // Check for shutdown signal (blocking until timeout or signal)
@@ -551,11 +605,13 @@ impl Storage for FsStorage {
 
                 for event in debouncer.drain_ready() {
                     // Convert full file path to relative path, then to URL path
-                    let Ok(rel_path) = event.path.strip_prefix(&source_dir_for_drain) else {
-                        continue;
-                    };
-
-                    let url_path = file_path_to_url(rel_path);
+                    // If path is outside source_dir (e.g. README.md), map to root ("")
+                    let url_path =
+                        if let Ok(rel_path) = event.path.strip_prefix(&source_dir_for_drain) {
+                            file_path_to_url(rel_path)
+                        } else {
+                            String::new()
+                        };
 
                     let storage_event = StorageEvent {
                         path: url_path,
@@ -1555,5 +1611,37 @@ mod tests {
             .as_secs_f64();
         assert!(mtime > now - 60.0);
         assert!(mtime <= now);
+    }
+
+    #[test]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
+    fn test_watch_detects_readme_changes() {
+        let temp_dir = create_test_dir();
+        let project_root = temp_dir.path();
+        let source_dir = project_root.join("docs");
+        fs::create_dir(&source_dir).unwrap();
+        fs::write(project_root.join("README.md"), "# Original").unwrap();
+
+        let readme_path = project_root.join("README.md");
+        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let (rx, _handle) = storage.watch().unwrap();
+
+        // Wait for watcher to be ready
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Modify README.md
+        fs::write(project_root.join("README.md"), "# Modified").unwrap();
+
+        // Wait for debounce + processing
+        std::thread::sleep(Duration::from_millis(500));
+
+        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
+        assert!(!events.is_empty(), "Expected to receive at least one event");
+
+        let home_event = events.iter().find(|e| e.path.is_empty());
+        assert!(
+            home_event.is_some(),
+            "Expected event for root path, got: {events:?}"
+        );
     }
 }
