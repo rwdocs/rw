@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_encode};
-use rand::Rng;
+use rand::RngExt;
 use rsa::RsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::signature::{SignatureEncoding, Signer};
