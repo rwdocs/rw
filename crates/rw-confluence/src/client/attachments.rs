@@ -1,6 +1,6 @@
 //! Attachment operations for Confluence API.
 
-use rand::Rng;
+use rand::RngExt;
 use tracing::info;
 
 use super::ConfluenceClient;
