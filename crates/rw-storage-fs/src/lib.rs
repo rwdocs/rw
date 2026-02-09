@@ -53,6 +53,18 @@ use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
 
+/// Convert a `notify::EventKind` to a `StorageEventKind`.
+///
+/// Returns `None` for event kinds that are not relevant (e.g., Access).
+fn storage_event_kind(kind: notify::EventKind) -> Option<StorageEventKind> {
+    match kind {
+        notify::EventKind::Create(_) => Some(StorageEventKind::Created),
+        notify::EventKind::Modify(_) => Some(StorageEventKind::Modified),
+        notify::EventKind::Remove(_) => Some(StorageEventKind::Removed),
+        _ => None,
+    }
+}
+
 /// Convert a slug (kebab-case or `snake_case`) to title case.
 ///
 /// Replaces `-` and `_` with spaces, then capitalizes the first letter of each word.
@@ -429,24 +441,21 @@ impl FsStorage {
         };
 
         let readme_filename = readme_path.file_name().map(OsStr::to_os_string);
-        let debouncer_for_readme = std::sync::Arc::clone(debouncer);
+        let debouncer = std::sync::Arc::clone(debouncer);
 
         let mut watcher =
             notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
-                    let kind = match event.kind {
-                        notify::EventKind::Create(_) => StorageEventKind::Created,
-                        notify::EventKind::Modify(_) => StorageEventKind::Modified,
-                        notify::EventKind::Remove(_) => StorageEventKind::Removed,
-                        _ => return,
+                    let Some(kind) = storage_event_kind(event.kind) else {
+                        return;
                     };
 
                     for path in event.paths {
-                        let matches = readme_filename
+                        if readme_filename
                             .as_ref()
-                            .is_some_and(|name| path.file_name() == Some(name));
-                        if matches {
-                            debouncer_for_readme.record(path, kind);
+                            .is_some_and(|name| path.file_name() == Some(name))
+                        {
+                            debouncer.record(path, kind);
                         }
                     }
                 }
@@ -546,32 +555,23 @@ impl Storage for FsStorage {
         let mut watcher =
             notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
                 if let Ok(event) = res {
-                    // Convert notify event kind to storage event kind
-                    let kind = match event.kind {
-                        notify::EventKind::Create(_) => StorageEventKind::Created,
-                        notify::EventKind::Modify(_) => StorageEventKind::Modified,
-                        notify::EventKind::Remove(_) => StorageEventKind::Removed,
-                        _ => return,
+                    let Some(kind) = storage_event_kind(event.kind) else {
+                        return;
                     };
 
                     for path in event.paths {
-                        // Check if path is within source directory
                         let Ok(rel_path) = path.strip_prefix(&source_dir) else {
                             continue;
                         };
 
-                        // Check if path matches any pattern
                         let matches_pattern = patterns.is_empty()
                             || patterns
                                 .iter()
                                 .any(|pattern| pattern.matches_path(rel_path));
 
-                        if !matches_pattern {
-                            continue;
+                        if matches_pattern {
+                            debouncer_for_watcher.record(path, kind);
                         }
-
-                        // Record full path in debouncer (will convert to relative when draining)
-                        debouncer_for_watcher.record(path, kind);
                     }
                 }
             })
@@ -1518,16 +1518,23 @@ mod tests {
         assert!(event.is_none());
     }
 
-    #[test]
-    fn test_readme_as_homepage_when_no_index() {
+    /// Create a test directory with `docs/` subdirectory and README.md,
+    /// returning `(temp_dir, FsStorage with readme)`.
+    fn create_readme_test_dir(readme_content: &str) -> (tempfile::TempDir, PathBuf, FsStorage) {
         let temp_dir = create_test_dir();
-        let project_root = temp_dir.path();
+        let project_root = temp_dir.path().to_path_buf();
         let source_dir = project_root.join("docs");
         fs::create_dir(&source_dir).unwrap();
-        fs::write(project_root.join("README.md"), "# My Project\n\nWelcome.").unwrap();
+        fs::write(project_root.join("README.md"), readme_content).unwrap();
 
         let readme_path = project_root.join("README.md");
         let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        (temp_dir, project_root, storage)
+    }
+
+    #[test]
+    fn test_readme_as_homepage_when_no_index() {
+        let (_dir, _, storage) = create_readme_test_dir("# My Project\n\nWelcome.");
         let content = storage.read("").unwrap();
 
         assert_eq!(content, "# My Project\n\nWelcome.");
@@ -1535,15 +1542,8 @@ mod tests {
 
     #[test]
     fn test_readme_does_not_override_existing_index() {
-        let temp_dir = create_test_dir();
-        let project_root = temp_dir.path();
-        let source_dir = project_root.join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("index.md"), "# Docs Home").unwrap();
-        fs::write(project_root.join("README.md"), "# README Content").unwrap();
-
-        let readme_path = project_root.join("README.md");
-        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let (dir, _, storage) = create_readme_test_dir("# README Content");
+        fs::write(dir.path().join("docs/index.md"), "# Docs Home").unwrap();
         let content = storage.read("").unwrap();
 
         assert_eq!(content, "# Docs Home");
@@ -1551,15 +1551,8 @@ mod tests {
 
     #[test]
     fn test_scan_includes_readme_as_homepage() {
-        let temp_dir = create_test_dir();
-        let project_root = temp_dir.path();
-        let source_dir = project_root.join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("guide.md"), "# Guide").unwrap();
-        fs::write(project_root.join("README.md"), "# My Project").unwrap();
-
-        let readme_path = project_root.join("README.md");
-        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let (dir, _, storage) = create_readme_test_dir("# My Project");
+        fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 2);
@@ -1570,15 +1563,8 @@ mod tests {
 
     #[test]
     fn test_scan_does_not_inject_readme_when_index_exists() {
-        let temp_dir = create_test_dir();
-        let project_root = temp_dir.path();
-        let source_dir = project_root.join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(source_dir.join("index.md"), "# Docs Home").unwrap();
-        fs::write(project_root.join("README.md"), "# README").unwrap();
-
-        let readme_path = project_root.join("README.md");
-        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let (dir, _, storage) = create_readme_test_dir("# README");
+        fs::write(dir.path().join("docs/index.md"), "# Docs Home").unwrap();
         let docs = storage.scan().unwrap();
 
         let homes: Vec<_> = docs.iter().filter(|d| d.path.is_empty()).collect();
@@ -1588,29 +1574,13 @@ mod tests {
 
     #[test]
     fn test_exists_returns_true_for_readme_homepage() {
-        let temp_dir = create_test_dir();
-        let project_root = temp_dir.path();
-        let source_dir = project_root.join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(project_root.join("README.md"), "# Home").unwrap();
-
-        let readme_path = project_root.join("README.md");
-        let storage = FsStorage::new(source_dir).with_readme(readme_path);
-
+        let (_dir, _, storage) = create_readme_test_dir("# Home");
         assert!(storage.exists(""));
     }
 
     #[test]
     fn test_mtime_works_for_readme_homepage() {
-        let temp_dir = create_test_dir();
-        let project_root = temp_dir.path();
-        let source_dir = project_root.join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(project_root.join("README.md"), "# Home").unwrap();
-
-        let readme_path = project_root.join("README.md");
-        let storage = FsStorage::new(source_dir).with_readme(readme_path);
-
+        let (_dir, _, storage) = create_readme_test_dir("# Home");
         let mtime = storage.mtime("").unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1623,23 +1593,11 @@ mod tests {
     #[test]
     #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_detects_readme_changes() {
-        let temp_dir = create_test_dir();
-        let project_root = temp_dir.path();
-        let source_dir = project_root.join("docs");
-        fs::create_dir(&source_dir).unwrap();
-        fs::write(project_root.join("README.md"), "# Original").unwrap();
-
-        let readme_path = project_root.join("README.md");
-        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let (_dir, project_root, storage) = create_readme_test_dir("# Original");
         let (rx, _handle) = storage.watch().unwrap();
 
-        // Wait for watcher to be ready
         std::thread::sleep(Duration::from_millis(200));
-
-        // Modify README.md
         fs::write(project_root.join("README.md"), "# Modified").unwrap();
-
-        // Wait for debounce + processing
         std::thread::sleep(Duration::from_millis(500));
 
         let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
