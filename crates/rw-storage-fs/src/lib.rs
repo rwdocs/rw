@@ -574,11 +574,19 @@ impl Storage for FsStorage {
 
         let ancestors = build_ancestor_chain(path);
 
-        let has_own_meta = self.load_ancestor_meta(path).is_some();
-
-        let mut accumulated = ancestors
+        let loaded: Vec<(&str, Metadata)> = ancestors
             .iter()
-            .filter_map(|ancestor| self.load_ancestor_meta(ancestor))
+            .filter_map(|ancestor| {
+                self.load_ancestor_meta(ancestor)
+                    .map(|meta| (ancestor.as_str(), meta))
+            })
+            .collect();
+
+        let has_own_meta = loaded.iter().any(|(ancestor, _)| *ancestor == path);
+
+        let mut accumulated = loaded
+            .into_iter()
+            .map(|(_, meta)| meta)
             .reduce(|parent, child| merge_metadata(&parent, &child));
 
         // If the requested path doesn't have its own (non-empty, valid) metadata,
