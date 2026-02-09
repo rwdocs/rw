@@ -212,17 +212,19 @@ pub fn server_config_from_rw_config(
     verbose: bool,
 ) -> ServerConfig {
     // Auto-detect README.md as homepage fallback
-    let readme_path = if !config.docs_resolved.source_dir.join("index.md").exists() {
+    let readme_path = if config.docs_resolved.source_dir.join("index.md").exists() {
+        None
+    } else {
         let project_root = config
             .config_path
             .as_ref()
             .and_then(|p| p.parent())
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            .map_or_else(
+                || std::env::current_dir().unwrap_or_default(),
+                Path::to_path_buf,
+            );
         let readme = project_root.join("README.md");
         readme.exists().then_some(readme)
-    } else {
-        None
     };
 
     ServerConfig {

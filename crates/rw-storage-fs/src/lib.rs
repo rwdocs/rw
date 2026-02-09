@@ -29,6 +29,7 @@ mod source;
 mod yaml;
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -410,6 +411,63 @@ impl FsStorage {
         let name = name_lower.strip_suffix(".md").unwrap_or(name_lower);
         titlecase_from_slug(name)
     }
+
+    /// Set up a file watcher for README.md (outside `source_dir`).
+    ///
+    /// Watches the parent directory of README.md non-recursively, filtering
+    /// events to only the README.md filename. Events are recorded into the
+    /// shared debouncer.
+    fn watch_readme(
+        readme_path: Option<&PathBuf>,
+        debouncer: &std::sync::Arc<EventDebouncer>,
+    ) -> Result<Option<notify::RecommendedWatcher>, StorageError> {
+        let Some(readme_path) = readme_path else {
+            return Ok(None);
+        };
+        let Some(readme_parent) = readme_path.parent() else {
+            return Ok(None);
+        };
+
+        let readme_filename = readme_path.file_name().map(OsStr::to_os_string);
+        let debouncer_for_readme = std::sync::Arc::clone(debouncer);
+
+        let mut watcher = notify::recommended_watcher(
+            move |res: Result<notify::Event, notify::Error>| {
+                if let Ok(event) = res {
+                    let kind = match event.kind {
+                        notify::EventKind::Create(_) => StorageEventKind::Created,
+                        notify::EventKind::Modify(_) => StorageEventKind::Modified,
+                        notify::EventKind::Remove(_) => StorageEventKind::Removed,
+                        _ => return,
+                    };
+
+                    for path in event.paths {
+                        let matches = readme_filename
+                            .as_ref()
+                            .is_some_and(|name| path.file_name() == Some(name));
+                        if matches {
+                            debouncer_for_readme.record(path, kind);
+                        }
+                    }
+                }
+            },
+        )
+        .map_err(|e| {
+            StorageError::new(StorageErrorKind::Other)
+                .with_backend(BACKEND)
+                .with_source(e)
+        })?;
+
+        watcher
+            .watch(readme_parent, RecursiveMode::NonRecursive)
+            .map_err(|e| {
+                StorageError::new(StorageErrorKind::Other)
+                    .with_backend(BACKEND)
+                    .with_source(e)
+            })?;
+
+        Ok(Some(watcher))
+    }
 }
 
 impl Storage for FsStorage {
@@ -536,57 +594,7 @@ impl Storage for FsStorage {
         let watcher = std::sync::Arc::new(std::sync::Mutex::new(watcher));
 
         // Optionally set up a second watcher for README.md (outside source_dir)
-        let readme_watcher: Option<notify::RecommendedWatcher> =
-            if let Some(ref readme_path) = self.readme_path {
-                if let Some(readme_parent) = readme_path.parent() {
-                    let readme_filename = readme_path
-                        .file_name()
-                        .map(|f| f.to_os_string());
-                    let debouncer_for_readme = std::sync::Arc::clone(&debouncer);
-
-                    let mut rw = notify::recommended_watcher(
-                        move |res: Result<notify::Event, notify::Error>| {
-                            if let Ok(event) = res {
-                                let kind = match event.kind {
-                                    notify::EventKind::Create(_) => StorageEventKind::Created,
-                                    notify::EventKind::Modify(_) => StorageEventKind::Modified,
-                                    notify::EventKind::Remove(_) => StorageEventKind::Removed,
-                                    _ => return,
-                                };
-
-                                for path in event.paths {
-                                    // Only process events for the README.md file itself
-                                    let matches = readme_filename
-                                        .as_ref()
-                                        .is_some_and(|name| path.file_name() == Some(name));
-
-                                    if matches {
-                                        debouncer_for_readme.record(path, kind);
-                                    }
-                                }
-                            }
-                        },
-                    )
-                    .map_err(|e| {
-                        StorageError::new(StorageErrorKind::Other)
-                            .with_backend(BACKEND)
-                            .with_source(e)
-                    })?;
-
-                    rw.watch(readme_parent, RecursiveMode::NonRecursive)
-                        .map_err(|e| {
-                            StorageError::new(StorageErrorKind::Other)
-                                .with_backend(BACKEND)
-                                .with_source(e)
-                        })?;
-
-                    Some(rw)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+        let readme_watcher = Self::watch_readme(self.readme_path.as_ref(), &debouncer)?;
 
         // Spawn thread to drain debouncer and send to channel
         let source_dir_for_drain = self.source_dir.clone();
