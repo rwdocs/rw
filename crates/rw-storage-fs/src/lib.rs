@@ -977,6 +977,66 @@ mod tests {
     }
 
     #[test]
+    fn test_meta_empty_own_metadata_clears_inherited_fields() {
+        let temp_dir = create_test_dir();
+        let parent = temp_dir.path().join("parent");
+        fs::create_dir(&parent).unwrap();
+        fs::write(parent.join("index.md"), "# Parent").unwrap();
+        fs::write(
+            parent.join("meta.yaml"),
+            "title: Parent Title\ndescription: Parent Desc\ntype: domain\nvars:\n  key: value",
+        )
+        .unwrap();
+
+        // Child with empty meta.yaml
+        let child = parent.join("child");
+        fs::create_dir(&child).unwrap();
+        fs::write(child.join("index.md"), "# Child").unwrap();
+        fs::write(child.join("meta.yaml"), "").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let meta = storage.meta("parent/child").unwrap().unwrap();
+
+        // Only vars should be inherited
+        assert_eq!(meta.vars.get("key"), Some(&serde_json::json!("value")));
+
+        // title/description/page_type should NOT be inherited
+        assert!(meta.title.is_none());
+        assert!(meta.description.is_none());
+        assert!(meta.page_type.is_none());
+    }
+
+    #[test]
+    fn test_meta_invalid_own_metadata_clears_inherited_fields() {
+        let temp_dir = create_test_dir();
+        let parent = temp_dir.path().join("parent");
+        fs::create_dir(&parent).unwrap();
+        fs::write(parent.join("index.md"), "# Parent").unwrap();
+        fs::write(
+            parent.join("meta.yaml"),
+            "title: Parent Title\ndescription: Parent Desc\ntype: domain\nvars:\n  key: value",
+        )
+        .unwrap();
+
+        // Child with invalid YAML
+        let child = parent.join("child");
+        fs::create_dir(&child).unwrap();
+        fs::write(child.join("index.md"), "# Child").unwrap();
+        fs::write(child.join("meta.yaml"), "{{invalid yaml").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let meta = storage.meta("parent/child").unwrap().unwrap();
+
+        // Only vars should be inherited
+        assert_eq!(meta.vars.get("key"), Some(&serde_json::json!("value")));
+
+        // title/description/page_type should NOT be inherited
+        assert!(meta.title.is_none());
+        assert!(meta.description.is_none());
+        assert!(meta.page_type.is_none());
+    }
+
+    #[test]
     fn test_read_existing_file() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide\n\nContent here.").unwrap();
