@@ -112,26 +112,34 @@ impl Scanner {
         let mut docs: HashMap<String, DocumentRef> = HashMap::new();
 
         for file in files {
-            let doc = docs
-                .entry(file.url_path.clone())
-                .or_insert_with(|| DocumentRef {
-                    url_path: file.url_path,
-                    content_path: None,
-                    meta_path: None,
-                });
-
-            let (target, kind_name) = match file.kind {
-                SourceKind::Content => (&mut doc.content_path, "content"),
-                SourceKind::Metadata => (&mut doc.meta_path, "metadata"),
-            };
-
-            if target.is_some() {
-                tracing::warn!(
-                    url_path = %doc.url_path,
-                    "Multiple {kind_name} files for same url_path, using last"
-                );
+            match docs.entry(file.url_path) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let mut doc = DocumentRef {
+                        url_path: entry.key().clone(),
+                        content_path: None,
+                        meta_path: None,
+                    };
+                    match file.kind {
+                        SourceKind::Content => doc.content_path = Some(file.path),
+                        SourceKind::Metadata => doc.meta_path = Some(file.path),
+                    }
+                    entry.insert(doc);
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    let doc = entry.get_mut();
+                    let (target, kind_name) = match file.kind {
+                        SourceKind::Content => (&mut doc.content_path, "content"),
+                        SourceKind::Metadata => (&mut doc.meta_path, "metadata"),
+                    };
+                    if target.is_some() {
+                        tracing::warn!(
+                            url_path = %doc.url_path,
+                            "Multiple {kind_name} files for same url_path, using last"
+                        );
+                    }
+                    *target = Some(file.path);
+                }
             }
-            *target = Some(file.path);
         }
 
         docs.into_values().collect()
