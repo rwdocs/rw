@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Auto-detect `README.md` as homepage when `docs/index.md` doesn't exist
+
 ## [0.1.2]
 
 ### Added
