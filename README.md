@@ -113,6 +113,14 @@ rw serve --no-live-reload
 rw serve --no-cache
 ```
 
+## README.md as Homepage
+
+If your `docs/` directory doesn't have an `index.md`, RW automatically uses `README.md` from the project root as the homepage. No configuration needed.
+
+- `docs/index.md` exists: used as homepage (normal behavior)
+- `docs/index.md` missing + `README.md` exists: README.md serves as homepage
+- Live reload works for README.md changes too
+
 ## Confluence Publishing
 
 All Confluence-related commands are grouped under the `confluence` subcommand:
