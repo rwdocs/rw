@@ -82,7 +82,9 @@ fn record_notify_events(
     debouncer: &EventDebouncer,
     filter: impl Fn(PathBuf) -> Option<PathBuf>,
 ) {
-    let Ok(event) = res else { return };
+    let Ok(event) = res.inspect_err(|e| tracing::warn!(error = %e, "File watcher error")) else {
+        return;
+    };
     let Some(kind) = storage_event_kind(event.kind) else {
         return;
     };

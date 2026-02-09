@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Path traversal check no longer rejects legitimate paths containing `..` in filenames (e.g., `my..dir`)
 - YAML field extraction now only matches top-level fields, preventing false matches on nested keys (e.g., `title:` under `vars:`)
+- File watcher errors are now logged instead of being silently discarded
 
 ## [0.1.3] - 2026-02-09
 
