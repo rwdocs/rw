@@ -595,9 +595,7 @@ impl Storage for FsStorage {
 
         // If the requested path doesn't have its own (non-empty, valid) metadata,
         // clear title/description/page_type (only vars are inherited)
-        if !has_own_meta
-            && let Some(meta) = &mut accumulated
-        {
+        if !has_own_meta && let Some(meta) = &mut accumulated {
             meta.title = None;
             meta.description = None;
             meta.page_type = None;
