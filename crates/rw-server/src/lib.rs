@@ -221,9 +221,7 @@ pub fn server_config_from_rw_config(
         .map(Path::to_path_buf)
         .or_else(|| std::env::current_dir().ok());
 
-    let readme_path = project_root
-        .map(|root| root.join("README.md"))
-        .filter(|p| p.exists());
+    let readme_path = project_root.map(|root| root.join("README.md"));
 
     ServerConfig {
         host: config.server.host.clone(),
