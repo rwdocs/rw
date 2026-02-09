@@ -102,8 +102,8 @@ pub struct ServerConfig {
     pub version: String,
     /// Metadata file name (default: "meta.yaml").
     pub meta_filename: String,
-    /// Optional README.md path to use as homepage fallback.
-    pub readme_path: Option<PathBuf>,
+    /// README.md path to use as homepage fallback.
+    pub readme_path: PathBuf,
 }
 
 impl Default for ServerConfig {
@@ -122,7 +122,7 @@ impl Default for ServerConfig {
             verbose: false,
             version: String::new(),
             meta_filename: "meta.yaml".to_string(),
-            readme_path: None,
+            readme_path: PathBuf::from("README.md"),
         }
     }
 }
@@ -138,12 +138,10 @@ impl Default for ServerConfig {
 /// Returns an error if the server fails to start.
 pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
     // Create shared storage backend
-    let mut storage =
-        FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename);
-    if let Some(readme_path) = config.readme_path.clone() {
-        storage = storage.with_readme(readme_path);
-    }
-    let storage: Arc<dyn rw_storage::Storage> = Arc::new(storage);
+    let storage: Arc<dyn rw_storage::Storage> = Arc::new(
+        FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename)
+            .with_readme(config.readme_path.clone()),
+    );
 
     // Create unified Site with storage and configuration
     let site_config = SiteConfig {
@@ -218,7 +216,8 @@ pub fn server_config_from_rw_config(
         .and_then(|p| p.parent())
         .map(Path::to_path_buf)
         .or_else(|| std::env::current_dir().ok())
-        .map(|root| root.join("README.md"));
+        .unwrap_or_default()
+        .join("README.md");
 
     ServerConfig {
         host: config.server.host.clone(),
