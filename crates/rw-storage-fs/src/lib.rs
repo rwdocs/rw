@@ -586,14 +586,16 @@ impl Storage for FsStorage {
 
         let ancestors = build_ancestor_chain(path);
 
+        let has_own_meta = self.load_ancestor_meta(path).is_some();
+
         let mut accumulated = ancestors
             .iter()
             .filter_map(|ancestor| self.load_ancestor_meta(ancestor))
             .reduce(|parent, child| merge_metadata(&parent, &child));
 
-        // If the requested path doesn't have its own metadata file,
+        // If the requested path doesn't have its own (non-empty, valid) metadata,
         // clear title/description/page_type (only vars are inherited)
-        if self.resolve_meta(path).is_none()
+        if !has_own_meta
             && let Some(meta) = &mut accumulated
         {
             meta.title = None;
