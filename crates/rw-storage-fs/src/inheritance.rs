@@ -10,14 +10,14 @@ use rw_storage::Metadata;
 /// Returns ancestors from root to the path itself.
 /// E.g., `"domain/billing/api"` → `["", "domain", "domain/billing", "domain/billing/api"]`
 #[must_use]
-pub(crate) fn build_ancestor_chain(path: &str) -> Vec<String> {
-    let mut ancestors = vec![String::new()]; // Root is always first
+pub(crate) fn build_ancestor_chain(path: &str) -> Vec<&str> {
+    let mut ancestors = vec![""];
 
     if !path.is_empty() {
         for (i, _) in path.match_indices('/') {
-            ancestors.push(path[..i].to_string());
+            ancestors.push(&path[..i]);
         }
-        ancestors.push(path.to_string());
+        ancestors.push(path);
     }
 
     ancestors

@@ -576,9 +576,9 @@ impl Storage for FsStorage {
 
         let loaded: Vec<(&str, Metadata)> = ancestors
             .iter()
-            .filter_map(|ancestor| {
+            .filter_map(|&ancestor| {
                 self.load_ancestor_meta(ancestor)
-                    .map(|meta| (ancestor.as_str(), meta))
+                    .map(|meta| (ancestor, meta))
             })
             .collect();
 
