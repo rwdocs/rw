@@ -278,9 +278,10 @@ impl FsStorage {
 
     /// Validate that a URL path doesn't contain path traversal attempts.
     ///
-    /// Rejects paths containing `..` to prevent path traversal attacks.
+    /// Rejects paths with `..` as a complete path segment to prevent path traversal attacks.
+    /// Filenames containing `..` (e.g., `my..dir`) are allowed.
     fn validate_path(path: &str) -> Result<(), StorageError> {
-        if path.contains("..") {
+        if path.split('/').any(|segment| segment == "..") {
             return Err(StorageError::new(StorageErrorKind::InvalidPath)
                 .with_path(path)
                 .with_backend(BACKEND));
@@ -1294,6 +1295,18 @@ mod tests {
 
         // Path traversal should return false (treated as non-existent)
         assert!(!storage.exists("../etc/passwd"));
+    }
+
+    #[test]
+    fn test_path_with_double_dots_in_name_is_valid() {
+        let temp_dir = create_test_dir();
+        let dir = temp_dir.path().join("my..dir");
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("index.md"), "# My File").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+
+        assert!(storage.exists("my..dir"));
     }
 
     #[test]

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Simplify `rw-storage-fs` internals: streamline file watching, metadata inheritance, and document building
 
+### Fixed
+
+- Path traversal check no longer rejects legitimate paths containing `..` in filenames (e.g., `my..dir`)
+
 ## [0.1.3] - 2026-02-09
 
 ### Added
