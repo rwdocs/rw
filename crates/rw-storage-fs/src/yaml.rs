@@ -12,11 +12,7 @@ use rw_storage::{Metadata, MetadataError};
 fn extract_yaml_field(content: &str, field_name: &str) -> Option<String> {
     let prefix = format!("{field_name}:");
     content.lines().find_map(|line| {
-        let value = line
-            .trim()
-            .strip_prefix(&prefix)?
-            .trim()
-            .trim_matches(['"', '\'']);
+        let value = line.strip_prefix(&prefix)?.trim().trim_matches(['"', '\'']);
         (!value.is_empty()).then(|| value.to_string())
     })
 }
@@ -156,5 +152,23 @@ vars:
         let yaml = "title: [invalid yaml";
         let result = parse_metadata(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_yaml_title_ignores_nested_field() {
+        let yaml = "vars:\n  title: Nested Title\ntitle: Real Title";
+        assert_eq!(extract_yaml_title(yaml), Some("Real Title".to_string()));
+    }
+
+    #[test]
+    fn test_extract_yaml_title_none_when_only_nested() {
+        let yaml = "vars:\n  title: Nested Only";
+        assert_eq!(extract_yaml_title(yaml), None);
+    }
+
+    #[test]
+    fn test_extract_yaml_type_ignores_nested_field() {
+        let yaml = "vars:\n  type: nested\ntype: real";
+        assert_eq!(extract_yaml_type(yaml), Some("real".to_string()));
     }
 }
