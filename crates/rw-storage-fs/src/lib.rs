@@ -376,8 +376,7 @@ impl FsStorage {
             }
         }
 
-        let title = self
-            .extract_title_from_content(file_path)
+        let title = Self::extract_title_from_content(file_path)
             .unwrap_or_else(|| Self::derive_title_from_filename(file_path));
 
         if let Some(mtime) = mtime {
@@ -394,7 +393,7 @@ impl FsStorage {
     }
 
     /// Extract title from first H1 heading in markdown file.
-    fn extract_title_from_content(&self, file_path: &Path) -> Option<String> {
+    fn extract_title_from_content(file_path: &Path) -> Option<String> {
         let content = fs::read_to_string(file_path).ok()?;
         let caps = H1_REGEX.captures(&content)?;
         Some(caps[1].trim().to_string())
@@ -463,8 +462,7 @@ impl Storage for FsStorage {
             && !documents.iter().any(|d| d.path.is_empty())
             && readme_path.exists()
         {
-            let title = self
-                .extract_title_from_content(readme_path)
+            let title = Self::extract_title_from_content(readme_path)
                 .unwrap_or_else(|| "Home".to_string());
             documents.push(Document {
                 path: String::new(),
