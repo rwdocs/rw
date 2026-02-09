@@ -131,7 +131,9 @@ fn capitalize_first_into(word: &str, buf: &mut String) {
     let mut chars = word.chars();
     if let Some(first) = chars.next() {
         buf.extend(first.to_uppercase());
-        buf.push_str(chars.as_str());
+        for c in chars {
+            buf.extend(c.to_lowercase());
+        }
     }
 }
 
@@ -1566,6 +1568,11 @@ mod tests {
             .as_secs_f64();
         assert!(mtime > now - 60.0);
         assert!(mtime <= now);
+    }
+
+    #[test]
+    fn test_virtual_page_title_uppercase_slug() {
+        assert_eq!(virtual_page_title("MY-DOMAIN"), "My Domain");
     }
 
     #[test]
