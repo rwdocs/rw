@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [unreleased]
+## [Unreleased]
+
+## [0.1.2]
 
 ### Added
 
@@ -13,24 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Navigation sections grouping pages by `type` in sidebar
 - Scoped section navigation for hierarchical documentation sites
 - Page loading progress for slow updates
-
-### Changed
-
-- **Storage API redesign**: `Document` now includes `has_content` and `page_type` fields for unified document model. Virtual pages (directories with metadata but no `index.md`) are now discovered by Storage instead of Site
-- `Metadata` moved from rw-site to rw-storage for reuse by future storage backends
-- `Storage.meta()` now returns `Option<Metadata>` with inheritance applied (vars are inherited, title/description/page_type are not)
-- Site uses lazy metadata loading during render instead of eager loading during scan
-- Metadata file naming convention is now encapsulated in Storage via `meta()` method
-- **Storage crate split**: `rw-storage` now contains only the core `Storage` trait, error types, event types, `Metadata` struct, and `MockStorage`. Filesystem implementation moved to new `rw-storage-fs` crate with `FsStorage`, enabling future backends like `rw-storage-s3` or `rw-storage-redis`
-- `Storage::scan()` now returns `Vec<Document>` directly instead of `ScanResult` wrapper
-- `FsStorage::scan()` no longer sorts results or filters `node_modules`/`target`/`_` prefixed paths - sorting is presentation logic handled by Site, and directory filtering is user responsibility via `source_dir` configuration
-- **Scanner extraction**: `FsStorage` now uses a separate `Scanner` struct for document discovery, separating filesystem walking (Phase 1) from document building (Phase 2). This improves testability and enables future partial scanning optimizations
-- `DocumentRef` now uses explicit `content_path` and `meta_path` fields instead of `sources: Vec<PathBuf>`, making file type identification the Scanner's responsibility
-- `Scanner::new()` now accepts `&Path` instead of `PathBuf` to avoid unnecessary cloning
-- **Scanner refactoring**: Replaced recursive `scan_directory()` with stack-based iteration and HashMap-based grouping. Extracted file classification logic into `SourceFile::classify()` method (`source.rs`), separating concerns between filtering (done by Scanner) and URL path computation (done by SourceFile)
-- Extracted `titlecase_from_slug()` utility to eliminate duplicated title generation logic
-- Use explicit `Arc::clone()` in `Site` for clarity
-- Remove unnecessary `alignments.clone()` in table rendering (already owned)
 
 ### Security
 
