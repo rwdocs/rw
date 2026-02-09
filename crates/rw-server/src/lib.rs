@@ -138,12 +138,11 @@ impl Default for ServerConfig {
 /// Returns an error if the server fails to start.
 pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
     // Create shared storage backend
-    let mut fs_storage =
-        FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename);
-    if let Some(ref readme_path) = config.readme_path {
-        fs_storage = fs_storage.with_readme(readme_path.clone());
+    let mut storage = FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename);
+    if let Some(readme_path) = config.readme_path.clone() {
+        storage = storage.with_readme(readme_path);
     }
-    let storage: Arc<dyn rw_storage::Storage> = Arc::new(fs_storage);
+    let storage: Arc<dyn rw_storage::Storage> = Arc::new(storage);
 
     // Create unified Site with storage and configuration
     let site_config = SiteConfig {
@@ -211,17 +210,14 @@ pub fn server_config_from_rw_config(
     version: String,
     verbose: bool,
 ) -> ServerConfig {
-    // Auto-detect README.md as homepage fallback.
-    // Always pass the path; FsStorage decides at runtime whether to use it
-    // (index.md takes priority in resolve_content and scan).
-    let project_root = config
+    // Auto-detect README.md as homepage fallback (FsStorage checks existence at runtime)
+    let readme_path = config
         .config_path
         .as_ref()
         .and_then(|p| p.parent())
         .map(Path::to_path_buf)
-        .or_else(|| std::env::current_dir().ok());
-
-    let readme_path = project_root.map(|root| root.join("README.md"));
+        .or_else(|| std::env::current_dir().ok())
+        .map(|root| root.join("README.md"));
 
     ServerConfig {
         host: config.server.host.clone(),
