@@ -251,10 +251,10 @@ impl FsStorage {
             if index.exists() {
                 return Some(index);
             }
-            if let Some(ref readme) = self.readme_path {
-                if readme.exists() {
-                    return Some(readme.clone());
-                }
+            if let Some(ref readme) = self.readme_path
+                && readme.exists()
+            {
+                return Some(readme.clone());
             }
             return None;
         }
