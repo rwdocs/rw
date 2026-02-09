@@ -307,7 +307,10 @@ pub trait Storage: Send + Sync {
     ///
     /// - `Ok(Some(metadata))` - Metadata exists and was parsed successfully
     /// - `Ok(None)` - No metadata file exists for this path or any ancestor
-    /// - `Err(StorageError)` - I/O error or parse error
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] on I/O error or metadata parse error.
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError>;
 }
 

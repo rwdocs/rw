@@ -15,6 +15,7 @@ use crate::source::{SourceFile, SourceKind};
 /// Contains only file locations - no content is read at this stage.
 /// `FsStorage`'s `build_document` method converts these to full `Document` structs.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)]
 pub(crate) struct DocumentRef {
     /// URL path (e.g., "", "domain", "domain/guide")
     pub url_path: String,
@@ -59,7 +60,7 @@ impl Scanner {
             return Vec::new();
         }
         let files = self.collect_source_files();
-        self.group_into_documents(files)
+        Self::group_into_documents(files)
     }
 
     /// Walk directory tree and collect all source files.
@@ -111,8 +112,8 @@ impl Scanner {
         files
     }
 
-    /// Group source files into document references by url_path.
-    fn group_into_documents(&self, files: Vec<SourceFile>) -> Vec<DocumentRef> {
+    /// Group source files into document references by `url_path`.
+    fn group_into_documents(files: Vec<SourceFile>) -> Vec<DocumentRef> {
         let mut docs: HashMap<String, DocumentRef> = HashMap::new();
 
         for file in files {

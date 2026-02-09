@@ -566,7 +566,7 @@ impl Site {
                 doc.path.clone(),
                 doc.has_content,
                 parent_idx,
-                doc.page_type.clone(),
+                doc.page_type.as_deref(),
             );
             url_to_idx.insert(doc.path.clone(), idx);
         }

@@ -492,18 +492,18 @@ impl SiteStateBuilder {
         path: String,
         has_content: bool,
         parent_idx: Option<usize>,
-        page_type: Option<String>,
+        page_type: Option<&str>,
     ) -> usize {
         let idx = self.pages.len();
 
         // Register section if page has a type
-        if let Some(ref section_type) = page_type {
+        if let Some(section_type) = page_type {
             self.sections.insert(
                 path.clone(),
                 SectionInfo {
                     title: title.clone(),
                     path: path.clone(),
-                    section_type: section_type.clone(),
+                    section_type: section_type.to_owned(),
                 },
             );
         }
@@ -695,7 +695,7 @@ mod tests {
             "parent".to_string(),
             true,
             None,
-            Some("section".to_string()),
+            Some("section"),
         );
         builder.add_page(
             "Child".to_string(),
@@ -868,14 +868,14 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some("domain".to_string()),
+            Some("domain"),
         );
         builder.add_page(
             "Payments".to_string(),
             "payments".to_string(),
             true,
             Some(root_idx),
-            Some("system".to_string()),
+            Some("system"),
         );
         builder.add_page(
             "Getting Started".to_string(),
@@ -1028,7 +1028,7 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some("domain".to_string()),
+            Some("domain"),
         );
         builder.add_page(
             "Guide".to_string(),
@@ -1063,7 +1063,7 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some("domain".to_string()),
+            Some("domain"),
         );
         // Add child under section
         builder.add_page(
@@ -1091,7 +1091,7 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some("domain".to_string()),
+            Some("domain"),
         );
         builder.add_page(
             "Payments".to_string(),
@@ -1137,14 +1137,14 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some("domain".to_string()),
+            Some("domain"),
         );
         let payments_idx = builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
             true,
             Some(billing_idx),
-            Some("system".to_string()),
+            Some("system"),
         );
         builder.add_page(
             "API".to_string(),
@@ -1183,7 +1183,7 @@ mod tests {
             "billing".to_string(),
             true,
             None,
-            Some("domain".to_string()),
+            Some("domain"),
         );
         let site = builder.build();
 
@@ -1200,7 +1200,7 @@ mod tests {
             "billing".to_string(),
             true,
             None,
-            Some("domain".to_string()),
+            Some("domain"),
         );
         builder.add_page(
             "Payments".to_string(),
@@ -1224,14 +1224,14 @@ mod tests {
             "billing".to_string(),
             true,
             None,
-            Some("domain".to_string()),
+            Some("domain"),
         );
         let payments_idx = builder.add_page(
             "Payments".to_string(),
             "billing/payments".to_string(),
             true,
             Some(billing_idx),
-            Some("system".to_string()),
+            Some("system"),
         );
         builder.add_page(
             "API".to_string(),
@@ -1383,7 +1383,7 @@ mod tests {
             "billing".to_string(),
             true,
             Some(root_idx),
-            Some("domain".to_string()),
+            Some("domain"),
         );
         // Empty virtual child (should be filtered)
         builder.add_page(

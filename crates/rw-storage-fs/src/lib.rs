@@ -52,7 +52,7 @@ use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
 
-/// Convert a slug (kebab-case or snake_case) to title case.
+/// Convert a slug (kebab-case or `snake_case`) to title case.
 ///
 /// Replaces `-` and `_` with spaces, then capitalizes the first letter of each word.
 ///
