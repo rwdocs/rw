@@ -11,21 +11,10 @@ use rw_storage::{Metadata, MetadataError};
 /// Returns `None` if no valid field is found.
 fn extract_yaml_field(content: &str, field_name: &str) -> Option<String> {
     let prefix = format!("{field_name}:");
-    for line in content.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix(&prefix) {
-            let value = rest.trim();
-            // Strip optional quotes
-            let value = value.strip_prefix('"').unwrap_or(value);
-            let value = value.strip_suffix('"').unwrap_or(value);
-            let value = value.strip_prefix('\'').unwrap_or(value);
-            let value = value.strip_suffix('\'').unwrap_or(value);
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
+    content.lines().find_map(|line| {
+        let value = line.trim().strip_prefix(&prefix)?.trim().trim_matches(['"', '\'']);
+        (!value.is_empty()).then(|| value.to_string())
+    })
 }
 
 /// Extract title from YAML content using simple string parsing.

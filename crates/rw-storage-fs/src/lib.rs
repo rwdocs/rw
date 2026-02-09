@@ -31,8 +31,7 @@ mod yaml;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use glob::Pattern;
@@ -52,6 +51,13 @@ use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
 
+/// Create a storage error from a notify error.
+fn notify_error(e: notify::Error) -> StorageError {
+    StorageError::new(StorageErrorKind::Other)
+        .with_backend(BACKEND)
+        .with_source(e)
+}
+
 /// Convert a `notify::EventKind` to a `StorageEventKind`.
 ///
 /// Returns `None` for event kinds that are not relevant (e.g., Access).
@@ -61,6 +67,36 @@ fn storage_event_kind(kind: notify::EventKind) -> Option<StorageEventKind> {
         notify::EventKind::Modify(_) => Some(StorageEventKind::Modified),
         notify::EventKind::Remove(_) => Some(StorageEventKind::Removed),
         _ => None,
+    }
+}
+
+/// Process a notify event result, recording matching events into the debouncer.
+///
+/// The `filter` closure determines which paths to record. Return `Some(path)` to
+/// record the event, or `None` to skip it.
+fn record_notify_events(
+    res: Result<notify::Event, notify::Error>,
+    debouncer: &EventDebouncer,
+    filter: impl Fn(PathBuf) -> Option<PathBuf>,
+) {
+    let Ok(event) = res else { return };
+    let Some(kind) = storage_event_kind(event.kind) else {
+        return;
+    };
+    for path in event.paths {
+        if let Some(path) = filter(path) {
+            debouncer.record(path, kind);
+        }
+    }
+}
+
+/// Derive a title for a virtual page from its URL path.
+///
+/// Uses the last path segment as a slug, falling back to "Untitled" for root paths.
+fn virtual_page_title(url_path: &str) -> String {
+    match url_path.rsplit_once('/').map_or(url_path, |(_, last)| last) {
+        "" => "Untitled".to_string(),
+        slug => titlecase_from_slug(slug),
     }
 }
 
@@ -75,17 +111,23 @@ fn storage_event_kind(kind: notify::EventKind) -> Option<StorageEventKind> {
 /// assert_eq!(titlecase_from_slug("my_page"), "My Page");
 /// ```
 fn titlecase_from_slug(slug: &str) -> String {
-    slug.replace(['-', '_'], " ")
-        .split_whitespace()
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut result = String::with_capacity(slug.len());
+    for word in slug.split(['-', '_', ' ']).filter(|w| !w.is_empty()) {
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        capitalize_first_into(word, &mut result);
+    }
+    result
+}
+
+/// Capitalize the first character of a word, appending to `buf`.
+fn capitalize_first_into(word: &str, buf: &mut String) {
+    let mut chars = word.chars();
+    if let Some(first) = chars.next() {
+        buf.extend(first.to_uppercase());
+        buf.push_str(chars.as_str());
+    }
 }
 
 /// Cached file metadata for incremental title extraction.
@@ -272,13 +314,13 @@ impl FsStorage {
         }
 
         // Prefer directory/index.md
-        let index_path = self.source_dir.join(format!("{url_path}/index.md"));
+        let index_path = self.source_dir.join(url_path).join("index.md");
         if index_path.exists() {
             return Some(index_path);
         }
 
         // Fall back to standalone file
-        let file_path = self.source_dir.join(format!("{url_path}.md"));
+        let file_path = self.source_dir.join(url_path).with_extension("md");
         file_path.exists().then_some(file_path)
     }
 
@@ -290,12 +332,7 @@ impl FsStorage {
     ///
     /// Returns `None` if no metadata file exists.
     fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
-        let meta_path = if url_path.is_empty() {
-            self.source_dir.join(&self.meta_filename)
-        } else {
-            self.source_dir
-                .join(format!("{url_path}/{}", self.meta_filename))
-        };
+        let meta_path = self.source_dir.join(url_path).join(&self.meta_filename);
         meta_path.exists().then_some(meta_path)
     }
 
@@ -307,95 +344,52 @@ impl FsStorage {
     /// Returns `None` if the ref produces no valid document (e.g., empty meta.yaml
     /// for a virtual page).
     fn build_document(&self, doc_ref: &DocumentRef) -> Option<Document> {
-        // Read metadata if present
         let meta_content = doc_ref
             .meta_path
             .as_ref()
             .and_then(|p| fs::read_to_string(p).ok());
-        let meta_title = meta_content.as_ref().and_then(|c| extract_yaml_title(c));
-        let page_type = meta_content.as_ref().and_then(|c| extract_yaml_type(c));
+        let meta_str = meta_content.as_deref();
+        let meta_title = meta_str.and_then(extract_yaml_title);
+        let page_type = meta_str.and_then(extract_yaml_type);
 
-        if let Some(md_path) = &doc_ref.content_path {
-            // Real page with content
-            let name_lower = md_path
-                .file_name()
-                .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
-
-            // Title priority: meta > H1 > filename
-            let title = meta_title.unwrap_or_else(|| self.get_title(md_path, &name_lower));
-
-            Some(Document {
-                path: doc_ref.url_path.clone(),
-                title,
-                has_content: true,
-                page_type,
-            })
-        } else if let Some(meta_path) = &doc_ref.meta_path {
-            // Virtual page (meta.yaml only)
-            let title = Self::get_virtual_page_title(meta_path, Path::new(&doc_ref.url_path))?;
-
-            Some(Document {
-                path: doc_ref.url_path.clone(),
-                title,
-                has_content: false,
-                page_type,
-            })
+        let title = if let Some(title) = meta_title {
+            title
+        } else if let Some(md_path) = &doc_ref.content_path {
+            self.extract_or_derive_title(md_path)
         } else {
-            // No sources - shouldn't happen but handle gracefully
-            None
-        }
+            // Virtual page: skip if no metadata or empty content
+            if meta_str.is_none_or(|c| c.trim().is_empty()) {
+                return None;
+            }
+            virtual_page_title(&doc_ref.url_path)
+        };
+
+        Some(Document {
+            path: doc_ref.url_path.clone(),
+            title,
+            has_content: doc_ref.content_path.is_some(),
+            page_type,
+        })
     }
 
-    /// Get title for a virtual page from its metadata file.
-    ///
-    /// Returns `None` if the metadata file is empty or doesn't contain useful content.
-    fn get_virtual_page_title(meta_path: &Path, dir_path: &Path) -> Option<String> {
-        let content = fs::read_to_string(meta_path).ok()?;
+    /// Extract title from content or derive it from filename, using mtime cache.
+    fn extract_or_derive_title(&self, file_path: &Path) -> String {
+        let mtime = fs::metadata(file_path).ok().and_then(|m| m.modified().ok());
 
-        if content.trim().is_empty() {
-            return None;
-        }
-
-        // Try to extract title from YAML, fallback to directory name
-        let title = extract_yaml_title(&content).unwrap_or_else(|| {
-            dir_path.file_name().map_or_else(
-                || "Untitled".to_string(),
-                |n| Self::title_from_dir_name(&n.to_string_lossy()),
-            )
-        });
-
-        Some(title)
-    }
-
-    /// Generate title from directory name.
-    fn title_from_dir_name(name: &str) -> String {
-        titlecase_from_slug(name)
-    }
-
-    /// Get title for a file, using mtime cache when possible.
-    fn get_title(&self, file_path: &Path, name_lower: &str) -> String {
-        // Get current mtime
-        let current_mtime = fs::metadata(file_path).ok().and_then(|m| m.modified().ok());
-
-        // Check cache
-        {
+        // Check cache (lock released at end of block)
+        if let Some(mtime) = mtime {
             let cache = self.mtime_cache.lock().unwrap();
-            if let (Some(cached), Some(mtime)) = (cache.get(file_path), current_mtime)
-                && cached.mtime == mtime
-            {
+            if let Some(cached) = cache.get(file_path).filter(|c| c.mtime == mtime) {
                 return cached.title.clone();
             }
         }
 
-        // Cache miss - extract title
         let title = self
             .extract_title_from_content(file_path)
-            .unwrap_or_else(|| Self::title_from_filename(name_lower));
+            .unwrap_or_else(|| Self::derive_title_from_filename(file_path));
 
-        // Update cache
-        if let Some(mtime) = current_mtime {
-            let mut cache = self.mtime_cache.lock().unwrap();
-            cache.insert(
+        if let Some(mtime) = mtime {
+            self.mtime_cache.lock().unwrap().insert(
                 file_path.to_path_buf(),
                 CachedFile {
                     mtime,
@@ -410,17 +404,34 @@ impl FsStorage {
     /// Extract title from first H1 heading in markdown file.
     fn extract_title_from_content(&self, file_path: &Path) -> Option<String> {
         let content = fs::read_to_string(file_path).ok()?;
-        self.h1_regex
-            .captures(&content)
-            .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().trim().to_string())
+        let caps = self.h1_regex.captures(&content)?;
+        Some(caps[1].trim().to_string())
     }
 
-    /// Generate title from filename.
-    fn title_from_filename(name_lower: &str) -> String {
-        // Remove .md extension
-        let name = name_lower.strip_suffix(".md").unwrap_or(name_lower);
-        titlecase_from_slug(name)
+    /// Generate title from a file path's filename.
+    fn derive_title_from_filename(file_path: &Path) -> String {
+        file_path
+            .file_stem()
+            .map(|s| titlecase_from_slug(&s.to_string_lossy().to_lowercase()))
+            .unwrap_or_default()
+    }
+
+    /// Load and parse metadata from a single ancestor path.
+    ///
+    /// Returns `None` if no metadata file exists, is empty, or fails to parse.
+    fn load_ancestor_meta(&self, ancestor: &str) -> Option<Metadata> {
+        let meta_path = self.resolve_meta(ancestor)?;
+        let content = fs::read_to_string(&meta_path)
+            .inspect_err(|e| {
+                tracing::warn!(path = %ancestor, error = %e, "Failed to read metadata file, skipping");
+            })
+            .ok()?;
+        let meta = parse_metadata(&content)
+            .inspect_err(|e| {
+                tracing::warn!(path = %ancestor, error = %e, "Failed to parse metadata, skipping");
+            })
+            .ok()?;
+        (!meta.is_empty()).then_some(meta)
     }
 
     /// Set up a file watcher for README.md (outside `source_dir`).
@@ -429,35 +440,18 @@ impl FsStorage {
     /// shared debouncer.
     fn watch_readme(
         readme_path: &Path,
-        debouncer: &std::sync::Arc<EventDebouncer>,
+        debouncer: &Arc<EventDebouncer>,
     ) -> Result<notify::RecommendedWatcher, StorageError> {
-        let debouncer = std::sync::Arc::clone(debouncer);
+        let debouncer = Arc::clone(debouncer);
 
-        let mut watcher =
-            notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let Some(kind) = storage_event_kind(event.kind) else {
-                        return;
-                    };
-
-                    for path in event.paths {
-                        debouncer.record(path, kind);
-                    }
-                }
-            })
-            .map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(e)
-            })?;
+        let mut watcher = notify::recommended_watcher(move |res| {
+            record_notify_events(res, &debouncer, Some);
+        })
+        .map_err(notify_error)?;
 
         watcher
             .watch(readme_path, RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(e)
-            })?;
+            .map_err(notify_error)?;
 
         Ok(watcher)
     }
@@ -507,15 +501,12 @@ impl Storage for FsStorage {
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Self::validate_path(path)?;
-        // Try content file first, fall back to metadata file (for virtual pages)
         let full_path = self
             .resolve_content(path)
             .or_else(|| self.resolve_meta(path))
             .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
-        let metadata = fs::metadata(&full_path)
-            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))?;
-        let modified = metadata
-            .modified()
+        let modified = fs::metadata(&full_path)
+            .and_then(|m| m.modified())
             .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))?;
         Ok(modified
             .duration_since(UNIX_EPOCH)
@@ -523,61 +514,27 @@ impl Storage for FsStorage {
     }
 
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
-        // Create channel for events
         let (event_tx, event_rx) = mpsc::channel();
-
-        // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(100)));
 
-        // Create debouncer (100ms as per RD-034)
-        let debouncer = std::sync::Arc::new(EventDebouncer::new(Duration::from_millis(100)));
-
-        // Setup notify watcher
         let source_dir = self.source_dir.clone();
         let patterns = self.watch_patterns.clone();
-        let debouncer_for_watcher = std::sync::Arc::clone(&debouncer);
+        let watcher_debouncer = Arc::clone(&debouncer);
 
-        let mut watcher =
-            notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                if let Ok(event) = res {
-                    let Some(kind) = storage_event_kind(event.kind) else {
-                        return;
-                    };
-
-                    for path in event.paths {
-                        let Ok(rel_path) = path.strip_prefix(&source_dir) else {
-                            continue;
-                        };
-
-                        let matches_pattern = patterns.is_empty()
-                            || patterns
-                                .iter()
-                                .any(|pattern| pattern.matches_path(rel_path));
-
-                        if matches_pattern {
-                            debouncer_for_watcher.record(path, kind);
-                        }
-                    }
-                }
-            })
-            .map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(e)
-            })?;
+        let mut watcher = notify::recommended_watcher(move |res| {
+            record_notify_events(res, &watcher_debouncer, |path| {
+                let rel_path = path.strip_prefix(&source_dir).ok()?;
+                (patterns.is_empty() || patterns.iter().any(|p| p.matches_path(rel_path)))
+                    .then_some(path)
+            });
+        })
+        .map_err(notify_error)?;
 
         watcher
             .watch(&self.source_dir, RecursiveMode::Recursive)
-            .map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(e)
-            })?;
+            .map_err(notify_error)?;
 
-        // Keep watcher alive in Arc
-        let watcher = std::sync::Arc::new(std::sync::Mutex::new(watcher));
-
-        // Optionally set up a second watcher for README.md (outside source_dir)
         let readme_watcher = self
             .readme_path
             .as_deref()
@@ -585,105 +542,60 @@ impl Storage for FsStorage {
             .map(|p| Self::watch_readme(p, &debouncer))
             .transpose()?;
 
-        // Spawn thread to drain debouncer and send to channel
-        let source_dir_for_drain = self.source_dir.clone();
+        // Spawn drain thread. Watchers are moved in to keep them alive.
+        let source_dir = self.source_dir.clone();
         std::thread::spawn(move || {
-            // Keep watcher references alive in this thread
-            let _watcher_guard = watcher;
-            let _readme_watcher_guard = readme_watcher;
+            let _watcher = watcher;
+            let _readme_watcher = readme_watcher;
 
             loop {
-                // Check for shutdown signal (blocking until timeout or signal)
                 match shutdown_rx.recv_timeout(Duration::from_millis(50)) {
-                    // Shutdown signaled or handle dropped
                     Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {} // Continue draining
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
                 }
 
                 for event in debouncer.drain_ready() {
-                    // Convert full file path to relative path, then to URL path
-                    // If path is outside source_dir (e.g. README.md), map to root ("")
-                    let url_path =
-                        if let Ok(rel_path) = event.path.strip_prefix(&source_dir_for_drain) {
-                            file_path_to_url(rel_path)
-                        } else {
-                            String::new()
-                        };
+                    // Paths outside source_dir (e.g. README.md) map to root ("")
+                    let url_path = event
+                        .path
+                        .strip_prefix(&source_dir)
+                        .map_or_else(|_| String::new(), file_path_to_url);
 
-                    let storage_event = StorageEvent {
-                        path: url_path,
-                        kind: event.kind,
-                    };
-
-                    if event_tx.send(storage_event).is_err() {
-                        // Receiver dropped, exit thread
+                    if event_tx
+                        .send(StorageEvent {
+                            path: url_path,
+                            kind: event.kind,
+                        })
+                        .is_err()
+                    {
                         return;
                     }
                 }
             }
         });
 
-        // Create handle with RAII cleanup
-        // When dropped, shutdown_tx is dropped, causing shutdown_rx.recv() to fail
-        let handle = WatchHandle::new(shutdown_tx);
-
-        Ok((StorageEventReceiver::new(event_rx), handle))
+        // When dropped, shutdown_tx disconnects, causing the drain thread to exit
+        Ok((
+            StorageEventReceiver::new(event_rx),
+            WatchHandle::new(shutdown_tx),
+        ))
     }
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
         Self::validate_path(path)?;
 
-        // Build ancestor chain: ["", "domain", "domain/billing"] for "domain/billing/api"
         let ancestors = build_ancestor_chain(path);
 
-        // Walk ancestors from root to leaf, merging metadata
-        let mut accumulated: Option<Metadata> = None;
-        let mut has_own_meta = false;
-
-        for ancestor in &ancestors {
-            let Some(meta_path) = self.resolve_meta(ancestor) else {
-                continue;
-            };
-
-            let content = match fs::read_to_string(&meta_path) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!(
-                        path = %ancestor,
-                        error = %e,
-                        "Failed to read metadata file, skipping"
-                    );
-                    continue;
-                }
-            };
-
-            let meta = match parse_metadata(&content) {
-                Ok(m) if !m.is_empty() => m,
-                Ok(_) => continue, // Empty metadata
-                Err(e) => {
-                    tracing::warn!(
-                        path = %ancestor,
-                        error = %e,
-                        "Failed to parse metadata, skipping"
-                    );
-                    continue;
-                }
-            };
-
-            // Track if this is the requested path's own metadata
-            if ancestor == path {
-                has_own_meta = true;
-            }
-
-            accumulated = Some(match accumulated {
-                Some(parent) => merge_metadata(&parent, &meta),
-                None => meta,
-            });
-        }
+        let mut accumulated = ancestors
+            .iter()
+            .filter_map(|ancestor| self.load_ancestor_meta(ancestor))
+            .reduce(|parent, child| merge_metadata(&parent, &child));
 
         // If the requested path doesn't have its own metadata file,
         // clear title/description/page_type (only vars are inherited)
-        if !has_own_meta && let Some(ref mut meta) = accumulated {
+        if self.resolve_meta(path).is_none()
+            && let Some(meta) = &mut accumulated
+        {
             meta.title = None;
             meta.description = None;
             meta.page_type = None;
@@ -1174,17 +1086,23 @@ mod tests {
     }
 
     #[test]
-    fn test_title_from_filename() {
+    fn test_derive_title_from_filename() {
         assert_eq!(
-            FsStorage::title_from_filename("setup-guide.md"),
+            FsStorage::derive_title_from_filename(Path::new("setup-guide.md")),
             "Setup Guide"
         );
-        assert_eq!(FsStorage::title_from_filename("my_page.md"), "My Page");
         assert_eq!(
-            FsStorage::title_from_filename("complex-name_here.md"),
+            FsStorage::derive_title_from_filename(Path::new("my_page.md")),
+            "My Page"
+        );
+        assert_eq!(
+            FsStorage::derive_title_from_filename(Path::new("complex-name_here.md")),
             "Complex Name Here"
         );
-        assert_eq!(FsStorage::title_from_filename("simple.md"), "Simple");
+        assert_eq!(
+            FsStorage::derive_title_from_filename(Path::new("simple.md")),
+            "Simple"
+        );
     }
 
     // Note: file_path_to_url tests are in source.rs

@@ -46,30 +46,21 @@ impl SourceFile {
         source_dir: &Path,
         meta_filename: &str,
     ) -> Option<Self> {
-        let filename_str = filename.to_string_lossy();
-
-        // Compute relative path from source_dir
         let rel_path = path.strip_prefix(source_dir).ok()?;
 
-        // Determine kind and url_path based on filename
-        if filename_str.ends_with(".md") {
-            let url_path = file_path_to_url(rel_path);
-            Some(Self {
-                url_path,
-                kind: SourceKind::Content,
-                path,
-            })
-        } else if filename_str == meta_filename {
-            // Metadata file -> parent directory's url_path
-            let url_path = parent_url_path(rel_path);
-            Some(Self {
-                url_path,
-                kind: SourceKind::Metadata,
-                path,
-            })
+        let (kind, url_path) = if path.extension().is_some_and(|ext| ext == "md") {
+            (SourceKind::Content, file_path_to_url(rel_path))
+        } else if filename == meta_filename {
+            (SourceKind::Metadata, parent_url_path(rel_path))
         } else {
-            None
-        }
+            return None;
+        };
+
+        Some(Self {
+            url_path,
+            kind,
+            path,
+        })
     }
 }
 
@@ -85,28 +76,19 @@ impl SourceFile {
 /// - `domain/index.md` -> `"domain"`
 /// - `domain/setup.md` -> `"domain/setup"`
 pub(crate) fn file_path_to_url(rel_path: &Path) -> String {
-    let filename = rel_path
-        .file_name()
-        .map(|f| f.to_string_lossy())
-        .unwrap_or_default();
+    if rel_path.file_name().is_some_and(|f| f == "index.md") {
+        return parent_url_path(rel_path);
+    }
 
-    if filename == "index.md" {
-        // index.md -> parent directory's url_path
-        parent_url_path(rel_path)
+    let Some(stem) = rel_path.file_stem() else {
+        return String::new();
+    };
+
+    let parent = parent_url_path(rel_path);
+    if parent.is_empty() {
+        stem.to_string_lossy().into_owned()
     } else {
-        // standalone.md -> parent/stem
-        let stem = rel_path.file_stem().map(|s| s.to_string_lossy());
-        let Some(stem) = stem else {
-            return String::new();
-        };
-
-        match rel_path.parent() {
-            Some(parent) if parent.as_os_str().is_empty() => stem.into_owned(),
-            Some(parent) => {
-                format!("{}/{}", parent.to_string_lossy().replace('\\', "/"), stem)
-            }
-            None => stem.into_owned(),
-        }
+        format!("{parent}/{}", stem.to_string_lossy())
     }
 }
 

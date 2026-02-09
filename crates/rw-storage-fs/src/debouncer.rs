@@ -60,16 +60,17 @@ impl EventDebouncer {
             Entry::Vacant(entry) => {
                 entry.insert(PendingEvent { kind, deadline });
             }
-            Entry::Occupied(mut entry) => {
-                let existing_kind = entry.get().kind;
-                if let Some(coalesced_kind) = Self::coalesce(existing_kind, kind) {
-                    entry.get_mut().kind = coalesced_kind;
-                    entry.get_mut().deadline = deadline;
-                } else {
-                    // Discard both (Created + Removed = file never existed for us)
+            Entry::Occupied(mut entry) => match Self::coalesce(entry.get().kind, kind) {
+                Some(coalesced_kind) => {
+                    let event = entry.get_mut();
+                    event.kind = coalesced_kind;
+                    event.deadline = deadline;
+                }
+                // Discard both (Created + Removed = file never existed for us)
+                None => {
                     entry.remove();
                 }
-            }
+            },
         }
     }
 
@@ -107,24 +108,20 @@ impl EventDebouncer {
     pub fn drain_ready(&self) -> Vec<DebouncedEvent> {
         let mut pending = self.pending.lock().unwrap();
         let now = Instant::now();
+        let mut ready = Vec::new();
 
-        // Use extract_if when stabilized; for now, collect keys then remove
-        let ready_paths: Vec<PathBuf> = pending
-            .iter()
-            .filter(|(_, event)| event.deadline <= now)
-            .map(|(path, _)| path.clone())
-            .collect();
+        pending.retain(|path, event| {
+            if event.deadline > now {
+                return true;
+            }
+            ready.push(DebouncedEvent {
+                path: path.clone(),
+                kind: event.kind,
+            });
+            false
+        });
 
-        ready_paths
-            .into_iter()
-            .map(|path| {
-                let event = pending.remove(&path).expect("path was just found");
-                DebouncedEvent {
-                    path,
-                    kind: event.kind,
-                }
-            })
-            .collect()
+        ready
     }
 }
 

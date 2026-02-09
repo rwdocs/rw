@@ -14,16 +14,10 @@ pub(crate) fn build_ancestor_chain(path: &str) -> Vec<String> {
     let mut ancestors = vec![String::new()]; // Root is always first
 
     if !path.is_empty() {
-        let parts: Vec<&str> = path.split('/').collect();
-        let mut current = String::new();
-        for part in parts {
-            if current.is_empty() {
-                current = part.to_string();
-            } else {
-                current = format!("{current}/{part}");
-            }
-            ancestors.push(current.clone());
+        for (i, _) in path.match_indices('/') {
+            ancestors.push(path[..i].to_string());
         }
+        ancestors.push(path.to_string());
     }
 
     ancestors
@@ -39,22 +33,16 @@ pub(crate) fn build_ancestor_chain(path: &str) -> Vec<String> {
 /// - `vars`: Deep merged (child values override parent keys)
 #[must_use]
 pub(crate) fn merge_metadata(parent: &Metadata, child: &Metadata) -> Metadata {
-    // Start with child values for non-inherited fields
-    let mut merged = Metadata {
+    // Vars: deep merge (parent first, child overrides)
+    let mut vars = parent.vars.clone();
+    vars.extend(child.vars.iter().map(|(k, v)| (k.clone(), v.clone())));
+
+    Metadata {
         title: child.title.clone(),             // Never inherited
         description: child.description.clone(), // Never inherited
         page_type: child.page_type.clone(),     // Never inherited
-        ..Default::default()
-    };
-
-    // Vars: deep merge (parent first, child overrides)
-    let mut vars = parent.vars.clone();
-    for (key, value) in &child.vars {
-        vars.insert(key.clone(), value.clone());
+        vars,
     }
-    merged.vars = vars;
-
-    merged
 }
 
 #[cfg(test)]

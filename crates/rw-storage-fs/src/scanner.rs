@@ -75,32 +75,27 @@ impl Scanner {
                 continue;
             };
 
-            for entry in entries.filter_map(Result::ok) {
-                let path = entry.path();
+            for entry in entries.flatten() {
                 let filename = entry.file_name();
 
-                // Skip hidden entries
-                if filename.to_string_lossy().starts_with('.') {
+                if filename.as_encoded_bytes().starts_with(b".") {
                     continue;
                 }
 
-                // Use symlink_metadata to detect symlinks correctly
+                let path = entry.path();
                 let Ok(metadata) = fs::symlink_metadata(&path) else {
                     continue;
                 };
 
-                // Skip symlinks entirely
                 if metadata.file_type().is_symlink() {
                     continue;
                 }
 
-                // Queue directories for visiting
                 if metadata.is_dir() {
                     dirs_to_visit.push(path);
                     continue;
                 }
 
-                // Classify as source file (filtering already done above)
                 if let Some(source) =
                     SourceFile::classify(path, &filename, &self.source_dir, &self.meta_filename)
                 {
