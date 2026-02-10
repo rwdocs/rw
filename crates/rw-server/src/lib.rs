@@ -24,7 +24,7 @@
 //!         host: "127.0.0.1".to_string(),
 //!         port: 8080,
 //!         source_dir: PathBuf::from("docs"),
-//!         cache_dir: Some(PathBuf::from(".cache")),
+//!         cache_dir: Some(PathBuf::from(".rw/cache")),
 //!         kroki_url: Some("https://kroki.io".to_string()),
 //!         include_dirs: vec![PathBuf::from(".")],
 //!         config_file: None,
@@ -224,7 +224,7 @@ pub fn server_config_from_rw_config(
         port: config.server.port,
         source_dir: config.docs_resolved.source_dir.clone(),
         cache_dir: if config.docs_resolved.cache_enabled {
-            Some(config.docs_resolved.cache_dir.clone())
+            Some(config.docs_resolved.cache_dir())
         } else {
             None
         },
