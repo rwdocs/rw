@@ -114,7 +114,7 @@ crates/
 │
 ├── rw-cache/              # Cache abstraction layer
 │   └── src/
-│       ├── lib.rs            # Cache/Bucket traits, NullCache, NullBucket
+│       ├── lib.rs            # Cache/CacheBucket traits, NullCache, NullCacheBucket
 │       └── file.rs           # FileCache (file-based impl with version validation)
 │
 ├── rw-site/               # Site structure and page rendering

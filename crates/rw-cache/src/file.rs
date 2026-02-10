@@ -15,7 +15,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::{Bucket, Cache};
+use crate::{CacheBucket, Cache};
 
 /// File-based [`Cache`] rooted at a directory on disk.
 ///
@@ -46,19 +46,19 @@ impl FileCache {
 }
 
 impl Cache for FileCache {
-    fn bucket(&self, name: &str) -> Box<dyn Bucket> {
-        Box::new(FileBucket {
+    fn bucket(&self, name: &str) -> Box<dyn CacheBucket> {
+        Box::new(FileCacheBucket {
             dir: self.root.join(name),
         })
     }
 }
 
 /// A single bucket backed by a directory on disk.
-struct FileBucket {
+struct FileCacheBucket {
     dir: PathBuf,
 }
 
-impl Bucket for FileBucket {
+impl CacheBucket for FileCacheBucket {
     fn get(&self, key: &str, etag: &str) -> Option<Vec<u8>> {
         let path = self.dir.join(key);
         let bytes = fs::read(&path).ok()?;

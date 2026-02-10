@@ -4,11 +4,11 @@
 //! from the underlying storage mechanism. Two traits form the core API:
 //!
 //! - [`Cache`]: Factory for named cache buckets
-//! - [`Bucket`]: Key-value store with etag-based invalidation
+//! - [`CacheBucket`]: Key-value store with etag-based invalidation
 //!
 //! # Implementations
 //!
-//! - [`NullCache`] / [`NullBucket`]: No-op implementations (always miss)
+//! - [`NullCache`] / [`NullCacheBucket`]: No-op implementations (always miss)
 //! - [`FileCache`]: File-based implementation with version validation
 //!
 //! # Example
@@ -31,7 +31,7 @@ pub use file::FileCache;
 /// The etag is an opaque string chosen by the caller (e.g., a file mtime, content
 /// hash, or version string). A cache hit occurs only when both the key and etag
 /// match.
-pub trait Bucket: Send + Sync {
+pub trait CacheBucket: Send + Sync {
     /// Retrieve a cached value.
     ///
     /// Returns `Some(value)` if the key exists **and** was stored with the same
@@ -59,7 +59,7 @@ pub trait Bucket: Send + Sync {
     fn set(&self, key: &str, etag: &str, value: &[u8]);
 }
 
-/// Factory for named cache [`Bucket`]s.
+/// Factory for named cache [`CacheBucket`]s.
 ///
 /// A `Cache` produces buckets that are logically isolated from each other.
 /// For example, a file-based cache might store each bucket in a separate
@@ -73,16 +73,16 @@ pub trait Cache: Send + Sync {
     /// # Arguments
     ///
     /// * `name` - Bucket name (e.g., "pages", "diagrams", "site")
-    fn bucket(&self, name: &str) -> Box<dyn Bucket>;
+    fn bucket(&self, name: &str) -> Box<dyn CacheBucket>;
 }
 
-/// No-op [`Bucket`] that never stores or retrieves data.
+/// No-op [`CacheBucket`] that never stores or retrieves data.
 ///
 /// Every `get` returns `None`; every `set` is silently discarded.
 /// Used as the bucket type for [`NullCache`].
-pub struct NullBucket;
+pub struct NullCacheBucket;
 
-impl Bucket for NullBucket {
+impl CacheBucket for NullCacheBucket {
     fn get(&self, _key: &str, _etag: &str) -> Option<Vec<u8>> {
         None
     }
@@ -90,15 +90,15 @@ impl Bucket for NullBucket {
     fn set(&self, _key: &str, _etag: &str, _value: &[u8]) {}
 }
 
-/// No-op [`Cache`] that always returns [`NullBucket`]s.
+/// No-op [`Cache`] that always returns [`NullCacheBucket`]s.
 ///
 /// Use when caching is disabled. All operations are no-ops and all lookups
 /// return `None`.
 pub struct NullCache;
 
 impl Cache for NullCache {
-    fn bucket(&self, _name: &str) -> Box<dyn Bucket> {
-        Box::new(NullBucket)
+    fn bucket(&self, _name: &str) -> Box<dyn CacheBucket> {
+        Box::new(NullCacheBucket)
     }
 }
 

@@ -21,7 +21,7 @@ use crate::kroki::{
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
-use rw_cache::Bucket;
+use rw_cache::CacheBucket;
 
 /// Configuration for diagram processing (immutable after setup).
 ///
@@ -38,8 +38,8 @@ struct ProcessorConfig {
     dpi: u32,
     /// HTTP timeout for Kroki requests (default: 30 seconds).
     timeout: Duration,
-    /// Cache for diagram rendering (defaults to `NullBucket`).
-    cache: Box<dyn Bucket>,
+    /// Cache for diagram rendering (defaults to `NullCacheBucket`).
+    cache: Box<dyn CacheBucket>,
     /// Output mode for diagram rendering.
     output: DiagramOutput,
     /// HTTP agent for connection pooling (reused across render calls).
@@ -108,7 +108,7 @@ impl DiagramProcessor {
                 config_content: None,
                 dpi: DEFAULT_DPI,
                 timeout: DEFAULT_TIMEOUT,
-                cache: Box::new(rw_cache::NullBucket),
+                cache: Box::new(rw_cache::NullCacheBucket),
                 output: DiagramOutput::default(),
                 agent: create_agent(DEFAULT_TIMEOUT),
             },
@@ -218,7 +218,7 @@ impl DiagramProcessor {
     ///     .with_cache(cache.bucket("diagrams"));
     /// ```
     #[must_use]
-    pub fn with_cache(mut self, cache: Box<dyn Bucket>) -> Self {
+    pub fn with_cache(mut self, cache: Box<dyn CacheBucket>) -> Self {
         self.config.cache = cache;
         self
     }
