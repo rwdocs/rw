@@ -164,6 +164,7 @@ pub struct Site {
     storage: Arc<dyn Storage>,
     cache: Arc<dyn Cache>,
     // Buckets
+    #[allow(clippy::struct_field_names)]
     site_bucket: Box<dyn Bucket>,
     page_bucket: Box<dyn Bucket>,
     /// Generation counter for site structure etag.
