@@ -126,12 +126,10 @@ pub struct FilePageCache {
 }
 
 impl FilePageCache {
-    const GITIGNORE_CONTENT: &str = "# Ignore everything in this directory\n*\n";
-
     /// Create a new file-based page cache.
     ///
     /// # Arguments
-    /// * `cache_dir` - Root directory for cache files (e.g., `.cache/`)
+    /// * `cache_dir` - Root directory for cache files (e.g., `.rw/cache/`)
     /// * `version` - Build version for cache invalidation
     #[must_use]
     pub fn new(cache_dir: PathBuf, version: String) -> Self {
@@ -147,16 +145,12 @@ impl FilePageCache {
         }
     }
 
-    /// Ensure cache directory exists with .gitignore.
+    /// Ensure cache directory exists.
     fn ensure_cache_dir(&self) {
         if !self.cache_dir.exists() {
             if let Err(e) = fs::create_dir_all(&self.cache_dir) {
-                // Log error but continue - caching is non-critical
                 eprintln!("Warning: Failed to create cache directory: {e}");
-                return;
             }
-            let gitignore_path = self.cache_dir.join(".gitignore");
-            let _ = fs::write(gitignore_path, Self::GITIGNORE_CONTENT);
         }
     }
 
