@@ -38,6 +38,7 @@ impl FileCache {
     /// If the `VERSION` file inside `root` does not match `version`, the entire
     /// cache directory is removed and recreated with the new version. Errors
     /// during validation are logged but never fatal.
+    #[must_use]
     pub fn new(root: PathBuf, version: &str) -> Self {
         validate_version(&root, version);
         Self { root }
