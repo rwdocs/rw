@@ -11,7 +11,8 @@ use std::time::Duration;
 use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 use ureq::Agent;
 
-use crate::cache::{DiagramCache, DiagramKey, NullCache};
+use crate::cache::DiagramKey;
+use rw_cache::Bucket;
 use crate::consts::{DEFAULT_DPI, DEFAULT_TIMEOUT};
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
@@ -37,8 +38,8 @@ struct ProcessorConfig {
     dpi: u32,
     /// HTTP timeout for Kroki requests (default: 30 seconds).
     timeout: Duration,
-    /// Cache for diagram rendering (defaults to `NullCache`).
-    cache: Arc<dyn DiagramCache>,
+    /// Cache for diagram rendering (defaults to `NullBucket`).
+    cache: Box<dyn Bucket>,
     /// Output mode for diagram rendering.
     output: DiagramOutput,
     /// HTTP agent for connection pooling (reused across render calls).
@@ -107,7 +108,7 @@ impl DiagramProcessor {
                 config_content: None,
                 dpi: DEFAULT_DPI,
                 timeout: DEFAULT_TIMEOUT,
-                cache: Arc::new(NullCache),
+                cache: Box::new(rw_cache::NullBucket),
                 output: DiagramOutput::default(),
                 agent: create_agent(DEFAULT_TIMEOUT),
             },
@@ -209,15 +210,15 @@ impl DiagramProcessor {
     /// # Example
     ///
     /// ```ignore
-    /// use std::sync::Arc;
-    /// use rw_diagrams::{DiagramProcessor, FileCache};
+    /// use rw_cache::{Cache, NullCache};
+    /// use rw_diagrams::DiagramProcessor;
     ///
-    /// let cache = Arc::new(FileCache::new(".cache/diagrams".into()));
+    /// let cache = NullCache;
     /// let processor = DiagramProcessor::new("https://kroki.io")
-    ///     .with_cache(cache);
+    ///     .with_cache(cache.bucket("diagrams"));
     /// ```
     #[must_use]
-    pub fn with_cache(mut self, cache: Arc<dyn DiagramCache>) -> Self {
+    pub fn with_cache(mut self, cache: Box<dyn Bucket>) -> Self {
         self.config.cache = cache;
         self
     }
@@ -407,9 +408,11 @@ impl DiagramProcessor {
                 format,
                 dpi: config.dpi,
             };
+            let hash = key.compute_hash();
 
-            if let Some(cached_content) = config.cache.get(key) {
-                // Cache hit: add replacement (no allocation needed)
+            if let Some(cached_bytes) = config.cache.get(&hash, "") {
+                let cached_content = String::from_utf8_lossy(&cached_bytes);
+                // Cache hit: add replacement directly
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
                         format!(r#"<figure class="diagram">{cached_content}</figure>"#)
@@ -464,7 +467,8 @@ impl DiagramProcessor {
             let scaled_svg = scale_svg_dimensions(&clean_svg, config.dpi);
 
             if let Some(info) = cache_map.get(&r.index) {
-                config.cache.set(info.key(config.dpi), &scaled_svg);
+                let hash = info.key(config.dpi).compute_hash();
+                config.cache.set(&hash, "", scaled_svg.as_bytes());
             }
 
             let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
@@ -490,7 +494,8 @@ impl DiagramProcessor {
         let result = render_all_png_data_uri_partial(&requests, &config.kroki_url, &config.agent);
         for r in result.rendered {
             if let Some(info) = cache_map.get(&r.index) {
-                config.cache.set(info.key(config.dpi), &r.data_uri);
+                let hash = info.key(config.dpi).compute_hash();
+                config.cache.set(&hash, "", r.data_uri.as_bytes());
             }
 
             let figure = format!(

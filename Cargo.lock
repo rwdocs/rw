@@ -2057,6 +2057,7 @@ dependencies = [
  "pretty_assertions",
  "rayon",
  "regex",
+ "rw-cache",
  "rw-renderer",
  "sha2",
  "thiserror",
