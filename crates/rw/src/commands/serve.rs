@@ -141,7 +141,6 @@ fn ensure_project_dir(project_dir: &Path) -> Result<(), CliError> {
 
     let gitignore_path = project_dir.join(".gitignore");
     if !gitignore_path.exists() {
-        // Auto-create .gitignore like mypy does for .mypy_cache
         let _ = std::fs::write(&gitignore_path, "# Automatically created by rw\n*\n");
     }
 

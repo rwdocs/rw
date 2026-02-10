@@ -150,6 +150,7 @@ impl FilePageCache {
         if !self.cache_dir.exists() {
             if let Err(e) = fs::create_dir_all(&self.cache_dir) {
                 eprintln!("Warning: Failed to create cache directory: {e}");
+                return;
             }
         }
     }
