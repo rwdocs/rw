@@ -15,10 +15,9 @@
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = SiteConfig {
 //!     cache_dir: Some(PathBuf::from(".cache")),
-//!     version: "1.0.0".to_string(),
 //!     ..Default::default()
 //! };
-//! let site = Arc::new(Site::new(storage, config));
+//! let site = Arc::new(Site::new(storage, config, "1.0.0"));
 //!
 //! // Get navigation (root scope)
 //! let nav = site.navigation("");

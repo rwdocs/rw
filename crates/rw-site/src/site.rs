@@ -28,10 +28,9 @@
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = SiteConfig {
 //!     cache_dir: Some(PathBuf::from(".cache")),
-//!     version: "1.0.0".to_string(),
 //!     ..Default::default()
 //! };
-//! let site = Arc::new(Site::new(storage, config));
+//! let site = Arc::new(Site::new(storage, config, "1.0.0"));
 //!
 //! // Load site structure
 //! let state = site.reload_if_needed();
@@ -126,8 +125,6 @@ pub struct SiteConfig {
     ///
     /// If `None`, caching is disabled.
     pub cache_dir: Option<PathBuf>,
-    /// Application version for cache invalidation.
-    pub version: String,
     /// Extract title from first H1 heading.
     pub extract_title: bool,
     /// Kroki URL for diagram rendering.
@@ -146,7 +143,6 @@ impl Default for SiteConfig {
     fn default() -> Self {
         Self {
             cache_dir: None,
-            version: String::new(),
             extract_title: true,
             kroki_url: None,
             include_dirs: Vec::new(),
@@ -194,11 +190,12 @@ impl Site {
     ///
     /// * `storage` - Storage implementation for document scanning and reading
     /// * `config` - Site configuration
+    /// * `version` - Application version for cache invalidation
     #[must_use]
-    pub fn new(storage: Arc<dyn Storage>, config: SiteConfig) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, config: SiteConfig, version: &str) -> Self {
         // Validate cache version before creating caches
         if let Some(dir) = &config.cache_dir {
-            crate::cache_version::validate_cache_version(dir, &config.version);
+            crate::cache_version::validate_cache_version(dir, version);
         }
 
         let structure_cache: Box<dyn SiteCache> = match &config.cache_dir {
@@ -207,7 +204,7 @@ impl Site {
         };
 
         let page_cache: Box<dyn PageCache> = match &config.cache_dir {
-            Some(dir) => Box::new(FilePageCache::new(dir.clone(), config.version.clone())),
+            Some(dir) => Box::new(FilePageCache::new(dir.clone())),
             None => Box::new(NullPageCache),
         };
 
@@ -619,7 +616,7 @@ mod tests {
 
     fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = SiteConfig::default();
-        Site::new(Arc::new(storage), config)
+        Site::new(Arc::new(storage), config, "test")
     }
 
     // ========================================================================
@@ -905,7 +902,7 @@ mod tests {
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(Arc::new(storage), config);
+        let site = Site::new(Arc::new(storage), config, "test");
 
         let result = site.render("test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
@@ -935,11 +932,10 @@ mod tests {
 
         let config = SiteConfig {
             cache_dir: Some(cache_dir),
-            version: "1.0.0".to_string(),
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(Arc::new(storage), config);
+        let site = Site::new(Arc::new(storage), config, "1.0.0");
 
         // First render - cache miss
         let result1 = site.render("test").unwrap();
@@ -1136,11 +1132,10 @@ mod tests {
         // First run with version 1.0.0 — render to populate cache
         let config_v1 = SiteConfig {
             cache_dir: Some(cache_dir.clone()),
-            version: "1.0.0".to_string(),
             extract_title: true,
             ..Default::default()
         };
-        let site_v1 = Site::new(Arc::clone(&storage), config_v1);
+        let site_v1 = Site::new(Arc::clone(&storage), config_v1, "1.0.0");
         let result1 = site_v1.render("test").unwrap();
         assert!(!result1.from_cache);
 
@@ -1151,11 +1146,10 @@ mod tests {
         // Second run with version 2.0.0 — cache should be wiped
         let config_v2 = SiteConfig {
             cache_dir: Some(cache_dir.clone()),
-            version: "2.0.0".to_string(),
             extract_title: true,
             ..Default::default()
         };
-        let site_v2 = Site::new(Arc::clone(&storage), config_v2);
+        let site_v2 = Site::new(Arc::clone(&storage), config_v2, "2.0.0");
 
         // VERSION file should be updated
         assert_eq!(

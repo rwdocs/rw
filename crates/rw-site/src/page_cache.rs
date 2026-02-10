@@ -23,8 +23,6 @@ pub struct CachedMetadata {
     pub source_mtime: f64,
     /// Table of contents entries.
     pub toc: Vec<TocEntry>,
-    /// Build version for cache invalidation.
-    pub build_version: String,
 }
 
 /// Result of cache lookup.
@@ -107,22 +105,20 @@ impl PageCache for NullPageCache {
 /// ├── pages/
 /// │   └── {path}.html       # Rendered HTML
 /// ├── meta/
-/// │   └── {path}.json       # Metadata (title, mtime, toc, version)
+/// │   └── {path}.json       # Metadata (title, mtime, toc)
 /// └── diagrams/
 ///     └── {hash}.{format}   # Cached diagrams (managed by DiagramCache)
 /// ```
 ///
-/// Uses source file mtime and build version for invalidation. Cache entries
-/// are considered valid when:
-/// - The cached mtime matches the current source file mtime
-/// - The cached build version matches the current version
+/// Uses source file mtime for invalidation. Cache entries are considered valid
+/// when the cached mtime matches the current source file mtime. Version-based
+/// invalidation is handled at the cache directory level by [`Site`].
 #[derive(Debug)]
 pub struct FilePageCache {
     cache_dir: PathBuf,
     pages_dir: PathBuf,
     meta_dir: PathBuf,
     diagrams_dir: PathBuf,
-    version: String,
 }
 
 impl FilePageCache {
@@ -130,9 +126,8 @@ impl FilePageCache {
     ///
     /// # Arguments
     /// * `cache_dir` - Root directory for cache files (e.g., `.rw/cache/`)
-    /// * `version` - Build version for cache invalidation
     #[must_use]
-    pub fn new(cache_dir: PathBuf, version: String) -> Self {
+    pub fn new(cache_dir: PathBuf) -> Self {
         let pages_dir = cache_dir.join("pages");
         let meta_dir = cache_dir.join("meta");
         let diagrams_dir = cache_dir.join("diagrams");
@@ -141,7 +136,6 @@ impl FilePageCache {
             pages_dir,
             meta_dir,
             diagrams_dir,
-            version,
         }
     }
 
@@ -154,17 +148,10 @@ impl FilePageCache {
         }
     }
 
-    /// Read and validate metadata file.
+    /// Read metadata file.
     fn read_meta(&self, meta_path: &Path) -> Option<CachedMetadata> {
         let content = fs::read_to_string(meta_path).ok()?;
-        let meta: CachedMetadata = serde_json::from_str(&content).ok()?;
-
-        // Validate build version
-        if meta.build_version != self.version {
-            return None;
-        }
-
-        Some(meta)
+        serde_json::from_str(&content).ok()
     }
 }
 
@@ -224,7 +211,6 @@ impl PageCache for FilePageCache {
             title: title.map(String::from),
             source_mtime,
             toc: toc.to_vec(),
-            build_version: self.version.clone(),
         };
 
         if let Ok(json) = serde_json::to_string(&meta) {
@@ -254,7 +240,7 @@ mod tests {
     }
 
     fn make_cache(dir: &Path) -> FilePageCache {
-        FilePageCache::new(dir.to_path_buf(), "1.0.0".to_string())
+        FilePageCache::new(dir.to_path_buf())
     }
 
     #[test]
@@ -290,7 +276,6 @@ mod tests {
         assert_eq!(entry.meta.title, Some("Guide".to_string()));
         assert_eq!(entry.meta.source_mtime, 1234.0);
         assert_eq!(entry.meta.toc.len(), 1);
-        assert_eq!(entry.meta.build_version, "1.0.0");
     }
 
     #[test]
@@ -301,18 +286,6 @@ mod tests {
         cache.set("test", "<html>old</html>", None, 1000.0, &[]);
         assert!(cache.get("test", 1000.0).is_some());
         assert!(cache.get("test", 2000.0).is_none());
-    }
-
-    #[test]
-    fn test_file_cache_version_invalidation() {
-        let temp_dir = tempfile::tempdir().unwrap();
-
-        let cache_v1 = make_cache(temp_dir.path());
-        cache_v1.set("test", "<html>v1</html>", None, 1234.0, &[]);
-        assert!(cache_v1.get("test", 1234.0).is_some());
-
-        let cache_v2 = FilePageCache::new(temp_dir.path().to_path_buf(), "2.0.0".to_string());
-        assert!(cache_v2.get("test", 1234.0).is_none());
     }
 
     #[test]

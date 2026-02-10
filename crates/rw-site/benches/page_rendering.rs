@@ -13,12 +13,12 @@ use rw_storage_fs::FsStorage;
 fn create_site(source_dir: PathBuf) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
     let config = SiteConfig::default();
-    Site::new(storage, config)
+    Site::new(storage, config, "bench")
 }
 
 fn create_site_with_config(source_dir: PathBuf, config: SiteConfig) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
-    Site::new(storage, config)
+    Site::new(storage, config, "bench")
 }
 
 /// Generate markdown content with specified structure.
@@ -105,7 +105,6 @@ fn bench_render_cached_vs_uncached(c: &mut Criterion) {
     // Cached site
     let cached_config = SiteConfig {
         cache_dir: Some(cache_dir),
-        version: "1.0.0".to_string(),
         ..Default::default()
     };
     let cached_site = create_site_with_config(source_dir, cached_config);
