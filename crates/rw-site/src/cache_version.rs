@@ -15,7 +15,6 @@ use std::path::Path;
 /// If the cache directory doesn't exist, it is created with a `VERSION` file.
 ///
 /// Errors are logged but never fatal — cache is optional.
-#[allow(dead_code)] // Called from Site::new() in a follow-up change
 pub(crate) fn validate_cache_version(cache_dir: &Path, version: &str) {
     let version_path = cache_dir.join("VERSION");
 

@@ -196,6 +196,11 @@ impl Site {
     /// * `config` - Site configuration
     #[must_use]
     pub fn new(storage: Arc<dyn Storage>, config: SiteConfig) -> Self {
+        // Validate cache version before creating caches
+        if let Some(dir) = &config.cache_dir {
+            crate::cache_version::validate_cache_version(dir, &config.version);
+        }
+
         let structure_cache: Box<dyn SiteCache> = match &config.cache_dir {
             Some(dir) => Box::new(FileSiteCache::new(dir.clone())),
             None => Box::new(NullSiteCache),
@@ -1111,5 +1116,55 @@ mod tests {
         let billing_nav = site.navigation("domains/billing");
         assert_eq!(billing_nav.items.len(), 1);
         assert_eq!(billing_nav.items[0].title, "Overview");
+    }
+
+    // ========================================================================
+    // Cache version tests
+    // ========================================================================
+
+    #[test]
+    fn test_version_change_wipes_cache() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_dir = temp_dir.path().join("cache");
+
+        let storage = Arc::new(
+            MockStorage::new()
+                .with_file("test", "Test", "# Test\n\nContent")
+                .with_mtime("test", 1000.0),
+        ) as Arc<dyn rw_storage::Storage>;
+
+        // First run with version 1.0.0 — render to populate cache
+        let config_v1 = SiteConfig {
+            cache_dir: Some(cache_dir.clone()),
+            version: "1.0.0".to_string(),
+            extract_title: true,
+            ..Default::default()
+        };
+        let site_v1 = Site::new(Arc::clone(&storage), config_v1);
+        let result1 = site_v1.render("test").unwrap();
+        assert!(!result1.from_cache);
+
+        // Verify cache is populated
+        let result1b = site_v1.render("test").unwrap();
+        assert!(result1b.from_cache);
+
+        // Second run with version 2.0.0 — cache should be wiped
+        let config_v2 = SiteConfig {
+            cache_dir: Some(cache_dir.clone()),
+            version: "2.0.0".to_string(),
+            extract_title: true,
+            ..Default::default()
+        };
+        let site_v2 = Site::new(Arc::clone(&storage), config_v2);
+
+        // VERSION file should be updated
+        assert_eq!(
+            std::fs::read_to_string(cache_dir.join("VERSION")).unwrap(),
+            "2.0.0"
+        );
+
+        // First render with new version should be a cache miss
+        let result2 = site_v2.render("test").unwrap();
+        assert!(!result2.from_cache);
     }
 }
