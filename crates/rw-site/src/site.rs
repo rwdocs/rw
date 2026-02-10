@@ -402,20 +402,16 @@ impl Site {
         // Load metadata lazily from storage (with inheritance applied)
         let metadata = self.load_metadata(path);
 
-        // Check page cache
+        // Check page cache (single entry for html + metadata)
         let etag = source_mtime.to_string();
-        let html_key = format!("{path}.html");
-        let meta_key = format!("{path}.meta");
 
-        if let Some(html_bytes) = self.page_bucket.get(&html_key, &etag)
-            && let Some(meta_bytes) = self.page_bucket.get(&meta_key, &etag)
-            && let Ok(cached_meta) = serde_json::from_slice::<CachedPageMeta>(&meta_bytes)
+        if let Some(cached_bytes) = self.page_bucket.get(path, &etag)
+            && let Ok(cached) = serde_json::from_slice::<CachedPage>(&cached_bytes)
         {
-            let html = String::from_utf8_lossy(&html_bytes).into_owned();
             return Ok(PageRenderResult {
-                html,
-                title: cached_meta.title,
-                toc: cached_meta.toc,
+                html: cached.html,
+                title: cached.title,
+                toc: cached.toc,
                 warnings: Vec::new(),
                 from_cache: true,
                 has_content: page.has_content,
@@ -430,13 +426,12 @@ impl Site {
         let result = self.create_renderer(path).render_markdown(&markdown_text);
 
         // Store in cache
-        self.page_bucket
-            .set(&html_key, &etag, result.html.as_bytes());
-        if let Ok(meta_bytes) = serde_json::to_vec(&CachedPageMeta {
+        if let Ok(cached_bytes) = serde_json::to_vec(&CachedPage {
+            html: result.html.clone(),
             title: result.title.clone(),
             toc: result.toc.clone(),
         }) {
-            self.page_bucket.set(&meta_key, &etag, &meta_bytes);
+            self.page_bucket.set(path, &etag, &cached_bytes);
         }
 
         Ok(PageRenderResult {
@@ -628,9 +623,10 @@ impl From<CachedSiteState> for SiteState {
     }
 }
 
-/// Cached page metadata for serialization.
+/// Cached page data for serialization (html + metadata in a single entry).
 #[derive(Serialize, Deserialize)]
-struct CachedPageMeta {
+struct CachedPage {
+    html: String,
     title: Option<String>,
     toc: Vec<TocEntry>,
 }

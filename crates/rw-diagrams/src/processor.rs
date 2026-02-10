@@ -410,8 +410,13 @@ impl DiagramProcessor {
             };
             let hash = key.compute_hash();
 
+            // Etag is empty: diagrams use content-addressed hashing (the key
+            // IS the hash), so etag validation is unnecessary. Version-level
+            // invalidation is handled by FileCache's VERSION file.
             if let Some(cached_bytes) = config.cache.get(&hash, "") {
-                let cached_content = String::from_utf8_lossy(&cached_bytes);
+                let Ok(cached_content) = String::from_utf8(cached_bytes) else {
+                    continue;
+                };
                 // Cache hit: add replacement directly
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {

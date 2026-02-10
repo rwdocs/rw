@@ -99,8 +99,12 @@ impl CacheBucket for FileCacheBucket {
         }
 
         let etag_bytes = etag.as_bytes();
+        let etag_len: u32 = match etag_bytes.len().try_into() {
+            Ok(len) => len,
+            Err(_) => return,
+        };
         let mut buf = Vec::with_capacity(4 + etag_bytes.len() + value.len());
-        buf.extend_from_slice(&(etag_bytes.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&etag_len.to_le_bytes());
         buf.extend_from_slice(etag_bytes);
         buf.extend_from_slice(value);
 
