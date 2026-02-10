@@ -1,18 +1,22 @@
 //! File-based cache implementation.
 //!
 //! [`FileCache`] stores cache entries as files on disk, organized into buckets
-//! (subdirectories). Each entry uses a length-prefixed etag header to support
-//! binary data:
+//! (subdirectories). Each entry is a single file with a binary header followed
+//! by the data:
 //!
 //! ```text
-//! {etag_len}:{etag}{data_bytes}
+//! [etag_len: u32 LE][etag bytes][data bytes]
 //! ```
+//!
+//! On read, only the header is read first to validate the etag. The full data
+//! is read only on cache hit, avoiding unnecessary I/O on mismatch.
 //!
 //! On construction, [`FileCache`] validates a `VERSION` file in the cache root.
 //! If the version mismatches or is missing, the entire cache directory is wiped
 //! and recreated. This ensures stale caches from previous builds are never used.
 
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::{Cache, CacheBucket};
@@ -61,27 +65,26 @@ struct FileCacheBucket {
 impl CacheBucket for FileCacheBucket {
     fn get(&self, key: &str, etag: &str) -> Option<Vec<u8>> {
         let path = self.dir.join(key);
-        let bytes = fs::read(&path).ok()?;
+        let mut file = File::open(&path).ok()?;
 
-        // Parse length-prefixed etag header: {etag_len}:{etag}{data}
-        let colon_pos = bytes.iter().position(|&b| b == b':')?;
-        let len_str = std::str::from_utf8(&bytes[..colon_pos]).ok()?;
-        let etag_len: usize = len_str.parse().ok()?;
+        // Read etag length (u32 LE)
+        let mut len_buf = [0u8; 4];
+        file.read_exact(&mut len_buf).ok()?;
+        let etag_len = u32::from_le_bytes(len_buf) as usize;
 
-        let data_start = colon_pos + 1 + etag_len;
-        if bytes.len() < data_start {
+        // Read stored etag
+        let mut stored_etag = vec![0u8; etag_len];
+        file.read_exact(&mut stored_etag).ok()?;
+
+        // Validate etag (skip if caller passes empty etag)
+        if !etag.is_empty() && stored_etag != etag.as_bytes() {
             return None;
         }
 
-        // If caller provides a non-empty etag, validate it
-        if !etag.is_empty() {
-            let stored_etag = std::str::from_utf8(&bytes[colon_pos + 1..data_start]).ok()?;
-            if stored_etag != etag {
-                return None;
-            }
-        }
-
-        Some(bytes[data_start..].to_vec())
+        // Etag matches — read the data
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).ok()?;
+        Some(data)
     }
 
     fn set(&self, key: &str, etag: &str, value: &[u8]) {
@@ -95,10 +98,10 @@ impl CacheBucket for FileCacheBucket {
             return;
         }
 
-        let mut buf = Vec::with_capacity(etag.len() + value.len() + 16);
-        buf.extend_from_slice(etag.len().to_string().as_bytes());
-        buf.push(b':');
-        buf.extend_from_slice(etag.as_bytes());
+        let etag_bytes = etag.as_bytes();
+        let mut buf = Vec::with_capacity(4 + etag_bytes.len() + value.len());
+        buf.extend_from_slice(&(etag_bytes.len() as u32).to_le_bytes());
+        buf.extend_from_slice(etag_bytes);
         buf.extend_from_slice(value);
 
         let _ = fs::write(&path, &buf);
