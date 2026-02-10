@@ -1,6 +1,6 @@
 //! `rw serve` command implementation.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
@@ -19,10 +19,6 @@ pub(crate) struct ServeArgs {
     /// Documentation source directory (overrides config).
     #[arg(short, long)]
     source_dir: Option<PathBuf>,
-
-    /// Cache directory (overrides config).
-    #[arg(long)]
-    cache_dir: Option<PathBuf>,
 
     /// Host to bind to (overrides config).
     #[arg(long)]
@@ -75,7 +71,6 @@ impl ServeArgs {
             host: self.host,
             port: self.port,
             source_dir: self.source_dir,
-            cache_dir: self.cache_dir,
             cache_enabled,
             kroki_url: self.kroki_url,
             live_reload_enabled,
@@ -83,6 +78,9 @@ impl ServeArgs {
 
         // Load config
         let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
+
+        // Ensure project directory exists with .gitignore
+        ensure_project_dir(&config.docs_resolved.project_dir)?;
 
         // Print startup info
         output.info(&format!(
@@ -97,7 +95,7 @@ impl ServeArgs {
         if config.docs_resolved.cache_enabled {
             output.info(&format!(
                 "Cache directory: {}",
-                config.docs_resolved.cache_dir.display()
+                config.docs_resolved.cache_dir().display()
             ));
         } else {
             output.info("Cache: disabled");
@@ -134,4 +132,18 @@ impl ServeArgs {
     fn resolve_live_reload_enabled(&self) -> Option<bool> {
         self.no_live_reload.then_some(false).or(self.live_reload)
     }
+}
+
+/// Ensure the `.rw/` project directory exists with a `.gitignore`.
+fn ensure_project_dir(project_dir: &Path) -> Result<(), CliError> {
+    std::fs::create_dir_all(project_dir)
+        .map_err(|e| CliError::Server(format!("Failed to create project directory: {e}")))?;
+
+    let gitignore_path = project_dir.join(".gitignore");
+    if !gitignore_path.exists() {
+        // Auto-create .gitignore like mypy does for .mypy_cache
+        let _ = std::fs::write(&gitignore_path, "# Automatically created by rw\n*\n");
+    }
+
+    Ok(())
 }
