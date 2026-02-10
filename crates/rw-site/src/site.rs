@@ -43,7 +43,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use rw_cache::{Bucket, Cache};
+use rw_cache::{Cache, CacheBucket};
 use rw_diagrams::DiagramProcessor;
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
@@ -165,8 +165,8 @@ pub struct Site {
     cache: Arc<dyn Cache>,
     // Buckets
     #[allow(clippy::struct_field_names)]
-    site_bucket: Box<dyn Bucket>,
-    page_bucket: Box<dyn Bucket>,
+    site_bucket: Box<dyn CacheBucket>,
+    page_bucket: Box<dyn CacheBucket>,
     /// Generation counter for site structure etag.
     generation: AtomicU64,
     /// Mutex for serializing reload operations.
