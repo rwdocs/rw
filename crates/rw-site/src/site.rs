@@ -430,7 +430,8 @@ impl Site {
         let result = self.create_renderer(path).render_markdown(&markdown_text);
 
         // Store in cache
-        self.page_bucket.set(&html_key, &etag, result.html.as_bytes());
+        self.page_bucket
+            .set(&html_key, &etag, result.html.as_bytes());
         if let Ok(meta_bytes) = serde_json::to_vec(&CachedPageMeta {
             title: result.title.clone(),
             toc: result.toc.clone(),

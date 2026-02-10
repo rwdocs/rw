@@ -12,7 +12,6 @@ use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 use ureq::Agent;
 
 use crate::cache::DiagramKey;
-use rw_cache::Bucket;
 use crate::consts::{DEFAULT_DPI, DEFAULT_TIMEOUT};
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
@@ -22,6 +21,7 @@ use crate::kroki::{
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
+use rw_cache::Bucket;
 
 /// Configuration for diagram processing (immutable after setup).
 ///
