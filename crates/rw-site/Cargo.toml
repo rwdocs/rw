@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+rw-cache = { workspace = true }
 rw-diagrams = { workspace = true }
 rw-renderer = { workspace = true, features = ["serde"] }
 rw-storage = { workspace = true }

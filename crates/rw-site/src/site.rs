@@ -23,14 +23,13 @@
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
 //! use rw_site::{Site, SiteConfig};
+//! use rw_cache::NullCache;
 //! use rw_storage_fs::FsStorage;
 //!
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
-//! let config = SiteConfig {
-//!     cache_dir: Some(PathBuf::from(".cache")),
-//!     ..Default::default()
-//! };
-//! let site = Arc::new(Site::new(storage, config, "1.0.0"));
+//! let config = SiteConfig::default();
+//! let cache = Arc::new(NullCache);
+//! let site = Arc::new(Site::new(storage, config, cache));
 //!
 //! // Load site structure
 //! let state = site.reload_if_needed();
@@ -41,15 +40,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::page_cache::{FilePageCache, NullPageCache, PageCache};
-use crate::site_cache::{FileSiteCache, NullSiteCache, SiteCache};
-use rw_diagrams::{DiagramProcessor, FileCache};
+use rw_cache::{Bucket, Cache};
+use rw_diagrams::DiagramProcessor;
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
+use serde::{Deserialize, Serialize};
 
 /// Get the depth of a URL path.
 ///
@@ -66,7 +65,9 @@ fn url_depth(path: &str) -> usize {
 }
 
 // Re-import from crate root for public types, and direct module for internal
-pub(crate) use crate::site_state::{BreadcrumbItem, Navigation, Page, SiteState, SiteStateBuilder};
+pub(crate) use crate::site_state::{
+    BreadcrumbItem, Navigation, Page, SectionInfo, SiteState, SiteStateBuilder,
+};
 
 /// Result of rendering a markdown page.
 #[derive(Clone, Debug)]
@@ -121,10 +122,6 @@ impl From<StorageError> for RenderError {
 /// Configuration for [`Site`].
 #[derive(Clone, Debug)]
 pub struct SiteConfig {
-    /// Cache directory for site structure and rendered pages.
-    ///
-    /// If `None`, caching is disabled.
-    pub cache_dir: Option<PathBuf>,
     /// Extract title from first H1 heading.
     pub extract_title: bool,
     /// Kroki URL for diagram rendering.
@@ -142,7 +139,6 @@ pub struct SiteConfig {
 impl Default for SiteConfig {
     fn default() -> Self {
         Self {
-            cache_dir: None,
             extract_title: true,
             kroki_url: None,
             include_dirs: Vec::new(),
@@ -166,16 +162,19 @@ impl Default for SiteConfig {
 /// - Uses `AtomicBool` for cache validity tracking
 pub struct Site {
     storage: Arc<dyn Storage>,
-    // Structure caching
-    structure_cache: Box<dyn SiteCache>,
+    cache: Arc<dyn Cache>,
+    // Buckets
+    site_bucket: Box<dyn Bucket>,
+    page_bucket: Box<dyn Bucket>,
+    /// Generation counter for site structure etag.
+    generation: AtomicU64,
     /// Mutex for serializing reload operations.
     reload_lock: Mutex<()>,
     /// Current site state snapshot (atomically swappable).
     current_state: RwLock<Arc<SiteState>>,
     /// Cache validity flag.
     cache_valid: AtomicBool,
-    // Page rendering
-    page_cache: Box<dyn PageCache>,
+    // Rendering config
     extract_title: bool,
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
@@ -184,40 +183,26 @@ pub struct Site {
 }
 
 impl Site {
-    /// Create a new site with storage and configuration.
+    /// Create a new site with storage, configuration, and cache.
     ///
     /// # Arguments
     ///
     /// * `storage` - Storage implementation for document scanning and reading
     /// * `config` - Site configuration
-    /// * `version` - Application version for cache invalidation
+    /// * `cache` - Cache implementation for site structure, pages, and diagrams
     #[must_use]
-    pub fn new(storage: Arc<dyn Storage>, config: SiteConfig, version: &str) -> Self {
-        // Validate cache version before creating caches
-        if let Some(dir) = &config.cache_dir {
-            crate::cache_version::validate_cache_version(dir, version);
-        }
-
-        let structure_cache: Box<dyn SiteCache> = match &config.cache_dir {
-            Some(dir) => Box::new(FileSiteCache::new(dir.clone())),
-            None => Box::new(NullSiteCache),
-        };
-
-        let page_cache: Box<dyn PageCache> = match &config.cache_dir {
-            Some(dir) => Box::new(FilePageCache::new(dir.clone())),
-            None => Box::new(NullPageCache),
-        };
-
-        // Create initial empty site state
+    pub fn new(storage: Arc<dyn Storage>, config: SiteConfig, cache: Arc<dyn Cache>) -> Self {
         let initial_state = Arc::new(SiteStateBuilder::new().build());
 
         Self {
             storage,
-            structure_cache,
+            site_bucket: cache.bucket("site"),
+            page_bucket: cache.bucket("pages"),
+            cache,
+            generation: AtomicU64::new(0),
             reload_lock: Mutex::new(()),
             current_state: RwLock::new(initial_state),
             cache_valid: AtomicBool::new(false),
-            page_cache,
             extract_title: config.extract_title,
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
@@ -335,8 +320,12 @@ impl Site {
             return self.state();
         }
 
-        // Try file cache first
-        if let Some(site) = self.structure_cache.get() {
+        // Try bucket cache
+        let etag = self.generation.load(Ordering::Acquire).to_string();
+        if let Some(bytes) = self.site_bucket.get("structure", &etag)
+            && let Ok(cached) = serde_json::from_slice::<CachedSiteState>(&bytes)
+        {
+            let site: SiteState = cached.into();
             let site = Arc::new(site);
             *self.current_state.write().unwrap() = Arc::clone(&site);
             self.cache_valid.store(true, Ordering::Release);
@@ -347,8 +336,10 @@ impl Site {
         let site = self.load_from_storage();
         let site = Arc::new(site);
 
-        // Store in file cache
-        self.structure_cache.set(&site);
+        // Store in bucket
+        if let Ok(bytes) = serde_json::to_vec(&CachedSiteState::from(site.as_ref())) {
+            self.site_bucket.set("structure", &etag, &bytes);
+        }
 
         // Update current state
         *self.current_state.write().unwrap() = Arc::clone(&site);
@@ -357,13 +348,14 @@ impl Site {
         site
     }
 
-    /// Invalidate cached site state and page caches.
+    /// Invalidate cached site state.
     ///
-    /// Marks cache as invalid. Next `reload_if_needed()` will reload.
+    /// Marks cache as invalid and bumps the generation counter so the
+    /// old site bucket entry won't match. Next `reload_if_needed()` will reload.
     /// Current readers continue using their existing `Arc<SiteState>`.
     pub fn invalidate(&self) {
         self.cache_valid.store(false, Ordering::Release);
-        self.structure_cache.invalidate();
+        self.generation.fetch_add(1, Ordering::Release);
     }
 
     /// Render a page by URL path.
@@ -410,11 +402,19 @@ impl Site {
         let metadata = self.load_metadata(path);
 
         // Check page cache
-        if let Some(cached) = self.page_cache.get(path, source_mtime) {
+        let etag = source_mtime.to_string();
+        let html_key = format!("{path}.html");
+        let meta_key = format!("{path}.meta");
+
+        if let Some(html_bytes) = self.page_bucket.get(&html_key, &etag)
+            && let Some(meta_bytes) = self.page_bucket.get(&meta_key, &etag)
+            && let Ok(cached_meta) = serde_json::from_slice::<CachedPageMeta>(&meta_bytes)
+        {
+            let html = String::from_utf8_lossy(&html_bytes).into_owned();
             return Ok(PageRenderResult {
-                html: cached.html,
-                title: cached.meta.title,
-                toc: cached.meta.toc,
+                html,
+                title: cached_meta.title,
+                toc: cached_meta.toc,
                 warnings: Vec::new(),
                 from_cache: true,
                 has_content: page.has_content,
@@ -429,13 +429,13 @@ impl Site {
         let result = self.create_renderer(path).render_markdown(&markdown_text);
 
         // Store in cache
-        self.page_cache.set(
-            path,
-            &result.html,
-            result.title.as_deref(),
-            source_mtime,
-            &result.toc,
-        );
+        self.page_bucket.set(&html_key, &etag, result.html.as_bytes());
+        if let Ok(meta_bytes) = serde_json::to_vec(&CachedPageMeta {
+            title: result.title.clone(),
+            toc: result.toc.clone(),
+        }) {
+            self.page_bucket.set(&meta_key, &etag, &meta_bytes);
+        }
 
         Ok(PageRenderResult {
             html: result.html,
@@ -478,15 +478,6 @@ impl Site {
         }
     }
 
-    /// Invalidate page cache for a path.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Document path without leading slash (e.g., "guide", "" for root)
-    pub fn invalidate_page(&self, path: &str) {
-        self.page_cache.invalidate(path);
-    }
-
     /// Create a renderer with common configuration.
     fn create_renderer(&self, base_path: &str) -> MarkdownRenderer<HtmlBackend> {
         let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
@@ -511,14 +502,11 @@ impl Site {
     fn create_diagram_processor(&self) -> Option<DiagramProcessor> {
         let url = self.kroki_url.as_ref()?;
 
-        let mut processor = DiagramProcessor::new(url)
+        let processor = DiagramProcessor::new(url)
             .include_dirs(&self.include_dirs)
             .config_file(self.config_file.as_deref())
-            .dpi(self.dpi);
-
-        if let Some(dir) = self.page_cache.diagrams_dir() {
-            processor = processor.with_cache(Arc::new(FileCache::new(dir.to_path_buf())));
-        }
+            .dpi(self.dpi)
+            .with_cache(self.cache.bucket("diagrams"));
 
         Some(processor)
     }
@@ -603,6 +591,48 @@ impl Site {
     }
 }
 
+/// Cache format for site state serialization.
+#[derive(Serialize, Deserialize)]
+struct CachedSiteState {
+    pages: Vec<Page>,
+    children: Vec<Vec<usize>>,
+    parents: Vec<Option<usize>>,
+    roots: Vec<usize>,
+    #[serde(default)]
+    sections: HashMap<String, SectionInfo>,
+}
+
+impl From<&SiteState> for CachedSiteState {
+    fn from(site: &SiteState) -> Self {
+        Self {
+            pages: site.pages().to_vec(),
+            children: site.children_indices().to_vec(),
+            parents: site.parent_indices().to_vec(),
+            roots: site.root_indices().to_vec(),
+            sections: site.sections().clone(),
+        }
+    }
+}
+
+impl From<CachedSiteState> for SiteState {
+    fn from(cached: CachedSiteState) -> Self {
+        SiteState::new(
+            cached.pages,
+            cached.children,
+            cached.parents,
+            cached.roots,
+            cached.sections,
+        )
+    }
+}
+
+/// Cached page metadata for serialization.
+#[derive(Serialize, Deserialize)]
+struct CachedPageMeta {
+    title: Option<String>,
+    toc: Vec<TocEntry>,
+}
+
 #[cfg(test)]
 mod tests {
     // Ensure Site is Send + Sync for use with Arc
@@ -616,7 +646,7 @@ mod tests {
 
     fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = SiteConfig::default();
-        Site::new(Arc::new(storage), config, "test")
+        Site::new(Arc::new(storage), config, Arc::new(rw_cache::NullCache))
     }
 
     // ========================================================================
@@ -902,7 +932,7 @@ mod tests {
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(Arc::new(storage), config, "test");
+        let site = Site::new(Arc::new(storage), config, Arc::new(rw_cache::NullCache));
 
         let result = site.render("test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
@@ -930,12 +960,13 @@ mod tests {
             .with_file("test", "Cached", "# Cached\n\nContent")
             .with_mtime("test", 1000.0);
 
+        let cache: Arc<dyn rw_cache::Cache> =
+            Arc::new(rw_cache::FileCache::new(cache_dir, "1.0.0"));
         let config = SiteConfig {
-            cache_dir: Some(cache_dir),
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(Arc::new(storage), config, "1.0.0");
+        let site = Site::new(Arc::new(storage), config, cache);
 
         // First render - cache miss
         let result1 = site.render("test").unwrap();
@@ -1130,12 +1161,16 @@ mod tests {
         ) as Arc<dyn rw_storage::Storage>;
 
         // First run with version 1.0.0 — render to populate cache
-        let config_v1 = SiteConfig {
-            cache_dir: Some(cache_dir.clone()),
-            extract_title: true,
-            ..Default::default()
-        };
-        let site_v1 = Site::new(Arc::clone(&storage), config_v1, "1.0.0");
+        let cache_v1: Arc<dyn rw_cache::Cache> =
+            Arc::new(rw_cache::FileCache::new(cache_dir.clone(), "1.0.0"));
+        let site_v1 = Site::new(
+            Arc::clone(&storage),
+            SiteConfig {
+                extract_title: true,
+                ..Default::default()
+            },
+            cache_v1,
+        );
         let result1 = site_v1.render("test").unwrap();
         assert!(!result1.from_cache);
 
@@ -1144,12 +1179,16 @@ mod tests {
         assert!(result1b.from_cache);
 
         // Second run with version 2.0.0 — cache should be wiped
-        let config_v2 = SiteConfig {
-            cache_dir: Some(cache_dir.clone()),
-            extract_title: true,
-            ..Default::default()
-        };
-        let site_v2 = Site::new(Arc::clone(&storage), config_v2, "2.0.0");
+        let cache_v2: Arc<dyn rw_cache::Cache> =
+            Arc::new(rw_cache::FileCache::new(cache_dir.clone(), "2.0.0"));
+        let site_v2 = Site::new(
+            Arc::clone(&storage),
+            SiteConfig {
+                extract_title: true,
+                ..Default::default()
+            },
+            cache_v2,
+        );
 
         // VERSION file should be updated
         assert_eq!(

@@ -10,14 +10,13 @@
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
 //! use rw_site::{Site, SiteConfig};
+//! use rw_cache::NullCache;
 //! use rw_storage_fs::FsStorage;
 //!
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
-//! let config = SiteConfig {
-//!     cache_dir: Some(PathBuf::from(".cache")),
-//!     ..Default::default()
-//! };
-//! let site = Arc::new(Site::new(storage, config, "1.0.0"));
+//! let config = SiteConfig::default();
+//! let cache = Arc::new(NullCache);
+//! let site = Arc::new(Site::new(storage, config, cache));
 //!
 //! // Get navigation (root scope)
 //! let nav = site.navigation("");
@@ -26,10 +25,7 @@
 //! let result = site.render("/guide")?;
 //! ```
 
-mod page_cache;
 pub(crate) mod site;
-mod site_cache;
-mod cache_version;
 pub(crate) mod site_state;
 
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
