@@ -8,7 +8,7 @@
 //!
 //! # Implementations
 //!
-//! - [`NullCache`] / [`NullCacheBucket`]: No-op implementations (always miss)
+//! - [`NullCache`]: No-op implementation (always miss)
 //! - [`FileCache`]: File-based implementation with version validation
 //!
 //! # Example
@@ -80,7 +80,7 @@ pub trait Cache: Send + Sync {
 ///
 /// Every `get` returns `None`; every `set` is silently discarded.
 /// Used as the bucket type for [`NullCache`].
-pub struct NullCacheBucket;
+struct NullCacheBucket;
 
 impl CacheBucket for NullCacheBucket {
     fn get(&self, _key: &str, _etag: &str) -> Option<Vec<u8>> {
