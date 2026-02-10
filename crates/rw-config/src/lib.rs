@@ -519,10 +519,7 @@ mod tests {
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 8080);
         assert_eq!(config.docs_resolved.source_dir, PathBuf::from("/test/docs"));
-        assert_eq!(
-            config.docs_resolved.project_dir,
-            PathBuf::from("/test/.rw")
-        );
+        assert_eq!(config.docs_resolved.project_dir, PathBuf::from("/test/.rw"));
         assert_eq!(
             config.docs_resolved.cache_dir(),
             PathBuf::from("/test/.rw/cache")
@@ -691,10 +688,7 @@ source_dir = "documentation"
             config.docs_resolved.source_dir,
             PathBuf::from("/custom/docs")
         );
-        assert_eq!(
-            config.docs_resolved.project_dir,
-            PathBuf::from("/test/.rw")
-        ); // Unchanged
+        assert_eq!(config.docs_resolved.project_dir, PathBuf::from("/test/.rw")); // Unchanged
     }
 
     #[test]
