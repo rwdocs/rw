@@ -10,6 +10,7 @@ license = "MIT"
 
 [workspace.dependencies]
 # Internal crates
+rw-cache = { path = "crates/rw-cache" }
 rw-config = { path = "crates/rw-config" }
 rw-confluence = { path = "crates/rw-confluence" }
 rw-diagrams = { path = "crates/rw-diagrams" }
