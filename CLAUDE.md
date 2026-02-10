@@ -112,6 +112,11 @@ crates/
 │       ├── plantuml.rs       # !include resolution, DPI configuration
 │       └── html_embed.rs     # SVG scaling, placeholder replacement
 │
+├── rw-cache/              # Cache abstraction layer
+│   └── src/
+│       ├── lib.rs            # Cache/Bucket traits, NullCache, NullBucket
+│       └── file.rs           # FileCache (file-based impl with version validation)
+│
 ├── rw-site/               # Site structure and page rendering
 │   └── src/
 │       ├── lib.rs            # Public API exports

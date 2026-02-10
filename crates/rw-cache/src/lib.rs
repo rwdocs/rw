@@ -9,7 +9,7 @@
 //! # Implementations
 //!
 //! - [`NullCache`] / [`NullBucket`]: No-op implementations (always miss)
-//! - [`FileCache`](file::FileCache): File-based implementation (placeholder)
+//! - [`FileCache`]: File-based implementation with version validation
 //!
 //! # Example
 //!
@@ -22,7 +22,8 @@
 //! assert_eq!(bucket.get("my-page", "v1"), None); // NullCache always misses
 //! ```
 
-pub mod file;
+mod file;
+pub use file::FileCache;
 
 /// A named partition within a [`Cache`].
 ///
@@ -36,10 +37,13 @@ pub trait Bucket: Send + Sync {
     /// Returns `Some(value)` if the key exists **and** was stored with the same
     /// `etag`. Returns `None` on cache miss or etag mismatch.
     ///
+    /// If `etag` is an empty string, etag validation is skipped and the cached
+    /// data is returned regardless of the stored etag.
+    ///
     /// # Arguments
     ///
     /// * `key` - Cache key (e.g., document path)
-    /// * `etag` - Expected etag for cache validity
+    /// * `etag` - Expected etag for cache validity (empty string skips validation)
     fn get(&self, key: &str, etag: &str) -> Option<Vec<u8>>;
 
     /// Store a value in the cache.
