@@ -13,9 +13,9 @@
 //! and recreated. This ensures stale caches from previous builds are never used.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::{CacheBucket, Cache};
+use crate::{Cache, CacheBucket};
 
 /// File-based [`Cache`] rooted at a directory on disk.
 ///
@@ -106,7 +106,7 @@ impl CacheBucket for FileCacheBucket {
 }
 
 /// Validate the cache version, wiping the directory on mismatch.
-fn validate_version(root: &PathBuf, version: &str) {
+fn validate_version(root: &Path, version: &str) {
     let version_file = root.join("VERSION");
 
     // Try to read the existing version
