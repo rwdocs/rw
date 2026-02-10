@@ -147,11 +147,10 @@ impl FilePageCache {
 
     /// Ensure cache directory exists.
     fn ensure_cache_dir(&self) {
-        if !self.cache_dir.exists() {
-            if let Err(e) = fs::create_dir_all(&self.cache_dir) {
-                eprintln!("Warning: Failed to create cache directory: {e}");
-                return;
-            }
+        if !self.cache_dir.exists()
+            && let Err(e) = fs::create_dir_all(&self.cache_dir)
+        {
+            eprintln!("Warning: Failed to create cache directory: {e}");
         }
     }
 
