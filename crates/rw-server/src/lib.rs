@@ -146,14 +146,13 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
     // Create unified Site with storage and configuration
     let site_config = SiteConfig {
         cache_dir: config.cache_dir.clone(),
-        version: config.version.clone(),
         extract_title: true,
         kroki_url: config.kroki_url.clone(),
         include_dirs: config.include_dirs.clone(),
         config_file: config.config_file.clone(),
         dpi: config.dpi,
     };
-    let site = Arc::new(Site::new(Arc::clone(&storage), site_config));
+    let site = Arc::new(Site::new(Arc::clone(&storage), site_config, &config.version));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {
