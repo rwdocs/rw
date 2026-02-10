@@ -30,6 +30,7 @@
 mod page_cache;
 pub(crate) mod site;
 mod site_cache;
+mod cache_version;
 pub(crate) mod site_state;
 
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
