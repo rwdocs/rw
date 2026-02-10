@@ -36,8 +36,6 @@ pub struct CliSettings {
     pub port: Option<u16>,
     /// Override docs source directory.
     pub source_dir: Option<PathBuf>,
-    /// Override docs cache directory.
-    pub cache_dir: Option<PathBuf>,
     /// Override cache enabled flag.
     pub cache_enabled: Option<bool>,
     /// Override Kroki URL for diagram rendering.
@@ -110,7 +108,6 @@ impl Default for ServerConfig {
 #[serde(default)]
 struct DocsConfigRaw {
     source_dir: Option<String>,
-    cache_dir: Option<String>,
     cache_enabled: Option<bool>,
 }
 
@@ -119,10 +116,18 @@ struct DocsConfigRaw {
 pub struct DocsConfig {
     /// Source directory for markdown files.
     pub source_dir: PathBuf,
-    /// Cache directory for rendered pages.
-    pub cache_dir: PathBuf,
+    /// Project directory for rw data (.rw/).
+    pub project_dir: PathBuf,
     /// Whether caching is enabled.
     pub cache_enabled: bool,
+}
+
+impl DocsConfig {
+    /// Cache directory path (.rw/cache/).
+    #[must_use]
+    pub fn cache_dir(&self) -> PathBuf {
+        self.project_dir.join("cache")
+    }
 }
 
 /// Raw diagrams configuration as parsed from TOML (paths as strings).
@@ -300,9 +305,6 @@ impl Config {
         if let Some(source_dir) = &settings.source_dir {
             self.docs_resolved.source_dir.clone_from(source_dir);
         }
-        if let Some(cache_dir) = &settings.cache_dir {
-            self.docs_resolved.cache_dir.clone_from(cache_dir);
-        }
         if let Some(cache_enabled) = settings.cache_enabled {
             self.docs_resolved.cache_enabled = cache_enabled;
         }
@@ -345,7 +347,7 @@ impl Config {
             confluence: None,
             docs_resolved: DocsConfig {
                 source_dir: base.join("docs"),
-                cache_dir: base.join(".cache"),
+                project_dir: base.join(".rw"),
                 cache_enabled: true,
             },
             diagrams_resolved: DiagramsConfig::default(),
@@ -476,7 +478,7 @@ impl Config {
 
         self.docs_resolved = DocsConfig {
             source_dir: resolve(self.docs.source_dir.as_deref(), "docs"),
-            cache_dir: resolve(self.docs.cache_dir.as_deref(), ".cache"),
+            project_dir: config_dir.join(".rw"),
             cache_enabled: self.docs.cache_enabled.unwrap_or(true),
         };
 
@@ -518,8 +520,12 @@ mod tests {
         assert_eq!(config.server.port, 8080);
         assert_eq!(config.docs_resolved.source_dir, PathBuf::from("/test/docs"));
         assert_eq!(
-            config.docs_resolved.cache_dir,
-            PathBuf::from("/test/.cache")
+            config.docs_resolved.project_dir,
+            PathBuf::from("/test/.rw")
+        );
+        assert_eq!(
+            config.docs_resolved.cache_dir(),
+            PathBuf::from("/test/.rw/cache")
         );
         assert!(config.docs_resolved.cache_enabled);
         assert_eq!(config.diagrams_resolved.dpi, 192);
@@ -583,7 +589,6 @@ watch_patterns = ["**/*.md", "**/*.toml"]
         let toml = r#"
 [docs]
 source_dir = "documentation"
-cache_dir = ".rw-cache"
 
 [diagrams]
 kroki_url = "https://kroki.io"
@@ -597,8 +602,8 @@ include_dirs = ["diagrams", "shared/diagrams"]
             PathBuf::from("/project/documentation")
         );
         assert_eq!(
-            config.docs_resolved.cache_dir,
-            PathBuf::from("/project/.rw-cache")
+            config.docs_resolved.project_dir,
+            PathBuf::from("/project/.rw")
         );
         assert_eq!(
             config.diagrams_resolved.kroki_url,
@@ -687,8 +692,8 @@ source_dir = "documentation"
             PathBuf::from("/custom/docs")
         );
         assert_eq!(
-            config.docs_resolved.cache_dir,
-            PathBuf::from("/test/.cache")
+            config.docs_resolved.project_dir,
+            PathBuf::from("/test/.rw")
         ); // Unchanged
     }
 
