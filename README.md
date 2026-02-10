@@ -41,7 +41,6 @@ port = 8080             # Server port
 
 [docs]
 source_dir = "docs"     # Markdown source directory
-cache_dir = ".cache"    # Cache directory
 cache_enabled = true    # Enable/disable caching (default: true)
 
 [diagrams]

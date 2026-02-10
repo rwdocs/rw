@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Cache directory moved from `.cache/` to `.rw/cache/` (`.rw/` is the new project directory)
+- Removed `cache_dir` config option and `--cache-dir` CLI flag (cache location is no longer configurable)
+- `.rw/.gitignore` is auto-created on first run to exclude project directory from version control
+
 ## [0.1.3] - 2026-02-09
 
 ### Added

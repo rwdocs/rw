@@ -8,6 +8,6 @@
 /target
 
 # RW
-/.cache
+/.rw
 rw.toml
 private_key.pem
