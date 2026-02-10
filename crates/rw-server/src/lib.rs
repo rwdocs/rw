@@ -143,16 +143,21 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
             .with_readme(config.readme_path.clone()),
     );
 
+    // Construct cache
+    let cache: Arc<dyn rw_cache::Cache> = match &config.cache_dir {
+        Some(dir) => Arc::new(rw_cache::FileCache::new(dir.clone(), &config.version)),
+        None => Arc::new(rw_cache::NullCache),
+    };
+
     // Create unified Site with storage and configuration
     let site_config = SiteConfig {
-        cache_dir: config.cache_dir.clone(),
         extract_title: true,
         kroki_url: config.kroki_url.clone(),
         include_dirs: config.include_dirs.clone(),
         config_file: config.config_file.clone(),
         dpi: config.dpi,
     };
-    let site = Arc::new(Site::new(Arc::clone(&storage), site_config, &config.version));
+    let site = Arc::new(Site::new(Arc::clone(&storage), site_config, cache));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {
