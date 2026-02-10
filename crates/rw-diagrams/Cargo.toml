@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 base64 = { workspace = true }
+rw-cache = { workspace = true }
 rw-renderer = { workspace = true }
 hex = { workspace = true }
 rayon = { workspace = true }

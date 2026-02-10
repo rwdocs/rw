@@ -1,13 +1,6 @@
-//! Diagram caching infrastructure.
+//! Diagram cache key computation.
 //!
-//! Provides a trait for diagram caching and implementations:
-//! - [`DiagramCache`]: Trait for cache implementations
-//! - [`NullCache`]: No-op cache (disabled caching)
-//! - [`FileCache`]: File-based cache for Rust-only usage
-
-use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
+//! Provides [`DiagramKey`] for computing content-based hashes used as cache keys.
 
 use sha2::{Digest, Sha256};
 
@@ -49,91 +42,6 @@ impl DiagramKey<'_> {
     }
 }
 
-/// Trait for diagram caching implementations.
-///
-/// Implementations must be thread-safe (`Send + Sync`) for use with parallel rendering.
-pub trait DiagramCache: Send + Sync {
-    /// Retrieve a cached diagram.
-    ///
-    /// # Arguments
-    /// * `key` - Diagram parameters that uniquely identify the cached content
-    ///
-    /// # Returns
-    /// Cached content if found, `None` otherwise.
-    fn get(&self, key: DiagramKey<'_>) -> Option<String>;
-
-    /// Store a rendered diagram in the cache.
-    ///
-    /// # Arguments
-    /// * `key` - Diagram parameters that uniquely identify the content
-    /// * `content` - Rendered diagram (SVG string or PNG data URI)
-    fn set(&self, key: DiagramKey<'_>, content: &str);
-}
-
-/// No-op cache implementation.
-///
-/// Always returns cache misses and discards stored content.
-/// Use when caching is disabled.
-#[derive(Debug, Default)]
-pub(crate) struct NullCache;
-
-impl DiagramCache for NullCache {
-    fn get(&self, _key: DiagramKey<'_>) -> Option<String> {
-        None
-    }
-
-    fn set(&self, _key: DiagramKey<'_>, _content: &str) {}
-}
-
-/// File-based diagram cache.
-///
-/// Stores rendered diagrams as files in a directory.
-/// File naming: `{hash}.{format}` (e.g., `abc123.svg`).
-#[derive(Debug)]
-pub struct FileCache {
-    cache_dir: PathBuf,
-}
-
-impl FileCache {
-    /// Create a new file cache.
-    ///
-    /// # Arguments
-    /// * `cache_dir` - Directory to store cached diagrams
-    #[must_use]
-    pub fn new(cache_dir: PathBuf) -> Self {
-        Self { cache_dir }
-    }
-}
-
-impl DiagramCache for FileCache {
-    fn get(&self, key: DiagramKey<'_>) -> Option<String> {
-        let hash = key.compute_hash();
-        let path = self.cache_dir.join(format!("{}.{}", hash, key.format));
-        fs::read_to_string(path).ok()
-    }
-
-    fn set(&self, key: DiagramKey<'_>, content: &str) {
-        let hash = key.compute_hash();
-        let path = self.cache_dir.join(format!("{}.{}", hash, key.format));
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        // Silently ignore write errors - caching is non-critical and cache
-        // misses are handled gracefully by re-rendering via Kroki.
-        let _ = fs::write(path, content);
-    }
-}
-
-impl DiagramCache for Arc<dyn DiagramCache> {
-    fn get(&self, key: DiagramKey<'_>) -> Option<String> {
-        (**self).get(key)
-    }
-
-    fn set(&self, key: DiagramKey<'_>, content: &str) {
-        (**self).set(key, content);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,44 +54,6 @@ mod tests {
             format,
             dpi: DEFAULT_DPI,
         }
-    }
-
-    #[test]
-    fn test_null_cache_always_misses() {
-        let cache = NullCache;
-        let key = make_key("@startuml\nA -> B\n@enduml", "plantuml", "svg");
-
-        assert!(cache.get(key).is_none());
-
-        cache.set(key, "<svg></svg>");
-        assert!(cache.get(key).is_none());
-    }
-
-    #[test]
-    fn test_file_cache() {
-        let temp_dir = std::env::temp_dir().join("rw_test_cache");
-        let _ = fs::remove_dir_all(&temp_dir);
-
-        let cache = FileCache::new(temp_dir.clone());
-
-        let key_svg = make_key("@startuml\nA -> B\n@enduml", "plantuml", "svg");
-        let key_png = DiagramKey {
-            format: "png",
-            ..key_svg
-        };
-
-        // Initially empty
-        assert!(cache.get(key_svg).is_none());
-
-        // Store and retrieve
-        cache.set(key_svg, "<svg>test</svg>");
-        assert_eq!(cache.get(key_svg), Some("<svg>test</svg>".to_string()));
-
-        // Different format is a miss
-        assert!(cache.get(key_png).is_none());
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
