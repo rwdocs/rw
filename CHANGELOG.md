@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `cache_dir` config option and `--cache-dir` CLI flag (cache location is no longer configurable)
 - `.rw/.gitignore` is auto-created on first run to exclude project directory from version control
 - Cache is now fully invalidated on version upgrade via `.rw/cache/VERSION` file
+- Internal: caching refactored to use `rw-cache` crate with `Cache`/`Bucket` trait abstraction
+- Internal: `Site::new()` now accepts `Arc<dyn Cache>` instead of a version string
 
 ## [0.1.3] - 2026-02-09
 

@@ -11,7 +11,7 @@ use rw_storage_fs::FsStorage;
 fn create_site(source_dir: PathBuf) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
     let config = SiteConfig::default();
-    Site::new(storage, config, "bench")
+    Site::new(storage, config, Arc::new(rw_cache::NullCache))
 }
 
 /// Create a site structure with specified depth and breadth.

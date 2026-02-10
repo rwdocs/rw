@@ -121,9 +121,7 @@ crates/
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── site.rs           # Site (unified loading + rendering), SiteConfig, PageRenderResult
-│       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
-│       ├── site_cache.rs     # SiteCache trait, FileSiteCache, NullSiteCache
-│       └── page_cache.rs     # PageCache trait, FilePageCache, NullPageCache
+│       └── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
 │
 ├── rw-storage/            # Storage abstraction layer (core traits)
 │   └── src/
