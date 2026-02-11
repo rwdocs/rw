@@ -27,9 +27,11 @@
 
 pub(crate) mod site;
 pub(crate) mod site_state;
+mod typed_page_registry;
 
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
 pub use site_state::{BreadcrumbItem, NavItem, Navigation, Page, ScopeInfo, SectionInfo};
+pub use typed_page_registry::TypedPageRegistry;
 
 // Re-export TocEntry from rw-renderer for convenience
 pub use rw_renderer::TocEntry;
