@@ -24,7 +24,7 @@ format:
 	cd frontend && npm run format
 
 lint:
-	cargo clippy --all-targets -- -W clippy::pedantic
+	cargo clippy --all-targets
 	cd frontend && npm run check
 
 bench:

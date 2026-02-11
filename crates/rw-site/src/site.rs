@@ -383,7 +383,7 @@ impl Site {
         // Look up page by URL path
         let page = state
             .get_page(path)
-            .ok_or_else(|| RenderError::PageNotFound(path.to_string()))?;
+            .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
 
         // Get breadcrumbs
         let breadcrumbs = state.get_breadcrumbs(path);
@@ -397,7 +397,7 @@ impl Site {
         let source_mtime = self
             .storage
             .mtime(path)
-            .map_err(|_| RenderError::FileNotFound(path.to_string()))?;
+            .map_err(|_| RenderError::FileNotFound(path.to_owned()))?;
 
         // Load metadata lazily from storage (with inheritance applied)
         let metadata = self.load_metadata(path);
@@ -934,7 +934,7 @@ mod tests {
 
         let result = site.render("test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
-        assert_eq!(result.title, Some("Hello".to_string()));
+        assert_eq!(result.title, Some("Hello".to_owned()));
         assert!(!result.from_cache);
         assert!(result.has_content);
     }
@@ -969,12 +969,12 @@ mod tests {
         // First render - cache miss
         let result1 = site.render("test").unwrap();
         assert!(!result1.from_cache);
-        assert_eq!(result1.title, Some("Cached".to_string()));
+        assert_eq!(result1.title, Some("Cached".to_owned()));
 
         // Second render - cache hit
         let result2 = site.render("test").unwrap();
         assert!(result2.from_cache);
-        assert_eq!(result2.title, Some("Cached".to_string()));
+        assert_eq!(result2.title, Some("Cached".to_owned()));
         assert_eq!(result1.html, result2.html);
     }
 
@@ -1070,7 +1070,7 @@ mod tests {
 
         // Virtual pages render h1 with title only
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
-        assert_eq!(result.title, Some("My Domain".to_string()));
+        assert_eq!(result.title, Some("My Domain".to_owned()));
         assert!(!result.has_content); // Virtual
         assert!(result.toc.is_empty()); // No TOC for virtual
     }

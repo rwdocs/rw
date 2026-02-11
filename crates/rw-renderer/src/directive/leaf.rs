@@ -152,7 +152,7 @@ mod tests {
             source_path: None,
             base_dir: Path::new("."),
             line: 5,
-            read_file: &|_| Ok("# Included Content".to_string()),
+            read_file: &|_| Ok("# Included Content".to_owned()),
         };
 
         let args = DirectiveArgs::parse("snippet.md", "");
@@ -160,7 +160,7 @@ mod tests {
 
         assert_eq!(
             output,
-            DirectiveOutput::Markdown("# Included Content".to_string())
+            DirectiveOutput::Markdown("# Included Content".to_owned())
         );
         assert!(include.warnings().is_empty());
     }

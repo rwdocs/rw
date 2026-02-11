@@ -107,7 +107,7 @@ fn require_confluence_config<'a>(
         output.info(r#"base_url = "https://confluence.example.com""#);
         output.info(r#"access_token = "your-token""#);
         output.info(r#"access_secret = "your-secret""#);
-        CliError::Validation("confluence configuration required".to_string())
+        CliError::Validation("confluence configuration required".to_owned())
     })
 }
 

@@ -35,7 +35,7 @@ impl ConfluenceClient {
         if status >= 400 {
             let error_body = body_reader
                 .read_to_string()
-                .unwrap_or_else(|_| "(unable to read error body)".to_string());
+                .unwrap_or_else(|_| "(unable to read error body)".to_owned());
             return Err(ConfluenceError::HttpResponse {
                 status,
                 body: error_body,
@@ -98,7 +98,7 @@ impl ConfluenceClient {
         if status >= 400 {
             let error_body = body_reader
                 .read_to_string()
-                .unwrap_or_else(|_| "(unable to read error body)".to_string());
+                .unwrap_or_else(|_| "(unable to read error body)".to_owned());
             return Err(ConfluenceError::HttpResponse {
                 status,
                 body: error_body,

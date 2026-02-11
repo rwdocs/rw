@@ -48,7 +48,7 @@ impl Scanner {
     pub fn new(source_dir: &Path, meta_filename: &str) -> Self {
         Self {
             source_dir: source_dir.to_path_buf(),
-            meta_filename: meta_filename.to_string(),
+            meta_filename: meta_filename.to_owned(),
         }
     }
 

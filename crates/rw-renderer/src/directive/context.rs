@@ -164,7 +164,7 @@ mod tests {
             source_path: None,
             base_dir: Path::new("."),
             line: 1,
-            read_file: &|_| Ok("file content".to_string()),
+            read_file: &|_| Ok("file content".to_owned()),
         };
 
         let result = ctx.read(Path::new("test.md"));

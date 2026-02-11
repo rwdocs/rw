@@ -115,7 +115,7 @@ impl ServeArgs {
 
         // Build server config and run
         let server_config =
-            server_config_from_rw_config(&config, version.to_string(), self.verbose);
+            server_config_from_rw_config(&config, version.to_owned(), self.verbose);
         run_server(server_config)
             .await
             .map_err(|e| CliError::Server(e.to_string()))?;

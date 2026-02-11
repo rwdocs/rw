@@ -181,7 +181,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         let preprocessed = if let Some(ref mut processor) = self.directives {
             processor.process(markdown)
         } else {
-            markdown.to_string()
+            markdown.to_owned()
         };
 
         // Phase 2: Parse and render
@@ -622,7 +622,7 @@ mod tests {
         let markdown = "# My Title\n\nSome content\n\n## Section";
         let result = render_html_with_title(markdown);
 
-        assert_eq!(result.title, Some("My Title".to_string()));
+        assert_eq!(result.title, Some("My Title".to_owned()));
         // H1 is still rendered in HTML mode
         assert!(result.html.contains(r#"<h1 id="my-title">My Title</h1>"#));
         // ToC excludes title but includes other headings
@@ -813,8 +813,8 @@ mod tests {
             if language == "diagram" {
                 self.extracted.push(ExtractedCodeBlock {
                     index,
-                    language: language.to_string(),
-                    source: source.to_string(),
+                    language: language.to_owned(),
+                    source: source.to_owned(),
                     attrs: attrs.clone(),
                 });
                 ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
@@ -900,8 +900,8 @@ mod tests {
 
         let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
         assert_eq!(extracted.len(), 1);
-        assert_eq!(extracted[0].attrs.get("format"), Some(&"png".to_string()));
-        assert_eq!(extracted[0].attrs.get("theme"), Some(&"dark".to_string()));
+        assert_eq!(extracted[0].attrs.get("format"), Some(&"png".to_owned()));
+        assert_eq!(extracted[0].attrs.get("theme"), Some(&"dark".to_owned()));
     }
 
     #[test]

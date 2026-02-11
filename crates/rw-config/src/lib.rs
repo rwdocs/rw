@@ -97,7 +97,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            host: "127.0.0.1".to_string(),
+            host: "127.0.0.1".to_owned(),
             port: 8080,
         }
     }
@@ -194,7 +194,7 @@ pub struct MetadataConfig {
 impl Default for MetadataConfig {
     fn default() -> Self {
         Self {
-            name: "meta.yaml".to_string(),
+            name: "meta.yaml".to_owned(),
         }
     }
 }
@@ -214,7 +214,7 @@ pub struct ConfluenceConfig {
 }
 
 fn default_consumer_key() -> String {
-    "rw".to_string()
+    "rw".to_owned()
 }
 
 /// Configuration error.
@@ -396,7 +396,7 @@ impl Config {
         // unlikely to be intentional in a config file
         if self.server.port == 0 {
             return Err(ConfigError::Validation(
-                "server.port cannot be 0".to_string(),
+                "server.port cannot be 0".to_owned(),
             ));
         }
 
@@ -417,7 +417,7 @@ impl Config {
         let dpi = self.diagrams_resolved.dpi;
         if dpi == 0 {
             return Err(ConfigError::Validation(
-                "diagrams.dpi must be greater than 0".to_string(),
+                "diagrams.dpi must be greater than 0".to_owned(),
             ));
         }
         if dpi > MAX_DPI {
@@ -486,7 +486,7 @@ impl Config {
             Some(diagrams) => {
                 let kroki_url = diagrams.kroki_url.clone().ok_or_else(|| {
                     ConfigError::Validation(
-                        "[diagrams] section requires kroki_url to be set".to_string(),
+                        "[diagrams] section requires kroki_url to be set".to_owned(),
                     )
                 })?;
                 let include_dirs = diagrams
@@ -577,7 +577,7 @@ watch_patterns = ["**/*.md", "**/*.toml"]
         assert!(!config.live_reload.enabled);
         assert_eq!(
             config.live_reload.watch_patterns,
-            Some(vec!["**/*.md".to_string(), "**/*.toml".to_string()])
+            Some(vec!["**/*.md".to_owned(), "**/*.toml".to_owned()])
         );
     }
 
@@ -604,7 +604,7 @@ include_dirs = ["diagrams", "shared/diagrams"]
         );
         assert_eq!(
             config.diagrams_resolved.kroki_url,
-            Some("https://kroki.io".to_string())
+            Some("https://kroki.io".to_owned())
         );
         assert_eq!(
             config.diagrams_resolved.include_dirs,
@@ -650,7 +650,7 @@ source_dir = "documentation"
     fn test_apply_cli_settings_host() {
         let mut config = Config::default_with_base(Path::new("/test"));
         let overrides = CliSettings {
-            host: Some("0.0.0.0".to_string()),
+            host: Some("0.0.0.0".to_owned()),
             ..Default::default()
         };
 
@@ -712,7 +712,7 @@ source_dir = "documentation"
         assert!(config.diagrams_resolved.kroki_url.is_none());
 
         let overrides = CliSettings {
-            kroki_url: Some("https://kroki.example.com".to_string()),
+            kroki_url: Some("https://kroki.example.com".to_owned()),
             ..Default::default()
         };
 
@@ -720,7 +720,7 @@ source_dir = "documentation"
 
         assert_eq!(
             config.diagrams_resolved.kroki_url,
-            Some("https://kroki.example.com".to_string())
+            Some("https://kroki.example.com".to_owned())
         );
     }
 
@@ -744,9 +744,9 @@ source_dir = "documentation"
         let mut config = Config::default_with_base(Path::new("/test"));
 
         let overrides = CliSettings {
-            host: Some("0.0.0.0".to_string()),
+            host: Some("0.0.0.0".to_owned()),
             port: Some(9000),
-            kroki_url: Some("https://kroki.io".to_string()),
+            kroki_url: Some("https://kroki.io".to_owned()),
             live_reload_enabled: Some(false),
             ..Default::default()
         };
@@ -757,7 +757,7 @@ source_dir = "documentation"
         assert_eq!(config.server.port, 9000);
         assert_eq!(
             config.diagrams_resolved.kroki_url,
-            Some("https://kroki.io".to_string())
+            Some("https://kroki.io".to_owned())
         );
         assert!(!config.live_reload.enabled);
     }
@@ -846,7 +846,7 @@ kroki_url = "${TEST_KROKI_URL}"
 
         assert_eq!(
             config.diagrams.as_ref().unwrap().kroki_url,
-            Some("https://kroki.test.com".to_string())
+            Some("https://kroki.test.com".to_owned())
         );
 
         unsafe {
@@ -912,10 +912,10 @@ host = "127.0.0.1"
     /// Create a valid Confluence config for testing.
     fn valid_confluence_config() -> ConfluenceConfig {
         ConfluenceConfig {
-            base_url: "https://confluence.example.com".to_string(),
-            access_token: "token".to_string(),
-            access_secret: "secret".to_string(),
-            consumer_key: "rw".to_string(),
+            base_url: "https://confluence.example.com".to_owned(),
+            access_token: "token".to_owned(),
+            access_secret: "secret".to_owned(),
+            consumer_key: "rw".to_owned(),
         }
     }
 
@@ -949,21 +949,21 @@ host = "127.0.0.1"
     #[test]
     fn test_validate_diagrams_kroki_url_invalid_scheme() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.kroki_url = Some("ftp://kroki.io".to_string());
+        config.diagrams_resolved.kroki_url = Some("ftp://kroki.io".to_owned());
         assert_validation_error(&config, &["kroki_url", "http"]);
     }
 
     #[test]
     fn test_validate_diagrams_kroki_url_valid_http() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.kroki_url = Some("http://localhost:8000".to_string());
+        config.diagrams_resolved.kroki_url = Some("http://localhost:8000".to_owned());
         assert!(config.validate().is_ok());
     }
 
     #[test]
     fn test_validate_diagrams_kroki_url_valid_https() {
         let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.kroki_url = Some("https://kroki.io".to_string());
+        config.diagrams_resolved.kroki_url = Some("https://kroki.io".to_owned());
         assert!(config.validate().is_ok());
     }
 
@@ -995,7 +995,7 @@ host = "127.0.0.1"
     fn test_validate_confluence_base_url_invalid_scheme() {
         let mut config = Config::default_with_base(Path::new("/test"));
         config.confluence = Some(ConfluenceConfig {
-            base_url: "confluence.example.com".to_string(),
+            base_url: "confluence.example.com".to_owned(),
             ..valid_confluence_config()
         });
         assert_validation_error(&config, &["base_url", "http"]);

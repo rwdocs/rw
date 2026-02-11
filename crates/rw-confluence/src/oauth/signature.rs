@@ -99,12 +99,12 @@ pub fn create_authorization_header(
     let timestamp = generate_timestamp();
 
     let mut oauth_params = BTreeMap::new();
-    oauth_params.insert("oauth_consumer_key".to_string(), consumer_key.to_string());
-    oauth_params.insert("oauth_nonce".to_string(), nonce);
-    oauth_params.insert("oauth_signature_method".to_string(), "RSA-SHA1".to_string());
-    oauth_params.insert("oauth_timestamp".to_string(), timestamp);
-    oauth_params.insert("oauth_token".to_string(), access_token.to_string());
-    oauth_params.insert("oauth_version".to_string(), "1.0".to_string());
+    oauth_params.insert("oauth_consumer_key".to_owned(), consumer_key.to_owned());
+    oauth_params.insert("oauth_nonce".to_owned(), nonce);
+    oauth_params.insert("oauth_signature_method".to_owned(), "RSA-SHA1".to_owned());
+    oauth_params.insert("oauth_timestamp".to_owned(), timestamp);
+    oauth_params.insert("oauth_token".to_owned(), access_token.to_owned());
+    oauth_params.insert("oauth_version".to_owned(), "1.0".to_owned());
 
     // Build signature params: OAuth params + query params (RFC 5849 Section 3.4.1.3)
     let mut signature_params = oauth_params.clone();
@@ -114,7 +114,7 @@ pub fn create_authorization_header(
 
     let base_string = build_signature_base_string(method, base_url, &signature_params);
     let signature = sign_rsa_sha1(private_key, &base_string);
-    oauth_params.insert("oauth_signature".to_string(), signature);
+    oauth_params.insert("oauth_signature".to_owned(), signature);
 
     build_authorization_header(&oauth_params)
 }
@@ -147,21 +147,21 @@ pub fn create_authorization_header_for_token_flow(
     private_key: &RsaPrivateKey,
 ) -> String {
     let mut oauth_params = BTreeMap::new();
-    oauth_params.insert("oauth_consumer_key".to_string(), consumer_key.to_string());
-    oauth_params.insert("oauth_nonce".to_string(), generate_nonce());
-    oauth_params.insert("oauth_signature_method".to_string(), "RSA-SHA1".to_string());
-    oauth_params.insert("oauth_timestamp".to_string(), generate_timestamp());
-    oauth_params.insert("oauth_version".to_string(), "1.0".to_string());
+    oauth_params.insert("oauth_consumer_key".to_owned(), consumer_key.to_owned());
+    oauth_params.insert("oauth_nonce".to_owned(), generate_nonce());
+    oauth_params.insert("oauth_signature_method".to_owned(), "RSA-SHA1".to_owned());
+    oauth_params.insert("oauth_timestamp".to_owned(), generate_timestamp());
+    oauth_params.insert("oauth_version".to_owned(), "1.0".to_owned());
 
     // Optional parameters for token flow
     if let Some(token) = oauth_token {
-        oauth_params.insert("oauth_token".to_string(), token.to_string());
+        oauth_params.insert("oauth_token".to_owned(), token.to_owned());
     }
     if let Some(callback) = oauth_callback {
-        oauth_params.insert("oauth_callback".to_string(), callback.to_string());
+        oauth_params.insert("oauth_callback".to_owned(), callback.to_owned());
     }
     if let Some(verifier) = oauth_verifier {
-        oauth_params.insert("oauth_verifier".to_string(), verifier.to_string());
+        oauth_params.insert("oauth_verifier".to_owned(), verifier.to_owned());
     }
 
     // Build signature params: OAuth params + query params (RFC 5849 Section 3.4.1.3)
@@ -172,7 +172,7 @@ pub fn create_authorization_header_for_token_flow(
 
     let base_string = build_signature_base_string(method, base_url, &signature_params);
     let signature = sign_rsa_sha1(private_key, &base_string);
-    oauth_params.insert("oauth_signature".to_string(), signature);
+    oauth_params.insert("oauth_signature".to_owned(), signature);
 
     build_authorization_header(&oauth_params)
 }
@@ -209,8 +209,8 @@ mod tests {
     #[test]
     fn test_signature_base_string() {
         let mut params = BTreeMap::new();
-        params.insert("oauth_consumer_key".to_string(), "test_key".to_string());
-        params.insert("oauth_nonce".to_string(), "123456".to_string());
+        params.insert("oauth_consumer_key".to_owned(), "test_key".to_owned());
+        params.insert("oauth_nonce".to_owned(), "123456".to_owned());
 
         let base = build_signature_base_string("GET", "https://example.com/api", &params);
 

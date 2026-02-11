@@ -71,15 +71,15 @@ pub(crate) fn parse_line(line: &str) -> Option<(ParsedDirective, usize, usize)> 
 
     let directive = match colon_count {
         1 => ParsedDirective::Inline {
-            name: name.to_string(),
+            name: name.to_owned(),
             args,
         },
         2 => ParsedDirective::Leaf {
-            name: name.to_string(),
+            name: name.to_owned(),
             args,
         },
         _ => ParsedDirective::ContainerStart {
-            name: name.to_string(),
+            name: name.to_owned(),
             args,
             colon_count,
         },
@@ -127,7 +127,7 @@ fn parse_brackets(s: &str) -> (String, usize) {
     match end {
         Some(end_idx) => {
             let content = &s[1..end_idx];
-            (content.to_string(), end_idx + 1)
+            (content.to_owned(), end_idx + 1)
         }
         None => (String::new(), 0),
     }
@@ -162,7 +162,7 @@ fn parse_braces(s: &str) -> (String, usize) {
     match end {
         Some(end_idx) => {
             let attrs = &s[1..end_idx];
-            (attrs.to_string(), end_idx + 1)
+            (attrs.to_owned(), end_idx + 1)
         }
         None => (String::new(), 0),
     }
@@ -207,7 +207,7 @@ pub(crate) fn parse_container_line(line: &str) -> Option<ParsedDirective> {
     let args = DirectiveArgs::parse(&content, &attrs_str);
 
     Some(ParsedDirective::ContainerStart {
-        name: name.to_string(),
+        name: name.to_owned(),
         args,
         colon_count,
     })
@@ -271,7 +271,7 @@ mod tests {
             ParsedDirective::Leaf { name, args } => {
                 assert_eq!(name, "include");
                 assert_eq!(args.content, "snippet.md");
-                assert_eq!(args.id, Some("code".to_string()));
+                assert_eq!(args.id, Some("code".to_owned()));
                 assert_eq!(args.classes, vec!["highlight"]);
             }
             _ => panic!("expected leaf directive"),
@@ -368,11 +368,11 @@ mod tests {
 
     #[test]
     fn test_parse_brackets() {
-        assert_eq!(parse_brackets("[hello]"), ("hello".to_string(), 7));
-        assert_eq!(parse_brackets("[hello] rest"), ("hello".to_string(), 7));
+        assert_eq!(parse_brackets("[hello]"), ("hello".to_owned(), 7));
+        assert_eq!(parse_brackets("[hello] rest"), ("hello".to_owned(), 7));
         assert_eq!(
             parse_brackets("[nested [brackets]]"),
-            ("nested [brackets]".to_string(), 19)
+            ("nested [brackets]".to_owned(), 19)
         );
         assert_eq!(parse_brackets("no brackets"), (String::new(), 0));
         assert_eq!(parse_brackets("[unclosed"), (String::new(), 0));
@@ -380,8 +380,8 @@ mod tests {
 
     #[test]
     fn test_parse_braces() {
-        assert_eq!(parse_braces("{#id}"), ("#id".to_string(), 5));
-        assert_eq!(parse_braces("{.class} rest"), (".class".to_string(), 8));
+        assert_eq!(parse_braces("{#id}"), ("#id".to_owned(), 5));
+        assert_eq!(parse_braces("{.class} rest"), (".class".to_owned(), 8));
         assert_eq!(parse_braces("no braces"), (String::new(), 0));
         assert_eq!(parse_braces("{unclosed"), (String::new(), 0));
     }

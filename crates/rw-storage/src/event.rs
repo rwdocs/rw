@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn test_storage_event_creation() {
         let event = StorageEvent {
-            path: "guide".to_string(),
+            path: "guide".to_owned(),
             kind: StorageEventKind::Modified,
         };
 
@@ -149,7 +149,7 @@ mod tests {
         let receiver = StorageEventReceiver::new(rx);
 
         let event = StorageEvent {
-            path: "test".to_string(),
+            path: "test".to_owned(),
             kind: StorageEventKind::Created,
         };
 
@@ -186,7 +186,7 @@ mod tests {
         let receiver = StorageEventReceiver::new(rx);
 
         let event = StorageEvent {
-            path: "test".to_string(),
+            path: "test".to_owned(),
             kind: StorageEventKind::Modified,
         };
 
@@ -204,11 +204,11 @@ mod tests {
 
         let events = vec![
             StorageEvent {
-                path: "a".to_string(),
+                path: "a".to_owned(),
                 kind: StorageEventKind::Created,
             },
             StorageEvent {
-                path: "b".to_string(),
+                path: "b".to_owned(),
                 kind: StorageEventKind::Modified,
             },
         ];

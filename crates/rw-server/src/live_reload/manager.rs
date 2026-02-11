@@ -85,16 +85,16 @@ impl LiveReloadManager {
         let doc_path: Option<String> = match event.kind {
             StorageEventKind::Modified => {
                 // Content change only - use cached site state, no traversal needed.
-                site.get_page(&event.path).map(|p| p.path.clone())
+                site.get_page(&event.path).map(|p| p.path)
             }
             StorageEventKind::Created => {
                 // New file - invalidate so next access reloads site structure
                 site.invalidate();
-                site.get_page(&event.path).map(|p| p.path.clone())
+                site.get_page(&event.path).map(|p| p.path)
             }
             StorageEventKind::Removed => {
                 // File deleted - get path from cached site before invalidating
-                let doc_path = site.get_page(&event.path).map(|p| p.path.clone());
+                let doc_path = site.get_page(&event.path).map(|p| p.path);
                 site.invalidate();
                 doc_path
             }
@@ -106,7 +106,7 @@ impl LiveReloadManager {
 
         // Broadcast reload event with URL path (add leading slash for frontend)
         let reload_event = ReloadEvent {
-            event_type: "reload".to_string(),
+            event_type: "reload".to_owned(),
             path: to_url_path(&doc_path),
         };
         let _ = broadcaster.send(reload_event);
@@ -126,8 +126,8 @@ mod tests {
     #[test]
     fn test_reload_event_serialization() {
         let event = ReloadEvent {
-            event_type: "reload".to_string(),
-            path: "/guide".to_string(),
+            event_type: "reload".to_owned(),
+            path: "/guide".to_owned(),
         };
 
         let json = serde_json::to_value(&event).unwrap();

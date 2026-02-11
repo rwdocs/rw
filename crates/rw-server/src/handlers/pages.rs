@@ -200,7 +200,7 @@ fn get_page_impl(
                     .format("%a, %d %b %Y %H:%M:%S GMT")
                     .to_string(),
             ),
-            (header::CACHE_CONTROL, "private, max-age=60".to_string()),
+            (header::CACHE_CONTROL, "private, max-age=60".to_owned()),
         ],
         Json(response),
     )
@@ -249,10 +249,10 @@ mod tests {
     #[test]
     fn test_page_meta_serialization() {
         let meta = PageMeta {
-            title: Some("Guide".to_string()),
-            path: "/guide".to_string(),
-            source_file: "/docs/guide.md".to_string(),
-            last_modified: "2025-01-01T00:00:00Z".to_string(),
+            title: Some("Guide".to_owned()),
+            path: "/guide".to_owned(),
+            source_file: "/docs/guide.md".to_owned(),
+            last_modified: "2025-01-01T00:00:00Z".to_owned(),
             description: None,
             page_type: None,
             vars: None,
@@ -275,17 +275,17 @@ mod tests {
     #[test]
     fn test_page_meta_serialization_with_metadata() {
         let mut vars = std::collections::HashMap::new();
-        vars.insert("owner".to_string(), serde_json::json!("team-a"));
+        vars.insert("owner".to_owned(), serde_json::json!("team-a"));
 
         let meta = PageMeta {
-            title: Some("Domain Guide".to_string()),
-            path: "/domain".to_string(),
-            source_file: "/docs/domain/index.md".to_string(),
-            last_modified: "2025-01-01T00:00:00Z".to_string(),
-            description: Some("Domain overview".to_string()),
-            page_type: Some("domain".to_string()),
+            title: Some("Domain Guide".to_owned()),
+            path: "/domain".to_owned(),
+            source_file: "/docs/domain/index.md".to_owned(),
+            last_modified: "2025-01-01T00:00:00Z".to_owned(),
+            description: Some("Domain overview".to_owned()),
+            page_type: Some("domain".to_owned()),
             vars: Some(serde_json::to_value(vars).unwrap()),
-            navigation_scope: "domain".to_string(),
+            navigation_scope: "domain".to_owned(),
         };
 
         let json = serde_json::to_value(&meta).unwrap();

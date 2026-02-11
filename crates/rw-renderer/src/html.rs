@@ -110,12 +110,12 @@ fn resolve_link(url: &str, base_path: &str) -> String {
         || url.starts_with("tel:")
         || url.starts_with('#')
     {
-        return url.to_string();
+        return url.to_owned();
     }
 
     // Only process markdown links
     if !url.ends_with(".md") && !url.contains(".md#") {
-        return url.to_string();
+        return url.to_owned();
     }
 
     // Split URL into path and fragment
@@ -128,7 +128,7 @@ fn resolve_link(url: &str, base_path: &str) -> String {
     // Resolve the path
     let resolved = if path_part.starts_with('/') {
         // Absolute path - strip leading slash since we add /docs/ prefix later
-        path_part.trim_start_matches('/').to_string()
+        path_part.trim_start_matches('/').to_owned()
     } else {
         // Relative path - resolve against base
         resolve_relative_path(path_part, base_path)

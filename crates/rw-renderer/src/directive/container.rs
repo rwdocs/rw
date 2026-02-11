@@ -110,7 +110,7 @@ mod tests {
         }
 
         fn end(&mut self, _line: usize) -> Option<String> {
-            Some("</div>".to_string())
+            Some("</div>".to_owned())
         }
     }
 
@@ -145,7 +145,7 @@ mod tests {
             self.stack
                 .pop()
                 .expect("end() called without matching start()");
-            Some("</div></details>".to_string())
+            Some("</div></details>".to_owned())
         }
     }
 
@@ -170,7 +170,7 @@ mod tests {
     fn test_container_end() {
         let mut note = TestNote;
         let output = note.end(10);
-        assert_eq!(output, Some("</div>".to_string()));
+        assert_eq!(output, Some("</div>".to_owned()));
     }
 
     #[test]
@@ -191,7 +191,7 @@ mod tests {
 
         // End directive
         let end_output = details.end(10);
-        assert_eq!(end_output, Some("</div></details>".to_string()));
+        assert_eq!(end_output, Some("</div></details>".to_owned()));
     }
 
     #[test]

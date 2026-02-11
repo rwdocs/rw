@@ -16,7 +16,7 @@ static INCLUDE_PATTERN: LazyLock<Regex> =
 /// Indent content with the given whitespace prefix, preserving empty lines.
 fn indent_content(content: &str, indent: &str) -> String {
     if indent.is_empty() {
-        return content.to_string();
+        return content.to_owned();
     }
     content
         .lines()
@@ -48,11 +48,11 @@ fn resolve_includes(
     warnings: &mut Vec<String>,
 ) -> String {
     if depth > 10 {
-        warnings.push("Include depth exceeded maximum of 10".to_string());
-        return source.to_string();
+        warnings.push("Include depth exceeded maximum of 10".to_owned());
+        return source.to_owned();
     }
 
-    let mut result = source.to_string();
+    let mut result = source.to_owned();
 
     for caps in INCLUDE_PATTERN.captures_iter(source) {
         let leading_whitespace = caps.get(1).unwrap().as_str();

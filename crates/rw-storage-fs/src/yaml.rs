@@ -21,7 +21,7 @@ fn extract_yaml_field(content: &str, field_name: &str) -> Option<String> {
             let value = value.strip_prefix('\'').unwrap_or(value);
             let value = value.strip_suffix('\'').unwrap_or(value);
             if !value.is_empty() {
-                return Some(value.to_string());
+                return Some(value.to_owned());
             }
         }
     }
@@ -68,7 +68,7 @@ mod tests {
     fn test_extract_yaml_title_simple() {
         assert_eq!(
             extract_yaml_title("title: My Title"),
-            Some("My Title".to_string())
+            Some("My Title".to_owned())
         );
     }
 
@@ -76,18 +76,18 @@ mod tests {
     fn test_extract_yaml_title_quoted() {
         assert_eq!(
             extract_yaml_title("title: \"My Title\""),
-            Some("My Title".to_string())
+            Some("My Title".to_owned())
         );
         assert_eq!(
             extract_yaml_title("title: 'My Title'"),
-            Some("My Title".to_string())
+            Some("My Title".to_owned())
         );
     }
 
     #[test]
     fn test_extract_yaml_title_with_other_fields() {
         let yaml = "type: domain\ntitle: My Title\ndescription: Some description";
-        assert_eq!(extract_yaml_title(yaml), Some("My Title".to_string()));
+        assert_eq!(extract_yaml_title(yaml), Some("My Title".to_owned()));
     }
 
     #[test]
@@ -102,7 +102,7 @@ mod tests {
     fn test_extract_yaml_type_simple() {
         assert_eq!(
             extract_yaml_type("type: domain"),
-            Some("domain".to_string())
+            Some("domain".to_owned())
         );
     }
 
@@ -128,7 +128,7 @@ mod tests {
         let result = parse_metadata(yaml);
         assert!(result.is_ok());
         let meta = result.unwrap();
-        assert_eq!(meta.title, Some("My Page".to_string()));
+        assert_eq!(meta.title, Some("My Page".to_owned()));
         assert!(meta.description.is_none());
         assert!(meta.page_type.is_none());
         assert!(meta.vars.is_empty());
@@ -150,9 +150,9 @@ vars:
         let result = parse_metadata(yaml);
         assert!(result.is_ok());
         let meta = result.unwrap();
-        assert_eq!(meta.title, Some("My Domain".to_string()));
-        assert_eq!(meta.description, Some("Domain overview".to_string()));
-        assert_eq!(meta.page_type, Some("domain".to_string()));
+        assert_eq!(meta.title, Some("My Domain".to_owned()));
+        assert_eq!(meta.description, Some("Domain overview".to_owned()));
+        assert_eq!(meta.page_type, Some("domain".to_owned()));
         assert_eq!(meta.vars.get("owner"), Some(&serde_json::json!("team-a")));
         assert_eq!(meta.vars.get("priority"), Some(&serde_json::json!(1)));
         assert!(meta.vars.contains_key("tags"));

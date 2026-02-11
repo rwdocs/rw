@@ -52,7 +52,7 @@ impl CommentMarkerTransfer {
             tracing::debug!(count = markers.len(), tag = %old_node.tag, "Transferring markers");
 
             for marker in markers {
-                let ref_id = marker.marker_ref().unwrap_or("").to_string();
+                let ref_id = marker.marker_ref().unwrap_or("").to_owned();
                 if self.transfer_marker_to_ptr(new_tree, new_ptr, marker) {
                     self.transferred_refs.insert(ref_id);
                     transferred_count += 1;
@@ -63,7 +63,7 @@ impl CommentMarkerTransfer {
         // Phase 2: Handle markers whose parents were not matched (global fallback)
         let all_old_markers = find_all_markers(old_tree);
         for marker in all_old_markers {
-            let ref_id = marker.marker_ref().unwrap_or("").to_string();
+            let ref_id = marker.marker_ref().unwrap_or("").to_owned();
             if self.transferred_refs.contains(&ref_id) {
                 continue;
             }

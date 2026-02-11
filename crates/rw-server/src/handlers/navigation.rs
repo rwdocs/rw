@@ -118,8 +118,8 @@ mod tests {
     fn test_navigation_response_serialization() {
         // Create NavItem with internal path (no leading slash)
         let nav_item = NavItem {
-            title: "Guide".to_string(),
-            path: "guide".to_string(),
+            title: "Guide".to_owned(),
+            path: "guide".to_owned(),
             section_type: None,
             children: vec![],
         };
@@ -145,9 +145,9 @@ mod tests {
         let response = NavigationResponse {
             items: vec![],
             scope: Some(ScopeInfoResponse {
-                path: "/domains/billing".to_string(),
-                title: "Billing".to_string(),
-                section_type: "domain".to_string(),
+                path: "/domains/billing".to_owned(),
+                title: "Billing".to_owned(),
+                section_type: "domain".to_owned(),
             }),
             parent_scope: None,
         };

@@ -165,7 +165,7 @@ mod tests {
         // Simulate editor saving: multiple modify events
         debouncer.record(path.clone(), StorageEventKind::Modified);
         debouncer.record(path.clone(), StorageEventKind::Modified);
-        debouncer.record(path.clone(), StorageEventKind::Modified);
+        debouncer.record(path, StorageEventKind::Modified);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -180,7 +180,7 @@ mod tests {
         let path = PathBuf::from("/test/file.md");
 
         debouncer.record(path.clone(), StorageEventKind::Created);
-        debouncer.record(path.clone(), StorageEventKind::Modified);
+        debouncer.record(path, StorageEventKind::Modified);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -195,7 +195,7 @@ mod tests {
         let path = PathBuf::from("/test/file.md");
 
         debouncer.record(path.clone(), StorageEventKind::Created);
-        debouncer.record(path.clone(), StorageEventKind::Removed);
+        debouncer.record(path, StorageEventKind::Removed);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -209,7 +209,7 @@ mod tests {
         let path = PathBuf::from("/test/file.md");
 
         debouncer.record(path.clone(), StorageEventKind::Modified);
-        debouncer.record(path.clone(), StorageEventKind::Removed);
+        debouncer.record(path, StorageEventKind::Removed);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -224,7 +224,7 @@ mod tests {
         let path = PathBuf::from("/test/file.md");
 
         debouncer.record(path.clone(), StorageEventKind::Removed);
-        debouncer.record(path.clone(), StorageEventKind::Created);
+        debouncer.record(path, StorageEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -239,7 +239,7 @@ mod tests {
         let path = PathBuf::from("/test/file.md");
 
         debouncer.record(path.clone(), StorageEventKind::Modified);
-        debouncer.record(path.clone(), StorageEventKind::Created);
+        debouncer.record(path, StorageEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -254,8 +254,8 @@ mod tests {
         let path1 = PathBuf::from("/test/file1.md");
         let path2 = PathBuf::from("/test/file2.md");
 
-        debouncer.record(path1.clone(), StorageEventKind::Modified);
-        debouncer.record(path2.clone(), StorageEventKind::Created);
+        debouncer.record(path1, StorageEventKind::Modified);
+        debouncer.record(path2, StorageEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 

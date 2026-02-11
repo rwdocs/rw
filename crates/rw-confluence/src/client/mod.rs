@@ -56,7 +56,7 @@ impl ConfluenceClient {
 
         Ok(Self {
             agent,
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url: base_url.trim_end_matches('/').to_owned(),
             auth: OAuth1Auth::new(consumer_key, private_key, access_token),
         })
     }

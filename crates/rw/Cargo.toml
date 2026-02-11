@@ -11,6 +11,9 @@ license.workspace = true
 name = "rw"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 embed-assets = ["rw-server/embed-assets"]

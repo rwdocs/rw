@@ -244,11 +244,11 @@ fn append_text(node: &mut TreeNode, text: &str) {
 /// Decode XML entity references to their character values.
 fn decode_entity(entity: &str) -> String {
     match entity {
-        "lt" => "<".to_string(),
-        "gt" => ">".to_string(),
-        "amp" => "&".to_string(),
-        "apos" => "'".to_string(),
-        "quot" => "\"".to_string(),
+        "lt" => "<".to_owned(),
+        "gt" => ">".to_owned(),
+        "amp" => "&".to_owned(),
+        "apos" => "'".to_owned(),
+        "quot" => "\"".to_owned(),
         // Numeric character references
         s if s.starts_with('#') => {
             let code = if s.starts_with("#x") || s.starts_with("#X") {

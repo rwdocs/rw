@@ -46,7 +46,7 @@ impl GenerateTokensArgs {
         let effective_consumer_key = self
             .consumer_key
             .or_else(|| config.confluence.as_ref().map(|c| c.consumer_key.clone()))
-            .unwrap_or_else(|| "rw".to_string());
+            .unwrap_or_else(|| "rw".to_owned());
 
         let effective_base_url = self
             .base_url
@@ -54,7 +54,7 @@ impl GenerateTokensArgs {
 
         let Some(effective_base_url) = effective_base_url else {
             output.error("Error: base_url required (via --base-url or config)");
-            return Err(CliError::Validation("base_url required".to_string()));
+            return Err(CliError::Validation("base_url required".to_owned()));
         };
 
         // Create generator (reads private key internally)
@@ -81,7 +81,7 @@ impl GenerateTokensArgs {
         output.highlight(&format!("\n{auth_url}\n"));
 
         // Read verifier from stdin
-        print!("Enter the verification code: ");
+        write!(io::stdout(), "Enter the verification code: ")?;
         io::stdout().flush()?;
         let mut verifier = String::new();
         io::stdin().read_line(&mut verifier)?;
