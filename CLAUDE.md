@@ -115,6 +115,7 @@ crates/
 ├── rw-cache/              # Cache abstraction layer
 │   └── src/
 │       ├── lib.rs            # Cache/CacheBucket traits, NullCache
+│       ├── ext.rs            # CacheBucketExt (typed get_json/set_json/get_string/set_string)
 │       └── file.rs           # FileCache (file-based impl with version validation)
 │
 ├── rw-site/               # Site structure and page rendering

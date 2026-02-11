@@ -43,7 +43,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use rw_cache::{Cache, CacheBucket};
+use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::DiagramProcessor;
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
@@ -323,8 +323,9 @@ impl Site {
 
         // Try bucket cache
         let etag = self.generation.load(Ordering::Acquire).to_string();
-        if let Some(bytes) = self.site_bucket.get("structure", &etag)
-            && let Ok(cached) = serde_json::from_slice::<CachedSiteState>(&bytes)
+        if let Some(cached) = self
+            .site_bucket
+            .get_json::<CachedSiteState>("structure", &etag)
         {
             let site: SiteState = cached.into();
             let site = Arc::new(site);
@@ -338,9 +339,8 @@ impl Site {
         let site = Arc::new(site);
 
         // Store in bucket
-        if let Ok(bytes) = serde_json::to_vec(&CachedSiteState::from(site.as_ref())) {
-            self.site_bucket.set("structure", &etag, &bytes);
-        }
+        self.site_bucket
+            .set_json("structure", &etag, &CachedSiteState::from(site.as_ref()));
 
         // Update current state
         *self.current_state.write().unwrap() = Arc::clone(&site);
@@ -405,9 +405,7 @@ impl Site {
         // Check page cache (single entry for html + metadata)
         let etag = source_mtime.to_string();
 
-        if let Some(cached_bytes) = self.page_bucket.get(path, &etag)
-            && let Ok(cached) = serde_json::from_slice::<CachedPage>(&cached_bytes)
-        {
+        if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
             return Ok(PageRenderResult {
                 html: cached.html,
                 title: cached.title,
@@ -426,13 +424,15 @@ impl Site {
         let result = self.create_renderer(path).render_markdown(&markdown_text);
 
         // Store in cache
-        if let Ok(cached_bytes) = serde_json::to_vec(&CachedPage {
-            html: result.html.clone(),
-            title: result.title.clone(),
-            toc: result.toc.clone(),
-        }) {
-            self.page_bucket.set(path, &etag, &cached_bytes);
-        }
+        self.page_bucket.set_json(
+            path,
+            &etag,
+            &CachedPage {
+                html: result.html.clone(),
+                title: result.title.clone(),
+                toc: result.toc.clone(),
+            },
+        );
 
         Ok(PageRenderResult {
             html: result.html,

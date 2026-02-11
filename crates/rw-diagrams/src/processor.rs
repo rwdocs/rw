@@ -21,7 +21,7 @@ use crate::kroki::{
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
-use rw_cache::{Cache, CacheBucket};
+use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 
 /// Configuration for diagram processing (immutable after setup).
 ///
@@ -413,10 +413,7 @@ impl DiagramProcessor {
             // Etag is empty: diagrams use content-addressed hashing (the key
             // IS the hash), so etag validation is unnecessary. Version-level
             // invalidation is handled by FileCache's VERSION file.
-            if let Some(cached_bytes) = config.cache.get(&hash, "") {
-                let Ok(cached_content) = String::from_utf8(cached_bytes) else {
-                    continue;
-                };
+            if let Some(cached_content) = config.cache.get_string(&hash, "") {
                 // Cache hit: add replacement directly
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
@@ -473,7 +470,7 @@ impl DiagramProcessor {
 
             if let Some(info) = cache_map.get(&r.index) {
                 let hash = info.key(config.dpi).compute_hash();
-                config.cache.set(&hash, "", scaled_svg.as_bytes());
+                config.cache.set_string(&hash, "", &scaled_svg);
             }
 
             let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
@@ -500,7 +497,7 @@ impl DiagramProcessor {
         for r in result.rendered {
             if let Some(info) = cache_map.get(&r.index) {
                 let hash = info.key(config.dpi).compute_hash();
-                config.cache.set(&hash, "", r.data_uri.as_bytes());
+                config.cache.set_string(&hash, "", &r.data_uri);
             }
 
             let figure = format!(
