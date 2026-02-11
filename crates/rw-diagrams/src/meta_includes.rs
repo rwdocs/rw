@@ -1,10 +1,10 @@
-//! Meta include resolution for PlantUML diagrams.
+//! Meta include resolution for `PlantUML` diagrams.
 //!
-//! Generates C4 model PlantUML macros from page metadata, enabling
+//! Generates C4 model `PlantUML` macros from page metadata, enabling
 //! `!include systems/sys_payment_gateway.iuml` to resolve dynamically
 //! from `meta.yaml` files without maintaining separate `.iuml` files.
 
-/// Entity metadata for generating PlantUML C4 includes.
+/// Entity metadata for generating `PlantUML` C4 includes.
 #[derive(Clone, Debug)]
 pub struct EntityInfo {
     /// Display title from meta.yaml.
@@ -19,7 +19,7 @@ pub struct EntityInfo {
     pub url_path: String,
 }
 
-/// Source for resolving PlantUML meta includes from page metadata.
+/// Source for resolving `PlantUML` meta includes from page metadata.
 ///
 /// Implemented by site-level registries that track typed pages.
 /// The diagram processor queries this trait during `!include` resolution.
@@ -29,6 +29,445 @@ pub trait MetaIncludeSource: Send + Sync {
     /// # Arguments
     ///
     /// * `entity_type` - One of "domain", "system", "service"
-    /// * `name` - Normalized name with underscores (e.g., "payment_gateway")
+    /// * `name` - Normalized name with underscores (e.g., `payment_gateway`)
     fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo>;
+}
+
+/// Parsed components of a meta include path.
+#[derive(Debug, PartialEq, Eq)]
+struct ParsedIncludePath {
+    /// The entity type: "system", "domain", or "service".
+    entity_type: &'static str,
+    /// Normalized name with underscores (e.g., `payment_gateway`).
+    name: String,
+    /// Whether the entity is external (from the `ext/` subdirectory).
+    external: bool,
+}
+
+/// Parse a `PlantUML` include path into structured components.
+///
+/// Recognizes paths of the form `systems/{ext/}{prefix}_{name}.iuml` where
+/// prefix is one of `sys_`, `dmn_`, or `svc_`.
+///
+/// Returns `None` if the path doesn't match the expected pattern.
+fn parse_include_path(path: &str) -> Option<ParsedIncludePath> {
+    let rest = path.strip_prefix("systems/")?;
+    let (external, rest) = if let Some(r) = rest.strip_prefix("ext/") {
+        (true, r)
+    } else {
+        (false, rest)
+    };
+    let stem = rest.strip_suffix(".iuml")?;
+    let (entity_type, name) = if let Some(name) = stem.strip_prefix("sys_") {
+        ("system", name)
+    } else if let Some(name) = stem.strip_prefix("dmn_") {
+        ("domain", name)
+    } else if let Some(name) = stem.strip_prefix("svc_") {
+        ("service", name)
+    } else {
+        return None;
+    };
+    if name.is_empty() {
+        return None;
+    }
+    Some(ParsedIncludePath {
+        entity_type,
+        name: name.to_owned(),
+        external,
+    })
+}
+
+/// Return the short prefix for an entity type.
+fn type_prefix(entity_type: &str) -> &'static str {
+    match entity_type {
+        "domain" => "dmn",
+        "system" => "sys",
+        "service" => "svc",
+        _ => "unknown",
+    }
+}
+
+/// Escape newlines in a description for use inside `PlantUML` strings.
+fn escape_description(desc: &str) -> String {
+    desc.replace('\n', "\\n")
+}
+
+/// Render a C4 `PlantUML` macro call from entity metadata.
+///
+/// The output follows the C4-PlantUML conventions used by the mkdocs arch
+/// plugin. The macro variant (`System` vs `System_Ext`) depends on the
+/// `external` flag.
+fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external: bool) -> String {
+    let prefix = type_prefix(entity_type);
+    let alias = format!("{prefix}_{name}");
+
+    let title = match entity_type {
+        "service" => &entity.dir_name,
+        _ => &entity.title,
+    };
+
+    let link_part = if entity.has_docs {
+        format!(", $link=\"{}\"", entity.url_path)
+    } else {
+        String::new()
+    };
+
+    let desc_escaped = entity.description.as_deref().map(escape_description);
+
+    if external {
+        // System_Ext({alias}, "{title}", $descr="{desc}", $link="{url}")
+        let desc_part = desc_escaped
+            .as_deref()
+            .map_or(String::new(), |d| format!(", $descr=\"{d}\""));
+        format!("System_Ext({alias}, \"{title}\"{desc_part}{link_part})")
+    } else {
+        // Regular macros vary by entity type
+        match entity_type {
+            "domain" => {
+                // System({alias}, "{title}", $tags="domain", "{desc}", $link="{url}")
+                let desc_part = desc_escaped
+                    .as_deref()
+                    .map_or(String::new(), |d| format!(", \"{d}\""));
+                format!(
+                    "System({alias}, \"{title}\", $tags=\"domain\"{desc_part}{link_part})"
+                )
+            }
+            "system" => {
+                // System({alias}, "{title}", "{desc}", $link="{url}")
+                let desc_part = desc_escaped
+                    .as_deref()
+                    .map_or(String::new(), |d| format!(", \"{d}\""));
+                format!("System({alias}, \"{title}\"{desc_part}{link_part})")
+            }
+            "service" => {
+                // System({alias}, "{dir_name}", $tags="service", $descr="{desc}", $link="{url}")
+                let desc_part = desc_escaped
+                    .as_deref()
+                    .map_or(String::new(), |d| format!(", $descr=\"{d}\""));
+                format!(
+                    "System({alias}, \"{title}\", $tags=\"service\"{desc_part}{link_part})"
+                )
+            }
+            _ => format!("System({alias}, \"{title}\"{link_part})"),
+        }
+    }
+}
+
+/// Resolve a `PlantUML` `!include` path to a C4 macro using page metadata.
+///
+/// This is the main public entry point. It parses the include path, looks up
+/// the entity via the provided [`MetaIncludeSource`], and renders the
+/// appropriate C4 `PlantUML` macro.
+///
+/// Returns `None` if the path doesn't match the meta include pattern or the
+/// entity is not found.
+pub fn resolve_meta_include(include_path: &str, source: &dyn MetaIncludeSource) -> Option<String> {
+    let parsed = parse_include_path(include_path)?;
+    let entity = source.get_entity(parsed.entity_type, &parsed.name)?;
+    Some(render_c4_macro(
+        parsed.entity_type,
+        &parsed.name,
+        &entity,
+        parsed.external,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    // ── Test helpers ──────────────────────────────────────────────────
+
+    fn system_entity() -> EntityInfo {
+        EntityInfo {
+            title: "Payment Gateway".to_owned(),
+            dir_name: "payment-gateway".to_owned(),
+            description: Some("Processes payments".to_owned()),
+            has_docs: true,
+            url_path: "/domains/billing/systems/payment-gateway/".to_owned(),
+        }
+    }
+
+    fn domain_entity() -> EntityInfo {
+        EntityInfo {
+            title: "Billing".to_owned(),
+            dir_name: "billing".to_owned(),
+            description: Some("Billing services".to_owned()),
+            has_docs: true,
+            url_path: "/domains/billing/".to_owned(),
+        }
+    }
+
+    fn service_entity() -> EntityInfo {
+        EntityInfo {
+            title: "Invoice API".to_owned(),
+            dir_name: "invoice-api".to_owned(),
+            description: Some("Manages invoices".to_owned()),
+            has_docs: true,
+            url_path: "/domains/billing/systems/invoicing/services/invoice-api/".to_owned(),
+        }
+    }
+
+    struct TestSource {
+        entities: HashMap<(String, String), EntityInfo>,
+    }
+
+    impl TestSource {
+        fn new() -> Self {
+            Self {
+                entities: HashMap::new(),
+            }
+        }
+
+        fn with_entity(mut self, entity_type: &str, name: &str, entity: EntityInfo) -> Self {
+            self.entities
+                .insert((entity_type.to_owned(), name.to_owned()), entity);
+            self
+        }
+    }
+
+    impl MetaIncludeSource for TestSource {
+        fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
+            self.entities
+                .get(&(entity_type.to_owned(), name.to_owned()))
+                .cloned()
+        }
+    }
+
+    // ── Task 2: parse_include_path tests ─────────────────────────────
+
+    #[test]
+    fn test_parse_system_regular() {
+        let result = parse_include_path("systems/sys_payment_gateway.iuml").unwrap();
+        assert_eq!(
+            result,
+            ParsedIncludePath {
+                entity_type: "system",
+                name: "payment_gateway".to_owned(),
+                external: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_system_external() {
+        let result = parse_include_path("systems/ext/sys_payment_gateway.iuml").unwrap();
+        assert_eq!(
+            result,
+            ParsedIncludePath {
+                entity_type: "system",
+                name: "payment_gateway".to_owned(),
+                external: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_domain_regular() {
+        let result = parse_include_path("systems/dmn_billing.iuml").unwrap();
+        assert_eq!(
+            result,
+            ParsedIncludePath {
+                entity_type: "domain",
+                name: "billing".to_owned(),
+                external: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_domain_external() {
+        let result = parse_include_path("systems/ext/dmn_billing.iuml").unwrap();
+        assert_eq!(
+            result,
+            ParsedIncludePath {
+                entity_type: "domain",
+                name: "billing".to_owned(),
+                external: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_service_regular() {
+        let result = parse_include_path("systems/svc_invoice_api.iuml").unwrap();
+        assert_eq!(
+            result,
+            ParsedIncludePath {
+                entity_type: "service",
+                name: "invoice_api".to_owned(),
+                external: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_service_external() {
+        let result = parse_include_path("systems/ext/svc_invoice_api.iuml").unwrap();
+        assert_eq!(
+            result,
+            ParsedIncludePath {
+                entity_type: "service",
+                name: "invoice_api".to_owned(),
+                external: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_unrelated_path_returns_none() {
+        assert!(parse_include_path("c4/context.iuml").is_none());
+        assert!(parse_include_path("actors/customer.iuml").is_none());
+        assert!(parse_include_path("random.iuml").is_none());
+    }
+
+    #[test]
+    fn test_parse_wrong_extension_returns_none() {
+        assert!(parse_include_path("systems/sys_foo.puml").is_none());
+    }
+
+    #[test]
+    fn test_parse_unknown_prefix_returns_none() {
+        assert!(parse_include_path("systems/xyz_foo.iuml").is_none());
+    }
+
+    // ── Task 3: render_c4_macro tests ────────────────────────────────
+
+    #[test]
+    fn test_render_system_regular() {
+        let entity = system_entity();
+        let result = render_c4_macro("system", "payment_gateway", &entity, false);
+        assert_eq!(
+            result,
+            "System(sys_payment_gateway, \"Payment Gateway\", \"Processes payments\", $link=\"/domains/billing/systems/payment-gateway/\")"
+        );
+    }
+
+    #[test]
+    fn test_render_system_external() {
+        let entity = system_entity();
+        let result = render_c4_macro("system", "payment_gateway", &entity, true);
+        assert_eq!(
+            result,
+            "System_Ext(sys_payment_gateway, \"Payment Gateway\", $descr=\"Processes payments\", $link=\"/domains/billing/systems/payment-gateway/\")"
+        );
+    }
+
+    #[test]
+    fn test_render_domain_regular() {
+        let entity = domain_entity();
+        let result = render_c4_macro("domain", "billing", &entity, false);
+        assert_eq!(
+            result,
+            "System(dmn_billing, \"Billing\", $tags=\"domain\", \"Billing services\", $link=\"/domains/billing/\")"
+        );
+    }
+
+    #[test]
+    fn test_render_domain_external() {
+        let entity = domain_entity();
+        let result = render_c4_macro("domain", "billing", &entity, true);
+        assert_eq!(
+            result,
+            "System_Ext(dmn_billing, \"Billing\", $descr=\"Billing services\", $link=\"/domains/billing/\")"
+        );
+    }
+
+    #[test]
+    fn test_render_service_regular() {
+        let entity = service_entity();
+        let result = render_c4_macro("service", "invoice_api", &entity, false);
+        assert_eq!(
+            result,
+            "System(svc_invoice_api, \"invoice-api\", $tags=\"service\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api/\")"
+        );
+    }
+
+    #[test]
+    fn test_render_service_external() {
+        let entity = service_entity();
+        let result = render_c4_macro("service", "invoice_api", &entity, true);
+        assert_eq!(
+            result,
+            "System_Ext(svc_invoice_api, \"invoice-api\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api/\")"
+        );
+    }
+
+    #[test]
+    fn test_render_no_description() {
+        let entity = EntityInfo {
+            title: "Simple".to_owned(),
+            dir_name: "simple".to_owned(),
+            description: None,
+            has_docs: true,
+            url_path: "/simple/".to_owned(),
+        };
+        let result = render_c4_macro("system", "simple", &entity, false);
+        assert_eq!(result, "System(sys_simple, \"Simple\", $link=\"/simple/\")");
+    }
+
+    #[test]
+    fn test_render_no_docs_omits_link() {
+        let entity = EntityInfo {
+            title: "No Docs".to_owned(),
+            dir_name: "no-docs".to_owned(),
+            description: Some("Has no docs".to_owned()),
+            has_docs: false,
+            url_path: "/no-docs/".to_owned(),
+        };
+        let result = render_c4_macro("system", "no_docs", &entity, false);
+        assert_eq!(
+            result,
+            "System(sys_no_docs, \"No Docs\", \"Has no docs\")"
+        );
+        assert!(!result.contains("$link"));
+    }
+
+    #[test]
+    fn test_render_description_newlines_escaped() {
+        let entity = EntityInfo {
+            title: "Multi".to_owned(),
+            dir_name: "multi".to_owned(),
+            description: Some("Line one\nLine two".to_owned()),
+            has_docs: true,
+            url_path: "/multi/".to_owned(),
+        };
+        let result = render_c4_macro("system", "multi", &entity, false);
+        assert!(result.contains("Line one\\nLine two"));
+        assert!(!result.contains('\n'));
+    }
+
+    // ── Task 4: resolve_meta_include tests ───────────────────────────
+
+    #[test]
+    fn test_resolve_meta_include_system() {
+        let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
+        let result =
+            resolve_meta_include("systems/sys_payment_gateway.iuml", &source).unwrap();
+        assert!(result.contains("System(sys_payment_gateway"));
+    }
+
+    #[test]
+    fn test_resolve_meta_include_external() {
+        let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
+        let result =
+            resolve_meta_include("systems/ext/sys_payment_gateway.iuml", &source).unwrap();
+        assert!(result.contains("System_Ext"));
+    }
+
+    #[test]
+    fn test_resolve_meta_include_not_found() {
+        let source = TestSource::new();
+        let result = resolve_meta_include("systems/sys_unknown.iuml", &source);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_meta_include_non_meta_path() {
+        let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
+        let result = resolve_meta_include("c4/context.iuml", &source);
+        assert!(result.is_none());
+    }
 }
