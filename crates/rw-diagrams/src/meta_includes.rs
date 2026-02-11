@@ -130,9 +130,7 @@ fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external:
                 let desc_part = desc_escaped
                     .as_deref()
                     .map_or(String::new(), |d| format!(", \"{d}\""));
-                format!(
-                    "System({alias}, \"{title}\", $tags=\"domain\"{desc_part}{link_part})"
-                )
+                format!("System({alias}, \"{title}\", $tags=\"domain\"{desc_part}{link_part})")
             }
             "system" => {
                 // System({alias}, "{title}", "{desc}", $link="{url}")
@@ -146,9 +144,7 @@ fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external:
                 let desc_part = desc_escaped
                     .as_deref()
                     .map_or(String::new(), |d| format!(", $descr=\"{d}\""));
-                format!(
-                    "System({alias}, \"{title}\", $tags=\"service\"{desc_part}{link_part})"
-                )
+                format!("System({alias}, \"{title}\", $tags=\"service\"{desc_part}{link_part})")
             }
             _ => format!("System({alias}, \"{title}\"{link_part})"),
         }
@@ -420,10 +416,7 @@ mod tests {
             url_path: "/no-docs/".to_owned(),
         };
         let result = render_c4_macro("system", "no_docs", &entity, false);
-        assert_eq!(
-            result,
-            "System(sys_no_docs, \"No Docs\", \"Has no docs\")"
-        );
+        assert_eq!(result, "System(sys_no_docs, \"No Docs\", \"Has no docs\")");
         assert!(!result.contains("$link"));
     }
 
@@ -472,16 +465,14 @@ mod tests {
     #[test]
     fn test_resolve_meta_include_system() {
         let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
-        let result =
-            resolve_meta_include("systems/sys_payment_gateway.iuml", &source).unwrap();
+        let result = resolve_meta_include("systems/sys_payment_gateway.iuml", &source).unwrap();
         assert!(result.contains("System(sys_payment_gateway"));
     }
 
     #[test]
     fn test_resolve_meta_include_external() {
         let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
-        let result =
-            resolve_meta_include("systems/ext/sys_payment_gateway.iuml", &source).unwrap();
+        let result = resolve_meta_include("systems/ext/sys_payment_gateway.iuml", &source).unwrap();
         assert!(result.contains("System_Ext"));
     }
 

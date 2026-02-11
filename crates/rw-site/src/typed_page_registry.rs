@@ -43,9 +43,7 @@ impl TypedPageRegistry {
             let normalized_name = dir_name.replace('-', "_");
 
             // Look up the page for has_content
-            let has_docs = state
-                .get_page(path)
-                .is_some_and(|page| page.has_content);
+            let has_docs = state.get_page(path).is_some_and(|page| page.has_content);
 
             let entity = EntityInfo {
                 title: section.title.clone(),
