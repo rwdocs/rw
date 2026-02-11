@@ -278,7 +278,7 @@ fn search_and_insert(node: &mut TreeNode, mut marker: TreeNode, marker_text: &st
 
     // Recurse into children
     for child in &mut node.children {
-        if search_and_insert(child, marker.clone(), marker_text) {
+        if search_and_insert(child, clone_marker(&marker), marker_text) {
             return true;
         }
     }

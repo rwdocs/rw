@@ -20,7 +20,7 @@ use std::collections::HashMap;
 /// assert_eq!(args.classes, vec!["foo", "bar"]);
 /// assert_eq!(args.get("lang"), Some("en"));
 /// ```
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct DirectiveArgs {
     /// Content from brackets: `[content]` (empty string if not provided).
     pub content: String,

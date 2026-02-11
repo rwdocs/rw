@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Eliminated unnecessary `.clone()` of `DiagramsConfig` in confluence update command (moved instead)
 - Eliminated unnecessary `DirectiveArgs` clones in directive processor (pass by value instead of by reference)
 - Removed unnecessary `Copy`/`Clone` derives from `SourceKind`, `State` (tabs preprocessor), and `DiagramKey`
+- Removed redundant `Clone` derives from `DirectiveArgs` and `TreeNode`
 
 ### Fixed
 

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub const AC_NAMESPACE: &str = "http://www.atlassian.com/schema/confluence/4/ac/";
 
 /// Node in parsed HTML tree.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct TreeNode {
     /// Element tag name (may include namespace prefix or URI).
     pub tag: String,

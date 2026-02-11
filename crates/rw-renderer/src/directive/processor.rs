@@ -294,8 +294,9 @@ impl DirectiveProcessor {
                     .position(|h| h.name() == name);
 
                 if let Some(idx) = handler_idx {
+                    let syntax = args.to_syntax();
                     let ctx = self.config.create_context(line_num);
-                    let output = self.container_handlers[idx].start(args.clone(), &ctx);
+                    let output = self.container_handlers[idx].start(args, &ctx);
 
                     match output {
                         DirectiveOutput::Html(html) => {
@@ -308,7 +309,7 @@ impl DirectiveProcessor {
                         }
                         DirectiveOutput::Skip => {
                             // Handler declined, pass through with original syntax
-                            format!(":::{name}{}", args.to_syntax())
+                            format!(":::{name}{syntax}")
                         }
                     }
                 } else {
