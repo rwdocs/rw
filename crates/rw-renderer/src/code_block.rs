@@ -50,7 +50,7 @@
 use std::collections::HashMap;
 
 /// Result of processing a code block.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ProcessResult {
     /// Replace code block with placeholder for deferred processing.
     ///

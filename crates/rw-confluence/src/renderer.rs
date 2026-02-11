@@ -49,7 +49,7 @@ const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version=
 /// Note: This is distinct from `rw_site::PageRenderer` which renders
 /// markdown to HTML for the web server. Both are "page renderers" but for
 /// different output formats.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct PageRenderer {
     gfm: bool,
     prepend_toc: bool,

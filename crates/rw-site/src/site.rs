@@ -122,7 +122,7 @@ impl From<StorageError> for RenderError {
 }
 
 /// Configuration for [`Site`].
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SiteConfig {
     /// Extract title from first H1 heading.
     pub extract_title: bool,
