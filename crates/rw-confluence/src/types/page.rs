@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Confluence page.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Page {
     /// Page ID.
     pub id: String,
@@ -23,7 +23,7 @@ pub struct Page {
 }
 
 /// Page version.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Version {
     /// Version number.
     pub number: u32,
@@ -33,7 +33,7 @@ pub struct Version {
 }
 
 /// Page body content.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Body {
     /// Storage format content.
     #[serde(default)]
@@ -41,7 +41,7 @@ pub struct Body {
 }
 
 /// Storage format representation.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Storage {
     /// HTML content in Confluence storage format.
     pub value: String,
@@ -50,7 +50,7 @@ pub struct Storage {
 }
 
 /// Hypermedia links.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Links {
     /// Web UI link.
     #[serde(default)]

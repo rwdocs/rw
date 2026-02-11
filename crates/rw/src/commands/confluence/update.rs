@@ -75,7 +75,7 @@ impl UpdateArgs {
 
         // Create update config
         let update_config = UpdateConfig {
-            diagrams: config.diagrams_resolved.clone(),
+            diagrams: config.diagrams_resolved,
             extract_title: self.resolve_extract_title(),
         };
         let updater = PageUpdater::new(&client, update_config);

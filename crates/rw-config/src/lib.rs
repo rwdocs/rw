@@ -48,7 +48,7 @@ pub struct CliSettings {
 const CONFIG_FILENAME: &str = "rw.toml";
 
 /// Application configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Server configuration.
@@ -85,7 +85,7 @@ impl Default for Config {
 }
 
 /// Server configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct ServerConfig {
     /// Server host address.
@@ -104,7 +104,7 @@ impl Default for ServerConfig {
 }
 
 /// Raw docs configuration as parsed from TOML (paths as strings).
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 struct DocsConfigRaw {
     source_dir: Option<String>,
@@ -112,7 +112,7 @@ struct DocsConfigRaw {
 }
 
 /// Resolved documentation configuration with absolute paths.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct DocsConfig {
     /// Source directory for markdown files.
     pub source_dir: PathBuf,
@@ -131,7 +131,7 @@ impl DocsConfig {
 }
 
 /// Raw diagrams configuration as parsed from TOML (paths as strings).
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 struct DiagramsConfigRaw {
     kroki_url: Option<String>,
@@ -140,7 +140,7 @@ struct DiagramsConfigRaw {
 }
 
 /// Resolved diagram rendering configuration with absolute paths.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DiagramsConfig {
     /// Kroki server URL for diagram rendering.
     pub kroki_url: Option<String>,
@@ -161,7 +161,7 @@ impl Default for DiagramsConfig {
 }
 
 /// Live reload configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct LiveReloadConfig {
     /// Whether live reload is enabled.
@@ -180,7 +180,7 @@ impl Default for LiveReloadConfig {
 }
 
 /// Metadata configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct MetadataConfig {
     /// Filename for metadata sidecar files.
@@ -196,7 +196,7 @@ impl Default for MetadataConfig {
 }
 
 /// Confluence configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ConfluenceConfig {
     /// Confluence server base URL.
     pub base_url: String,

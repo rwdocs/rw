@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// Navigation item with children for UI tree.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct NavItem {
     /// Display title.
     pub title: String,
@@ -57,7 +57,7 @@ pub struct SectionInfo {
 }
 
 /// Information about a navigation scope for the frontend.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct ScopeInfo {
     /// URL path to the scope (with leading slash for frontend).
     pub path: String,
@@ -69,7 +69,7 @@ pub struct ScopeInfo {
 }
 
 /// Result of scoped navigation query.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct Navigation {
     /// Navigation items for this scope.
     pub items: Vec<NavItem>,
