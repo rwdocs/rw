@@ -33,7 +33,7 @@ pub struct NavItem {
 }
 
 /// Document page data.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
     /// Page title (from H1 heading, filename, or metadata override).
     pub title: String,

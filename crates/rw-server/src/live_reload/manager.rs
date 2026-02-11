@@ -84,32 +84,32 @@ impl LiveReloadManager {
         // Resolve doc path based on event kind.
         // The debouncer already handles editor save patterns (Removed + Created → Modified),
         // so we can trust the event types directly.
-        let doc_path: Option<String> = match event.kind {
+        let known = match event.kind {
             StorageEventKind::Modified => {
                 // Content change only - use cached site state, no traversal needed.
-                site.get_page(&event.path).map(|p| p.path)
+                site.has_page(&event.path)
             }
             StorageEventKind::Created => {
                 // New file - invalidate so next access reloads site structure
                 site.invalidate();
-                site.get_page(&event.path).map(|p| p.path)
+                site.has_page(&event.path)
             }
             StorageEventKind::Removed => {
-                // File deleted - get path from cached site before invalidating
-                let doc_path = site.get_page(&event.path).map(|p| p.path);
+                // File deleted - check cached site before invalidating
+                let known = site.has_page(&event.path);
                 site.invalidate();
-                doc_path
+                known
             }
         };
 
-        let Some(doc_path) = doc_path else {
+        if !known {
             return;
-        };
+        }
 
         // Broadcast reload event with URL path (add leading slash for frontend)
         let reload_event = ReloadEvent {
             event_type: "reload".to_owned(),
-            path: to_url_path(&doc_path),
+            path: to_url_path(&event.path),
         };
         let _ = broadcaster.send(reload_event);
     }

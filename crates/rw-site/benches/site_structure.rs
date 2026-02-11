@@ -48,11 +48,11 @@ fn bench_site_get_page(c: &mut Criterion) {
     let mut group = c.benchmark_group("site_lookup");
 
     group.bench_function("get_page_hit", |b| {
-        b.iter(|| site.get_page("/section-0/section-1"));
+        b.iter(|| site.has_page("/section-0/section-1"));
     });
 
     group.bench_function("get_page_miss", |b| {
-        b.iter(|| site.get_page("/nonexistent/path"));
+        b.iter(|| site.has_page("/nonexistent/path"));
     });
 
     group.finish();
@@ -157,15 +157,15 @@ fn bench_get_page(c: &mut Criterion) {
     let mut group = c.benchmark_group("get_page");
 
     group.bench_function("shallow", |b| {
-        b.iter(|| site.get_page("/section-0"));
+        b.iter(|| site.has_page("/section-0"));
     });
 
     group.bench_function("deep", |b| {
-        b.iter(|| site.get_page("/section-0/section-0/section-0/section-0"));
+        b.iter(|| site.has_page("/section-0/section-0/section-0/section-0"));
     });
 
     group.bench_function("not_found", |b| {
-        b.iter(|| site.get_page("/nonexistent"));
+        b.iter(|| site.has_page("/nonexistent"));
     });
 
     group.finish();

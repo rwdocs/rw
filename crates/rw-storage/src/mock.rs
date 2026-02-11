@@ -317,7 +317,12 @@ impl Storage for MockStorage {
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
         // Simple lookup - no inheritance
-        Ok(self.metadata.read().unwrap().get(path).cloned())
+        Ok(self.metadata.read().unwrap().get(path).map(|m| Metadata {
+            title: m.title.clone(),
+            description: m.description.clone(),
+            page_type: m.page_type.clone(),
+            vars: m.vars.clone(),
+        }))
     }
 }
 

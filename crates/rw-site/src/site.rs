@@ -262,9 +262,9 @@ impl Site {
         self.reload_if_needed().get_navigation_scope(page_path)
     }
 
-    /// Get page by URL path.
+    /// Check if a page exists at the given URL path.
     ///
-    /// Reloads site if needed and returns the page for a given URL path.
+    /// Reloads site if needed and returns whether the page exists.
     ///
     /// # Arguments
     ///
@@ -274,8 +274,8 @@ impl Site {
     ///
     /// Panics if internal locks are poisoned.
     #[must_use]
-    pub fn get_page(&self, path: &str) -> Option<Page> {
-        self.reload_if_needed().get_page(path).cloned()
+    pub fn has_page(&self, path: &str) -> bool {
+        self.reload_if_needed().get_page(path).is_some()
     }
 
     /// Get breadcrumbs for a page.
