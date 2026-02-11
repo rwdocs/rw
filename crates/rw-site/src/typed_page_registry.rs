@@ -45,9 +45,13 @@ impl TypedPageRegistry {
             // Look up the page for has_content
             let has_docs = state.get_page(path).is_some_and(|page| page.has_content);
 
+            let title = match section.section_type.as_str() {
+                "service" => dir_name.to_owned(),
+                _ => section.title.clone(),
+            };
+
             let entity = EntityInfo {
-                title: section.title.clone(),
-                dir_name: dir_name.to_owned(),
+                title,
                 description: None,
                 has_docs,
                 url_path: format!("/{path}"),
@@ -131,7 +135,6 @@ mod tests {
         assert!(entity.is_some());
         let entity = entity.unwrap();
         assert_eq!(entity.title, "Payment Gateway");
-        assert_eq!(entity.dir_name, "payment-gateway");
         assert!(entity.has_docs);
         assert_eq!(entity.url_path, "/domains/billing/systems/payment-gateway");
     }
@@ -153,7 +156,6 @@ mod tests {
         assert!(entity.is_some());
         let entity = entity.unwrap();
         assert_eq!(entity.title, "Billing");
-        assert_eq!(entity.dir_name, "billing");
     }
 
     #[test]
@@ -172,7 +174,7 @@ mod tests {
         let entity = registry.get_entity("service", "invoice_api");
         assert!(entity.is_some());
         let entity = entity.unwrap();
-        assert_eq!(entity.dir_name, "invoice-api");
+        assert_eq!(entity.title, "invoice-api");
     }
 
     #[test]
