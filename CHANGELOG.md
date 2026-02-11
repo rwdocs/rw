@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed unnecessary `Copy`/`Clone` derives from `SourceKind`, `State` (tabs preprocessor), and `DiagramKey`
 - Removed redundant `Clone` derives from `DirectiveArgs` and `TreeNode`
 - Zero-copy site state cache serialization via `CachedSiteStateRef` (removes `Clone` from `SectionInfo`)
+- Removed test-only `Clone` derive from `Metadata`
 
 ### Fixed
 

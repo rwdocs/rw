@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This struct is serialization-friendly and can be used by backends
 /// that store metadata in various formats (YAML, JSON, TOML, etc.).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Metadata {
     /// Custom page title (overrides H1 extraction).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -131,17 +131,4 @@ mod tests {
         assert_eq!(meta1, meta2);
     }
 
-    #[test]
-    fn test_metadata_clone() {
-        let meta = Metadata {
-            title: Some("Title".to_owned()),
-            description: Some("Desc".to_owned()),
-            page_type: Some("domain".to_owned()),
-            vars: [("key".to_owned(), serde_json::json!("value"))]
-                .into_iter()
-                .collect(),
-        };
-        let cloned = meta.clone();
-        assert_eq!(meta, cloned);
-    }
 }
