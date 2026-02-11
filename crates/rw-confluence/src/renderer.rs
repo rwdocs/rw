@@ -55,7 +55,6 @@ pub(crate) struct PageRenderer {
     prepend_toc: bool,
     extract_title: bool,
     include_dirs: Vec<PathBuf>,
-    config_file: Option<String>,
     dpi: Option<u32>,
 }
 
@@ -74,7 +73,6 @@ impl PageRenderer {
             prepend_toc: false,
             extract_title: false,
             include_dirs: Vec::new(),
-            config_file: None,
             dpi: None,
         }
     }
@@ -100,13 +98,6 @@ impl PageRenderer {
         dirs: impl IntoIterator<Item = impl Into<PathBuf>>,
     ) -> Self {
         self.include_dirs = dirs.into_iter().map(Into::into).collect();
-        self
-    }
-
-    /// Set `PlantUML` config file (loaded from `include_dirs` when needed).
-    #[must_use]
-    pub(crate) fn config_file(mut self, config_file: Option<&str>) -> Self {
-        self.config_file = config_file.map(String::from);
         self
     }
 
@@ -164,9 +155,7 @@ impl PageRenderer {
 
     /// Create a diagram processor with common configuration.
     fn create_diagram_processor(&self, kroki_url: &str) -> DiagramProcessor {
-        let mut processor = DiagramProcessor::new(kroki_url)
-            .include_dirs(&self.include_dirs)
-            .config_file(self.config_file.as_deref());
+        let mut processor = DiagramProcessor::new(kroki_url).include_dirs(&self.include_dirs);
 
         if let Some(dpi) = self.dpi {
             processor = processor.dpi(dpi);

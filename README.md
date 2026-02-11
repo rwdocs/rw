@@ -46,7 +46,6 @@ cache_enabled = true    # Enable/disable caching (default: true)
 [diagrams]
 kroki_url = "https://kroki.io"  # Required when [diagrams] section is present
 include_dirs = ["."]            # PlantUML !include search paths
-config_file = "config.iuml"     # PlantUML config file
 dpi = 192                       # DPI for diagrams (retina)
 
 [live_reload]

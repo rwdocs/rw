@@ -2,8 +2,7 @@
 //!
 //! This module handles `PlantUML` source preprocessing before rendering via Kroki:
 //! - Resolves `!include` directives by searching include directories
-//! - Prepends DPI configuration for high-resolution output
-//! - Loads optional `PlantUML` config files (e.g., `config.iuml`)
+//! - Prepends DPI and font configuration for high-resolution output
 
 use std::path::PathBuf;
 
@@ -103,33 +102,23 @@ fn resolve_includes(
 
 /// Prepare `PlantUML` source for rendering.
 ///
-/// Resolves includes and injects DPI setting and optional config content
+/// Resolves includes and injects DPI and font settings
 /// after the `@startuml` directive.
 ///
 /// # Arguments
 /// * `source` - Raw `PlantUML` diagram source
 /// * `include_dirs` - Directories to search for `!include` files
-/// * `config_content` - Optional config file content to inject
 /// * `dpi` - DPI setting for rendering
 ///
 /// # Returns
 /// [`PrepareResult`] containing the prepared source and any warnings.
 #[must_use]
-pub fn prepare_diagram_source(
-    source: &str,
-    include_dirs: &[PathBuf],
-    config_content: Option<&str>,
-    dpi: u32,
-) -> PrepareResult {
+pub fn prepare_diagram_source(source: &str, include_dirs: &[PathBuf], dpi: u32) -> PrepareResult {
     let mut warnings = Vec::new();
     let resolved = resolve_includes(source, include_dirs, 0, &mut warnings);
 
-    // Inject DPI and config after @startuml directive
-    let mut config_block = format!("skinparam dpi {dpi}\n");
-    if let Some(config) = config_content {
-        config_block.push_str(config);
-        config_block.push('\n');
-    }
+    // Inject DPI and font config after @startuml directive
+    let config_block = format!("skinparam dpi {dpi}\nskinparam defaultFontName Roboto\n");
 
     // Find @startuml and inject config after it
     let final_source = if let Some(pos) = resolved.find("@startuml") {
@@ -157,17 +146,6 @@ pub fn prepare_diagram_source(
     }
 }
 
-/// Load config file content from include directories.
-///
-/// Returns the content and optionally warns if not found.
-#[must_use]
-pub fn load_config_file(include_dirs: &[PathBuf], config_file: &str) -> Option<String> {
-    include_dirs.iter().find_map(|dir| {
-        let path = dir.join(config_file);
-        std::fs::read_to_string(&path).ok()
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,26 +154,12 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source() {
         let source = "@startuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI);
 
-        // DPI should be injected after @startuml
+        // DPI and font should be injected after @startuml
         assert_eq!(
             result.source,
-            "@startuml\nskinparam dpi 192\nAlice -> Bob\n@enduml"
-        );
-        assert!(result.warnings.is_empty());
-    }
-
-    #[test]
-    fn test_prepare_diagram_source_with_config() {
-        let source = "@startuml\nAlice -> Bob\n@enduml";
-        let config = "skinparam backgroundColor white";
-        let result = prepare_diagram_source(source, &[], Some(config), DEFAULT_DPI);
-
-        // Config should be injected after @startuml and dpi
-        assert_eq!(
-            result.source,
-            "@startuml\nskinparam dpi 192\nskinparam backgroundColor white\nAlice -> Bob\n@enduml"
+            "@startuml\nskinparam dpi 192\nskinparam defaultFontName Roboto\nAlice -> Bob\n@enduml"
         );
         assert!(result.warnings.is_empty());
     }
@@ -203,11 +167,11 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source_custom_dpi() {
         let source = "@startuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None, 300);
+        let result = prepare_diagram_source(source, &[], 300);
 
         assert_eq!(
             result.source,
-            "@startuml\nskinparam dpi 300\nAlice -> Bob\n@enduml"
+            "@startuml\nskinparam dpi 300\nskinparam defaultFontName Roboto\nAlice -> Bob\n@enduml"
         );
         assert!(result.warnings.is_empty());
     }
@@ -215,12 +179,12 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source_preserves_content_before_startuml() {
         let source = "' comment\n@startuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI);
 
         // Content before @startuml should be preserved
         assert_eq!(
             result.source,
-            "' comment\n@startuml\nskinparam dpi 192\nAlice -> Bob\n@enduml"
+            "' comment\n@startuml\nskinparam dpi 192\nskinparam defaultFontName Roboto\nAlice -> Bob\n@enduml"
         );
         assert!(result.warnings.is_empty());
     }
@@ -228,7 +192,7 @@ mod tests {
     #[test]
     fn test_unresolved_include_generates_warning() {
         let source = "@startuml\n!include missing.iuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI);
 
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("missing.iuml"));
@@ -239,7 +203,7 @@ mod tests {
     fn test_unresolved_include_with_dirs_shows_searched_paths() {
         let source = "@startuml\n!include missing.iuml\nAlice -> Bob\n@enduml";
         let include_dirs = vec![PathBuf::from("/tmp/includes")];
-        let result = prepare_diagram_source(source, &include_dirs, None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, &include_dirs, DEFAULT_DPI);
 
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("missing.iuml"));
@@ -249,7 +213,7 @@ mod tests {
     #[test]
     fn test_stdlib_include_no_warning() {
         let source = "@startuml\n!include <tupadr3/common>\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI);
 
         // Stdlib includes should not generate warnings
         assert!(result.warnings.is_empty());
@@ -265,8 +229,7 @@ mod tests {
         std::fs::write(&include_path, "Component(comp, \"Component\")").unwrap();
 
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include test_component.iuml\nBoundary_End()\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI);
 
         // Cleanup
         std::fs::remove_file(&include_path).unwrap();
@@ -280,7 +243,7 @@ mod tests {
     #[test]
     fn test_indented_include_warning() {
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include missing.iuml\nBoundary_End()\n@enduml";
-        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI);
 
         // Should generate warning for indented include too
         assert_eq!(result.warnings.len(), 1);
@@ -291,10 +254,11 @@ mod tests {
     fn test_prepare_diagram_source_no_startuml() {
         // Source without @startuml - fallback to prepending config
         let source = "Alice -> Bob";
-        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI);
 
         // Config should be prepended
         assert!(result.source.starts_with("skinparam dpi 192\n"));
+        assert!(result.source.contains("skinparam defaultFontName Roboto"));
         assert!(result.source.contains("Alice -> Bob"));
     }
 
@@ -302,61 +266,12 @@ mod tests {
     fn test_prepare_diagram_source_startuml_no_newline() {
         // @startuml at end of source without newline
         let source = "@startuml";
-        let result = prepare_diagram_source(source, &[], None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI);
 
         // Should fallback to prepending
         assert!(result.source.contains("skinparam dpi 192"));
+        assert!(result.source.contains("skinparam defaultFontName Roboto"));
         assert!(result.source.contains("@startuml"));
-    }
-
-    #[test]
-    fn test_load_config_file_found() {
-        let temp_dir = std::env::temp_dir();
-        let config_path = temp_dir.join("test_config.iuml");
-        std::fs::write(&config_path, "skinparam backgroundColor white").unwrap();
-
-        let result = load_config_file(std::slice::from_ref(&temp_dir), "test_config.iuml");
-
-        std::fs::remove_file(&config_path).unwrap();
-
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), "skinparam backgroundColor white");
-    }
-
-    #[test]
-    fn test_load_config_file_not_found() {
-        let temp_dir = std::env::temp_dir();
-        let result = load_config_file(&[temp_dir], "nonexistent_config.iuml");
-
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_load_config_file_empty_dirs() {
-        let result = load_config_file(&[], "config.iuml");
-
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_load_config_file_searches_multiple_dirs() {
-        let temp_dir = std::env::temp_dir();
-        let subdir = temp_dir.join("plantuml_test_subdir");
-        std::fs::create_dir_all(&subdir).unwrap();
-        let config_path = subdir.join("my_config.iuml");
-        std::fs::write(&config_path, "config content").unwrap();
-
-        // First dir doesn't have it, second does
-        let result = load_config_file(
-            &[temp_dir.join("nonexistent"), subdir.clone()],
-            "my_config.iuml",
-        );
-
-        std::fs::remove_file(&config_path).unwrap();
-        std::fs::remove_dir(&subdir).ok();
-
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), "config content");
     }
 
     #[test]
@@ -368,8 +283,7 @@ mod tests {
         std::fs::write(&include_path, "!include recursive.iuml\nContent").unwrap();
 
         let source = "@startuml\n!include recursive.iuml\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI);
 
         std::fs::remove_file(&include_path).unwrap();
 
@@ -386,8 +300,7 @@ mod tests {
         std::fs::write(&include2, "Bob -> Charlie").unwrap();
 
         let source = "@startuml\n!include part1.iuml\n!include part2.iuml\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI);
 
         std::fs::remove_file(&include1).unwrap();
         std::fs::remove_file(&include2).unwrap();
@@ -407,8 +320,7 @@ mod tests {
         std::fs::write(&outer, "OuterBefore\n!include inner.iuml\nOuterAfter").unwrap();
 
         let source = "@startuml\n!include outer.iuml\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI);
 
         std::fs::remove_file(&outer).unwrap();
         std::fs::remove_file(&inner).unwrap();
@@ -426,8 +338,7 @@ mod tests {
         std::fs::write(&include_path, "Line1\n\nLine3").unwrap();
 
         let source = "@startuml\n  !include with_empty.iuml\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), None, DEFAULT_DPI);
+        let result = prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI);
 
         std::fs::remove_file(&include_path).unwrap();
 

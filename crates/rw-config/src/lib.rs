@@ -136,7 +136,6 @@ impl DocsConfig {
 struct DiagramsConfigRaw {
     kroki_url: Option<String>,
     include_dirs: Option<Vec<String>>,
-    config_file: Option<String>,
     dpi: Option<u32>,
 }
 
@@ -147,8 +146,6 @@ pub struct DiagramsConfig {
     pub kroki_url: Option<String>,
     /// Directories to search for `PlantUML` `!include` directives.
     pub include_dirs: Vec<PathBuf>,
-    /// `PlantUML` config file name.
-    pub config_file: Option<String>,
     /// DPI for diagram rendering.
     pub dpi: u32,
 }
@@ -158,7 +155,6 @@ impl Default for DiagramsConfig {
         Self {
             kroki_url: None,
             include_dirs: Vec::new(),
-            config_file: None,
             dpi: 192,
         }
     }
@@ -498,7 +494,6 @@ impl Config {
                 DiagramsConfig {
                     kroki_url: Some(kroki_url),
                     include_dirs,
-                    config_file: diagrams.config_file.clone(),
                     dpi: diagrams.dpi.unwrap_or(192),
                 }
             }

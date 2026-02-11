@@ -130,8 +130,6 @@ pub struct SiteConfig {
     pub kroki_url: Option<String>,
     /// Directories to search for `PlantUML` includes.
     pub include_dirs: Vec<PathBuf>,
-    /// `PlantUML` config file name (searched in `include_dirs`).
-    pub config_file: Option<String>,
     /// DPI for diagram rendering (default: 192 for retina).
     pub dpi: u32,
 }
@@ -142,7 +140,6 @@ impl Default for SiteConfig {
             extract_title: true,
             kroki_url: None,
             include_dirs: Vec::new(),
-            config_file: None,
             dpi: 192,
         }
     }
@@ -179,7 +176,6 @@ pub struct Site {
     extract_title: bool,
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
-    config_file: Option<String>,
     dpi: u32,
 }
 
@@ -207,7 +203,6 @@ impl Site {
             extract_title: config.extract_title,
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
-            config_file: config.config_file,
             dpi: config.dpi,
         }
     }
@@ -501,7 +496,6 @@ impl Site {
 
         let processor = DiagramProcessor::new(url)
             .include_dirs(&self.include_dirs)
-            .config_file(self.config_file.as_deref())
             .dpi(self.dpi)
             .with_cache(self.cache.bucket("diagrams"));
 
