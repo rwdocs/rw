@@ -13,6 +13,7 @@ use ureq::Agent;
 
 use crate::cache::DiagramKey;
 use crate::consts::{DEFAULT_DPI, DEFAULT_TIMEOUT};
+use crate::meta_includes::MetaIncludeSource;
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
     DiagramRequest, create_agent, render_all, render_all_png_data_uri_partial,
@@ -42,6 +43,8 @@ struct ProcessorConfig {
     output: DiagramOutput,
     /// HTTP agent for connection pooling (reused across render calls).
     agent: Agent,
+    /// Optional metadata source for resolving virtual `PlantUML` includes.
+    meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
 }
 
 /// Code block processor for diagram languages.
@@ -107,6 +110,7 @@ impl DiagramProcessor {
                 cache: rw_cache::NullCache.bucket("diagrams"),
                 output: DiagramOutput::default(),
                 agent: create_agent(DEFAULT_TIMEOUT),
+                meta_include_source: None,
             },
             extracted: Vec::new(),
             warnings: Vec::new(),
@@ -207,13 +211,28 @@ impl DiagramProcessor {
         self
     }
 
+    /// Set metadata source for resolving virtual `PlantUML` includes.
+    ///
+    /// When set, `!include systems/sys_*.iuml` paths are resolved from page
+    /// metadata instead of the filesystem. Filesystem includes still work as fallback.
+    #[must_use]
+    pub fn with_meta_include_source(mut self, source: Arc<dyn MetaIncludeSource>) -> Self {
+        self.config.meta_include_source = Some(source);
+        self
+    }
+
     /// Prepare diagram source for rendering.
     ///
     /// For `PlantUML` diagrams, this resolves `!include` directives and injects config.
     /// For other diagram types, returns the source as-is.
     fn prepare_source(config: &ProcessorConfig, diagram: &ExtractedDiagram) -> PrepareResult {
         if diagram.language.needs_plantuml_preprocessing() {
-            prepare_diagram_source(&diagram.source, &config.include_dirs, config.dpi)
+            prepare_diagram_source(
+                &diagram.source,
+                &config.include_dirs,
+                config.dpi,
+                config.meta_include_source.as_deref(),
+            )
         } else {
             PrepareResult {
                 source: diagram.source.clone(),
