@@ -11,29 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
 
-### Changed
-
-- Replaced `ignore` with compilable annotations on doc examples across 10 files (all 22 examples now either compile-checked or replaced with prose for private items)
-- Re-exported `to_extracted_diagram` and `to_extracted_diagrams` from `rw-diagrams`
-- Fixed `#![allow(clippy::similar_names)]` placement in `comment_preservation` module
-- `make test` now includes doc tests via `--doctests` flag
-- Removed redundant `Clone` derives from 13 structs/enums across 10 files
-- Removed redundant `Clone` derives from 9 structs/enums across 6 files
-- Removed redundant `Clone` derives from 17 structs across 3 files
-- Removed redundant `Clone` derives from `ServerConfig` and `TocEntry`
-- Removed test-only `Clone` derives from `StorageEvent` and `Document`
-- Eliminated unnecessary `.clone()` of `DiagramsConfig` in confluence update command (moved instead)
-- Eliminated unnecessary `DirectiveArgs` clones in directive processor (pass by value instead of by reference)
-- Removed unnecessary `Copy`/`Clone` derives from `SourceKind`, `State` (tabs preprocessor), and `DiagramKey`
-- Removed redundant `Clone` derives from `DirectiveArgs` and `TreeNode`
-- Zero-copy site state cache serialization via `CachedSiteStateRef` (removes `Clone` from `SectionInfo`)
-- Removed test-only `Clone` derive from `Metadata`
-- Removed `Clone` derive from `Page`; replaced `Site::get_page()` with `Site::has_page()`
-
-### Fixed
-
-- Diagram `$link` URLs no longer have trailing slash, fixing 404 when clicking diagram elements
-
 ## [0.1.4] - 2026-02-11
 
 ### Changed
