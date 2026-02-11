@@ -37,9 +37,11 @@ mod html_embed;
 mod kroki;
 mod language;
 mod output;
+mod meta_includes;
 mod plantuml;
 mod processor;
 
 pub use cache::DiagramKey;
+pub use meta_includes::{EntityInfo, MetaIncludeSource};
 pub use output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 pub use processor::DiagramProcessor;
