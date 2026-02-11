@@ -109,7 +109,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            host: "127.0.0.1".to_string(),
+            host: "127.0.0.1".to_owned(),
             port: 8080,
             source_dir: PathBuf::from("docs"),
             cache_dir: None,
@@ -121,7 +121,7 @@ impl Default for ServerConfig {
             watch_patterns: None,
             verbose: false,
             version: String::new(),
-            meta_filename: "meta.yaml".to_string(),
+            meta_filename: "meta.yaml".to_owned(),
             readme_path: PathBuf::from("README.md"),
         }
     }

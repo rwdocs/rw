@@ -141,7 +141,7 @@ impl TabsProcessor {
                 result.push_str(&transformed);
             } else {
                 self.warnings
-                    .push("rw-tabs element without data-id".to_string());
+                    .push("rw-tabs element without data-id".to_owned());
                 result.push_str(&remaining[start..close_end]);
             }
 
@@ -197,7 +197,7 @@ fn parse_tab_panels(content: &str) -> Vec<(usize, String)> {
         let close_end = close_start + close_tag.len();
 
         if let Some(id) = tab_id {
-            panels.push((id, panel_content.to_string()));
+            panels.push((id, panel_content.to_owned()));
         }
 
         remaining = &remaining[close_end..];
@@ -217,12 +217,12 @@ mod tests {
             tabs: vec![
                 TabMetadata {
                     id: 0,
-                    label: "macOS".to_string(),
+                    label: "macOS".to_owned(),
                     line: 2,
                 },
                 TabMetadata {
                     id: 1,
-                    label: "Linux".to_string(),
+                    label: "Linux".to_owned(),
                     line: 5,
                 },
             ],
@@ -244,8 +244,8 @@ mod tests {
         let panels = parse_tab_panels(content);
 
         assert_eq!(panels.len(), 2);
-        assert_eq!(panels[0], (0, "Content A".to_string()));
-        assert_eq!(panels[1], (1, "Content B".to_string()));
+        assert_eq!(panels[0], (0, "Content A".to_owned()));
+        assert_eq!(panels[1], (1, "Content B".to_owned()));
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
         let groups = create_test_groups();
         let mut processor = TabsProcessor::new(groups);
 
-        let mut html = r#"<p>Before</p><rw-tabs data-id="0"><rw-tab data-id="0">A</rw-tab><rw-tab data-id="1">B</rw-tab></rw-tabs><p>After</p>"#.to_string();
+        let mut html = r#"<p>Before</p><rw-tabs data-id="0"><rw-tab data-id="0">A</rw-tab><rw-tab data-id="1">B</rw-tab></rw-tabs><p>After</p>"#.to_owned();
         processor.post_process(&mut html);
 
         assert!(html.contains("<p>Before</p>"));
@@ -295,7 +295,7 @@ mod tests {
                 id: 0,
                 tabs: vec![TabMetadata {
                     id: 0,
-                    label: "A".to_string(),
+                    label: "A".to_owned(),
                     line: 1,
                 }],
             },
@@ -303,14 +303,14 @@ mod tests {
                 id: 1,
                 tabs: vec![TabMetadata {
                     id: 1,
-                    label: "B".to_string(),
+                    label: "B".to_owned(),
                     line: 5,
                 }],
             },
         ];
         let mut processor = TabsProcessor::new(groups);
 
-        let mut html = r#"<rw-tabs data-id="0"><rw-tab data-id="0">Content A</rw-tab></rw-tabs><rw-tabs data-id="1"><rw-tab data-id="1">Content B</rw-tab></rw-tabs>"#.to_string();
+        let mut html = r#"<rw-tabs data-id="0"><rw-tab data-id="0">Content A</rw-tab></rw-tabs><rw-tabs data-id="1"><rw-tab data-id="1">Content B</rw-tab></rw-tabs>"#.to_owned();
         processor.post_process(&mut html);
 
         assert!(html.contains(r#"id="tabs-0""#));
@@ -322,7 +322,7 @@ mod tests {
         let mut processor = TabsProcessor::new(vec![]);
 
         let mut html =
-            r#"<rw-tabs data-id="99"><rw-tab data-id="0">Content</rw-tab></rw-tabs>"#.to_string();
+            r#"<rw-tabs data-id="99"><rw-tab data-id="0">Content</rw-tab></rw-tabs>"#.to_owned();
         processor.post_process(&mut html);
 
         assert!(processor.warnings().iter().any(|w| w.contains("99")));
@@ -334,7 +334,7 @@ mod tests {
             id: 0,
             tabs: vec![TabMetadata {
                 id: 0,
-                label: "<script>".to_string(),
+                label: "<script>".to_owned(),
                 line: 1,
             }],
         }];
@@ -353,13 +353,13 @@ mod tests {
             id: 0,
             tabs: vec![TabMetadata {
                 id: 0,
-                label: "Code".to_string(),
+                label: "Code".to_owned(),
                 line: 1,
             }],
         }];
         let mut processor = TabsProcessor::new(groups);
 
-        let mut html = r#"<rw-tabs data-id="0"><rw-tab data-id="0"><pre><code class="language-rust">fn main() {}</code></pre></rw-tab></rw-tabs>"#.to_string();
+        let mut html = r#"<rw-tabs data-id="0"><rw-tab data-id="0"><pre><code class="language-rust">fn main() {}</code></pre></rw-tab></rw-tabs>"#.to_owned();
         processor.post_process(&mut html);
 
         assert!(html.contains(r#"<pre><code class="language-rust">fn main() {}</code></pre>"#));
@@ -370,7 +370,7 @@ mod tests {
         let groups = create_test_groups();
         let mut processor = TabsProcessor::new(groups);
 
-        let mut html = r#"<rw-tabs data-id="0"><rw-tab data-id="0">A</rw-tab><rw-tab data-id="1">B</rw-tab></rw-tabs>"#.to_string();
+        let mut html = r#"<rw-tabs data-id="0"><rw-tab data-id="0">A</rw-tab><rw-tab data-id="1">B</rw-tab></rw-tabs>"#.to_owned();
         processor.post_process(&mut html);
 
         assert!(processor.warnings().is_empty());

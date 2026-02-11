@@ -237,7 +237,7 @@ impl HeadingState {
 
     /// Complete the first H1 and save as title.
     pub fn complete_first_h1(&mut self) {
-        self.title = Some(self.text.trim().to_string());
+        self.title = Some(self.text.trim().to_owned());
         self.text.clear();
         self.in_first_h1 = false;
         self.seen_first_h1 = true;
@@ -257,7 +257,7 @@ impl HeadingState {
         let is_title =
             self.extract_title && !self.title_as_metadata && level == 1 && self.title.is_none();
         if is_title {
-            self.title = Some(text.trim().to_string());
+            self.title = Some(text.trim().to_owned());
             self.seen_first_h1 = true;
         }
 
@@ -268,7 +268,7 @@ impl HeadingState {
         if !is_title {
             self.toc.push(TocEntry {
                 level: adjusted,
-                title: text.trim().to_string(),
+                title: text.trim().to_owned(),
                 id: id.clone(),
             });
         }
@@ -385,12 +385,12 @@ mod tests {
         let mut state = CodeBlockState::default();
         assert!(!state.is_active());
 
-        state.start(Some("rust".to_string()));
+        state.start(Some("rust".to_owned()));
         assert!(state.is_active());
 
         state.push_str("fn main() {}");
         let (lang, content) = state.end();
-        assert_eq!(lang, Some("rust".to_string()));
+        assert_eq!(lang, Some("rust".to_owned()));
         assert_eq!(content, "fn main() {}");
         assert!(!state.is_active());
     }
@@ -462,7 +462,7 @@ mod tests {
         assert_eq!(level, 2); // Not adjusted in HTML mode
 
         // Check title and ToC at the end (ToC should not include the title)
-        assert_eq!(state.take_title(), Some("My Title".to_string()));
+        assert_eq!(state.take_title(), Some("My Title".to_owned()));
         assert_eq!(state.take_toc().len(), 1); // Only H2, not H1 title
     }
 
@@ -487,6 +487,6 @@ mod tests {
         assert_eq!(level, 1); // Adjusted from H2 to H1
 
         // Check title at the end
-        assert_eq!(state.take_title(), Some("My Title".to_string()));
+        assert_eq!(state.take_title(), Some("My Title".to_owned()));
     }
 }

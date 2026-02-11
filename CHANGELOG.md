@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Workspace-level clippy lints in `Cargo.toml` (pedantic + restriction + nursery)
+
 ### Changed
 
 - Cache directory moved from `.cache/` to `.rw/cache/` (`.rw/` is the new project directory)

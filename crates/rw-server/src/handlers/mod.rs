@@ -10,7 +10,7 @@ pub(crate) mod pages;
 /// but the frontend expects URL paths with leading slashes (e.g., "/guide", "/domain/page", "/").
 pub(crate) fn to_url_path(path: &str) -> String {
     if path.is_empty() {
-        "/".to_string()
+        "/".to_owned()
     } else {
         format!("/{path}")
     }

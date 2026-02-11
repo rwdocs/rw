@@ -322,7 +322,7 @@ mod tests {
     fn test_document_root() {
         let doc = Document {
             path: String::new(),
-            title: "Home".to_string(),
+            title: "Home".to_owned(),
             has_content: true,
             page_type: None,
         };
@@ -336,8 +336,8 @@ mod tests {
     #[test]
     fn test_document_standalone() {
         let doc = Document {
-            path: "guide".to_string(),
-            title: "Guide".to_string(),
+            path: "guide".to_owned(),
+            title: "Guide".to_owned(),
             has_content: true,
             page_type: None,
         };
@@ -351,29 +351,29 @@ mod tests {
     #[test]
     fn test_document_nested_with_type() {
         let doc = Document {
-            path: "domain/billing".to_string(),
-            title: "Billing".to_string(),
+            path: "domain/billing".to_owned(),
+            title: "Billing".to_owned(),
             has_content: true,
-            page_type: Some("domain".to_string()),
+            page_type: Some("domain".to_owned()),
         };
 
         assert_eq!(doc.path, "domain/billing");
         assert!(doc.has_content);
-        assert_eq!(doc.page_type, Some("domain".to_string()));
+        assert_eq!(doc.page_type, Some("domain".to_owned()));
     }
 
     #[test]
     fn test_virtual_document() {
         let doc = Document {
-            path: "domains".to_string(),
-            title: "Domains".to_string(),
+            path: "domains".to_owned(),
+            title: "Domains".to_owned(),
             has_content: false,
-            page_type: Some("section".to_string()),
+            page_type: Some("section".to_owned()),
         };
 
         assert_eq!(doc.path, "domains");
         assert!(!doc.has_content);
-        assert_eq!(doc.page_type, Some("section".to_string()));
+        assert_eq!(doc.page_type, Some("section".to_owned()));
     }
 
     #[test]

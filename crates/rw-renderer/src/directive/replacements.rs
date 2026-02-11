@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_empty_replacements() {
-        let mut html = "unchanged".to_string();
+        let mut html = "unchanged".to_owned();
         let replacements = Replacements::new();
         replacements.apply(&mut html);
         assert_eq!(html, "unchanged");
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn test_single_replacement() {
-        let mut html = "hello world".to_string();
+        let mut html = "hello world".to_owned();
         let mut replacements = Replacements::new();
         replacements.add("world", "universe");
         replacements.apply(&mut html);
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_multiple_replacements() {
-        let mut html = "<a><b></b></a>".to_string();
+        let mut html = "<a><b></b></a>".to_owned();
         let mut replacements = Replacements::new();
         replacements.add("<a>", "<div>");
         replacements.add("</a>", "</div>");
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_replacement_not_found() {
-        let mut html = "hello world".to_string();
+        let mut html = "hello world".to_owned();
         let mut replacements = Replacements::new();
         replacements.add("foo", "bar");
         replacements.apply(&mut html);
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_multiple_occurrences() {
-        let mut html = "a a a".to_string();
+        let mut html = "a a a".to_owned();
         let mut replacements = Replacements::new();
         replacements.add("a", "b");
         replacements.apply(&mut html);
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn test_replacement_order() {
         // Replacements are applied sequentially, so order matters
-        let mut html = "aaa".to_string();
+        let mut html = "aaa".to_owned();
         let mut replacements = Replacements::new();
         replacements.add("a", "bb");
         replacements.add("bb", "c");

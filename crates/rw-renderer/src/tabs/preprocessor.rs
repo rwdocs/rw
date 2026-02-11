@@ -137,7 +137,7 @@ impl TabsPreprocessor {
 
         // Skip directive processing inside code fences
         if self.fence.in_fence() {
-            return line.to_string();
+            return line.to_owned();
         }
 
         // Check for directive
@@ -148,7 +148,7 @@ impl TabsPreprocessor {
                 Directive::Close => self.handle_close(line_num),
             }
         } else {
-            line.to_string()
+            line.to_owned()
         }
     }
 
@@ -205,14 +205,14 @@ impl TabsPreprocessor {
                 }
                 self.state = State::Normal;
                 // Blank line before closing tags for pulldown-cmark
-                "\n</rw-tab>\n</rw-tabs>".to_string()
+                "\n</rw-tab>\n</rw-tabs>".to_owned()
             }
             State::Normal => {
                 // Stray closing, warn and pass through
                 self.warnings.push(format!(
                     "line {line_num}: stray ::: with no opening directive"
                 ));
-                ":::".to_string()
+                ":::".to_owned()
             }
         }
     }
@@ -268,12 +268,12 @@ fn parse_directive(trimmed: &str) -> Option<Directive> {
                 } else {
                     strip_quotes(label)
                 };
-                return Some(Directive::Tab(label.to_string()));
+                return Some(Directive::Tab(label.to_owned()));
             }
         } else if after_tab.is_empty() || after_tab.chars().next().is_some_and(char::is_whitespace)
         {
             // :::tab or :::tab with trailing whitespace (no label)
-            return Some(Directive::Tab("Tab".to_string()));
+            return Some(Directive::Tab("Tab".to_owned()));
         }
     }
 
@@ -299,19 +299,19 @@ mod tests {
     fn test_parse_directive_tab() {
         assert_eq!(
             parse_directive(":::tab[macOS]"),
-            Some(Directive::Tab("macOS".to_string()))
+            Some(Directive::Tab("macOS".to_owned()))
         );
         assert_eq!(
             parse_directive(":::tab[Linux]"),
-            Some(Directive::Tab("Linux".to_string()))
+            Some(Directive::Tab("Linux".to_owned()))
         );
         assert_eq!(
             parse_directive(":::tab"),
-            Some(Directive::Tab("Tab".to_string()))
+            Some(Directive::Tab("Tab".to_owned()))
         );
         assert_eq!(
             parse_directive(":::tab[]"),
-            Some(Directive::Tab("Tab".to_string()))
+            Some(Directive::Tab("Tab".to_owned()))
         );
     }
 
@@ -320,17 +320,17 @@ mod tests {
         // Double quotes
         assert_eq!(
             parse_directive(r#":::tab["macOS и Linux"]"#),
-            Some(Directive::Tab("macOS и Linux".to_string()))
+            Some(Directive::Tab("macOS и Linux".to_owned()))
         );
         // Single quotes
         assert_eq!(
             parse_directive(":::tab['Windows']"),
-            Some(Directive::Tab("Windows".to_string()))
+            Some(Directive::Tab("Windows".to_owned()))
         );
         // No quotes (plain label in brackets)
         assert_eq!(
             parse_directive(":::tab[Plain Label]"),
-            Some(Directive::Tab("Plain Label".to_string()))
+            Some(Directive::Tab("Plain Label".to_owned()))
         );
     }
 

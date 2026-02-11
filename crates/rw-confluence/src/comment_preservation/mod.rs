@@ -95,7 +95,7 @@ pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResul
             tracing::error!(error = %e, "Comment preservation failed");
             tracing::warn!("Falling back to new HTML without comment preservation");
             PreserveResult {
-                html: new_html.to_string(),
+                html: new_html.to_owned(),
                 unmatched_comments: vec![],
             }
         }

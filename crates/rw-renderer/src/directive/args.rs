@@ -42,7 +42,7 @@ impl DirectiveArgs {
     #[must_use]
     pub fn parse(content: &str, attrs_str: &str) -> Self {
         let mut args = Self {
-            content: content.to_string(),
+            content: content.to_owned(),
             ..Default::default()
         };
 
@@ -72,7 +72,7 @@ impl DirectiveArgs {
                 remaining = &remaining[end..];
             } else if let Some((key, value, rest)) = parse_key_value(remaining) {
                 // Key-value: key="value" or key='value' or key=value
-                args.attrs.insert(key.to_string(), value.to_string());
+                args.attrs.insert(key.to_owned(), value.to_owned());
                 remaining = rest;
             } else {
                 // Skip unrecognized character
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn test_id() {
         let args = DirectiveArgs::parse("", "#my-id");
-        assert_eq!(args.id, Some("my-id".to_string()));
+        assert_eq!(args.id, Some("my-id".to_owned()));
     }
 
     #[test]
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn test_id_and_classes() {
         let args = DirectiveArgs::parse("", "#my-id .foo .bar");
-        assert_eq!(args.id, Some("my-id".to_string()));
+        assert_eq!(args.id, Some("my-id".to_owned()));
         assert_eq!(args.classes, vec!["foo", "bar"]);
     }
 
@@ -247,7 +247,7 @@ mod tests {
     fn test_mixed_attributes() {
         let args = DirectiveArgs::parse("content", r#"#my-id .foo lang="en" width=100"#);
         assert_eq!(args.content, "content");
-        assert_eq!(args.id, Some("my-id".to_string()));
+        assert_eq!(args.id, Some("my-id".to_owned()));
         assert_eq!(args.classes, vec!["foo"]);
         assert_eq!(args.get("lang"), Some("en"));
         assert_eq!(args.get("width"), Some("100"));
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_id_followed_by_class() {
         let args = DirectiveArgs::parse("", "#id.class");
-        assert_eq!(args.id, Some("id".to_string()));
+        assert_eq!(args.id, Some("id".to_owned()));
         assert_eq!(args.classes, vec!["class"]);
     }
 

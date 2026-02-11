@@ -78,13 +78,13 @@ mod tests {
     #[test]
     fn test_html() {
         let output = DirectiveOutput::html("<p>test</p>");
-        assert_eq!(output, DirectiveOutput::Html("<p>test</p>".to_string()));
+        assert_eq!(output, DirectiveOutput::Html("<p>test</p>".to_owned()));
     }
 
     #[test]
     fn test_markdown() {
         let output = DirectiveOutput::markdown("# Heading");
-        assert_eq!(output, DirectiveOutput::Markdown("# Heading".to_string()));
+        assert_eq!(output, DirectiveOutput::Markdown("# Heading".to_owned()));
     }
 
     #[test]

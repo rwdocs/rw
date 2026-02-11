@@ -258,7 +258,7 @@ mod tests {
     #[test]
     fn test_extracted_diagram_debug() {
         let diagram = ExtractedDiagram {
-            source: "test".to_string(),
+            source: "test".to_owned(),
             index: 0,
             language: DiagramLanguage::Mermaid,
             format: DiagramFormat::Png,

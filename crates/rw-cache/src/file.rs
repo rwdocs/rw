@@ -70,7 +70,7 @@ impl FileCacheBucket {
     /// returns the original path). The extension also prevents collisions
     /// between keys like `""` and `"_index"`.
     fn key_path(&self, key: &str) -> PathBuf {
-        let mut filename = key.to_string();
+        let mut filename = key.to_owned();
         filename.push_str(".cache");
         self.dir.join(filename)
     }
@@ -95,8 +95,9 @@ impl CacheBucket for FileCacheBucket {
             return None;
         }
 
-        // Etag matches — read the data
+        // Etag matches — read the remaining data (can't use fs::read, file is mid-stream)
         let mut data = Vec::new();
+        #[allow(clippy::verbose_file_reads)]
         file.read_to_end(&mut data).ok()?;
         Some(data)
     }

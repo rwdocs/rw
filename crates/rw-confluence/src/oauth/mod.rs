@@ -25,9 +25,9 @@ impl OAuth1Auth {
     /// Create auth instance with pre-loaded private key.
     pub(crate) fn new(consumer_key: &str, private_key: RsaPrivateKey, access_token: &str) -> Self {
         Self {
-            consumer_key: consumer_key.to_string(),
+            consumer_key: consumer_key.to_owned(),
             private_key,
-            access_token: access_token.to_string(),
+            access_token: access_token.to_owned(),
         }
     }
 
@@ -54,7 +54,7 @@ impl OAuth1Auth {
                         let mut parts = param.splitn(2, '=');
                         let key = parts.next()?;
                         let value = parts.next().unwrap_or("");
-                        Some((key.to_string(), value.to_string()))
+                        Some((key.to_owned(), value.to_owned()))
                     })
                     .collect()
             })

@@ -29,7 +29,7 @@ mod tests {
     fn test_confluence_tag_generator_192_dpi() {
         let generator = ConfluenceTagGenerator;
         let info = RenderedDiagramInfo {
-            filename: "diagram_abc123.png".to_string(),
+            filename: "diagram_abc123.png".to_owned(),
             width: 400,
             height: 200,
         };
@@ -45,7 +45,7 @@ mod tests {
     fn test_confluence_tag_generator_96_dpi() {
         let generator = ConfluenceTagGenerator;
         let info = RenderedDiagramInfo {
-            filename: "test.png".to_string(),
+            filename: "test.png".to_owned(),
             width: 300,
             height: 150,
         };

@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].path, "domain");
         assert!(docs[0].has_content);
-        assert_eq!(docs[0].page_type, Some("domain".to_string()));
+        assert_eq!(docs[0].page_type, Some("domain".to_owned()));
     }
 
     #[test]
@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert!(!doc.has_content);
-        assert_eq!(doc.page_type, Some("section".to_string()));
+        assert_eq!(doc.page_type, Some("section".to_owned()));
     }
 
     #[test]
@@ -429,18 +429,18 @@ mod tests {
     #[test]
     fn test_meta_returns_stored_metadata() {
         let meta = Metadata {
-            title: Some("Domain Title".to_string()),
-            page_type: Some("domain".to_string()),
+            title: Some("Domain Title".to_owned()),
+            page_type: Some("domain".to_owned()),
             ..Default::default()
         };
-        let storage = MockStorage::new().with_metadata("domain", meta.clone());
+        let storage = MockStorage::new().with_metadata("domain", meta);
 
         let result = storage.meta("domain").unwrap();
 
         assert!(result.is_some());
         let result = result.unwrap();
-        assert_eq!(result.title, Some("Domain Title".to_string()));
-        assert_eq!(result.page_type, Some("domain".to_string()));
+        assert_eq!(result.title, Some("Domain Title".to_owned()));
+        assert_eq!(result.page_type, Some("domain".to_owned()));
     }
 
     #[test]
@@ -456,7 +456,7 @@ mod tests {
     fn test_meta_no_inheritance() {
         // MockStorage does NOT implement inheritance
         let root_meta = Metadata {
-            vars: [("org".to_string(), serde_json::json!("acme"))]
+            vars: [("org".to_owned(), serde_json::json!("acme"))]
                 .into_iter()
                 .collect(),
             ..Default::default()

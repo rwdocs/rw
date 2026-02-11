@@ -202,7 +202,7 @@ impl DirectiveProcessor {
                 "Maximum include depth ({}) exceeded",
                 self.config.max_include_depth
             ));
-            return input.to_string();
+            return input.to_owned();
         }
 
         let mut output = String::with_capacity(input.len());
@@ -232,7 +232,7 @@ impl DirectiveProcessor {
 
         // Skip directive processing inside code fences
         if self.fence.in_fence() {
-            return line.to_string();
+            return line.to_owned();
         }
 
         // Try container directive first (takes whole line)
@@ -462,7 +462,7 @@ mod tests {
 
         fn start(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
             let title = if args.content.is_empty() {
-                "Note".to_string()
+                "Note".to_owned()
             } else {
                 args.content
             };
@@ -470,7 +470,7 @@ mod tests {
         }
 
         fn end(&mut self, _line: usize) -> Option<String> {
-            Some("</div>".to_string())
+            Some("</div>".to_owned())
         }
     }
 
@@ -595,7 +595,7 @@ mod tests {
 
             fn end(&mut self, _line: usize) -> Option<String> {
                 self.depth -= 1;
-                Some("</details>".to_string())
+                Some("</details>".to_owned())
             }
         }
 

@@ -151,7 +151,7 @@ impl FsStorage {
     /// This should never happen as the regex is a compile-time constant.
     #[must_use]
     pub fn new(source_dir: PathBuf) -> Self {
-        Self::with_patterns(source_dir, &["**/*.md".to_string()])
+        Self::with_patterns(source_dir, &["**/*.md".to_owned()])
     }
 
     /// Create a new filesystem storage with a custom metadata filename.
@@ -168,7 +168,7 @@ impl FsStorage {
     /// Panics if the internal regex for H1 heading extraction fails to compile.
     #[must_use]
     pub fn with_meta_filename(source_dir: PathBuf, meta_filename: &str) -> Self {
-        Self::with_patterns_and_meta(source_dir, &["**/*.md".to_string()], meta_filename)
+        Self::with_patterns_and_meta(source_dir, &["**/*.md".to_owned()], meta_filename)
     }
 
     /// Create a new filesystem storage with custom watch patterns.
@@ -222,7 +222,7 @@ impl FsStorage {
             h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
             mtime_cache: Mutex::new(HashMap::new()),
             watch_patterns,
-            meta_filename: meta_filename.to_string(),
+            meta_filename: meta_filename.to_owned(),
             readme_path: None,
         }
     }
@@ -359,7 +359,7 @@ impl FsStorage {
         // Try to extract title from YAML, fallback to directory name
         let title = extract_yaml_title(&content).unwrap_or_else(|| {
             dir_path.file_name().map_or_else(
-                || "Untitled".to_string(),
+                || "Untitled".to_owned(),
                 |n| Self::title_from_dir_name(&n.to_string_lossy()),
             )
         });
@@ -413,7 +413,7 @@ impl FsStorage {
         self.h1_regex
             .captures(&content)
             .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().trim().to_string())
+            .map(|m| m.as_str().trim().to_owned())
     }
 
     /// Generate title from filename.
@@ -479,7 +479,7 @@ impl Storage for FsStorage {
         {
             let title = self
                 .extract_title_from_content(readme_path)
-                .unwrap_or_else(|| "Home".to_string());
+                .unwrap_or_else(|| "Home".to_owned());
             documents.push(Document {
                 path: String::new(),
                 title,
@@ -819,7 +819,7 @@ mod tests {
         let doc = &docs[0];
         assert_eq!(doc.path, "domain");
         assert!(doc.has_content);
-        assert_eq!(doc.page_type, Some("domain".to_string()));
+        assert_eq!(doc.page_type, Some("domain".to_owned()));
     }
 
     #[test]
@@ -837,7 +837,7 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert!(doc.has_content);
-        assert_eq!(doc.page_type, Some("section".to_string()));
+        assert_eq!(doc.page_type, Some("section".to_owned()));
     }
 
     #[test]
@@ -889,7 +889,7 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert_eq!(doc.title, "My Nice Domain"); // Fallback to directory name
-        assert_eq!(doc.page_type, Some("domain".to_string()));
+        assert_eq!(doc.page_type, Some("domain".to_owned()));
     }
 
     #[test]
@@ -922,8 +922,8 @@ mod tests {
 
         assert!(meta.is_some());
         let meta = meta.unwrap();
-        assert_eq!(meta.title, Some("Domain Title".to_string()));
-        assert_eq!(meta.page_type, Some("domain".to_string()));
+        assert_eq!(meta.title, Some("Domain Title".to_owned()));
+        assert_eq!(meta.page_type, Some("domain".to_owned()));
     }
 
     #[test]
@@ -936,7 +936,7 @@ mod tests {
         let meta = storage.meta("").unwrap();
 
         assert!(meta.is_some());
-        assert_eq!(meta.unwrap().title, Some("Home".to_string()));
+        assert_eq!(meta.unwrap().title, Some("Home".to_owned()));
     }
 
     #[test]
@@ -975,7 +975,7 @@ mod tests {
         let meta = storage.meta("domain").unwrap().unwrap();
 
         // Title from child (not inherited)
-        assert_eq!(meta.title, Some("Domain".to_string()));
+        assert_eq!(meta.title, Some("Domain".to_owned()));
         // Vars merged: org from parent, env overridden by child, team from child
         assert_eq!(meta.vars.get("org"), Some(&serde_json::json!("acme")));
         assert_eq!(meta.vars.get("env"), Some(&serde_json::json!("dev")));
@@ -999,7 +999,7 @@ mod tests {
 
         // Title should NOT be inherited
         assert!(meta.title.is_none());
-        assert_eq!(meta.page_type, Some("section".to_string()));
+        assert_eq!(meta.page_type, Some("section".to_owned()));
     }
 
     #[test]
@@ -1421,7 +1421,7 @@ mod tests {
     fn test_watch_respects_patterns() {
         let temp_dir = create_test_dir();
         let storage =
-            FsStorage::with_patterns(temp_dir.path().to_path_buf(), &["**/*.md".to_string()]);
+            FsStorage::with_patterns(temp_dir.path().to_path_buf(), &["**/*.md".to_owned()]);
 
         let (rx, _handle) = storage.watch().unwrap();
 

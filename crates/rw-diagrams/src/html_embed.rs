@@ -45,7 +45,7 @@ static STYLE_HEIGHT_RE: LazyLock<Regex> =
 #[must_use]
 pub fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
     if dpi == STANDARD_DPI {
-        return svg.to_string();
+        return svg.to_owned();
     }
 
     let scale = f64::from(STANDARD_DPI) / f64::from(dpi);

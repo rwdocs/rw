@@ -99,9 +99,9 @@ impl ContainerDirective for TabsDirective {
 
     fn start(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput {
         let label = if args.content.is_empty() {
-            "Tab".to_string()
+            "Tab".to_owned()
         } else {
-            strip_quotes(&args.content).to_string()
+            strip_quotes(&args.content).to_owned()
         };
 
         if self.stack.is_empty() {
@@ -150,7 +150,7 @@ impl ContainerDirective for TabsDirective {
                 self.groups.push(group);
             }
             // Blank line before closing tags for pulldown-cmark
-            Some("\n</rw-tab>\n</rw-tabs>".to_string())
+            Some("\n</rw-tab>\n</rw-tabs>".to_owned())
         } else {
             // Should not happen if DirectiveProcessor is correct
             None

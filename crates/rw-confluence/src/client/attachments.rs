@@ -85,7 +85,7 @@ impl ConfluenceClient {
         if status >= 400 {
             let error_body = body_reader
                 .read_to_string()
-                .unwrap_or_else(|_| "(unable to read error body)".to_string());
+                .unwrap_or_else(|_| "(unable to read error body)".to_owned());
             return Err(ConfluenceError::HttpResponse {
                 status,
                 body: error_body,
@@ -103,7 +103,7 @@ impl ConfluenceClient {
                 .next()
                 .ok_or_else(|| ConfluenceError::HttpResponse {
                     status: 200,
-                    body: "Empty attachment response".to_string(),
+                    body: "Empty attachment response".to_owned(),
                 })
         }
     }
@@ -133,7 +133,7 @@ impl ConfluenceClient {
         if status >= 400 {
             let error_body = body_reader
                 .read_to_string()
-                .unwrap_or_else(|_| "(unable to read error body)".to_string());
+                .unwrap_or_else(|_| "(unable to read error body)".to_owned());
             return Err(ConfluenceError::HttpResponse {
                 status,
                 body: error_body,

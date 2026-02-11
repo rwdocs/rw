@@ -73,7 +73,7 @@ impl OAuthTokenGenerator {
 
         Ok(Self {
             agent,
-            consumer_key: consumer_key.to_string(),
+            consumer_key: consumer_key.to_owned(),
             private_key,
             request_token_url: format!("{base_url}/plugins/servlet/oauth/request-token"),
             authorize_url: format!("{base_url}/plugins/servlet/oauth/authorize"),
@@ -124,7 +124,7 @@ impl OAuthTokenGenerator {
         let oauth_token_secret = get_required_param(&params, "oauth_token_secret")?;
 
         let request_token = RequestToken {
-            oauth_token: oauth_token.clone(),
+            oauth_token,
             oauth_token_secret,
         };
 
@@ -230,14 +230,14 @@ mod tests {
         let body = "oauth_token=abc123&oauth_token_secret=xyz789&oauth_callback_confirmed=true";
         let params = parse_oauth_response(body);
 
-        assert_eq!(params.get("oauth_token"), Some(&"abc123".to_string()));
+        assert_eq!(params.get("oauth_token"), Some(&"abc123".to_owned()));
         assert_eq!(
             params.get("oauth_token_secret"),
-            Some(&"xyz789".to_string())
+            Some(&"xyz789".to_owned())
         );
         assert_eq!(
             params.get("oauth_callback_confirmed"),
-            Some(&"true".to_string())
+            Some(&"true".to_owned())
         );
     }
 
@@ -246,10 +246,10 @@ mod tests {
         let body = "oauth_token=abc%2B123&oauth_token_secret=xyz%3D789";
         let params = parse_oauth_response(body);
 
-        assert_eq!(params.get("oauth_token"), Some(&"abc+123".to_string()));
+        assert_eq!(params.get("oauth_token"), Some(&"abc+123".to_owned()));
         assert_eq!(
             params.get("oauth_token_secret"),
-            Some(&"xyz=789".to_string())
+            Some(&"xyz=789".to_owned())
         );
     }
 
@@ -342,8 +342,8 @@ PmtLs+m8nwD5m6Eay2zt00Q=
         .unwrap();
 
         let request_token = RequestToken {
-            oauth_token: "test_token".to_string(),
-            oauth_token_secret: "test_secret".to_string(),
+            oauth_token: "test_token".to_owned(),
+            oauth_token_secret: "test_secret".to_owned(),
         };
 
         let auth_url = generator.get_authorization_url(&request_token);

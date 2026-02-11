@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 description = "Filesystem storage backend for RW documentation engine"
 
+[lints]
+workspace = true
+
 [dependencies]
 rw-storage = { workspace = true }
 glob = { workspace = true }

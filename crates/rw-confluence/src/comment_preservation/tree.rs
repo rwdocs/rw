@@ -68,7 +68,7 @@ impl TreeNode {
 
         let text_trimmed = self.text.trim();
         if !text_trimmed.is_empty() {
-            parts.push(text_trimmed.to_string());
+            parts.push(text_trimmed.to_owned());
         }
 
         for child in &self.children {
@@ -80,7 +80,7 @@ impl TreeNode {
 
         let tail_trimmed = self.tail.trim();
         if !tail_trimmed.is_empty() {
-            parts.push(tail_trimmed.to_string());
+            parts.push(tail_trimmed.to_owned());
         }
 
         parts.join(" ")
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn test_marker_ref_prefixed() {
         let mut attrs = HashMap::new();
-        attrs.insert("ac:ref".to_string(), "abc123".to_string());
+        attrs.insert("ac:ref".to_owned(), "abc123".to_owned());
         let node = TreeNode::new("ac:inline-comment-marker").with_attrs(attrs);
         assert_eq!(node.marker_ref(), Some("abc123"));
     }
@@ -173,8 +173,8 @@ mod tests {
     fn test_marker_ref_namespaced() {
         let mut attrs = HashMap::new();
         attrs.insert(
-            "{http://www.atlassian.com/schema/confluence/4/ac/}ref".to_string(),
-            "xyz789".to_string(),
+            "{http://www.atlassian.com/schema/confluence/4/ac/}ref".to_owned(),
+            "xyz789".to_owned(),
         );
         let node = TreeNode::new("ac:inline-comment-marker").with_attrs(attrs);
         assert_eq!(node.marker_ref(), Some("xyz789"));

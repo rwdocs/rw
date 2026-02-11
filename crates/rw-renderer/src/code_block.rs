@@ -145,14 +145,14 @@ pub trait CodeBlockProcessor {
 #[must_use]
 pub(crate) fn parse_fence_info(info: &str) -> (String, HashMap<String, String>) {
     let mut parts = info.split_whitespace();
-    let language = parts.next().unwrap_or("").to_string();
+    let language = parts.next().unwrap_or("").to_owned();
 
     let mut attrs = HashMap::new();
     for part in parts {
         if let Some((key, value)) = part.split_once('=') {
             // Strip quotes if present
             let value = value.trim_matches('"').trim_matches('\'');
-            attrs.insert(key.to_string(), value.to_string());
+            attrs.insert(key.to_owned(), value.to_owned());
         }
     }
 
@@ -174,15 +174,15 @@ mod tests {
     fn test_parse_fence_info_with_attrs() {
         let (lang, attrs) = parse_fence_info("plantuml format=png");
         assert_eq!(lang, "plantuml");
-        assert_eq!(attrs.get("format"), Some(&"png".to_string()));
+        assert_eq!(attrs.get("format"), Some(&"png".to_owned()));
     }
 
     #[test]
     fn test_parse_fence_info_multiple_attrs() {
         let (lang, attrs) = parse_fence_info("diagram format=svg theme=dark");
         assert_eq!(lang, "diagram");
-        assert_eq!(attrs.get("format"), Some(&"svg".to_string()));
-        assert_eq!(attrs.get("theme"), Some(&"dark".to_string()));
+        assert_eq!(attrs.get("format"), Some(&"svg".to_owned()));
+        assert_eq!(attrs.get("theme"), Some(&"dark".to_owned()));
     }
 
     #[test]
@@ -191,14 +191,14 @@ mod tests {
         assert_eq!(lang, "table-yaml");
         // Note: quotes are stripped, but value is truncated at first space within the fence
         // This is expected behavior with split_whitespace
-        assert_eq!(attrs.get("caption"), Some(&"User".to_string()));
+        assert_eq!(attrs.get("caption"), Some(&"User".to_owned()));
     }
 
     #[test]
     fn test_parse_fence_info_single_quoted() {
         let (lang, attrs) = parse_fence_info("chart title='Sales'");
         assert_eq!(lang, "chart");
-        assert_eq!(attrs.get("title"), Some(&"Sales".to_string()));
+        assert_eq!(attrs.get("title"), Some(&"Sales".to_owned()));
     }
 
     #[test]
@@ -217,15 +217,15 @@ mod tests {
 
     #[test]
     fn test_process_result_variants() {
-        let placeholder = ProcessResult::Placeholder("{{DIAGRAM_0}}".to_string());
-        let inline = ProcessResult::Inline("<table></table>".to_string());
+        let placeholder = ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned());
+        let inline = ProcessResult::Inline("<table></table>".to_owned());
         let passthrough = ProcessResult::PassThrough;
 
         assert_eq!(
             placeholder,
-            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_string())
+            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned())
         );
-        assert_eq!(inline, ProcessResult::Inline("<table></table>".to_string()));
+        assert_eq!(inline, ProcessResult::Inline("<table></table>".to_owned()));
         assert_eq!(passthrough, ProcessResult::PassThrough);
     }
 
@@ -233,15 +233,15 @@ mod tests {
     fn test_extracted_code_block() {
         let block = ExtractedCodeBlock {
             index: 0,
-            language: "plantuml".to_string(),
-            source: "@startuml\nA -> B\n@enduml".to_string(),
-            attrs: HashMap::from([("format".to_string(), "png".to_string())]),
+            language: "plantuml".to_owned(),
+            source: "@startuml\nA -> B\n@enduml".to_owned(),
+            attrs: HashMap::from([("format".to_owned(), "png".to_owned())]),
         };
 
         assert_eq!(block.index, 0);
         assert_eq!(block.language, "plantuml");
         assert_eq!(block.source, "@startuml\nA -> B\n@enduml");
-        assert_eq!(block.attrs.get("format"), Some(&"png".to_string()));
+        assert_eq!(block.attrs.get("format"), Some(&"png".to_owned()));
     }
 
     struct TestProcessor {
@@ -270,15 +270,15 @@ mod tests {
                 "test-placeholder" => {
                     self.extracted.push(ExtractedCodeBlock {
                         index,
-                        language: language.to_string(),
-                        source: source.to_string(),
+                        language: language.to_owned(),
+                        source: source.to_owned(),
                         attrs: attrs.clone(),
                     });
                     ProcessResult::Placeholder(format!("{{{{TEST_{index}}}}}"))
                 }
                 "test-inline" => ProcessResult::Inline(format!("<div>{source}</div>")),
                 "test-warn" => {
-                    self.warnings.push("Test warning".to_string());
+                    self.warnings.push("Test warning".to_owned());
                     ProcessResult::PassThrough
                 }
                 _ => ProcessResult::PassThrough,
@@ -300,7 +300,7 @@ mod tests {
         let attrs = HashMap::new();
 
         let result = processor.process("test-placeholder", &attrs, "content", 0);
-        assert_eq!(result, ProcessResult::Placeholder("{{TEST_0}}".to_string()));
+        assert_eq!(result, ProcessResult::Placeholder("{{TEST_0}}".to_owned()));
 
         let extracted = processor.extracted();
         assert_eq!(extracted.len(), 1);
@@ -316,7 +316,7 @@ mod tests {
         let result = processor.process("test-inline", &attrs, "hello", 0);
         assert_eq!(
             result,
-            ProcessResult::Inline("<div>hello</div>".to_string())
+            ProcessResult::Inline("<div>hello</div>".to_owned())
         );
 
         assert!(processor.extracted().is_empty());

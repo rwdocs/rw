@@ -17,20 +17,20 @@ use crate::ConfigError;
 pub(crate) fn expand_env(value: &str, field: &str) -> Result<String, ConfigError> {
     // Fast path: no expansion needed
     if !value.contains("${") {
-        return Ok(value.to_string());
+        return Ok(value.to_owned());
     }
 
     shellexpand::env_with_context(value, |var| -> Result<Option<String>, LookupError> {
         match std::env::var(var) {
             Ok(val) => Ok(Some(val)),
             Err(_) => Err(LookupError {
-                var_name: var.to_string(),
+                var_name: var.to_owned(),
             }),
         }
     })
     .map(std::borrow::Cow::into_owned)
     .map_err(|e| ConfigError::EnvVar {
-        field: field.to_string(),
+        field: field.to_owned(),
         message: format!("${{{0}}} not set", e.cause.var_name),
     })
 }

@@ -297,17 +297,17 @@ impl CodeBlockProcessor for DiagramProcessor {
 
         // Store the format in attrs for later use
         let mut stored_attrs = attrs.clone();
-        stored_attrs.insert("format".to_string(), format.as_str().to_string());
+        stored_attrs.insert("format".to_owned(), format.as_str().to_owned());
         stored_attrs.insert(
-            "endpoint".to_string(),
-            diagram_language.kroki_endpoint().to_string(),
+            "endpoint".to_owned(),
+            diagram_language.kroki_endpoint().to_owned(),
         );
 
         // Extract the code block
         self.extracted.push(ExtractedCodeBlock {
             index,
-            language: language.to_string(),
-            source: source.to_string(),
+            language: language.to_owned(),
+            source: source.to_owned(),
             attrs: stored_attrs,
         });
 
@@ -727,7 +727,7 @@ mod tests {
 
         assert_eq!(
             result,
-            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_string())
+            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned())
         );
         assert_eq!(processor.extracted().len(), 1);
         assert_eq!(processor.extracted()[0].language, "plantuml");
@@ -744,7 +744,7 @@ mod tests {
 
         assert_eq!(
             result,
-            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_string())
+            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned())
         );
         assert_eq!(processor.extracted()[0].language, "mermaid");
     }
@@ -758,7 +758,7 @@ mod tests {
 
         assert_eq!(
             result,
-            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_string())
+            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned())
         );
         assert_eq!(processor.extracted()[0].language, "kroki-mermaid");
     }
@@ -778,13 +778,13 @@ mod tests {
     fn test_process_with_format_png() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = HashMap::new();
-        attrs.insert("format".to_string(), "png".to_string());
+        attrs.insert("format".to_owned(), "png".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
         assert_eq!(
             processor.extracted()[0].attrs.get("format"),
-            Some(&"png".to_string())
+            Some(&"png".to_owned())
         );
         assert!(processor.warnings().is_empty());
     }
@@ -793,14 +793,14 @@ mod tests {
     fn test_process_with_invalid_format() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = HashMap::new();
-        attrs.insert("format".to_string(), "jpeg".to_string());
+        attrs.insert("format".to_owned(), "jpeg".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
         // Should default to svg
         assert_eq!(
             processor.extracted()[0].attrs.get("format"),
-            Some(&"svg".to_string())
+            Some(&"svg".to_owned())
         );
         assert_eq!(processor.warnings().len(), 1);
         assert!(processor.warnings()[0].contains("unknown format value 'jpeg'"));
@@ -810,7 +810,7 @@ mod tests {
     fn test_process_with_unknown_attribute() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = HashMap::new();
-        attrs.insert("size".to_string(), "large".to_string());
+        attrs.insert("size".to_owned(), "large".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
@@ -835,9 +835,9 @@ mod tests {
     fn test_to_extracted_diagram() {
         let block = ExtractedCodeBlock {
             index: 0,
-            language: "plantuml".to_string(),
-            source: "@startuml\nA -> B\n@enduml".to_string(),
-            attrs: HashMap::from([("format".to_string(), "png".to_string())]),
+            language: "plantuml".to_owned(),
+            source: "@startuml\nA -> B\n@enduml".to_owned(),
+            attrs: HashMap::from([("format".to_owned(), "png".to_owned())]),
         };
 
         let diagram = to_extracted_diagram(&block).unwrap();
@@ -852,8 +852,8 @@ mod tests {
     fn test_to_extracted_diagram_non_diagram() {
         let block = ExtractedCodeBlock {
             index: 0,
-            language: "rust".to_string(),
-            source: "fn main() {}".to_string(),
+            language: "rust".to_owned(),
+            source: "fn main() {}".to_owned(),
             attrs: HashMap::new(),
         };
 
@@ -865,20 +865,20 @@ mod tests {
         let blocks = vec![
             ExtractedCodeBlock {
                 index: 0,
-                language: "plantuml".to_string(),
-                source: "source1".to_string(),
+                language: "plantuml".to_owned(),
+                source: "source1".to_owned(),
                 attrs: HashMap::new(),
             },
             ExtractedCodeBlock {
                 index: 1,
-                language: "rust".to_string(), // Not a diagram
-                source: "source2".to_string(),
+                language: "rust".to_owned(), // Not a diagram
+                source: "source2".to_owned(),
                 attrs: HashMap::new(),
             },
             ExtractedCodeBlock {
                 index: 2,
-                language: "mermaid".to_string(),
-                source: "source3".to_string(),
+                language: "mermaid".to_owned(),
+                source: "source3".to_owned(),
                 attrs: HashMap::new(),
             },
         ];
@@ -901,7 +901,7 @@ mod tests {
 
         assert_eq!(
             processor.extracted()[0].attrs.get("endpoint"),
-            Some(&"plantuml".to_string())
+            Some(&"plantuml".to_owned())
         );
     }
 
@@ -945,7 +945,7 @@ mod tests {
     fn test_replacements_single() {
         let mut html = String::from("<p>Before</p>{{DIAGRAM_0}}<p>After</p>");
         let mut replacements = Replacements::new();
-        replacements.add(0, "<svg>diagram</svg>".to_string());
+        replacements.add(0, "<svg>diagram</svg>".to_owned());
 
         replacements.apply(&mut html);
 
@@ -957,9 +957,9 @@ mod tests {
         let mut html =
             String::from("{{DIAGRAM_0}}<p>middle</p>{{DIAGRAM_1}}<p>end</p>{{DIAGRAM_2}}");
         let mut replacements = Replacements::new();
-        replacements.add(0, "<svg>first</svg>".to_string());
-        replacements.add(1, "<svg>second</svg>".to_string());
-        replacements.add(2, "<svg>third</svg>".to_string());
+        replacements.add(0, "<svg>first</svg>".to_owned());
+        replacements.add(1, "<svg>second</svg>".to_owned());
+        replacements.add(2, "<svg>third</svg>".to_owned());
 
         replacements.apply(&mut html);
 
@@ -973,9 +973,9 @@ mod tests {
     fn test_replacements_out_of_order() {
         let mut html = String::from("{{DIAGRAM_2}}{{DIAGRAM_0}}{{DIAGRAM_1}}");
         let mut replacements = Replacements::new();
-        replacements.add(0, "A".to_string());
-        replacements.add(1, "B".to_string());
-        replacements.add(2, "C".to_string());
+        replacements.add(0, "A".to_owned());
+        replacements.add(1, "B".to_owned());
+        replacements.add(2, "C".to_owned());
 
         replacements.apply(&mut html);
 
@@ -986,7 +986,7 @@ mod tests {
     fn test_replacements_missing_keeps_placeholder() {
         let mut html = String::from("{{DIAGRAM_0}}{{DIAGRAM_1}}");
         let mut replacements = Replacements::new();
-        replacements.add(0, "A".to_string());
+        replacements.add(0, "A".to_owned());
         // No replacement for index 1
 
         replacements.apply(&mut html);
@@ -1008,7 +1008,7 @@ mod tests {
     fn test_replacements_large_index() {
         let mut html = String::from("{{DIAGRAM_12345}}");
         let mut replacements = Replacements::new();
-        replacements.add(12345, "content".to_string());
+        replacements.add(12345, "content".to_owned());
 
         replacements.apply(&mut html);
 

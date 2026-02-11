@@ -161,7 +161,7 @@ mod tests {
     fn test_img_tag_generator() {
         let generator = ImgTagGenerator::new("/diagrams/");
         let info = RenderedDiagramInfo {
-            filename: "test.png".to_string(),
+            filename: "test.png".to_owned(),
             width: 400,
             height: 200,
         };
@@ -177,7 +177,7 @@ mod tests {
     fn test_img_tag_generator_96_dpi() {
         let generator = ImgTagGenerator::new("/assets/");
         let info = RenderedDiagramInfo {
-            filename: "diagram.png".to_string(),
+            filename: "diagram.png".to_owned(),
             width: 300,
             height: 150,
         };
@@ -193,7 +193,7 @@ mod tests {
     fn test_figure_tag_generator() {
         let generator = FigureTagGenerator::new("/diagrams/");
         let info = RenderedDiagramInfo {
-            filename: "test.png".to_string(),
+            filename: "test.png".to_owned(),
             width: 400,
             height: 200,
         };
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_display_width_192_dpi() {
         let info = RenderedDiagramInfo {
-            filename: "test.png".to_string(),
+            filename: "test.png".to_owned(),
             width: 400,
             height: 200,
         };
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn test_display_width_96_dpi() {
         let info = RenderedDiagramInfo {
-            filename: "test.png".to_string(),
+            filename: "test.png".to_owned(),
             width: 300,
             height: 150,
         };
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn test_display_height_192_dpi() {
         let info = RenderedDiagramInfo {
-            filename: "test.png".to_string(),
+            filename: "test.png".to_owned(),
             width: 400,
             height: 200,
         };

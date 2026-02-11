@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn test_is_empty_with_title() {
         let meta = Metadata {
-            title: Some("Title".to_string()),
+            title: Some("Title".to_owned()),
             ..Default::default()
         };
         assert!(!meta.is_empty());
@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn test_is_empty_with_description() {
         let meta = Metadata {
-            description: Some("Desc".to_string()),
+            description: Some("Desc".to_owned()),
             ..Default::default()
         };
         assert!(!meta.is_empty());
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn test_is_empty_with_page_type() {
         let meta = Metadata {
-            page_type: Some("domain".to_string()),
+            page_type: Some("domain".to_owned()),
             ..Default::default()
         };
         assert!(!meta.is_empty());
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn test_is_empty_with_vars() {
         let mut vars = HashMap::new();
-        vars.insert("key".to_string(), serde_json::json!("value"));
+        vars.insert("key".to_owned(), serde_json::json!("value"));
         let meta = Metadata {
             vars,
             ..Default::default()
@@ -121,11 +121,11 @@ mod tests {
     #[test]
     fn test_metadata_equality() {
         let meta1 = Metadata {
-            title: Some("Title".to_string()),
+            title: Some("Title".to_owned()),
             ..Default::default()
         };
         let meta2 = Metadata {
-            title: Some("Title".to_string()),
+            title: Some("Title".to_owned()),
             ..Default::default()
         };
         assert_eq!(meta1, meta2);
@@ -134,10 +134,10 @@ mod tests {
     #[test]
     fn test_metadata_clone() {
         let meta = Metadata {
-            title: Some("Title".to_string()),
-            description: Some("Desc".to_string()),
-            page_type: Some("domain".to_string()),
-            vars: [("key".to_string(), serde_json::json!("value"))]
+            title: Some("Title".to_owned()),
+            description: Some("Desc".to_owned()),
+            page_type: Some("domain".to_owned()),
+            vars: [("key".to_owned(), serde_json::json!("value"))]
                 .into_iter()
                 .collect(),
         };

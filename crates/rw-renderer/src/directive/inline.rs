@@ -79,7 +79,7 @@ mod tests {
 
         assert_eq!(
             output,
-            DirectiveOutput::Html("<kbd>Ctrl+C</kbd>".to_string())
+            DirectiveOutput::Html("<kbd>Ctrl+C</kbd>".to_owned())
         );
     }
 
