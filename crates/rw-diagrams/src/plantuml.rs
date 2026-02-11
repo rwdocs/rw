@@ -378,7 +378,6 @@ mod tests {
             if entity_type == "system" && name == "payment_gateway" {
                 Some(EntityInfo {
                     title: "Payment Gateway".to_owned(),
-                    dir_name: "payment-gateway".to_owned(),
                     description: Some("Processes payments".to_owned()),
                     has_docs: true,
                     url_path: "/domains/billing/systems/payment-gateway/".to_owned(),

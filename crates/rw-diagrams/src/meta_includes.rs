@@ -7,10 +7,8 @@
 /// Entity metadata for generating `PlantUML` C4 includes.
 #[derive(Clone, Debug)]
 pub struct EntityInfo {
-    /// Display title from meta.yaml.
+    /// Display title for the C4 macro.
     pub title: String,
-    /// Raw directory name (with hyphens, e.g., "payment-gateway").
-    pub dir_name: String,
     /// Optional description from meta.yaml.
     pub description: Option<String>,
     /// Whether the page has actual docs (index.md exists).
@@ -103,10 +101,7 @@ fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external:
     let prefix = type_prefix(entity_type);
     let alias = format!("{prefix}_{name}");
 
-    let title = match entity_type {
-        "service" => &entity.dir_name,
-        _ => &entity.title,
-    };
+    let title = &entity.title;
 
     let link_part = if entity.has_docs {
         format!(", $link=\"{}\"", entity.url_path)
@@ -181,7 +176,6 @@ mod tests {
     fn system_entity() -> EntityInfo {
         EntityInfo {
             title: "Payment Gateway".to_owned(),
-            dir_name: "payment-gateway".to_owned(),
             description: Some("Processes payments".to_owned()),
             has_docs: true,
             url_path: "/domains/billing/systems/payment-gateway".to_owned(),
@@ -191,7 +185,6 @@ mod tests {
     fn domain_entity() -> EntityInfo {
         EntityInfo {
             title: "Billing".to_owned(),
-            dir_name: "billing".to_owned(),
             description: Some("Billing services".to_owned()),
             has_docs: true,
             url_path: "/domains/billing".to_owned(),
@@ -200,8 +193,7 @@ mod tests {
 
     fn service_entity() -> EntityInfo {
         EntityInfo {
-            title: "Invoice API".to_owned(),
-            dir_name: "invoice-api".to_owned(),
+            title: "invoice-api".to_owned(),
             description: Some("Manages invoices".to_owned()),
             has_docs: true,
             url_path: "/domains/billing/systems/invoicing/services/invoice-api".to_owned(),
@@ -397,7 +389,6 @@ mod tests {
     fn test_render_no_description() {
         let entity = EntityInfo {
             title: "Simple".to_owned(),
-            dir_name: "simple".to_owned(),
             description: None,
             has_docs: true,
             url_path: "/simple".to_owned(),
@@ -410,7 +401,6 @@ mod tests {
     fn test_render_no_docs_omits_link() {
         let entity = EntityInfo {
             title: "No Docs".to_owned(),
-            dir_name: "no-docs".to_owned(),
             description: Some("Has no docs".to_owned()),
             has_docs: false,
             url_path: "/no-docs".to_owned(),
@@ -424,7 +414,6 @@ mod tests {
     fn test_render_description_newlines_escaped() {
         let entity = EntityInfo {
             title: "Multi".to_owned(),
-            dir_name: "multi".to_owned(),
             description: Some("Line one\nLine two".to_owned()),
             has_docs: true,
             url_path: "/multi".to_owned(),
@@ -438,7 +427,6 @@ mod tests {
     fn test_render_description_quotes_escaped() {
         let entity = EntityInfo {
             title: "Quoted".to_owned(),
-            dir_name: "quoted".to_owned(),
             description: Some("He said \"hello\"".to_owned()),
             has_docs: true,
             url_path: "/quoted".to_owned(),
@@ -451,7 +439,6 @@ mod tests {
     fn test_render_description_backslashes_escaped() {
         let entity = EntityInfo {
             title: "Paths".to_owned(),
-            dir_name: "paths".to_owned(),
             description: Some(r"C:\Users\docs".to_owned()),
             has_docs: true,
             url_path: "/paths".to_owned(),
