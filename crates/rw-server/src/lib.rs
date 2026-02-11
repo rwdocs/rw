@@ -14,24 +14,25 @@
 //!
 //! # Quick Start
 //!
-//! ```ignore
+//! ```no_run
 //! use std::path::PathBuf;
 //! use rw_server::{ServerConfig, run_server};
 //!
 //! #[tokio::main]
 //! async fn main() {
 //!     let config = ServerConfig {
-//!         host: "127.0.0.1".to_string(),
+//!         host: "127.0.0.1".to_owned(),
 //!         port: 8080,
 //!         source_dir: PathBuf::from("docs"),
 //!         cache_dir: Some(PathBuf::from(".rw/cache")),
-//!         kroki_url: Some("https://kroki.io".to_string()),
+//!         kroki_url: Some("https://kroki.io".to_owned()),
 //!         include_dirs: vec![PathBuf::from(".")],
 //!         dpi: 192,
 //!         live_reload_enabled: true,
 //!         watch_patterns: None,
 //!         verbose: false,
-//!         version: "1.0.0".to_string(),
+//!         version: "1.0.0".to_owned(),
+//!         ..Default::default()
 //!     };
 //!
 //!     run_server(config).await.unwrap();

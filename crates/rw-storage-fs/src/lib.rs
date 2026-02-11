@@ -10,7 +10,8 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::PathBuf;
 //! use rw_storage::Storage;
 //! use rw_storage_fs::FsStorage;
@@ -20,6 +21,8 @@
 //! for doc in documents {
 //!     println!("{}: {}", doc.path, doc.title);
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
 mod debouncer;
@@ -105,7 +108,8 @@ struct CachedFile {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use std::path::PathBuf;
 /// use rw_storage::Storage;
 /// use rw_storage_fs::FsStorage;
@@ -115,6 +119,8 @@ struct CachedFile {
 /// for doc in documents {
 ///     println!("{}: {}", doc.path, doc.title);
 /// }
+/// # Ok(())
+/// # }
 /// ```
 pub struct FsStorage {
     /// Root directory for document storage.

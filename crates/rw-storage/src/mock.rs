@@ -20,7 +20,7 @@ use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
 /// use rw_storage::{MockStorage, Storage};
 ///
 /// let storage = MockStorage::new()

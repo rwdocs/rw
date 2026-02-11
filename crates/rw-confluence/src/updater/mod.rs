@@ -11,11 +11,19 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use std::path::Path;
 //! use rw_confluence::{ConfluenceClient, PageUpdater, UpdateConfig};
 //! use rw_config::DiagramsConfig;
 //!
-//! let client = ConfluenceClient::from_config(...)?;
+//! let client = ConfluenceClient::from_config(
+//!     "https://confluence.example.com",
+//!     "consumer_key",
+//!     Path::new("private_key.pem"),
+//!     "access_token",
+//!     "access_secret",
+//! )?;
 //! let config = UpdateConfig {
 //!     diagrams: DiagramsConfig::default(),
 //!     extract_title: true,
@@ -24,11 +32,11 @@
 //!
 //! // Perform update
 //! let result = updater.update("123", "# Title\n\nContent", Some("Update message"))?;
-//! println!("Updated: {}", result.url);
 //!
 //! // Or dry-run to preview changes
 //! let dry_run = updater.dry_run("123", "# Title\n\nContent")?;
-//! println!("Would update: {}", dry_run.current_title);
+//! # Ok(())
+//! # }
 //! ```
 
 mod error;

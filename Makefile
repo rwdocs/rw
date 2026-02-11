@@ -14,6 +14,7 @@ install:
 
 test:
 	cargo llvm-cov --html
+	cargo test --doc --workspace
 	cd frontend && npm run test
 
 test-e2e:

@@ -19,7 +19,8 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
 //! use rw_site::{Site, SiteConfig};
@@ -32,10 +33,12 @@
 //! let site = Arc::new(Site::new(storage, config, cache));
 //!
 //! // Load site structure
-//! let state = site.reload_if_needed();
+//! let nav = site.navigation("");
 //!
 //! // Render a page
-//! let result = site.render("/guide")?;
+//! let result = site.render("guide")?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::collections::HashMap;

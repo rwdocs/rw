@@ -17,15 +17,14 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use std::path::PathBuf;
+//! ```
 //! use rw_storage::Storage;
-//! use rw_storage_fs::FsStorage;
 //!
-//! let storage = FsStorage::new(PathBuf::from("docs"));
-//! let documents = storage.scan()?;
-//! for doc in documents {
-//!     println!("{}: {}", doc.path, doc.title);
+//! fn list_documents(storage: &dyn Storage) {
+//!     let documents = storage.scan().unwrap();
+//!     for doc in documents {
+//!         assert!(!doc.title.is_empty());
+//!     }
 //! }
 //! ```
 

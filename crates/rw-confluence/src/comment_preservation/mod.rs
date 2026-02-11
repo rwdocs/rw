@@ -13,8 +13,6 @@
 //! - [`transfer`]: Comment marker transfer with global fallback
 //! - [`serializer`]: XML serializer with CDATA support
 //! - [`entities`]: HTML entity to Unicode conversion
-
-#![allow(clippy::similar_names)] // matcher/matches, old_tree/new_tree are intentional naming patterns
 //!
 //! # Example
 //!
@@ -27,6 +25,8 @@
 //! let result = preserve_comments(old_html, new_html);
 //! assert!(result.html.contains("ac:inline-comment-marker"));
 //! ```
+
+#![allow(clippy::similar_names)] // matcher/matches, old_tree/new_tree are intentional naming patterns
 
 mod entities;
 mod matcher;

@@ -16,7 +16,7 @@ diagram support.
 
 ```bash
 make build                # Build frontend and CLI
-make test                 # Run all tests with coverage (Rust, Frontend)
+make test                 # Run all tests with coverage including doctests (Rust, Frontend)
 make format               # Format all code (Rust, Frontend)
 make lint                 # Lint all code (clippy, svelte-check)
 

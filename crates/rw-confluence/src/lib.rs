@@ -7,9 +7,11 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::Path;
 //! use rw_confluence::{ConfluenceClient, PageUpdater, UpdateConfig};
+//! use rw_config::DiagramsConfig;
 //!
 //! let client = ConfluenceClient::from_config(
 //!     "https://confluence.example.com",
@@ -19,9 +21,14 @@
 //!     "access_secret",
 //! )?;
 //!
-//! let config = UpdateConfig { /* ... */ };
+//! let config = UpdateConfig {
+//!     diagrams: DiagramsConfig::default(),
+//!     extract_title: true,
+//! };
 //! let updater = PageUpdater::new(&client, config);
 //! let result = updater.update("123", "# Title\n\nContent", Some("Update"))?;
+//! # Ok(())
+//! # }
 //! ```
 
 // Render backend (internal)

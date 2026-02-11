@@ -17,18 +17,16 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use pulldown_cmark::Parser;
+//! ```no_run
 //! use rw_diagrams::DiagramProcessor;
 //! use rw_renderer::{MarkdownRenderer, HtmlBackend};
 //!
 //! let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
-//! let parser = Parser::new(markdown);
 //! let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
 //!     .with_processor(DiagramProcessor::new("https://kroki.io"));
 //!
-//! // render() auto-calls post_process() on all processors
-//! let result = renderer.render(parser);
+//! // render_markdown auto-calls post_process() on all processors
+//! let result = renderer.render_markdown(markdown);
 //! ```
 
 mod cache;
@@ -44,4 +42,4 @@ mod processor;
 pub use cache::DiagramKey;
 pub use meta_includes::{EntityInfo, MetaIncludeSource, resolve_meta_include};
 pub use output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
-pub use processor::DiagramProcessor;
+pub use processor::{DiagramProcessor, to_extracted_diagram, to_extracted_diagrams};

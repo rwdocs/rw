@@ -6,7 +6,8 @@
 //!
 //! # Quick Start
 //!
-//! ```ignore
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
 //! use rw_site::{Site, SiteConfig};
@@ -22,7 +23,9 @@
 //! let nav = site.navigation("");
 //!
 //! // Render a page
-//! let result = site.render("/guide")?;
+//! let result = site.render("guide")?;
+//! # Ok(())
+//! # }
 //! ```
 
 pub(crate) mod site;

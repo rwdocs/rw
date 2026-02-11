@@ -61,13 +61,11 @@ struct ProcessorConfig {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use pulldown_cmark::Parser;
+/// ```no_run
 /// use rw_diagrams::DiagramProcessor;
 /// use rw_renderer::{MarkdownRenderer, HtmlBackend};
 ///
 /// let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
-/// let parser = Parser::new(markdown);
 ///
 /// let processor = DiagramProcessor::new("https://kroki.io")
 ///     .dpi(192);
@@ -75,8 +73,8 @@ struct ProcessorConfig {
 /// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_processor(processor);
 ///
-/// // render() auto-calls post_process() on all processors
-/// let result = renderer.render(parser);
+/// // render_markdown auto-calls post_process() on all processors
+/// let result = renderer.render_markdown(markdown);
 /// ```
 pub struct DiagramProcessor {
     /// Configuration (immutable after setup).
@@ -96,7 +94,8 @@ impl DiagramProcessor {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use rw_diagrams::DiagramProcessor;
     /// let processor = DiagramProcessor::new("https://kroki.io");
     /// ```
     #[must_use]
@@ -121,7 +120,9 @@ impl DiagramProcessor {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use std::path::PathBuf;
+    /// # use rw_diagrams::DiagramProcessor;
     /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .include_dirs(&[PathBuf::from("docs"), PathBuf::from("includes")]);
     /// ```
@@ -137,7 +138,8 @@ impl DiagramProcessor {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use rw_diagrams::DiagramProcessor;
     /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .dpi(96); // Standard resolution
     /// ```
@@ -153,8 +155,9 @@ impl DiagramProcessor {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
     /// use std::time::Duration;
+    /// # use rw_diagrams::DiagramProcessor;
     ///
     /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .timeout(Duration::from_secs(60)); // 60 second timeout
@@ -175,7 +178,7 @@ impl DiagramProcessor {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
     /// use rw_cache::{Cache, NullCache};
     /// use rw_diagrams::DiagramProcessor;
     ///
@@ -195,15 +198,11 @@ impl DiagramProcessor {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// use std::sync::Arc;
-    /// use rw_diagrams::{DiagramProcessor, DiagramOutput, ImgTagGenerator};
+    /// ```
+    /// use rw_diagrams::{DiagramProcessor, DiagramOutput};
     ///
     /// let processor = DiagramProcessor::new("https://kroki.io")
-    ///     .output(DiagramOutput::Files {
-    ///         output_dir: "public/diagrams".into(),
-    ///         tag_generator: Arc::new(ImgTagGenerator::new("/diagrams/")),
-    ///     });
+    ///     .output(DiagramOutput::Inline);
     /// ```
     #[must_use]
     pub fn output(mut self, output: DiagramOutput) -> Self {
@@ -641,13 +640,19 @@ impl Replacements {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use std::collections::HashMap;
 /// use rw_diagrams::to_extracted_diagram;
 /// use rw_renderer::ExtractedCodeBlock;
 ///
-/// let block = ExtractedCodeBlock { /* ... */ };
+/// let block = ExtractedCodeBlock {
+///     index: 0,
+///     language: "plantuml".to_owned(),
+///     source: "@startuml\nA -> B\n@enduml".to_owned(),
+///     attrs: HashMap::new(),
+/// };
 /// if let Some(diagram) = to_extracted_diagram(&block) {
-///     println!("Diagram: {:?}", diagram.language);
+///     assert_eq!(format!("{:?}", diagram.language), "PlantUml");
 /// }
 /// ```
 #[must_use]
@@ -673,12 +678,27 @@ pub fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<ExtractedDiagr
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use std::collections::HashMap;
 /// use rw_diagrams::to_extracted_diagrams;
 /// use rw_renderer::ExtractedCodeBlock;
 ///
-/// let blocks: Vec<ExtractedCodeBlock> = vec![/* ... */];
+/// let blocks = vec![
+///     ExtractedCodeBlock {
+///         index: 0,
+///         language: "plantuml".to_owned(),
+///         source: "@startuml\nA -> B\n@enduml".to_owned(),
+///         attrs: HashMap::new(),
+///     },
+///     ExtractedCodeBlock {
+///         index: 1,
+///         language: "rust".to_owned(),
+///         source: "fn main() {}".to_owned(),
+///         attrs: HashMap::new(),
+///     },
+/// ];
 /// let diagrams = to_extracted_diagrams(&blocks);
+/// assert_eq!(diagrams.len(), 1); // Only plantuml is a diagram
 /// ```
 #[must_use]
 pub fn to_extracted_diagrams(blocks: &[ExtractedCodeBlock]) -> Vec<ExtractedDiagram> {
