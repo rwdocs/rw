@@ -73,7 +73,7 @@ use state::AppState;
 use tokio::sync::broadcast;
 
 /// Server configuration.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ServerConfig {
     /// Host address to bind to.
     pub host: String,
