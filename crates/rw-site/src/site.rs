@@ -44,11 +44,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::DiagramProcessor;
+use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
+
+use crate::typed_page_registry::TypedPageRegistry;
 
 /// Get the depth of a URL path.
 ///
@@ -177,6 +179,8 @@ pub struct Site {
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
     dpi: u32,
+    /// Typed page registry for meta includes (rebuilt on each reload).
+    meta_include_source: RwLock<Option<Arc<dyn MetaIncludeSource>>>,
 }
 
 impl Site {
@@ -204,6 +208,7 @@ impl Site {
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
             dpi: config.dpi,
+            meta_include_source: RwLock::new(None),
         }
     }
 
@@ -325,6 +330,12 @@ impl Site {
             let site: SiteState = cached.into();
             let site = Arc::new(site);
             *self.current_state.write().unwrap() = Arc::clone(&site);
+
+            // Rebuild typed page registry for meta includes
+            let registry =
+                TypedPageRegistry::from_site_state_with_storage(&site, self.storage.as_ref());
+            *self.meta_include_source.write().unwrap() = Some(Arc::new(registry));
+
             self.cache_valid.store(true, Ordering::Release);
             return site;
         }
@@ -339,6 +350,12 @@ impl Site {
 
         // Update current state
         *self.current_state.write().unwrap() = Arc::clone(&site);
+
+        // Rebuild typed page registry for meta includes
+        let registry =
+            TypedPageRegistry::from_site_state_with_storage(&site, self.storage.as_ref());
+        *self.meta_include_source.write().unwrap() = Some(Arc::new(registry));
+
         self.cache_valid.store(true, Ordering::Release);
 
         site
@@ -494,10 +511,14 @@ impl Site {
     fn create_diagram_processor(&self) -> Option<DiagramProcessor> {
         let url = self.kroki_url.as_ref()?;
 
-        let processor = DiagramProcessor::new(url)
+        let mut processor = DiagramProcessor::new(url)
             .include_dirs(&self.include_dirs)
             .dpi(self.dpi)
             .with_cache(self.cache.bucket("diagrams"));
+
+        if let Some(source) = self.meta_include_source.read().unwrap().clone() {
+            processor = processor.with_meta_include_source(source);
+        }
 
         Some(processor)
     }

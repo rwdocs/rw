@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use rw_diagrams::{EntityInfo, MetaIncludeSource};
+use rw_storage::Storage;
 
 use crate::site_state::SiteState;
 
@@ -69,6 +70,29 @@ impl TypedPageRegistry {
         }
 
         Self { entities }
+    }
+
+    /// Build a registry from site state, populating descriptions from storage.
+    ///
+    /// Like `from_site_state`, but also queries the storage for each entity's
+    /// `meta.yaml` description field.
+    #[must_use]
+    pub fn from_site_state_with_storage(state: &SiteState, storage: &dyn Storage) -> Self {
+        let mut registry = Self::from_site_state(state);
+
+        // Populate descriptions from storage metadata
+        for entity in registry.entities.values_mut() {
+            // Derive path from url_path: "/domains/billing/" → "domains/billing"
+            let path = entity
+                .url_path
+                .trim_start_matches('/')
+                .trim_end_matches('/');
+            if let Ok(Some(meta)) = storage.meta(path) {
+                entity.description = meta.description;
+            }
+        }
+
+        registry
     }
 }
 
