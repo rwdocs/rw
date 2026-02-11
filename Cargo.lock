@@ -2009,6 +2009,8 @@ dependencies = [
 name = "rw-cache"
 version = "0.1.3"
 dependencies = [
+ "serde",
+ "serde_json",
  "tempfile",
  "tracing",
 ]

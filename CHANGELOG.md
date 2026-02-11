@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.rw/.gitignore` is auto-created on first run to exclude project directory from version control
 - Cache is now fully invalidated on version upgrade via `.rw/cache/VERSION` file
 - Internal: caching refactored to use `rw-cache` crate with `Cache`/`CacheBucket` trait abstraction
+- Internal: `CacheBucketExt` extension trait provides typed `get_json`/`set_json`/`get_string`/`set_string` methods
 - Internal: `Site::new()` now accepts `Arc<dyn Cache>` instead of a version string
 
 ## [0.1.3] - 2026-02-09

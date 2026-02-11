@@ -22,7 +22,10 @@
 //! assert_eq!(bucket.get("my-page", "v1"), None); // NullCache always misses
 //! ```
 
+mod ext;
 mod file;
+
+pub use ext::CacheBucketExt;
 pub use file::FileCache;
 
 /// A named partition within a [`Cache`].
