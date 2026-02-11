@@ -50,7 +50,7 @@ impl TypedPageRegistry {
                 dir_name: dir_name.to_owned(),
                 description: None,
                 has_docs,
-                url_path: format!("/{path}/"),
+                url_path: format!("/{path}"),
             };
 
             let key = (section.section_type.clone(), normalized_name.clone());
@@ -133,7 +133,7 @@ mod tests {
         assert_eq!(entity.title, "Payment Gateway");
         assert_eq!(entity.dir_name, "payment-gateway");
         assert!(entity.has_docs);
-        assert_eq!(entity.url_path, "/domains/billing/systems/payment-gateway/");
+        assert_eq!(entity.url_path, "/domains/billing/systems/payment-gateway");
     }
 
     #[test]
