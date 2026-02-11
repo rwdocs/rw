@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- Workspace-level clippy lints in `Cargo.toml` (pedantic + restriction + nursery)
+## [0.1.4] - 2026-02-11
 
 ### Changed
 
