@@ -15,7 +15,7 @@ pub struct EntityInfo {
     pub description: Option<String>,
     /// Whether the page has actual docs (index.md exists).
     pub has_docs: bool,
-    /// URL path for linking (e.g., "/domains/billing/systems/payment-gateway/").
+    /// URL path for linking (e.g., "/domains/billing/systems/payment-gateway").
     pub url_path: String,
 }
 
@@ -184,7 +184,7 @@ mod tests {
             dir_name: "payment-gateway".to_owned(),
             description: Some("Processes payments".to_owned()),
             has_docs: true,
-            url_path: "/domains/billing/systems/payment-gateway/".to_owned(),
+            url_path: "/domains/billing/systems/payment-gateway".to_owned(),
         }
     }
 
@@ -194,7 +194,7 @@ mod tests {
             dir_name: "billing".to_owned(),
             description: Some("Billing services".to_owned()),
             has_docs: true,
-            url_path: "/domains/billing/".to_owned(),
+            url_path: "/domains/billing".to_owned(),
         }
     }
 
@@ -204,7 +204,7 @@ mod tests {
             dir_name: "invoice-api".to_owned(),
             description: Some("Manages invoices".to_owned()),
             has_docs: true,
-            url_path: "/domains/billing/systems/invoicing/services/invoice-api/".to_owned(),
+            url_path: "/domains/billing/systems/invoicing/services/invoice-api".to_owned(),
         }
     }
 
@@ -339,7 +339,7 @@ mod tests {
         let result = render_c4_macro("system", "payment_gateway", &entity, false);
         assert_eq!(
             result,
-            "System(sys_payment_gateway, \"Payment Gateway\", \"Processes payments\", $link=\"/domains/billing/systems/payment-gateway/\")"
+            "System(sys_payment_gateway, \"Payment Gateway\", \"Processes payments\", $link=\"/domains/billing/systems/payment-gateway\")"
         );
     }
 
@@ -349,7 +349,7 @@ mod tests {
         let result = render_c4_macro("system", "payment_gateway", &entity, true);
         assert_eq!(
             result,
-            "System_Ext(sys_payment_gateway, \"Payment Gateway\", $descr=\"Processes payments\", $link=\"/domains/billing/systems/payment-gateway/\")"
+            "System_Ext(sys_payment_gateway, \"Payment Gateway\", $descr=\"Processes payments\", $link=\"/domains/billing/systems/payment-gateway\")"
         );
     }
 
@@ -359,7 +359,7 @@ mod tests {
         let result = render_c4_macro("domain", "billing", &entity, false);
         assert_eq!(
             result,
-            "System(dmn_billing, \"Billing\", $tags=\"domain\", \"Billing services\", $link=\"/domains/billing/\")"
+            "System(dmn_billing, \"Billing\", $tags=\"domain\", \"Billing services\", $link=\"/domains/billing\")"
         );
     }
 
@@ -369,7 +369,7 @@ mod tests {
         let result = render_c4_macro("domain", "billing", &entity, true);
         assert_eq!(
             result,
-            "System_Ext(dmn_billing, \"Billing\", $descr=\"Billing services\", $link=\"/domains/billing/\")"
+            "System_Ext(dmn_billing, \"Billing\", $descr=\"Billing services\", $link=\"/domains/billing\")"
         );
     }
 
@@ -379,7 +379,7 @@ mod tests {
         let result = render_c4_macro("service", "invoice_api", &entity, false);
         assert_eq!(
             result,
-            "System(svc_invoice_api, \"invoice-api\", $tags=\"service\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api/\")"
+            "System(svc_invoice_api, \"invoice-api\", $tags=\"service\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api\")"
         );
     }
 
@@ -389,7 +389,7 @@ mod tests {
         let result = render_c4_macro("service", "invoice_api", &entity, true);
         assert_eq!(
             result,
-            "System_Ext(svc_invoice_api, \"invoice-api\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api/\")"
+            "System_Ext(svc_invoice_api, \"invoice-api\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api\")"
         );
     }
 
@@ -400,10 +400,10 @@ mod tests {
             dir_name: "simple".to_owned(),
             description: None,
             has_docs: true,
-            url_path: "/simple/".to_owned(),
+            url_path: "/simple".to_owned(),
         };
         let result = render_c4_macro("system", "simple", &entity, false);
-        assert_eq!(result, "System(sys_simple, \"Simple\", $link=\"/simple/\")");
+        assert_eq!(result, "System(sys_simple, \"Simple\", $link=\"/simple\")");
     }
 
     #[test]
@@ -413,7 +413,7 @@ mod tests {
             dir_name: "no-docs".to_owned(),
             description: Some("Has no docs".to_owned()),
             has_docs: false,
-            url_path: "/no-docs/".to_owned(),
+            url_path: "/no-docs".to_owned(),
         };
         let result = render_c4_macro("system", "no_docs", &entity, false);
         assert_eq!(result, "System(sys_no_docs, \"No Docs\", \"Has no docs\")");
@@ -427,7 +427,7 @@ mod tests {
             dir_name: "multi".to_owned(),
             description: Some("Line one\nLine two".to_owned()),
             has_docs: true,
-            url_path: "/multi/".to_owned(),
+            url_path: "/multi".to_owned(),
         };
         let result = render_c4_macro("system", "multi", &entity, false);
         assert!(result.contains("Line one\\nLine two"));
@@ -441,7 +441,7 @@ mod tests {
             dir_name: "quoted".to_owned(),
             description: Some("He said \"hello\"".to_owned()),
             has_docs: true,
-            url_path: "/quoted/".to_owned(),
+            url_path: "/quoted".to_owned(),
         };
         let result = render_c4_macro("system", "quoted", &entity, false);
         assert!(result.contains(r#"He said \"hello\""#));
@@ -454,7 +454,7 @@ mod tests {
             dir_name: "paths".to_owned(),
             description: Some(r"C:\Users\docs".to_owned()),
             has_docs: true,
-            url_path: "/paths/".to_owned(),
+            url_path: "/paths".to_owned(),
         };
         let result = render_c4_macro("system", "paths", &entity, false);
         assert!(result.contains(r"C:\\Users\\docs"));
