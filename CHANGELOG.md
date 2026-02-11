@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Replaced `ignore` with compilable annotations on doc examples across 10 files (19 of 22 examples now compile-checked; 3 remain `ignore` for private/cross-crate items)
+- Replaced `ignore` with compilable annotations on doc examples across 10 files (all 22 examples now either compile-checked or replaced with prose for private items)
 - Re-exported `to_extracted_diagram` and `to_extracted_diagrams` from `rw-diagrams`
 - Fixed `#![allow(clippy::similar_names)]` placement in `comment_preservation` module
 - `make test` now includes doc tests via `--doctests` flag

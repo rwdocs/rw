@@ -15,23 +15,10 @@
 //! - Diagram rendering via Kroki service
 //! - Configurable DPI for diagram output
 //!
-//! # Example
+//! # Usage
 //!
-//! ```ignore
-//! use std::path::Path;
-//! use rw_confluence::PageRenderer;
-//!
-//! let renderer = PageRenderer::new()
-//!     .prepend_toc(true)
-//!     .extract_title(true)
-//!     .dpi(192);
-//!
-//! let result = renderer.render(
-//!     "# Hello\n\n```plantuml\nA -> B\n```",
-//!     Some("https://kroki.io"),
-//!     Some(Path::new("/tmp/diagrams")),
-//! );
-//! ```
+//! Create a `PageRenderer` with builder methods (`prepend_toc`, `extract_title`, `dpi`),
+//! then call `render(markdown, kroki_url, diagram_dir)` to produce Confluence XHTML.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

@@ -14,17 +14,11 @@
 //! - [`serializer`]: XML serializer with CDATA support
 //! - [`entities`]: HTML entity to Unicode conversion
 //!
-//! # Example
+//! # Usage
 //!
-//! ```ignore
-//! use rw_confluence::preserve_comments;
-//!
-//! let old_html = r#"<p><ac:inline-comment-marker ac:ref="abc">marked</ac:inline-comment-marker> text</p>"#;
-//! let new_html = "<p>marked text</p>";
-//!
-//! let result = preserve_comments(old_html, new_html);
-//! assert!(result.html.contains("ac:inline-comment-marker"));
-//! ```
+//! Call `preserve_comments(old_html, new_html)` with the existing Confluence HTML
+//! and the freshly rendered HTML. The returned `PreserveResult` contains the new
+//! HTML with `ac:inline-comment-marker` elements transferred from matching nodes.
 
 #![allow(clippy::similar_names)] // matcher/matches, old_tree/new_tree are intentional naming patterns
 

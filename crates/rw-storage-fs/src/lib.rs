@@ -71,12 +71,7 @@ fn storage_event_kind(kind: notify::EventKind) -> Option<StorageEventKind> {
 ///
 /// Replaces `-` and `_` with spaces, then capitalizes the first letter of each word.
 ///
-/// # Examples
-///
-/// ```ignore
-/// assert_eq!(titlecase_from_slug("setup-guide"), "Setup Guide");
-/// assert_eq!(titlecase_from_slug("my_page"), "My Page");
-/// ```
+/// Converts `"setup-guide"` to `"Setup Guide"`, `"my_page"` to `"My Page"`.
 fn titlecase_from_slug(slug: &str) -> String {
     slug.replace(['-', '_'], " ")
         .split_whitespace()
