@@ -151,7 +151,6 @@ impl<'a> PageUpdater<'a> {
             .prepend_toc(true)
             .extract_title(self.config.extract_title)
             .include_dirs(diagrams.include_dirs.clone())
-            .config_file(diagrams.config_file.as_deref())
             .dpi(diagrams.dpi)
     }
 

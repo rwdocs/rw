@@ -20,7 +20,7 @@ use crate::kroki::{
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
-use crate::plantuml::{PrepareResult, load_config_file, prepare_diagram_source};
+use crate::plantuml::{PrepareResult, prepare_diagram_source};
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 
 /// Configuration for diagram processing (immutable after setup).
@@ -32,8 +32,6 @@ struct ProcessorConfig {
     kroki_url: String,
     /// Directories to search for `PlantUML` `!include` files.
     include_dirs: Vec<PathBuf>,
-    /// `PlantUML` config content (loaded from config file).
-    config_content: Option<String>,
     /// DPI for diagram rendering (default: 192).
     dpi: u32,
     /// HTTP timeout for Kroki requests (default: 30 seconds).
@@ -56,7 +54,6 @@ struct ProcessorConfig {
 ///
 /// Create the processor with a required Kroki URL, then configure using builder methods:
 /// - [`include_dirs`](Self::include_dirs): Set directories for `PlantUML` `!include` resolution
-/// - [`config_file`](Self::config_file): Load `PlantUML` config from a file
 /// - [`dpi`](Self::dpi): Set DPI for diagram rendering (default: 192)
 ///
 /// # Example
@@ -105,7 +102,6 @@ impl DiagramProcessor {
             config: ProcessorConfig {
                 kroki_url: kroki_url.into(),
                 include_dirs: Vec::new(),
-                config_content: None,
                 dpi: DEFAULT_DPI,
                 timeout: DEFAULT_TIMEOUT,
                 cache: rw_cache::NullCache.bucket("diagrams"),
@@ -128,40 +124,6 @@ impl DiagramProcessor {
     #[must_use]
     pub fn include_dirs(mut self, dirs: &[PathBuf]) -> Self {
         self.config.include_dirs = dirs.to_vec();
-        self
-    }
-
-    /// Load `PlantUML` config from a file.
-    ///
-    /// The config file is searched in the include directories.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let processor = DiagramProcessor::new("https://kroki.io")
-    ///     .include_dirs(&[PathBuf::from(".")])
-    ///     .config_file(Some("config.iuml"));
-    /// ```
-    #[must_use]
-    pub fn config_file(mut self, config_file: Option<&str>) -> Self {
-        self.config.config_content =
-            config_file.and_then(|cf| load_config_file(&self.config.include_dirs, cf));
-        self
-    }
-
-    /// Set `PlantUML` config content directly.
-    ///
-    /// Use this when the config content is already loaded (e.g., from a previous call).
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let processor = DiagramProcessor::new("https://kroki.io")
-    ///     .config_content(Some("skinparam backgroundColor white"));
-    /// ```
-    #[must_use]
-    pub fn config_content(mut self, content: Option<&str>) -> Self {
-        self.config.config_content = content.map(ToString::to_string);
         self
     }
 
@@ -251,12 +213,7 @@ impl DiagramProcessor {
     /// For other diagram types, returns the source as-is.
     fn prepare_source(config: &ProcessorConfig, diagram: &ExtractedDiagram) -> PrepareResult {
         if diagram.language.needs_plantuml_preprocessing() {
-            prepare_diagram_source(
-                &diagram.source,
-                &config.include_dirs,
-                config.config_content.as_deref(),
-                config.dpi,
-            )
+            prepare_diagram_source(&diagram.source, &config.include_dirs, config.dpi)
         } else {
             PrepareResult {
                 source: diagram.source.clone(),

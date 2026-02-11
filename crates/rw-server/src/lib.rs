@@ -27,7 +27,6 @@
 //!         cache_dir: Some(PathBuf::from(".rw/cache")),
 //!         kroki_url: Some("https://kroki.io".to_string()),
 //!         include_dirs: vec![PathBuf::from(".")],
-//!         config_file: None,
 //!         dpi: 192,
 //!         live_reload_enabled: true,
 //!         watch_patterns: None,
@@ -88,8 +87,6 @@ pub struct ServerConfig {
     pub kroki_url: Option<String>,
     /// `PlantUML` include directories.
     pub include_dirs: Vec<PathBuf>,
-    /// `PlantUML` config file.
-    pub config_file: Option<String>,
     /// Diagram DPI.
     pub dpi: u32,
     /// Enable live reload.
@@ -115,7 +112,6 @@ impl Default for ServerConfig {
             cache_dir: None,
             kroki_url: None,
             include_dirs: Vec::new(),
-            config_file: None,
             dpi: 192,
             live_reload_enabled: false,
             watch_patterns: None,
@@ -154,7 +150,6 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         extract_title: true,
         kroki_url: config.kroki_url.clone(),
         include_dirs: config.include_dirs.clone(),
-        config_file: config.config_file.clone(),
         dpi: config.dpi,
     };
     let site = Arc::new(Site::new(Arc::clone(&storage), site_config, cache));
@@ -234,7 +229,6 @@ pub fn server_config_from_rw_config(
         },
         kroki_url: config.diagrams_resolved.kroki_url.clone(),
         include_dirs: config.diagrams_resolved.include_dirs.clone(),
-        config_file: config.diagrams_resolved.config_file.clone(),
         dpi: config.diagrams_resolved.dpi,
         live_reload_enabled: config.live_reload.enabled,
         watch_patterns: config.live_reload.watch_patterns.clone(),

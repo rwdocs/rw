@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- PlantUML diagrams now use Roboto font by default (`skinparam defaultFontName Roboto`)
+- Removed `diagrams.config_file` config option (font is now hardcoded)
 - Cache directory moved from `.cache/` to `.rw/cache/` (`.rw/` is the new project directory)
 - Removed `cache_dir` config option and `--cache-dir` CLI flag (cache location is no longer configurable)
 - `.rw/.gitignore` is auto-created on first run to exclude project directory from version control
