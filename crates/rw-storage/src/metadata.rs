@@ -130,5 +130,4 @@ mod tests {
         };
         assert_eq!(meta1, meta2);
     }
-
 }
