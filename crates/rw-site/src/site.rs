@@ -72,7 +72,7 @@ pub(crate) use crate::site_state::{
 };
 
 /// Result of rendering a markdown page.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PageRenderResult {
     /// Rendered HTML content.
     pub html: String,
@@ -435,14 +435,14 @@ impl Site {
         let markdown_text = self.storage.read(path)?;
         let result = self.create_renderer(path).render_markdown(&markdown_text);
 
-        // Store in cache
+        // Store in cache (zero-copy serialization via borrowed view)
         self.page_bucket.set_json(
             path,
             &etag,
-            &CachedPage {
-                html: result.html.clone(),
-                title: result.title.clone(),
-                toc: result.toc.clone(),
+            &CachedPageRef {
+                html: &result.html,
+                title: result.title.as_deref(),
+                toc: &result.toc,
             },
         );
 
@@ -638,12 +638,20 @@ impl From<CachedSiteState> for SiteState {
     }
 }
 
-/// Cached page data for serialization (html + metadata in a single entry).
-#[derive(Serialize, Deserialize)]
+/// Cached page data for deserialization (owned).
+#[derive(Deserialize)]
 struct CachedPage {
     html: String,
     title: Option<String>,
     toc: Vec<TocEntry>,
+}
+
+/// Borrowed view of cached page data for serialization (zero-copy).
+#[derive(Serialize)]
+struct CachedPageRef<'a> {
+    html: &'a str,
+    title: Option<&'a str>,
+    toc: &'a [TocEntry],
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntr
 use crate::util::heading_level_to_num;
 
 /// Result of rendering markdown.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct RenderResult {
     /// Rendered HTML/XHTML content.
     pub html: String,
