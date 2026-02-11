@@ -46,7 +46,7 @@ pub struct Page {
 /// Section information for sub-sites or categorized content.
 ///
 /// A section is created when a page has a `type` set in its metadata.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SectionInfo {
     /// Section title (from page title).
     pub title: String,

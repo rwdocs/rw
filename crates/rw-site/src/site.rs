@@ -347,7 +347,7 @@ impl Site {
 
         // Store in bucket
         self.site_bucket
-            .set_json("structure", &etag, &CachedSiteState::from(site.as_ref()));
+            .set_json("structure", &etag, &CachedSiteStateRef::from(site.as_ref()));
 
         // Update current state
         *self.current_state.write().unwrap() = Arc::clone(&site);
@@ -604,8 +604,30 @@ impl Site {
     }
 }
 
-/// Cache format for site state serialization.
-#[derive(Serialize, Deserialize)]
+/// Borrowed view of cached site state for serialization (zero-copy).
+#[derive(Serialize)]
+struct CachedSiteStateRef<'a> {
+    pages: &'a [Page],
+    children: &'a [Vec<usize>],
+    parents: &'a [Option<usize>],
+    roots: &'a [usize],
+    sections: &'a HashMap<String, SectionInfo>,
+}
+
+impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
+    fn from(site: &'a SiteState) -> Self {
+        Self {
+            pages: site.pages(),
+            children: site.children_indices(),
+            parents: site.parent_indices(),
+            roots: site.root_indices(),
+            sections: site.sections(),
+        }
+    }
+}
+
+/// Cache format for site state deserialization (owned).
+#[derive(Deserialize)]
 struct CachedSiteState {
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
@@ -613,18 +635,6 @@ struct CachedSiteState {
     roots: Vec<usize>,
     #[serde(default)]
     sections: HashMap<String, SectionInfo>,
-}
-
-impl From<&SiteState> for CachedSiteState {
-    fn from(site: &SiteState) -> Self {
-        Self {
-            pages: site.pages().to_vec(),
-            children: site.children_indices().to_vec(),
-            parents: site.parent_indices().to_vec(),
-            roots: site.root_indices().to_vec(),
-            sections: site.sections().clone(),
-        }
-    }
 }
 
 impl From<CachedSiteState> for SiteState {
