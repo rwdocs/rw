@@ -5,7 +5,7 @@
 use super::DirectiveArgs;
 
 /// Parsed directive from a line.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ParsedDirective {
     /// Inline directive: `:name[content]{attrs}`
     Inline { name: String, args: DirectiveArgs },

@@ -43,7 +43,7 @@ use transfer::CommentMarkerTransfer;
 use crate::error::CommentPreservationError;
 
 /// Comment that could not be placed in new HTML.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct UnmatchedComment {
     /// Comment reference ID.
     pub ref_id: String,
@@ -52,7 +52,7 @@ pub struct UnmatchedComment {
 }
 
 /// Result of comment preservation operation.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct PreserveResult {
     /// HTML with preserved comment markers.
     pub html: String,

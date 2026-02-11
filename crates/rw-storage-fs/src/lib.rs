@@ -89,7 +89,7 @@ fn titlecase_from_slug(slug: &str) -> String {
 }
 
 /// Cached file metadata for incremental title extraction.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct CachedFile {
     /// File modification time.
     mtime: SystemTime,

@@ -6,7 +6,7 @@ use serde::Deserialize;
 ///
 /// Only includes fields that are actually used.
 /// Serde ignores unknown fields from the API response.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Attachment {
     /// Attachment ID.
     pub id: String,
@@ -18,7 +18,7 @@ pub struct Attachment {
 ///
 /// Only includes `results` since we only need the attachment list.
 /// Serde ignores unknown fields like `size` from the API response.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct AttachmentsResponse {
     /// List of attachments.
     pub results: Vec<Attachment>,

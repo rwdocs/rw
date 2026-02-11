@@ -6,7 +6,7 @@ use serde::Deserialize;
 ///
 /// Only includes `size` since we only need the comment count.
 /// Serde ignores unknown fields, so the `results` array from the API is skipped.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct CommentsResponse {
     /// Total count of comments.
     pub size: usize,

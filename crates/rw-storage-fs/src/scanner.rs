@@ -14,7 +14,7 @@ use crate::source::{SourceFile, SourceKind};
 ///
 /// Contains only file locations - no content is read at this stage.
 /// `FsStorage`'s `build_document` method converts these to full `Document` structs.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub(crate) struct DocumentRef {
     /// URL path (e.g., "", "domain", "domain/guide")

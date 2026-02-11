@@ -8,7 +8,7 @@ use rw_diagrams::{DiagramTagGenerator, RenderedDiagramInfo};
 /// Confluence image macro tag generator.
 ///
 /// Generates: `<ac:image ac:width="{w}"><ri:attachment ri:filename="{f}" /></ac:image>`
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct ConfluenceTagGenerator;
 
 impl DiagramTagGenerator for ConfluenceTagGenerator {

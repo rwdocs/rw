@@ -19,7 +19,7 @@ pub(crate) enum SourceKind {
 ///
 /// Represents a single file that contributes to a document.
 /// Files with the same `url_path` are combined into one `DocumentRef`.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct SourceFile {
     /// URL path this file contributes to (e.g., "domain", "domain/guide")
     pub url_path: String,

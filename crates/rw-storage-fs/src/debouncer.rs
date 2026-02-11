@@ -14,7 +14,7 @@ use rw_storage::StorageEventKind;
 ///
 /// The debouncer works with file system paths internally. Conversion to
 /// URL paths happens at the `FsStorage::watch()` boundary.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct DebouncedEvent {
     /// File system path.
     pub path: PathBuf,

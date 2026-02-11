@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
 
+### Changed
+
+- Removed redundant `Clone` derives from 13 structs/enums across 10 files
+
 ### Fixed
 
 - Diagram `$link` URLs no longer have trailing slash, fixing 404 when clicking diagram elements

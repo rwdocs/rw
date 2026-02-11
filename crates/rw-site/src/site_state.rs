@@ -82,7 +82,7 @@ pub struct Navigation {
 }
 
 /// Breadcrumb navigation item.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct BreadcrumbItem {
     /// Display title.
     pub title: String,
@@ -98,7 +98,6 @@ pub struct BreadcrumbItem {
 ///
 /// This is the immutable state representation. For loading and rendering
 /// functionality, see [`Site`](crate::Site).
-#[derive(Clone)]
 pub struct SiteState {
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
