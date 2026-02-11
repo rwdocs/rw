@@ -36,8 +36,8 @@ mod consts;
 mod html_embed;
 mod kroki;
 mod language;
-mod output;
 mod meta_includes;
+mod output;
 mod plantuml;
 mod processor;
 

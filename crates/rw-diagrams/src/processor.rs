@@ -13,13 +13,13 @@ use ureq::Agent;
 
 use crate::cache::DiagramKey;
 use crate::consts::{DEFAULT_DPI, DEFAULT_TIMEOUT};
-use crate::meta_includes::MetaIncludeSource;
 use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
     DiagramRequest, create_agent, render_all, render_all_png_data_uri_partial,
     render_all_svg_partial,
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
+use crate::meta_includes::MetaIncludeSource;
 use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 use crate::plantuml::{PrepareResult, prepare_diagram_source};
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
