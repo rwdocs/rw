@@ -254,7 +254,7 @@ impl DirectiveProcessor {
                 result.push_str(&remaining[..start]);
 
                 // Process the directive
-                let output = self.dispatch_inline_or_leaf(&directive, line_num);
+                let output = self.dispatch_inline_or_leaf(directive, line_num);
 
                 match output {
                     DirectiveOutput::Html(html) => result.push_str(&html),
@@ -345,7 +345,7 @@ impl DirectiveProcessor {
 
     fn dispatch_inline_or_leaf(
         &mut self,
-        directive: &ParsedDirective,
+        directive: ParsedDirective,
         line_num: usize,
     ) -> DirectiveOutput {
         match directive {
@@ -354,7 +354,7 @@ impl DirectiveProcessor {
 
                 if let Some(idx) = handler_idx {
                     let ctx = self.config.create_context(line_num);
-                    self.inline_handlers[idx].process(args.clone(), &ctx)
+                    self.inline_handlers[idx].process(args, &ctx)
                 } else {
                     DirectiveOutput::Skip
                 }
@@ -364,7 +364,7 @@ impl DirectiveProcessor {
 
                 if let Some(idx) = handler_idx {
                     let ctx = self.config.create_context(line_num);
-                    self.leaf_handlers[idx].process(args.clone(), &ctx)
+                    self.leaf_handlers[idx].process(args, &ctx)
                 } else {
                     DirectiveOutput::Skip
                 }

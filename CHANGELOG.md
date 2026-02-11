@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed redundant `Clone` derives from `ServerConfig` and `TocEntry`
 - Removed test-only `Clone` derives from `StorageEvent` and `Document`
 - Eliminated unnecessary `.clone()` of `DiagramsConfig` in confluence update command (moved instead)
+- Eliminated unnecessary `DirectiveArgs` clones in directive processor (pass by value instead of by reference)
 
 ### Fixed
 
