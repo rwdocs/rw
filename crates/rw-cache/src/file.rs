@@ -62,9 +62,23 @@ struct FileCacheBucket {
     dir: PathBuf,
 }
 
+impl FileCacheBucket {
+    /// Build the file path for a cache key.
+    ///
+    /// Appends `.cache` to every key so that the empty key (`""`) maps to
+    /// `.cache` instead of the bucket directory itself (`PathBuf::join("")`
+    /// returns the original path). The extension also prevents collisions
+    /// between keys like `""` and `"_index"`.
+    fn key_path(&self, key: &str) -> PathBuf {
+        let mut filename = key.to_string();
+        filename.push_str(".cache");
+        self.dir.join(filename)
+    }
+}
+
 impl CacheBucket for FileCacheBucket {
     fn get(&self, key: &str, etag: &str) -> Option<Vec<u8>> {
-        let path = self.dir.join(key);
+        let path = self.key_path(key);
         let mut file = File::open(&path).ok()?;
 
         // Read etag length (u32 LE)
@@ -88,7 +102,7 @@ impl CacheBucket for FileCacheBucket {
     }
 
     fn set(&self, key: &str, etag: &str, value: &[u8]) {
-        let path = self.dir.join(key);
+        let path = self.key_path(key);
 
         // Silently ignore errors — cache is optional
         let Some(parent) = path.parent() else {
@@ -241,6 +255,23 @@ mod tests {
             bucket.get("docs/guide/intro", "etag1"),
             Some(b"nested content".to_vec())
         );
+    }
+
+    #[test]
+    fn test_file_bucket_empty_key() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("pages");
+
+        // Empty key (used for root page) must not collide with the bucket
+        // directory or with any real page key
+        bucket.set("other-page", "etag1", b"other");
+        bucket.set("", "etag1", b"root page");
+        bucket.set("_index", "etag1", b"_index page");
+
+        assert_eq!(bucket.get("", "etag1"), Some(b"root page".to_vec()));
+        assert_eq!(bucket.get("other-page", "etag1"), Some(b"other".to_vec()));
+        assert_eq!(bucket.get("_index", "etag1"), Some(b"_index page".to_vec()));
     }
 
     #[test]
