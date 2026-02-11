@@ -379,8 +379,7 @@ mod tests {
                 Some(EntityInfo {
                     title: "Payment Gateway".to_owned(),
                     description: Some("Processes payments".to_owned()),
-                    has_docs: true,
-                    url_path: "/domains/billing/systems/payment-gateway/".to_owned(),
+                    url_path: Some("/domains/billing/systems/payment-gateway".to_owned()),
                 })
             } else {
                 None

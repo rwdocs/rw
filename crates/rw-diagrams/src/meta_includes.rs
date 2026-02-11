@@ -11,10 +11,9 @@ pub struct EntityInfo {
     pub title: String,
     /// Optional description from meta.yaml.
     pub description: Option<String>,
-    /// Whether the page has actual docs (index.md exists).
-    pub has_docs: bool,
     /// URL path for linking (e.g., "/domains/billing/systems/payment-gateway").
-    pub url_path: String,
+    /// `None` for virtual pages without content.
+    pub url_path: Option<String>,
 }
 
 /// Source for resolving `PlantUML` meta includes from page metadata.
@@ -103,11 +102,10 @@ fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external:
 
     let title = &entity.title;
 
-    let link_part = if entity.has_docs {
-        format!(", $link=\"{}\"", entity.url_path)
-    } else {
-        String::new()
-    };
+    let link_part = entity
+        .url_path
+        .as_deref()
+        .map_or(String::new(), |url| format!(", $link=\"{url}\""));
 
     let desc_escaped = entity.description.as_deref().map(escape_description);
 
@@ -177,8 +175,7 @@ mod tests {
         EntityInfo {
             title: "Payment Gateway".to_owned(),
             description: Some("Processes payments".to_owned()),
-            has_docs: true,
-            url_path: "/domains/billing/systems/payment-gateway".to_owned(),
+            url_path: Some("/domains/billing/systems/payment-gateway".to_owned()),
         }
     }
 
@@ -186,8 +183,7 @@ mod tests {
         EntityInfo {
             title: "Billing".to_owned(),
             description: Some("Billing services".to_owned()),
-            has_docs: true,
-            url_path: "/domains/billing".to_owned(),
+            url_path: Some("/domains/billing".to_owned()),
         }
     }
 
@@ -195,8 +191,7 @@ mod tests {
         EntityInfo {
             title: "invoice-api".to_owned(),
             description: Some("Manages invoices".to_owned()),
-            has_docs: true,
-            url_path: "/domains/billing/systems/invoicing/services/invoice-api".to_owned(),
+            url_path: Some("/domains/billing/systems/invoicing/services/invoice-api".to_owned()),
         }
     }
 
@@ -390,20 +385,18 @@ mod tests {
         let entity = EntityInfo {
             title: "Simple".to_owned(),
             description: None,
-            has_docs: true,
-            url_path: "/simple".to_owned(),
+            url_path: Some("/simple".to_owned()),
         };
         let result = render_c4_macro("system", "simple", &entity, false);
         assert_eq!(result, "System(sys_simple, \"Simple\", $link=\"/simple\")");
     }
 
     #[test]
-    fn test_render_no_docs_omits_link() {
+    fn test_render_no_url_omits_link() {
         let entity = EntityInfo {
             title: "No Docs".to_owned(),
             description: Some("Has no docs".to_owned()),
-            has_docs: false,
-            url_path: "/no-docs".to_owned(),
+            url_path: None,
         };
         let result = render_c4_macro("system", "no_docs", &entity, false);
         assert_eq!(result, "System(sys_no_docs, \"No Docs\", \"Has no docs\")");
@@ -415,8 +408,7 @@ mod tests {
         let entity = EntityInfo {
             title: "Multi".to_owned(),
             description: Some("Line one\nLine two".to_owned()),
-            has_docs: true,
-            url_path: "/multi".to_owned(),
+            url_path: Some("/multi".to_owned()),
         };
         let result = render_c4_macro("system", "multi", &entity, false);
         assert!(result.contains("Line one\\nLine two"));
@@ -428,8 +420,7 @@ mod tests {
         let entity = EntityInfo {
             title: "Quoted".to_owned(),
             description: Some("He said \"hello\"".to_owned()),
-            has_docs: true,
-            url_path: "/quoted".to_owned(),
+            url_path: Some("/quoted".to_owned()),
         };
         let result = render_c4_macro("system", "quoted", &entity, false);
         assert!(result.contains(r#"He said \"hello\""#));
@@ -440,8 +431,7 @@ mod tests {
         let entity = EntityInfo {
             title: "Paths".to_owned(),
             description: Some(r"C:\Users\docs".to_owned()),
-            has_docs: true,
-            url_path: "/paths".to_owned(),
+            url_path: Some("/paths".to_owned()),
         };
         let result = render_c4_macro("system", "paths", &entity, false);
         assert!(result.contains(r"C:\\Users\\docs"));

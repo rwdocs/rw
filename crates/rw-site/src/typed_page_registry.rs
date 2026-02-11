@@ -42,8 +42,7 @@ impl TypedPageRegistry {
             // Normalize name: hyphens -> underscores
             let normalized_name = dir_name.replace('-', "_");
 
-            // Look up the page for has_content
-            let has_docs = state.get_page(path).is_some_and(|page| page.has_content);
+            let has_content = state.get_page(path).is_some_and(|page| page.has_content);
 
             let title = match section.section_type.as_str() {
                 "service" => dir_name.to_owned(),
@@ -53,18 +52,15 @@ impl TypedPageRegistry {
             let entity = EntityInfo {
                 title,
                 description: None,
-                has_docs,
-                url_path: format!("/{path}"),
+                url_path: has_content.then(|| format!("/{path}")),
             };
 
             let key = (section.section_type.clone(), normalized_name.clone());
-            if let Some(existing) = entities.get(&key) {
-                let existing: &EntityInfo = existing;
+            if entities.contains_key(&key) {
                 tracing::warn!(
                     entity_type = %section.section_type,
                     name = %normalized_name,
-                    path1 = %existing.url_path,
-                    path2 = %entity.url_path,
+                    path = %path,
                     "Meta include name collision: two pages generate the same include path"
                 );
             }
@@ -83,14 +79,14 @@ impl TypedPageRegistry {
         let mut registry = Self::from_site_state(state);
 
         // Populate descriptions from storage metadata
-        for entity in registry.entities.values_mut() {
-            // Derive path from url_path: "/domains/billing/" → "domains/billing"
-            let path = entity
-                .url_path
-                .trim_start_matches('/')
-                .trim_end_matches('/');
-            if let Ok(Some(meta)) = storage.meta(path) {
-                entity.description = meta.description;
+        for (path, section) in state.sections() {
+            let dir_name = path.rsplit('/').next().unwrap_or(path);
+            let normalized_name = dir_name.replace('-', "_");
+            let key = (section.section_type.clone(), normalized_name);
+            if let Some(entity) = registry.entities.get_mut(&key) {
+                if let Ok(Some(meta)) = storage.meta(path) {
+                    entity.description = meta.description;
+                }
             }
         }
 
@@ -135,8 +131,10 @@ mod tests {
         assert!(entity.is_some());
         let entity = entity.unwrap();
         assert_eq!(entity.title, "Payment Gateway");
-        assert!(entity.has_docs);
-        assert_eq!(entity.url_path, "/domains/billing/systems/payment-gateway");
+        assert_eq!(
+            entity.url_path.as_deref(),
+            Some("/domains/billing/systems/payment-gateway")
+        );
     }
 
     #[test]
@@ -178,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn test_virtual_page_has_docs_false() {
+    fn test_virtual_page_has_no_url() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Virtual Domain".to_owned(),
@@ -192,7 +190,7 @@ mod tests {
 
         let entity = registry.get_entity("domain", "virtual");
         assert!(entity.is_some());
-        assert!(!entity.unwrap().has_docs);
+        assert!(entity.unwrap().url_path.is_none());
     }
 
     #[test]
