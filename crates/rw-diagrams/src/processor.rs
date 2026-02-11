@@ -642,15 +642,12 @@ impl Replacements {
 /// # Example
 ///
 /// ```ignore
-/// use rw_diagrams::{DiagramProcessor, to_extracted_diagram};
-/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+/// use rw_diagrams::to_extracted_diagram;
+/// use rw_renderer::ExtractedCodeBlock;
 ///
-/// // After rendering with DiagramProcessor...
-/// let blocks = renderer.extracted_code_blocks();
-/// for block in &blocks {
-///     if let Some(diagram) = to_extracted_diagram(block) {
-///         println!("Diagram: {:?}", diagram.language);
-///     }
+/// let block = ExtractedCodeBlock { /* ... */ };
+/// if let Some(diagram) = to_extracted_diagram(&block) {
+///     println!("Diagram: {:?}", diagram.language);
 /// }
 /// ```
 #[must_use]
@@ -677,11 +674,10 @@ pub fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<ExtractedDiagr
 /// # Example
 ///
 /// ```ignore
-/// use rw_diagrams::{DiagramProcessor, to_extracted_diagrams};
-/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+/// use rw_diagrams::to_extracted_diagrams;
+/// use rw_renderer::ExtractedCodeBlock;
 ///
-/// // After rendering with DiagramProcessor...
-/// let blocks = renderer.extracted_code_blocks();
+/// let blocks: Vec<ExtractedCodeBlock> = vec![/* ... */];
 /// let diagrams = to_extracted_diagrams(&blocks);
 /// ```
 #[must_use]

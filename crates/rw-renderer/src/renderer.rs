@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use crate::backend::{AlertKind, RenderBackend};
-use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult, parse_fence_info};
+use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
 use crate::directive::DirectiveProcessor;
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
@@ -206,7 +206,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// ```
     /// use std::collections::HashMap;
     /// use rw_renderer::{
-    ///     CodeBlockProcessor, ExtractedCodeBlock, HtmlBackend,
+    ///     CodeBlockProcessor, HtmlBackend,
     ///     MarkdownRenderer, ProcessResult,
     /// };
     ///
@@ -235,16 +235,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     pub fn with_processor<P: CodeBlockProcessor + 'static>(mut self, processor: P) -> Self {
         self.processors.push(Box::new(processor));
         self
-    }
-
-    /// Get all extracted code blocks from all processors.
-    ///
-    /// Returns an iterator over blocks that were processed with `ProcessResult::Placeholder`.
-    /// Use this after rendering to get the extracted data for deferred processing.
-    ///
-    /// If you need a `Vec`, call `.collect()` on the result.
-    pub fn extracted_code_blocks(&self) -> impl Iterator<Item = ExtractedCodeBlock> + '_ {
-        self.processors.iter().flat_map(|p| p.extracted()).cloned()
     }
 
     /// Get all warnings from all processors.
@@ -571,6 +561,7 @@ impl<B: RenderBackend> Default for MarkdownRenderer<B> {
 mod tests {
     use super::*;
     use crate::HtmlBackend;
+    use crate::code_block::ExtractedCodeBlock;
     use pulldown_cmark::{Options, Parser};
 
     fn render_html(markdown: &str) -> RenderResult {
@@ -869,12 +860,6 @@ mod tests {
 
         assert!(result.html.contains("{{DIAGRAM_0}}"));
         assert!(!result.html.contains("<pre>"));
-
-        let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
-        assert_eq!(extracted.len(), 1);
-        assert_eq!(extracted[0].language, "diagram");
-        assert_eq!(extracted[0].source, "A -> B\n");
-        assert_eq!(extracted[0].index, 0);
     }
 
     #[test]
@@ -897,11 +882,6 @@ mod tests {
         let result = renderer.render(parser);
 
         assert!(result.html.contains("{{DIAGRAM_0}}"));
-
-        let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
-        assert_eq!(extracted.len(), 1);
-        assert_eq!(extracted[0].attrs.get("format"), Some(&"png".to_owned()));
-        assert_eq!(extracted[0].attrs.get("theme"), Some(&"dark".to_owned()));
     }
 
     #[test]
@@ -920,10 +900,6 @@ mod tests {
         assert!(result.html.contains(r#"<div class="inline">hello"#));
         // Neither handles rust, so normal code block
         assert!(result.html.contains(r#"class="language-rust""#));
-
-        let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
-        assert_eq!(extracted.len(), 1);
-        assert_eq!(extracted[0].language, "diagram");
     }
 
     #[test]
@@ -936,11 +912,6 @@ mod tests {
 
         assert!(result.html.contains("{{DIAGRAM_0}}"));
         assert!(result.html.contains("{{DIAGRAM_1}}"));
-
-        let extracted: Vec<_> = renderer.extracted_code_blocks().collect();
-        assert_eq!(extracted.len(), 2);
-        assert_eq!(extracted[0].index, 0);
-        assert_eq!(extracted[1].index, 1);
     }
 
     #[test]

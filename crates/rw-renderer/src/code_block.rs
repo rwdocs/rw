@@ -70,7 +70,7 @@ pub enum ProcessResult {
 }
 
 /// Metadata extracted from code block for deferred processing.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ExtractedCodeBlock {
     /// Zero-based index of this code block in the document.
     pub index: usize,
