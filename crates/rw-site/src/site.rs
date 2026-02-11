@@ -47,12 +47,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
-use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
+use rw_renderer::TocEntry;
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
+use crate::page_renderer::PageRenderer;
 use crate::typed_page_registry::TypedPageRegistry;
 
 /// Get the depth of a URL path.
@@ -165,11 +164,9 @@ impl Default for SiteConfig {
 /// - Uses `AtomicBool` for cache validity tracking
 pub struct Site {
     storage: Arc<dyn Storage>,
-    cache: Arc<dyn Cache>,
     // Buckets
     #[allow(clippy::struct_field_names)]
     site_bucket: Box<dyn CacheBucket>,
-    page_bucket: Box<dyn CacheBucket>,
     /// Generation counter for site structure etag.
     generation: AtomicU64,
     /// Mutex for serializing reload operations.
@@ -178,13 +175,8 @@ pub struct Site {
     current_state: RwLock<Arc<SiteState>>,
     /// Cache validity flag.
     cache_valid: AtomicBool,
-    // Rendering config
-    extract_title: bool,
-    kroki_url: Option<String>,
-    include_dirs: Vec<PathBuf>,
-    dpi: u32,
-    /// Typed page registry for meta includes (rebuilt on each reload).
-    meta_include_source: RwLock<Option<Arc<dyn MetaIncludeSource>>>,
+    /// Page rendering pipeline.
+    renderer: PageRenderer,
 }
 
 impl Site {
@@ -198,21 +190,17 @@ impl Site {
     #[must_use]
     pub fn new(storage: Arc<dyn Storage>, config: SiteConfig, cache: Arc<dyn Cache>) -> Self {
         let initial_state = Arc::new(SiteStateBuilder::new().build());
+        let site_bucket = cache.bucket("site");
+        let renderer = PageRenderer::new(Arc::clone(&storage), config, cache);
 
         Self {
             storage,
-            site_bucket: cache.bucket("site"),
-            page_bucket: cache.bucket("pages"),
-            cache,
+            site_bucket,
             generation: AtomicU64::new(0),
             reload_lock: Mutex::new(()),
             current_state: RwLock::new(initial_state),
             cache_valid: AtomicBool::new(false),
-            extract_title: config.extract_title,
-            kroki_url: config.kroki_url,
-            include_dirs: config.include_dirs,
-            dpi: config.dpi,
-            meta_include_source: RwLock::new(None),
+            renderer,
         }
     }
 
@@ -338,7 +326,7 @@ impl Site {
             // Rebuild typed page registry for meta includes
             let registry =
                 TypedPageRegistry::from_site_state_with_storage(&site, self.storage.as_ref());
-            *self.meta_include_source.write().unwrap() = Some(Arc::new(registry));
+            self.renderer.set_meta_include_source(Arc::new(registry));
 
             self.cache_valid.store(true, Ordering::Release);
             return site;
@@ -358,7 +346,7 @@ impl Site {
         // Rebuild typed page registry for meta includes
         let registry =
             TypedPageRegistry::from_site_state_with_storage(&site, self.storage.as_ref());
-        *self.meta_include_source.write().unwrap() = Some(Arc::new(registry));
+        self.renderer.set_meta_include_source(Arc::new(registry));
 
         self.cache_valid.store(true, Ordering::Release);
 
@@ -393,138 +381,12 @@ impl Site {
     /// Returns `RenderError::FileNotFound` if source file doesn't exist.
     /// Returns `RenderError::Io` if file cannot be read.
     pub fn render(&self, path: &str) -> Result<PageRenderResult, RenderError> {
-        // Reload site if needed
         let state = self.reload_if_needed();
-
-        // Look up page by URL path
         let page = state
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
-
-        // Get breadcrumbs
         let breadcrumbs = state.get_breadcrumbs(path);
-
-        // Check if this is a virtual page (no content file)
-        if !page.has_content {
-            return Ok(self.render_virtual_page(path, page, breadcrumbs));
-        }
-
-        // Get source mtime using URL path (Storage maps to file internally)
-        let source_mtime = self
-            .storage
-            .mtime(path)
-            .map_err(|_| RenderError::FileNotFound(path.to_owned()))?;
-
-        // Load metadata lazily from storage (with inheritance applied)
-        let metadata = self.load_metadata(path);
-
-        // Check page cache (single entry for html + metadata)
-        let etag = source_mtime.to_string();
-
-        if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
-            return Ok(PageRenderResult {
-                html: cached.html,
-                title: cached.title,
-                toc: cached.toc,
-                warnings: Vec::new(),
-                from_cache: true,
-                has_content: page.has_content,
-                source_mtime,
-                breadcrumbs,
-                metadata,
-            });
-        }
-
-        // Render the page using URL path (Storage maps to file internally)
-        let markdown_text = self.storage.read(path)?;
-        let result = self.create_renderer(path).render_markdown(&markdown_text);
-
-        // Store in cache (zero-copy serialization via borrowed view)
-        self.page_bucket.set_json(
-            path,
-            &etag,
-            &CachedPageRef {
-                html: &result.html,
-                title: result.title.as_deref(),
-                toc: &result.toc,
-            },
-        );
-
-        Ok(PageRenderResult {
-            html: result.html,
-            title: result.title,
-            toc: result.toc,
-            warnings: result.warnings,
-            from_cache: false,
-            has_content: page.has_content,
-            source_mtime,
-            breadcrumbs,
-            metadata,
-        })
-    }
-
-    /// Render a virtual page (directory with metadata but no index.md).
-    ///
-    /// Returns an h1 with the page title.
-    fn render_virtual_page(
-        &self,
-        path: &str,
-        page: &Page,
-        breadcrumbs: Vec<BreadcrumbItem>,
-    ) -> PageRenderResult {
-        // Get mtime from metadata file
-        let source_mtime = self.storage.mtime(path).unwrap_or(0.0);
-
-        // Load metadata lazily from storage (with inheritance applied)
-        let metadata = self.load_metadata(path);
-
-        PageRenderResult {
-            html: format!("<h1>{}</h1>\n", escape_html(&page.title)),
-            title: Some(page.title.clone()),
-            toc: Vec::new(),
-            warnings: Vec::new(),
-            from_cache: false,
-            has_content: false,
-            source_mtime,
-            breadcrumbs,
-            metadata,
-        }
-    }
-
-    /// Create a renderer with common configuration.
-    fn create_renderer(&self, base_path: &str) -> MarkdownRenderer<HtmlBackend> {
-        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_gfm(true)
-            .with_base_path(base_path)
-            .with_directives(directives);
-
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
-
-        if let Some(processor) = self.create_diagram_processor() {
-            renderer = renderer.with_processor(processor);
-        }
-
-        renderer
-    }
-
-    /// Create a diagram processor if `kroki_url` is configured.
-    fn create_diagram_processor(&self) -> Option<DiagramProcessor> {
-        let url = self.kroki_url.as_ref()?;
-
-        let mut processor = DiagramProcessor::new(url)
-            .include_dirs(&self.include_dirs)
-            .dpi(self.dpi)
-            .with_cache(self.cache.bucket("diagrams"));
-
-        if let Some(source) = self.meta_include_source.read().unwrap().clone() {
-            processor = processor.with_meta_include_source(source);
-        }
-
-        Some(processor)
+        self.renderer.render_page(path, page, breadcrumbs)
     }
 
     /// Load site state from storage and build hierarchy.
@@ -594,17 +456,6 @@ impl Site {
         }
         None
     }
-
-    /// Load metadata for a path (lazy loading).
-    fn load_metadata(&self, path: &str) -> Option<Metadata> {
-        match self.storage.meta(path) {
-            Ok(meta) => meta,
-            Err(e) => {
-                tracing::warn!(path = %path, error = %e, "Failed to load metadata");
-                None
-            }
-        }
-    }
 }
 
 /// Borrowed view of cached site state for serialization (zero-copy).
@@ -650,22 +501,6 @@ impl From<CachedSiteState> for SiteState {
             cached.sections,
         )
     }
-}
-
-/// Cached page data for deserialization (owned).
-#[derive(Deserialize)]
-struct CachedPage {
-    html: String,
-    title: Option<String>,
-    toc: Vec<TocEntry>,
-}
-
-/// Borrowed view of cached page data for serialization (zero-copy).
-#[derive(Serialize)]
-struct CachedPageRef<'a> {
-    html: &'a str,
-    title: Option<&'a str>,
-    toc: &'a [TocEntry],
 }
 
 #[cfg(test)]

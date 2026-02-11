@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
 
+### Changed
+
+- Extracted `PageRenderer` from `Site` for independent page rendering testability
+
 ## [0.1.4] - 2026-02-11
 
 ### Changed
