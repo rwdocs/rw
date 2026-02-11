@@ -26,7 +26,7 @@ pub struct TabsGroup {
 }
 
 /// Parser state for directive processing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum State {
     /// Normal markdown processing.
     Normal,

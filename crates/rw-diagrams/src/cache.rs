@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 ///
 /// Contains all parameters that affect the rendered diagram output.
 /// Used to compute a content-based hash for caching.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct DiagramKey<'a> {
     /// Diagram source code (after preprocessing).
     pub source: &'a str,

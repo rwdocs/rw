@@ -13,6 +13,8 @@ use rw_storage::{Storage, StorageEventKind, WatchHandle};
 use crate::handlers::to_url_path;
 
 /// Event sent to connected WebSocket clients when files change.
+///
+/// Clone is required by `tokio::sync::broadcast` which delivers a copy to each subscriber.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ReloadEvent {
     /// Event type (always "reload").
