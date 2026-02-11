@@ -100,10 +100,7 @@ mod tests {
 
     #[test]
     fn test_extract_yaml_type_simple() {
-        assert_eq!(
-            extract_yaml_type("type: domain"),
-            Some("domain".to_owned())
-        );
+        assert_eq!(extract_yaml_type("type: domain"), Some("domain".to_owned()));
     }
 
     #[test]
