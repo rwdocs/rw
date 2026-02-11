@@ -189,6 +189,29 @@ docs/
 │       └── index.md   # Real page (has index.md)
 ```
 
+### Diagram Includes
+
+Pages with `type` set to `domain`, `system`, or `service` automatically generate PlantUML C4 model includes. Use them in PlantUML diagrams:
+
+```plantuml
+!include systems/sys_payment_gateway.iuml
+!include systems/ext/sys_yookassa.iuml
+
+Rel(sys_payment_gateway, sys_yookassa, "Processes payments")
+```
+
+**Include paths by type:**
+
+| Type | Regular | External |
+|------|---------|----------|
+| Domain | `systems/dmn_{name}.iuml` | `systems/ext/dmn_{name}.iuml` |
+| System | `systems/sys_{name}.iuml` | `systems/ext/sys_{name}.iuml` |
+| Service | `systems/svc_{name}.iuml` | `systems/ext/svc_{name}.iuml` |
+
+The `{name}` is derived from the directory name with hyphens replaced by underscores (e.g., `payment-gateway` → `payment_gateway`).
+
+Regular includes generate `System()` macros; external includes generate `System_Ext()` macros. Both include the entity's title, description, and a link to its documentation page.
+
 ## Technical Details
 
 - Native Rust CLI (no Python runtime required)
