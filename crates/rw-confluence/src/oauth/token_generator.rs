@@ -231,10 +231,7 @@ mod tests {
         let params = parse_oauth_response(body);
 
         assert_eq!(params.get("oauth_token"), Some(&"abc123".to_owned()));
-        assert_eq!(
-            params.get("oauth_token_secret"),
-            Some(&"xyz789".to_owned())
-        );
+        assert_eq!(params.get("oauth_token_secret"), Some(&"xyz789".to_owned()));
         assert_eq!(
             params.get("oauth_callback_confirmed"),
             Some(&"true".to_owned())

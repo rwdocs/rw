@@ -812,13 +812,7 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         let idx_a = builder.add_page("A".to_owned(), "a".to_owned(), true, None, None);
         let idx_b = builder.add_page("B".to_owned(), "a/b".to_owned(), true, Some(idx_a), None);
-        builder.add_page(
-            "C".to_owned(),
-            "a/b/c".to_owned(),
-            true,
-            Some(idx_b),
-            None,
-        );
+        builder.add_page("C".to_owned(), "a/b/c".to_owned(), true, Some(idx_b), None);
         let site = builder.build();
 
         let nav = site.navigation("");

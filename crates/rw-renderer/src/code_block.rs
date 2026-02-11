@@ -314,10 +314,7 @@ mod tests {
         let attrs = HashMap::new();
 
         let result = processor.process("test-inline", &attrs, "hello", 0);
-        assert_eq!(
-            result,
-            ProcessResult::Inline("<div>hello</div>".to_owned())
-        );
+        assert_eq!(result, ProcessResult::Inline("<div>hello</div>".to_owned()));
 
         assert!(processor.extracted().is_empty());
     }

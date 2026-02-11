@@ -183,7 +183,8 @@ impl<'a> PageUpdater<'a> {
                 let filename = path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("diagram.png").to_owned();
+                    .unwrap_or("diagram.png")
+                    .to_owned();
                 files.push((filename, path));
             }
         }
