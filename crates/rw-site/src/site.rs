@@ -110,9 +110,10 @@ pub enum RenderError {
 
 impl From<StorageError> for RenderError {
     fn from(e: StorageError) -> Self {
-        match e.kind() {
+        match e.kind {
             StorageErrorKind::NotFound => Self::FileNotFound(
-                e.path()
+                e.path
+                    .as_deref()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default(),
             ),

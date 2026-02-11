@@ -13,7 +13,7 @@
 //!
 //! Storage implementations handle the mapping from URL paths to their internal storage format.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::event::{StorageEventReceiver, WatchHandle};
 use crate::metadata::Metadata;
@@ -44,7 +44,7 @@ pub struct Document {
 }
 
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum StorageErrorKind {
     /// Resource does not exist.
@@ -66,7 +66,7 @@ pub enum StorageErrorKind {
 }
 
 /// Retry guidance (from `OpenDAL`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum ErrorStatus {
     /// Don't retry (config error, not found, invalid path).
     #[default]
@@ -80,10 +80,14 @@ pub enum ErrorStatus {
 /// Storage error with semantic kind and backend-specific source.
 #[derive(Debug)]
 pub struct StorageError {
-    kind: StorageErrorKind,
-    status: ErrorStatus,
-    path: Option<PathBuf>,
-    backend: Option<&'static str>,
+    /// Semantic error category.
+    pub kind: StorageErrorKind,
+    /// Retry guidance.
+    pub status: ErrorStatus,
+    /// Path context (if applicable).
+    pub path: Option<PathBuf>,
+    /// Backend identifier (e.g., "Fs", "Mock").
+    pub backend: Option<&'static str>,
     source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 
@@ -126,30 +130,6 @@ impl StorageError {
     pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
         self.source = Some(Box::new(source));
         self
-    }
-
-    /// Get the error kind for matching.
-    #[must_use]
-    pub fn kind(&self) -> StorageErrorKind {
-        self.kind
-    }
-
-    /// Get the retry status.
-    #[must_use]
-    pub fn status(&self) -> ErrorStatus {
-        self.status
-    }
-
-    /// Get the path if available.
-    #[must_use]
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
-    }
-
-    /// Get the backend identifier if available.
-    #[must_use]
-    pub fn backend(&self) -> Option<&'static str> {
-        self.backend
     }
 
     /// Downcast the source error to a concrete type.
@@ -316,6 +296,8 @@ pub trait Storage: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
@@ -395,31 +377,31 @@ mod tests {
     fn test_storage_error_new() {
         let err = StorageError::new(StorageErrorKind::NotFound);
 
-        assert_eq!(err.kind(), StorageErrorKind::NotFound);
-        assert_eq!(err.status(), ErrorStatus::Permanent);
-        assert!(err.path().is_none());
-        assert!(err.backend().is_none());
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(err.status, ErrorStatus::Permanent);
+        assert!(err.path.as_deref().is_none());
+        assert!(err.backend.is_none());
     }
 
     #[test]
     fn test_storage_error_with_path() {
         let err = StorageError::new(StorageErrorKind::NotFound).with_path("/foo/bar");
 
-        assert_eq!(err.path(), Some(Path::new("/foo/bar")));
+        assert_eq!(err.path.as_deref(), Some(Path::new("/foo/bar")));
     }
 
     #[test]
     fn test_storage_error_with_backend() {
         let err = StorageError::new(StorageErrorKind::NotFound).with_backend("Fs");
 
-        assert_eq!(err.backend(), Some("Fs"));
+        assert_eq!(err.backend, Some("Fs"));
     }
 
     #[test]
     fn test_storage_error_with_status() {
         let err = StorageError::new(StorageErrorKind::Timeout).with_status(ErrorStatus::Temporary);
 
-        assert_eq!(err.status(), ErrorStatus::Temporary);
+        assert_eq!(err.status, ErrorStatus::Temporary);
     }
 
     #[test]
@@ -434,8 +416,8 @@ mod tests {
     fn test_storage_error_not_found() {
         let err = StorageError::not_found("/foo/bar");
 
-        assert_eq!(err.kind(), StorageErrorKind::NotFound);
-        assert_eq!(err.path(), Some(Path::new("/foo/bar")));
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(err.path.as_deref(), Some(Path::new("/foo/bar")));
     }
 
     #[test]
@@ -443,9 +425,9 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err = StorageError::io(io_err, Some(PathBuf::from("/foo/bar")));
 
-        assert_eq!(err.kind(), StorageErrorKind::NotFound);
-        assert_eq!(err.status(), ErrorStatus::Permanent);
-        assert_eq!(err.path(), Some(Path::new("/foo/bar")));
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(err.status, ErrorStatus::Permanent);
+        assert_eq!(err.path.as_deref(), Some(Path::new("/foo/bar")));
     }
 
     #[test]
@@ -453,7 +435,7 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied");
         let err = StorageError::io(io_err, None);
 
-        assert_eq!(err.kind(), StorageErrorKind::PermissionDenied);
+        assert_eq!(err.kind, StorageErrorKind::PermissionDenied);
     }
 
     #[test]
@@ -461,8 +443,8 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out");
         let err = StorageError::io(io_err, None);
 
-        assert_eq!(err.kind(), StorageErrorKind::Timeout);
-        assert_eq!(err.status(), ErrorStatus::Temporary);
+        assert_eq!(err.kind, StorageErrorKind::Timeout);
+        assert_eq!(err.status, ErrorStatus::Temporary);
     }
 
     #[test]

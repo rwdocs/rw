@@ -1100,8 +1100,8 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.kind(), StorageErrorKind::NotFound);
-        assert_eq!(err.backend(), Some("Fs"));
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(err.backend, Some("Fs"));
     }
 
     #[test]
@@ -1265,8 +1265,8 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.kind(), StorageErrorKind::NotFound);
-        assert_eq!(err.backend(), Some("Fs"));
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(err.backend, Some("Fs"));
     }
 
     #[test]
@@ -1279,8 +1279,8 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.kind(), StorageErrorKind::InvalidPath);
-        assert_eq!(err.backend(), Some("Fs"));
+        assert_eq!(err.kind, StorageErrorKind::InvalidPath);
+        assert_eq!(err.backend, Some("Fs"));
     }
 
     #[test]
@@ -1292,7 +1292,7 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.kind(), StorageErrorKind::InvalidPath);
+        assert_eq!(err.kind, StorageErrorKind::InvalidPath);
     }
 
     #[test]
@@ -1304,8 +1304,8 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.kind(), StorageErrorKind::InvalidPath);
-        assert_eq!(err.backend(), Some("Fs"));
+        assert_eq!(err.kind, StorageErrorKind::InvalidPath);
+        assert_eq!(err.backend, Some("Fs"));
     }
 
     #[test]

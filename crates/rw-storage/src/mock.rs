@@ -430,9 +430,9 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.kind(), StorageErrorKind::NotFound);
-        assert_eq!(err.backend(), Some("Mock"));
-        assert_eq!(err.path(), Some(Path::new("missing")));
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(err.backend, Some("Mock"));
+        assert_eq!(err.path.as_deref(), Some(Path::new("missing")));
     }
 
     #[test]
@@ -510,9 +510,9 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.kind(), StorageErrorKind::NotFound);
-        assert_eq!(err.backend(), Some("Mock"));
-        assert_eq!(err.path(), Some(Path::new("missing")));
+        assert_eq!(err.kind, StorageErrorKind::NotFound);
+        assert_eq!(err.backend, Some("Mock"));
+        assert_eq!(err.path.as_deref(), Some(Path::new("missing")));
     }
 
     #[test]
