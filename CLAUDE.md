@@ -110,6 +110,7 @@ crates/
 │       ├── output.rs         # DiagramOutput, DiagramTagGenerator, tag generators
 │       ├── kroki.rs          # Parallel Kroki HTTP rendering
 │       ├── plantuml.rs       # !include resolution, DPI configuration
+│       ├── meta_includes.rs  # MetaIncludeSource trait, C4 macro generation from metadata
 │       └── html_embed.rs     # SVG scaling, placeholder replacement
 │
 ├── rw-cache/              # Cache abstraction layer
@@ -122,7 +123,8 @@ crates/
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── site.rs           # Site (unified loading + rendering), SiteConfig, PageRenderResult
-│       └── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
+│       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
+│       └── typed_page_registry.rs  # TypedPageRegistry (MetaIncludeSource impl for diagrams)
 │
 ├── rw-storage/            # Storage abstraction layer (core traits)
 │   └── src/

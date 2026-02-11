@@ -13,7 +13,7 @@ use crate::site_state::SiteState;
 
 /// Registry mapping `(entity_type, normalized_name)` to [`EntityInfo`].
 ///
-/// Built from [`SiteState`] by iterating over sections and indexing
+/// Built from site state by iterating over sections and indexing
 /// pages whose type is one of the known entity types (`domain`,
 /// `system`, `service`).
 pub struct TypedPageRegistry {
