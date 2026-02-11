@@ -89,7 +89,9 @@ fn type_prefix(entity_type: &str) -> &'static str {
 
 /// Escape newlines in a description for use inside `PlantUML` strings.
 fn escape_description(desc: &str) -> String {
-    desc.replace('\n', "\\n")
+    desc.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }
 
 /// Render a C4 `PlantUML` macro call from entity metadata.
@@ -437,6 +439,32 @@ mod tests {
         let result = render_c4_macro("system", "multi", &entity, false);
         assert!(result.contains("Line one\\nLine two"));
         assert!(!result.contains('\n'));
+    }
+
+    #[test]
+    fn test_render_description_quotes_escaped() {
+        let entity = EntityInfo {
+            title: "Quoted".to_owned(),
+            dir_name: "quoted".to_owned(),
+            description: Some("He said \"hello\"".to_owned()),
+            has_docs: true,
+            url_path: "/quoted/".to_owned(),
+        };
+        let result = render_c4_macro("system", "quoted", &entity, false);
+        assert!(result.contains(r#"He said \"hello\""#));
+    }
+
+    #[test]
+    fn test_render_description_backslashes_escaped() {
+        let entity = EntityInfo {
+            title: "Paths".to_owned(),
+            dir_name: "paths".to_owned(),
+            description: Some(r"C:\Users\docs".to_owned()),
+            has_docs: true,
+            url_path: "/paths/".to_owned(),
+        };
+        let result = render_c4_macro("system", "paths", &entity, false);
+        assert!(result.contains(r"C:\\Users\\docs"));
     }
 
     // ── Task 4: resolve_meta_include tests ───────────────────────────

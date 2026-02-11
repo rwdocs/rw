@@ -1,7 +1,7 @@
 //! Registry of typed pages for meta include resolution.
 //!
 //! Indexes site pages by `(type, normalized_name)` so that `PlantUML`
-//! `!include` directives like `!include meta://system/payment_gateway`
+//! `!include` directives like `!include systems/sys_payment_gateway.iuml`
 //! can be resolved to concrete entity information.
 
 use std::collections::HashMap;
@@ -50,7 +50,7 @@ impl TypedPageRegistry {
             let entity = EntityInfo {
                 title: section.title.clone(),
                 dir_name: dir_name.to_owned(),
-                description: None, // Will be populated from metadata in Task 8
+                description: None,
                 has_docs,
                 url_path: format!("/{path}/"),
             };
@@ -221,5 +221,57 @@ mod tests {
         let registry = TypedPageRegistry::from_site_state(&state);
 
         assert!(registry.get_entity("guide", "guide").is_none());
+    }
+
+    #[test]
+    fn test_from_site_state_with_storage_populates_descriptions() {
+        use rw_storage::{Metadata, MockStorage};
+
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            "Payment Gateway".to_owned(),
+            "domains/billing/systems/payment-gateway".to_owned(),
+            true,
+            None,
+            Some("system"),
+        );
+        let state = builder.build();
+
+        let storage = MockStorage::new().with_metadata(
+            "domains/billing/systems/payment-gateway",
+            Metadata {
+                description: Some("Handles payment processing".to_owned()),
+                ..Default::default()
+            },
+        );
+
+        let registry = TypedPageRegistry::from_site_state_with_storage(&state, &storage);
+
+        let entity = registry.get_entity("system", "payment_gateway").unwrap();
+        assert_eq!(
+            entity.description.as_deref(),
+            Some("Handles payment processing")
+        );
+    }
+
+    #[test]
+    fn test_from_site_state_with_storage_no_metadata() {
+        use rw_storage::MockStorage;
+
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            "Billing".to_owned(),
+            "domains/billing".to_owned(),
+            true,
+            None,
+            Some("domain"),
+        );
+        let state = builder.build();
+
+        let storage = MockStorage::new();
+        let registry = TypedPageRegistry::from_site_state_with_storage(&state, &storage);
+
+        let entity = registry.get_entity("domain", "billing").unwrap();
+        assert!(entity.description.is_none());
     }
 }
