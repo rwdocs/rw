@@ -23,7 +23,7 @@ pub enum StorageEventKind {
 }
 
 /// A storage change event.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StorageEvent {
     /// URL path (e.g., "", "guide", "domain/billing").
     pub path: String,
@@ -148,16 +148,15 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let receiver = StorageEventReceiver::new(rx);
 
-        let event = StorageEvent {
+        tx.send(StorageEvent {
             path: "test".to_owned(),
             kind: StorageEventKind::Created,
-        };
+        })
+        .unwrap();
 
-        tx.send(event.clone()).unwrap();
-
-        let result = receiver.recv();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), event);
+        let event = receiver.recv().unwrap();
+        assert_eq!(event.path, "test");
+        assert_eq!(event.kind, StorageEventKind::Created);
     }
 
     #[test]
@@ -185,16 +184,15 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let receiver = StorageEventReceiver::new(rx);
 
-        let event = StorageEvent {
+        tx.send(StorageEvent {
             path: "test".to_owned(),
             kind: StorageEventKind::Modified,
-        };
+        })
+        .unwrap();
 
-        tx.send(event.clone()).unwrap();
-
-        let result = receiver.try_recv();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), event);
+        let event = receiver.try_recv().unwrap();
+        assert_eq!(event.path, "test");
+        assert_eq!(event.kind, StorageEventKind::Modified);
     }
 
     #[test]
@@ -202,24 +200,24 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let receiver = StorageEventReceiver::new(rx);
 
-        let events = vec![
-            StorageEvent {
-                path: "a".to_owned(),
-                kind: StorageEventKind::Created,
-            },
-            StorageEvent {
-                path: "b".to_owned(),
-                kind: StorageEventKind::Modified,
-            },
-        ];
-
-        for event in &events {
-            tx.send(event.clone()).unwrap();
-        }
+        tx.send(StorageEvent {
+            path: "a".to_owned(),
+            kind: StorageEventKind::Created,
+        })
+        .unwrap();
+        tx.send(StorageEvent {
+            path: "b".to_owned(),
+            kind: StorageEventKind::Modified,
+        })
+        .unwrap();
         drop(tx);
 
         let result: Vec<_> = receiver.iter().collect();
-        assert_eq!(result, events);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].path, "a");
+        assert_eq!(result[0].kind, StorageEventKind::Created);
+        assert_eq!(result[1].path, "b");
+        assert_eq!(result[1].kind, StorageEventKind::Modified);
     }
 
     #[test]

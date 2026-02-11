@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed redundant `Clone` derives from 9 structs/enums across 6 files
 - Removed redundant `Clone` derives from 17 structs across 3 files
 - Removed redundant `Clone` derives from `ServerConfig` and `TocEntry`
+- Removed test-only `Clone` derives from `StorageEvent` and `Document`
 - Eliminated unnecessary `.clone()` of `DiagramsConfig` in confluence update command (moved instead)
 
 ### Fixed

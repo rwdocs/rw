@@ -30,7 +30,7 @@ use crate::metadata::Metadata;
 /// - `"guide"` - standalone page (maps to `guide.md` or `guide/index.md`)
 /// - `"domain"` - directory section (maps to `domain/index.md`)
 /// - `"domain/billing"` - nested page
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Document {
     /// URL path (e.g., "", "guide", "domain", "domain/billing").
     pub path: String,

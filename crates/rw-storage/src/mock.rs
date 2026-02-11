@@ -262,7 +262,16 @@ impl MockStorage {
 
 impl Storage for MockStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
-        Ok(self.documents.read().unwrap().clone())
+        let guard = self.documents.read().unwrap();
+        Ok(guard
+            .iter()
+            .map(|d| Document {
+                path: d.path.clone(),
+                title: d.title.clone(),
+                has_content: d.has_content,
+                page_type: d.page_type.clone(),
+            })
+            .collect())
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
