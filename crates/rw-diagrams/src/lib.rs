@@ -42,6 +42,6 @@ mod plantuml;
 mod processor;
 
 pub use cache::DiagramKey;
-pub use meta_includes::{EntityInfo, MetaIncludeSource};
+pub use meta_includes::{EntityInfo, MetaIncludeSource, resolve_meta_include};
 pub use output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 pub use processor::DiagramProcessor;
