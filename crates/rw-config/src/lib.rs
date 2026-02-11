@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 /// CLI settings that override configuration file values.
 ///
 /// All fields are optional. Only non-None values override the loaded config.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct CliSettings {
     /// Override server host.
     pub host: Option<String>,

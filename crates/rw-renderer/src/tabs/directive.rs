@@ -10,7 +10,7 @@ use crate::directive::{
 use crate::state::escape_html;
 
 /// Metadata for a single tab within a tab group.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TabMetadata {
     /// Unique ID for this tab within the document.
     pub id: usize,
@@ -21,7 +21,7 @@ pub struct TabMetadata {
 }
 
 /// Metadata for a tab group.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TabsGroup {
     /// Unique ID for this tab group.
     pub id: usize,

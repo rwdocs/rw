@@ -24,7 +24,7 @@
 /// // Skip handling (pass through unchanged)
 /// let output = DirectiveOutput::Skip;
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveOutput {
     /// HTML that passes through pulldown-cmark unchanged.
     Html(String),

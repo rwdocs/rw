@@ -18,14 +18,14 @@ use crate::error::ConfluenceError;
 const DEFAULT_TIMEOUT: u64 = 30;
 
 /// Temporary credentials from request token phase.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RequestToken {
     pub oauth_token: String,
     pub oauth_token_secret: String,
 }
 
 /// Final access credentials.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AccessToken {
     pub oauth_token: String,
     pub oauth_token_secret: String,

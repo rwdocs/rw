@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Removed redundant `Clone` derives from 13 structs/enums across 10 files
+- Removed redundant `Clone` derives from 9 structs/enums across 6 files
 
 ### Fixed
 
