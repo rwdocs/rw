@@ -183,7 +183,9 @@ impl Site {
     /// Panics if internal locks are poisoned.
     #[must_use]
     pub fn get_navigation_scope(&self, page_path: &str) -> String {
-        self.reload_if_needed().state.get_navigation_scope(page_path)
+        self.reload_if_needed()
+            .state
+            .get_navigation_scope(page_path)
     }
 
     /// Check if a page exists at the given URL path.
