@@ -32,6 +32,10 @@ pub struct PageRendererConfig {
     /// Default: `false` (absolute paths for SPA navigation).
     /// Set to `true` for static site builds (e.g., `TechDocs`).
     pub relative_links: bool,
+    /// Append trailing slash to resolved link paths.
+    ///
+    /// Default: `false`.
+    pub trailing_slash: bool,
 }
 
 impl Default for PageRendererConfig {
@@ -42,6 +46,7 @@ impl Default for PageRendererConfig {
             include_dirs: Vec::new(),
             dpi: 192,
             relative_links: false,
+            trailing_slash: false,
         }
     }
 }
@@ -131,6 +136,7 @@ pub(crate) struct PageRenderer {
     include_dirs: Vec<PathBuf>,
     dpi: u32,
     relative_links: bool,
+    trailing_slash: bool,
 }
 
 impl PageRenderer {
@@ -149,6 +155,7 @@ impl PageRenderer {
             include_dirs: config.include_dirs,
             dpi: config.dpi,
             relative_links: config.relative_links,
+            trailing_slash: config.trailing_slash,
         }
     }
 
@@ -253,6 +260,7 @@ impl PageRenderer {
             .with_gfm(true)
             .with_base_path(format!("/{base_path}"))
             .with_relative_links(self.relative_links)
+            .with_trailing_slash(self.trailing_slash)
             .with_directives(directives);
 
         if self.extract_title {
