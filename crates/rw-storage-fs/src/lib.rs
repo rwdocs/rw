@@ -29,8 +29,6 @@ mod debouncer;
 mod inheritance;
 mod scanner;
 mod source;
-mod yaml;
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,16 +39,28 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use glob::Pattern;
 use notify::{RecursiveMode, Watcher};
 use regex::Regex;
+use serde::Deserialize;
 
 use debouncer::EventDebouncer;
 use inheritance::{build_ancestor_chain, merge_metadata};
 use rw_storage::{
-    Document, Metadata, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
-    StorageEventReceiver, WatchHandle,
+    Document, Metadata, MetadataError, Storage, StorageError, StorageErrorKind, StorageEvent,
+    StorageEventKind, StorageEventReceiver, WatchHandle,
 };
 use scanner::{DocumentRef, Scanner};
 use source::file_path_to_url;
-use yaml::{YamlFields, parse_metadata};
+
+/// Parsed fields from a YAML metadata file.
+///
+/// Lightweight struct for the fields needed during scan — avoids full
+/// [`Metadata`] parsing (which includes `vars` deep-merge).
+#[derive(Deserialize)]
+struct YamlFields {
+    pub title: Option<String>,
+    #[serde(rename = "type")]
+    pub page_type: Option<String>,
+    pub description: Option<String>,
+}
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -649,7 +659,13 @@ impl Storage for FsStorage {
                 }
             };
 
-            let meta = match parse_metadata(&content) {
+            let meta: Result<Metadata, MetadataError> = if content.trim().is_empty() {
+                Ok(Metadata::default())
+            } else {
+                serde_yaml::from_str(content.trim())
+                    .map_err(|e| MetadataError::Parse(format!("Invalid YAML: {e}")))
+            };
+            let meta = match meta {
                 Ok(m) if !m.is_empty() => m,
                 Ok(_) => continue, // Empty metadata
                 Err(e) => {
