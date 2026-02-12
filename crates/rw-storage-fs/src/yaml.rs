@@ -44,6 +44,14 @@ pub(crate) fn extract_yaml_type(content: &str) -> Option<String> {
     extract_yaml_field(content, "type")
 }
 
+/// Extract description from YAML content using simple string parsing.
+///
+/// Handles `description: Foo`, `description: "Foo"`, `description: 'Foo'`.
+/// Returns `None` if no valid description field is found.
+pub(crate) fn extract_yaml_description(content: &str) -> Option<String> {
+    extract_yaml_field(content, "description")
+}
+
 /// Parse full metadata from YAML content.
 ///
 /// Returns metadata for valid YAML (empty content returns a default instance).
