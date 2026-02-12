@@ -30,10 +30,11 @@
 
 pub(crate) mod site;
 pub(crate) mod site_state;
-mod page;
+pub(crate) mod page;
 mod typed_page_registry;
 
-pub use site::{PageRenderResult, RenderError, Site, SiteConfig};
+pub use page::{PageRenderResult, RenderError};
+pub use site::{Site, SiteConfig};
 pub use site_state::{BreadcrumbItem, NavItem, Navigation, Page, ScopeInfo, SectionInfo};
 pub use typed_page_registry::TypedPageRegistry;
 
