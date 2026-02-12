@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `rw techdocs build` command for generating static documentation sites (Backstage TechDocs compatible)
+- `rw techdocs publish` command for uploading sites to S3
+- New `rw-techdocs` crate with `StaticSiteBuilder` and `S3Publisher`
 - Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
 
 ### Changed
