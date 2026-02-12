@@ -9,9 +9,9 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use crate::backend::{AlertKind, RenderBackend};
 use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
 use crate::directive::DirectiveProcessor;
-use crate::util::relative_path;
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
+use crate::util::relative_path;
 
 /// Result of rendering markdown.
 #[derive(Debug)]

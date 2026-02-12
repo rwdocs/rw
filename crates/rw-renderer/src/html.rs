@@ -348,5 +348,4 @@ mod tests {
         assert!(out.contains(r#"<svg class="alert-icon""#));
         assert!(out.contains("Caution"));
     }
-
 }
