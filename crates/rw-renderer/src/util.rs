@@ -64,6 +64,8 @@ pub fn relative_path(from: &str, to: &str) -> String {
     let result = format!("{ups_part}{down_part}");
     if result.is_empty() {
         "./".to_owned()
+    } else if to.ends_with('/') && !result.ends_with('/') {
+        format!("{result}/")
     } else {
         result
     }
@@ -171,5 +173,25 @@ mod tests {
     #[test]
     fn test_relative_path_relative_dot() {
         assert_eq!(relative_path("/a/b", "./c"), "c");
+    }
+
+    #[test]
+    fn test_relative_path_trailing_slash_both() {
+        assert_eq!(relative_path("/a/b/", "/a/c/"), "../c/");
+    }
+
+    #[test]
+    fn test_relative_path_trailing_slash_to_only() {
+        assert_eq!(relative_path("/a/b", "/a/c/"), "c/");
+    }
+
+    #[test]
+    fn test_relative_path_trailing_slash_root_to_nested() {
+        assert_eq!(relative_path("/", "/a/"), "a/");
+    }
+
+    #[test]
+    fn test_relative_path_trailing_slash_both_same() {
+        assert_eq!(relative_path("/a/", "/a/"), "./");
     }
 }
