@@ -125,7 +125,7 @@ Build and publish documentation sites compatible with Backstage TechDocs:
 
 ```bash
 # Build static site
-rw techdocs build --site-name "My Docs" --output-dir ./site
+rw techdocs build --site-name "My Docs"
 
 # Publish to S3
 rw techdocs publish \

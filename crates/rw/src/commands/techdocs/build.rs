@@ -16,9 +16,9 @@ use crate::output::Output;
 /// Arguments for the techdocs build command.
 #[derive(Args)]
 pub(crate) struct BuildArgs {
-    /// Output directory for the generated site.
-    #[arg(short, long, default_value = "site")]
-    output_dir: PathBuf,
+    /// Output directory for the generated site (default: .rw/techdocs/build/).
+    #[arg(short, long)]
+    output_dir: Option<PathBuf>,
 
     /// Markdown source directory (overrides config).
     #[arg(short, long)]
@@ -53,11 +53,15 @@ impl BuildArgs {
         };
         let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
 
+        let output_dir = self
+            .output_dir
+            .unwrap_or_else(|| config.docs_resolved.project_dir.join("techdocs/build"));
+
         output.info(&format!(
             "Source: {}",
             config.docs_resolved.source_dir.display()
         ));
-        output.info(&format!("Output: {}", self.output_dir.display()));
+        output.info(&format!("Output: {}", output_dir.display()));
 
         // Create storage
         let meta_filename = &config.metadata.name;
@@ -87,11 +91,11 @@ impl BuildArgs {
             },
         );
 
-        builder.build(&self.output_dir)?;
+        builder.build(&output_dir)?;
 
         output.success(&format!(
             "Site built successfully to {}",
-            self.output_dir.display()
+            output_dir.display()
         ));
         Ok(())
     }
