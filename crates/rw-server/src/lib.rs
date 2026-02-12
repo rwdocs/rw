@@ -68,7 +68,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use rw_site::{Site, PageRendererConfig};
+use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 use state::AppState;
 use tokio::sync::broadcast;
@@ -153,7 +153,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         include_dirs: config.include_dirs.clone(),
         dpi: config.dpi,
     };
-    let site = Arc::new(Site::new(Arc::clone(&storage), site_config, cache));
+    let site = Arc::new(Site::new(Arc::clone(&storage), cache, site_config));
 
     // Create live reload manager if enabled
     let live_reload = if config.live_reload_enabled {

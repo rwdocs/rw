@@ -30,7 +30,7 @@
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = PageRendererConfig::default();
 //! let cache = Arc::new(NullCache);
-//! let site = Arc::new(Site::new(storage, config, cache));
+//! let site = Arc::new(Site::new(storage, cache, config));
 //!
 //! // Load site structure
 //! let nav = site.navigation("");
@@ -69,10 +69,7 @@ fn url_depth(path: &str) -> usize {
 }
 
 // Re-import from crate root for public types, and direct module for internal
-pub(crate) use crate::site_state::{
-    Navigation, SectionInfo, SiteState, SiteStateBuilder,
-};
-
+pub(crate) use crate::site_state::{Navigation, SectionInfo, SiteState, SiteStateBuilder};
 
 /// Unified site structure and page rendering.
 ///
@@ -109,13 +106,17 @@ impl Site {
     /// # Arguments
     ///
     /// * `storage` - Storage implementation for document scanning and reading
-    /// * `config` - Site configuration
     /// * `cache` - Cache implementation for site structure, pages, and diagrams
+    /// * `config` - Page renderer configuration
     #[must_use]
-    pub fn new(storage: Arc<dyn Storage>, config: PageRendererConfig, cache: Arc<dyn Cache>) -> Self {
+    pub fn new(
+        storage: Arc<dyn Storage>,
+        cache: Arc<dyn Cache>,
+        config: PageRendererConfig,
+    ) -> Self {
         let initial_state = Arc::new(SiteStateBuilder::new().build());
         let site_bucket = cache.bucket("site");
-        let renderer = PageRenderer::new(Arc::clone(&storage), config, cache);
+        let renderer = PageRenderer::new(Arc::clone(&storage), cache, config);
 
         Self {
             storage,
@@ -310,7 +311,7 @@ impl Site {
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
         let breadcrumbs = state.get_breadcrumbs(path);
-        self.renderer.render_page(path, page, breadcrumbs)
+        self.renderer.render(path, page, breadcrumbs)
     }
 
     /// Load site state from storage and build hierarchy.
@@ -440,7 +441,7 @@ mod tests {
 
     fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = PageRendererConfig::default();
-        Site::new(Arc::new(storage), config, Arc::new(rw_cache::NullCache))
+        Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config)
     }
 
     // ========================================================================
@@ -726,7 +727,7 @@ mod tests {
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(Arc::new(storage), config, Arc::new(rw_cache::NullCache));
+        let site = Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config);
 
         let result = site.render("test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
@@ -760,7 +761,7 @@ mod tests {
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(Arc::new(storage), config, cache);
+        let site = Site::new(Arc::new(storage), cache, config);
 
         // First render - cache miss
         let result1 = site.render("test").unwrap();
@@ -959,11 +960,11 @@ mod tests {
             Arc::new(rw_cache::FileCache::new(cache_dir.clone(), "1.0.0"));
         let site_v1 = Site::new(
             Arc::clone(&storage),
+            cache_v1,
             PageRendererConfig {
                 extract_title: true,
                 ..Default::default()
             },
-            cache_v1,
         );
         let result1 = site_v1.render("test").unwrap();
         assert!(!result1.from_cache);
@@ -977,11 +978,11 @@ mod tests {
             Arc::new(rw_cache::FileCache::new(cache_dir.clone(), "2.0.0"));
         let site_v2 = Site::new(
             Arc::clone(&storage),
+            cache_v2,
             PageRendererConfig {
                 extract_title: true,
                 ..Default::default()
             },
-            cache_v2,
         );
 
         // VERSION file should be updated

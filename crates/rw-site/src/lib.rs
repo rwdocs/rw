@@ -17,7 +17,7 @@
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
 //! let config = PageRendererConfig::default();
 //! let cache = Arc::new(NullCache);
-//! let site = Arc::new(Site::new(storage, config, cache));
+//! let site = Arc::new(Site::new(storage, cache, config));
 //!
 //! // Get navigation (root scope)
 //! let nav = site.navigation("");
@@ -28,9 +28,9 @@
 //! # }
 //! ```
 
+pub(crate) mod page;
 pub(crate) mod site;
 pub(crate) mod site_state;
-pub(crate) mod page;
 mod typed_page_registry;
 
 pub use page::{BreadcrumbItem, Page, PageRenderResult, PageRendererConfig, RenderError};

@@ -7,22 +7,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rw_site::{Site, PageRendererConfig};
+use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 
 fn create_site(source_dir: PathBuf) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
     let config = PageRendererConfig::default();
-    Site::new(storage, config, Arc::new(rw_cache::NullCache))
+    Site::new(storage, Arc::new(rw_cache::NullCache), config)
 }
 
 fn create_site_with_config(
     source_dir: PathBuf,
-    config: PageRendererConfig,
     cache: Arc<dyn rw_cache::Cache>,
+    config: PageRendererConfig,
 ) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
-    Site::new(storage, config, cache)
+    Site::new(storage, cache, config)
 }
 
 /// Generate markdown content with specified structure.
@@ -63,7 +63,7 @@ fn bench_render_with_toc(c: &mut Criterion) {
         extract_title: true,
         ..Default::default()
     };
-    let site = create_site_with_config(source_dir, config, Arc::new(rw_cache::NullCache));
+    let site = create_site_with_config(source_dir, Arc::new(rw_cache::NullCache), config);
 
     c.bench_function("render_with_toc_10_headings", |b| {
         b.iter(|| site.render("/toc"));
@@ -109,7 +109,7 @@ fn bench_render_cached_vs_uncached(c: &mut Criterion) {
     // Cached site
     let cached_config = PageRendererConfig::default();
     let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(cache_dir, "bench"));
-    let cached_site = create_site_with_config(source_dir, cached_config, cache);
+    let cached_site = create_site_with_config(source_dir, cache, cached_config);
 
     let mut group = c.benchmark_group("caching");
 

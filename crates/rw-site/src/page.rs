@@ -131,8 +131,8 @@ impl PageRenderer {
     /// Create a new page renderer.
     pub(crate) fn new(
         storage: Arc<dyn Storage>,
-        config: PageRendererConfig,
         cache: Arc<dyn Cache>,
+        config: PageRendererConfig,
     ) -> Self {
         Self {
             storage,
@@ -163,14 +163,14 @@ impl PageRenderer {
     ///
     /// Returns `RenderError::FileNotFound` if source file doesn't exist.
     /// Returns `RenderError::Io` if file cannot be read.
-    pub(crate) fn render_page(
+    pub(crate) fn render(
         &self,
         path: &str,
         page: &Page,
         breadcrumbs: Vec<BreadcrumbItem>,
     ) -> Result<PageRenderResult, RenderError> {
         if !page.has_content {
-            return Ok(self.render_virtual_page(path, page, breadcrumbs));
+            return Ok(self.render_virtual(path, page, breadcrumbs));
         }
 
         let source_mtime = self
@@ -222,7 +222,7 @@ impl PageRenderer {
         })
     }
 
-    fn render_virtual_page(
+    fn render_virtual(
         &self,
         path: &str,
         page: &Page,
@@ -316,7 +316,7 @@ mod tests {
 
     fn create_renderer(storage: MockStorage) -> PageRenderer {
         let config = PageRendererConfig::default();
-        PageRenderer::new(Arc::new(storage), config, Arc::new(NullCache))
+        PageRenderer::new(Arc::new(storage), Arc::new(NullCache), config)
     }
 
     fn make_page(title: &str, path: &str, has_content: bool) -> Page {
@@ -335,7 +335,7 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("Hello", "test", true);
-        let result = renderer.render_page("test", &page, vec![]).unwrap();
+        let result = renderer.render("test", &page, vec![]).unwrap();
 
         assert!(result.html.contains("<p>World</p>"));
         assert_eq!(result.title, Some("Hello".to_owned()));
@@ -349,7 +349,7 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("Missing", "missing", true);
-        let result = renderer.render_page("missing", &page, vec![]);
+        let result = renderer.render("missing", &page, vec![]);
 
         assert!(matches!(result, Err(RenderError::FileNotFound(_))));
     }
@@ -360,7 +360,7 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("My Domain", "my-domain", false);
-        let result = renderer.render_page("my-domain", &page, vec![]).unwrap();
+        let result = renderer.render("my-domain", &page, vec![]).unwrap();
 
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
         assert_eq!(result.title, Some("My Domain".to_owned()));
@@ -371,21 +371,23 @@ mod tests {
     #[test]
     fn test_render_page_cache_hit() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache: Arc<dyn rw_cache::Cache> =
-            Arc::new(rw_cache::FileCache::new(temp_dir.path().join("cache"), "1.0.0"));
+        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
+            temp_dir.path().join("cache"),
+            "1.0.0",
+        ));
 
         let storage = MockStorage::new()
             .with_file("test", "Cached", "# Cached\n\nContent")
             .with_mtime("test", 1000.0);
 
         let config = PageRendererConfig::default();
-        let renderer = PageRenderer::new(Arc::new(storage), config, cache);
+        let renderer = PageRenderer::new(Arc::new(storage), cache, config);
         let page = make_page("Cached", "test", true);
 
-        let result1 = renderer.render_page("test", &page, vec![]).unwrap();
+        let result1 = renderer.render("test", &page, vec![]).unwrap();
         assert!(!result1.from_cache);
 
-        let result2 = renderer.render_page("test", &page, vec![]).unwrap();
+        let result2 = renderer.render("test", &page, vec![]).unwrap();
         assert!(result2.from_cache);
         assert_eq!(result1.html, result2.html);
     }
@@ -404,7 +406,7 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Test", "test", true);
-        let result = renderer.render_page("test", &page, vec![]).unwrap();
+        let result = renderer.render("test", &page, vec![]).unwrap();
 
         let meta = result.metadata.unwrap();
         assert_eq!(meta.title, Some("Meta Title".to_owned()));
@@ -419,7 +421,7 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Test", "test", true);
-        let result = renderer.render_page("test", &page, vec![]).unwrap();
+        let result = renderer.render("test", &page, vec![]).unwrap();
 
         assert!(result.metadata.is_none());
     }
@@ -432,7 +434,7 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Title", "test", true);
-        let result = renderer.render_page("test", &page, vec![]).unwrap();
+        let result = renderer.render("test", &page, vec![]).unwrap();
 
         assert_eq!(result.toc.len(), 2);
         assert_eq!(result.toc[0].title, "Section 1");
