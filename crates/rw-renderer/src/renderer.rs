@@ -9,6 +9,7 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use crate::backend::{AlertKind, RenderBackend};
 use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
 use crate::directive::DirectiveProcessor;
+use crate::html::relative_path;
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
 
@@ -58,6 +59,8 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     alert_stack: Vec<Option<AlertKind>>,
     /// Optional directive processor for `CommonMark` directives.
     directives: Option<DirectiveProcessor>,
+    /// Produce relative links instead of absolute (for static site builds).
+    relative_links: bool,
     _backend: PhantomData<B>,
 }
 
@@ -80,6 +83,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             gfm: true,
             alert_stack: Vec::new(),
             directives: None,
+            relative_links: false,
             _backend: PhantomData,
         }
     }
@@ -147,6 +151,19 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn with_directives(mut self, processor: DirectiveProcessor) -> Self {
         self.directives = Some(processor);
+        self
+    }
+
+    /// Enable relative link output instead of absolute paths.
+    ///
+    /// When enabled, resolved links that start with `/` are converted to
+    /// relative paths based on the current page's `base_path`. This is needed
+    /// for static site builds where pages are served as plain HTML files.
+    ///
+    /// Default: `false` (absolute paths for SPA navigation).
+    #[must_use]
+    pub fn with_relative_links(mut self, enabled: bool) -> Self {
+        self.relative_links = enabled;
         self
     }
 
@@ -373,6 +390,15 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Strikethrough => self.push_inline("<s>"),
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
+                let href = if self.relative_links {
+                    if let Some(rest) = href.strip_prefix('/') {
+                        relative_path(self.base_path.as_deref().unwrap_or(""), rest).into()
+                    } else {
+                        href
+                    }
+                } else {
+                    href
+                };
                 let link_tag = format!(r#"<a href="{}">"#, escape_html(&href));
                 self.push_inline(&link_tag);
             }
@@ -1094,5 +1120,40 @@ Install with apt.
         let result = renderer.render_markdown(":::tab[Test]\nContent");
 
         assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
+    }
+
+    #[test]
+    fn test_relative_links_converts_absolute_to_relative() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("a/b")
+            .with_relative_links(true);
+        // ../other.md resolves to /a/other, then relative_path("a/b", "a/other") = "other"
+        let result = renderer.render_markdown("[link](../other.md)");
+        assert!(result.html.contains(r#"href="other""#));
+    }
+
+    #[test]
+    fn test_relative_links_disabled_keeps_absolute() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_base_path("a/b");
+        let result = renderer.render_markdown("[link](../other.md)");
+        assert!(result.html.contains(r#"href="/a/other""#));
+    }
+
+    #[test]
+    fn test_relative_links_external_unchanged() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("a/b")
+            .with_relative_links(true);
+        let result = renderer.render_markdown("[link](https://example.com)");
+        assert!(result.html.contains(r#"href="https://example.com""#));
+    }
+
+    #[test]
+    fn test_relative_links_fragment_unchanged() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("a/b")
+            .with_relative_links(true);
+        let result = renderer.render_markdown("[link](#section)");
+        assert!(result.html.contains(r##"href="#section""##));
     }
 }
