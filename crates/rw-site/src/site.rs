@@ -51,6 +51,9 @@ use rw_storage::Storage;
 use crate::page::{
     BreadcrumbItem, PageRenderResult, PageRenderer, PageRendererConfig, RenderError,
 };
+use crate::site_state::{
+    CachedSiteState, CachedSiteStateRef, Navigation, SiteState, SiteStateBuilder,
+};
 use crate::typed_page_registry::TypedPageRegistry;
 
 /// Get the depth of a URL path.
@@ -81,11 +84,6 @@ impl MetaIncludeSource for SiteSnapshot {
         self.registry.get_entity(entity_type, name)
     }
 }
-
-// Re-import from crate root for public types, and direct module for internal
-pub(crate) use crate::site_state::{
-    CachedSiteState, CachedSiteStateRef, Navigation, SiteState, SiteStateBuilder,
-};
 
 /// Unified site structure and page rendering.
 ///
