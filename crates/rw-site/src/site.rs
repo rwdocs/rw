@@ -48,10 +48,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::{EntityInfo, MetaIncludeSource};
 use rw_storage::Storage;
-use serde::{Deserialize, Serialize};
-
 use crate::page::{
-    BreadcrumbItem, Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderError,
+    BreadcrumbItem, PageRenderResult, PageRenderer, PageRendererConfig, RenderError,
 };
 use crate::typed_page_registry::TypedPageRegistry;
 
@@ -85,7 +83,9 @@ impl MetaIncludeSource for SiteSnapshot {
 }
 
 // Re-import from crate root for public types, and direct module for internal
-pub(crate) use crate::site_state::{Navigation, SectionInfo, SiteState, SiteStateBuilder};
+pub(crate) use crate::site_state::{
+    CachedSiteState, CachedSiteStateRef, Navigation, SiteState, SiteStateBuilder,
+};
 
 /// Unified site structure and page rendering.
 ///
@@ -378,51 +378,6 @@ impl Site {
             current = parent_url;
         }
         None
-    }
-}
-
-/// Borrowed view of cached site state for serialization (zero-copy).
-#[derive(Serialize)]
-struct CachedSiteStateRef<'a> {
-    pages: &'a [Page],
-    children: &'a [Vec<usize>],
-    parents: &'a [Option<usize>],
-    roots: &'a [usize],
-    sections: &'a HashMap<String, SectionInfo>,
-}
-
-impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
-    fn from(site: &'a SiteState) -> Self {
-        Self {
-            pages: site.pages(),
-            children: site.children_indices(),
-            parents: site.parent_indices(),
-            roots: site.root_indices(),
-            sections: site.sections(),
-        }
-    }
-}
-
-/// Cache format for site state deserialization (owned).
-#[derive(Deserialize)]
-struct CachedSiteState {
-    pages: Vec<Page>,
-    children: Vec<Vec<usize>>,
-    parents: Vec<Option<usize>>,
-    roots: Vec<usize>,
-    #[serde(default)]
-    sections: HashMap<String, SectionInfo>,
-}
-
-impl From<CachedSiteState> for SiteState {
-    fn from(cached: CachedSiteState) -> Self {
-        SiteState::new(
-            cached.pages,
-            cached.children,
-            cached.parents,
-            cached.roots,
-            cached.sections,
-        )
     }
 }
 

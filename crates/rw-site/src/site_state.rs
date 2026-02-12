@@ -264,30 +264,6 @@ impl SiteState {
         self.roots.iter().map(|&i| &self.pages[i]).collect()
     }
 
-    /// Get all pages (for serialization).
-    #[must_use]
-    pub(crate) fn pages(&self) -> &[Page] {
-        &self.pages
-    }
-
-    /// Get children indices (for serialization).
-    #[must_use]
-    pub(crate) fn children_indices(&self) -> &[Vec<usize>] {
-        &self.children
-    }
-
-    /// Get parent indices (for serialization).
-    #[must_use]
-    pub(crate) fn parent_indices(&self) -> &[Option<usize>] {
-        &self.parents
-    }
-
-    /// Get root indices (for serialization).
-    #[must_use]
-    pub(crate) fn root_indices(&self) -> &[usize] {
-        &self.roots
-    }
-
     /// Get all sections.
     #[must_use]
     pub fn sections(&self) -> &HashMap<String, SectionInfo> {
@@ -514,6 +490,51 @@ impl SiteStateBuilder {
             self.parents,
             self.roots,
             self.sections,
+        )
+    }
+}
+
+/// Borrowed view of cached site state for serialization (zero-copy).
+#[derive(Serialize)]
+pub(crate) struct CachedSiteStateRef<'a> {
+    pages: &'a [Page],
+    children: &'a [Vec<usize>],
+    parents: &'a [Option<usize>],
+    roots: &'a [usize],
+    sections: &'a HashMap<String, SectionInfo>,
+}
+
+impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
+    fn from(state: &'a SiteState) -> Self {
+        Self {
+            pages: &state.pages,
+            children: &state.children,
+            parents: &state.parents,
+            roots: &state.roots,
+            sections: &state.sections,
+        }
+    }
+}
+
+/// Cache format for site state deserialization (owned).
+#[derive(Deserialize)]
+pub(crate) struct CachedSiteState {
+    pages: Vec<Page>,
+    children: Vec<Vec<usize>>,
+    parents: Vec<Option<usize>>,
+    roots: Vec<usize>,
+    #[serde(default)]
+    sections: HashMap<String, SectionInfo>,
+}
+
+impl From<CachedSiteState> for SiteState {
+    fn from(cached: CachedSiteState) -> Self {
+        SiteState::new(
+            cached.pages,
+            cached.children,
+            cached.parents,
+            cached.roots,
+            cached.sections,
         )
     }
 }
