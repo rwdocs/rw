@@ -50,7 +50,7 @@ use rw_storage::{
 };
 use scanner::{DocumentRef, Scanner};
 use source::file_path_to_url;
-use yaml::{extract_yaml_description, extract_yaml_title, extract_yaml_type, parse_metadata};
+use yaml::{extract_yaml_fields, parse_metadata};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -308,14 +308,16 @@ impl FsStorage {
     /// Returns `None` if the ref produces no valid document (e.g., empty meta.yaml
     /// for a virtual page).
     fn build_document(&self, doc_ref: &DocumentRef) -> Option<Document> {
-        // Read metadata if present
-        let meta_content = doc_ref
+        // Parse metadata fields if present
+        let fields = doc_ref
             .meta_path
             .as_ref()
-            .and_then(|p| fs::read_to_string(p).ok());
-        let meta_title = meta_content.as_ref().and_then(|c| extract_yaml_title(c));
-        let page_type = meta_content.as_ref().and_then(|c| extract_yaml_type(c));
-        let description = meta_content.as_ref().and_then(|c| extract_yaml_description(c));
+            .and_then(|p| fs::read_to_string(p).ok())
+            .and_then(|c| extract_yaml_fields(&c));
+
+        let meta_title = fields.as_ref().and_then(|f| f.title.clone());
+        let page_type = fields.as_ref().and_then(|f| f.page_type.clone());
+        let description = fields.as_ref().and_then(|f| f.description.clone());
 
         if let Some(md_path) = &doc_ref.content_path {
             // Real page with content
@@ -333,9 +335,15 @@ impl FsStorage {
                 page_type,
                 description,
             })
-        } else if let Some(meta_path) = &doc_ref.meta_path {
-            // Virtual page (meta.yaml only)
-            let title = Self::get_virtual_page_title(meta_path, Path::new(&doc_ref.url_path))?;
+        } else if doc_ref.meta_path.is_some() {
+            // Virtual page (meta.yaml only) — skip if YAML was empty/invalid
+            fields?;
+            let title = meta_title.unwrap_or_else(|| {
+                Path::new(&doc_ref.url_path).file_name().map_or_else(
+                    || "Untitled".to_owned(),
+                    |n| Self::title_from_dir_name(&n.to_string_lossy()),
+                )
+            });
 
             Some(Document {
                 path: doc_ref.url_path.clone(),
@@ -348,27 +356,6 @@ impl FsStorage {
             // No sources - shouldn't happen but handle gracefully
             None
         }
-    }
-
-    /// Get title for a virtual page from its metadata file.
-    ///
-    /// Returns `None` if the metadata file is empty or doesn't contain useful content.
-    fn get_virtual_page_title(meta_path: &Path, dir_path: &Path) -> Option<String> {
-        let content = fs::read_to_string(meta_path).ok()?;
-
-        if content.trim().is_empty() {
-            return None;
-        }
-
-        // Try to extract title from YAML, fallback to directory name
-        let title = extract_yaml_title(&content).unwrap_or_else(|| {
-            dir_path.file_name().map_or_else(
-                || "Untitled".to_owned(),
-                |n| Self::title_from_dir_name(&n.to_string_lossy()),
-            )
-        });
-
-        Some(title)
     }
 
     /// Generate title from directory name.
