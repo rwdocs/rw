@@ -23,12 +23,12 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
-//! use rw_site::{Site, SiteConfig};
+//! use rw_site::{Site, PageRendererConfig};
 //! use rw_cache::NullCache;
 //! use rw_storage_fs::FsStorage;
 //!
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
-//! let config = SiteConfig::default();
+//! let config = PageRendererConfig::default();
 //! let cache = Arc::new(NullCache);
 //! let site = Arc::new(Site::new(storage, config, cache));
 //!
@@ -42,7 +42,6 @@
 //! ```
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -50,7 +49,7 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_storage::Storage;
 use serde::{Deserialize, Serialize};
 
-use crate::page::{PageRenderResult, PageRenderer, RenderError};
+use crate::page::{PageRenderResult, PageRenderer, PageRendererConfig, RenderError};
 use crate::typed_page_registry::TypedPageRegistry;
 
 /// Get the depth of a URL path.
@@ -72,31 +71,6 @@ pub(crate) use crate::site_state::{
     BreadcrumbItem, Navigation, Page, SectionInfo, SiteState, SiteStateBuilder,
 };
 
-/// Configuration for [`Site`].
-#[derive(Debug)]
-pub struct SiteConfig {
-    /// Extract title from first H1 heading.
-    pub extract_title: bool,
-    /// Kroki URL for diagram rendering.
-    ///
-    /// If `None`, diagrams are rendered as syntax-highlighted code blocks.
-    pub kroki_url: Option<String>,
-    /// Directories to search for `PlantUML` includes.
-    pub include_dirs: Vec<PathBuf>,
-    /// DPI for diagram rendering (default: 192 for retina).
-    pub dpi: u32,
-}
-
-impl Default for SiteConfig {
-    fn default() -> Self {
-        Self {
-            extract_title: true,
-            kroki_url: None,
-            include_dirs: Vec::new(),
-            dpi: 192,
-        }
-    }
-}
 
 /// Unified site structure and page rendering.
 ///
@@ -136,7 +110,7 @@ impl Site {
     /// * `config` - Site configuration
     /// * `cache` - Cache implementation for site structure, pages, and diagrams
     #[must_use]
-    pub fn new(storage: Arc<dyn Storage>, config: SiteConfig, cache: Arc<dyn Cache>) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, config: PageRendererConfig, cache: Arc<dyn Cache>) -> Self {
         let initial_state = Arc::new(SiteStateBuilder::new().build());
         let site_bucket = cache.bucket("site");
         let renderer = PageRenderer::new(Arc::clone(&storage), config, cache);
@@ -463,7 +437,7 @@ mod tests {
     use super::*;
 
     fn create_site_with_storage(storage: MockStorage) -> Site {
-        let config = SiteConfig::default();
+        let config = PageRendererConfig::default();
         Site::new(Arc::new(storage), config, Arc::new(rw_cache::NullCache))
     }
 
@@ -746,7 +720,7 @@ mod tests {
             .with_file("test", "Hello", "# Hello\n\nWorld")
             .with_mtime("test", 1000.0);
 
-        let config = SiteConfig {
+        let config = PageRendererConfig {
             extract_title: true,
             ..Default::default()
         };
@@ -780,7 +754,7 @@ mod tests {
 
         let cache: Arc<dyn rw_cache::Cache> =
             Arc::new(rw_cache::FileCache::new(cache_dir, "1.0.0"));
-        let config = SiteConfig {
+        let config = PageRendererConfig {
             extract_title: true,
             ..Default::default()
         };
@@ -983,7 +957,7 @@ mod tests {
             Arc::new(rw_cache::FileCache::new(cache_dir.clone(), "1.0.0"));
         let site_v1 = Site::new(
             Arc::clone(&storage),
-            SiteConfig {
+            PageRendererConfig {
                 extract_title: true,
                 ..Default::default()
             },
@@ -1001,7 +975,7 @@ mod tests {
             Arc::new(rw_cache::FileCache::new(cache_dir.clone(), "2.0.0"));
         let site_v2 = Site::new(
             Arc::clone(&storage),
-            SiteConfig {
+            PageRendererConfig {
                 extract_title: true,
                 ..Default::default()
             },

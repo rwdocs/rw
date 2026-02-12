@@ -7,18 +7,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rw_site::{Site, SiteConfig};
+use rw_site::{Site, PageRendererConfig};
 use rw_storage_fs::FsStorage;
 
 fn create_site(source_dir: PathBuf) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
-    let config = SiteConfig::default();
+    let config = PageRendererConfig::default();
     Site::new(storage, config, Arc::new(rw_cache::NullCache))
 }
 
 fn create_site_with_config(
     source_dir: PathBuf,
-    config: SiteConfig,
+    config: PageRendererConfig,
     cache: Arc<dyn rw_cache::Cache>,
 ) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
@@ -59,7 +59,7 @@ fn bench_render_with_toc(c: &mut Criterion) {
     let markdown = generate_markdown(10, 2);
     fs::write(source_dir.join("toc.md"), &markdown).unwrap();
 
-    let config = SiteConfig {
+    let config = PageRendererConfig {
         extract_title: true,
         ..Default::default()
     };
@@ -107,7 +107,7 @@ fn bench_render_cached_vs_uncached(c: &mut Criterion) {
     let uncached_site = create_site(source_dir.clone());
 
     // Cached site
-    let cached_config = SiteConfig::default();
+    let cached_config = PageRendererConfig::default();
     let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(cache_dir, "bench"));
     let cached_site = create_site_with_config(source_dir, cached_config, cache);
 

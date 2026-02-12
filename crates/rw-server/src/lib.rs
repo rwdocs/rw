@@ -68,7 +68,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use rw_site::{Site, SiteConfig};
+use rw_site::{Site, PageRendererConfig};
 use rw_storage_fs::FsStorage;
 use state::AppState;
 use tokio::sync::broadcast;
@@ -147,7 +147,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
     };
 
     // Create unified Site with storage and configuration
-    let site_config = SiteConfig {
+    let site_config = PageRendererConfig {
         extract_title: true,
         kroki_url: config.kroki_url.clone(),
         include_dirs: config.include_dirs.clone(),

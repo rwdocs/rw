@@ -14,7 +14,33 @@ use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
-use crate::site::{BreadcrumbItem, Page, SiteConfig};
+use crate::site::{BreadcrumbItem, Page};
+
+/// Configuration for [`PageRenderer`].
+#[derive(Debug)]
+pub struct PageRendererConfig {
+    /// Extract title from first H1 heading.
+    pub extract_title: bool,
+    /// Kroki URL for diagram rendering.
+    ///
+    /// If `None`, diagrams are rendered as syntax-highlighted code blocks.
+    pub kroki_url: Option<String>,
+    /// Directories to search for `PlantUML` includes.
+    pub include_dirs: Vec<PathBuf>,
+    /// DPI for diagram rendering (default: 192 for retina).
+    pub dpi: u32,
+}
+
+impl Default for PageRendererConfig {
+    fn default() -> Self {
+        Self {
+            extract_title: true,
+            kroki_url: None,
+            include_dirs: Vec::new(),
+            dpi: 192,
+        }
+    }
+}
 
 /// Result of rendering a markdown page.
 #[derive(Debug)]
@@ -87,7 +113,7 @@ impl PageRenderer {
     /// Create a new page renderer.
     pub(crate) fn new(
         storage: Arc<dyn Storage>,
-        config: SiteConfig,
+        config: PageRendererConfig,
         cache: Arc<dyn Cache>,
     ) -> Self {
         Self {
@@ -271,7 +297,7 @@ mod tests {
     use super::*;
 
     fn create_renderer(storage: MockStorage) -> PageRenderer {
-        let config = SiteConfig::default();
+        let config = PageRendererConfig::default();
         PageRenderer::new(Arc::new(storage), config, Arc::new(NullCache))
     }
 
@@ -334,7 +360,7 @@ mod tests {
             .with_file("test", "Cached", "# Cached\n\nContent")
             .with_mtime("test", 1000.0);
 
-        let config = SiteConfig::default();
+        let config = PageRendererConfig::default();
         let renderer = PageRenderer::new(Arc::new(storage), config, cache);
         let page = make_page("Cached", "test", true);
 
