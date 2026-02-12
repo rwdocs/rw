@@ -1,5 +1,6 @@
 //! Generic markdown renderer with pluggable backend.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::marker::PhantomData;
@@ -61,6 +62,8 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     directives: Option<DirectiveProcessor>,
     /// Produce relative links instead of absolute (for static site builds).
     relative_links: bool,
+    /// Append trailing slash to resolved link paths.
+    trailing_slash: bool,
     _backend: PhantomData<B>,
 }
 
@@ -84,6 +87,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             alert_stack: Vec::new(),
             directives: None,
             relative_links: false,
+            trailing_slash: false,
             _backend: PhantomData,
         }
     }
@@ -164,6 +168,20 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn with_relative_links(mut self, enabled: bool) -> Self {
         self.relative_links = enabled;
+        self
+    }
+
+    /// Append trailing slash to resolved link paths.
+    ///
+    /// When enabled, resolved links that start with `/` get a trailing `/`
+    /// appended (e.g., `/a/b` → `/a/b/`). Works independently of
+    /// `relative_links` — can produce absolute (`/a/b/`) or relative
+    /// (`../b/`) trailing-slash URLs.
+    ///
+    /// Default: `false`.
+    #[must_use]
+    pub fn with_trailing_slash(mut self, enabled: bool) -> Self {
+        self.trailing_slash = enabled;
         self
     }
 
@@ -268,6 +286,48 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             self.heading.push_html(content);
         } else {
             self.output.push_str(content);
+        }
+    }
+
+    /// Apply trailing-slash and relative-link transformations to a resolved href.
+    ///
+    /// Handles fragment (`#section`) correctly by splitting before path manipulation
+    /// and rejoining after.
+    fn resolve_href<'a>(&self, href: Cow<'a, str>) -> Cow<'a, str> {
+        if (!self.trailing_slash && !self.relative_links) || !href.starts_with('/') {
+            return href;
+        }
+
+        // Split fragment before path manipulation
+        let (path, fragment) = match href.find('#') {
+            Some(pos) => (&href[..pos], Some(&href[pos..])),
+            None => (href.as_ref(), None),
+        };
+
+        // Add trailing slash to absolute path
+        let path: Cow<'_, str> = if self.trailing_slash && !path.ends_with('/') {
+            format!("{path}/").into()
+        } else {
+            Cow::Borrowed(path)
+        };
+
+        // Convert to relative path
+        let path: Cow<'_, str> = if self.relative_links {
+            let from = self.base_path.as_deref().unwrap_or("/");
+            let from: Cow<'_, str> = if self.trailing_slash && !from.ends_with('/') {
+                format!("{from}/").into()
+            } else {
+                Cow::Borrowed(from)
+            };
+            relative_path(&from, &path).into()
+        } else {
+            path
+        };
+
+        // Rejoin fragment
+        match fragment {
+            Some(frag) => Cow::Owned(format!("{path}{frag}")),
+            None => Cow::Owned(path.into_owned()),
         }
     }
 
@@ -390,12 +450,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Strikethrough => self.push_inline("<s>"),
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
-                let href = if self.relative_links && href.starts_with('/') {
-                    let from = self.base_path.as_deref().unwrap_or("/");
-                    relative_path(from, &href).into()
-                } else {
-                    href
-                };
+                let href = self.resolve_href(href);
                 let link_tag = format!(r#"<a href="{}">"#, escape_html(&href));
                 self.push_inline(&link_tag);
             }
@@ -1152,5 +1207,70 @@ Install with apt.
             .with_relative_links(true);
         let result = renderer.render_markdown("[link](#section)");
         assert!(result.html.contains(r##"href="#section""##));
+    }
+
+    #[test]
+    fn test_trailing_slash_absolute_links() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/a/b")
+            .with_trailing_slash(true);
+        let result = renderer.render_markdown("[link](../other.md)");
+        assert!(result.html.contains(r#"href="/a/other/""#));
+    }
+
+    #[test]
+    fn test_trailing_slash_with_fragment() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/a/b")
+            .with_trailing_slash(true);
+        let result = renderer.render_markdown("[link](./page.md#section)");
+        assert!(result.html.contains(r#"href="/a/b/page/#section""#));
+    }
+
+    #[test]
+    fn test_trailing_slash_with_relative_links() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/a/b")
+            .with_trailing_slash(true)
+            .with_relative_links(true);
+        // ../other.md → /a/other/ → relative from /a/b/ → ../other/
+        let result = renderer.render_markdown("[link](../other.md)");
+        assert!(result.html.contains(r#"href="../other/""#));
+    }
+
+    #[test]
+    fn test_trailing_slash_with_relative_links_and_fragment() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/a/b")
+            .with_trailing_slash(true)
+            .with_relative_links(true);
+        let result = renderer.render_markdown("[link](./page.md#section)");
+        assert!(result.html.contains(r#"href="page/#section""#));
+    }
+
+    #[test]
+    fn test_trailing_slash_external_unchanged() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/a/b")
+            .with_trailing_slash(true);
+        let result = renderer.render_markdown("[link](https://example.com)");
+        assert!(result.html.contains(r#"href="https://example.com""#));
+    }
+
+    #[test]
+    fn test_trailing_slash_fragment_only_unchanged() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/a/b")
+            .with_trailing_slash(true);
+        let result = renderer.render_markdown("[link](#section)");
+        assert!(result.html.contains(r##"href="#section""##));
+    }
+
+    #[test]
+    fn test_trailing_slash_disabled_by_default() {
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/a/b");
+        let result = renderer.render_markdown("[link](../other.md)");
+        assert!(result.html.contains(r#"href="/a/other""#));
     }
 }
