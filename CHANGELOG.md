@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Extracted `PageRenderer` from `Site` for independent page rendering testability
+- Renamed `SiteConfig` to `PageRendererConfig` and moved to page module (colocated with `PageRenderer`)
 
 ## [0.1.4] - 2026-02-11
 

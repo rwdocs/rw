@@ -10,12 +10,12 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::PathBuf;
 //! use std::sync::Arc;
-//! use rw_site::{Site, SiteConfig};
+//! use rw_site::{Site, PageRendererConfig};
 //! use rw_cache::NullCache;
 //! use rw_storage_fs::FsStorage;
 //!
 //! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
-//! let config = SiteConfig::default();
+//! let config = PageRendererConfig::default();
 //! let cache = Arc::new(NullCache);
 //! let site = Arc::new(Site::new(storage, config, cache));
 //!
@@ -33,8 +33,8 @@ pub(crate) mod site_state;
 pub(crate) mod page;
 mod typed_page_registry;
 
-pub use page::{PageRenderResult, RenderError};
-pub use site::{Site, SiteConfig};
+pub use page::{PageRenderResult, PageRendererConfig, RenderError};
+pub use site::Site;
 pub use site_state::{BreadcrumbItem, NavItem, Navigation, Page, ScopeInfo, SectionInfo};
 pub use typed_page_registry::TypedPageRegistry;
 

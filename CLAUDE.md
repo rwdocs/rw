@@ -122,9 +122,9 @@ crates/
 ├── rw-site/               # Site structure and page rendering
 │   └── src/
 │       ├── lib.rs            # Public API exports
-│       ├── site.rs           # Site (state management + reload), SiteConfig, PageRenderResult
+│       ├── site.rs           # Site (state management + reload)
 │       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
-│       ├── page.rs            # PageRenderer (rendering pipeline, caching, diagrams)
+│       ├── page.rs            # PageRenderer, PageRendererConfig, PageRenderResult, RenderError
 │       └── typed_page_registry.rs  # TypedPageRegistry (MetaIncludeSource impl for diagrams)
 │
 ├── rw-storage/            # Storage abstraction layer (core traits)
