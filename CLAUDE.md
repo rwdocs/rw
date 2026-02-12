@@ -123,8 +123,8 @@ crates/
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── site.rs           # Site (state management + reload)
-│       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
-│       ├── page.rs            # PageRenderer, PageRendererConfig, PageRenderResult, RenderError
+│       ├── site_state.rs     # SiteState (pure data), NavItem, SectionInfo
+│       ├── page.rs            # Page, BreadcrumbItem, PageRenderer, PageRendererConfig, PageRenderResult, RenderError
 │       └── typed_page_registry.rs  # TypedPageRegistry (MetaIncludeSource impl for diagrams)
 │
 ├── rw-storage/            # Storage abstraction layer (core traits)

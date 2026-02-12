@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Extracted `PageRenderer` from `Site` for independent page rendering testability
 - Renamed `SiteConfig` to `PageRendererConfig` and moved to page module (colocated with `PageRenderer`)
+- Moved `Page` and `BreadcrumbItem` from `site_state` to `page` module (removes renderer dependency on site state types)
 
 ## [0.1.4] - 2026-02-11
 

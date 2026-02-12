@@ -10,12 +10,13 @@
 //! Pages are stored in a flat `Vec<Page>` with parent/children relationships
 //! tracked by indices. This provides:
 //! - O(1) URL path lookups via `path_index` `HashMap`
-//! - O(1) URL path lookups via `path_index` `HashMap`
 //! - O(d) breadcrumb building where d is the page depth
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+
+use crate::page::{BreadcrumbItem, Page};
 
 /// Navigation item with children for UI tree.
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -30,17 +31,6 @@ pub struct NavItem {
     /// Child navigation items.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<NavItem>,
-}
-
-/// Document page data.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Page {
-    /// Page title (from H1 heading, filename, or metadata override).
-    pub title: String,
-    /// URL path without leading slash (e.g., "guide", "domain/page", "" for root).
-    pub path: String,
-    /// True if page has content (real page). False for virtual pages (metadata only).
-    pub has_content: bool,
 }
 
 /// Section information for sub-sites or categorized content.
@@ -79,15 +69,6 @@ pub struct Navigation {
     /// Parent scope for back navigation (None at root or if no parent section).
     #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
     pub parent_scope: Option<ScopeInfo>,
-}
-
-/// Breadcrumb navigation item.
-#[derive(Debug, PartialEq, Eq)]
-pub struct BreadcrumbItem {
-    /// Display title.
-    pub title: String,
-    /// Link target path.
-    pub path: String,
 }
 
 /// Document site state with efficient path lookups.
