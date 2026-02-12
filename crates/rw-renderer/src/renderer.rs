@@ -391,8 +391,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
                 let href = if self.relative_links && href.starts_with('/') {
-                    let base = self.base_path.as_deref().unwrap_or("");
-                    relative_path(base, &href[1..]).into()
+                    let from = format!("/{}", self.base_path.as_deref().unwrap_or(""));
+                    relative_path(&from, &href).into()
                 } else {
                     href
                 };
@@ -1124,7 +1124,7 @@ Install with apt.
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("a/b")
             .with_relative_links(true);
-        // ../other.md resolves to /a/other, then relative_path("a/b", "a/other") = "other"
+        // ../other.md resolves to /a/other, then relative_path("/a/b", "/a/other") = "other"
         let result = renderer.render_markdown("[link](../other.md)");
         assert!(result.html.contains(r#"href="other""#));
     }
