@@ -4,6 +4,22 @@
 //! `!include systems/sys_payment_gateway.iuml` to resolve dynamically
 //! from `meta.yaml` files without maintaining separate `.iuml` files.
 
+use rw_renderer::relative_path;
+
+/// Configuration for transforming `$link` URLs in C4 macros.
+///
+/// When provided, diagram link URLs are transformed to match the renderer's
+/// link mode (relative paths, trailing slashes).
+#[derive(Clone, Debug)]
+pub struct LinkConfig {
+    /// Base path of the page containing the diagram (e.g., "/domains/billing").
+    pub base_path: String,
+    /// Convert absolute URLs to relative paths.
+    pub relative_links: bool,
+    /// Append trailing slash to URLs.
+    pub trailing_slash: bool,
+}
+
 /// Entity metadata for generating `PlantUML` C4 includes.
 #[derive(Clone, Debug)]
 pub struct EntityInfo {
@@ -91,21 +107,57 @@ fn escape_description(desc: &str) -> String {
         .replace('\n', "\\n")
 }
 
+/// Transform a URL according to link configuration.
+///
+/// Mirrors the logic of `MarkdownRenderer::resolve_href()`:
+/// 1. Add trailing slash if enabled
+/// 2. Convert to relative path if enabled
+fn resolve_link(url: &str, config: &LinkConfig) -> String {
+    let mut path = url.to_owned();
+
+    if config.trailing_slash && !path.ends_with('/') {
+        path.push('/');
+    }
+
+    if config.relative_links {
+        let from = if config.trailing_slash && !config.base_path.ends_with('/') {
+            format!("{}/", config.base_path)
+        } else {
+            config.base_path.clone()
+        };
+        relative_path(&from, &path)
+    } else {
+        path
+    }
+}
+
 /// Render a C4 `PlantUML` macro call from entity metadata.
 ///
 /// The output follows the C4-PlantUML conventions used by the mkdocs arch
 /// plugin. The macro variant (`System` vs `System_Ext`) depends on the
 /// `external` flag.
-fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external: bool) -> String {
+///
+/// When `link_config` is provided, URLs are transformed to match the
+/// renderer's link mode. When `None`, absolute URLs are used as-is.
+fn render_c4_macro(
+    entity_type: &str,
+    name: &str,
+    entity: &EntityInfo,
+    external: bool,
+    link_config: Option<&LinkConfig>,
+) -> String {
     let prefix = type_prefix(entity_type);
     let alias = format!("{prefix}_{name}");
 
     let title = &entity.title;
 
-    let link_part = entity
-        .url_path
-        .as_deref()
-        .map_or(String::new(), |url| format!(", $link=\"{url}\""));
+    let link_part = entity.url_path.as_deref().map_or(String::new(), |url| {
+        let resolved = match link_config {
+            Some(config) => resolve_link(url, config),
+            None => url.to_owned(),
+        };
+        format!(", $link=\"{resolved}\"")
+    });
 
     let desc_escaped = entity.description.as_deref().map(escape_description);
 
@@ -150,9 +202,16 @@ fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external:
 /// the entity via the provided [`MetaIncludeSource`], and renders the
 /// appropriate C4 `PlantUML` macro.
 ///
+/// When `link_config` is provided, `$link` URLs are transformed to match the
+/// renderer's link mode (relative paths, trailing slashes).
+///
 /// Returns `None` if the path doesn't match the meta include pattern or the
 /// entity is not found.
-pub fn resolve_meta_include(include_path: &str, source: &dyn MetaIncludeSource) -> Option<String> {
+pub fn resolve_meta_include(
+    include_path: &str,
+    source: &dyn MetaIncludeSource,
+    link_config: Option<&LinkConfig>,
+) -> Option<String> {
     let parsed = parse_include_path(include_path)?;
     let entity = source.get_entity(parsed.entity_type, &parsed.name)?;
     Some(render_c4_macro(
@@ -160,6 +219,7 @@ pub fn resolve_meta_include(include_path: &str, source: &dyn MetaIncludeSource) 
         &parsed.name,
         &entity,
         parsed.external,
+        link_config,
     ))
 }
 
@@ -323,7 +383,7 @@ mod tests {
     #[test]
     fn test_render_system_regular() {
         let entity = system_entity();
-        let result = render_c4_macro("system", "payment_gateway", &entity, false);
+        let result = render_c4_macro("system", "payment_gateway", &entity, false, None);
         assert_eq!(
             result,
             "System(sys_payment_gateway, \"Payment Gateway\", \"Processes payments\", $link=\"/domains/billing/systems/payment-gateway\")"
@@ -333,7 +393,7 @@ mod tests {
     #[test]
     fn test_render_system_external() {
         let entity = system_entity();
-        let result = render_c4_macro("system", "payment_gateway", &entity, true);
+        let result = render_c4_macro("system", "payment_gateway", &entity, true, None);
         assert_eq!(
             result,
             "System_Ext(sys_payment_gateway, \"Payment Gateway\", $descr=\"Processes payments\", $link=\"/domains/billing/systems/payment-gateway\")"
@@ -343,7 +403,7 @@ mod tests {
     #[test]
     fn test_render_domain_regular() {
         let entity = domain_entity();
-        let result = render_c4_macro("domain", "billing", &entity, false);
+        let result = render_c4_macro("domain", "billing", &entity, false, None);
         assert_eq!(
             result,
             "System(dmn_billing, \"Billing\", $tags=\"domain\", \"Billing services\", $link=\"/domains/billing\")"
@@ -353,7 +413,7 @@ mod tests {
     #[test]
     fn test_render_domain_external() {
         let entity = domain_entity();
-        let result = render_c4_macro("domain", "billing", &entity, true);
+        let result = render_c4_macro("domain", "billing", &entity, true, None);
         assert_eq!(
             result,
             "System_Ext(dmn_billing, \"Billing\", $descr=\"Billing services\", $link=\"/domains/billing\")"
@@ -363,7 +423,7 @@ mod tests {
     #[test]
     fn test_render_service_regular() {
         let entity = service_entity();
-        let result = render_c4_macro("service", "invoice_api", &entity, false);
+        let result = render_c4_macro("service", "invoice_api", &entity, false, None);
         assert_eq!(
             result,
             "System(svc_invoice_api, \"invoice-api\", $tags=\"service\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api\")"
@@ -373,7 +433,7 @@ mod tests {
     #[test]
     fn test_render_service_external() {
         let entity = service_entity();
-        let result = render_c4_macro("service", "invoice_api", &entity, true);
+        let result = render_c4_macro("service", "invoice_api", &entity, true, None);
         assert_eq!(
             result,
             "System_Ext(svc_invoice_api, \"invoice-api\", $descr=\"Manages invoices\", $link=\"/domains/billing/systems/invoicing/services/invoice-api\")"
@@ -387,7 +447,7 @@ mod tests {
             description: None,
             url_path: Some("/simple".to_owned()),
         };
-        let result = render_c4_macro("system", "simple", &entity, false);
+        let result = render_c4_macro("system", "simple", &entity, false, None);
         assert_eq!(result, "System(sys_simple, \"Simple\", $link=\"/simple\")");
     }
 
@@ -398,7 +458,7 @@ mod tests {
             description: Some("Has no docs".to_owned()),
             url_path: None,
         };
-        let result = render_c4_macro("system", "no_docs", &entity, false);
+        let result = render_c4_macro("system", "no_docs", &entity, false, None);
         assert_eq!(result, "System(sys_no_docs, \"No Docs\", \"Has no docs\")");
         assert!(!result.contains("$link"));
     }
@@ -410,7 +470,7 @@ mod tests {
             description: Some("Line one\nLine two".to_owned()),
             url_path: Some("/multi".to_owned()),
         };
-        let result = render_c4_macro("system", "multi", &entity, false);
+        let result = render_c4_macro("system", "multi", &entity, false, None);
         assert!(result.contains("Line one\\nLine two"));
         assert!(!result.contains('\n'));
     }
@@ -422,7 +482,7 @@ mod tests {
             description: Some("He said \"hello\"".to_owned()),
             url_path: Some("/quoted".to_owned()),
         };
-        let result = render_c4_macro("system", "quoted", &entity, false);
+        let result = render_c4_macro("system", "quoted", &entity, false, None);
         assert!(result.contains(r#"He said \"hello\""#));
     }
 
@@ -433,7 +493,7 @@ mod tests {
             description: Some(r"C:\Users\docs".to_owned()),
             url_path: Some("/paths".to_owned()),
         };
-        let result = render_c4_macro("system", "paths", &entity, false);
+        let result = render_c4_macro("system", "paths", &entity, false, None);
         assert!(result.contains(r"C:\\Users\\docs"));
     }
 
@@ -442,28 +502,84 @@ mod tests {
     #[test]
     fn test_resolve_meta_include_system() {
         let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
-        let result = resolve_meta_include("systems/sys_payment_gateway.iuml", &source).unwrap();
+        let result =
+            resolve_meta_include("systems/sys_payment_gateway.iuml", &source, None).unwrap();
         assert!(result.contains("System(sys_payment_gateway"));
     }
 
     #[test]
     fn test_resolve_meta_include_external() {
         let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
-        let result = resolve_meta_include("systems/ext/sys_payment_gateway.iuml", &source).unwrap();
+        let result =
+            resolve_meta_include("systems/ext/sys_payment_gateway.iuml", &source, None).unwrap();
         assert!(result.contains("System_Ext"));
     }
 
     #[test]
     fn test_resolve_meta_include_not_found() {
         let source = TestSource::new();
-        let result = resolve_meta_include("systems/sys_unknown.iuml", &source);
+        let result = resolve_meta_include("systems/sys_unknown.iuml", &source, None);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_resolve_meta_include_non_meta_path() {
         let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
-        let result = resolve_meta_include("c4/context.iuml", &source);
+        let result = resolve_meta_include("c4/context.iuml", &source, None);
         assert!(result.is_none());
+    }
+
+    // ── LinkConfig tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_render_with_trailing_slash() {
+        let entity = system_entity();
+        let config = LinkConfig {
+            base_path: "/overview".to_owned(),
+            relative_links: false,
+            trailing_slash: true,
+        };
+        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
+        assert!(result.contains("$link=\"/domains/billing/systems/payment-gateway/\""));
+    }
+
+    #[test]
+    fn test_render_with_relative_links() {
+        let entity = system_entity();
+        let config = LinkConfig {
+            base_path: "/domains/payments".to_owned(),
+            relative_links: true,
+            trailing_slash: false,
+        };
+        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
+        assert!(result.contains("$link=\"billing/systems/payment-gateway\""));
+    }
+
+    #[test]
+    fn test_render_with_relative_links_and_trailing_slash() {
+        let entity = system_entity();
+        let config = LinkConfig {
+            base_path: "/domains/payments".to_owned(),
+            relative_links: true,
+            trailing_slash: true,
+        };
+        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
+        assert!(result.contains("$link=\"../billing/systems/payment-gateway/\""));
+    }
+
+    #[test]
+    fn test_render_no_url_with_link_config() {
+        let entity = EntityInfo {
+            title: "Virtual".to_owned(),
+            description: None,
+            url_path: None,
+        };
+        let config = LinkConfig {
+            base_path: "/overview".to_owned(),
+            relative_links: true,
+            trailing_slash: true,
+        };
+        let result = render_c4_macro("system", "virtual", &entity, false, Some(&config));
+        assert!(!result.contains("$link"));
     }
 }

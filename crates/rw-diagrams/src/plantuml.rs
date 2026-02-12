@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::meta_includes::{MetaIncludeSource, resolve_meta_include};
+use crate::meta_includes::{LinkConfig, MetaIncludeSource, resolve_meta_include};
 
 static INCLUDE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^(\s*)!include\s+(.+)$").unwrap());
@@ -46,6 +46,7 @@ fn resolve_includes(
     source: &str,
     include_dirs: &[PathBuf],
     meta_source: Option<&dyn MetaIncludeSource>,
+    link_config: Option<&LinkConfig>,
     depth: usize,
     warnings: &mut Vec<String>,
 ) -> String {
@@ -68,7 +69,7 @@ fn resolve_includes(
 
         // Try meta include source first
         if let Some(meta) = meta_source
-            && let Some(content) = resolve_meta_include(include_path, meta)
+            && let Some(content) = resolve_meta_include(include_path, meta, link_config)
         {
             let indented_content = indent_content(&content, leading_whitespace);
             result = result.replace(full_match, &indented_content);
@@ -80,8 +81,14 @@ fn resolve_includes(
         for dir in include_dirs {
             let full_path = dir.join(include_path);
             if let Ok(content) = std::fs::read_to_string(&full_path) {
-                let resolved_content =
-                    resolve_includes(&content, include_dirs, meta_source, depth + 1, warnings);
+                let resolved_content = resolve_includes(
+                    &content,
+                    include_dirs,
+                    meta_source,
+                    link_config,
+                    depth + 1,
+                    warnings,
+                );
                 // Indent included content to match the !include directive
                 let indented_content = indent_content(&resolved_content, leading_whitespace);
                 result = result.replace(full_match, &indented_content);
@@ -130,9 +137,17 @@ pub fn prepare_diagram_source(
     include_dirs: &[PathBuf],
     dpi: u32,
     meta_source: Option<&dyn MetaIncludeSource>,
+    link_config: Option<&LinkConfig>,
 ) -> PrepareResult {
     let mut warnings = Vec::new();
-    let resolved = resolve_includes(source, include_dirs, meta_source, 0, &mut warnings);
+    let resolved = resolve_includes(
+        source,
+        include_dirs,
+        meta_source,
+        link_config,
+        0,
+        &mut warnings,
+    );
 
     // Inject DPI and font config after @startuml directive
     let config_block = format!("skinparam dpi {dpi}\nskinparam defaultFontName Roboto\n");
@@ -171,7 +186,7 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source() {
         let source = "@startuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
 
         // DPI and font should be injected after @startuml
         assert_eq!(
@@ -184,7 +199,7 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source_custom_dpi() {
         let source = "@startuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], 300, None);
+        let result = prepare_diagram_source(source, &[], 300, None, None);
 
         assert_eq!(
             result.source,
@@ -196,7 +211,7 @@ mod tests {
     #[test]
     fn test_prepare_diagram_source_preserves_content_before_startuml() {
         let source = "' comment\n@startuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
 
         // Content before @startuml should be preserved
         assert_eq!(
@@ -209,7 +224,7 @@ mod tests {
     #[test]
     fn test_unresolved_include_generates_warning() {
         let source = "@startuml\n!include missing.iuml\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
 
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("missing.iuml"));
@@ -220,7 +235,7 @@ mod tests {
     fn test_unresolved_include_with_dirs_shows_searched_paths() {
         let source = "@startuml\n!include missing.iuml\nAlice -> Bob\n@enduml";
         let include_dirs = vec![PathBuf::from("/tmp/includes")];
-        let result = prepare_diagram_source(source, &include_dirs, DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &include_dirs, DEFAULT_DPI, None, None);
 
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].contains("missing.iuml"));
@@ -230,7 +245,7 @@ mod tests {
     #[test]
     fn test_stdlib_include_no_warning() {
         let source = "@startuml\n!include <tupadr3/common>\nAlice -> Bob\n@enduml";
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
 
         // Stdlib includes should not generate warnings
         assert!(result.warnings.is_empty());
@@ -246,8 +261,13 @@ mod tests {
         std::fs::write(&include_path, "Component(comp, \"Component\")").unwrap();
 
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include test_component.iuml\nBoundary_End()\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
+        let result = prepare_diagram_source(
+            source,
+            std::slice::from_ref(&temp_dir),
+            DEFAULT_DPI,
+            None,
+            None,
+        );
 
         // Cleanup
         std::fs::remove_file(&include_path).unwrap();
@@ -261,7 +281,7 @@ mod tests {
     #[test]
     fn test_indented_include_warning() {
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include missing.iuml\nBoundary_End()\n@enduml";
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
 
         // Should generate warning for indented include too
         assert_eq!(result.warnings.len(), 1);
@@ -272,7 +292,7 @@ mod tests {
     fn test_prepare_diagram_source_no_startuml() {
         // Source without @startuml - fallback to prepending config
         let source = "Alice -> Bob";
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
 
         // Config should be prepended
         assert!(result.source.starts_with("skinparam dpi 192\n"));
@@ -284,7 +304,7 @@ mod tests {
     fn test_prepare_diagram_source_startuml_no_newline() {
         // @startuml at end of source without newline
         let source = "@startuml";
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
 
         // Should fallback to prepending
         assert!(result.source.contains("skinparam dpi 192"));
@@ -301,8 +321,13 @@ mod tests {
         std::fs::write(&include_path, "!include recursive.iuml\nContent").unwrap();
 
         let source = "@startuml\n!include recursive.iuml\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
+        let result = prepare_diagram_source(
+            source,
+            std::slice::from_ref(&temp_dir),
+            DEFAULT_DPI,
+            None,
+            None,
+        );
 
         std::fs::remove_file(&include_path).unwrap();
 
@@ -319,8 +344,13 @@ mod tests {
         std::fs::write(&include2, "Bob -> Charlie").unwrap();
 
         let source = "@startuml\n!include part1.iuml\n!include part2.iuml\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
+        let result = prepare_diagram_source(
+            source,
+            std::slice::from_ref(&temp_dir),
+            DEFAULT_DPI,
+            None,
+            None,
+        );
 
         std::fs::remove_file(&include1).unwrap();
         std::fs::remove_file(&include2).unwrap();
@@ -340,8 +370,13 @@ mod tests {
         std::fs::write(&outer, "OuterBefore\n!include inner.iuml\nOuterAfter").unwrap();
 
         let source = "@startuml\n!include outer.iuml\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
+        let result = prepare_diagram_source(
+            source,
+            std::slice::from_ref(&temp_dir),
+            DEFAULT_DPI,
+            None,
+            None,
+        );
 
         std::fs::remove_file(&outer).unwrap();
         std::fs::remove_file(&inner).unwrap();
@@ -359,8 +394,13 @@ mod tests {
         std::fs::write(&include_path, "Line1\n\nLine3").unwrap();
 
         let source = "@startuml\n  !include with_empty.iuml\n@enduml";
-        let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
+        let result = prepare_diagram_source(
+            source,
+            std::slice::from_ref(&temp_dir),
+            DEFAULT_DPI,
+            None,
+            None,
+        );
 
         std::fs::remove_file(&include_path).unwrap();
 
@@ -391,7 +431,7 @@ mod tests {
     fn test_meta_include_resolves_before_filesystem() {
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\nA -> B\n@enduml";
         let meta_source = TestMetaSource;
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, Some(&meta_source));
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, Some(&meta_source), None);
         assert!(result.warnings.is_empty());
         assert!(result.source.contains("System(sys_payment_gateway,"));
         assert!(result.source.contains("Payment Gateway"));
@@ -402,7 +442,7 @@ mod tests {
     fn test_meta_include_falls_back_to_filesystem() {
         let source = "@startuml\n!include systems/sys_unknown.iuml\n@enduml";
         let meta_source = TestMetaSource;
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, Some(&meta_source));
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, Some(&meta_source), None);
         assert!(!result.warnings.is_empty());
         assert!(result.warnings[0].contains("sys_unknown.iuml"));
     }
@@ -410,7 +450,7 @@ mod tests {
     #[test]
     fn test_no_meta_source_behaves_as_before() {
         let source = "@startuml\n!include missing.iuml\n@enduml";
-        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None);
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
         assert!(!result.warnings.is_empty());
         assert!(result.warnings[0].contains("missing.iuml"));
     }
