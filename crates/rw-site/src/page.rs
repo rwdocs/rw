@@ -185,7 +185,9 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let result = self.create_renderer(path, meta_include_source).render_markdown(&markdown_text);
+        let result = self
+            .create_renderer(path, meta_include_source)
+            .render_markdown(&markdown_text);
 
         self.page_bucket.set_json(
             path,
