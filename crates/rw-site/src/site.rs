@@ -45,15 +45,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-use rw_cache::{Cache, CacheBucket, CacheBucketExt};
+use rw_cache::{Cache, CacheBucket};
 use rw_diagrams::{EntityInfo, MetaIncludeSource};
 use rw_storage::Storage;
 use crate::page::{
     BreadcrumbItem, PageRenderResult, PageRenderer, PageRendererConfig, RenderError,
 };
-use crate::site_state::{
-    CachedSiteState, CachedSiteStateRef, Navigation, SiteState, SiteStateBuilder,
-};
+use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use crate::typed_page_registry::TypedPageRegistry;
 
 /// Get the depth of a URL path.
@@ -249,15 +247,11 @@ impl Site {
         let etag = self.generation.load(Ordering::Acquire).to_string();
 
         // Load state from bucket cache or storage
-        let state: SiteState = if let Some(cached) = self
-            .site_bucket
-            .get_json::<CachedSiteState>("structure", &etag)
-        {
-            cached.into()
+        let state = if let Some(cached) = SiteState::from_cache(self.site_bucket.as_ref(), &etag) {
+            cached
         } else {
             let state = self.load_from_storage();
-            self.site_bucket
-                .set_json("structure", &etag, &CachedSiteStateRef::from(&state));
+            state.to_cache(self.site_bucket.as_ref(), &etag);
             state
         };
 

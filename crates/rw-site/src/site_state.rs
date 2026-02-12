@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use rw_cache::{CacheBucket, CacheBucketExt};
 use serde::{Deserialize, Serialize};
 
 use crate::page::{BreadcrumbItem, Page};
@@ -270,6 +271,21 @@ impl SiteState {
         &self.sections
     }
 
+    /// Load site state from cache.
+    ///
+    /// Returns `None` on cache miss, etag mismatch, or deserialization failure.
+    #[must_use]
+    pub(crate) fn from_cache(bucket: &dyn CacheBucket, etag: &str) -> Option<Self> {
+        bucket
+            .get_json::<CachedSiteState>("structure", etag)
+            .map(Into::into)
+    }
+
+    /// Store site state in cache.
+    pub(crate) fn to_cache(&self, bucket: &dyn CacheBucket, etag: &str) {
+        bucket.set_json("structure", etag, &CachedSiteStateRef::from(self));
+    }
+
     /// Build navigation scoped to a section.
     ///
     /// If `scope_path` is empty, returns root navigation with sections as leaves.
@@ -496,7 +512,7 @@ impl SiteStateBuilder {
 
 /// Borrowed view of cached site state for serialization (zero-copy).
 #[derive(Serialize)]
-pub(crate) struct CachedSiteStateRef<'a> {
+struct CachedSiteStateRef<'a> {
     pages: &'a [Page],
     children: &'a [Vec<usize>],
     parents: &'a [Option<usize>],
@@ -518,7 +534,7 @@ impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
 
 /// Cache format for site state deserialization (owned).
 #[derive(Deserialize)]
-pub(crate) struct CachedSiteState {
+struct CachedSiteState {
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
