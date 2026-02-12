@@ -50,7 +50,7 @@ use rw_storage::{
 };
 use scanner::{DocumentRef, Scanner};
 use source::file_path_to_url;
-use yaml::{extract_yaml_fields, parse_metadata};
+use yaml::{YamlFields, parse_metadata};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -309,11 +309,11 @@ impl FsStorage {
     /// for a virtual page).
     fn build_document(&self, doc_ref: &DocumentRef) -> Option<Document> {
         // Parse metadata fields if present
-        let fields = doc_ref
+        let fields: Option<YamlFields> = doc_ref
             .meta_path
             .as_ref()
             .and_then(|p| fs::read_to_string(p).ok())
-            .and_then(|c| extract_yaml_fields(&c));
+            .and_then(|c| serde_yaml::from_str(&c).ok());
 
         let meta_title = fields.as_ref().and_then(|f| f.title.clone());
         let page_type = fields.as_ref().and_then(|f| f.page_type.clone());
