@@ -40,7 +40,9 @@ pub fn relative_path(from: &str, to: &str) -> String {
         for component in to.split('/') {
             match component {
                 "" | "." => {}
-                ".." => { segs.pop(); }
+                ".." => {
+                    segs.pop();
+                }
                 _ => segs.push(component),
             }
         }
