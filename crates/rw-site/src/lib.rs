@@ -30,7 +30,7 @@
 
 pub(crate) mod site;
 pub(crate) mod site_state;
-mod page_renderer;
+mod page;
 mod typed_page_registry;
 
 pub use site::{PageRenderResult, RenderError, Site, SiteConfig};

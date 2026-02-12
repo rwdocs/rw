@@ -124,7 +124,7 @@ crates/
 │       ├── lib.rs            # Public API exports
 │       ├── site.rs           # Site (state management + reload), SiteConfig, PageRenderResult
 │       ├── site_state.rs     # SiteState (pure data), Page, NavItem, BreadcrumbItem, SectionInfo
-│       ├── page_renderer.rs  # PageRenderer (rendering pipeline, caching, diagrams)
+│       ├── page.rs            # PageRenderer (rendering pipeline, caching, diagrams)
 │       └── typed_page_registry.rs  # TypedPageRegistry (MetaIncludeSource impl for diagrams)
 │
 ├── rw-storage/            # Storage abstraction layer (core traits)

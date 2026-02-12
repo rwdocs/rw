@@ -51,7 +51,7 @@ use rw_renderer::TocEntry;
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
-use crate::page_renderer::PageRenderer;
+use crate::page::PageRenderer;
 use crate::typed_page_registry::TypedPageRegistry;
 
 /// Get the depth of a URL path.
