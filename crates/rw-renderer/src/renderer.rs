@@ -1266,8 +1266,7 @@ Install with apt.
 
     #[test]
     fn test_trailing_slash_disabled_by_default() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b");
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_base_path("/a/b");
         let result = renderer.render_markdown("[link](../other.md)");
         assert!(result.html.contains(r#"href="/a/other""#));
     }
