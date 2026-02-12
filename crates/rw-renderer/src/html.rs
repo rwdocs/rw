@@ -282,7 +282,10 @@ mod tests {
 
     #[test]
     fn test_resolve_link_traversal_clamped() {
-        assert_eq!(resolve_link("../../../etc/passwd.md", "/a/b"), "/etc/passwd");
+        assert_eq!(
+            resolve_link("../../../etc/passwd.md", "/a/b"),
+            "/etc/passwd"
+        );
     }
 
     #[test]
