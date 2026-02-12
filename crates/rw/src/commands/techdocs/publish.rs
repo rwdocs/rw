@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use clap::Args;
+use rw_techdocs::{PublishConfig, S3Publisher};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -38,7 +39,27 @@ pub(crate) struct PublishArgs {
 impl PublishArgs {
     pub(crate) fn execute(self) -> Result<(), CliError> {
         let output = Output::new();
-        output.info("rw techdocs publish: not yet implemented");
+
+        output.info(&format!(
+            "Publishing {} to s3://{}/{}",
+            self.directory.display(),
+            self.bucket,
+            self.entity
+        ));
+
+        let publish_config = PublishConfig {
+            bucket: self.bucket,
+            entity: self.entity,
+            endpoint: self.endpoint,
+            region: self.region,
+            bucket_root_path: self.bucket_root_path,
+        };
+        let publisher = S3Publisher::new(publish_config);
+
+        let rt = tokio::runtime::Runtime::new()?;
+        let uploaded = rt.block_on(publisher.publish(&self.directory))?;
+
+        output.success(&format!("Published {uploaded} files"));
         Ok(())
     }
 }

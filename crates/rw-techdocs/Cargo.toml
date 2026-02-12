@@ -16,9 +16,12 @@ rw-site = { workspace = true }
 rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
 
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
