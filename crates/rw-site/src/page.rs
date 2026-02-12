@@ -267,7 +267,7 @@ impl PageRenderer {
             renderer = renderer.with_title_extraction();
         }
 
-        if let Some(processor) = self.create_diagram_processor(meta_include_source) {
+        if let Some(processor) = self.create_diagram_processor(base_path, meta_include_source) {
             renderer = renderer.with_processor(processor);
         }
 
@@ -276,6 +276,7 @@ impl PageRenderer {
 
     fn create_diagram_processor(
         &self,
+        base_path: &str,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
     ) -> Option<DiagramProcessor> {
         let url = self.kroki_url.as_ref()?;
@@ -287,6 +288,14 @@ impl PageRenderer {
 
         if let Some(source) = meta_include_source {
             processor = processor.with_meta_include_source(source);
+        }
+
+        if self.relative_links || self.trailing_slash {
+            processor = processor.with_link_config(
+                format!("/{base_path}"),
+                self.relative_links,
+                self.trailing_slash,
+            );
         }
 
         Some(processor)

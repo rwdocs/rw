@@ -19,7 +19,7 @@ use crate::kroki::{
     render_all_svg_partial,
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
-use crate::meta_includes::MetaIncludeSource;
+use crate::meta_includes::{LinkConfig, MetaIncludeSource};
 use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
 use crate::plantuml::{PrepareResult, prepare_diagram_source};
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
@@ -45,6 +45,8 @@ struct ProcessorConfig {
     agent: Agent,
     /// Optional metadata source for resolving virtual `PlantUML` includes.
     meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    /// Optional link configuration for transforming `$link` URLs in C4 macros.
+    link_config: Option<LinkConfig>,
 }
 
 /// Code block processor for diagram languages.
@@ -110,6 +112,7 @@ impl DiagramProcessor {
                 output: DiagramOutput::default(),
                 agent: create_agent(DEFAULT_TIMEOUT),
                 meta_include_source: None,
+                link_config: None,
             },
             extracted: Vec::new(),
             warnings: Vec::new(),
@@ -220,6 +223,25 @@ impl DiagramProcessor {
         self
     }
 
+    /// Set link configuration for transforming `$link` URLs in C4 macros.
+    ///
+    /// When set, diagram include URLs are transformed to match the renderer's
+    /// link mode (relative paths, trailing slashes).
+    #[must_use]
+    pub fn with_link_config(
+        mut self,
+        base_path: String,
+        relative_links: bool,
+        trailing_slash: bool,
+    ) -> Self {
+        self.config.link_config = Some(LinkConfig {
+            base_path,
+            relative_links,
+            trailing_slash,
+        });
+        self
+    }
+
     /// Prepare diagram source for rendering.
     ///
     /// For `PlantUML` diagrams, this resolves `!include` directives and injects config.
@@ -231,6 +253,7 @@ impl DiagramProcessor {
                 &config.include_dirs,
                 config.dpi,
                 config.meta_include_source.as_deref(),
+                config.link_config.as_ref(),
             )
         } else {
             PrepareResult {

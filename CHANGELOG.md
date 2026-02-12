@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `relative_links` option in `PageRendererConfig` (default `false`, opt-in for TechDocs)
 - `trailing_slash` option in `MarkdownRenderer` and `PageRendererConfig` for URLs with trailing slashes (e.g., `/a/b/` instead of `/a/b`), needed for TechDocs static site output
 - Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
+- Diagram `$link` URLs now respect `relative_links` and `trailing_slash` settings via `LinkConfig` on `DiagramProcessor`
 
 ### Changed
 
