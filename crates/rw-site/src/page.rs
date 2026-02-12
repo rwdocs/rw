@@ -251,7 +251,7 @@ impl PageRenderer {
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_gfm(true)
-            .with_base_path(base_path)
+            .with_base_path(format!("/{base_path}"))
             .with_relative_links(self.relative_links)
             .with_directives(directives);
 

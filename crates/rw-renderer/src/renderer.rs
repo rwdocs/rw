@@ -99,7 +99,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Set base path for resolving relative links.
+    /// Set base path for resolving relative links (URL path with leading `/`).
     ///
     /// Only used by HTML backend. Confluence backend ignores this.
     #[must_use]
@@ -391,8 +391,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
                 let href = if self.relative_links && href.starts_with('/') {
-                    let from = format!("/{}", self.base_path.as_deref().unwrap_or(""));
-                    relative_path(&from, &href).into()
+                    let from = self.base_path.as_deref().unwrap_or("/");
+                    relative_path(from, &href).into()
                 } else {
                     href
                 };
@@ -738,7 +738,7 @@ mod tests {
 
     #[test]
     fn test_html_link_with_base_path() {
-        let result = render_with_base_path("[Link](./page.md)", "base/path");
+        let result = render_with_base_path("[Link](./page.md)", "/base/path");
         assert!(result.html.contains(r#"href="/base/path/page""#));
     }
 
@@ -1122,7 +1122,7 @@ Install with apt.
     #[test]
     fn test_relative_links_converts_absolute_to_relative() {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("a/b")
+            .with_base_path("/a/b")
             .with_relative_links(true);
         // ../other.md resolves to /a/other, then relative_path("/a/b", "/a/other") = "other"
         let result = renderer.render_markdown("[link](../other.md)");
@@ -1131,7 +1131,7 @@ Install with apt.
 
     #[test]
     fn test_relative_links_disabled_keeps_absolute() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_base_path("a/b");
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_base_path("/a/b");
         let result = renderer.render_markdown("[link](../other.md)");
         assert!(result.html.contains(r#"href="/a/other""#));
     }
@@ -1139,7 +1139,7 @@ Install with apt.
     #[test]
     fn test_relative_links_external_unchanged() {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("a/b")
+            .with_base_path("/a/b")
             .with_relative_links(true);
         let result = renderer.render_markdown("[link](https://example.com)");
         assert!(result.html.contains(r#"href="https://example.com""#));
@@ -1148,7 +1148,7 @@ Install with apt.
     #[test]
     fn test_relative_links_fragment_unchanged() {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("a/b")
+            .with_base_path("/a/b")
             .with_relative_links(true);
         let result = renderer.render_markdown("[link](#section)");
         assert!(result.html.contains(r##"href="#section""##));
