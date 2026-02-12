@@ -5,13 +5,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use rw_site::{Site, PageRendererConfig};
+use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 
 fn create_site(source_dir: PathBuf) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
     let config = PageRendererConfig::default();
-    Site::new(storage, config, Arc::new(rw_cache::NullCache))
+    Site::new(storage, Arc::new(rw_cache::NullCache), config)
 }
 
 /// Create a site structure with specified depth and breadth.
