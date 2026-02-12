@@ -88,6 +88,8 @@ impl BuildArgs {
                 kroki_url: config.diagrams_resolved.kroki_url.clone(),
                 include_dirs: config.diagrams_resolved.include_dirs.clone(),
                 dpi: config.diagrams_resolved.dpi,
+                relative_links: true,
+                trailing_slash: true,
             },
         );
 

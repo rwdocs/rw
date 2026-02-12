@@ -65,6 +65,8 @@ impl StaticSiteBuilder {
                 kroki_url: self.renderer_config.kroki_url.clone(),
                 include_dirs: self.renderer_config.include_dirs.clone(),
                 dpi: self.renderer_config.dpi,
+                relative_links: self.renderer_config.relative_links,
+                trailing_slash: self.renderer_config.trailing_slash,
             },
         );
 
