@@ -1999,6 +1999,7 @@ dependencies = [
  "rw-config",
  "rw-confluence",
  "rw-server",
+ "rw-techdocs",
  "thiserror",
  "tokio",
  "tracing",
@@ -2145,6 +2146,22 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "rw-techdocs"
+version = "0.1.4"
+dependencies = [
+ "rw-cache",
+ "rw-config",
+ "rw-site",
+ "rw-storage",
+ "rw-storage-fs",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
  "tracing",
 ]
 
