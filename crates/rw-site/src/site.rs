@@ -49,7 +49,6 @@ use crate::page::{
     BreadcrumbItem, PageRenderResult, PageRenderer, PageRendererConfig, RenderError,
 };
 use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
-use crate::typed_page_registry::TypedPageRegistry;
 use rw_cache::{Cache, CacheBucket};
 use rw_diagrams::{EntityInfo, MetaIncludeSource};
 use rw_storage::Storage;
@@ -68,18 +67,37 @@ fn url_depth(path: &str) -> usize {
     }
 }
 
-/// Bundled site state and typed page registry.
+/// Bundled site state for atomic swaps.
 ///
-/// Ensures `SiteState` and `TypedPageRegistry` are always consistent —
-/// they are built together and swapped atomically as a single `Arc`.
+/// Wraps `SiteState` and implements `MetaIncludeSource` for diagram
+/// include resolution using the state's name-based section index.
 pub(crate) struct SiteSnapshot {
     pub(crate) state: SiteState,
-    registry: TypedPageRegistry,
 }
 
 impl MetaIncludeSource for SiteSnapshot {
     fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
-        self.registry.get_entity(entity_type, name)
+        let raw_name = name.replace('_', "-");
+        let section = self
+            .state
+            .find_sections_by_name(&raw_name)
+            .into_iter()
+            .find(|s| s.section_type == entity_type)?;
+
+        let has_content = self
+            .state
+            .get_page(&section.path)
+            .is_some_and(|p| p.has_content);
+
+        Some(EntityInfo {
+            title: if entity_type == "service" {
+                raw_name
+            } else {
+                section.title.clone()
+            },
+            description: section.description.clone(),
+            url_path: has_content.then(|| format!("/{}", section.path)),
+        })
     }
 }
 
@@ -127,10 +145,8 @@ impl Site {
         config: PageRendererConfig,
     ) -> Self {
         let initial_state = SiteStateBuilder::new().build();
-        let initial_registry = TypedPageRegistry::from_site_state(&initial_state);
         let initial_snapshot = Arc::new(SiteSnapshot {
             state: initial_state,
-            registry: initial_registry,
         });
         let site_bucket = cache.bucket("site");
         let renderer = PageRenderer::new(Arc::clone(&storage), cache, config);
@@ -255,10 +271,7 @@ impl Site {
             state
         };
 
-        // Build registry and bundle into snapshot
-        let registry =
-            TypedPageRegistry::from_site_state_with_storage(&state, self.storage.as_ref());
-        let snapshot = Arc::new(SiteSnapshot { state, registry });
+        let snapshot = Arc::new(SiteSnapshot { state });
 
         *self.current_snapshot.write().unwrap() = Arc::clone(&snapshot);
         self.cache_valid.store(true, Ordering::Release);
@@ -350,6 +363,7 @@ impl Site {
                 doc.has_content,
                 parent_idx,
                 doc.page_type.as_deref(),
+                doc.description.as_deref(),
             );
             url_to_idx.insert(doc.path.clone(), idx);
         }
@@ -773,10 +787,10 @@ mod tests {
         assert_eq!(page.title, "My Domain");
         assert!(!page.has_content); // Virtual page
 
-        // page_type is tracked via sections map
-        let section = snapshot.state.sections().get("my-domain");
-        assert!(section.is_some());
-        assert_eq!(section.unwrap().section_type, "domain");
+        // page_type is tracked via sections index
+        let sections = snapshot.state.find_sections_by_name("my-domain");
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].section_type, "domain");
     }
 
     #[test]

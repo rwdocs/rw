@@ -41,6 +41,9 @@ pub struct Document {
     /// Page type from metadata (e.g., "domain", "guide").
     /// Used for section detection. Not inherited.
     pub page_type: Option<String>,
+    /// Page description from metadata.
+    /// Not inherited.
+    pub description: Option<String>,
 }
 
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
@@ -307,6 +310,7 @@ mod tests {
             title: "Home".to_owned(),
             has_content: true,
             page_type: None,
+            description: None,
         };
 
         assert_eq!(doc.path, "");
@@ -322,6 +326,7 @@ mod tests {
             title: "Guide".to_owned(),
             has_content: true,
             page_type: None,
+            description: None,
         };
 
         assert_eq!(doc.path, "guide");
@@ -337,6 +342,7 @@ mod tests {
             title: "Billing".to_owned(),
             has_content: true,
             page_type: Some("domain".to_owned()),
+            description: None,
         };
 
         assert_eq!(doc.path, "domain/billing");
@@ -351,6 +357,7 @@ mod tests {
             title: "Domains".to_owned(),
             has_content: false,
             page_type: Some("section".to_owned()),
+            description: None,
         };
 
         assert_eq!(doc.path, "domains");

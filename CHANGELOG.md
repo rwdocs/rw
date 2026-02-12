@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Introduced `SiteSnapshot` to bundle `SiteState` + `TypedPageRegistry` as an atomic unit; `Site` now swaps a single `Arc<SiteSnapshot>` instead of separate state and registry
 - Moved cache serialization types (`CachedSiteStateRef`, `CachedSiteState`) from `site` to `site_state` module (reduces `Site` responsibilities)
 - `SiteState` now owns its cache persistence via `from_cache()`/`to_cache()` methods; cache format types are private
+- Removed `TypedPageRegistry`; `SiteSnapshot` implements `MetaIncludeSource` directly using `SiteState`'s name-based section index
+- Added `description` field to `Document` and `SectionInfo` (flows from `meta.yaml` through the full pipeline)
+- `SiteState` now indexes sections by directory name for O(1) lookup via `find_sections_by_name()`
 
 ## [0.1.4] - 2026-02-11
 

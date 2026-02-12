@@ -50,7 +50,7 @@ use rw_storage::{
 };
 use scanner::{DocumentRef, Scanner};
 use source::file_path_to_url;
-use yaml::{extract_yaml_title, extract_yaml_type, parse_metadata};
+use yaml::{extract_yaml_description, extract_yaml_title, extract_yaml_type, parse_metadata};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -315,6 +315,7 @@ impl FsStorage {
             .and_then(|p| fs::read_to_string(p).ok());
         let meta_title = meta_content.as_ref().and_then(|c| extract_yaml_title(c));
         let page_type = meta_content.as_ref().and_then(|c| extract_yaml_type(c));
+        let description = meta_content.as_ref().and_then(|c| extract_yaml_description(c));
 
         if let Some(md_path) = &doc_ref.content_path {
             // Real page with content
@@ -330,6 +331,7 @@ impl FsStorage {
                 title,
                 has_content: true,
                 page_type,
+                description,
             })
         } else if let Some(meta_path) = &doc_ref.meta_path {
             // Virtual page (meta.yaml only)
@@ -340,6 +342,7 @@ impl FsStorage {
                 title,
                 has_content: false,
                 page_type,
+                description,
             })
         } else {
             // No sources - shouldn't happen but handle gracefully
@@ -486,6 +489,7 @@ impl Storage for FsStorage {
                 title,
                 has_content: true,
                 page_type: None,
+                description: None,
             });
         }
 

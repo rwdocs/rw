@@ -75,6 +75,7 @@ impl MockStorage {
             title: title.into(),
             has_content: true,
             page_type: None,
+            description: None,
         });
         self
     }
@@ -98,6 +99,7 @@ impl MockStorage {
             title: title.into(),
             has_content: true,
             page_type: Some(page_type.into()),
+            description: None,
         });
         self
     }
@@ -116,6 +118,7 @@ impl MockStorage {
             title: title.into(),
             has_content: false,
             page_type: None,
+            description: None,
         });
         self
     }
@@ -137,6 +140,7 @@ impl MockStorage {
             title: title.into(),
             has_content: false,
             page_type: Some(page_type.into()),
+            description: None,
         });
         self
     }
@@ -175,6 +179,7 @@ impl MockStorage {
             title: title.into(),
             has_content: true,
             page_type: None,
+            description: None,
         });
         self.contents.write().unwrap().insert(path, content.into());
         self
@@ -270,6 +275,7 @@ impl Storage for MockStorage {
                 title: d.title.clone(),
                 has_content: d.has_content,
                 page_type: d.page_type.clone(),
+                description: d.description.clone(),
             })
             .collect())
     }
