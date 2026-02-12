@@ -1,6 +1,5 @@
 //! Generic markdown renderer with pluggable backend.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::marker::PhantomData;
@@ -293,41 +292,40 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// Handles fragment (`#section`) correctly by splitting before path manipulation
     /// and rejoining after.
-    fn resolve_href<'a>(&self, href: Cow<'a, str>) -> Cow<'a, str> {
+    fn resolve_href(&self, href: &str) -> String {
         if (!self.trailing_slash && !self.relative_links) || !href.starts_with('/') {
-            return href;
+            return href.to_owned();
         }
 
         // Split fragment before path manipulation
         let (path, fragment) = match href.find('#') {
             Some(pos) => (&href[..pos], Some(&href[pos..])),
-            None => (href.as_ref(), None),
+            None => (href, None),
         };
 
         // Add trailing slash to absolute path
-        let path: Cow<'_, str> = if self.trailing_slash && !path.ends_with('/') {
-            format!("{path}/").into()
+        let path = if self.trailing_slash && !path.ends_with('/') {
+            format!("{path}/")
         } else {
-            Cow::Borrowed(path)
+            path.to_owned()
         };
 
         // Convert to relative path
-        let path: Cow<'_, str> = if self.relative_links {
+        let path = if self.relative_links {
             let from = self.base_path.as_deref().unwrap_or("/");
-            let from: Cow<'_, str> = if self.trailing_slash && !from.ends_with('/') {
-                format!("{from}/").into()
+            if self.trailing_slash && !from.ends_with('/') {
+                relative_path(&format!("{from}/"), &path)
             } else {
-                Cow::Borrowed(from)
-            };
-            relative_path(&from, &path).into()
+                relative_path(from, &path)
+            }
         } else {
             path
         };
 
         // Rejoin fragment
         match fragment {
-            Some(frag) => Cow::Owned(format!("{path}{frag}")),
-            None => Cow::Owned(path.into_owned()),
+            Some(frag) => format!("{path}{frag}"),
+            None => path,
         }
     }
 
@@ -450,7 +448,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Strikethrough => self.push_inline("<s>"),
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
-                let href = self.resolve_href(href);
+                let href = self.resolve_href(&href);
                 let link_tag = format!(r#"<a href="{}">"#, escape_html(&href));
                 self.push_inline(&link_tag);
             }
