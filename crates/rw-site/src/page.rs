@@ -30,7 +30,7 @@ pub struct PageRendererConfig {
     /// Produce relative links instead of absolute paths.
     ///
     /// Default: `false` (absolute paths for SPA navigation).
-    /// Set to `true` for static site builds (e.g., TechDocs).
+    /// Set to `true` for static site builds (e.g., `TechDocs`).
     pub relative_links: bool,
 }
 

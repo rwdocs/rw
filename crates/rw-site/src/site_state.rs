@@ -143,7 +143,7 @@ impl SiteState {
 
         // Build name-based section index (key = raw directory name, last path segment)
         let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();
-        for (path, _) in &sections {
+        for path in sections.keys() {
             if let Some(&idx) = path_index.get(path.as_str()) {
                 let dir_name = path.rsplit('/').next().unwrap_or(path);
                 sections_by_name
