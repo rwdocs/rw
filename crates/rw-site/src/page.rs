@@ -5,7 +5,7 @@
 //! to enable independent testing of the rendering pipeline.
 
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
@@ -124,7 +124,6 @@ pub(crate) struct PageRenderer {
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
     dpi: u32,
-    meta_include_source: RwLock<Option<Arc<dyn MetaIncludeSource>>>,
 }
 
 impl PageRenderer {
@@ -142,19 +141,7 @@ impl PageRenderer {
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
             dpi: config.dpi,
-            meta_include_source: RwLock::new(None),
         }
-    }
-
-    /// Update the meta include source for diagram processing.
-    ///
-    /// Called by `Site` after rebuilding the `TypedPageRegistry` during reload.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal `RwLock` is poisoned.
-    pub(crate) fn set_meta_include_source(&self, source: Arc<dyn MetaIncludeSource>) {
-        *self.meta_include_source.write().unwrap() = Some(source);
     }
 
     /// Render a page with full pipeline: mtime, metadata, cache check, render, cache write.
@@ -168,6 +155,7 @@ impl PageRenderer {
         path: &str,
         page: &Page,
         breadcrumbs: Vec<BreadcrumbItem>,
+        meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
     ) -> Result<PageRenderResult, RenderError> {
         if !page.has_content {
             return Ok(self.render_virtual(path, page, breadcrumbs));
@@ -197,7 +185,7 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let result = self.create_renderer(path).render_markdown(&markdown_text);
+        let result = self.create_renderer(path, meta_include_source).render_markdown(&markdown_text);
 
         self.page_bucket.set_json(
             path,
@@ -244,7 +232,11 @@ impl PageRenderer {
         }
     }
 
-    fn create_renderer(&self, base_path: &str) -> MarkdownRenderer<HtmlBackend> {
+    fn create_renderer(
+        &self,
+        base_path: &str,
+        meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    ) -> MarkdownRenderer<HtmlBackend> {
         let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
@@ -256,14 +248,17 @@ impl PageRenderer {
             renderer = renderer.with_title_extraction();
         }
 
-        if let Some(processor) = self.create_diagram_processor() {
+        if let Some(processor) = self.create_diagram_processor(meta_include_source) {
             renderer = renderer.with_processor(processor);
         }
 
         renderer
     }
 
-    fn create_diagram_processor(&self) -> Option<DiagramProcessor> {
+    fn create_diagram_processor(
+        &self,
+        meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    ) -> Option<DiagramProcessor> {
         let url = self.kroki_url.as_ref()?;
 
         let mut processor = DiagramProcessor::new(url)
@@ -271,7 +266,7 @@ impl PageRenderer {
             .dpi(self.dpi)
             .with_cache(self.cache.bucket("diagrams"));
 
-        if let Some(source) = self.meta_include_source.read().unwrap().clone() {
+        if let Some(source) = meta_include_source {
             processor = processor.with_meta_include_source(source);
         }
 
@@ -335,7 +330,7 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("Hello", "test", true);
-        let result = renderer.render("test", &page, vec![]).unwrap();
+        let result = renderer.render("test", &page, vec![], None).unwrap();
 
         assert!(result.html.contains("<p>World</p>"));
         assert_eq!(result.title, Some("Hello".to_owned()));
@@ -349,7 +344,7 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("Missing", "missing", true);
-        let result = renderer.render("missing", &page, vec![]);
+        let result = renderer.render("missing", &page, vec![], None);
 
         assert!(matches!(result, Err(RenderError::FileNotFound(_))));
     }
@@ -360,7 +355,7 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("My Domain", "my-domain", false);
-        let result = renderer.render("my-domain", &page, vec![]).unwrap();
+        let result = renderer.render("my-domain", &page, vec![], None).unwrap();
 
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
         assert_eq!(result.title, Some("My Domain".to_owned()));
@@ -384,10 +379,10 @@ mod tests {
         let renderer = PageRenderer::new(Arc::new(storage), cache, config);
         let page = make_page("Cached", "test", true);
 
-        let result1 = renderer.render("test", &page, vec![]).unwrap();
+        let result1 = renderer.render("test", &page, vec![], None).unwrap();
         assert!(!result1.from_cache);
 
-        let result2 = renderer.render("test", &page, vec![]).unwrap();
+        let result2 = renderer.render("test", &page, vec![], None).unwrap();
         assert!(result2.from_cache);
         assert_eq!(result1.html, result2.html);
     }
@@ -406,7 +401,7 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Test", "test", true);
-        let result = renderer.render("test", &page, vec![]).unwrap();
+        let result = renderer.render("test", &page, vec![], None).unwrap();
 
         let meta = result.metadata.unwrap();
         assert_eq!(meta.title, Some("Meta Title".to_owned()));
@@ -421,7 +416,7 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Test", "test", true);
-        let result = renderer.render("test", &page, vec![]).unwrap();
+        let result = renderer.render("test", &page, vec![], None).unwrap();
 
         assert!(result.metadata.is_none());
     }
@@ -434,7 +429,7 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Title", "test", true);
-        let result = renderer.render("test", &page, vec![]).unwrap();
+        let result = renderer.render("test", &page, vec![], None).unwrap();
 
         assert_eq!(result.toc.len(), 2);
         assert_eq!(result.toc[0].title, "Section 1");
