@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Relative link mode in `MarkdownRenderer` (`with_relative_links(true)`) for static site builds where links must be relative to each page's location
+- `relative_path()` utility in `rw-renderer` for computing relative URL paths between pages
+- `relative_links` option in `PageRendererConfig` (default `false`, opt-in for TechDocs)
 - Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
 
 ### Changed

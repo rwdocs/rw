@@ -146,6 +146,61 @@ fn resolve_link(url: &str, base_path: &str) -> String {
     }
 }
 
+/// Compute a relative URL from one page URL to another (RFC 3986).
+///
+/// Both `from` and `to` are URL paths without leading slash. Per RFC 3986 the
+/// last segment of `from` is the current document — the base directory is
+/// everything before it.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::relative_path;
+///
+/// assert_eq!(relative_path("a/b", "a/c"), "c");
+/// assert_eq!(relative_path("", "domains/billing"), "domains/billing");
+/// assert_eq!(relative_path("guide", "guide"), "guide");
+/// ```
+pub fn relative_path(from: &str, to: &str) -> String {
+    let from_segs: Vec<&str> = from.split('/').filter(|s| !s.is_empty()).collect();
+    let to_segs: Vec<&str> = to.split('/').filter(|s| !s.is_empty()).collect();
+
+    // RFC 3986: last segment of `from` is the document, drop it to get the base directory.
+    // Trailing slash means the document is empty — all segments are the directory.
+    let from_dir = if from.ends_with('/') || from_segs.is_empty() {
+        &from_segs[..]
+    } else {
+        &from_segs[..from_segs.len() - 1]
+    };
+
+    // Skip common prefix
+    let common = from_dir
+        .iter()
+        .zip(&to_segs)
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let ups = from_dir.len() - common;
+    let remaining = &to_segs[common..];
+
+    let mut result = String::new();
+    for _ in 0..ups {
+        result.push_str("../");
+    }
+    for (i, seg) in remaining.iter().enumerate() {
+        if i > 0 {
+            result.push('/');
+        }
+        result.push_str(seg);
+    }
+
+    if result.is_empty() {
+        "./".to_owned()
+    } else {
+        result
+    }
+}
+
 /// Resolve a relative path against a base path.
 ///
 /// Handles `.` (current), `..` (parent), and plain relative paths.
@@ -347,5 +402,84 @@ mod tests {
         assert!(out.contains(r#"class="alert alert-caution""#));
         assert!(out.contains(r#"<svg class="alert-icon""#));
         assert!(out.contains("Caution"));
+    }
+
+    #[test]
+    fn test_relative_path_deep_to_shallow() {
+        // base dir of from = domains/billing/adrs/, one up to reach domains/billing
+        assert_eq!(
+            relative_path("domains/billing/adrs/adr-151", "domains/billing"),
+            "../"
+        );
+    }
+
+    #[test]
+    fn test_relative_path_shallow_to_deep() {
+        // base dir of from = domains/, so need billing/adrs/ADR-147
+        assert_eq!(
+            relative_path("domains/billing", "domains/billing/adrs/ADR-147"),
+            "billing/adrs/ADR-147"
+        );
+    }
+
+    #[test]
+    fn test_relative_path_root_to_nested() {
+        assert_eq!(relative_path("", "domains/billing"), "domains/billing");
+    }
+
+    #[test]
+    fn test_relative_path_nested_to_root() {
+        // base dir of from = domains/, one up to reach root
+        assert_eq!(relative_path("domains/billing", ""), "../");
+    }
+
+    #[test]
+    fn test_relative_path_same_page() {
+        // from root, guide resolves to guide
+        assert_eq!(relative_path("guide", "guide"), "guide");
+    }
+
+    #[test]
+    fn test_relative_path_siblings() {
+        // both at root level, base dir is root
+        assert_eq!(relative_path("guide", "faq"), "faq");
+    }
+
+    #[test]
+    fn test_relative_path_siblings_nested() {
+        // base dir = a/, sibling is a/c
+        assert_eq!(relative_path("a/b", "a/c"), "c");
+    }
+
+    #[test]
+    fn test_relative_path_both_empty() {
+        assert_eq!(relative_path("", ""), "./");
+    }
+
+    #[test]
+    fn test_relative_path_trailing_slash_is_directory() {
+        // trailing slash: base dir = domains/billing/, document is empty
+        assert_eq!(
+            relative_path("domains/billing/", "domains/billing/adrs/ADR-147"),
+            "adrs/ADR-147"
+        );
+    }
+
+    #[test]
+    fn test_relative_path_trailing_slash_up() {
+        assert_eq!(
+            relative_path("domains/billing/adrs/", "domains/billing"),
+            "../"
+        );
+    }
+
+    #[test]
+    fn test_relative_path_trailing_slash_same() {
+        assert_eq!(relative_path("guide/", "guide"), "./");
+    }
+
+    #[test]
+    fn test_relative_path_root_trailing_slash() {
+        assert_eq!(relative_path("/", "domains/billing"), "domains/billing");
     }
 }
