@@ -27,6 +27,15 @@ pub struct PageRendererConfig {
     pub include_dirs: Vec<PathBuf>,
     /// DPI for diagram rendering (default: 192 for retina).
     pub dpi: u32,
+    /// Produce relative links instead of absolute paths.
+    ///
+    /// Default: `false` (absolute paths for SPA navigation).
+    /// Set to `true` for static site builds (e.g., `TechDocs`).
+    pub relative_links: bool,
+    /// Append trailing slash to resolved link paths.
+    ///
+    /// Default: `false`.
+    pub trailing_slash: bool,
 }
 
 impl Default for PageRendererConfig {
@@ -36,6 +45,8 @@ impl Default for PageRendererConfig {
             kroki_url: None,
             include_dirs: Vec::new(),
             dpi: 192,
+            relative_links: false,
+            trailing_slash: false,
         }
     }
 }
@@ -124,6 +135,8 @@ pub(crate) struct PageRenderer {
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
     dpi: u32,
+    relative_links: bool,
+    trailing_slash: bool,
 }
 
 impl PageRenderer {
@@ -141,6 +154,8 @@ impl PageRenderer {
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
             dpi: config.dpi,
+            relative_links: config.relative_links,
+            trailing_slash: config.trailing_slash,
         }
     }
 
@@ -243,7 +258,9 @@ impl PageRenderer {
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_gfm(true)
-            .with_base_path(base_path)
+            .with_base_path(format!("/{base_path}"))
+            .with_relative_links(self.relative_links)
+            .with_trailing_slash(self.trailing_slash)
             .with_directives(directives);
 
         if self.extract_title {

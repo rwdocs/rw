@@ -91,7 +91,7 @@ impl RenderBackend for HtmlBackend {
     }
 }
 
-/// Resolve a markdown link URL relative to a base path.
+/// Resolve a markdown link URL relative to a base URL path (with leading `/`).
 ///
 /// Transforms relative `.md` links to absolute paths suitable for SPA navigation:
 /// - `./sibling.md` → `/base/path/sibling`
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(
             resolve_link(
                 "adr-101/index.md",
-                "domains/billing/systems/payment-gateway/adr"
+                "/domains/billing/systems/payment-gateway/adr"
             ),
             "/domains/billing/systems/payment-gateway/adr/adr-101"
         );
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn test_resolve_link_parent() {
         assert_eq!(
-            resolve_link("../other.md", "domains/billing/guide"),
+            resolve_link("../other.md", "/domains/billing/guide"),
             "/domains/billing/other"
         );
     }
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn test_resolve_link_current_dir() {
         assert_eq!(
-            resolve_link("./sibling.md", "domains/billing/guide"),
+            resolve_link("./sibling.md", "/domains/billing/guide"),
             "/domains/billing/guide/sibling"
         );
     }
@@ -245,49 +245,52 @@ mod tests {
     #[test]
     fn test_resolve_link_external_unchanged() {
         assert_eq!(
-            resolve_link("https://example.com", "base/path"),
+            resolve_link("https://example.com", "/base/path"),
             "https://example.com"
         );
         assert_eq!(
-            resolve_link("mailto:test@example.com", "base/path"),
+            resolve_link("mailto:test@example.com", "/base/path"),
             "mailto:test@example.com"
         );
     }
 
     #[test]
     fn test_resolve_link_fragment_only() {
-        assert_eq!(resolve_link("#section", "base/path"), "#section");
+        assert_eq!(resolve_link("#section", "/base/path"), "#section");
     }
 
     #[test]
     fn test_resolve_link_with_fragment() {
         assert_eq!(
-            resolve_link("./page.md#section", "base/path"),
+            resolve_link("./page.md#section", "/base/path"),
             "/base/path/page#section"
         );
     }
 
     #[test]
     fn test_resolve_link_non_md_unchanged() {
-        assert_eq!(resolve_link("./image.png", "base/path"), "./image.png");
+        assert_eq!(resolve_link("./image.png", "/base/path"), "./image.png");
     }
 
     #[test]
     fn test_resolve_link_absolute() {
         assert_eq!(
-            resolve_link("/absolute/path.md", "base/path"),
+            resolve_link("/absolute/path.md", "/base/path"),
             "/absolute/path"
         );
     }
 
     #[test]
     fn test_resolve_link_traversal_clamped() {
-        assert_eq!(resolve_link("../../../etc/passwd.md", "a/b"), "/etc/passwd");
+        assert_eq!(
+            resolve_link("../../../etc/passwd.md", "/a/b"),
+            "/etc/passwd"
+        );
     }
 
     #[test]
     fn test_transform_link_with_base_path() {
-        let result = HtmlBackend::transform_link("./page.md", Some("base/path"));
+        let result = HtmlBackend::transform_link("./page.md", Some("/base/path"));
         assert_eq!(result, "/base/path/page");
     }
 
