@@ -13,7 +13,7 @@
 //! # Thread Safety
 //!
 //! `Site` is designed for concurrent access:
-//! - `state()` returns `Arc<SiteState>` with minimal locking (just Arc clone)
+//! - `snapshot()` returns `Arc<SiteSnapshot>` with minimal locking (just Arc clone)
 //! - `reload_if_needed()` uses double-checked locking for efficient cache validation
 //! - `invalidate()` is lock-free (atomic flag)
 //!
@@ -46,6 +46,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
+use rw_diagrams::{EntityInfo, MetaIncludeSource};
 use rw_storage::Storage;
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +69,21 @@ fn url_depth(path: &str) -> usize {
     }
 }
 
+/// Bundled site state and typed page registry.
+///
+/// Ensures `SiteState` and `TypedPageRegistry` are always consistent —
+/// they are built together and swapped atomically as a single `Arc`.
+pub(crate) struct SiteSnapshot {
+    pub(crate) state: SiteState,
+    registry: TypedPageRegistry,
+}
+
+impl MetaIncludeSource for SiteSnapshot {
+    fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
+        self.registry.get_entity(entity_type, name)
+    }
+}
+
 // Re-import from crate root for public types, and direct module for internal
 pub(crate) use crate::site_state::{Navigation, SectionInfo, SiteState, SiteStateBuilder};
 
@@ -80,7 +96,7 @@ pub(crate) use crate::site_state::{Navigation, SectionInfo, SiteState, SiteState
 /// # Thread Safety
 ///
 /// This struct is designed for concurrent access without external locking:
-/// - Uses internal `RwLock<Arc<SiteState>>` for the current site state snapshot
+/// - Uses internal `RwLock<Arc<SiteSnapshot>>` for the current site snapshot
 /// - Uses `Mutex<()>` for serializing reload operations
 /// - Uses `AtomicBool` for cache validity tracking
 pub struct Site {
@@ -92,8 +108,8 @@ pub struct Site {
     generation: AtomicU64,
     /// Mutex for serializing reload operations.
     reload_lock: Mutex<()>,
-    /// Current site state snapshot (atomically swappable).
-    current_state: RwLock<Arc<SiteState>>,
+    /// Current site snapshot (atomically swappable).
+    current_snapshot: RwLock<Arc<SiteSnapshot>>,
     /// Cache validity flag.
     cache_valid: AtomicBool,
     /// Page rendering pipeline.
@@ -114,7 +130,12 @@ impl Site {
         cache: Arc<dyn Cache>,
         config: PageRendererConfig,
     ) -> Self {
-        let initial_state = Arc::new(SiteStateBuilder::new().build());
+        let initial_state = SiteStateBuilder::new().build();
+        let initial_registry = TypedPageRegistry::from_site_state(&initial_state);
+        let initial_snapshot = Arc::new(SiteSnapshot {
+            state: initial_state,
+            registry: initial_registry,
+        });
         let site_bucket = cache.bucket("site");
         let renderer = PageRenderer::new(Arc::clone(&storage), cache, config);
 
@@ -123,27 +144,14 @@ impl Site {
             site_bucket,
             generation: AtomicU64::new(0),
             reload_lock: Mutex::new(()),
-            current_state: RwLock::new(initial_state),
+            current_snapshot: RwLock::new(initial_snapshot),
             cache_valid: AtomicBool::new(false),
             renderer,
         }
     }
 
-    /// Get current site state snapshot.
-    ///
-    /// Returns an `Arc<SiteState>` that can be used without holding any lock.
-    /// The site state is guaranteed to be internally consistent.
-    ///
-    /// Note: This returns the current snapshot without checking cache validity.
-    /// For most use cases, prefer `reload_if_needed()` which ensures the site
-    /// is up-to-date.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal `RwLock` is poisoned.
-    #[must_use]
-    pub(crate) fn state(&self) -> Arc<SiteState> {
-        Arc::clone(&self.current_state.read().unwrap())
+    fn snapshot(&self) -> Arc<SiteSnapshot> {
+        Arc::clone(&self.current_snapshot.read().unwrap())
     }
 
     /// Get scoped navigation tree.
@@ -159,7 +167,7 @@ impl Site {
     /// Panics if internal locks are poisoned.
     #[must_use]
     pub fn navigation(&self, scope_path: &str) -> Navigation {
-        self.reload_if_needed().navigation(scope_path)
+        self.reload_if_needed().state.navigation(scope_path)
     }
 
     /// Get navigation scope for a page.
@@ -175,7 +183,7 @@ impl Site {
     /// Panics if internal locks are poisoned.
     #[must_use]
     pub fn get_navigation_scope(&self, page_path: &str) -> String {
-        self.reload_if_needed().get_navigation_scope(page_path)
+        self.reload_if_needed().state.get_navigation_scope(page_path)
     }
 
     /// Check if a page exists at the given URL path.
@@ -191,7 +199,7 @@ impl Site {
     /// Panics if internal locks are poisoned.
     #[must_use]
     pub fn has_page(&self, path: &str) -> bool {
-        self.reload_if_needed().get_page(path).is_some()
+        self.reload_if_needed().state.get_page(path).is_some()
     }
 
     /// Get breadcrumbs for a page.
@@ -208,26 +216,26 @@ impl Site {
     /// Panics if internal locks are poisoned.
     #[must_use]
     pub fn get_breadcrumbs(&self, path: &str) -> Vec<BreadcrumbItem> {
-        self.reload_if_needed().get_breadcrumbs(path)
+        self.reload_if_needed().state.get_breadcrumbs(path)
     }
 
-    /// Reload site state from storage if cache is invalid.
+    /// Reload site from storage if cache is invalid.
     ///
     /// Uses double-checked locking pattern:
-    /// 1. Fast path: return current site state if cache valid
+    /// 1. Fast path: return current snapshot if cache valid
     /// 2. Slow path: acquire `reload_lock`, recheck, then reload
     ///
     /// # Returns
     ///
-    /// `Arc<SiteState>` containing the current site state snapshot.
+    /// `Arc<SiteSnapshot>` containing the current site snapshot.
     ///
     /// # Panics
     ///
     /// Panics if internal locks are poisoned.
-    pub(crate) fn reload_if_needed(&self) -> Arc<SiteState> {
+    pub(crate) fn reload_if_needed(&self) -> Arc<SiteSnapshot> {
         // Fast path: cache valid
         if self.cache_valid.load(Ordering::Acquire) {
-            return self.state();
+            return self.snapshot();
         }
 
         // Slow path: acquire reload lock
@@ -235,54 +243,40 @@ impl Site {
 
         // Double-check after acquiring lock
         if self.cache_valid.load(Ordering::Acquire) {
-            return self.state();
+            return self.snapshot();
         }
 
-        // Try bucket cache
         let etag = self.generation.load(Ordering::Acquire).to_string();
-        if let Some(cached) = self
+
+        // Load state from bucket cache or storage
+        let state: SiteState = if let Some(cached) = self
             .site_bucket
             .get_json::<CachedSiteState>("structure", &etag)
         {
-            let site: SiteState = cached.into();
-            let site = Arc::new(site);
-            *self.current_state.write().unwrap() = Arc::clone(&site);
+            cached.into()
+        } else {
+            let state = self.load_from_storage();
+            self.site_bucket
+                .set_json("structure", &etag, &CachedSiteStateRef::from(&state));
+            state
+        };
 
-            // Rebuild typed page registry for meta includes
-            let registry =
-                TypedPageRegistry::from_site_state_with_storage(&site, self.storage.as_ref());
-            self.renderer.set_meta_include_source(Arc::new(registry));
-
-            self.cache_valid.store(true, Ordering::Release);
-            return site;
-        }
-
-        // Load from storage
-        let site = self.load_from_storage();
-        let site = Arc::new(site);
-
-        // Store in bucket
-        self.site_bucket
-            .set_json("structure", &etag, &CachedSiteStateRef::from(site.as_ref()));
-
-        // Update current state
-        *self.current_state.write().unwrap() = Arc::clone(&site);
-
-        // Rebuild typed page registry for meta includes
+        // Build registry and bundle into snapshot
         let registry =
-            TypedPageRegistry::from_site_state_with_storage(&site, self.storage.as_ref());
-        self.renderer.set_meta_include_source(Arc::new(registry));
+            TypedPageRegistry::from_site_state_with_storage(&state, self.storage.as_ref());
+        let snapshot = Arc::new(SiteSnapshot { state, registry });
 
+        *self.current_snapshot.write().unwrap() = Arc::clone(&snapshot);
         self.cache_valid.store(true, Ordering::Release);
 
-        site
+        snapshot
     }
 
     /// Invalidate cached site state.
     ///
     /// Marks cache as invalid and bumps the generation counter so the
     /// old site bucket entry won't match. Next `reload_if_needed()` will reload.
-    /// Current readers continue using their existing `Arc<SiteState>`.
+    /// Current readers continue using their existing `Arc<SiteSnapshot>`.
     pub fn invalidate(&self) {
         self.cache_valid.store(false, Ordering::Release);
         self.generation.fetch_add(1, Ordering::Release);
@@ -306,12 +300,14 @@ impl Site {
     /// Returns `RenderError::FileNotFound` if source file doesn't exist.
     /// Returns `RenderError::Io` if file cannot be read.
     pub fn render(&self, path: &str) -> Result<PageRenderResult, RenderError> {
-        let state = self.reload_if_needed();
-        let page = state
+        let snapshot = self.reload_if_needed();
+        let page = snapshot
+            .state
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
-        let breadcrumbs = state.get_breadcrumbs(path);
-        self.renderer.render(path, page, breadcrumbs)
+        let breadcrumbs = snapshot.state.get_breadcrumbs(path);
+        let meta = Arc::clone(&snapshot) as Arc<dyn MetaIncludeSource>;
+        self.renderer.render(path, page, breadcrumbs, Some(meta))
     }
 
     /// Load site state from storage and build hierarchy.
@@ -453,9 +449,9 @@ mod tests {
         let storage = MockStorage::new();
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
-        assert!(state.get_root_pages().is_empty());
+        assert!(snapshot.state.get_root_pages().is_empty());
     }
 
     #[test]
@@ -466,11 +462,11 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
-        assert_eq!(state.get_root_pages().len(), 2);
-        assert!(state.get_page("guide").is_some());
-        assert!(state.get_page("api").is_some());
+        assert_eq!(snapshot.state.get_root_pages().len(), 2);
+        assert!(snapshot.state.get_page("guide").is_some());
+        assert!(snapshot.state.get_page("api").is_some());
     }
 
     #[test]
@@ -480,9 +476,9 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
-        let page = state.get_page("");
+        let page = snapshot.state.get_page("");
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.title, "Welcome");
@@ -498,23 +494,23 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
-        let domain = state.get_page("domain-a");
+        let domain = snapshot.state.get_page("domain-a");
         assert!(domain.is_some());
         let domain = domain.unwrap();
         assert_eq!(domain.title, "Domain A");
         assert!(domain.has_content);
 
         // Verify child via root navigation (non-section pages expand their children)
-        let nav = state.navigation("");
+        let nav = snapshot.state.navigation("");
         assert_eq!(nav.items.len(), 1);
         assert_eq!(nav.items[0].path, "domain-a");
         assert_eq!(nav.items[0].children.len(), 1);
         assert_eq!(nav.items[0].children[0].title, "Setup Guide");
 
         // Verify child page details
-        let child = state.get_page("domain-a/guide").unwrap();
+        let child = snapshot.state.get_page("domain-a/guide").unwrap();
         assert!(child.has_content);
     }
 
@@ -524,9 +520,9 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
-        let page = state.get_page("guide");
+        let page = snapshot.state.get_page("guide");
         assert!(page.is_some());
         assert_eq!(page.unwrap().title, "My Custom Title");
     }
@@ -537,9 +533,9 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
-        let page = state.get_page("руководство");
+        let page = snapshot.state.get_page("руководство");
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.title, "Руководство");
@@ -554,17 +550,17 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
         // Child should be at root level (promoted)
-        let roots = state.get_root_pages();
+        let roots = snapshot.state.get_root_pages();
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].path, "no-index/child");
         assert!(roots[0].has_content);
     }
 
     #[test]
-    fn test_state_returns_same_arc() {
+    fn test_snapshot_returns_same_arc() {
         let storage = MockStorage::new().with_document("guide", "Guide");
 
         let site = create_site_with_storage(storage);
@@ -572,11 +568,11 @@ mod tests {
         // First reload to populate
         let _ = site.reload_if_needed();
 
-        // state() should return the same Arc
-        let state1 = site.state();
-        let state2 = site.state();
+        // snapshot() should return the same Arc
+        let snapshot1 = site.snapshot();
+        let snapshot2 = site.snapshot();
 
-        assert!(Arc::ptr_eq(&state1, &state2));
+        assert!(Arc::ptr_eq(&snapshot1, &snapshot2));
     }
 
     #[test]
@@ -599,15 +595,15 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         // First reload
-        let state1 = site.reload_if_needed();
-        assert!(state1.get_page("guide").is_some());
+        let snapshot1 = site.reload_if_needed();
+        assert!(snapshot1.state.get_page("guide").is_some());
 
         // Invalidate cache
         site.invalidate();
 
         // Second reload - should be a different Arc
-        let state2 = site.reload_if_needed();
-        assert!(!Arc::ptr_eq(&state1, &state2));
+        let snapshot2 = site.reload_if_needed();
+        assert!(!Arc::ptr_eq(&snapshot1, &snapshot2));
     }
 
     #[test]
@@ -623,8 +619,8 @@ mod tests {
             .map(|_| {
                 let site = Arc::clone(&site);
                 thread::spawn(move || {
-                    let state = site.reload_if_needed();
-                    assert!(state.get_page("guide").is_some());
+                    let snapshot = site.reload_if_needed();
+                    assert!(snapshot.state.get_page("guide").is_some());
                 })
             })
             .collect();
@@ -653,9 +649,9 @@ mod tests {
                     if i % 2 == 0 {
                         site.invalidate();
                     } else {
-                        let state = site.reload_if_needed();
+                        let snapshot = site.reload_if_needed();
                         // Site should always be valid
-                        assert!(state.get_page("guide").is_some());
+                        assert!(snapshot.state.get_page("guide").is_some());
                     }
                 })
             })
@@ -666,8 +662,8 @@ mod tests {
         }
 
         // Final state should be valid
-        let state = site.reload_if_needed();
-        assert!(state.get_page("guide").is_some());
+        let snapshot = site.reload_if_needed();
+        assert!(snapshot.state.get_page("guide").is_some());
     }
 
     #[test]
@@ -680,26 +676,26 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
         // Check root
-        let root = state.get_page("").unwrap();
+        let root = snapshot.state.get_page("").unwrap();
         assert_eq!(root.title, "Home");
 
         // Check level 1
-        let level1 = state.get_page("level1").unwrap();
+        let level1 = snapshot.state.get_page("level1").unwrap();
         assert_eq!(level1.title, "Level 1");
 
         // Check level 2
-        let level2 = state.get_page("level1/level2").unwrap();
+        let level2 = snapshot.state.get_page("level1/level2").unwrap();
         assert_eq!(level2.title, "Level 2");
 
         // Check deep page
-        let deep = state.get_page("level1/level2/page").unwrap();
+        let deep = snapshot.state.get_page("level1/level2/page").unwrap();
         assert_eq!(deep.title, "Deep Page");
 
         // Verify nested hierarchy via root navigation (non-section pages expand children)
-        let root_nav = state.navigation("");
+        let root_nav = snapshot.state.navigation("");
         assert_eq!(root_nav.items.len(), 1);
         assert_eq!(root_nav.items[0].path, "level1");
         // level1 contains level2
@@ -820,16 +816,16 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
-        let page = state.get_page("my-domain");
+        let page = snapshot.state.get_page("my-domain");
         assert!(page.is_some());
         let page = page.unwrap();
         assert_eq!(page.title, "My Domain");
         assert!(!page.has_content); // Virtual page
 
         // page_type is tracked via sections map
-        let section = state.sections().get("my-domain");
+        let section = snapshot.state.sections().get("my-domain");
         assert!(section.is_some());
         assert_eq!(section.unwrap().section_type, "domain");
     }
@@ -842,9 +838,9 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
-        let page = state.get_page("real-domain");
+        let page = snapshot.state.get_page("real-domain");
         assert!(page.is_some());
         let page = page.unwrap();
         // Should have content
@@ -902,20 +898,20 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state = site.reload_if_needed();
+        let snapshot = site.reload_if_needed();
 
         // Check parent virtual
-        let domains = state.get_page("domains");
+        let domains = snapshot.state.get_page("domains");
         assert!(domains.is_some());
         assert!(!domains.unwrap().has_content);
 
         // Check child virtual
-        let billing = state.get_page("domains/billing");
+        let billing = snapshot.state.get_page("domains/billing");
         assert!(billing.is_some());
         assert!(!billing.unwrap().has_content);
 
         // Check real page has correct parent
-        let overview = state.get_page("domains/billing/overview");
+        let overview = snapshot.state.get_page("domains/billing/overview");
         assert!(overview.is_some());
         assert!(overview.unwrap().has_content);
 
