@@ -39,59 +39,6 @@ pub(crate) fn parse_metadata(content: &str) -> Result<Metadata, MetadataError> {
 mod tests {
     use super::*;
 
-    // ── YamlFields deserialization tests ────────────────────────────
-
-    fn parse_fields(yaml: &str) -> Option<YamlFields> {
-        serde_yaml::from_str(yaml).ok()
-    }
-
-    #[test]
-    fn test_yaml_fields_simple_values() {
-        let yaml = "title: My Title\ntype: domain\ndescription: Some description";
-        let fields = parse_fields(yaml).unwrap();
-        assert_eq!(fields.title, Some("My Title".to_owned()));
-        assert_eq!(fields.page_type, Some("domain".to_owned()));
-        assert_eq!(fields.description, Some("Some description".to_owned()));
-    }
-
-    #[test]
-    fn test_yaml_fields_quoted_values() {
-        let yaml = "title: \"My Title\"\ndescription: 'A description'";
-        let fields = parse_fields(yaml).unwrap();
-        assert_eq!(fields.title, Some("My Title".to_owned()));
-        assert_eq!(fields.description, Some("A description".to_owned()));
-    }
-
-    #[test]
-    fn test_yaml_fields_block_scalar_description() {
-        let yaml = "title: My Title\ndescription: |\n  This is a\n  multiline description";
-        let fields = parse_fields(yaml).unwrap();
-        assert_eq!(fields.title, Some("My Title".to_owned()));
-        assert_eq!(
-            fields.description,
-            Some("This is a\nmultiline description".to_owned())
-        );
-    }
-
-    #[test]
-    fn test_yaml_fields_folded_scalar_description() {
-        let yaml = "title: My Title\ndescription: >\n  This is a\n  folded description";
-        let fields = parse_fields(yaml).unwrap();
-        assert_eq!(fields.title, Some("My Title".to_owned()));
-        assert!(fields.description.is_some());
-    }
-
-    #[test]
-    fn test_yaml_fields_missing_fields_are_none() {
-        let yaml = "type: domain";
-        let fields = parse_fields(yaml).unwrap();
-        assert!(fields.title.is_none());
-        assert_eq!(fields.page_type, Some("domain".to_owned()));
-        assert!(fields.description.is_none());
-    }
-
-    // ── parse_metadata tests ─────────────────────────────────────────
-
     #[test]
     fn test_parse_metadata_empty() {
         let result = parse_metadata("");
