@@ -14,8 +14,6 @@ use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
-use crate::site::{BreadcrumbItem, Page};
-
 /// Configuration for [`PageRenderer`].
 #[derive(Debug)]
 pub struct PageRendererConfig {
@@ -40,6 +38,26 @@ impl Default for PageRendererConfig {
             dpi: 192,
         }
     }
+}
+
+/// Document page data.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Page {
+    /// Page title (from H1 heading, filename, or metadata override).
+    pub title: String,
+    /// URL path without leading slash (e.g., "guide", "domain/page", "" for root).
+    pub path: String,
+    /// True if page has content (real page). False for virtual pages (metadata only).
+    pub has_content: bool,
+}
+
+/// Breadcrumb navigation item.
+#[derive(Debug, PartialEq, Eq)]
+pub struct BreadcrumbItem {
+    /// Display title.
+    pub title: String,
+    /// Link target path.
+    pub path: String,
 }
 
 /// Result of rendering a markdown page.

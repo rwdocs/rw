@@ -49,7 +49,9 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_storage::Storage;
 use serde::{Deserialize, Serialize};
 
-use crate::page::{PageRenderResult, PageRenderer, PageRendererConfig, RenderError};
+use crate::page::{
+    BreadcrumbItem, Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderError,
+};
 use crate::typed_page_registry::TypedPageRegistry;
 
 /// Get the depth of a URL path.
@@ -68,7 +70,7 @@ fn url_depth(path: &str) -> usize {
 
 // Re-import from crate root for public types, and direct module for internal
 pub(crate) use crate::site_state::{
-    BreadcrumbItem, Navigation, Page, SectionInfo, SiteState, SiteStateBuilder,
+    Navigation, SectionInfo, SiteState, SiteStateBuilder,
 };
 
 
