@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed `PageRenderer::render_page()` to `render()` (method names shouldn't repeat the type name)
 - Reordered `PageRenderer::new()` and `Site::new()` args: dependencies (`storage`, `cache`) before config
 - Introduced `SiteSnapshot` to bundle `SiteState` + `TypedPageRegistry` as an atomic unit; `Site` now swaps a single `Arc<SiteSnapshot>` instead of separate state and registry
+- Moved cache serialization types (`CachedSiteStateRef`, `CachedSiteState`) from `site` to `site_state` module (reduces `Site` responsibilities)
 
 ## [0.1.4] - 2026-02-11
 
