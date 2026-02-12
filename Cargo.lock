@@ -2141,6 +2141,7 @@ dependencies = [
  "notify",
  "regex",
  "rw-storage",
+ "serde",
  "serde_json",
  "serde_yaml",
  "tempfile",

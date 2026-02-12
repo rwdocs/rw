@@ -598,7 +598,14 @@ mod tests {
     #[test]
     fn test_get_page_returns_page() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page("Guide".to_owned(), "guide".to_owned(), true, None, None, None);
+        builder.add_page(
+            "Guide".to_owned(),
+            "guide".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
         let site = builder.build();
 
         let page = site.get_page("guide");
@@ -631,7 +638,14 @@ mod tests {
     #[test]
     fn test_get_breadcrumbs_root_page_returns_home() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page("Guide".to_owned(), "guide".to_owned(), true, None, None, None);
+        builder.add_page(
+            "Guide".to_owned(),
+            "guide".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
         let site = builder.build();
 
         let breadcrumbs = site.get_breadcrumbs("guide");
@@ -644,8 +658,14 @@ mod tests {
     #[test]
     fn test_get_breadcrumbs_nested_page_returns_ancestors() {
         let mut builder = SiteStateBuilder::new();
-        let parent_idx =
-            builder.add_page("Parent".to_owned(), "parent".to_owned(), true, None, None, None);
+        let parent_idx = builder.add_page(
+            "Parent".to_owned(),
+            "parent".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
         builder.add_page(
             "Child".to_owned(),
             "parent/child".to_owned(),
@@ -677,7 +697,8 @@ mod tests {
     #[test]
     fn test_get_breadcrumbs_with_root_index_excludes_root() {
         let mut builder = SiteStateBuilder::new();
-        let root_idx = builder.add_page("Welcome".to_owned(), String::new(), true, None, None, None);
+        let root_idx =
+            builder.add_page("Welcome".to_owned(), String::new(), true, None, None, None);
         let domain_idx = builder.add_page(
             "Domain".to_owned(),
             "domain".to_owned(),
@@ -725,7 +746,14 @@ mod tests {
     fn test_add_page_returns_index() {
         let mut builder = SiteStateBuilder::new();
 
-        let idx = builder.add_page("Guide".to_owned(), "guide".to_owned(), true, None, None, None);
+        let idx = builder.add_page(
+            "Guide".to_owned(),
+            "guide".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
 
         assert_eq!(idx, 0);
     }
@@ -771,7 +799,14 @@ mod tests {
     #[test]
     fn test_build_creates_site() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page("Guide".to_owned(), "guide".to_owned(), true, None, None, None);
+        builder.add_page(
+            "Guide".to_owned(),
+            "guide".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
 
         let site = builder.build();
 
@@ -820,7 +855,14 @@ mod tests {
     #[test]
     fn test_navigation_flat_site() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page("Guide".to_owned(), "guide".to_owned(), true, None, None, None);
+        builder.add_page(
+            "Guide".to_owned(),
+            "guide".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
         builder.add_page("API".to_owned(), "api".to_owned(), true, None, None, None);
         let site = builder.build();
 
@@ -869,8 +911,22 @@ mod tests {
     fn test_navigation_deeply_nested() {
         let mut builder = SiteStateBuilder::new();
         let idx_a = builder.add_page("A".to_owned(), "a".to_owned(), true, None, None, None);
-        let idx_b = builder.add_page("B".to_owned(), "a/b".to_owned(), true, Some(idx_a), None, None);
-        builder.add_page("C".to_owned(), "a/b/c".to_owned(), true, Some(idx_b), None, None);
+        let idx_b = builder.add_page(
+            "B".to_owned(),
+            "a/b".to_owned(),
+            true,
+            Some(idx_a),
+            None,
+            None,
+        );
+        builder.add_page(
+            "C".to_owned(),
+            "a/b/c".to_owned(),
+            true,
+            Some(idx_b),
+            None,
+            None,
+        );
         let site = builder.build();
 
         let nav = site.navigation("");
@@ -1323,7 +1379,14 @@ mod tests {
     #[test]
     fn test_get_navigation_scope_page_not_in_section() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page("Guide".to_owned(), "guide".to_owned(), true, None, None, None);
+        builder.add_page(
+            "Guide".to_owned(),
+            "guide".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
         let site = builder.build();
 
         let scope = site.get_navigation_scope("guide");
@@ -1334,7 +1397,14 @@ mod tests {
     #[test]
     fn test_navigation_invalid_scope_returns_empty() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page("Guide".to_owned(), "guide".to_owned(), true, None, None, None);
+        builder.add_page(
+            "Guide".to_owned(),
+            "guide".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
         let site = builder.build();
 
         let nav = site.navigation("nonexistent");
