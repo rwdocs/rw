@@ -11,10 +11,61 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
-use rw_storage::{Metadata, Storage};
+use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
-use crate::site::{BreadcrumbItem, Page, PageRenderResult, RenderError, SiteConfig};
+use crate::site::{BreadcrumbItem, Page, SiteConfig};
+
+/// Result of rendering a markdown page.
+#[derive(Debug)]
+pub struct PageRenderResult {
+    /// Rendered HTML content.
+    pub html: String,
+    /// Title extracted from first H1 heading (if enabled).
+    pub title: Option<String>,
+    /// Table of contents entries.
+    pub toc: Vec<TocEntry>,
+    /// Warnings generated during conversion (e.g., unresolved includes).
+    pub warnings: Vec<String>,
+    /// Whether result was served from cache.
+    pub from_cache: bool,
+    /// Whether the page has content (real page vs virtual page).
+    pub has_content: bool,
+    /// Source file modification time (Unix timestamp).
+    pub source_mtime: f64,
+    /// Breadcrumb navigation items.
+    pub breadcrumbs: Vec<BreadcrumbItem>,
+    /// Page metadata from YAML sidecar file.
+    pub metadata: Option<Metadata>,
+}
+
+/// Error returned when page rendering fails.
+#[derive(Debug, thiserror::Error)]
+pub enum RenderError {
+    /// Content not found for page.
+    #[error("Content not found: {0}")]
+    FileNotFound(String),
+    /// Page not found in site structure.
+    #[error("Page not found: {0}")]
+    PageNotFound(String),
+    /// I/O error reading source file.
+    #[error("I/O error: {0}")]
+    Io(#[source] std::io::Error),
+}
+
+impl From<StorageError> for RenderError {
+    fn from(e: StorageError) -> Self {
+        match e.kind {
+            StorageErrorKind::NotFound => Self::FileNotFound(
+                e.path
+                    .as_deref()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+            ),
+            _ => Self::Io(std::io::Error::other(e.to_string())),
+        }
+    }
+}
 
 /// Page rendering pipeline.
 ///
