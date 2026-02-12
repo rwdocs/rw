@@ -1,8 +1,14 @@
 //! `rw techdocs build` command implementation.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::Args;
+use rw_config::{CliSettings, Config};
+use rw_site::PageRendererConfig;
+use rw_storage::Storage;
+use rw_storage_fs::FsStorage;
+use rw_techdocs::{BuildConfig, StaticSiteBuilder};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -38,7 +44,68 @@ pub(crate) struct BuildArgs {
 impl BuildArgs {
     pub(crate) fn execute(self) -> Result<(), CliError> {
         let output = Output::new();
-        output.info("rw techdocs build: not yet implemented");
+
+        let cli_settings = CliSettings {
+            source_dir: self.source_dir.clone(),
+            kroki_url: self.kroki_url.clone(),
+            cache_enabled: self.no_cache.then_some(false),
+            ..CliSettings::default()
+        };
+        let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
+
+        output.info(&format!(
+            "Source: {}",
+            config.docs_resolved.source_dir.display()
+        ));
+        output.info(&format!("Output: {}", self.output_dir.display()));
+
+        // Create storage
+        let meta_filename = &config.metadata.name;
+        let storage: Arc<dyn Storage> = Arc::new(FsStorage::with_meta_filename(
+            config.docs_resolved.source_dir.clone(),
+            meta_filename,
+        ));
+
+        // Load CSS from frontend dist if available
+        let css_content = load_frontend_css();
+
+        let site_name = self
+            .site_name
+            .unwrap_or_else(|| "Documentation".to_owned());
+
+        let build_config = BuildConfig {
+            site_name,
+            css_content,
+        };
+
+        let builder = StaticSiteBuilder::new(storage, build_config).with_renderer_config(
+            PageRendererConfig {
+                extract_title: true,
+                kroki_url: config.diagrams_resolved.kroki_url.clone(),
+                include_dirs: config.diagrams_resolved.include_dirs.clone(),
+                dpi: config.diagrams_resolved.dpi,
+            },
+        );
+
+        builder.build(&self.output_dir)?;
+
+        output.success(&format!(
+            "Site built successfully to {}",
+            self.output_dir.display()
+        ));
         Ok(())
     }
+}
+
+/// Try to load CSS from the frontend dist directory.
+///
+/// Looks for `frontend/dist/assets/*.css` relative to the binary location
+/// or current directory.
+fn load_frontend_css() -> Option<String> {
+    // Try relative to current directory
+    let pattern = "frontend/dist/assets/*.css";
+    for entry in glob::glob(pattern).ok()?.flatten() {
+        return std::fs::read_to_string(entry).ok();
+    }
+    None
 }
