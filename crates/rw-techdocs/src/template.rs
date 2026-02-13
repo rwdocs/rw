@@ -5,7 +5,10 @@
 
 use std::fmt::Write;
 
+use serde::Serialize;
+
 /// Data for rendering a navigation item in the static template.
+#[derive(Serialize)]
 pub struct NavItemData {
     pub title: String,
     pub path: String,
@@ -15,6 +18,7 @@ pub struct NavItemData {
 }
 
 /// Data for the scope header shown in scoped navigation.
+#[derive(Serialize)]
 pub struct ScopeHeaderData {
     /// Section title (e.g., "Billing").
     pub title: String,
@@ -25,6 +29,7 @@ pub struct ScopeHeaderData {
 }
 
 /// A group of navigation items with an optional type label.
+#[derive(Serialize)]
 pub struct NavGroupData {
     /// Group label (e.g., "Systems"). `None` for ungrouped items.
     pub label: Option<String>,
@@ -32,12 +37,14 @@ pub struct NavGroupData {
 }
 
 /// Data for a breadcrumb entry.
+#[derive(Serialize)]
 pub struct BreadcrumbData {
     pub title: String,
     pub path: String,
 }
 
 /// Data for a table of contents entry.
+#[derive(Serialize)]
 pub struct TocData {
     pub level: u8,
     pub title: String,
@@ -45,6 +52,7 @@ pub struct TocData {
 }
 
 /// All data needed to render a static page.
+#[derive(Serialize)]
 pub struct PageData {
     pub title: String,
     pub path: String,
