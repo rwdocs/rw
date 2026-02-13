@@ -192,4 +192,65 @@
   .prose .tabs [role="tabpanel"] > pre:first-child {
     @apply !mt-2;
   }
+
+  /* Static tabs (CSS-only, no JS needed) */
+  .prose .tabs--static > input[type="radio"] {
+    @apply hidden;
+  }
+
+  .prose .tabs--static > .tabs-panel {
+    @apply hidden pt-3;
+  }
+
+  .prose .tabs--static .tabs-buttons label {
+    @apply px-4 py-2 text-sm font-medium text-gray-600 bg-transparent border-b-2 border-transparent cursor-pointer transition-colors;
+  }
+
+  .prose .tabs--static .tabs-buttons label:hover {
+    @apply text-gray-900 border-gray-300;
+  }
+
+  .prose .tabs--static > .tabs-panel > :first-child {
+    @apply mt-0;
+  }
+
+  .prose .tabs--static > .tabs-panel > :last-child {
+    @apply mb-0;
+  }
+
+  .prose .tabs--static > .tabs-panel:has(> pre:first-child) {
+    @apply pt-0;
+  }
+
+  .prose .tabs--static > .tabs-panel > pre:first-child {
+    @apply !mt-2;
+  }
+
+  /* Show panel matching checked radio (up to 10 tabs) */
+  .prose .tabs--static > input:nth-child(1):checked ~ .tabs-panel:nth-of-type(1),
+  .prose .tabs--static > input:nth-child(2):checked ~ .tabs-panel:nth-of-type(2),
+  .prose .tabs--static > input:nth-child(3):checked ~ .tabs-panel:nth-of-type(3),
+  .prose .tabs--static > input:nth-child(4):checked ~ .tabs-panel:nth-of-type(4),
+  .prose .tabs--static > input:nth-child(5):checked ~ .tabs-panel:nth-of-type(5),
+  .prose .tabs--static > input:nth-child(6):checked ~ .tabs-panel:nth-of-type(6),
+  .prose .tabs--static > input:nth-child(7):checked ~ .tabs-panel:nth-of-type(7),
+  .prose .tabs--static > input:nth-child(8):checked ~ .tabs-panel:nth-of-type(8),
+  .prose .tabs--static > input:nth-child(9):checked ~ .tabs-panel:nth-of-type(9),
+  .prose .tabs--static > input:nth-child(10):checked ~ .tabs-panel:nth-of-type(10) {
+    @apply block;
+  }
+
+  /* Active tab label styling */
+  .prose .tabs--static > input:nth-child(1):checked ~ .tabs-buttons > label:nth-child(1),
+  .prose .tabs--static > input:nth-child(2):checked ~ .tabs-buttons > label:nth-child(2),
+  .prose .tabs--static > input:nth-child(3):checked ~ .tabs-buttons > label:nth-child(3),
+  .prose .tabs--static > input:nth-child(4):checked ~ .tabs-buttons > label:nth-child(4),
+  .prose .tabs--static > input:nth-child(5):checked ~ .tabs-buttons > label:nth-child(5),
+  .prose .tabs--static > input:nth-child(6):checked ~ .tabs-buttons > label:nth-child(6),
+  .prose .tabs--static > input:nth-child(7):checked ~ .tabs-buttons > label:nth-child(7),
+  .prose .tabs--static > input:nth-child(8):checked ~ .tabs-buttons > label:nth-child(8),
+  .prose .tabs--static > input:nth-child(9):checked ~ .tabs-buttons > label:nth-child(9),
+  .prose .tabs--static > input:nth-child(10):checked ~ .tabs-buttons > label:nth-child(10) {
+    @apply text-blue-600 border-blue-600;
+  }
 }
