@@ -11,6 +11,24 @@ pub struct NavItemData {
     pub path: String,
     pub children: Vec<NavItemData>,
     pub is_active: bool,
+    pub section_type: Option<String>,
+}
+
+/// Data for the scope header shown in scoped navigation.
+pub struct ScopeHeaderData {
+    /// Section title (e.g., "Billing").
+    pub title: String,
+    /// Back link label ("Home" or parent section title).
+    pub back_link_title: String,
+    /// Back link target path.
+    pub back_link_path: String,
+}
+
+/// A group of navigation items with an optional type label.
+pub struct NavGroupData {
+    /// Group label (e.g., "Systems"). `None` for ungrouped items.
+    pub label: Option<String>,
+    pub items: Vec<NavItemData>,
 }
 
 /// Data for a breadcrumb entry.
@@ -33,7 +51,8 @@ pub struct PageData {
     pub html_content: String,
     pub breadcrumbs: Vec<BreadcrumbData>,
     pub toc: Vec<TocData>,
-    pub navigation: Vec<NavItemData>,
+    pub scope: Option<ScopeHeaderData>,
+    pub nav_groups: Vec<NavGroupData>,
     pub css_path: String,
 }
 
@@ -69,7 +88,7 @@ pub fn render_page(page: &PageData) -> String {
     html.push_str("<div class=\"min-h-screen flex flex-col md:flex-row\">\n");
 
     // Navigation sidebar
-    render_sidebar(&mut html, &page.navigation);
+    render_sidebar(&mut html, page.scope.as_ref(), &page.nav_groups);
 
     // Content + ToC container
     html.push_str("<div class=\"flex-1\">\n");
@@ -95,7 +114,7 @@ pub fn render_page(page: &PageData) -> String {
 }
 
 /// Render the navigation sidebar (matches Layout.svelte aside).
-fn render_sidebar(html: &mut String, items: &[NavItemData]) {
+fn render_sidebar(html: &mut String, scope: Option<&ScopeHeaderData>, groups: &[NavGroupData]) {
     html.push_str(
         "<aside class=\"w-[280px] flex-shrink-0 border-r border-gray-200 \
          hidden md:block h-screen sticky top-0 overflow-y-auto\">\n",
@@ -109,12 +128,81 @@ fn render_sidebar(html: &mut String, items: &[NavItemData]) {
     html.push_str("<span class=\"text-gray-400\">W</span>");
     html.push_str("</span>\n</a>\n");
 
-    // Navigation tree
-    html.push_str("<nav>\n<ul>\n");
-    render_nav_items(html, items);
-    html.push_str("</ul>\n</nav>\n");
+    // Scope header (matches NavigationSidebar.svelte)
+    if let Some(scope) = scope {
+        render_scope_header(html, scope);
+    }
+
+    // Navigation tree with groups
+    html.push_str("<nav>\n");
+    render_nav_groups(html, groups);
+    html.push_str("</nav>\n");
 
     html.push_str("</div>\n</aside>\n");
+}
+
+/// Render the scope header with back link and section title.
+fn render_scope_header(html: &mut String, scope: &ScopeHeaderData) {
+    html.push_str("<div class=\"mb-5\">\n");
+
+    // Back link with left arrow
+    let _ = write!(
+        html,
+        "<a href=\"{}\" class=\"text-sm text-gray-500 hover:text-blue-600 \
+         flex items-center mb-2\">\n",
+        escape(&scope.back_link_path),
+    );
+    html.push_str("<span class=\"w-[22px] flex items-center justify-center\">\n");
+    html.push_str(
+        "<svg class=\"w-3.5 h-3.5 rotate-180\" fill=\"currentColor\" \
+         viewBox=\"0 0 20 20\">\n",
+    );
+    html.push_str(
+        "<path fill-rule=\"evenodd\" d=\"M7.293 14.707a1 1 0 010-1.414L10.586 \
+         10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 \
+         01-1.414 0z\" clip-rule=\"evenodd\"/>\n",
+    );
+    html.push_str("</svg>\n</span>\n");
+    let _ = write!(
+        html,
+        "<span class=\"px-1.5\">{}</span>\n",
+        escape(&scope.back_link_title),
+    );
+    html.push_str("</a>\n");
+
+    // Section title
+    let _ = write!(
+        html,
+        "<h2 class=\"text-xl font-light text-gray-900 pl-[28px]\">{}</h2>\n",
+        escape(&scope.title),
+    );
+
+    html.push_str("</div>\n");
+}
+
+/// Render navigation groups (matches NavTree.svelte + NavGroup.svelte).
+fn render_nav_groups(html: &mut String, groups: &[NavGroupData]) {
+    for group in groups {
+        if let Some(label) = &group.label {
+            // Labeled group (matches NavGroup.svelte with label)
+            html.push_str("<div class=\"nav-group mt-5 first:mt-0\">\n");
+            let _ = write!(
+                html,
+                "<div class=\"text-xs font-semibold text-gray-500 uppercase \
+                 tracking-wider px-1.5 pb-1.5\">{}</div>\n",
+                escape(label),
+            );
+            html.push_str("<ul>\n");
+            render_nav_items(html, &group.items);
+            html.push_str("</ul>\n");
+            html.push_str("</div>\n");
+        } else {
+            // Ungrouped items
+            html.push_str("<ul>\n");
+            render_nav_items(html, &group.items);
+            html.push_str("</ul>\n");
+        }
+    }
 }
 
 /// Render navigation items recursively (matches NavItem.svelte).
@@ -241,6 +329,20 @@ fn escape(s: &str) -> String {
 mod tests {
     use super::*;
 
+    fn nav_item(title: &str, path: &str) -> NavItemData {
+        NavItemData {
+            title: title.to_owned(),
+            path: path.to_owned(),
+            children: vec![],
+            is_active: false,
+            section_type: None,
+        }
+    }
+
+    fn ungrouped(items: Vec<NavItemData>) -> NavGroupData {
+        NavGroupData { label: None, items }
+    }
+
     #[test]
     fn render_page_contains_content() {
         let page = PageData {
@@ -249,7 +351,8 @@ mod tests {
             html_content: "<p>Hello world</p>".to_owned(),
             breadcrumbs: vec![],
             toc: vec![],
-            navigation: vec![],
+            scope: None,
+            nav_groups: vec![],
             css_path: "assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
@@ -275,7 +378,8 @@ mod tests {
                 },
             ],
             toc: vec![],
-            navigation: vec![],
+            scope: None,
+            nav_groups: vec![],
             css_path: "../../assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
@@ -296,7 +400,8 @@ mod tests {
                 title: "Intro".to_owned(),
                 id: "intro".to_owned(),
             }],
-            navigation: vec![],
+            scope: None,
+            nav_groups: vec![],
             css_path: "assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
@@ -313,12 +418,8 @@ mod tests {
             html_content: "<p>Home</p>".to_owned(),
             breadcrumbs: vec![],
             toc: vec![],
-            navigation: vec![NavItemData {
-                title: "Guide".to_owned(),
-                path: "/guide".to_owned(),
-                children: vec![],
-                is_active: false,
-            }],
+            scope: None,
+            nav_groups: vec![ungrouped(vec![nav_item("Guide", "/guide")])],
             css_path: "assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
@@ -328,18 +429,16 @@ mod tests {
 
     #[test]
     fn render_page_marks_active_nav_item() {
+        let mut item = nav_item("Guide", "/guide");
+        item.is_active = true;
         let page = PageData {
             title: "Guide".to_owned(),
             path: "guide".to_owned(),
             html_content: "<p>Guide</p>".to_owned(),
             breadcrumbs: vec![],
             toc: vec![],
-            navigation: vec![NavItemData {
-                title: "Guide".to_owned(),
-                path: "/guide".to_owned(),
-                children: vec![],
-                is_active: true,
-            }],
+            scope: None,
+            nav_groups: vec![ungrouped(vec![item])],
             css_path: "assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
@@ -365,12 +464,12 @@ mod tests {
                     id: "subsection".to_owned(),
                 },
             ],
-            navigation: vec![],
+            scope: None,
+            nav_groups: vec![],
             css_path: "assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("<li class=\"ml-3\"><a href=\"#subsection\""));
-        // Level 2 should not have ml-3
         assert!(html.contains("<li><a href=\"#section\""));
     }
 
@@ -383,30 +482,73 @@ mod tests {
 
     #[test]
     fn render_page_nav_with_children_shows_chevron() {
+        let mut parent = nav_item("Domains", "/domains");
+        parent.children = vec![nav_item("Billing", "/domains/billing")];
         let page = PageData {
             title: "Home".to_owned(),
             path: String::new(),
             html_content: String::new(),
             breadcrumbs: vec![],
             toc: vec![],
-            navigation: vec![NavItemData {
-                title: "Domains".to_owned(),
-                path: "/domains".to_owned(),
-                children: vec![NavItemData {
-                    title: "Billing".to_owned(),
-                    path: "/domains/billing".to_owned(),
-                    children: vec![],
-                    is_active: false,
-                }],
-                is_active: false,
-            }],
+            scope: None,
+            nav_groups: vec![ungrouped(vec![parent])],
             css_path: "assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
-        // Parent should have chevron SVG
         assert!(html.contains("rotate-90"));
-        // Child rendered in nested ul
         assert!(html.contains("Billing"));
         assert!(html.contains("<ul class=\"ml-3\">"));
+    }
+
+    #[test]
+    fn render_scope_header_shows_back_link_and_title() {
+        let page = PageData {
+            title: "API".to_owned(),
+            path: "domains/billing/api".to_owned(),
+            html_content: String::new(),
+            breadcrumbs: vec![],
+            toc: vec![],
+            scope: Some(ScopeHeaderData {
+                title: "Billing".to_owned(),
+                back_link_title: "Home".to_owned(),
+                back_link_path: "/".to_owned(),
+            }),
+            nav_groups: vec![ungrouped(vec![nav_item("API", "/domains/billing/api")])],
+            css_path: "../../assets/styles.css".to_owned(),
+        };
+        let html = render_page(&page);
+        // Back link
+        assert!(html.contains("Home"));
+        assert!(html.contains("rotate-180")); // Left arrow
+        // Section title
+        assert!(html.contains("Billing"));
+        assert!(html.contains("text-xl font-light"));
+    }
+
+    #[test]
+    fn render_nav_groups_with_labels() {
+        let mut billing = nav_item("Billing", "/domains/billing");
+        billing.section_type = Some("domain".to_owned());
+        let page = PageData {
+            title: "Home".to_owned(),
+            path: String::new(),
+            html_content: String::new(),
+            breadcrumbs: vec![],
+            toc: vec![],
+            scope: None,
+            nav_groups: vec![
+                ungrouped(vec![nav_item("Guide", "/guide")]),
+                NavGroupData {
+                    label: Some("Domains".to_owned()),
+                    items: vec![billing],
+                },
+            ],
+            css_path: "assets/styles.css".to_owned(),
+        };
+        let html = render_page(&page);
+        assert!(html.contains("Guide"));
+        assert!(html.contains("Domains"));
+        assert!(html.contains("uppercase tracking-wider"));
+        assert!(html.contains("Billing"));
     }
 }

@@ -5,10 +5,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use rw_cache::NullCache;
-use rw_site::{NavItem, PageRendererConfig, Site, TocEntry};
+use rw_site::{NavItem, Navigation, PageRendererConfig, Site, TocEntry};
 use rw_storage::Storage;
 
-use crate::template::{self, BreadcrumbData, NavItemData, PageData, TocData};
+use crate::template::{
+    self, BreadcrumbData, NavGroupData, NavItemData, PageData, ScopeHeaderData, TocData,
+};
 
 /// Configuration for static site building.
 pub struct BuildConfig {
@@ -82,6 +84,8 @@ impl StaticSiteBuilder {
             let page_nav = site.navigation(&scope);
 
             let nav_items = convert_nav_items(&page_nav.items, page_path);
+            let scope = convert_scope(&page_nav);
+            let nav_groups = group_nav_items(nav_items);
             let breadcrumbs = convert_breadcrumbs(&render_result.breadcrumbs);
             let toc = convert_toc(&render_result.toc);
             let css_path = compute_css_path(page_path);
@@ -94,7 +98,8 @@ impl StaticSiteBuilder {
                 html_content: render_result.html,
                 breadcrumbs,
                 toc,
-                navigation: nav_items,
+                scope,
+                nav_groups,
                 css_path,
             };
 
@@ -214,8 +219,68 @@ fn convert_nav_items(items: &[NavItem], current_path: &str) -> Vec<NavItemData> 
             path: format!("/{}", item.path),
             is_active: item.path == current_path,
             children: convert_nav_items(&item.children, current_path),
+            section_type: item.section_type.clone(),
         })
         .collect()
+}
+
+fn convert_scope(nav: &Navigation) -> Option<ScopeHeaderData> {
+    let scope = nav.scope.as_ref()?;
+    let back = nav
+        .parent_scope
+        .as_ref()
+        .map(|p| (p.title.clone(), p.path.clone()));
+    let (back_link_title, back_link_path) =
+        back.unwrap_or_else(|| ("Home".to_owned(), "/".to_owned()));
+    Some(ScopeHeaderData {
+        title: scope.title.clone(),
+        back_link_title,
+        back_link_path,
+    })
+}
+
+/// Group navigation items by section type (matches frontend `groupNavItems()`).
+fn group_nav_items(items: Vec<NavItemData>) -> Vec<NavGroupData> {
+    let mut typed_groups: std::collections::BTreeMap<String, Vec<NavItemData>> =
+        std::collections::BTreeMap::new();
+    let mut ungrouped = Vec::new();
+
+    for item in items {
+        if let Some(ref st) = item.section_type {
+            typed_groups.entry(st.clone()).or_default().push(item);
+        } else {
+            ungrouped.push(item);
+        }
+    }
+
+    let mut groups = Vec::new();
+
+    if !ungrouped.is_empty() {
+        groups.push(NavGroupData {
+            label: None,
+            items: ungrouped,
+        });
+    }
+
+    for (section_type, group_items) in typed_groups {
+        groups.push(NavGroupData {
+            label: Some(pluralize_type(&section_type)),
+            items: group_items,
+        });
+    }
+
+    groups
+}
+
+fn pluralize_type(t: &str) -> String {
+    match t.to_lowercase().as_str() {
+        "domain" => "Domains".to_owned(),
+        "system" => "Systems".to_owned(),
+        "service" => "Services".to_owned(),
+        "api" => "APIs".to_owned(),
+        "guide" => "Guides".to_owned(),
+        _ => format!("{t}s"),
+    }
 }
 
 fn convert_breadcrumbs(breadcrumbs: &[rw_site::BreadcrumbItem]) -> Vec<BreadcrumbData> {
@@ -267,9 +332,9 @@ body{margin:0;font-family:system-ui,-apple-system,sans-serif;line-height:1.6}
 .border-r{border-right:1px solid}.border-gray-200{border-color:#e5e7eb}
 .bg-white{background:#fff}.text-gray-900{color:#111827}
 .text-gray-700{color:#374151}.text-gray-600{color:#4b5563}.text-gray-500{color:#6b7280}.text-gray-400{color:#9ca3af}
-.text-blue-700{color:#1d4ed8}
+.text-blue-600{color:#2563eb}.text-blue-700{color:#1d4ed8}
 .text-xl{font-size:1.25rem}.text-sm{font-size:0.875rem}.text-xs{font-size:0.75rem}
-.font-semibold{font-weight:600}.font-medium{font-weight:500}
+.font-semibold{font-weight:600}.font-medium{font-weight:500}.font-light{font-weight:300}
 .uppercase{text-transform:uppercase}.tracking-wider{letter-spacing:0.05em}
 .leading-snug{line-height:1.375}
 .antialiased{-webkit-font-smoothing:antialiased}
@@ -277,14 +342,15 @@ body{margin:0;font-family:system-ui,-apple-system,sans-serif;line-height:1.6}
 .pt-6{padding-top:1.5rem}.pb-4{padding-bottom:1rem}.pb-12{padding-bottom:3rem}
 .px-4{padding-left:1rem;padding-right:1rem}.px-8{padding-left:2rem;padding-right:2rem}
 .px-1\.5{padding-left:0.375rem;padding-right:0.375rem}.py-1\.5{padding-top:0.375rem;padding-bottom:0.375rem}
-.pl-8{padding-left:2rem}.pl-\[6px\]{padding-left:6px}
-.mb-3{margin-bottom:0.75rem}.mb-5{margin-bottom:1.25rem}.mb-6{margin-bottom:1.5rem}
+.pl-8{padding-left:2rem}.pl-\[6px\]{padding-left:6px}.pl-\[28px\]{padding-left:28px}.pb-1\.5{padding-bottom:0.375rem}
+.mb-2{margin-bottom:0.5rem}.mb-3{margin-bottom:0.75rem}.mb-5{margin-bottom:1.25rem}.mb-6{margin-bottom:1.5rem}.mt-5{margin-top:1.25rem}
 .ml-3{margin-left:0.75rem}.mr-0\.5{margin-right:0.125rem}
 .max-w-6xl{max-width:72rem}.mx-auto{margin-left:auto;margin-right:auto}.max-w-none{max-width:none}
 .space-y-1\.5>:not(:first-child){margin-top:0.375rem}
-.rotate-90{transform:rotate(90deg)}
+.rotate-90{transform:rotate(90deg)}.rotate-180{transform:rotate(180deg)}
 .justify-center{justify-content:center}
 @media(min-width:768px){.md\\:flex-row{flex-direction:row}.md\\:block{display:block}.md\\:px-8{padding-left:2rem;padding-right:2rem}}
+.first\\:mt-0:first-child{margin-top:0}
 @media(min-width:1024px){.lg\\:block{display:block}}
 .prose{max-width:65ch;color:#334155}
 .prose h1{font-size:2.25em;font-weight:800;margin-top:0;margin-bottom:0.9em;line-height:1.1}

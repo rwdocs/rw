@@ -38,15 +38,21 @@ each page's location.
 Fixed: `LinkConfig` on `DiagramProcessor` applies `relative_links` and `trailing_slash`
 to `$link` URLs in C4 macro generation.
 
-## 4. Scoped navigation missing section headers and scope context
+## ~~4. Scoped navigation missing section headers and scope context~~ FIXED
 
-Compared to `rw serve`, the static build is missing:
-- **"< Home" back link** at the top of scoped sections
-- **Section title** (e.g., bold "Биллинг" header)
-- **Section type labels** (e.g., "SYSTEMS" uppercase header that groups systems
-  separately from other nav items)
+~~Compared to `rw serve`, the static build is missing:~~
+~~- **"< Home" back link** at the top of scoped sections~~
+~~- **Section title** (e.g., bold "Биллинг" header)~~
+~~- **Section type labels** (e.g., "SYSTEMS" uppercase header that groups systems~~
+~~  separately from other nav items)~~
 
-The static build renders all scoped nav items as a flat list instead.
+~~The static build renders all scoped nav items as a flat list instead.~~
+
+Fixed: `template.rs` now renders scope headers (back link + section title) and
+groups nav items by `section_type` with uppercase labels (e.g., "DOMAINS",
+"SYSTEMS"). `builder.rs` preserves `section_type` from `NavItem`, converts
+`Navigation.scope`/`parent_scope` to `ScopeHeaderData`, and groups items via
+`group_nav_items()` matching the frontend's `groupNavItems()` logic.
 
 ## 5. Tabs are non-functional
 
