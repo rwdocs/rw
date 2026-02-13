@@ -49,7 +49,7 @@
       {%- endif %}
 
       {# Navigation groups #}
-      <nav>
+      <nav class="nav-tree">
         {%- for group in nav_groups %}
         {%- if group.label %}
         <div class="nav-group mt-5 first:mt-0">
@@ -58,30 +58,38 @@
           </div>
           <ul>
             {%- for item in group.items recursive %}
+            {%- if item.children %}
+            <li>
+              <details{%- if item.is_on_active_path %} open{%- endif %}>
+                <summary class="flex items-center">
+                  <span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
+                    <svg class="w-3.5 h-3.5 nav-chevron" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd"
+                            d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                            clip-rule="evenodd"/>
+                    </svg>
+                  </span>
+                  <a href="{{ item.path }}"
+                     class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">
+                    {{ item.title }}
+                  </a>
+                </summary>
+                <ul class="ml-3">
+                  {{ loop(item.children) }}
+                </ul>
+              </details>
+            </li>
+            {%- else %}
             <li>
               <div class="flex items-center">
-                {%- if item.children %}
-                <span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
-                  <svg class="w-3.5 h-3.5 rotate-90" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd"
-                          d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                          clip-rule="evenodd"/>
-                  </svg>
-                </span>
-                {%- else %}
                 <span class="w-[22px]"></span>
-                {%- endif %}
                 <a href="{{ item.path }}"
                    class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">
                   {{ item.title }}
                 </a>
               </div>
-              {%- if item.children %}
-              <ul class="ml-3">
-                {{ loop(item.children) }}
-              </ul>
-              {%- endif %}
             </li>
+            {%- endif %}
             {%- endfor %}
           </ul>
         </div>
@@ -89,30 +97,38 @@
         {%- else %}
         <ul>
           {%- for item in group.items recursive %}
+          {%- if item.children %}
+          <li>
+            <details{%- if item.is_on_active_path %} open{%- endif %}>
+              <summary class="flex items-center">
+                <span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
+                  <svg class="w-3.5 h-3.5 nav-chevron" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd"
+                          d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                          clip-rule="evenodd"/>
+                  </svg>
+                </span>
+                <a href="{{ item.path }}"
+                   class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">
+                  {{ item.title }}
+                </a>
+              </summary>
+              <ul class="ml-3">
+                {{ loop(item.children) }}
+              </ul>
+            </details>
+          </li>
+          {%- else %}
           <li>
             <div class="flex items-center">
-              {%- if item.children %}
-              <span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
-                <svg class="w-3.5 h-3.5 rotate-90" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd"
-                        d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                        clip-rule="evenodd"/>
-                </svg>
-              </span>
-              {%- else %}
               <span class="w-[22px]"></span>
-              {%- endif %}
               <a href="{{ item.path }}"
                  class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">
                 {{ item.title }}
               </a>
             </div>
-            {%- if item.children %}
-            <ul class="ml-3">
-              {{ loop(item.children) }}
-            </ul>
-            {%- endif %}
           </li>
+          {%- endif %}
           {%- endfor %}
         </ul>
         {%- endif %}

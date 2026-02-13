@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `TypedPageRegistry`; `SiteSnapshot` implements `MetaIncludeSource` directly using `SiteState`'s name-based section index
 - Added `description` field to `Document` and `SectionInfo` (flows from `meta.yaml` through the full pipeline)
 - `SiteState` now indexes sections by directory name for O(1) lookup via `find_sections_by_name()`
+- `rw techdocs build` sidebar navigation now uses `<details>/<summary>` elements for collapsible tree nodes, replacing the always-expanded `<div>` structure; active path nodes are auto-expanded via the `open` attribute
 
 ## [0.1.4] - 2026-02-11
 

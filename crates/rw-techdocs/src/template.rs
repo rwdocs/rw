@@ -266,9 +266,52 @@ mod tests {
             css_path: "assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
-        assert!(html.contains("rotate-90"));
+        assert!(html.contains("nav-chevron"));
         assert!(html.contains("Billing"));
         assert!(html.contains("<ul class=\"ml-3\">"));
+    }
+
+    #[test]
+    fn render_nav_with_children_uses_details() {
+        let mut parent = nav_item("Domains", "/domains");
+        parent.children = vec![nav_item("Billing", "/domains/billing")];
+        let page = PageData {
+            title: "Home".to_owned(),
+            path: String::new(),
+            html_content: String::new(),
+            breadcrumbs: vec![],
+            toc: vec![],
+            scope: None,
+            nav_groups: vec![ungrouped(vec![parent])],
+            css_path: "assets/styles.css".to_owned(),
+        };
+        let html = render_page(&page);
+        assert!(html.contains("<details>"));
+        assert!(html.contains("<summary"));
+        assert!(html.contains("nav-chevron"));
+        assert!(html.contains("Billing"));
+    }
+
+    #[test]
+    fn render_nav_active_path_sets_details_open() {
+        let mut child = nav_item("Billing", "/domains/billing");
+        child.is_active = true;
+        child.is_on_active_path = true;
+        let mut parent = nav_item("Domains", "/domains");
+        parent.children = vec![child];
+        parent.is_on_active_path = true;
+        let page = PageData {
+            title: "Billing".to_owned(),
+            path: "domains/billing".to_owned(),
+            html_content: String::new(),
+            breadcrumbs: vec![],
+            toc: vec![],
+            scope: None,
+            nav_groups: vec![ungrouped(vec![parent])],
+            css_path: "../../assets/styles.css".to_owned(),
+        };
+        let html = render_page(&page);
+        assert!(html.contains("<details open>"));
     }
 
     #[test]
