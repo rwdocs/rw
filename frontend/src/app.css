@@ -255,4 +255,22 @@
   .prose .tabs--static > input:nth-child(10):checked ~ .tabs-buttons > label:nth-child(10) {
     @apply text-blue-600 border-blue-600;
   }
+
+  /* Collapsible navigation tree (techdocs static build) */
+  .nav-tree details > summary {
+    list-style: none;
+  }
+
+  .nav-tree details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .nav-tree .nav-chevron {
+    transform: rotate(0deg);
+    transition: transform 0.15s;
+  }
+
+  .nav-tree details[open] > summary .nav-chevron {
+    transform: rotate(90deg);
+  }
 }
