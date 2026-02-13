@@ -259,6 +259,7 @@
   /* Collapsible navigation tree (techdocs static build) */
   .nav-tree details > summary {
     list-style: none;
+    cursor: pointer;
   }
 
   .nav-tree details > summary::-webkit-details-marker {
