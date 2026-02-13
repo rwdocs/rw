@@ -63,6 +63,8 @@ pub struct TabsDirective {
     /// Stack to track nested tabs (`group_start_line`).
     stack: Vec<usize>,
     warnings: Vec<String>,
+    /// When `true`, render CSS-only tabs using radio inputs instead of JS-driven buttons.
+    static_mode: bool,
 }
 
 impl TabsDirective {
@@ -76,6 +78,19 @@ impl TabsDirective {
             next_tab_id: 0,
             stack: Vec::new(),
             warnings: Vec::new(),
+            static_mode: false,
+        }
+    }
+
+    /// Create a tabs directive that renders CSS-only tabs using radio inputs.
+    ///
+    /// Static tabs work without JavaScript by using `<input type="radio">` and
+    /// CSS `:checked` selectors instead of `<button>` elements with JS toggling.
+    #[must_use]
+    pub fn new_static() -> Self {
+        Self {
+            static_mode: true,
+            ..Self::new()
         }
     }
 
@@ -159,14 +174,24 @@ impl ContainerDirective for TabsDirective {
 
     fn post_process(&mut self, replacements: &mut Replacements) {
         for group in &self.groups {
-            // Replace <rw-tabs data-id="N"> with accessible HTML
-            let opening = render_tabs_open(group);
-            replacements.add(format!(r#"<rw-tabs data-id="{}">"#, group.id), opening);
+            if self.static_mode {
+                let opening = render_static_tabs_open(group);
+                replacements.add(format!(r#"<rw-tabs data-id="{}">"#, group.id), opening);
 
-            // Replace each <rw-tab data-id="N"> with panel HTML
-            for (idx, tab) in group.tabs.iter().enumerate() {
-                let panel_open = render_panel_open(group.id, tab, idx == 0);
-                replacements.add(format!(r#"<rw-tab data-id="{}">"#, tab.id), panel_open);
+                for tab in &group.tabs {
+                    replacements.add(
+                        format!(r#"<rw-tab data-id="{}">"#, tab.id),
+                        render_static_panel_open(),
+                    );
+                }
+            } else {
+                let opening = render_tabs_open(group);
+                replacements.add(format!(r#"<rw-tabs data-id="{}">"#, group.id), opening);
+
+                for (idx, tab) in group.tabs.iter().enumerate() {
+                    let panel_open = render_panel_open(group.id, tab, idx == 0);
+                    replacements.add(format!(r#"<rw-tab data-id="{}">"#, tab.id), panel_open);
+                }
             }
         }
 
@@ -215,6 +240,48 @@ fn render_panel_open(group_id: usize, tab: &TabMetadata, is_first: bool) -> Stri
     let panel_id = format!("panel-{}-{}", group_id, tab.id);
 
     format!(r#"<div role="tabpanel" id="{panel_id}" aria-labelledby="{tab_id}"{hidden}>"#)
+}
+
+/// Render the opening HTML for a static tabs container using radio inputs.
+fn render_static_tabs_open(group: &TabsGroup) -> String {
+    let mut output = String::with_capacity(512);
+
+    // Container div with static class
+    let _ = write!(
+        output,
+        r#"<div class="tabs tabs--static" id="tabs-{}">"#,
+        group.id
+    );
+
+    // Radio inputs (one per tab)
+    for (idx, tab) in group.tabs.iter().enumerate() {
+        let tab_id = format!("tab-{}-{}", group.id, tab.id);
+        let checked = if idx == 0 { " checked" } else { "" };
+        let _ = write!(
+            output,
+            r#"<input type="radio" name="tabs-{}" id="{tab_id}"{checked} />"#,
+            group.id
+        );
+    }
+
+    // Labels
+    output.push_str(r#"<div class="tabs-buttons">"#);
+    for tab in &group.tabs {
+        let tab_id = format!("tab-{}-{}", group.id, tab.id);
+        let _ = write!(
+            output,
+            r#"<label for="{tab_id}">{}</label>"#,
+            escape_html(&tab.label)
+        );
+    }
+    output.push_str("</div>");
+
+    output
+}
+
+/// Render the opening HTML for a static tab panel.
+fn render_static_panel_open() -> &'static str {
+    r#"<div class="tabs-panel">"#
 }
 
 /// Strip surrounding quotes (single or double) from a string.
@@ -358,6 +425,77 @@ Content B
         let input = r":::tab[<script>]
 Content
 :::";
+
+        let output = processor.process(input);
+        let mut html = output;
+        processor.post_process(&mut html);
+
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("><script>"));
+    }
+
+    #[test]
+    fn test_static_mode_produces_radio_inputs() {
+        let mut processor =
+            DirectiveProcessor::new().with_container(TabsDirective::new_static());
+
+        let input = r":::tab[macOS]
+Content A
+:::tab[Linux]
+Content B
+:::";
+
+        let output = processor.process(input);
+        let mut html = output;
+        processor.post_process(&mut html);
+
+        // Container has static class
+        assert!(html.contains(r#"<div class="tabs tabs--static" id="tabs-0">"#));
+
+        // Radio inputs
+        assert!(html.contains(r#"<input type="radio" name="tabs-0" id="tab-0-0" checked />"#));
+        assert!(html.contains(r#"<input type="radio" name="tabs-0" id="tab-0-1" />"#));
+
+        // Labels instead of buttons
+        assert!(html.contains(r#"<label for="tab-0-0">macOS</label>"#));
+        assert!(html.contains(r#"<label for="tab-0-1">Linux</label>"#));
+
+        // Panels use tabs-panel class, no hidden attribute, no role
+        assert!(html.contains(r#"<div class="tabs-panel">"#));
+        assert!(!html.contains("hidden"));
+        assert!(!html.contains(r#"role="tabpanel""#));
+        assert!(!html.contains(r#"role="tab""#));
+    }
+
+    #[test]
+    fn test_static_mode_multiple_groups() {
+        let mut processor =
+            DirectiveProcessor::new().with_container(TabsDirective::new_static());
+
+        let input = r":::tab[A]
+Content A
+:::
+
+:::tab[B]
+Content B
+:::";
+
+        let output = processor.process(input);
+        let mut html = output;
+        processor.post_process(&mut html);
+
+        assert!(html.contains(r#"name="tabs-0""#));
+        assert!(html.contains(r#"name="tabs-1""#));
+    }
+
+    #[test]
+    fn test_static_mode_html_escaping() {
+        let mut processor =
+            DirectiveProcessor::new().with_container(TabsDirective::new_static());
+
+        let input = r#":::tab[<script>alert(1)</script>]
+Content
+:::"#;
 
         let output = processor.process(input);
         let mut html = output;
