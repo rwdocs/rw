@@ -35,9 +35,7 @@ async fn serve_asset(req: Request<Body>) -> Response {
 
     // SPA fallback: serve index.html for client-side routing
     let is_spa_route = !path.starts_with("api/") && !path.contains('.');
-    if is_spa_route
-        && let Some(index) = rw_assets::get("index.html")
-    {
+    if is_spa_route && let Some(index) = rw_assets::get("index.html") {
         return Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
