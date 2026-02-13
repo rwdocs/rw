@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `trailing_slash` option in `MarkdownRenderer` and `PageRendererConfig` for URLs with trailing slashes (e.g., `/a/b/` instead of `/a/b`), needed for TechDocs static site output
 - Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
 - Diagram `$link` URLs now respect `relative_links` and `trailing_slash` settings via `LinkConfig` on `DiagramProcessor`
-- `is_on_active_path` field on `NavItemData` in `rw-techdocs` for collapsible sidebar navigation (marks ancestor items of the active page)
+- Collapsible navigation sidebar in `rw techdocs build` using HTML5 `<details>/<summary>` — only the active path is expanded by default, compatible with Backstage TechDocs (no JavaScript needed)
 
 ### Fixed
 
