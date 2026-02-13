@@ -10,7 +10,7 @@ use publish::PublishArgs;
 
 use crate::error::CliError;
 
-/// TechDocs commands.
+/// `TechDocs` commands.
 #[derive(Subcommand)]
 pub(crate) enum TechdocsCommand {
     /// Build a static documentation site.

@@ -15,7 +15,8 @@ use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for [`PageRenderer`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct PageRendererConfig {
     /// Extract title from first H1 heading.
     pub extract_title: bool,
@@ -132,6 +133,7 @@ impl From<StorageError> for RenderError {
 /// Handles markdown-to-HTML conversion with caching, diagram processing,
 /// and metadata loading. Operates on individual pages without knowledge of
 /// site structure or reload logic.
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct PageRenderer {
     storage: Arc<dyn Storage>,
     cache: Arc<dyn Cache>,

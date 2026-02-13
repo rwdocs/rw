@@ -33,7 +33,7 @@ enum Commands {
     /// Confluence publishing commands.
     #[command(subcommand)]
     Confluence(ConfluenceCommand),
-    /// TechDocs static site generation and publishing.
+    /// `TechDocs` static site generation and publishing.
     #[command(subcommand)]
     Techdocs(TechdocsCommand),
 }

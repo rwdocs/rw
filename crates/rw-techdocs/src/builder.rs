@@ -1,5 +1,6 @@
-//! Static site builder for TechDocs.
+//! Static site builder for `TechDocs`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use crate::template::{
 
 /// Configuration for static site building.
 pub struct BuildConfig {
-    /// Site name for techdocs_metadata.json.
+    /// Site name for `techdocs_metadata.json`.
     pub site_name: String,
 }
 
@@ -60,15 +61,7 @@ impl StaticSiteBuilder {
         let site = Site::new(
             Arc::clone(&self.storage),
             cache,
-            PageRendererConfig {
-                extract_title: self.renderer_config.extract_title,
-                kroki_url: self.renderer_config.kroki_url.clone(),
-                include_dirs: self.renderer_config.include_dirs.clone(),
-                dpi: self.renderer_config.dpi,
-                relative_links: self.renderer_config.relative_links,
-                trailing_slash: self.renderer_config.trailing_slash,
-                static_tabs: self.renderer_config.static_tabs,
-            },
+            self.renderer_config.clone(),
         );
 
         // Collect all page paths by walking scoped navigation
@@ -118,35 +111,8 @@ impl StaticSiteBuilder {
             tracing::debug!(path = %page_path, "Wrote page");
         }
 
-        self.write_assets(output_dir)?;
+        write_assets(output_dir)?;
         self.write_metadata(output_dir)?;
-
-        Ok(())
-    }
-
-    fn write_assets(&self, output_dir: &Path) -> Result<(), BuildError> {
-        let assets_dir = output_dir.join("assets");
-        fs::create_dir_all(&assets_dir)?;
-
-        let mut css_written = false;
-
-        for path in rw_assets::iter() {
-            let path = path.as_ref();
-            if !path.starts_with("assets/") {
-                continue;
-            }
-            let filename = &path["assets/".len()..];
-            let Some(data) = rw_assets::get(path) else {
-                continue;
-            };
-
-            if !css_written && filename.ends_with(".css") {
-                fs::write(assets_dir.join("styles.css"), data.as_ref())?;
-                css_written = true;
-            } else if filename.ends_with(".woff") || filename.ends_with(".woff2") {
-                fs::write(assets_dir.join(filename), data.as_ref())?;
-            }
-        }
 
         Ok(())
     }
@@ -160,6 +126,35 @@ impl StaticSiteBuilder {
         fs::write(output_dir.join("techdocs_metadata.json"), json)?;
         Ok(())
     }
+}
+
+/// Copy CSS and font assets to the output directory.
+fn write_assets(output_dir: &Path) -> Result<(), BuildError> {
+    let assets_dir = output_dir.join("assets");
+    fs::create_dir_all(&assets_dir)?;
+
+    let mut css_written = false;
+
+    for path in rw_assets::iter() {
+        let path = path.as_ref();
+        if !path.starts_with("assets/") {
+            continue;
+        }
+        let filename = &path["assets/".len()..];
+        let Some(data) = rw_assets::get(path) else {
+            continue;
+        };
+
+        let ext = Path::new(filename).extension().and_then(|e| e.to_str());
+        if !css_written && ext == Some("css") {
+            fs::write(assets_dir.join("styles.css"), data.as_ref())?;
+            css_written = true;
+        } else if matches!(ext, Some("woff" | "woff2")) {
+            fs::write(assets_dir.join(filename), data.as_ref())?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Collect all page paths by recursively walking scoped navigation.
@@ -205,8 +200,7 @@ fn convert_nav_items(items: &[NavItem], current_path: &str) -> Vec<NavItemData> 
         .map(|item| {
             let children = convert_nav_items(&item.children, current_path);
             let is_active = item.path == current_path;
-            let is_on_active_path =
-                is_active || children.iter().any(|c| c.is_on_active_path);
+            let is_on_active_path = is_active || children.iter().any(|c| c.is_on_active_path);
             NavItemData {
                 title: item.title.clone(),
                 path: format!("/{}", item.path),
@@ -236,8 +230,7 @@ fn convert_scope(nav: &Navigation) -> Option<ScopeHeaderData> {
 
 /// Group navigation items by section type (matches frontend `groupNavItems()`).
 fn group_nav_items(items: Vec<NavItemData>) -> Vec<NavGroupData> {
-    let mut typed_groups: std::collections::BTreeMap<String, Vec<NavItemData>> =
-        std::collections::BTreeMap::new();
+    let mut typed_groups: BTreeMap<String, Vec<NavItemData>> = BTreeMap::new();
     let mut ungrouped = Vec::new();
 
     for item in items {
@@ -309,7 +302,6 @@ fn compute_css_path(page_path: &str) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -334,7 +326,6 @@ mod tests {
         let storage = Arc::new(mock_storage_with_pages());
         let config = BuildConfig {
             site_name: "Test Site".to_owned(),
-
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -352,7 +343,6 @@ mod tests {
         let storage = Arc::new(mock_storage_with_pages());
         let config = BuildConfig {
             site_name: "My Docs".to_owned(),
-
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -369,7 +359,6 @@ mod tests {
         let storage = Arc::new(mock_storage_with_pages());
         let config = BuildConfig {
             site_name: "Test".to_owned(),
-
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -397,7 +386,6 @@ mod tests {
         );
         let config = BuildConfig {
             site_name: "Test".to_owned(),
-
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -429,7 +417,6 @@ mod tests {
         let storage = Arc::new(mock_storage_with_pages());
         let config = BuildConfig {
             site_name: "Test".to_owned(),
-
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -438,7 +425,7 @@ mod tests {
         let assets_dir = output_dir.join("assets");
         let font_files: Vec<_> = std::fs::read_dir(&assets_dir)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(Result::ok)
             .filter(|e| {
                 let path = e.path();
                 matches!(

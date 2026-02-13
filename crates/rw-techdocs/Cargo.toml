@@ -12,10 +12,8 @@ workspace = true
 [dependencies]
 rw-assets = { workspace = true }
 rw-cache = { workspace = true }
-rw-config = { workspace = true }
 rw-site = { workspace = true }
 rw-storage = { workspace = true }
-rw-storage-fs = { workspace = true }
 
 minijinja = { workspace = true }
 

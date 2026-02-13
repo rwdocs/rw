@@ -28,7 +28,7 @@ pub(crate) struct BuildArgs {
     #[arg(long)]
     kroki_url: Option<String>,
 
-    /// Site name for techdocs_metadata.json.
+    /// Site name for `techdocs_metadata.json`.
     #[arg(long)]
     site_name: Option<String>,
 

@@ -436,8 +436,7 @@ Content
 
     #[test]
     fn test_static_mode_produces_radio_inputs() {
-        let mut processor =
-            DirectiveProcessor::new().with_container(TabsDirective::new_static());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new_static());
 
         let input = r":::tab[macOS]
 Content A
@@ -469,8 +468,7 @@ Content B
 
     #[test]
     fn test_static_mode_multiple_groups() {
-        let mut processor =
-            DirectiveProcessor::new().with_container(TabsDirective::new_static());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new_static());
 
         let input = r":::tab[A]
 Content A
@@ -490,12 +488,11 @@ Content B
 
     #[test]
     fn test_static_mode_html_escaping() {
-        let mut processor =
-            DirectiveProcessor::new().with_container(TabsDirective::new_static());
+        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new_static());
 
-        let input = r#":::tab[<script>alert(1)</script>]
+        let input = r":::tab[<script>alert(1)</script>]
 Content
-:::"#;
+:::";
 
         let output = processor.process(input);
         let mut html = output;

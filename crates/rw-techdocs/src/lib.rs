@@ -1,4 +1,4 @@
-//! TechDocs static site generation and S3 publishing for RW.
+//! `TechDocs` static site generation and S3 publishing for RW.
 
 mod builder;
 mod publisher;

@@ -97,22 +97,6 @@ mod tests {
         NavGroupData { label: None, items }
     }
 
-    /// Escape HTML special characters (test-only, replaced by minijinja auto-escaping).
-    fn escape(s: &str) -> String {
-        let mut result = String::with_capacity(s.len());
-        for c in s.chars() {
-            match c {
-                '&' => result.push_str("&amp;"),
-                '<' => result.push_str("&lt;"),
-                '>' => result.push_str("&gt;"),
-                '"' => result.push_str("&quot;"),
-                '\'' => result.push_str("&#x27;"),
-                _ => result.push(c),
-            }
-        }
-        result
-    }
-
     #[test]
     fn render_page_contains_content() {
         let page = PageData {
@@ -242,13 +226,6 @@ mod tests {
         assert!(html.contains("class=\"ml-3\""));
         assert!(html.contains("#subsection"));
         assert!(html.contains("#section"));
-    }
-
-    #[test]
-    fn escape_special_characters() {
-        assert_eq!(escape("<script>"), "&lt;script&gt;");
-        assert_eq!(escape("a&b"), "a&amp;b");
-        assert_eq!(escape("\"hello\""), "&quot;hello&quot;");
     }
 
     #[test]

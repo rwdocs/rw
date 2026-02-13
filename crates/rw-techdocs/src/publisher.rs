@@ -1,4 +1,4 @@
-//! S3 publishing for TechDocs sites.
+//! S3 publishing for `TechDocs` sites.
 
 use std::path::{Path, PathBuf};
 
@@ -49,7 +49,7 @@ impl S3Publisher {
             return Err(PublishError::DirectoryNotFound(directory.to_path_buf()));
         }
 
-        let files = self.collect_files(directory)?;
+        let files = Self::collect_files(directory)?;
         let client = self.build_client().await;
 
         let mut uploaded = 0;
@@ -97,34 +97,33 @@ impl S3Publisher {
         parts.join("/")
     }
 
-    fn collect_files(&self, directory: &Path) -> Result<Vec<(String, PathBuf)>, std::io::Error> {
+    fn collect_files(directory: &Path) -> Result<Vec<(String, PathBuf)>, std::io::Error> {
         let mut files = Vec::new();
-        self.walk_dir(directory, directory, &mut files)?;
+        walk_dir(directory, directory, &mut files)?;
         Ok(files)
     }
+}
 
-    fn walk_dir(
-        &self,
-        base: &Path,
-        current: &Path,
-        files: &mut Vec<(String, PathBuf)>,
-    ) -> Result<(), std::io::Error> {
-        for entry in std::fs::read_dir(current)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                self.walk_dir(base, &path, files)?;
-            } else {
-                let relative = path
-                    .strip_prefix(base)
-                    .unwrap()
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                files.push((relative, path));
-            }
+fn walk_dir(
+    base: &Path,
+    current: &Path,
+    files: &mut Vec<(String, PathBuf)>,
+) -> Result<(), std::io::Error> {
+    for entry in std::fs::read_dir(current)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            walk_dir(base, &path, files)?;
+        } else {
+            let relative = path
+                .strip_prefix(base)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.push((relative, path));
         }
-        Ok(())
     }
+    Ok(())
 }
 
 fn guess_content_type(path: &str) -> &'static str {
