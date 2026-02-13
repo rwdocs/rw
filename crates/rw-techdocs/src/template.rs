@@ -5,7 +5,7 @@
 //!
 //! Uses a minijinja template for rendering.
 
-use minijinja::{context, Environment};
+use minijinja::Environment;
 use serde::Serialize;
 
 /// Data for rendering a navigation item in the static template.
@@ -110,12 +110,52 @@ const TEMPLATE: &str = r##"<!DOCTYPE html>
 <div class="nav-group mt-5 first:mt-0">
 <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1.5 pb-1.5">{{ group.label }}</div>
 <ul>
-{{ nav_items(group.items) }}
+{%- for item in group.items recursive %}
+<li>
+<div class="flex items-center">
+{%- if item.children %}
+<span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
+<svg class="w-3.5 h-3.5 rotate-90" fill="currentColor" viewBox="0 0 20 20">
+<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+</svg>
+</span>
+{%- else %}
+<span class="w-[22px]"></span>
+{%- endif %}
+<a href="{{ item.path }}" class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">{{ item.title }}</a>
+</div>
+{%- if item.children %}
+<ul class="ml-3">
+{{ loop(item.children) }}
+</ul>
+{%- endif %}
+</li>
+{%- endfor %}
 </ul>
 </div>
 {%- else %}
 <ul>
-{{ nav_items(group.items) }}
+{%- for item in group.items recursive %}
+<li>
+<div class="flex items-center">
+{%- if item.children %}
+<span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
+<svg class="w-3.5 h-3.5 rotate-90" fill="currentColor" viewBox="0 0 20 20">
+<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+</svg>
+</span>
+{%- else %}
+<span class="w-[22px]"></span>
+{%- endif %}
+<a href="{{ item.path }}" class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">{{ item.title }}</a>
+</div>
+{%- if item.children %}
+<ul class="ml-3">
+{{ loop(item.children) }}
+</ul>
+{%- endif %}
+</li>
+{%- endfor %}
 </ul>
 {%- endif %}
 {%- endfor %}
@@ -163,100 +203,11 @@ const TEMPLATE: &str = r##"<!DOCTYPE html>
 /// Render a complete static HTML page.
 pub fn render_page(page: &PageData) -> String {
     let mut env = Environment::new();
-    env.add_function("nav_items", nav_items_fn);
     env.add_template("page", TEMPLATE)
         .expect("invalid template");
     let tmpl = env.get_template("page").expect("template not found");
-    tmpl.render(context! { ..minijinja::value::Value::from_serialize(page) })
+    tmpl.render(minijinja::value::Value::from_serialize(page))
         .expect("template rendering failed")
-}
-
-/// Recursive helper that renders navigation items as HTML.
-///
-/// Takes `Vec` by value because minijinja function registration requires owned parameters.
-#[allow(clippy::needless_pass_by_value)]
-fn nav_items_fn(items: Vec<minijinja::value::Value>) -> Result<String, minijinja::Error> {
-    let mut html = String::new();
-    render_nav_items_recursive(&mut html, &items)?;
-    Ok(html)
-}
-
-/// Escape HTML special characters for use in the nav items helper.
-fn escape_html(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => result.push_str("&amp;"),
-            '<' => result.push_str("&lt;"),
-            '>' => result.push_str("&gt;"),
-            '"' => result.push_str("&quot;"),
-            '\'' => result.push_str("&#x27;"),
-            _ => result.push(c),
-        }
-    }
-    result
-}
-
-fn render_nav_items_recursive(
-    html: &mut String,
-    items: &[minijinja::value::Value],
-) -> Result<(), minijinja::Error> {
-    use std::fmt::Write;
-
-    for item in items {
-        let title = item
-            .get_attr("title")
-            .unwrap_or(minijinja::value::Value::UNDEFINED);
-        let path = item
-            .get_attr("path")
-            .unwrap_or(minijinja::value::Value::UNDEFINED);
-        let is_active = item
-            .get_attr("is_active")
-            .unwrap_or(minijinja::value::Value::from(false));
-        let children = item
-            .get_attr("children")
-            .unwrap_or(minijinja::value::Value::UNDEFINED);
-
-        let has_children = children.len().unwrap_or(0) > 0;
-        let title_str = escape_html(&title.to_string());
-        let path_str = escape_html(&path.to_string());
-
-        html.push_str("<li>\n<div class=\"flex items-center\">\n");
-
-        if has_children {
-            html.push_str(
-                "<span class=\"w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5\">\n\
-                 <svg class=\"w-3.5 h-3.5 rotate-90\" fill=\"currentColor\" viewBox=\"0 0 20 20\">\n\
-                 <path fill-rule=\"evenodd\" d=\"M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z\" clip-rule=\"evenodd\"/>\n\
-                 </svg>\n</span>\n",
-            );
-        } else {
-            html.push_str("<span class=\"w-[22px]\"></span>\n");
-        }
-
-        let active_classes = if is_active.is_true() {
-            "text-blue-700 font-medium"
-        } else {
-            "text-gray-700 hover:text-gray-900"
-        };
-        let _ = writeln!(
-            html,
-            "<a href=\"{path_str}\" class=\"flex-1 py-1.5 px-1.5 rounded text-sm {active_classes}\">{title_str}</a>",
-        );
-
-        html.push_str("</div>\n");
-
-        if has_children {
-            html.push_str("<ul class=\"ml-3\">\n");
-            let child_items: Vec<minijinja::value::Value> =
-                children.try_iter()?.collect();
-            render_nav_items_recursive(html, &child_items)?;
-            html.push_str("</ul>\n");
-        }
-
-        html.push_str("</li>\n");
-    }
-    Ok(())
 }
 
 #[cfg(test)]
