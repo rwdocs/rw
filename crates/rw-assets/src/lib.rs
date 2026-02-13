@@ -46,9 +46,7 @@ pub fn iter() -> impl Iterator<Item = Cow<'static, str>> {
 /// Iterate all available asset paths.
 #[cfg(not(feature = "embed"))]
 pub fn iter() -> impl Iterator<Item = Cow<'static, str>> {
-    walk_dir(Path::new(DEV_DIR))
-        .into_iter()
-        .map(Cow::Owned)
+    walk_dir(Path::new(DEV_DIR)).into_iter().map(Cow::Owned)
 }
 
 /// Return the MIME type string for the given file path.
