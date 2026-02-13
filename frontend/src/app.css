@@ -226,17 +226,19 @@
     @apply !mt-2;
   }
 
-  /* Show panel matching checked radio (up to 10 tabs) */
-  .prose .tabs--static > input:nth-child(1):checked ~ .tabs-panel:nth-of-type(1),
-  .prose .tabs--static > input:nth-child(2):checked ~ .tabs-panel:nth-of-type(2),
-  .prose .tabs--static > input:nth-child(3):checked ~ .tabs-panel:nth-of-type(3),
-  .prose .tabs--static > input:nth-child(4):checked ~ .tabs-panel:nth-of-type(4),
-  .prose .tabs--static > input:nth-child(5):checked ~ .tabs-panel:nth-of-type(5),
-  .prose .tabs--static > input:nth-child(6):checked ~ .tabs-panel:nth-of-type(6),
-  .prose .tabs--static > input:nth-child(7):checked ~ .tabs-panel:nth-of-type(7),
-  .prose .tabs--static > input:nth-child(8):checked ~ .tabs-panel:nth-of-type(8),
-  .prose .tabs--static > input:nth-child(9):checked ~ .tabs-panel:nth-of-type(9),
-  .prose .tabs--static > input:nth-child(10):checked ~ .tabs-panel:nth-of-type(10) {
+  /* Show panel matching checked radio (up to 10 tabs).
+     nth-of-type counts ALL divs, and .tabs-buttons is div:nth-of-type(1),
+     so panels start at nth-of-type(2). */
+  .prose .tabs--static > input:nth-child(1):checked ~ .tabs-panel:nth-of-type(2),
+  .prose .tabs--static > input:nth-child(2):checked ~ .tabs-panel:nth-of-type(3),
+  .prose .tabs--static > input:nth-child(3):checked ~ .tabs-panel:nth-of-type(4),
+  .prose .tabs--static > input:nth-child(4):checked ~ .tabs-panel:nth-of-type(5),
+  .prose .tabs--static > input:nth-child(5):checked ~ .tabs-panel:nth-of-type(6),
+  .prose .tabs--static > input:nth-child(6):checked ~ .tabs-panel:nth-of-type(7),
+  .prose .tabs--static > input:nth-child(7):checked ~ .tabs-panel:nth-of-type(8),
+  .prose .tabs--static > input:nth-child(8):checked ~ .tabs-panel:nth-of-type(9),
+  .prose .tabs--static > input:nth-child(9):checked ~ .tabs-panel:nth-of-type(10),
+  .prose .tabs--static > input:nth-child(10):checked ~ .tabs-panel:nth-of-type(11) {
     @apply block;
   }
 

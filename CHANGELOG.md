@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `rw techdocs build` now copies font files (`.woff`/`.woff2`) to the output `assets/` directory via `rw-assets` crate, fixing 404 errors and system font fallback
 - `rw techdocs build` scoped navigation now renders back link, section title, and type group labels (e.g., "SYSTEMS") matching the `rw serve` frontend
+- `rw techdocs build` tabs are now interactive via CSS-only radio inputs (no JavaScript needed), matching mkdocs-material's approach for Backstage TechDocs compatibility
 
 ### Changed
 
