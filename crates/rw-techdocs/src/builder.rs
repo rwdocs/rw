@@ -522,4 +522,37 @@ mod tests {
         // Domains IS on the active path
         assert!(result[1].is_on_active_path);
     }
+
+    #[test]
+    fn convert_nav_items_deep_active_path() {
+        use rw_site::NavItem;
+
+        let items = vec![NavItem {
+            title: "Domains".to_owned(),
+            path: "domains".to_owned(),
+            section_type: None,
+            children: vec![NavItem {
+                title: "Billing".to_owned(),
+                path: "domains/billing".to_owned(),
+                section_type: None,
+                children: vec![NavItem {
+                    title: "API".to_owned(),
+                    path: "domains/billing/api".to_owned(),
+                    section_type: None,
+                    children: vec![],
+                }],
+            }],
+        }];
+
+        let result = convert_nav_items(&items, "domains/billing/api");
+
+        // All ancestors are on active path
+        assert!(result[0].is_on_active_path);
+        assert!(result[0].children[0].is_on_active_path);
+        assert!(result[0].children[0].children[0].is_on_active_path);
+        // Only the leaf is active
+        assert!(!result[0].is_active);
+        assert!(!result[0].children[0].is_active);
+        assert!(result[0].children[0].children[0].is_active);
+    }
 }
