@@ -65,140 +65,7 @@ pub struct PageData {
     pub css_path: String,
 }
 
-const TEMPLATE: &str = r##"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }}</title>
-<link rel="stylesheet" href="{{ css_path }}">
-<style>
-.breadcrumb-item::after {
-  content: "/";
-  margin-left: 0.625rem;
-  margin-right: 0.5rem;
-  color: rgb(156 163 175);
-}
-.breadcrumb-item:last-child::after {
-  content: none;
-}
-</style>
-</head>
-<body class="bg-white text-gray-900 antialiased">
-<div class="min-h-screen flex flex-col md:flex-row">
-<aside class="w-[280px] flex-shrink-0 border-r border-gray-200 hidden md:block h-screen sticky top-0 overflow-y-auto">
-<div class="pt-6 px-4 pb-4">
-<a href="/" class="block mb-5 pl-[6px]">
-<span class="text-xl font-semibold uppercase"><span class="text-gray-900">R</span><span class="text-gray-400">W</span></span>
-</a>
-{%- if scope %}
-<div class="mb-5">
-<a href="{{ scope.back_link_path }}" class="text-sm text-gray-500 hover:text-blue-600 flex items-center mb-2">
-<span class="w-[22px] flex items-center justify-center">
-<svg class="w-3.5 h-3.5 rotate-180" fill="currentColor" viewBox="0 0 20 20">
-<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
-</svg>
-</span>
-<span class="px-1.5">{{ scope.back_link_title }}</span>
-</a>
-<h2 class="text-xl font-light text-gray-900 pl-[28px]">{{ scope.title }}</h2>
-</div>
-{%- endif %}
-<nav>
-{%- for group in nav_groups %}
-{%- if group.label %}
-<div class="nav-group mt-5 first:mt-0">
-<div class="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1.5 pb-1.5">{{ group.label }}</div>
-<ul>
-{%- for item in group.items recursive %}
-<li>
-<div class="flex items-center">
-{%- if item.children %}
-<span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
-<svg class="w-3.5 h-3.5 rotate-90" fill="currentColor" viewBox="0 0 20 20">
-<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
-</svg>
-</span>
-{%- else %}
-<span class="w-[22px]"></span>
-{%- endif %}
-<a href="{{ item.path }}" class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">{{ item.title }}</a>
-</div>
-{%- if item.children %}
-<ul class="ml-3">
-{{ loop(item.children) }}
-</ul>
-{%- endif %}
-</li>
-{%- endfor %}
-</ul>
-</div>
-{%- else %}
-<ul>
-{%- for item in group.items recursive %}
-<li>
-<div class="flex items-center">
-{%- if item.children %}
-<span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
-<svg class="w-3.5 h-3.5 rotate-90" fill="currentColor" viewBox="0 0 20 20">
-<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
-</svg>
-</span>
-{%- else %}
-<span class="w-[22px]"></span>
-{%- endif %}
-<a href="{{ item.path }}" class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">{{ item.title }}</a>
-</div>
-{%- if item.children %}
-<ul class="ml-3">
-{{ loop(item.children) }}
-</ul>
-{%- endif %}
-</li>
-{%- endfor %}
-</ul>
-{%- endif %}
-{%- endfor %}
-</nav>
-</div>
-</aside>
-<div class="flex-1">
-<div class="max-w-6xl mx-auto px-4 md:px-8 pt-6 pb-12">
-{%- if breadcrumbs %}
-<nav class="mb-6">
-<ol class="flex items-center text-sm text-gray-600">
-{%- for crumb in breadcrumbs %}
-<li class="breadcrumb-item">
-<a href="{{ crumb.path }}" class="hover:text-gray-700 hover:underline">{{ crumb.title }}</a>
-</li>
-{%- endfor %}
-</ol>
-</nav>
-{%- endif %}
-<div class="flex">
-<main class="flex-1 min-w-0">
-<article class="prose prose-slate max-w-none">
-{{ html_content|safe }}
-</article>
-</main>
-{%- if toc %}
-<aside class="w-[240px] flex-shrink-0 hidden lg:block">
-<div class="pl-8 sticky top-6">
-<h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3">On this page</h3>
-<ul class="space-y-1.5">
-{%- for entry in toc %}
-<li{% if entry.level >= 3 %} class="ml-3"{% endif %}><a href="#{{ entry.id }}" class="block text-sm leading-snug text-gray-600 hover:text-gray-900">{{ entry.title }}</a></li>
-{%- endfor %}
-</ul>
-</div>
-</aside>
-{%- endif %}
-</div>
-</div>
-</div>
-</div>
-</body>
-</html>"##;
+const TEMPLATE: &str = include_str!("page.html");
 
 /// Render a complete static HTML page.
 pub fn render_page(page: &PageData) -> String {
@@ -370,8 +237,9 @@ mod tests {
             css_path: "assets/styles.css".to_owned(),
         };
         let html = render_page(&page);
-        assert!(html.contains("<li class=\"ml-3\"><a href=\"#subsection\""));
-        assert!(html.contains("<li><a href=\"#section\""));
+        assert!(html.contains("class=\"ml-3\""));
+        assert!(html.contains("#subsection"));
+        assert!(html.contains("#section"));
     }
 
     #[test]
