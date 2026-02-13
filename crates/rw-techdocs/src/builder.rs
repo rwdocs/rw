@@ -514,7 +514,10 @@ mod tests {
 
     #[test]
     fn relative_nav_path_between_pages() {
-        assert_eq!(relative_nav_path("usage", "domains/billing"), "../domains/billing");
+        assert_eq!(
+            relative_nav_path("usage", "domains/billing"),
+            "../domains/billing"
+        );
         assert_eq!(relative_nav_path("domains/billing", "usage"), "../../usage");
         assert_eq!(
             relative_nav_path("domains/billing", "domains/moderation"),
