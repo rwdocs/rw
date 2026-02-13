@@ -891,12 +891,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "http-range-header"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
-
-[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1996,6 +1990,7 @@ version = "0.1.4"
 dependencies = [
  "clap",
  "console",
+ "rw-assets",
  "rw-config",
  "rw-confluence",
  "rw-server",
@@ -2003,6 +1998,14 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "rw-assets"
+version = "0.1.4"
+dependencies = [
+ "mime_guess",
+ "rust-embed",
 ]
 
 [[package]]
@@ -2084,9 +2087,8 @@ dependencies = [
  "chrono",
  "hex",
  "md-5",
- "mime_guess",
  "pretty_assertions",
- "rust-embed",
+ "rw-assets",
  "rw-cache",
  "rw-config",
  "rw-renderer",
@@ -2668,15 +2670,8 @@ dependencies = [
  "bitflags 2.10.0",
  "bytes",
  "futures-core",
- "futures-util",
  "http",
  "http-body",
- "http-body-util",
- "http-range-header",
- "httpdate",
- "mime",
- "mime_guess",
- "percent-encoding",
  "pin-project-lite",
  "tokio",
  "tokio-util",

@@ -7,10 +7,8 @@
 //!
 //! # Static Asset Modes
 //!
-//! This server supports two modes for serving static assets:
-//!
-//! - **Development** (default): Serves files from `frontend/dist` directory
-//! - **Production** (`embed-assets` feature): Embeds assets in the binary
+//! Static assets are served via `rw-assets`, which supports both embedded
+//! and filesystem modes. See `rw-assets` crate for details.
 //!
 //! # Quick Start
 //!
@@ -52,7 +50,7 @@
 //!                        │       │
 //!                        │       └─► notify (direct Rust crate)
 //!                        │
-//!                        └─► Static files (embedded or tower-http)
+//!                        └─► Static files (rw-assets)
 //! ```
 
 mod app;

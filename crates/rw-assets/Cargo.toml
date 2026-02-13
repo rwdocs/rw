@@ -1,0 +1,18 @@
+[package]
+name = "rw-assets"
+description = "Frontend asset serving for RW documentation engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+embed = ["dep:rust-embed"]
+
+[dependencies]
+rust-embed = { version = "8.5", features = ["compression"], optional = true }
+mime_guess = "2"
