@@ -72,10 +72,7 @@ impl BuildArgs {
 
         let site_name = self.site_name.unwrap_or_else(|| "Documentation".to_owned());
 
-        let build_config = BuildConfig {
-            site_name,
-            css_content: None,
-        };
+        let build_config = BuildConfig { site_name };
 
         let builder = StaticSiteBuilder::new(storage, build_config).with_renderer_config(
             PageRendererConfig {

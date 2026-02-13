@@ -16,8 +16,6 @@ use crate::template::{
 pub struct BuildConfig {
     /// Site name for techdocs_metadata.json.
     pub site_name: String,
-    /// Optional CSS content to write. Falls back to minimal default if `None`.
-    pub css_content: Option<String>,
 }
 
 /// Error returned by the static site builder.
@@ -131,13 +129,6 @@ impl StaticSiteBuilder {
 
         let mut css_written = false;
 
-        // Custom CSS takes priority over frontend dist CSS.
-        if let Some(css) = &self.config.css_content {
-            fs::write(assets_dir.join("styles.css"), css)?;
-            css_written = true;
-        }
-
-        // Copy CSS (if not overridden) and font files from frontend dist.
         for path in rw_assets::iter() {
             let path = path.as_ref();
             if !path.starts_with("assets/") {
@@ -154,10 +145,6 @@ impl StaticSiteBuilder {
             } else if filename.ends_with(".woff") || filename.ends_with(".woff2") {
                 fs::write(assets_dir.join(filename), data.as_ref())?;
             }
-        }
-
-        if !css_written {
-            fs::write(assets_dir.join("styles.css"), DEFAULT_CSS)?;
         }
 
         Ok(())
@@ -314,65 +301,6 @@ fn compute_css_path(page_path: &str) -> String {
     }
 }
 
-/// Minimal fallback CSS when frontend build output is not available.
-const DEFAULT_CSS: &str = r"/* Minimal fallback styles for rw techdocs build */
-*,::before,::after{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,sans-serif;line-height:1.6}
-.min-h-screen{min-height:100vh}
-.flex{display:flex}.flex-col{flex-direction:column}.flex-1{flex:1 1 0%}
-.items-center{align-items:center}
-.hidden{display:none}
-.block{display:block}
-.sticky{position:sticky}.top-0{top:0}.top-6{top:1.5rem}
-.overflow-y-auto{overflow-y:auto}
-.h-screen{height:100vh}
-.w-\[280px\]{width:280px}.w-\[240px\]{width:240px}.w-\[22px\]{width:22px}
-.w-5{width:1.25rem}.h-5{height:1.25rem}.w-3\.5{width:0.875rem}.h-3\.5{height:0.875rem}
-.flex-shrink-0{flex-shrink:0}.min-w-0{min-width:0}
-.border-r{border-right:1px solid}.border-gray-200{border-color:#e5e7eb}
-.bg-white{background:#fff}.text-gray-900{color:#111827}
-.text-gray-700{color:#374151}.text-gray-600{color:#4b5563}.text-gray-500{color:#6b7280}.text-gray-400{color:#9ca3af}
-.text-blue-600{color:#2563eb}.text-blue-700{color:#1d4ed8}
-.text-xl{font-size:1.25rem}.text-sm{font-size:0.875rem}.text-xs{font-size:0.75rem}
-.font-semibold{font-weight:600}.font-medium{font-weight:500}.font-light{font-weight:300}
-.uppercase{text-transform:uppercase}.tracking-wider{letter-spacing:0.05em}
-.leading-snug{line-height:1.375}
-.antialiased{-webkit-font-smoothing:antialiased}
-.rounded{border-radius:0.25rem}
-.pt-6{padding-top:1.5rem}.pb-4{padding-bottom:1rem}.pb-12{padding-bottom:3rem}
-.px-4{padding-left:1rem;padding-right:1rem}.px-8{padding-left:2rem;padding-right:2rem}
-.px-1\.5{padding-left:0.375rem;padding-right:0.375rem}.py-1\.5{padding-top:0.375rem;padding-bottom:0.375rem}
-.pl-8{padding-left:2rem}.pl-\[6px\]{padding-left:6px}.pl-\[28px\]{padding-left:28px}.pb-1\.5{padding-bottom:0.375rem}
-.mb-2{margin-bottom:0.5rem}.mb-3{margin-bottom:0.75rem}.mb-5{margin-bottom:1.25rem}.mb-6{margin-bottom:1.5rem}.mt-5{margin-top:1.25rem}
-.ml-3{margin-left:0.75rem}.mr-0\.5{margin-right:0.125rem}
-.max-w-6xl{max-width:72rem}.mx-auto{margin-left:auto;margin-right:auto}.max-w-none{max-width:none}
-.space-y-1\.5>:not(:first-child){margin-top:0.375rem}
-.rotate-90{transform:rotate(90deg)}.rotate-180{transform:rotate(180deg)}
-.justify-center{justify-content:center}
-@media(min-width:768px){.md\\:flex-row{flex-direction:row}.md\\:block{display:block}.md\\:px-8{padding-left:2rem;padding-right:2rem}}
-.first\\:mt-0:first-child{margin-top:0}
-@media(min-width:1024px){.lg\\:block{display:block}}
-.prose{max-width:65ch;color:#334155}
-.prose h1{font-size:2.25em;font-weight:800;margin-top:0;margin-bottom:0.9em;line-height:1.1}
-.prose h2{font-size:1.5em;font-weight:700;margin-top:2em;margin-bottom:1em;line-height:1.3;border-bottom:1px solid #e2e8f0;padding-bottom:0.3em}
-.prose h3{font-size:1.25em;font-weight:600;margin-top:1.6em;margin-bottom:0.6em;line-height:1.6}
-.prose p{margin-top:1.25em;margin-bottom:1.25em}
-.prose a{color:#2563eb;text-decoration:underline}
-.prose code{font-size:0.875em;font-weight:600;color:#1e293b}
-.prose pre{overflow-x:auto;font-size:0.875em;line-height:1.7;margin-top:1.7em;margin-bottom:1.7em;border-radius:0.375rem;padding:0.85em 1.1em;background:#1e293b;color:#e2e8f0}
-.prose pre code{font-weight:inherit;color:inherit;font-size:inherit;background:transparent;padding:0}
-.prose ul{list-style-type:disc;margin-top:1.25em;margin-bottom:1.25em;padding-left:1.625em}
-.prose ol{list-style-type:decimal;margin-top:1.25em;margin-bottom:1.25em;padding-left:1.625em}
-.prose li{margin-top:0.5em;margin-bottom:0.5em}
-.prose table{width:100%;table-layout:auto;text-align:left;margin-top:2em;margin-bottom:2em;font-size:0.875em;line-height:1.7}
-.prose thead{border-bottom:1px solid #cbd5e1}
-.prose thead th{font-weight:600;padding:0 0.57em 0.57em}
-.prose tbody td{padding:0.57em}
-.prose tbody tr{border-bottom:1px solid #e2e8f0}
-.prose blockquote{font-weight:500;font-style:italic;color:#64748b;border-left:0.25rem solid #e2e8f0;padding-left:1em;margin:1.6em 0}
-.prose img{margin-top:2em;margin-bottom:2em;max-width:100%}
-.prose hr{border-color:#e2e8f0;margin-top:3em;margin-bottom:3em}
-";
 
 #[cfg(test)]
 mod tests {
@@ -398,7 +326,7 @@ mod tests {
         let storage = Arc::new(mock_storage_with_pages());
         let config = BuildConfig {
             site_name: "Test Site".to_owned(),
-            css_content: None,
+
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -407,7 +335,6 @@ mod tests {
         assert!(output_dir.join("index.html").exists());
         assert!(output_dir.join("guide/index.html").exists());
         assert!(output_dir.join("techdocs_metadata.json").exists());
-        assert!(output_dir.join("assets/styles.css").exists());
     }
 
     #[test]
@@ -417,7 +344,7 @@ mod tests {
         let storage = Arc::new(mock_storage_with_pages());
         let config = BuildConfig {
             site_name: "My Docs".to_owned(),
-            css_content: None,
+
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -428,47 +355,13 @@ mod tests {
     }
 
     #[test]
-    fn build_writes_custom_css() {
-        let tmp = TempDir::new().unwrap();
-        let output_dir = tmp.path().join("site");
-        let storage = Arc::new(mock_storage_with_pages());
-        let config = BuildConfig {
-            site_name: "Test".to_owned(),
-            css_content: Some("body { color: red; }".to_owned()),
-        };
-
-        let builder = StaticSiteBuilder::new(storage, config);
-        builder.build(&output_dir).unwrap();
-
-        let css = std::fs::read_to_string(output_dir.join("assets/styles.css")).unwrap();
-        assert!(css.contains("color: red"));
-    }
-
-    #[test]
-    fn build_writes_default_css_when_none() {
-        let tmp = TempDir::new().unwrap();
-        let output_dir = tmp.path().join("site");
-        let storage = Arc::new(mock_storage_with_pages());
-        let config = BuildConfig {
-            site_name: "Test".to_owned(),
-            css_content: None,
-        };
-
-        let builder = StaticSiteBuilder::new(storage, config);
-        builder.build(&output_dir).unwrap();
-
-        let css = std::fs::read_to_string(output_dir.join("assets/styles.css")).unwrap();
-        assert!(css.contains(".prose"));
-    }
-
-    #[test]
     fn build_page_contains_content() {
         let tmp = TempDir::new().unwrap();
         let output_dir = tmp.path().join("site");
         let storage = Arc::new(mock_storage_with_pages());
         let config = BuildConfig {
             site_name: "Test".to_owned(),
-            css_content: None,
+
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -496,7 +389,7 @@ mod tests {
         );
         let config = BuildConfig {
             site_name: "Test".to_owned(),
-            css_content: None,
+
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
@@ -528,7 +421,7 @@ mod tests {
         let storage = Arc::new(mock_storage_with_pages());
         let config = BuildConfig {
             site_name: "Test".to_owned(),
-            css_content: None,
+
         };
 
         let builder = StaticSiteBuilder::new(storage, config);
