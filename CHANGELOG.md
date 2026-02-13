@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
 - Diagram `$link` URLs now respect `relative_links` and `trailing_slash` settings via `LinkConfig` on `DiagramProcessor`
 
+### Fixed
+
+- `rw techdocs build` now copies font files (`.woff`/`.woff2`) to the output `assets/` directory via `rw-assets` crate, fixing 404 errors and system font fallback
+
 ### Changed
 
 - Extracted `rw-assets` crate for shared frontend asset access (embedded + filesystem modes); `rw-server` no longer owns `rust-embed` or `mime_guess` deps

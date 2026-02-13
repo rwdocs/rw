@@ -116,17 +116,47 @@ impl StaticSiteBuilder {
             tracing::debug!(path = %page_path, "Wrote page");
         }
 
-        self.write_css(output_dir)?;
+        self.write_assets(output_dir)?;
         self.write_metadata(output_dir)?;
 
         Ok(())
     }
 
-    fn write_css(&self, output_dir: &Path) -> Result<(), BuildError> {
-        let css_dir = output_dir.join("assets");
-        fs::create_dir_all(&css_dir)?;
-        let css = self.config.css_content.as_deref().unwrap_or(DEFAULT_CSS);
-        fs::write(css_dir.join("styles.css"), css)?;
+    fn write_assets(&self, output_dir: &Path) -> Result<(), BuildError> {
+        let assets_dir = output_dir.join("assets");
+        fs::create_dir_all(&assets_dir)?;
+
+        let mut css_written = false;
+
+        // Custom CSS takes priority over frontend dist CSS.
+        if let Some(css) = &self.config.css_content {
+            fs::write(assets_dir.join("styles.css"), css)?;
+            css_written = true;
+        }
+
+        // Copy CSS (if not overridden) and font files from frontend dist.
+        for path in rw_assets::iter() {
+            let path = path.as_ref();
+            if !path.starts_with("assets/") {
+                continue;
+            }
+            let filename = &path["assets/".len()..];
+            let Some(data) = rw_assets::get(path) else {
+                continue;
+            };
+
+            if !css_written && filename.ends_with(".css") {
+                fs::write(assets_dir.join("styles.css"), data.as_ref())?;
+                css_written = true;
+            } else if filename.ends_with(".woff") || filename.ends_with(".woff2") {
+                fs::write(assets_dir.join(filename), data.as_ref())?;
+            }
+        }
+
+        if !css_written {
+            fs::write(assets_dir.join("styles.css"), DEFAULT_CSS)?;
+        }
+
         Ok(())
     }
 
@@ -417,6 +447,46 @@ mod tests {
         assert!(api_html.contains("Endpoints"));
         // CSS path should have correct relative depth
         assert!(api_html.contains("../../assets/styles.css"));
+    }
+
+    #[test]
+    fn build_copies_font_assets() {
+        // rw-assets in dev mode reads from `frontend/dist` relative to CWD.
+        // cargo test sets CWD to the crate directory, so move to workspace root.
+        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        if !workspace_root.join("frontend/dist/assets").exists() {
+            // Frontend not built; skip.
+            return;
+        }
+        std::env::set_current_dir(&workspace_root).unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let output_dir = tmp.path().join("site");
+        let storage = Arc::new(mock_storage_with_pages());
+        let config = BuildConfig {
+            site_name: "Test".to_owned(),
+            css_content: None,
+        };
+
+        let builder = StaticSiteBuilder::new(storage, config);
+        builder.build(&output_dir).unwrap();
+
+        let assets_dir = output_dir.join("assets");
+        let font_files: Vec<_> = std::fs::read_dir(&assets_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let path = e.path();
+                matches!(
+                    path.extension().and_then(|ext| ext.to_str()),
+                    Some("woff" | "woff2")
+                )
+            })
+            .collect();
+        assert!(
+            !font_files.is_empty(),
+            "Font files should be copied to assets/"
+        );
     }
 
     #[test]

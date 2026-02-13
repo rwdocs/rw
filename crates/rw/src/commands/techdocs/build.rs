@@ -70,16 +70,13 @@ impl BuildArgs {
             meta_filename,
         ));
 
-        // Load CSS from frontend dist if available
-        let css_content = load_frontend_css();
-
         let site_name = self
             .site_name
             .unwrap_or_else(|| "Documentation".to_owned());
 
         let build_config = BuildConfig {
             site_name,
-            css_content,
+            css_content: None,
         };
 
         let builder = StaticSiteBuilder::new(storage, build_config).with_renderer_config(
@@ -103,15 +100,3 @@ impl BuildArgs {
     }
 }
 
-/// Try to load CSS from the frontend dist directory.
-///
-/// Looks for `frontend/dist/assets/*.css` relative to the binary location
-/// or current directory.
-fn load_frontend_css() -> Option<String> {
-    // Try relative to current directory
-    let pattern = "frontend/dist/assets/*.css";
-    for entry in glob::glob(pattern).ok()?.flatten() {
-        return std::fs::read_to_string(entry).ok();
-    }
-    None
-}

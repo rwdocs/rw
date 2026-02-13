@@ -2853,7 +2853,6 @@ version = "0.1.4"
 dependencies = [
  "clap",
  "console",
- "glob",
  "rw-assets",
  "rw-config",
  "rw-confluence",
@@ -3024,6 +3023,7 @@ version = "0.1.4"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
+ "rw-assets",
  "rw-cache",
  "rw-config",
  "rw-site",
