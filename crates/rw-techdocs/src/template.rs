@@ -202,7 +202,7 @@ mod tests {
             root_path: ".".to_owned(),
         };
         let html = render_page(&page);
-        assert!(html.contains("text-blue-700 font-medium"));
+        assert!(html.contains("td-nav-link--active"));
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod tests {
             root_path: ".".to_owned(),
         };
         let html = render_page(&page);
-        assert!(html.contains("class=\"ml-3\""));
+        assert!(html.contains("td-toc-item--nested"));
         assert!(html.contains("#subsection"));
         assert!(html.contains("#section"));
     }
@@ -253,7 +253,7 @@ mod tests {
         let html = render_page(&page);
         assert!(html.contains("nav-chevron"));
         assert!(html.contains("Billing"));
-        assert!(html.contains("<ul class=\"ml-3\">"));
+        assert!(html.contains("td-nav-children"));
     }
 
     #[test]
@@ -324,7 +324,7 @@ mod tests {
         assert!(html.contains("rotate-180")); // Left arrow
         // Section title
         assert!(html.contains("Billing"));
-        assert!(html.contains("text-xl font-light"));
+        assert!(html.contains("td-scope-title"));
     }
 
     #[test]
@@ -351,7 +351,7 @@ mod tests {
         let html = render_page(&page);
         assert!(html.contains("Guide"));
         assert!(html.contains("Domains"));
-        assert!(html.contains("uppercase tracking-wider"));
+        assert!(html.contains("td-nav-group-label"));
         assert!(html.contains("Billing"));
     }
 }

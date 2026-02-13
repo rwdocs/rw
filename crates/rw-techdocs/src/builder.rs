@@ -131,11 +131,15 @@ impl StaticSiteBuilder {
 }
 
 /// Copy CSS and font assets to the output directory.
+///
+/// Prefers the `techdocs-*.css` file when available (self-contained TechDocs styles).
+/// Falls back to the first CSS file found for backward compatibility.
 fn write_assets(output_dir: &Path) -> Result<(), BuildError> {
     let assets_dir = output_dir.join("assets");
     fs::create_dir_all(&assets_dir)?;
 
-    let mut css_written = false;
+    let mut techdocs_css_path = None;
+    let mut first_css_path = None;
 
     for path in rw_assets::iter() {
         let path = path.as_ref();
@@ -143,16 +147,25 @@ fn write_assets(output_dir: &Path) -> Result<(), BuildError> {
             continue;
         }
         let filename = &path["assets/".len()..];
-        let Some(data) = rw_assets::get(path) else {
-            continue;
-        };
-
         let ext = Path::new(filename).extension().and_then(|e| e.to_str());
-        if !css_written && ext == Some("css") {
-            fs::write(assets_dir.join("styles.css"), data.as_ref())?;
-            css_written = true;
+
+        if ext == Some("css") {
+            if filename.starts_with("techdocs") {
+                techdocs_css_path = Some(path.to_owned());
+            } else if first_css_path.is_none() {
+                first_css_path = Some(path.to_owned());
+            }
         } else if matches!(ext, Some("woff" | "woff2")) {
-            fs::write(assets_dir.join(filename), data.as_ref())?;
+            if let Some(data) = rw_assets::get(path) {
+                fs::write(assets_dir.join(filename), data.as_ref())?;
+            }
+        }
+    }
+
+    let css_asset = techdocs_css_path.or(first_css_path);
+    if let Some(css_path) = css_asset {
+        if let Some(data) = rw_assets::get(&css_path) {
+            fs::write(assets_dir.join("styles.css"), data.as_ref())?;
         }
     }
 

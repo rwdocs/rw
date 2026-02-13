@@ -1,11 +1,20 @@
+import { fileURLToPath } from "url";
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   build: {
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: __dirname + "index.html",
+        techdocs: __dirname + "src/techdocs.ts",
+      },
+    },
   },
   server: {
     proxy: {

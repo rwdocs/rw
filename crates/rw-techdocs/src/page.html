@@ -7,33 +7,32 @@
   <link rel="stylesheet" href="{{ css_path }}">
 </head>
 
-<body class="bg-white text-gray-900 antialiased">
-<div class="min-h-screen flex flex-col md:flex-row">
+<body>
+<div class="td-layout">
 
   {# ── Sidebar ── #}
-  <aside class="w-[280px] flex-shrink-0 border-r border-gray-200 hidden md:block h-screen sticky top-0 overflow-y-auto">
-    <div class="pt-6 px-4 pb-4">
-      <a href="{{ root_path }}" class="block mb-5 pl-[6px]">
-        <span class="text-xl font-semibold uppercase">
-          <span class="text-gray-900">R</span><span class="text-gray-400">W</span>
+  <aside class="td-sidebar">
+    <div class="td-sidebar-inner">
+      <a href="{{ root_path }}" class="td-logo">
+        <span class="td-logo-text">
+          <span class="td-logo-primary">R</span><span class="td-logo-secondary">W</span>
         </span>
       </a>
 
       {# Scope header (back link + section title) #}
       {%- if scope %}
-      <div class="mb-5">
-        <a href="{{ scope.back_link_path }}"
-           class="text-sm text-gray-500 hover:text-blue-600 flex items-center mb-2">
-          <span class="w-[22px] flex items-center justify-center">
+      <div class="td-scope">
+        <a href="{{ scope.back_link_path }}" class="td-scope-back">
+          <span class="td-scope-back-icon">
             <svg class="w-3.5 h-3.5 rotate-180" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd"
                     d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
                     clip-rule="evenodd"/>
             </svg>
           </span>
-          <span class="px-1.5">{{ scope.back_link_title }}</span>
+          <span class="td-nav-link">{{ scope.back_link_title }}</span>
         </a>
-        <h2 class="text-xl font-light text-gray-900 pl-[28px]">{{ scope.title }}</h2>
+        <h2 class="td-scope-title">{{ scope.title }}</h2>
       </div>
       {%- endif %}
 
@@ -41,8 +40,8 @@
       <nav class="nav-tree">
         {%- for group in nav_groups %}
         {%- if group.label %}
-        <div class="nav-group mt-5 first:mt-0">
-          <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1.5 pb-1.5">
+        <div class="td-nav-group">
+          <div class="td-nav-group-label">
             {{ group.label }}
           </div>
           <ul>
@@ -50,8 +49,8 @@
             {%- if item.children %}
             <li>
               <details{%- if item.is_on_active_path %} open{%- endif %}>
-                <summary class="flex items-center">
-                  <span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
+                <summary class="td-nav-summary">
+                  <span class="td-nav-chevron-wrap">
                     <svg class="w-3.5 h-3.5 nav-chevron" fill="currentColor" viewBox="0 0 20 20">
                       <path fill-rule="evenodd"
                             d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
@@ -59,21 +58,21 @@
                     </svg>
                   </span>
                   <a href="{{ item.path }}"
-                     class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">
+                     class="td-nav-link{% if item.is_active %} td-nav-link--active{% endif %}">
                     {{ item.title }}
                   </a>
                 </summary>
-                <ul class="ml-3">
+                <ul class="td-nav-children">
                   {{ loop(item.children) }}
                 </ul>
               </details>
             </li>
             {%- else %}
             <li>
-              <div class="flex items-center">
-                <span class="w-[22px]"></span>
+              <div class="td-nav-summary">
+                <span class="td-nav-spacer"></span>
                 <a href="{{ item.path }}"
-                   class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">
+                   class="td-nav-link{% if item.is_active %} td-nav-link--active{% endif %}">
                   {{ item.title }}
                 </a>
               </div>
@@ -89,8 +88,8 @@
           {%- if item.children %}
           <li>
             <details{%- if item.is_on_active_path %} open{%- endif %}>
-              <summary class="flex items-center">
-                <span class="w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5">
+              <summary class="td-nav-summary">
+                <span class="td-nav-chevron-wrap">
                   <svg class="w-3.5 h-3.5 nav-chevron" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd"
                           d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
@@ -98,21 +97,21 @@
                   </svg>
                 </span>
                 <a href="{{ item.path }}"
-                   class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">
+                   class="td-nav-link{% if item.is_active %} td-nav-link--active{% endif %}">
                   {{ item.title }}
                 </a>
               </summary>
-              <ul class="ml-3">
+              <ul class="td-nav-children">
                 {{ loop(item.children) }}
               </ul>
             </details>
           </li>
           {%- else %}
           <li>
-            <div class="flex items-center">
-              <span class="w-[22px]"></span>
+            <div class="td-nav-summary">
+              <span class="td-nav-spacer"></span>
               <a href="{{ item.path }}"
-                 class="flex-1 py-1.5 px-1.5 rounded text-sm {% if item.is_active %}text-blue-700 font-medium{% else %}text-gray-700 hover:text-gray-900{% endif %}">
+                 class="td-nav-link{% if item.is_active %} td-nav-link--active{% endif %}">
                 {{ item.title }}
               </a>
             </div>
@@ -127,18 +126,18 @@
   </aside>
 
   {# ── Main content ── #}
-  <div class="flex-1">
-    <div class="max-w-6xl mx-auto px-4 md:px-8 pt-6 pb-12">
+  <div class="td-main">
+    <div class="td-main-inner">
 
       {# Breadcrumbs #}
       {%- if breadcrumbs %}
-      <nav class="mb-6">
-        <ol class="flex items-center text-sm text-gray-600">
+      <nav class="td-breadcrumbs">
+        <ol class="td-breadcrumbs-list">
           {%- for crumb in breadcrumbs %}
-          <li class="flex items-center">
-            <a href="{{ crumb.path }}" class="hover:text-gray-700 hover:underline">{{ crumb.title }}</a>
+          <li class="td-breadcrumb">
+            <a href="{{ crumb.path }}" class="td-breadcrumb-link">{{ crumb.title }}</a>
             {%- if not loop.last %}
-            <span style="margin-left:0.625rem;margin-right:0.5rem;color:rgb(156 163 175)">/</span>
+            <span class="td-breadcrumb-sep">/</span>
             {%- endif %}
           </li>
           {%- endfor %}
@@ -146,23 +145,23 @@
       </nav>
       {%- endif %}
 
-      <div class="flex">
+      <div class="td-content-row">
         {# Article #}
-        <main class="flex-1 min-w-0">
-          <article class="prose prose-slate max-w-none">
+        <main class="td-article-wrapper">
+          <article class="td-article">
             {{ html_content|safe }}
           </article>
         </main>
 
         {# Table of contents #}
         {%- if toc %}
-        <aside class="w-[240px] flex-shrink-0 hidden lg:block">
-          <div class="pl-8 sticky top-6">
-            <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3">On this page</h3>
-            <ul class="space-y-1.5">
+        <aside class="td-toc">
+          <div class="td-toc-inner">
+            <h3 class="td-toc-heading">On this page</h3>
+            <ul class="td-toc-list">
               {%- for entry in toc %}
-              <li{% if entry.level >= 3 %} class="ml-3"{% endif %}>
-                <a href="#{{ entry.id }}" class="block text-sm leading-snug text-gray-600 hover:text-gray-900">{{ entry.title }}</a>
+              <li{% if entry.level >= 3 %} class="td-toc-item--nested"{% endif %}>
+                <a href="#{{ entry.id }}" class="td-toc-link">{{ entry.title }}</a>
               </li>
               {%- endfor %}
             </ul>

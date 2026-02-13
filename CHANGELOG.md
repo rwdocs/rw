@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Extracted shared content styles (prose, diagrams, alerts, tabs) into `frontend/src/styles/content.css`, imported by both `app.css` and `techdocs.css`
+- Added dedicated `techdocs` Vite entry point (`frontend/src/techdocs.css`) with self-contained `td-*` layout classes, eliminating Tailwind utility classes from `page.html` template
+- `rw techdocs build` now uses the dedicated `techdocs-*.css` bundle instead of the SPA's CSS, fixing silent style breakage from Tailwind's content scanning
 - Replaced hand-rolled `push_str` HTML generation in `rw-techdocs` template with minijinja template engine for improved readability and maintainability
 - Removed `DEFAULT_CSS` fallback and `css_content` option from `BuildConfig`; `rw techdocs build` always uses frontend assets via `rw-assets`
 - Extracted `rw-assets` crate for shared frontend asset access (embedded + filesystem modes); `rw-server` no longer owns `rust-embed` or `mime_guess` deps

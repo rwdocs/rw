@@ -176,7 +176,10 @@ frontend/                  # Svelte 5 SPA (Vite + Tailwind)
 │   ├── stores/            # Svelte stores (router, navigation, page)
 │   ├── api/               # API client
 │   ├── lib/               # Utility libraries (tabs.ts)
-│   └── types/             # TypeScript interfaces
+│   ├── styles/            # Shared CSS (content.css: prose, diagrams, alerts, tabs)
+│   ├── types/             # TypeScript interfaces
+│   ├── techdocs.ts        # TechDocs CSS entry point (Vite second input)
+│   └── techdocs.css       # Self-contained TechDocs styles (td-* classes)
 └── dist/                  # Production build output
 ```
 
