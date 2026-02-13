@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced hand-rolled `push_str` HTML generation in `rw-techdocs` template with minijinja template engine for improved readability and maintainability
 - Removed `DEFAULT_CSS` fallback and `css_content` option from `BuildConfig`; `rw techdocs build` always uses frontend assets via `rw-assets`
 - Extracted `rw-assets` crate for shared frontend asset access (embedded + filesystem modes); `rw-server` no longer owns `rust-embed` or `mime_guess` deps
 - `MarkdownRenderer::with_base_path()` now expects URL paths with leading `/` (e.g., `/a/b` instead of `a/b`); storage-to-URL conversion moved to `PageRenderer`

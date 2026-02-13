@@ -2111,6 +2111,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "minijinja"
+version = "2.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b479616bb6f0779fb0f3964246beda02d4b01144e1b0d5519616e012ccc2a245"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3023,6 +3032,7 @@ version = "0.1.4"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
+ "minijinja",
  "rw-assets",
  "rw-cache",
  "rw-config",
