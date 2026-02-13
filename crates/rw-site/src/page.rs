@@ -36,6 +36,10 @@ pub struct PageRendererConfig {
     ///
     /// Default: `false`.
     pub trailing_slash: bool,
+    /// Produce CSS-only tabs instead of JS-dependent tabs.
+    ///
+    /// Default: `false`.
+    pub static_tabs: bool,
 }
 
 impl Default for PageRendererConfig {
@@ -47,6 +51,7 @@ impl Default for PageRendererConfig {
             dpi: 192,
             relative_links: false,
             trailing_slash: false,
+            static_tabs: false,
         }
     }
 }
@@ -137,6 +142,7 @@ pub(crate) struct PageRenderer {
     dpi: u32,
     relative_links: bool,
     trailing_slash: bool,
+    static_tabs: bool,
 }
 
 impl PageRenderer {
@@ -156,6 +162,7 @@ impl PageRenderer {
             dpi: config.dpi,
             relative_links: config.relative_links,
             trailing_slash: config.trailing_slash,
+            static_tabs: config.static_tabs,
         }
     }
 
@@ -254,7 +261,12 @@ impl PageRenderer {
         base_path: &str,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+        let tabs = if self.static_tabs {
+            TabsDirective::new_static()
+        } else {
+            TabsDirective::new()
+        };
+        let directives = DirectiveProcessor::new().with_container(tabs);
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_gfm(true)

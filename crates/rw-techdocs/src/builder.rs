@@ -67,6 +67,7 @@ impl StaticSiteBuilder {
                 dpi: self.renderer_config.dpi,
                 relative_links: self.renderer_config.relative_links,
                 trailing_slash: self.renderer_config.trailing_slash,
+                static_tabs: self.renderer_config.static_tabs,
             },
         );
 

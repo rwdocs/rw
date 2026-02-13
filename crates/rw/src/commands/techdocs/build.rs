@@ -82,6 +82,7 @@ impl BuildArgs {
                 dpi: config.diagrams_resolved.dpi,
                 relative_links: true,
                 trailing_slash: true,
+                static_tabs: false,
             },
         );
 
