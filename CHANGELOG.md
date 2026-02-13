@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw techdocs build` now copies font files (`.woff`/`.woff2`) to the output `assets/` directory via `rw-assets` crate, fixing 404 errors and system font fallback
 - `rw techdocs build` scoped navigation now renders back link, section title, and type group labels (e.g., "SYSTEMS") matching the `rw serve` frontend
 - `rw techdocs build` tabs are now interactive via CSS-only radio inputs (no JavaScript needed), matching mkdocs-material's approach for Backstage TechDocs compatibility
+- `rw techdocs publish` with custom `--endpoint` now uses path-style S3 addressing, fixing virtual-hosted-style DNS issues with LocalStack, MinIO, and Yandex Cloud endpoints
+- `rw techdocs publish` S3 errors now show the full cause chain instead of just "dispatch failure" (e.g., reveals missing credentials)
 
 ### Changed
 

@@ -5,17 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }}</title>
   <link rel="stylesheet" href="{{ css_path }}">
-  <style>
-    .breadcrumb-item::after {
-      content: "/";
-      margin-left: 0.625rem;
-      margin-right: 0.5rem;
-      color: rgb(156 163 175);
-    }
-    .breadcrumb-item:last-child::after {
-      content: none;
-    }
-  </style>
 </head>
 
 <body class="bg-white text-gray-900 antialiased">
@@ -24,7 +13,7 @@
   {# ── Sidebar ── #}
   <aside class="w-[280px] flex-shrink-0 border-r border-gray-200 hidden md:block h-screen sticky top-0 overflow-y-auto">
     <div class="pt-6 px-4 pb-4">
-      <a href="/" class="block mb-5 pl-[6px]">
+      <a href="{{ root_path }}" class="block mb-5 pl-[6px]">
         <span class="text-xl font-semibold uppercase">
           <span class="text-gray-900">R</span><span class="text-gray-400">W</span>
         </span>
@@ -146,8 +135,11 @@
       <nav class="mb-6">
         <ol class="flex items-center text-sm text-gray-600">
           {%- for crumb in breadcrumbs %}
-          <li class="breadcrumb-item">
+          <li class="flex items-center">
             <a href="{{ crumb.path }}" class="hover:text-gray-700 hover:underline">{{ crumb.title }}</a>
+            {%- if not loop.last %}
+            <span style="margin-left:0.625rem;margin-right:0.5rem;color:rgb(156 163 175)">/</span>
+            {%- endif %}
           </li>
           {%- endfor %}
         </ol>

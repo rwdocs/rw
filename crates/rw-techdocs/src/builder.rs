@@ -75,12 +75,13 @@ impl StaticSiteBuilder {
             let scope = site.get_navigation_scope(page_path);
             let page_nav = site.navigation(&scope);
 
-            let nav_items = convert_nav_items(&page_nav.items, page_path);
-            let scope = convert_scope(&page_nav);
+            let nav_items = convert_nav_items(&page_nav.items, page_path, page_path);
+            let scope = convert_scope(&page_nav, page_path);
             let nav_groups = group_nav_items(nav_items);
-            let breadcrumbs = convert_breadcrumbs(&render_result.breadcrumbs);
+            let breadcrumbs = convert_breadcrumbs(&render_result.breadcrumbs, page_path);
             let toc = convert_toc(&render_result.toc);
             let css_path = compute_css_path(page_path);
+            let root_path = relative_nav_path(page_path, "");
 
             let title = render_result.title.unwrap_or_else(|| "Untitled".to_owned());
 
@@ -93,6 +94,7 @@ impl StaticSiteBuilder {
                 scope,
                 nav_groups,
                 css_path,
+                root_path,
             };
 
             let html = template::render_page(&page_data);
@@ -194,16 +196,44 @@ fn collect_children_paths(items: &[NavItem], paths: &mut Vec<String>) {
     }
 }
 
-fn convert_nav_items(items: &[NavItem], current_path: &str) -> Vec<NavItemData> {
+/// Compute a relative URL path from `from_page` to `to_page`.
+///
+/// Both are page paths without leading slashes (e.g., `"domains/billing"`).
+/// Empty string means the root page.
+fn relative_nav_path(from_page: &str, to_page: &str) -> String {
+    if from_page == to_page {
+        return ".".to_owned();
+    }
+
+    let from_depth = if from_page.is_empty() {
+        0
+    } else {
+        from_page.split('/').count()
+    };
+
+    let ups = "../".repeat(from_depth);
+
+    if to_page.is_empty() {
+        if from_depth == 0 {
+            ".".to_owned()
+        } else {
+            ups.trim_end_matches('/').to_owned()
+        }
+    } else {
+        format!("{ups}{to_page}")
+    }
+}
+
+fn convert_nav_items(items: &[NavItem], current_path: &str, from_page: &str) -> Vec<NavItemData> {
     items
         .iter()
         .map(|item| {
-            let children = convert_nav_items(&item.children, current_path);
+            let children = convert_nav_items(&item.children, current_path, from_page);
             let is_active = item.path == current_path;
             let is_on_active_path = is_active || children.iter().any(|c| c.is_on_active_path);
             NavItemData {
                 title: item.title.clone(),
-                path: format!("/{}", item.path),
+                path: relative_nav_path(from_page, &item.path),
                 is_active,
                 is_on_active_path,
                 children,
@@ -213,18 +243,18 @@ fn convert_nav_items(items: &[NavItem], current_path: &str) -> Vec<NavItemData> 
         .collect()
 }
 
-fn convert_scope(nav: &Navigation) -> Option<ScopeHeaderData> {
+fn convert_scope(nav: &Navigation, from_page: &str) -> Option<ScopeHeaderData> {
     let scope = nav.scope.as_ref()?;
     let back = nav
         .parent_scope
         .as_ref()
         .map(|p| (p.title.clone(), p.path.clone()));
-    let (back_link_title, back_link_path) =
-        back.unwrap_or_else(|| ("Home".to_owned(), "/".to_owned()));
+    let (back_link_title, back_link_raw) =
+        back.unwrap_or_else(|| ("Home".to_owned(), String::new()));
     Some(ScopeHeaderData {
         title: scope.title.clone(),
         back_link_title,
-        back_link_path,
+        back_link_path: relative_nav_path(from_page, &back_link_raw),
     })
 }
 
@@ -271,12 +301,15 @@ fn pluralize_type(t: &str) -> String {
     }
 }
 
-fn convert_breadcrumbs(breadcrumbs: &[rw_site::BreadcrumbItem]) -> Vec<BreadcrumbData> {
+fn convert_breadcrumbs(
+    breadcrumbs: &[rw_site::BreadcrumbItem],
+    from_page: &str,
+) -> Vec<BreadcrumbData> {
     breadcrumbs
         .iter()
         .map(|b| BreadcrumbData {
             title: b.title.clone(),
-            path: format!("/{}", b.path),
+            path: relative_nav_path(from_page, &b.path),
         })
         .collect()
 }
@@ -453,6 +486,36 @@ mod tests {
     }
 
     #[test]
+    fn relative_nav_path_from_root() {
+        assert_eq!(relative_nav_path("", ""), ".");
+        assert_eq!(relative_nav_path("", "guide"), "guide");
+        assert_eq!(relative_nav_path("", "domains/billing"), "domains/billing");
+    }
+
+    #[test]
+    fn relative_nav_path_to_root() {
+        assert_eq!(relative_nav_path("guide", ""), "..");
+        assert_eq!(relative_nav_path("domains/billing", ""), "../..");
+        assert_eq!(relative_nav_path("a/b/c", ""), "../../..");
+    }
+
+    #[test]
+    fn relative_nav_path_between_pages() {
+        assert_eq!(relative_nav_path("usage", "domains/billing"), "../domains/billing");
+        assert_eq!(relative_nav_path("domains/billing", "usage"), "../../usage");
+        assert_eq!(
+            relative_nav_path("domains/billing", "domains/moderation"),
+            "../../domains/moderation"
+        );
+    }
+
+    #[test]
+    fn relative_nav_path_same_page() {
+        assert_eq!(relative_nav_path("guide", "guide"), ".");
+        assert_eq!(relative_nav_path("domains/billing", "domains/billing"), ".");
+    }
+
+    #[test]
     fn convert_nav_items_sets_active_path() {
         use rw_site::NavItem;
 
@@ -468,7 +531,7 @@ mod tests {
             }],
         }];
 
-        let result = convert_nav_items(&items, "domains/billing");
+        let result = convert_nav_items(&items, "domains/billing", "domains/billing");
 
         // Parent is on active path (child is active)
         assert!(result[0].is_on_active_path);
@@ -502,7 +565,7 @@ mod tests {
             },
         ];
 
-        let result = convert_nav_items(&items, "domains/billing");
+        let result = convert_nav_items(&items, "domains/billing", "domains/billing");
 
         // Guide is NOT on the active path
         assert!(!result[0].is_on_active_path);
@@ -531,7 +594,7 @@ mod tests {
             }],
         }];
 
-        let result = convert_nav_items(&items, "domains/billing/api");
+        let result = convert_nav_items(&items, "domains/billing/api", "domains/billing/api");
 
         // All ancestors are on active path
         assert!(result[0].is_on_active_path);

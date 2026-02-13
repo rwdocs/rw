@@ -64,6 +64,7 @@ pub struct PageData {
     pub scope: Option<ScopeHeaderData>,
     pub nav_groups: Vec<NavGroupData>,
     pub css_path: String,
+    pub root_path: String,
 }
 
 const TEMPLATE: &str = include_str!("page.html");
@@ -108,6 +109,7 @@ mod tests {
             scope: None,
             nav_groups: vec![],
             css_path: "assets/styles.css".to_owned(),
+            root_path: ".".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("<p>Hello world</p>"));
@@ -135,6 +137,7 @@ mod tests {
             scope: None,
             nav_groups: vec![],
             css_path: "../../assets/styles.css".to_owned(),
+            root_path: "../..".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("Domains"));
@@ -157,6 +160,7 @@ mod tests {
             scope: None,
             nav_groups: vec![],
             css_path: "assets/styles.css".to_owned(),
+            root_path: ".".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("On this page"));
@@ -175,6 +179,7 @@ mod tests {
             scope: None,
             nav_groups: vec![ungrouped(vec![nav_item("Guide", "/guide")])],
             css_path: "assets/styles.css".to_owned(),
+            root_path: ".".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("Guide"));
@@ -194,6 +199,7 @@ mod tests {
             scope: None,
             nav_groups: vec![ungrouped(vec![item])],
             css_path: "assets/styles.css".to_owned(),
+            root_path: ".".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("text-blue-700 font-medium"));
@@ -221,6 +227,7 @@ mod tests {
             scope: None,
             nav_groups: vec![],
             css_path: "assets/styles.css".to_owned(),
+            root_path: ".".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("class=\"ml-3\""));
@@ -241,6 +248,7 @@ mod tests {
             scope: None,
             nav_groups: vec![ungrouped(vec![parent])],
             css_path: "assets/styles.css".to_owned(),
+            root_path: ".".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("nav-chevron"));
@@ -261,6 +269,7 @@ mod tests {
             scope: None,
             nav_groups: vec![ungrouped(vec![parent])],
             css_path: "assets/styles.css".to_owned(),
+            root_path: ".".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("<details>"));
@@ -286,6 +295,7 @@ mod tests {
             scope: None,
             nav_groups: vec![ungrouped(vec![parent])],
             css_path: "../../assets/styles.css".to_owned(),
+            root_path: "../..".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("<details open>"));
@@ -306,6 +316,7 @@ mod tests {
             }),
             nav_groups: vec![ungrouped(vec![nav_item("API", "/domains/billing/api")])],
             css_path: "../../assets/styles.css".to_owned(),
+            root_path: "../..".to_owned(),
         };
         let html = render_page(&page);
         // Back link
@@ -335,6 +346,7 @@ mod tests {
                 },
             ],
             css_path: "assets/styles.css".to_owned(),
+            root_path: ".".to_owned(),
         };
         let html = render_page(&page);
         assert!(html.contains("Guide"));

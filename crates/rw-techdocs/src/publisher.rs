@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use std::error::Error;
+
 use aws_sdk_s3::Client;
 
 /// Configuration for S3 publishing.
@@ -66,7 +68,7 @@ impl S3Publisher {
                 .content_type(content_type)
                 .send()
                 .await
-                .map_err(|e| PublishError::S3(e.to_string()))?;
+                .map_err(|e| PublishError::S3(error_chain(&e)))?;
 
             uploaded += 1;
             tracing::debug!(key = %key, "Uploaded");
@@ -84,6 +86,17 @@ impl S3Publisher {
         }
 
         let sdk_config = loader.load().await;
+
+        // Custom endpoints (LocalStack, MinIO, Yandex Cloud) require path-style
+        // addressing (e.g. endpoint/bucket/key) instead of the default
+        // virtual-hosted-style (bucket.endpoint/key).
+        if self.config.endpoint.is_some() {
+            let s3_config = aws_sdk_s3::config::Builder::from(&sdk_config)
+                .force_path_style(true)
+                .build();
+            return Client::from_conf(s3_config);
+        }
+
         Client::new(&sdk_config)
     }
 
@@ -124,6 +137,17 @@ fn walk_dir(
         }
     }
     Ok(())
+}
+
+/// Walk the error source chain and join all messages.
+fn error_chain(err: &dyn Error) -> String {
+    let mut msgs = vec![err.to_string()];
+    let mut source = err.source();
+    while let Some(s) = source {
+        msgs.push(s.to_string());
+        source = s.source();
+    }
+    msgs.join(": ")
 }
 
 fn guess_content_type(path: &str) -> &'static str {
