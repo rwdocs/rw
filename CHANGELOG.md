@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Extracted `rw-assets` crate for shared frontend asset access (embedded + filesystem modes); `rw-server` no longer owns `rust-embed` or `mime_guess` deps
 - `MarkdownRenderer::with_base_path()` now expects URL paths with leading `/` (e.g., `/a/b` instead of `a/b`); storage-to-URL conversion moved to `PageRenderer`
 - Extracted `PageRenderer` from `Site` for independent page rendering testability
 - Renamed `SiteConfig` to `PageRendererConfig` and moved to page module (colocated with `PageRenderer`)

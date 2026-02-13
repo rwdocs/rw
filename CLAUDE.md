@@ -44,6 +44,10 @@ crates/
 │               ├── update.rs      # `confluence update` command
 │               └── generate_tokens.rs  # `confluence generate-tokens` command
 │
+├── rw-assets/             # Frontend asset serving (embedded + filesystem)
+│   └── src/
+│       └── lib.rs            # get(), iter(), mime_for() API
+│
 ├── rw-renderer/           # Reusable markdown renderer library
 │   └── src/
 │       ├── lib.rs            # Public API exports
