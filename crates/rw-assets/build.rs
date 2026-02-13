@@ -1,6 +1,6 @@
 fn main() {
-    // Only build frontend when embed-assets feature is enabled
-    #[cfg(feature = "embed-assets")]
+    // Only build frontend when embed feature is enabled
+    #[cfg(feature = "embed")]
     {
         use std::path::Path;
         use std::process::Command;

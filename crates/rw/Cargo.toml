@@ -16,9 +16,10 @@ workspace = true
 
 [features]
 default = []
-embed-assets = ["rw-server/embed-assets"]
+embed-assets = ["rw-assets/embed"]
 
 [dependencies]
+rw-assets = { workspace = true }
 rw-config = { workspace = true }
 rw-confluence = { workspace = true }
 rw-server = { workspace = true }
