@@ -86,9 +86,7 @@ impl StaticSiteBuilder {
             let toc = convert_toc(&render_result.toc);
             let css_path = compute_css_path(page_path);
 
-            let title = render_result
-                .title
-                .unwrap_or_else(|| "Untitled".to_owned());
+            let title = render_result.title.unwrap_or_else(|| "Untitled".to_owned());
 
             let page_data = PageData {
                 title,
@@ -442,8 +440,7 @@ mod tests {
         assert!(output_dir.join("domain/index.html").exists());
         assert!(output_dir.join("domain/api/index.html").exists());
 
-        let api_html =
-            std::fs::read_to_string(output_dir.join("domain/api/index.html")).unwrap();
+        let api_html = std::fs::read_to_string(output_dir.join("domain/api/index.html")).unwrap();
         assert!(api_html.contains("Endpoints"));
         // CSS path should have correct relative depth
         assert!(api_html.contains("../../assets/styles.css"));
@@ -497,13 +494,7 @@ mod tests {
     #[test]
     fn compute_css_path_nested() {
         assert_eq!(compute_css_path("guide"), "../assets/styles.css");
-        assert_eq!(
-            compute_css_path("domain/api"),
-            "../../assets/styles.css"
-        );
-        assert_eq!(
-            compute_css_path("a/b/c"),
-            "../../../assets/styles.css"
-        );
+        assert_eq!(compute_css_path("domain/api"), "../../assets/styles.css");
+        assert_eq!(compute_css_path("a/b/c"), "../../../assets/styles.css");
     }
 }

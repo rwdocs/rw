@@ -44,9 +44,7 @@ pub fn render_page(page: &PageData) -> String {
     // DOCTYPE and head
     html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
     html.push_str("<meta charset=\"utf-8\">\n");
-    html.push_str(
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n",
-    );
+    html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     let _ = write!(html, "<title>{}</title>\n", escape(&page.title));
     let _ = write!(
         html,
@@ -206,7 +204,11 @@ fn render_toc(html: &mut String, toc: &[TocData]) {
     );
     html.push_str("<ul class=\"space-y-1.5\">\n");
     for entry in toc {
-        let indent = if entry.level >= 3 { " class=\"ml-3\"" } else { "" };
+        let indent = if entry.level >= 3 {
+            " class=\"ml-3\""
+        } else {
+            ""
+        };
         let _ = write!(
             html,
             "<li{}><a href=\"#{}\" class=\"block text-sm leading-snug \

@@ -70,9 +70,7 @@ impl BuildArgs {
             meta_filename,
         ));
 
-        let site_name = self
-            .site_name
-            .unwrap_or_else(|| "Documentation".to_owned());
+        let site_name = self.site_name.unwrap_or_else(|| "Documentation".to_owned());
 
         let build_config = BuildConfig {
             site_name,
@@ -99,4 +97,3 @@ impl BuildArgs {
         Ok(())
     }
 }
-
