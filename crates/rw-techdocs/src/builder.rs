@@ -202,12 +202,19 @@ fn collect_children_paths(items: &[NavItem], paths: &mut Vec<String>) {
 fn convert_nav_items(items: &[NavItem], current_path: &str) -> Vec<NavItemData> {
     items
         .iter()
-        .map(|item| NavItemData {
-            title: item.title.clone(),
-            path: format!("/{}", item.path),
-            is_active: item.path == current_path,
-            children: convert_nav_items(&item.children, current_path),
-            section_type: item.section_type.clone(),
+        .map(|item| {
+            let children = convert_nav_items(&item.children, current_path);
+            let is_active = item.path == current_path;
+            let is_on_active_path =
+                is_active || children.iter().any(|c| c.is_on_active_path);
+            NavItemData {
+                title: item.title.clone(),
+                path: format!("/{}", item.path),
+                is_active,
+                is_on_active_path,
+                children,
+                section_type: item.section_type.clone(),
+            }
         })
         .collect()
 }
@@ -456,5 +463,63 @@ mod tests {
         assert_eq!(compute_css_path("guide"), "../assets/styles.css");
         assert_eq!(compute_css_path("domain/api"), "../../assets/styles.css");
         assert_eq!(compute_css_path("a/b/c"), "../../../assets/styles.css");
+    }
+
+    #[test]
+    fn convert_nav_items_sets_active_path() {
+        use rw_site::NavItem;
+
+        let items = vec![NavItem {
+            title: "Domains".to_owned(),
+            path: "domains".to_owned(),
+            section_type: None,
+            children: vec![NavItem {
+                title: "Billing".to_owned(),
+                path: "domains/billing".to_owned(),
+                section_type: None,
+                children: vec![],
+            }],
+        }];
+
+        let result = convert_nav_items(&items, "domains/billing");
+
+        // Parent is on active path (child is active)
+        assert!(result[0].is_on_active_path);
+        assert!(!result[0].is_active);
+        // Child is both active and on active path
+        assert!(result[0].children[0].is_active);
+        assert!(result[0].children[0].is_on_active_path);
+    }
+
+    #[test]
+    fn convert_nav_items_inactive_branch_not_on_path() {
+        use rw_site::NavItem;
+
+        let items = vec![
+            NavItem {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                section_type: None,
+                children: vec![],
+            },
+            NavItem {
+                title: "Domains".to_owned(),
+                path: "domains".to_owned(),
+                section_type: None,
+                children: vec![NavItem {
+                    title: "Billing".to_owned(),
+                    path: "domains/billing".to_owned(),
+                    section_type: None,
+                    children: vec![],
+                }],
+            },
+        ];
+
+        let result = convert_nav_items(&items, "domains/billing");
+
+        // Guide is NOT on the active path
+        assert!(!result[0].is_on_active_path);
+        // Domains IS on the active path
+        assert!(result[1].is_on_active_path);
     }
 }

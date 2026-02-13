@@ -15,6 +15,7 @@ pub struct NavItemData {
     pub path: String,
     pub children: Vec<NavItemData>,
     pub is_active: bool,
+    pub is_on_active_path: bool,
     pub section_type: Option<String>,
 }
 
@@ -87,6 +88,7 @@ mod tests {
             path: path.to_owned(),
             children: vec![],
             is_active: false,
+            is_on_active_path: false,
             section_type: None,
         }
     }
