@@ -25,6 +25,7 @@ rw-techdocs = { path = "crates/rw-techdocs" }
 # External dependencies
 base64 = "0.22"
 glob = "0.3"
+minijinja = "2"
 notify = "8"
 quick-xml = "0.39"
 thiserror = "2"
