@@ -8,9 +8,9 @@ After code changes:
 
 ## Project Overview
 
-RW is a documentation engine. It converts CommonMark documents to HTML and serves
-them via API. Currently supports Confluence storage format output with PlantUML
-diagram support.
+RW is a documentation engine with no build step. It renders CommonMark documents
+on demand — pages are rendered when requested, not ahead of time. Also publishes
+to Confluence and builds static sites for Backstage TechDocs.
 
 ## Development Commands
 
