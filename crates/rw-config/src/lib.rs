@@ -209,6 +209,22 @@ pub struct ConfluenceConfig {
     pub consumer_key: String,
 }
 
+impl ConfluenceConfig {
+    /// Validate that all required fields are properly set.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::Validation` if any field is empty or has invalid format.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        require_non_empty(&self.base_url, "confluence.base_url")?;
+        require_http_url(&self.base_url, "confluence.base_url")?;
+        require_non_empty(&self.access_token, "confluence.access_token")?;
+        require_non_empty(&self.access_secret, "confluence.access_secret")?;
+        require_non_empty(&self.consumer_key, "confluence.consumer_key")?;
+        Ok(())
+    }
+}
+
 fn default_consumer_key() -> String {
     "rw".to_owned()
 }
@@ -312,6 +328,23 @@ impl Config {
         }
     }
 
+    /// Get validated Confluence configuration.
+    ///
+    /// Returns the Confluence config if the `[confluence]` section is present
+    /// and all fields are valid. Use this instead of accessing the `confluence`
+    /// field directly when the command requires Confluence.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConfigError::Validation` if the section is missing or invalid.
+    pub fn require_confluence(&self) -> Result<&ConfluenceConfig, ConfigError> {
+        let conf = self.confluence.as_ref().ok_or_else(|| {
+            ConfigError::Validation("[confluence] section required in config".into())
+        })?;
+        conf.validate()?;
+        Ok(conf)
+    }
+
     /// Search for config file in current directory and parents.
     fn discover_config() -> Option<PathBuf> {
         let mut current = std::env::current_dir().ok()?;
@@ -380,7 +413,6 @@ impl Config {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.validate_server()?;
         self.validate_diagrams()?;
-        self.validate_confluence()?;
         Ok(())
     }
 
@@ -421,21 +453,6 @@ impl Config {
                 "diagrams.dpi cannot exceed {MAX_DPI}"
             )));
         }
-
-        Ok(())
-    }
-
-    /// Validate Confluence configuration.
-    fn validate_confluence(&self) -> Result<(), ConfigError> {
-        let Some(ref confluence) = self.confluence else {
-            return Ok(());
-        };
-
-        require_non_empty(&confluence.base_url, "confluence.base_url")?;
-        require_http_url(&confluence.base_url, "confluence.base_url")?;
-        require_non_empty(&confluence.access_token, "confluence.access_token")?;
-        require_non_empty(&confluence.access_secret, "confluence.access_secret")?;
-        require_non_empty(&confluence.consumer_key, "confluence.consumer_key")?;
 
         Ok(())
     }
@@ -904,6 +921,23 @@ host = "127.0.0.1"
         }
     }
 
+    fn assert_validation_error_on_confluence(config: &ConfluenceConfig, expected_substrings: &[&str]) {
+        let result = config.validate();
+        assert!(result.is_err(), "Expected validation to fail");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Validation(_)),
+            "Expected ConfigError::Validation, got {err:?}"
+        );
+        let msg = err.to_string();
+        for s in expected_substrings {
+            assert!(
+                msg.contains(s),
+                "Expected error to contain '{s}', got: {msg}"
+            );
+        }
+    }
+
     /// Create a valid Confluence config for testing.
     fn valid_confluence_config() -> ConfluenceConfig {
         ConfluenceConfig {
@@ -977,66 +1011,66 @@ host = "127.0.0.1"
     }
 
     #[test]
-    fn test_validate_confluence_base_url_empty() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.confluence = Some(ConfluenceConfig {
-            base_url: String::new(),
-            ..valid_confluence_config()
-        });
-        assert_validation_error(&config, &["base_url", "empty"]);
+    fn test_confluence_config_validate_valid() {
+        let config = valid_confluence_config();
+        assert!(config.validate().is_ok());
     }
 
     #[test]
-    fn test_validate_confluence_base_url_invalid_scheme() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.confluence = Some(ConfluenceConfig {
-            base_url: "confluence.example.com".to_owned(),
+    fn test_confluence_config_validate_empty_token() {
+        let config = ConfluenceConfig {
+            access_token: String::new(),
             ..valid_confluence_config()
-        });
-        assert_validation_error(&config, &["base_url", "http"]);
+        };
+        assert_validation_error_on_confluence(&config, &["access_token", "empty"]);
     }
 
     #[test]
-    fn test_validate_confluence_access_token_empty() {
+    fn test_confluence_config_validate_invalid_url() {
+        let config = ConfluenceConfig {
+            base_url: "not-a-url".to_owned(),
+            ..valid_confluence_config()
+        };
+        assert_validation_error_on_confluence(&config, &["base_url", "http"]);
+    }
+
+    #[test]
+    fn test_config_require_confluence_returns_validated() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.confluence = Some(valid_confluence_config());
+        assert!(config.require_confluence().is_ok());
+    }
+
+    #[test]
+    fn test_config_require_confluence_missing_section() {
+        let config = Config::default_with_base(Path::new("/test"));
+        let err = config.require_confluence().unwrap_err();
+        assert!(matches!(err, ConfigError::Validation(_)));
+        assert!(err.to_string().contains("[confluence]"));
+    }
+
+    #[test]
+    fn test_config_require_confluence_invalid_config() {
         let mut config = Config::default_with_base(Path::new("/test"));
         config.confluence = Some(ConfluenceConfig {
             access_token: String::new(),
             ..valid_confluence_config()
         });
-        assert_validation_error(&config, &["access_token", "empty"]);
+        let err = config.require_confluence().unwrap_err();
+        assert!(matches!(err, ConfigError::Validation(_)));
+        assert!(err.to_string().contains("access_token"));
     }
 
     #[test]
-    fn test_validate_confluence_access_secret_empty() {
+    fn test_validate_passes_with_confluence_section_present_but_empty_creds() {
         let mut config = Config::default_with_base(Path::new("/test"));
         config.confluence = Some(ConfluenceConfig {
+            base_url: String::new(),
+            access_token: String::new(),
             access_secret: String::new(),
-            ..valid_confluence_config()
-        });
-        assert_validation_error(&config, &["access_secret", "empty"]);
-    }
-
-    #[test]
-    fn test_validate_confluence_consumer_key_empty() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.confluence = Some(ConfluenceConfig {
             consumer_key: String::new(),
-            ..valid_confluence_config()
         });
-        assert_validation_error(&config, &["consumer_key", "empty"]);
-    }
-
-    #[test]
-    fn test_validate_confluence_valid() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.confluence = Some(valid_confluence_config());
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_no_confluence_section_is_valid() {
-        let config = Config::default_with_base(Path::new("/test"));
-        assert!(config.confluence.is_none());
+        // Config::validate() should pass — confluence is not eagerly validated
         assert!(config.validate().is_ok());
     }
 }

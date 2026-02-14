@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Confluence configuration is no longer validated eagerly on config load; validation is deferred to commands that require it (`confluence update`, `confluence generate-tokens`). This allows `rw serve` and `rw techdocs` commands to work without confluence env vars being set.
+
 ## [0.1.5] - 2026-02-12
 
 ### Added
