@@ -123,7 +123,7 @@
     @apply flex-1 min-w-0 overflow-x-hidden;
   }
   .td-article {
-    @apply prose prose-slate max-w-none;
+    @apply prose prose-slate max-w-none!;
   }
 
   /* Table of contents */
