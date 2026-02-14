@@ -7,51 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-02-12
+
 ### Added
 
 - `rw techdocs build` command for generating static documentation sites (Backstage TechDocs compatible)
 - `rw techdocs publish` command for uploading sites to S3
-- New `rw-techdocs` crate with `StaticSiteBuilder` and `S3Publisher`
-- Relative link mode in `MarkdownRenderer` (`with_relative_links(true)`) for static site builds where links must be relative to each page's location
-- `relative_path()` utility in `rw-renderer` for computing relative URL paths between pages
-- `relative_links` option in `PageRendererConfig` (default `false`, opt-in for TechDocs)
-- `trailing_slash` option in `MarkdownRenderer` and `PageRendererConfig` for URLs with trailing slashes (e.g., `/a/b/` instead of `/a/b`), needed for TechDocs static site output
-- Meta diagram includes: PlantUML `!include` directives resolve C4 model macros from `meta.yaml` metadata (supports domain/system/service types)
-- Diagram `$link` URLs now respect `relative_links` and `trailing_slash` settings via `LinkConfig` on `DiagramProcessor`
-- Collapsible navigation sidebar in `rw techdocs build` using HTML5 `<details>/<summary>` — only the active path is expanded by default, compatible with Backstage TechDocs (no JavaScript needed)
-
-### Fixed
-
-- `rw techdocs build` now copies font files (`.woff`/`.woff2`) to the output `assets/` directory via `rw-assets` crate, fixing 404 errors and system font fallback
-- `rw techdocs build` scoped navigation now renders back link, section title, and type group labels (e.g., "SYSTEMS") matching the `rw serve` frontend
-- `rw techdocs build` tabs are now interactive via CSS-only radio inputs (no JavaScript needed), matching mkdocs-material's approach for Backstage TechDocs compatibility
-- `rw techdocs publish` with custom `--endpoint` now uses path-style S3 addressing, fixing virtual-hosted-style DNS issues with LocalStack, MinIO, and Yandex Cloud endpoints
-- `rw techdocs publish` S3 errors now show the full cause chain instead of just "dispatch failure" (e.g., reveals missing credentials)
-- `rw techdocs build` pages no longer cause horizontal scrollbar in Backstage TechDocs; `td-main` now shrinks correctly within flex layout (`min-w-0`), article content overflow is clipped, and diagram/alert/tab styles from `content.css` are now applied (added `prose` class to article element)
-- `rw techdocs build` ToC panel no longer squeezes article to ~384px at narrow container widths; raised container query breakpoints (sidebar: 700→952, ToC: 960→1224) so article text is never narrower than 640px
-- `rw techdocs build` borders (tabs, alerts, diagram errors) now render in Backstage's shadow DOM; Tailwind v4's `--tw-border-style` CSS variable wasn't initializing because `@property` declarations don't register in shadow DOM and the `@supports` fallback targets Safari/Firefox only
-
-### Changed
-
-- Extracted shared content styles (prose, diagrams, alerts, tabs) into `frontend/src/styles/content.css`, imported by both `app.css` and `techdocs.css`
-- Added dedicated `techdocs` Vite entry point (`frontend/src/techdocs.css`) with self-contained `td-*` layout classes, eliminating Tailwind utility classes from `page.html` template
-- `rw techdocs build` now uses the dedicated `techdocs-*.css` bundle instead of the SPA's CSS, fixing silent style breakage from Tailwind's content scanning
-- Replaced hand-rolled `push_str` HTML generation in `rw-techdocs` template with minijinja template engine for improved readability and maintainability
-- Removed `DEFAULT_CSS` fallback and `css_content` option from `BuildConfig`; `rw techdocs build` always uses frontend assets via `rw-assets`
-- Extracted `rw-assets` crate for shared frontend asset access (embedded + filesystem modes); `rw-server` no longer owns `rust-embed` or `mime_guess` deps
-- `MarkdownRenderer::with_base_path()` now expects URL paths with leading `/` (e.g., `/a/b` instead of `a/b`); storage-to-URL conversion moved to `PageRenderer`
-- Extracted `PageRenderer` from `Site` for independent page rendering testability
-- Renamed `SiteConfig` to `PageRendererConfig` and moved to page module (colocated with `PageRenderer`)
-- Moved `Page` and `BreadcrumbItem` from `site_state` to `page` module (removes renderer dependency on site state types)
-- Renamed `PageRenderer::render_page()` to `render()` (method names shouldn't repeat the type name)
-- Reordered `PageRenderer::new()` and `Site::new()` args: dependencies (`storage`, `cache`) before config
-- Introduced `SiteSnapshot` to bundle `SiteState` + `TypedPageRegistry` as an atomic unit; `Site` now swaps a single `Arc<SiteSnapshot>` instead of separate state and registry
-- Moved cache serialization types (`CachedSiteStateRef`, `CachedSiteState`) from `site` to `site_state` module (reduces `Site` responsibilities)
-- `SiteState` now owns its cache persistence via `from_cache()`/`to_cache()` methods; cache format types are private
-- Removed `TypedPageRegistry`; `SiteSnapshot` implements `MetaIncludeSource` directly using `SiteState`'s name-based section index
-- Added `description` field to `Document` and `SectionInfo` (flows from `meta.yaml` through the full pipeline)
-- `SiteState` now indexes sections by directory name for O(1) lookup via `find_sections_by_name()`
-- `rw techdocs build` sidebar navigation now uses `<details>/<summary>` elements for collapsible tree nodes, replacing the always-expanded `<div>` structure; active path nodes are auto-expanded via the `open` attribute
 
 ## [0.1.4] - 2026-02-11
 
