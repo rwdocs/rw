@@ -921,7 +921,10 @@ host = "127.0.0.1"
         }
     }
 
-    fn assert_validation_error_on_confluence(config: &ConfluenceConfig, expected_substrings: &[&str]) {
+    fn assert_validation_error_on_confluence(
+        config: &ConfluenceConfig,
+        expected_substrings: &[&str],
+    ) {
         let result = config.validate();
         assert!(result.is_err(), "Expected validation to fail");
         let err = result.unwrap_err();
