@@ -40,7 +40,7 @@ rw serve
 
 RW looks for markdown files in `docs/` by default. If `docs/` has no `index.md`, the project root `README.md` is used as the homepage.
 
-Open [http://localhost:8080](http://localhost:8080) to see your site.
+Open [http://localhost:7979](http://localhost:7979) to see your site.
 
 ## Configuration
 

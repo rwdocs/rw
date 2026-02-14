@@ -98,7 +98,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_owned(),
-            port: 8080,
+            port: 7979,
         }
     }
 }
@@ -529,7 +529,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default_with_base(Path::new("/test"));
         assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.server.port, 7979);
         assert_eq!(config.docs_resolved.source_dir, PathBuf::from("/test/docs"));
         assert_eq!(config.docs_resolved.project_dir, PathBuf::from("/test/.rw"));
         assert_eq!(
@@ -546,7 +546,7 @@ mod tests {
         let toml = "";
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.server.port, 7979);
     }
 
     #[test]
@@ -669,7 +669,7 @@ source_dir = "documentation"
         config.apply_cli_settings(&overrides);
 
         assert_eq!(config.server.host, "0.0.0.0");
-        assert_eq!(config.server.port, 8080); // Unchanged
+        assert_eq!(config.server.port, 7979); // Unchanged
     }
 
     #[test]

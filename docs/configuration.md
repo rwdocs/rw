@@ -7,7 +7,7 @@ RW uses `rw.toml` for configuration. The file is automatically discovered in the
 ```toml
 [server]
 host = "127.0.0.1"      # Server host
-port = 8080              # Server port
+port = 7979              # Server port
 
 [docs]
 source_dir = "docs"      # Markdown source directory

@@ -20,7 +20,7 @@
 //! async fn main() {
 //!     let config = ServerConfig {
 //!         host: "127.0.0.1".to_owned(),
-//!         port: 8080,
+//!         port: 7979,
 //!         source_dir: PathBuf::from("docs"),
 //!         cache_dir: Some(PathBuf::from(".rw/cache")),
 //!         kroki_url: Some("https://kroki.io".to_owned()),
@@ -106,7 +106,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_owned(),
-            port: 8080,
+            port: 7979,
             source_dir: PathBuf::from("docs"),
             cache_dir: None,
             kroki_url: None,

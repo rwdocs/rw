@@ -9,7 +9,7 @@ Create a `config.toml` file in your project root:
 ```toml
 [server]
 host = "127.0.0.1"
-port = 8080
+port = 7979
 
 [database]
 url = "postgres://localhost/mydb"
@@ -23,7 +23,7 @@ You can also use environment variables:
 | Variable       | Description                | Default     |
 | -------------- | -------------------------- | ----------- |
 | `HOST`         | Server host                | `127.0.0.1` |
-| `PORT`         | Server port                | `8080`      |
+| `PORT`         | Server port                | `7979`      |
 | `DATABASE_URL` | Database connection string | -           |
 | `LOG_LEVEL`    | Logging level              | `info`      |
 

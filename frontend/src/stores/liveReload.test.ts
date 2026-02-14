@@ -79,7 +79,7 @@ describe("liveReload store", () => {
     // Setup location mock
     vi.stubGlobal("location", {
       protocol: "http:",
-      host: "localhost:8080",
+      host: "localhost:7979",
     });
 
     // Import fresh module
@@ -117,13 +117,13 @@ describe("liveReload store", () => {
       liveReload.start();
 
       expect(mockWebSocketInstances.length).toBe(1);
-      expect(mockWebSocketInstances[0].url).toBe("ws://localhost:8080/ws/live-reload");
+      expect(mockWebSocketInstances[0].url).toBe("ws://localhost:7979/ws/live-reload");
     });
 
     it("uses wss protocol for https", async () => {
       vi.stubGlobal("location", {
         protocol: "https:",
-        host: "localhost:8080",
+        host: "localhost:7979",
       });
 
       // Reset and reimport to pick up new location
@@ -133,7 +133,7 @@ describe("liveReload store", () => {
       module.liveReload.start();
 
       const lastInstance = mockWebSocketInstances[mockWebSocketInstances.length - 1];
-      expect(lastInstance.url).toBe("wss://localhost:8080/ws/live-reload");
+      expect(lastInstance.url).toBe("wss://localhost:7979/ws/live-reload");
 
       module.liveReload.stop();
     });

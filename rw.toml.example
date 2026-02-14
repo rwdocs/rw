@@ -4,7 +4,7 @@
 # Server settings for the documentation server
 [server]
 host = "127.0.0.1"      # Host to bind to (default: 127.0.0.1)
-port = 8080             # Port to bind to (default: 8080)
+port = 7979             # Port to bind to (default: 7979)
 
 # Documentation settings
 [docs]
