@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Rewrote README for external audience; moved reference material to `docs/`
+
 ### Fixed
 
 - `rw serve` and `rw techdocs` commands no longer fail when confluence environment variables are not set
