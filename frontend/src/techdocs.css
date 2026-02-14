@@ -1,0 +1,203 @@
+@import "@fontsource/roboto/400.css";
+@import "@fontsource/roboto/500.css";
+@import "@fontsource/roboto/700.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@import "./styles/content.css";
+
+@theme {
+  --font-sans: "Roboto", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-white text-gray-900 antialiased;
+    container-type: inline-size;
+  }
+}
+
+@layer components {
+  /* Layout */
+  .td-layout {
+    @apply min-h-screen flex flex-col;
+  }
+
+  /* Sidebar */
+  .td-sidebar {
+    @apply w-[280px] flex-shrink-0 border-r border-gray-200 h-screen sticky top-0 overflow-y-auto;
+    display: none;
+  }
+  .td-sidebar-inner {
+    @apply pt-6 px-4 pb-4;
+  }
+
+  /* Logo */
+  .td-logo {
+    @apply block mb-5 pl-[6px];
+  }
+  .td-logo-text {
+    @apply text-xl font-semibold uppercase;
+  }
+  .td-logo-primary {
+    @apply text-gray-900;
+  }
+  .td-logo-secondary {
+    @apply text-gray-400;
+  }
+
+  /* Scope header */
+  .td-scope {
+    @apply mb-5;
+  }
+  .td-scope-back {
+    @apply text-sm text-gray-500 hover:text-blue-600 flex items-center mb-2;
+  }
+  .td-scope-back-icon {
+    @apply w-[22px] flex items-center justify-center;
+  }
+  .td-scope-title {
+    @apply text-xl font-light text-gray-900 pl-[28px];
+  }
+
+  /* Navigation */
+  .td-nav-group {
+    @apply mt-5 first:mt-0;
+  }
+  .td-nav-group-label {
+    @apply text-xs font-semibold text-gray-500 uppercase tracking-wider px-1.5 pb-1.5;
+  }
+  .td-nav-summary {
+    @apply flex items-center;
+  }
+  .td-nav-chevron-wrap {
+    @apply w-5 h-5 flex items-center justify-center text-gray-500 mr-0.5;
+  }
+  .td-nav-link {
+    @apply flex-1 py-1.5 px-1.5 rounded text-sm text-gray-700 hover:text-gray-900;
+  }
+  .td-nav-link--active {
+    @apply text-blue-700 font-medium;
+  }
+  .td-nav-spacer {
+    @apply w-[22px];
+  }
+  .td-nav-children {
+    @apply ml-3;
+  }
+
+  /* Main content */
+  .td-main {
+    @apply flex-1 min-w-0 overflow-x-hidden;
+  }
+  .td-main-inner {
+    @apply max-w-6xl mx-auto px-4 pt-6 pb-12;
+  }
+
+  /* Breadcrumbs */
+  .td-breadcrumbs {
+    @apply mb-6;
+  }
+  .td-breadcrumbs-list {
+    @apply flex items-center text-sm text-gray-600;
+  }
+  .td-breadcrumb {
+    @apply flex items-center;
+  }
+  .td-breadcrumb-link {
+    @apply hover:text-gray-700 hover:underline;
+  }
+  .td-breadcrumb-sep {
+    margin-left: 0.625rem;
+    margin-right: 0.5rem;
+    color: rgb(156 163 175);
+  }
+
+  /* Content row */
+  .td-content-row {
+    @apply flex;
+  }
+  .td-article-wrapper {
+    @apply flex-1 min-w-0 overflow-x-hidden;
+  }
+  .td-article {
+    @apply prose prose-slate;
+  }
+
+  /* Table of contents */
+  .td-toc {
+    @apply w-[240px] flex-shrink-0;
+    display: none;
+  }
+  .td-toc-inner {
+    @apply pl-8 sticky top-6;
+  }
+  .td-toc-heading {
+    @apply text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3;
+  }
+  .td-toc-list {
+    @apply space-y-1.5;
+  }
+  .td-toc-item--nested {
+    @apply ml-3;
+  }
+  .td-toc-link {
+    @apply block text-sm leading-snug text-gray-600 hover:text-gray-900;
+  }
+
+  /* Collapsible navigation tree */
+  .nav-tree details > summary {
+    list-style: none;
+    cursor: pointer;
+  }
+  .nav-tree details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .nav-tree .nav-chevron {
+    transform: rotate(0deg);
+    transition: transform 0.15s;
+  }
+  .nav-tree details[open] > summary .nav-chevron {
+    transform: rotate(90deg);
+  }
+
+  /* Container queries — based on actual content area, not viewport */
+  @container (min-width: 952) {
+    .td-layout {
+      flex-direction: row;
+    }
+    .td-sidebar {
+      display: block;
+    }
+    .td-main-inner {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
+
+  @container (min-width: 1224) {
+    .td-toc {
+      display: block;
+    }
+  }
+}
+
+/* Override prose max-width — unlayered styles beat all @layer rules */
+.td-article {
+  max-width: none;
+}
+
+/* Tailwind v4 border utilities need --tw-border-style: solid.
+   Normally set via @property (initial-value: solid) or an @supports fallback.
+   Neither works inside Backstage's shadow DOM: @property rules from shadow-scoped
+   stylesheets aren't registered, and the @supports heuristic targets Safari/Firefox.
+   Set it explicitly so borders render in any hosting context. */
+*,
+::before,
+::after {
+  --tw-border-style: solid;
+}

@@ -39,10 +39,14 @@ crates/
 │       └── commands/
 │           ├── mod.rs        # Command module exports
 │           ├── serve.rs      # `serve` command
-│           └── confluence/
-│               ├── mod.rs         # `confluence` subcommand group
-│               ├── update.rs      # `confluence update` command
-│               └── generate_tokens.rs  # `confluence generate-tokens` command
+│           ├── confluence/
+│           │   ├── mod.rs         # `confluence` subcommand group
+│           │   ├── update.rs      # `confluence update` command
+│           │   └── generate_tokens.rs  # `confluence generate-tokens` command
+│           └── techdocs/
+│               ├── mod.rs         # `techdocs` subcommand group
+│               ├── build.rs       # `techdocs build` command
+│               └── publish.rs     # `techdocs publish` command
 │
 ├── rw-assets/             # Frontend asset serving (embedded + filesystem)
 │   └── src/
@@ -106,6 +110,13 @@ crates/
 │           ├── result.rs     # UpdateResult, DryRunResult
 │           └── error.rs      # UpdateError
 │
+├── rw-techdocs/           # TechDocs static site generation and S3 publishing
+│   └── src/
+│       ├── lib.rs            # Public API exports
+│       ├── builder.rs        # StaticSiteBuilder, BuildConfig, BuildError
+│       ├── template.rs       # HTML page template (mirrors Svelte frontend)
+│       └── publisher.rs      # S3Publisher, PublishConfig, PublishError
+│
 ├── rw-diagrams/           # Diagram rendering via Kroki
 │   └── src/
 │       ├── lib.rs            # Public API exports
@@ -165,7 +176,10 @@ frontend/                  # Svelte 5 SPA (Vite + Tailwind)
 │   ├── stores/            # Svelte stores (router, navigation, page)
 │   ├── api/               # API client
 │   ├── lib/               # Utility libraries (tabs.ts)
-│   └── types/             # TypeScript interfaces
+│   ├── styles/            # Shared CSS (content.css: prose, diagrams, alerts, tabs)
+│   ├── types/             # TypeScript interfaces
+│   ├── techdocs.ts        # TechDocs CSS entry point (Vite second input)
+│   └── techdocs.css       # Self-contained TechDocs styles (td-* classes)
 └── dist/                  # Production build output
 ```
 
@@ -173,7 +187,10 @@ frontend/                  # Svelte 5 SPA (Vite + Tailwind)
 extraction, Confluence rendering, Kroki diagram rendering, API calls) → Confluence
 
 **Data flow (HTML)**: Markdown → Rust (pulldown-cmark parsing, HTML rendering
-with syntax highlighting, ToC generation, HTTP serving) → Backstage
+with syntax highlighting, ToC generation, HTTP serving) → Browser
+
+**Data flow (TechDocs)**: Markdown → Rust (Site rendering, static HTML generation,
+S3 upload) → Backstage TechDocs
 
 ## Key Technical Details
 

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="{{ css_path }}">
+</head>
+
+<body>
+<div class="td-layout">
+
+  {# ── Sidebar ── #}
+  <aside class="td-sidebar">
+    <div class="td-sidebar-inner">
+      <a href="{{ root_path }}" class="td-logo">
+        <span class="td-logo-text">
+          <span class="td-logo-primary">R</span><span class="td-logo-secondary">W</span>
+        </span>
+      </a>
+
+      {# Scope header (back link + section title) #}
+      {%- if scope %}
+      <div class="td-scope">
+        <a href="{{ scope.back_link_path }}" class="td-scope-back">
+          <span class="td-scope-back-icon">
+            <svg class="w-3.5 h-3.5 rotate-180" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd"
+                    d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                    clip-rule="evenodd"/>
+            </svg>
+          </span>
+          <span class="td-nav-link">{{ scope.back_link_title }}</span>
+        </a>
+        <h2 class="td-scope-title">{{ scope.title }}</h2>
+      </div>
+      {%- endif %}
+
+      {# Navigation groups #}
+      <nav class="nav-tree">
+        {%- for group in nav_groups %}
+        {%- if group.label %}
+        <div class="td-nav-group">
+          <div class="td-nav-group-label">
+            {{ group.label }}
+          </div>
+          <ul>
+            {%- for item in group.items recursive %}
+            {%- if item.children %}
+            <li>
+              <details{%- if item.is_on_active_path %} open{%- endif %}>
+                <summary class="td-nav-summary">
+                  <span class="td-nav-chevron-wrap">
+                    <svg class="w-3.5 h-3.5 nav-chevron" fill="currentColor" viewBox="0 0 20 20">
+                      <path fill-rule="evenodd"
+                            d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                            clip-rule="evenodd"/>
+                    </svg>
+                  </span>
+                  <a href="{{ item.path }}"
+                     class="td-nav-link{% if item.is_active %} td-nav-link--active{% endif %}">
+                    {{ item.title }}
+                  </a>
+                </summary>
+                <ul class="td-nav-children">
+                  {{ loop(item.children) }}
+                </ul>
+              </details>
+            </li>
+            {%- else %}
+            <li>
+              <div class="td-nav-summary">
+                <span class="td-nav-spacer"></span>
+                <a href="{{ item.path }}"
+                   class="td-nav-link{% if item.is_active %} td-nav-link--active{% endif %}">
+                  {{ item.title }}
+                </a>
+              </div>
+            </li>
+            {%- endif %}
+            {%- endfor %}
+          </ul>
+        </div>
+
+        {%- else %}
+        <ul>
+          {%- for item in group.items recursive %}
+          {%- if item.children %}
+          <li>
+            <details{%- if item.is_on_active_path %} open{%- endif %}>
+              <summary class="td-nav-summary">
+                <span class="td-nav-chevron-wrap">
+                  <svg class="w-3.5 h-3.5 nav-chevron" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd"
+                          d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                          clip-rule="evenodd"/>
+                  </svg>
+                </span>
+                <a href="{{ item.path }}"
+                   class="td-nav-link{% if item.is_active %} td-nav-link--active{% endif %}">
+                  {{ item.title }}
+                </a>
+              </summary>
+              <ul class="td-nav-children">
+                {{ loop(item.children) }}
+              </ul>
+            </details>
+          </li>
+          {%- else %}
+          <li>
+            <div class="td-nav-summary">
+              <span class="td-nav-spacer"></span>
+              <a href="{{ item.path }}"
+                 class="td-nav-link{% if item.is_active %} td-nav-link--active{% endif %}">
+                {{ item.title }}
+              </a>
+            </div>
+          </li>
+          {%- endif %}
+          {%- endfor %}
+        </ul>
+        {%- endif %}
+        {%- endfor %}
+      </nav>
+    </div>
+  </aside>
+
+  {# ── Main content ── #}
+  <div class="td-main">
+    <div class="td-main-inner">
+
+      {# Breadcrumbs #}
+      {%- if breadcrumbs %}
+      <nav class="td-breadcrumbs">
+        <ol class="td-breadcrumbs-list">
+          {%- for crumb in breadcrumbs %}
+          <li class="td-breadcrumb">
+            <a href="{{ crumb.path }}" class="td-breadcrumb-link">{{ crumb.title }}</a>
+            {%- if not loop.last %}
+            <span class="td-breadcrumb-sep">/</span>
+            {%- endif %}
+          </li>
+          {%- endfor %}
+        </ol>
+      </nav>
+      {%- endif %}
+
+      <div class="td-content-row">
+        {# Article #}
+        <main class="td-article-wrapper">
+          <article class="td-article prose">
+            {{ html_content|safe }}
+          </article>
+        </main>
+
+        {# Table of contents #}
+        {%- if toc %}
+        <aside class="td-toc">
+          <div class="td-toc-inner">
+            <h3 class="td-toc-heading">On this page</h3>
+            <ul class="td-toc-list">
+              {%- for entry in toc %}
+              <li{% if entry.level >= 3 %} class="td-toc-item--nested"{% endif %}>
+                <a href="#{{ entry.id }}" class="td-toc-link">{{ entry.title }}</a>
+              </li>
+              {%- endfor %}
+            </ul>
+          </div>
+        </aside>
+        {%- endif %}
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

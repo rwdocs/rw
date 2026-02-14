@@ -15,7 +15,8 @@ use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for [`PageRenderer`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct PageRendererConfig {
     /// Extract title from first H1 heading.
     pub extract_title: bool,
@@ -36,6 +37,10 @@ pub struct PageRendererConfig {
     ///
     /// Default: `false`.
     pub trailing_slash: bool,
+    /// Produce CSS-only tabs instead of JS-dependent tabs.
+    ///
+    /// Default: `false`.
+    pub static_tabs: bool,
 }
 
 impl Default for PageRendererConfig {
@@ -47,6 +52,7 @@ impl Default for PageRendererConfig {
             dpi: 192,
             relative_links: false,
             trailing_slash: false,
+            static_tabs: false,
         }
     }
 }
@@ -127,6 +133,7 @@ impl From<StorageError> for RenderError {
 /// Handles markdown-to-HTML conversion with caching, diagram processing,
 /// and metadata loading. Operates on individual pages without knowledge of
 /// site structure or reload logic.
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct PageRenderer {
     storage: Arc<dyn Storage>,
     cache: Arc<dyn Cache>,
@@ -137,6 +144,7 @@ pub(crate) struct PageRenderer {
     dpi: u32,
     relative_links: bool,
     trailing_slash: bool,
+    static_tabs: bool,
 }
 
 impl PageRenderer {
@@ -156,6 +164,7 @@ impl PageRenderer {
             dpi: config.dpi,
             relative_links: config.relative_links,
             trailing_slash: config.trailing_slash,
+            static_tabs: config.static_tabs,
         }
     }
 
@@ -254,7 +263,12 @@ impl PageRenderer {
         base_path: &str,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+        let tabs = if self.static_tabs {
+            TabsDirective::new_static()
+        } else {
+            TabsDirective::new()
+        };
+        let directives = DirectiveProcessor::new().with_container(tabs);
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_gfm(true)

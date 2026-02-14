@@ -1,0 +1,30 @@
+[package]
+name = "rw-techdocs"
+description = "TechDocs static site generation and S3 publishing for RW"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rw-assets = { workspace = true }
+rw-cache = { workspace = true }
+rw-site = { workspace = true }
+rw-storage = { workspace = true }
+
+minijinja = { workspace = true }
+
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rw-storage = { workspace = true, features = ["mock"] }
+tempfile = { workspace = true }

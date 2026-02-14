@@ -119,6 +119,24 @@ If your `docs/` directory doesn't have an `index.md`, RW automatically uses `REA
 - `docs/index.md` missing + `README.md` exists: README.md serves as homepage
 - Live reload works for README.md changes too
 
+## TechDocs (Backstage Integration)
+
+Build and publish documentation sites compatible with Backstage TechDocs:
+
+```bash
+# Build static site
+rw techdocs build --site-name "My Docs"
+
+# Publish to S3
+rw techdocs publish \
+  --entity default/Component/my-service \
+  --bucket my-techdocs-bucket \
+  --endpoint https://storage.yandexcloud.net \
+  --region ru-central1
+```
+
+S3 credentials use standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` environment variables.
+
 ## Confluence Publishing
 
 All Confluence-related commands are grouped under the `confluence` subcommand:

@@ -2,6 +2,7 @@
 
 use rw_config::ConfigError;
 use rw_confluence::{ConfluenceError, UpdateError};
+use rw_techdocs::{BuildError, PublishError};
 
 /// CLI error type.
 #[derive(Debug, thiserror::Error)]
@@ -17,6 +18,12 @@ pub(crate) enum CliError {
 
     #[error("{0}")]
     Update(#[from] UpdateError),
+
+    #[error("{0}")]
+    Build(#[from] BuildError),
+
+    #[error("{0}")]
+    Publish(#[from] PublishError),
 
     #[error("{0}")]
     Server(String),
