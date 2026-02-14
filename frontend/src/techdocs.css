@@ -190,3 +190,14 @@
 .td-article {
   max-width: none;
 }
+
+/* Tailwind v4 border utilities need --tw-border-style: solid.
+   Normally set via @property (initial-value: solid) or an @supports fallback.
+   Neither works inside Backstage's shadow DOM: @property rules from shadow-scoped
+   stylesheets aren't registered, and the @supports heuristic targets Safari/Firefox.
+   Set it explicitly so borders render in any hosting context. */
+*,
+::before,
+::after {
+  --tw-border-style: solid;
+}

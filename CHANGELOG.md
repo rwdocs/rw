@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw techdocs publish` S3 errors now show the full cause chain instead of just "dispatch failure" (e.g., reveals missing credentials)
 - `rw techdocs build` pages no longer cause horizontal scrollbar in Backstage TechDocs; `td-main` now shrinks correctly within flex layout (`min-w-0`), article content overflow is clipped, and diagram/alert/tab styles from `content.css` are now applied (added `prose` class to article element)
 - `rw techdocs build` ToC panel no longer squeezes article to ~384px at narrow container widths; raised container query breakpoints (sidebar: 700→952, ToC: 960→1224) so article text is never narrower than 640px
+- `rw techdocs build` borders (tabs, alerts, diagram errors) now render in Backstage's shadow DOM; Tailwind v4's `--tw-border-style` CSS variable wasn't initializing because `@property` declarations don't register in shadow DOM and the `@supports` fallback targets Safari/Firefox only
 
 ### Changed
 
