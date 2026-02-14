@@ -90,7 +90,7 @@
 
   /* Main content */
   .td-main {
-    @apply flex-1;
+    @apply flex-1 min-w-0 overflow-x-hidden;
   }
   .td-main-inner {
     @apply max-w-6xl mx-auto px-4 md:px-8 pt-6 pb-12;
@@ -120,7 +120,7 @@
     @apply flex;
   }
   .td-article-wrapper {
-    @apply flex-1 min-w-0;
+    @apply flex-1 min-w-0 overflow-x-hidden;
   }
   .td-article {
     @apply prose prose-slate max-w-none;

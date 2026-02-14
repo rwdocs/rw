@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rw techdocs build` tabs are now interactive via CSS-only radio inputs (no JavaScript needed), matching mkdocs-material's approach for Backstage TechDocs compatibility
 - `rw techdocs publish` with custom `--endpoint` now uses path-style S3 addressing, fixing virtual-hosted-style DNS issues with LocalStack, MinIO, and Yandex Cloud endpoints
 - `rw techdocs publish` S3 errors now show the full cause chain instead of just "dispatch failure" (e.g., reveals missing credentials)
+- `rw techdocs build` pages no longer cause horizontal scrollbar in Backstage TechDocs; `td-main` now shrinks correctly within flex layout (`min-w-0`), article content overflow is clipped, and diagram/alert/tab styles from `content.css` are now applied (added `prose` class to article element)
 
 ### Changed
 
