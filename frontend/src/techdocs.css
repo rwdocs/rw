@@ -17,18 +17,20 @@
 @layer base {
   body {
     @apply bg-white text-gray-900 antialiased;
+    container-type: inline-size;
   }
 }
 
 @layer components {
   /* Layout */
   .td-layout {
-    @apply min-h-screen flex flex-col md:flex-row;
+    @apply min-h-screen flex flex-col;
   }
 
   /* Sidebar */
   .td-sidebar {
-    @apply w-[280px] flex-shrink-0 border-r border-gray-200 hidden md:block h-screen sticky top-0 overflow-y-auto;
+    @apply w-[280px] flex-shrink-0 border-r border-gray-200 h-screen sticky top-0 overflow-y-auto;
+    display: none;
   }
   .td-sidebar-inner {
     @apply pt-6 px-4 pb-4;
@@ -93,7 +95,7 @@
     @apply flex-1 min-w-0 overflow-x-hidden;
   }
   .td-main-inner {
-    @apply max-w-6xl mx-auto px-4 md:px-8 pt-6 pb-12;
+    @apply max-w-6xl mx-auto px-4 pt-6 pb-12;
   }
 
   /* Breadcrumbs */
@@ -123,12 +125,13 @@
     @apply flex-1 min-w-0 overflow-x-hidden;
   }
   .td-article {
-    @apply prose prose-slate max-w-none!;
+    @apply prose prose-slate;
   }
 
   /* Table of contents */
   .td-toc {
-    @apply w-[240px] flex-shrink-0 hidden lg:block;
+    @apply w-[240px] flex-shrink-0;
+    display: none;
   }
   .td-toc-inner {
     @apply pl-8 sticky top-6;
@@ -161,4 +164,29 @@
   .nav-tree details[open] > summary .nav-chevron {
     transform: rotate(90deg);
   }
+
+  /* Container queries — based on actual content area, not viewport */
+  @container (min-width: 700px) {
+    .td-layout {
+      flex-direction: row;
+    }
+    .td-sidebar {
+      display: block;
+    }
+    .td-main-inner {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
+
+  @container (min-width: 960px) {
+    .td-toc {
+      display: block;
+    }
+  }
+}
+
+/* Override prose max-width — unlayered styles beat all @layer rules */
+.td-article {
+  max-width: none;
 }
