@@ -166,7 +166,7 @@
   }
 
   /* Container queries — based on actual content area, not viewport */
-  @container (min-width: 700px) {
+  @container (min-width: 952) {
     .td-layout {
       flex-direction: row;
     }
@@ -179,7 +179,7 @@
     }
   }
 
-  @container (min-width: 960px) {
+  @container (min-width: 1224) {
     .td-toc {
       display: block;
     }
