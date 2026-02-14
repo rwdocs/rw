@@ -64,7 +64,7 @@ impl UpdateArgs {
         let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
 
         // Require confluence config
-        let conf_config = require_confluence_config(&config, &output)?;
+        let conf_config = config.require_confluence()?;
 
         // Create Confluence client
         let client = create_confluence_client(conf_config, &self.key_file)?;
@@ -94,21 +94,6 @@ impl UpdateArgs {
     fn resolve_extract_title(&self) -> bool {
         !self.no_extract_title && self.extract_title.unwrap_or(true)
     }
-}
-
-fn require_confluence_config<'a>(
-    config: &'a Config,
-    output: &Output,
-) -> Result<&'a ConfluenceConfig, CliError> {
-    config.confluence.as_ref().ok_or_else(|| {
-        output.error("Error: confluence configuration required in rw.toml");
-        output.info("\nAdd the following to your rw.toml:");
-        output.info("\n[confluence]");
-        output.info(r#"base_url = "https://confluence.example.com""#);
-        output.info(r#"access_token = "your-token""#);
-        output.info(r#"access_secret = "your-secret""#);
-        CliError::Validation("confluence configuration required".to_owned())
-    })
 }
 
 fn create_confluence_client(
