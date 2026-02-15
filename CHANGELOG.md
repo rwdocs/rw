@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Removed bundled Roboto font from `rw techdocs build` output (Backstage already provides it)
+
 ## [0.1.6] - 2026-02-14
 
 - Default port changed from 8080 to 7979 (RWRW on a telephone keypad)

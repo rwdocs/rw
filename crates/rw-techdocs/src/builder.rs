@@ -134,6 +134,8 @@ impl StaticSiteBuilder {
 ///
 /// Prefers the `techdocs-*.css` file when available (self-contained `TechDocs` styles).
 /// Falls back to the first CSS file found for backward compatibility.
+///
+/// Roboto font files are skipped — Backstage already provides Roboto.
 fn write_assets(output_dir: &Path) -> Result<(), BuildError> {
     let assets_dir = output_dir.join("assets");
     fs::create_dir_all(&assets_dir)?;
@@ -156,6 +158,7 @@ fn write_assets(output_dir: &Path) -> Result<(), BuildError> {
                 first_css_path = Some(path.to_owned());
             }
         } else if matches!(ext, Some("woff" | "woff2"))
+            && !filename.starts_with("roboto")
             && let Some(data) = rw_assets::get(path)
         {
             fs::write(assets_dir.join(filename), data.as_ref())?;
@@ -445,45 +448,6 @@ mod tests {
         assert!(api_html.contains("Endpoints"));
         // CSS path should have correct relative depth
         assert!(api_html.contains("../../assets/styles.css"));
-    }
-
-    #[test]
-    fn build_copies_font_assets() {
-        // rw-assets in dev mode reads from `frontend/dist` relative to CWD.
-        // cargo test sets CWD to the crate directory, so move to workspace root.
-        let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        if !workspace_root.join("frontend/dist/assets").exists() {
-            // Frontend not built; skip.
-            return;
-        }
-        std::env::set_current_dir(&workspace_root).unwrap();
-
-        let tmp = TempDir::new().unwrap();
-        let output_dir = tmp.path().join("site");
-        let storage = Arc::new(mock_storage_with_pages());
-        let config = BuildConfig {
-            site_name: "Test".to_owned(),
-        };
-
-        let builder = StaticSiteBuilder::new(storage, config);
-        builder.build(&output_dir).unwrap();
-
-        let assets_dir = output_dir.join("assets");
-        let font_files: Vec<_> = std::fs::read_dir(&assets_dir)
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|e| {
-                let path = e.path();
-                matches!(
-                    path.extension().and_then(|ext| ext.to_str()),
-                    Some("woff" | "woff2")
-                )
-            })
-            .collect();
-        assert!(
-            !font_files.is_empty(),
-            "Font files should be copied to assets/"
-        );
     }
 
     #[test]
