@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
 - Removed bundled Roboto font from `rw techdocs build` output (Backstage already provides it)
+
+### Fixed
+
 - Fixed table of contents not staying sticky when scrolling in TechDocs output
+- Fixed long table of contents being cut off when it exceeds viewport height (now scrollable)
 
 ## [0.1.6] - 2026-02-14
+
+### Changed
 
 - Default port changed from 8080 to 7979 (RWRW on a telephone keypad)
 - Rewrote README for external audience; moved reference material to `docs/`
