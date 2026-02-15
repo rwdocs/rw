@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Removed bundled Roboto font from `rw techdocs build` output (Backstage already provides it)
+- Fixed table of contents not staying sticky when scrolling in TechDocs output
 
 ## [0.1.6] - 2026-02-14
 
