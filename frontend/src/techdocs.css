@@ -39,11 +39,6 @@
     @apply ml-3;
   }
 
-  /* Close button inside sidebar — hidden by default, shown on narrow viewports */
-  .td-sidebar-close {
-    display: none;
-  }
-
   /* Backdrop overlay — hidden by default */
   .td-backdrop {
     display: none;
@@ -66,9 +61,6 @@
   .td-menu-checkbox:checked ~ .td-layout .td-sidebar .td-sidebar-inner {
     position: sticky;
     top: 0;
-  }
-  .td-menu-checkbox:checked ~ .td-layout .td-sidebar .td-sidebar-header {
-    display: none;
   }
   .td-menu-checkbox:checked ~ .td-layout .td-backdrop {
     display: block;
@@ -97,12 +89,6 @@
   .td-sidebar {
     @apply w-[280px] flex-shrink-0 border-r border-gray-200 h-screen sticky top-0 overflow-y-auto;
     display: none;
-  }
-  .td-sidebar-close {
-    @apply items-center justify-center p-2 text-gray-500 hover:text-gray-700 cursor-pointer;
-  }
-  .td-sidebar-header {
-    @apply flex items-center justify-between;
   }
   .td-sidebar-inner {
     @apply pt-6 px-4 pb-4;
@@ -239,7 +225,7 @@
   }
 
   /* Container queries — based on actual content area, not viewport */
-  @container (min-width: 952) {
+  @container (min-width: 952px) {
     .td-layout {
       flex-direction: row;
     }
@@ -248,9 +234,6 @@
     }
     .td-mobile-header {
       display: none;
-    }
-    .td-sidebar-close {
-      display: none !important;
     }
     .td-backdrop {
       display: none !important;
@@ -261,7 +244,7 @@
     }
   }
 
-  @container (min-width: 1224) {
+  @container (min-width: 1224px) {
     .td-toc {
       display: block;
     }

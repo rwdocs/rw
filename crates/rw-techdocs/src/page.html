@@ -38,19 +38,11 @@
   {# ── Sidebar ── #}
   <aside class="td-sidebar">
     <div class="td-sidebar-inner">
-      <div class="td-sidebar-header">
-        <a href="{{ root_path }}" class="td-logo">
-          <span class="td-logo-text">
-            <span class="td-logo-primary">R</span><span class="td-logo-secondary">W</span>
-          </span>
-        </a>
-        <label for="td-menu-toggle" class="td-sidebar-close" aria-label="Close menu">
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M6 18L18 6M6 6l12 12"/>
-          </svg>
-        </label>
-      </div>
+      <a href="{{ root_path }}" class="td-logo">
+        <span class="td-logo-text">
+          <span class="td-logo-primary">R</span><span class="td-logo-secondary">W</span>
+        </span>
+      </a>
 
       {# Scope header (back link + section title) #}
       {%- if scope %}
