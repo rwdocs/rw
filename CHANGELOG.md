@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Mobile navigation toggle for TechDocs output (CSS-only hamburger menu for narrow viewports)
+
 ### Changed
 
 - Removed bundled Roboto font from `rw techdocs build` output (Backstage already provides it)
