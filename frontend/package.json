@@ -37,8 +37,7 @@
     "vitest": "^4.0.15"
   },
   "engines": {
-    "node": ">=24",
-    "npm": ">=11"
+    "node": "24"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
