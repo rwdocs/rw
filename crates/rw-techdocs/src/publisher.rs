@@ -1,8 +1,9 @@
 //! S3 publishing for `TechDocs` sites.
 
-use std::path::{Path, PathBuf};
-
 use std::error::Error;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use aws_sdk_s3::Client;
 
@@ -24,7 +25,7 @@ pub struct PublishConfig {
 #[derive(Debug, thiserror::Error)]
 pub enum PublishError {
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("S3 error: {0}")]
     S3(String),
     #[error("Directory not found: {0}")]
@@ -58,7 +59,7 @@ impl S3Publisher {
         for (relative_path, abs_path) in &files {
             let key = self.build_key(relative_path);
             let content_type = guess_content_type(relative_path);
-            let body = std::fs::read(abs_path)?;
+            let body = fs::read(abs_path)?;
 
             client
                 .put_object()
@@ -110,7 +111,7 @@ impl S3Publisher {
         parts.join("/")
     }
 
-    fn collect_files(directory: &Path) -> Result<Vec<(String, PathBuf)>, std::io::Error> {
+    fn collect_files(directory: &Path) -> Result<Vec<(String, PathBuf)>, io::Error> {
         let mut files = Vec::new();
         walk_dir(directory, directory, &mut files)?;
         Ok(files)
@@ -121,8 +122,8 @@ fn walk_dir(
     base: &Path,
     current: &Path,
     files: &mut Vec<(String, PathBuf)>,
-) -> Result<(), std::io::Error> {
-    for entry in std::fs::read_dir(current)? {
+) -> Result<(), io::Error> {
+    for entry in fs::read_dir(current)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {

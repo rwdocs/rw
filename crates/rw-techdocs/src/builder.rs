@@ -2,11 +2,14 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use rw_cache::NullCache;
-use rw_site::{NavItem, Navigation, PageRendererConfig, Site, TocEntry};
+use rw_cache::{Cache, NullCache};
+use rw_site::{
+    BreadcrumbItem, NavItem, Navigation, PageRendererConfig, RenderError, Site, TocEntry,
+};
 use rw_storage::Storage;
 
 use crate::template::{
@@ -23,9 +26,9 @@ pub struct BuildConfig {
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
     #[error("Render error: {0}")]
-    Render(#[from] rw_site::RenderError),
+    Render(#[from] RenderError),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -57,7 +60,7 @@ impl StaticSiteBuilder {
 
     /// Build the static site to the output directory.
     pub fn build(&self, output_dir: &Path) -> Result<(), BuildError> {
-        let cache: Arc<dyn rw_cache::Cache> = Arc::new(NullCache);
+        let cache: Arc<dyn Cache> = Arc::new(NullCache);
         let site = Site::new(
             Arc::clone(&self.storage),
             cache,
@@ -230,11 +233,7 @@ fn relative_nav_path(from_page: &str, to_page: &str) -> String {
     let ups = "../".repeat(from_depth);
 
     if to_page.is_empty() {
-        if from_depth == 0 {
-            ".".to_owned()
-        } else {
-            ups.trim_end_matches('/').to_owned()
-        }
+        ups.trim_end_matches('/').to_owned()
     } else {
         format!("{ups}{to_page}")
     }
@@ -318,7 +317,7 @@ fn pluralize_type(t: &str) -> String {
 }
 
 fn convert_breadcrumbs(
-    breadcrumbs: &[rw_site::BreadcrumbItem],
+    breadcrumbs: &[BreadcrumbItem],
     from_page: &str,
 ) -> Vec<BreadcrumbData> {
     breadcrumbs
@@ -397,7 +396,7 @@ mod tests {
         let builder = StaticSiteBuilder::new(storage, config);
         builder.build(&output_dir).unwrap();
 
-        let meta = std::fs::read_to_string(output_dir.join("techdocs_metadata.json")).unwrap();
+        let meta = fs::read_to_string(output_dir.join("techdocs_metadata.json")).unwrap();
         assert!(meta.contains("My Docs"));
     }
 
@@ -413,10 +412,10 @@ mod tests {
         let builder = StaticSiteBuilder::new(storage, config);
         builder.build(&output_dir).unwrap();
 
-        let home_html = std::fs::read_to_string(output_dir.join("index.html")).unwrap();
+        let home_html = fs::read_to_string(output_dir.join("index.html")).unwrap();
         assert!(home_html.contains("Welcome"));
 
-        let guide_html = std::fs::read_to_string(output_dir.join("guide/index.html")).unwrap();
+        let guide_html = fs::read_to_string(output_dir.join("guide/index.html")).unwrap();
         assert!(guide_html.contains("Hello"));
     }
 
@@ -444,7 +443,7 @@ mod tests {
         assert!(output_dir.join("domain/index.html").exists());
         assert!(output_dir.join("domain/api/index.html").exists());
 
-        let api_html = std::fs::read_to_string(output_dir.join("domain/api/index.html")).unwrap();
+        let api_html = fs::read_to_string(output_dir.join("domain/api/index.html")).unwrap();
         assert!(api_html.contains("Endpoints"));
         // CSS path should have correct relative depth
         assert!(api_html.contains("../../assets/styles.css"));
@@ -497,8 +496,6 @@ mod tests {
 
     #[test]
     fn convert_nav_items_sets_active_path() {
-        use rw_site::NavItem;
-
         let items = vec![NavItem {
             title: "Domains".to_owned(),
             path: "domains".to_owned(),
@@ -523,8 +520,6 @@ mod tests {
 
     #[test]
     fn convert_nav_items_inactive_branch_not_on_path() {
-        use rw_site::NavItem;
-
         let items = vec![
             NavItem {
                 title: "Guide".to_owned(),
@@ -555,8 +550,6 @@ mod tests {
 
     #[test]
     fn convert_nav_items_deep_active_path() {
-        use rw_site::NavItem;
-
         let items = vec![NavItem {
             title: "Domains".to_owned(),
             path: "domains".to_owned(),
