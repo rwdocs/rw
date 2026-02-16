@@ -317,15 +317,18 @@ impl HeadingState {
 /// Convert text to URL-safe slug.
 ///
 /// Converts to lowercase, replaces whitespace/dashes/underscores with single dashes,
-/// and removes other non-alphanumeric characters.
+/// and removes other non-alphanumeric characters. Preserves non-Latin Unicode characters
+/// (Cyrillic, CJK, etc.) following GitHub-style heading ID generation.
 #[must_use]
 fn slugify(text: &str) -> String {
     let mut result = String::new();
     let mut last_was_dash = true; // Prevents leading dash
 
     for c in text.trim().chars() {
-        if c.is_ascii_alphanumeric() {
-            result.push(c.to_ascii_lowercase());
+        if c.is_alphanumeric() {
+            for lc in c.to_lowercase() {
+                result.push(lc);
+            }
             last_was_dash = false;
         } else if !last_was_dash && (c.is_whitespace() || c == '-' || c == '_') {
             result.push('-');
@@ -370,6 +373,22 @@ mod tests {
         assert_eq!(slugify("Multiple   Spaces"), "multiple-spaces");
         assert_eq!(slugify("kebab-case"), "kebab-case");
         assert_eq!(slugify("snake_case"), "snake-case");
+    }
+
+    #[test]
+    fn test_slugify_non_latin() {
+        // Cyrillic
+        assert_eq!(slugify("Привет мир"), "привет-мир");
+        // Chinese
+        assert_eq!(slugify("你好世界"), "你好世界");
+        // Japanese
+        assert_eq!(slugify("こんにちは世界"), "こんにちは世界");
+        // Mixed Latin and non-Latin
+        assert_eq!(slugify("Hello Привет"), "hello-привет");
+        // Non-Latin with punctuation
+        assert_eq!(slugify("Привет, мир!"), "привет-мир");
+        // Fully non-Latin should NOT produce empty string
+        assert!(!slugify("Заголовок").is_empty());
     }
 
     #[test]
