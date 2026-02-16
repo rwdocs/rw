@@ -5,8 +5,11 @@
 //! form documents, returning lightweight references for `FsStorage` to process.
 
 use std::collections::HashMap;
-use std::fs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+use ignore::WalkBuilder;
 
 use crate::source::{SourceFile, SourceKind};
 
@@ -28,7 +31,7 @@ pub(crate) struct DocumentRef {
 /// Discovers document references by walking the filesystem.
 ///
 /// The Scanner performs Phase 1 of document loading:
-/// 1. Walk directory tree (stack-based, no recursion)
+/// 1. Walk directory tree in parallel using the `ignore` crate
 /// 2. Classify files using `SourceFile`
 /// 3. Group files by `url_path` into `DocumentRef`s
 ///
@@ -63,53 +66,56 @@ impl Scanner {
         Self::group_into_documents(files)
     }
 
-    /// Walk directory tree and collect all source files.
+    /// Walk directory tree in parallel and collect all source files.
     ///
-    /// Uses stack-based iteration instead of recursion.
+    /// Uses the `ignore` crate's parallel walker which distributes directory
+    /// traversal across multiple threads with work-stealing. Hidden files
+    /// and hidden directories are skipped automatically.
     fn collect_source_files(&self) -> Vec<SourceFile> {
-        let mut files = Vec::new();
-        let mut dirs_to_visit = vec![self.source_dir.clone()];
+        let files: Mutex<Vec<SourceFile>> = Mutex::new(Vec::new());
 
-        while let Some(dir) = dirs_to_visit.pop() {
-            let Ok(entries) = fs::read_dir(&dir) else {
-                continue;
-            };
+        WalkBuilder::new(&self.source_dir)
+            .hidden(true)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false)
+            .follow_links(false)
+            .threads(
+                std::thread::available_parallelism()
+                    .map_or(1, NonZeroUsize::get)
+                    .min(12),
+            )
+            .build_parallel()
+            .run(|| {
+                let files = &files;
+                let source_dir = &self.source_dir;
+                let meta_filename = &self.meta_filename;
 
-            for entry in entries.filter_map(Result::ok) {
-                let path = entry.path();
-                let filename = entry.file_name();
+                Box::new(move |result| {
+                    let Ok(entry) = result else {
+                        return ignore::WalkState::Continue;
+                    };
 
-                // Skip hidden entries
-                if filename.to_string_lossy().starts_with('.') {
-                    continue;
-                }
+                    // Only process regular files (skip directories, symlinks, etc.)
+                    let is_file = entry.file_type().is_some_and(|ft| ft.is_file());
+                    if !is_file {
+                        return ignore::WalkState::Continue;
+                    }
 
-                // Use symlink_metadata to detect symlinks correctly
-                let Ok(metadata) = fs::symlink_metadata(&path) else {
-                    continue;
-                };
+                    let filename = entry.file_name().to_os_string();
+                    let path = entry.into_path();
 
-                // Skip symlinks entirely
-                if metadata.file_type().is_symlink() {
-                    continue;
-                }
+                    if let Some(source) =
+                        SourceFile::classify(path, &filename, source_dir, meta_filename)
+                    {
+                        files.lock().unwrap().push(source);
+                    }
 
-                // Queue directories for visiting
-                if metadata.is_dir() {
-                    dirs_to_visit.push(path);
-                    continue;
-                }
+                    ignore::WalkState::Continue
+                })
+            });
 
-                // Classify as source file (filtering already done above)
-                if let Some(source) =
-                    SourceFile::classify(path, &filename, &self.source_dir, &self.meta_filename)
-                {
-                    files.push(source);
-                }
-            }
-        }
-
-        files
+        files.into_inner().unwrap()
     }
 
     /// Group source files into document references by `url_path`.
@@ -145,6 +151,8 @@ impl Scanner {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     fn create_test_dir() -> tempfile::TempDir {
