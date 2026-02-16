@@ -86,6 +86,11 @@ impl CacheBucket for FileCacheBucket {
         file.read_exact(&mut len_buf).ok()?;
         let etag_len = u32::from_le_bytes(len_buf) as usize;
 
+        // Guard against corrupted files that could cause huge allocations
+        if etag_len > 8192 {
+            return None;
+        }
+
         // Read stored etag
         let mut stored_etag = vec![0u8; etag_len];
         file.read_exact(&mut stored_etag).ok()?;
@@ -340,6 +345,25 @@ mod tests {
         // VERSION file created
         let version = fs::read_to_string(root.join("VERSION")).unwrap();
         assert_eq!(version, "v1");
+    }
+
+    #[test]
+    fn test_corrupted_etag_length_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("pages");
+
+        // Write a valid entry first to create the directory
+        bucket.set("key", "etag1", b"data");
+
+        // Overwrite the cache file with a corrupted etag length (u32::MAX)
+        let path = tmp.path().join("cache/pages/key.cache");
+        let mut corrupt = Vec::new();
+        corrupt.extend_from_slice(&u32::MAX.to_le_bytes());
+        corrupt.extend_from_slice(b"garbage");
+        fs::write(&path, &corrupt).unwrap();
+
+        assert_eq!(bucket.get("key", "etag1"), None);
     }
 
     #[test]

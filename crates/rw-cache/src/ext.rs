@@ -63,3 +63,86 @@ pub trait CacheBucketExt: CacheBucket {
 }
 
 impl<B: CacheBucket + ?Sized> CacheBucketExt for B {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::FileCache;
+    use crate::Cache;
+    use serde::{Deserialize, Serialize};
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_json_round_trip() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("test");
+
+        #[derive(Serialize, Deserialize, PartialEq, Debug)]
+        struct Data {
+            value: i32,
+            label: String,
+        }
+
+        let data = Data {
+            value: 42,
+            label: "hello".into(),
+        };
+        bucket.set_json("key", "etag1", &data);
+        let result: Option<Data> = bucket.get_json("key", "etag1");
+        assert_eq!(
+            result,
+            Some(Data {
+                value: 42,
+                label: "hello".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_json_etag_mismatch_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("test");
+
+        bucket.set_json("key", "etag1", &vec![1, 2, 3]);
+        let result: Option<Vec<i32>> = bucket.get_json("key", "wrong-etag");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_json_deserialization_failure_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("test");
+
+        // Store a string, try to read as a struct
+        bucket.set_string("key", "etag1", "not json");
+        let result: Option<Vec<i32>> = bucket.get_json("key", "etag1");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_string_round_trip() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("test");
+
+        bucket.set_string("key", "etag1", "hello world");
+        assert_eq!(
+            bucket.get_string("key", "etag1"),
+            Some("hello world".into())
+        );
+    }
+
+    #[test]
+    fn test_string_invalid_utf8_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("test");
+
+        // Store raw invalid UTF-8 bytes
+        bucket.set("key", "etag1", &[0xFF, 0xFE]);
+        assert_eq!(bucket.get_string("key", "etag1"), None);
+    }
+}
