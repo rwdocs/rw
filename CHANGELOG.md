@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `rw techdocs build` now renders pages in parallel, significantly speeding up diagram-heavy sites
+
 ### Fixed
 
 - Fixed heading anchors for non-Latin characters (Cyrillic, CJK, etc.) producing empty IDs

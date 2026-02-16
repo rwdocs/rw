@@ -3033,6 +3033,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "minijinja",
+ "rayon",
  "rw-assets",
  "rw-cache",
  "rw-site",

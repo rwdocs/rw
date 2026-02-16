@@ -6,6 +6,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use rw_cache::{Cache, NullCache};
 use rw_site::{
     BreadcrumbItem, NavItem, Navigation, PageRendererConfig, RenderError, Site, TocEntry,
@@ -73,7 +74,7 @@ impl StaticSiteBuilder {
         tracing::info!(count = all_paths.len(), "Rendering pages");
 
         // Render each page
-        for page_path in &all_paths {
+        all_paths.par_iter().try_for_each(|page_path| {
             let render_result = site.render(page_path)?;
             let scope = site.get_navigation_scope(page_path);
             let page_nav = site.navigation(&scope);
@@ -114,7 +115,9 @@ impl StaticSiteBuilder {
             fs::write(&file_path, html)?;
 
             tracing::debug!(path = %page_path, "Wrote page");
-        }
+
+            Ok::<(), BuildError>(())
+        })?;
 
         write_assets(output_dir)?;
         self.write_metadata(output_dir)?;
