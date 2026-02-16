@@ -148,10 +148,9 @@ fn write_assets(output_dir: &Path) -> Result<(), BuildError> {
 
     for path in rw_assets::iter() {
         let path = path.as_ref();
-        if !path.starts_with("assets/") {
+        let Some(filename) = path.strip_prefix("assets/") else {
             continue;
-        }
-        let filename = &path["assets/".len()..];
+        };
         let ext = Path::new(filename).extension().and_then(|e| e.to_str());
 
         if ext == Some("css") {
@@ -260,16 +259,14 @@ fn convert_nav_items(items: &[NavItem], current_path: &str, from_page: &str) -> 
 
 fn convert_scope(nav: &Navigation, from_page: &str) -> Option<ScopeHeaderData> {
     let scope = nav.scope.as_ref()?;
-    let back = nav
-        .parent_scope
-        .as_ref()
-        .map(|p| (p.title.clone(), p.path.clone()));
-    let (back_link_title, back_link_raw) =
-        back.unwrap_or_else(|| ("Home".to_owned(), String::new()));
+    let (back_title, back_path) = match &nav.parent_scope {
+        Some(parent) => (parent.title.as_str(), parent.path.as_str()),
+        None => ("Home", ""),
+    };
     Some(ScopeHeaderData {
         title: scope.title.clone(),
-        back_link_title,
-        back_link_path: relative_nav_path(from_page, &back_link_raw),
+        back_link_title: back_title.to_owned(),
+        back_link_path: relative_nav_path(from_page, back_path),
     })
 }
 

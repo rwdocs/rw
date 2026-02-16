@@ -55,7 +55,6 @@ impl S3Publisher {
         let files = Self::collect_files(directory)?;
         let client = self.build_client().await;
 
-        let mut uploaded = 0;
         for (relative_path, abs_path) in &files {
             let key = self.build_key(relative_path);
             let content_type = guess_content_type(relative_path);
@@ -71,11 +70,10 @@ impl S3Publisher {
                 .await
                 .map_err(|e| PublishError::S3(error_chain(&e)))?;
 
-            uploaded += 1;
             tracing::debug!(key = %key, "Uploaded");
         }
 
-        Ok(uploaded)
+        Ok(files.len())
     }
 
     async fn build_client(&self) -> Client {
