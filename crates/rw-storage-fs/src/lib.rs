@@ -32,12 +32,13 @@ mod source;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::RwLock;
 use std::sync::mpsc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use glob::Pattern;
 use notify::{RecursiveMode, Watcher};
+use rayon::prelude::*;
 use regex::Regex;
 use serde::Deserialize;
 
@@ -135,7 +136,7 @@ pub struct FsStorage {
     /// Regex for extracting first H1 heading.
     h1_regex: Regex,
     /// Mtime cache for incremental title extraction.
-    mtime_cache: Mutex<HashMap<PathBuf, CachedFile>>,
+    mtime_cache: RwLock<HashMap<PathBuf, CachedFile>>,
     /// Patterns for file watching (e.g., "**/*.md").
     watch_patterns: Vec<Pattern>,
     /// Metadata file name (e.g., "meta.yaml").
@@ -231,7 +232,7 @@ impl FsStorage {
             source_dir,
             scanner,
             h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
-            mtime_cache: Mutex::new(HashMap::new()),
+            mtime_cache: RwLock::new(HashMap::new()),
             watch_patterns,
             meta_filename: meta_filename.to_owned(),
             readme_path: None,
@@ -380,7 +381,7 @@ impl FsStorage {
 
         // Check cache
         {
-            let cache = self.mtime_cache.lock().unwrap();
+            let cache = self.mtime_cache.read().unwrap();
             if let (Some(cached), Some(mtime)) = (cache.get(file_path), current_mtime)
                 && cached.mtime == mtime
             {
@@ -395,7 +396,7 @@ impl FsStorage {
 
         // Update cache
         if let Some(mtime) = current_mtime {
-            let mut cache = self.mtime_cache.lock().unwrap();
+            let mut cache = self.mtime_cache.write().unwrap();
             cache.insert(
                 file_path.to_path_buf(),
                 CachedFile {
@@ -466,12 +467,25 @@ impl FsStorage {
 
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
-        let mut documents: Vec<Document> = self
-            .scanner
-            .scan()
-            .into_iter()
-            .filter_map(|r| self.build_document(&r))
+        let t0 = Instant::now();
+        let refs = self.scanner.scan();
+        let walk_elapsed = t0.elapsed();
+
+        let t1 = Instant::now();
+        let mut documents: Vec<Document> = refs
+            .par_iter()
+            .filter_map(|r| self.build_document(r))
             .collect();
+        let build_elapsed = t1.elapsed();
+
+        tracing::info!(
+            files = refs.len(),
+            documents = documents.len(),
+            walk_ms = format_args!("{:.1}", walk_elapsed.as_secs_f64() * 1000.0),
+            build_ms = format_args!("{:.1}", build_elapsed.as_secs_f64() * 1000.0),
+            total_ms = format_args!("{:.1}", t0.elapsed().as_secs_f64() * 1000.0),
+            "Storage scan complete"
+        );
 
         // Inject README.md as homepage if no root document found
         if let Some(ref readme_path) = self.readme_path

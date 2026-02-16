@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `rw techdocs build` now renders pages in parallel, significantly speeding up diagram-heavy sites
+- Startup scan is now ~3x faster on large sites (parallel directory walking and document building)
 
 ### Fixed
 
