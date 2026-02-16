@@ -7,6 +7,7 @@
 //! - **`embed` feature off**: Assets are read from `frontend/dist/` at runtime
 
 use std::borrow::Cow;
+#[cfg(not(feature = "embed"))]
 use std::path::Path;
 
 /// Embedded frontend assets (only available with `embed` feature).
@@ -17,8 +18,11 @@ use std::path::Path;
 struct Assets;
 
 /// Directory for filesystem-based asset serving (dev mode).
+///
+/// Uses `CARGO_MANIFEST_DIR` so the binary finds assets regardless of the
+/// working directory it is launched from.
 #[cfg(not(feature = "embed"))]
-const DEV_DIR: &str = "frontend/dist";
+const DEV_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../frontend/dist");
 
 /// Get a frontend asset by path (relative to `frontend/dist/`).
 ///
@@ -50,11 +54,10 @@ pub fn iter() -> impl Iterator<Item = Cow<'static, str>> {
 }
 
 /// Return the MIME type string for the given file path.
-pub fn mime_for(path: &str) -> &'static str {
-    let mime = mime_guess::from_path(path).first_or_octet_stream();
-    // Leak the string so we get a `&'static str` — there are only a bounded
-    // number of MIME types so this doesn't grow unboundedly in practice.
-    Box::leak(mime.to_string().into_boxed_str())
+pub fn mime_for(path: &str) -> String {
+    mime_guess::from_path(path)
+        .first_or_octet_stream()
+        .to_string()
 }
 
 /// Recursively walk a directory and return paths relative to `base`.
@@ -95,7 +98,10 @@ mod tests {
 
     #[test]
     fn test_mime_for_unknown_type() {
-        assert_eq!(mime_for("file.unknown_ext_xyz"), "application/octet-stream");
+        assert_eq!(
+            mime_for("file.unknown_ext_xyz"),
+            "application/octet-stream"
+        );
     }
 
     #[test]

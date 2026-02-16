@@ -3,7 +3,7 @@
 Tasks are in @TASKS.md.
 
 After code changes:
-- Update @CHANGELOG.md
+- Update @CHANGELOG.md — only add user-facing changes (new features, behavior changes, bug fixes users would notice). Skip internal refactors, code quality fixes, and clippy cleanups.
 - Check @CLAUDE.md and @README.md for outdated or missing information and fix
 
 ## Project Overview
