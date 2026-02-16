@@ -67,8 +67,8 @@ impl<B: CacheBucket + ?Sized> CacheBucketExt for B {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file::FileCache;
     use crate::Cache;
+    use crate::file::FileCache;
     use serde::{Deserialize, Serialize};
     use tempfile::TempDir;
 

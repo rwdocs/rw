@@ -98,10 +98,7 @@ mod tests {
 
     #[test]
     fn test_mime_for_unknown_type() {
-        assert_eq!(
-            mime_for("file.unknown_ext_xyz"),
-            "application/octet-stream"
-        );
+        assert_eq!(mime_for("file.unknown_ext_xyz"), "application/octet-stream");
     }
 
     #[test]
