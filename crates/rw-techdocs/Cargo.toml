@@ -16,6 +16,7 @@ rw-site = { workspace = true }
 rw-storage = { workspace = true }
 
 minijinja = { workspace = true }
+rayon = { workspace = true }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1"
