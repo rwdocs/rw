@@ -2,6 +2,9 @@
 
 Tasks are in @TASKS.md.
 
+Before committing:
+- Run `make format` to format all code
+
 After code changes:
 - Update @CHANGELOG.md — only add user-facing changes (new features, behavior changes, bug fixes users would notice). Skip internal refactors, code quality fixes, and clippy cleanups.
 - Check @CLAUDE.md and @README.md for outdated or missing information and fix
