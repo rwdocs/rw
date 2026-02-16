@@ -313,10 +313,7 @@ fn pluralize_type(t: &str) -> String {
     }
 }
 
-fn convert_breadcrumbs(
-    breadcrumbs: &[BreadcrumbItem],
-    from_page: &str,
-) -> Vec<BreadcrumbData> {
+fn convert_breadcrumbs(breadcrumbs: &[BreadcrumbItem], from_page: &str) -> Vec<BreadcrumbData> {
     breadcrumbs
         .iter()
         .map(|b| BreadcrumbData {
