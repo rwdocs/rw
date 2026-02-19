@@ -216,6 +216,22 @@ impl Site {
         self.reload_if_needed().state.get_page(path).is_some()
     }
 
+    /// Get the title of a page from the current cached snapshot.
+    ///
+    /// Reads from the current snapshot without triggering a reload.
+    /// Returns `None` if the page doesn't exist in the cached state.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - URL path without leading slash (e.g., "guide", "" for root)
+    #[must_use]
+    pub fn page_title(&self, path: &str) -> Option<String> {
+        self.snapshot()
+            .state
+            .get_page(path)
+            .map(|p| p.title.clone())
+    }
+
     /// Get breadcrumbs for a page.
     ///
     /// Reloads site if needed and returns breadcrumb navigation items
@@ -953,5 +969,42 @@ mod tests {
         // First render with new version should be a cache miss
         let result2 = site_v2.render("test").unwrap();
         assert!(!result2.from_cache);
+    }
+
+    // ========================================================================
+    // page_title tests
+    // ========================================================================
+
+    #[test]
+    fn test_page_title_returns_title_for_known_page() {
+        let storage = MockStorage::new().with_document("guide", "User Guide");
+        let site = create_site_with_storage(storage);
+
+        // Trigger initial load
+        let _ = site.reload_if_needed();
+
+        assert_eq!(site.page_title("guide"), Some("User Guide".to_owned()));
+    }
+
+    #[test]
+    fn test_page_title_returns_none_for_unknown_page() {
+        let storage = MockStorage::new().with_document("guide", "Guide");
+        let site = create_site_with_storage(storage);
+
+        let _ = site.reload_if_needed();
+
+        assert_eq!(site.page_title("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_page_title_reads_cached_snapshot() {
+        let storage = MockStorage::new().with_document("guide", "Old Title");
+        let site = create_site_with_storage(storage);
+
+        // Load initial state
+        let _ = site.reload_if_needed();
+
+        // page_title reads cached snapshot, not triggering reload
+        assert_eq!(site.page_title("guide"), Some("Old Title".to_owned()));
     }
 }
