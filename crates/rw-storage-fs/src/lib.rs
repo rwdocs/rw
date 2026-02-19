@@ -42,7 +42,7 @@ use rayon::prelude::*;
 use regex::Regex;
 use serde::Deserialize;
 
-use debouncer::EventDebouncer;
+use debouncer::{EventDebouncer, RawEventKind};
 use inheritance::{build_ancestor_chain, merge_metadata};
 use rw_storage::{
     Document, Metadata, MetadataError, Storage, StorageError, StorageErrorKind, StorageEvent,
@@ -66,14 +66,14 @@ struct YamlFields {
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
 
-/// Convert a `notify::EventKind` to a `StorageEventKind`.
+/// Convert a `notify::EventKind` to a `RawEventKind`.
 ///
 /// Returns `None` for event kinds that are not relevant (e.g., Access).
-fn storage_event_kind(kind: notify::EventKind) -> Option<StorageEventKind> {
+fn storage_event_kind(kind: notify::EventKind) -> Option<RawEventKind> {
     match kind {
-        notify::EventKind::Create(_) => Some(StorageEventKind::Created),
-        notify::EventKind::Modify(_) => Some(StorageEventKind::Modified),
-        notify::EventKind::Remove(_) => Some(StorageEventKind::Removed),
+        notify::EventKind::Create(_) => Some(RawEventKind::Created),
+        notify::EventKind::Modify(_) => Some(RawEventKind::Modified),
+        notify::EventKind::Remove(_) => Some(RawEventKind::Removed),
         _ => None,
     }
 }
@@ -626,9 +626,17 @@ impl Storage for FsStorage {
                             String::new()
                         };
 
+                    let kind = match event.kind {
+                        RawEventKind::Created => StorageEventKind::Created,
+                        RawEventKind::Modified => StorageEventKind::Modified {
+                            title: String::new(), // placeholder, resolved in Task 3
+                        },
+                        RawEventKind::Removed => StorageEventKind::Removed,
+                    };
+
                     let storage_event = StorageEvent {
                         path: url_path,
-                        kind: event.kind,
+                        kind,
                     };
 
                     if event_tx.send(storage_event).is_err() {
@@ -1409,7 +1417,7 @@ mod tests {
         assert!(event.is_some(), "Expected to receive event");
         let event = event.unwrap();
         assert_eq!(event.path, "existing");
-        assert_eq!(event.kind, StorageEventKind::Modified);
+        assert!(matches!(event.kind, StorageEventKind::Modified { .. }));
     }
 
     #[test]
@@ -1495,7 +1503,10 @@ mod tests {
         // Should receive only one modified event
         let event = rx.try_recv();
         assert!(event.is_some(), "Expected to receive event");
-        assert_eq!(event.unwrap().kind, StorageEventKind::Modified);
+        assert!(matches!(
+            event.unwrap().kind,
+            StorageEventKind::Modified { .. }
+        ));
 
         // No more events
         let event = rx.try_recv();

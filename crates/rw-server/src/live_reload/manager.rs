@@ -85,7 +85,7 @@ impl LiveReloadManager {
         // The debouncer already handles editor save patterns (Removed + Created → Modified),
         // so we can trust the event types directly.
         let known = match event.kind {
-            StorageEventKind::Modified => {
+            StorageEventKind::Modified { .. } => {
                 // Content change only - use cached site state, no traversal needed.
                 site.has_page(&event.path)
             }
