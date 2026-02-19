@@ -18,7 +18,7 @@ pub enum StorageEventKind {
     Created,
     /// Document was modified.
     Modified {
-        /// Resolved page title (empty string until title resolution is wired up).
+        /// Resolved page title (meta.yaml > H1 > filename fallback).
         title: String,
     },
     /// Document was removed.
