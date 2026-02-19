@@ -221,7 +221,10 @@ impl FsStorage {
         patterns: &[String],
         meta_filename: &str,
     ) -> Self {
-        let watch_patterns = patterns
+        let mut all_patterns: Vec<String> = patterns.to_vec();
+        all_patterns.push(format!("**/{meta_filename}"));
+
+        let watch_patterns = all_patterns
             .iter()
             .map(|p| Pattern::new(p).expect("invalid glob pattern"))
             .collect();
@@ -465,6 +468,65 @@ impl FsStorage {
     }
 }
 
+/// Resolve title for a URL path from filesystem.
+///
+/// Checks meta.yaml title first, falls back to H1 extraction, then filename.
+/// Used by the watch drain thread to populate `StorageEventKind::Modified`.
+fn resolve_title(
+    source_dir: &Path,
+    url_path: &str,
+    meta_filename: &str,
+    h1_regex: &Regex,
+) -> String {
+    // 1. Check meta.yaml title
+    let meta_path = if url_path.is_empty() {
+        source_dir.join(meta_filename)
+    } else {
+        source_dir.join(format!("{url_path}/{meta_filename}"))
+    };
+
+    if let Ok(content) = fs::read_to_string(&meta_path) {
+        if let Ok(fields) = serde_yaml::from_str::<YamlFields>(&content) {
+            if let Some(title) = fields.title {
+                return title;
+            }
+        }
+    }
+
+    // 2. Check H1 in markdown file
+    let md_paths = if url_path.is_empty() {
+        vec![source_dir.join("index.md")]
+    } else {
+        vec![
+            source_dir.join(format!("{url_path}/index.md")),
+            source_dir.join(format!("{url_path}.md")),
+        ]
+    };
+
+    for md_path in &md_paths {
+        if let Ok(content) = fs::read_to_string(md_path) {
+            if let Some(caps) = h1_regex.captures(&content) {
+                if let Some(m) = caps.get(1) {
+                    return m.as_str().trim().to_owned();
+                }
+            }
+            // No H1 — fall back to filename
+            let name_lower = md_path
+                .file_name()
+                .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
+            return FsStorage::title_from_filename(&name_lower);
+        }
+    }
+
+    // 3. Nothing found — use URL slug
+    let slug = url_path.rsplit('/').next().unwrap_or(url_path);
+    if slug.is_empty() {
+        "Home".to_owned()
+    } else {
+        titlecase_from_slug(slug)
+    }
+}
+
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let t0 = Instant::now();
@@ -603,6 +665,8 @@ impl Storage for FsStorage {
 
         // Spawn thread to drain debouncer and send to channel
         let source_dir_for_drain = self.source_dir.clone();
+        let meta_filename_for_drain = self.meta_filename.clone();
+        let h1_regex_for_drain = self.h1_regex.clone();
         std::thread::spawn(move || {
             // Keep watcher references alive in this thread
             let _watcher_guard = watcher;
@@ -617,20 +681,39 @@ impl Storage for FsStorage {
                 }
 
                 for event in debouncer.drain_ready() {
-                    // Convert full file path to relative path, then to URL path
-                    // If path is outside source_dir (e.g. README.md), map to root ("")
+                    // Convert file path to URL path
                     let url_path =
                         if let Ok(rel_path) = event.path.strip_prefix(&source_dir_for_drain) {
-                            file_path_to_url(rel_path)
+                            let filename = rel_path
+                                .file_name()
+                                .map(|f| f.to_string_lossy())
+                                .unwrap_or_default();
+                            if *filename == *meta_filename_for_drain {
+                                // meta.yaml -> parent directory URL path
+                                rel_path
+                                    .parent()
+                                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                                    .unwrap_or_default()
+                            } else {
+                                file_path_to_url(rel_path)
+                            }
                         } else {
+                            // Outside source_dir (e.g., README.md) -> root
                             String::new()
                         };
 
+                    // Convert RawEventKind to StorageEventKind
                     let kind = match event.kind {
                         RawEventKind::Created => StorageEventKind::Created,
-                        RawEventKind::Modified => StorageEventKind::Modified {
-                            title: String::new(), // placeholder, resolved in Task 3
-                        },
+                        RawEventKind::Modified => {
+                            let title = resolve_title(
+                                &source_dir_for_drain,
+                                &url_path,
+                                &meta_filename_for_drain,
+                                &h1_regex_for_drain,
+                            );
+                            StorageEventKind::Modified { title }
+                        }
                         RawEventKind::Removed => StorageEventKind::Removed,
                     };
 
