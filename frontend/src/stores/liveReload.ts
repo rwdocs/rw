@@ -8,7 +8,7 @@ interface LiveReloadState {
 }
 
 interface ReloadMessage {
-  type: "reload";
+  type: "content" | "structure";
   path: string;
 }
 
@@ -54,8 +54,10 @@ function createLiveReloadStore() {
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as ReloadMessage;
-        if (message.type === "reload") {
-          handleReload(message.path);
+        if (message.type === "content") {
+          handleContentReload(message.path);
+        } else if (message.type === "structure") {
+          handleStructureReload();
         }
       } catch (e) {
         if (import.meta.env.DEV) {
@@ -65,23 +67,28 @@ function createLiveReloadStore() {
     };
   }
 
-  async function handleReload(changedPath: string) {
+  function handleContentReload(changedPath: string) {
     update((state) => ({ ...state, lastReload: changedPath }));
 
     if (import.meta.env.DEV) {
-      console.log("[LiveReload] File changed:", changedPath);
+      console.log("[LiveReload] Content changed:", changedPath);
+    }
+
+    if (onReloadCallback && shouldReload(get(path), changedPath)) {
+      onReloadCallback(changedPath);
+    }
+  }
+
+  async function handleStructureReload() {
+    if (import.meta.env.DEV) {
+      console.log("[LiveReload] Structure changed");
     }
 
     await navigation.load({ bypassCache: true });
 
-    // Expand to current path after reload
     const currentPath = get(path);
     if (currentPath !== "/") {
       navigation.expandOnlyTo(currentPath);
-    }
-
-    if (onReloadCallback && shouldReload(currentPath, changedPath)) {
-      onReloadCallback(changedPath);
     }
   }
 
