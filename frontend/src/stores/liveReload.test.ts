@@ -190,35 +190,45 @@ describe("liveReload store", () => {
   });
 
   describe("message handling", () => {
-    it("updates lastReload on reload message", async () => {
+    it("updates lastReload on content message", async () => {
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
-      mockWebSocketInstances[0].simulateMessage({ type: "reload", path: "/docs/guide.md" });
+      mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/guide" });
 
-      // Wait for async handleReload
       await vi.runAllTimersAsync();
 
       const state = get(liveReload);
-      expect(state.lastReload).toBe("/docs/guide.md");
+      expect(state.lastReload).toBe("/guide");
     });
 
-    it("reloads navigation on reload message", async () => {
+    it("does not reload navigation on content message", async () => {
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
-      mockWebSocketInstances[0].simulateMessage({ type: "reload", path: "/docs/guide.md" });
+      mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/guide" });
+
+      await vi.runAllTimersAsync();
+
+      expect(mockNavigation.load).not.toHaveBeenCalled();
+    });
+
+    it("reloads navigation on structure message", async () => {
+      liveReload.start();
+      mockWebSocketInstances[0].simulateOpen();
+
+      mockWebSocketInstances[0].simulateMessage({ type: "structure", path: "/guide" });
 
       await vi.runAllTimersAsync();
 
       expect(mockNavigation.load).toHaveBeenCalledWith({ bypassCache: true });
     });
 
-    it("expands navigation to current path after reload", async () => {
+    it("expands navigation to current path after structure reload", async () => {
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
-      mockWebSocketInstances[0].simulateMessage({ type: "reload", path: "/docs/guide.md" });
+      mockWebSocketInstances[0].simulateMessage({ type: "structure", path: "/guide" });
 
       await vi.runAllTimersAsync();
 
@@ -229,17 +239,15 @@ describe("liveReload store", () => {
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
-      // Send invalid JSON directly
       mockWebSocketInstances[0].onmessage?.({ data: "not json" });
 
       await vi.runAllTimersAsync();
 
-      // Should not crash, state unchanged
       const state = get(liveReload);
       expect(state.lastReload).toBeNull();
     });
 
-    it("ignores non-reload message types", async () => {
+    it("ignores unknown message types", async () => {
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -253,7 +261,7 @@ describe("liveReload store", () => {
   });
 
   describe("onReload callback", () => {
-    it("calls callback when current page changes", async () => {
+    it("calls callback on content event for current page", async () => {
       const callback = vi.fn();
       mockExtractDocPath.mockImplementation((p: string) => p.replace(/^\/docs/, "") || "/");
 
@@ -261,25 +269,37 @@ describe("liveReload store", () => {
       mockWebSocketInstances[0].simulateOpen();
       liveReload.onReload(callback);
 
-      // Changed path matches current path (both extract to /guide)
-      mockWebSocketInstances[0].simulateMessage({ type: "reload", path: "/docs/guide" });
+      mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/docs/guide" });
 
       await vi.runAllTimersAsync();
 
       expect(callback).toHaveBeenCalledWith("/docs/guide");
     });
 
-    it("does not call callback when different page changes", async () => {
+    it("does not call callback on content event for different page", async () => {
       const callback = vi.fn();
-      mockExtractDocPath
-        .mockReturnValueOnce("/guide") // current path
-        .mockReturnValueOnce("/other"); // changed path
+      mockExtractDocPath.mockReturnValueOnce("/guide").mockReturnValueOnce("/other");
 
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
       liveReload.onReload(callback);
 
-      mockWebSocketInstances[0].simulateMessage({ type: "reload", path: "/docs/other" });
+      mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/docs/other" });
+
+      await vi.runAllTimersAsync();
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("does not call callback on structure event", async () => {
+      const callback = vi.fn();
+      mockExtractDocPath.mockReturnValue("/guide");
+
+      liveReload.start();
+      mockWebSocketInstances[0].simulateOpen();
+      liveReload.onReload(callback);
+
+      mockWebSocketInstances[0].simulateMessage({ type: "structure", path: "/docs/guide" });
 
       await vi.runAllTimersAsync();
 
@@ -296,7 +316,7 @@ describe("liveReload store", () => {
 
       unsubscribe();
 
-      mockWebSocketInstances[0].simulateMessage({ type: "reload", path: "/docs/guide" });
+      mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/docs/guide" });
 
       await vi.runAllTimersAsync();
 
@@ -312,11 +332,11 @@ describe("liveReload store", () => {
       mockWebSocketInstances[0].simulateOpen();
 
       const unsubscribe1 = liveReload.onReload(callback1);
-      liveReload.onReload(callback2); // This replaces callback1
+      liveReload.onReload(callback2);
 
-      unsubscribe1(); // Should not remove callback2 since it's different
+      unsubscribe1();
 
-      mockWebSocketInstances[0].simulateMessage({ type: "reload", path: "/docs/guide" });
+      mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/docs/guide" });
 
       await vi.runAllTimersAsync();
 
