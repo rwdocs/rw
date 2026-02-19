@@ -485,12 +485,11 @@ fn resolve_title(
         source_dir.join(format!("{url_path}/{meta_filename}"))
     };
 
-    if let Ok(content) = fs::read_to_string(&meta_path) {
-        if let Ok(fields) = serde_yaml::from_str::<YamlFields>(&content) {
-            if let Some(title) = fields.title {
-                return title;
-            }
-        }
+    if let Ok(content) = fs::read_to_string(&meta_path)
+        && let Ok(fields) = serde_yaml::from_str::<YamlFields>(&content)
+        && let Some(title) = fields.title
+    {
+        return title;
     }
 
     // 2. Check H1 in markdown file
@@ -505,10 +504,10 @@ fn resolve_title(
 
     for md_path in &md_paths {
         if let Ok(content) = fs::read_to_string(md_path) {
-            if let Some(caps) = h1_regex.captures(&content) {
-                if let Some(m) = caps.get(1) {
-                    return m.as_str().trim().to_owned();
-                }
+            if let Some(caps) = h1_regex.captures(&content)
+                && let Some(m) = caps.get(1)
+            {
+                return m.as_str().trim().to_owned();
             }
             // No H1 — fall back to filename
             let name_lower = md_path
