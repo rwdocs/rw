@@ -89,9 +89,9 @@ impl EventDebouncer {
             (Created, Removed) => None,           // File never existed for us
 
             // Modified + anything
-            (Modified, Created) => Some(Created), // File was recreated
+            (Modified, Created) => Some(Modified), // File was replaced (e.g., vim atomic write)
             (Modified, Modified) => Some(Modified), // Normal debounce
-            (Modified, Removed) => Some(Removed), // File is gone
+            (Modified, Removed) => Some(Removed),  // File is gone
 
             // Removed + anything
             (Removed, Created) => Some(Modified), // File was replaced
@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn test_modified_then_created_keeps_created() {
+    fn test_modified_then_created_stays_modified() {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
@@ -245,7 +245,7 @@ mod tests {
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, StorageEventKind::Created);
+        assert_eq!(events[0].kind, StorageEventKind::Modified);
     }
 
     #[test]
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(EventDebouncer::coalesce(Created, Removed), None);
 
         // Modified + *
-        assert_eq!(EventDebouncer::coalesce(Modified, Created), Some(Created));
+        assert_eq!(EventDebouncer::coalesce(Modified, Created), Some(Modified));
         assert_eq!(EventDebouncer::coalesce(Modified, Modified), Some(Modified));
         assert_eq!(EventDebouncer::coalesce(Modified, Removed), Some(Removed));
 

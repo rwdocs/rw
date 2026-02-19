@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed unnecessary full site rescan on every file save in editors that use atomic writes (vim, neovim)
 - Fixed heading anchors for non-Latin characters (Cyrillic, CJK, etc.) producing empty IDs
 
 ## [0.1.7] - 2026-02-16
