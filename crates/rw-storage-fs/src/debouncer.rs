@@ -8,7 +8,16 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use rw_storage::StorageEventKind;
+/// Kind of raw file-system event (before title resolution).
+///
+/// Used internally by the debouncer. Title resolution happens later
+/// in the drain thread when converting to `StorageEventKind`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RawEventKind {
+    Created,
+    Modified,
+    Removed,
+}
 
 /// A debounced event with file path (not URL path).
 ///
@@ -19,12 +28,12 @@ pub(crate) struct DebouncedEvent {
     /// File system path.
     pub path: PathBuf,
     /// Kind of change.
-    pub kind: StorageEventKind,
+    pub kind: RawEventKind,
 }
 
 /// Pending event waiting to be emitted.
 struct PendingEvent {
-    kind: StorageEventKind,
+    kind: RawEventKind,
     deadline: Instant,
 }
 
@@ -50,7 +59,7 @@ impl EventDebouncer {
     ///
     /// Thread-safe, can be called from file system watcher callbacks.
     /// Events are coalesced according to the rules in RD-031.
-    pub fn record(&self, path: PathBuf, kind: StorageEventKind) {
+    pub fn record(&self, path: PathBuf, kind: RawEventKind) {
         use std::collections::hash_map::Entry;
 
         let mut pending = self.pending.lock().unwrap();
@@ -79,8 +88,8 @@ impl EventDebouncer {
     ///
     /// Each arm is documented separately per RD-031 coalescing matrix.
     #[allow(clippy::match_same_arms)]
-    fn coalesce(existing: StorageEventKind, new: StorageEventKind) -> Option<StorageEventKind> {
-        use StorageEventKind::{Created, Modified, Removed};
+    fn coalesce(existing: RawEventKind, new: RawEventKind) -> Option<RawEventKind> {
+        use RawEventKind::{Created, Modified, Removed};
 
         match (existing, new) {
             // Created + anything
@@ -138,7 +147,7 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), StorageEventKind::Modified);
+        debouncer.record(path.clone(), RawEventKind::Modified);
 
         // Before deadline
         let events = debouncer.drain_ready();
@@ -150,7 +159,7 @@ mod tests {
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].path, path);
-        assert_eq!(events[0].kind, StorageEventKind::Modified);
+        assert_eq!(events[0].kind, RawEventKind::Modified);
 
         // Should be empty after drain
         let events = debouncer.drain_ready();
@@ -163,15 +172,15 @@ mod tests {
         let path = PathBuf::from("/test/file.md");
 
         // Simulate editor saving: multiple modify events
-        debouncer.record(path.clone(), StorageEventKind::Modified);
-        debouncer.record(path.clone(), StorageEventKind::Modified);
-        debouncer.record(path, StorageEventKind::Modified);
+        debouncer.record(path.clone(), RawEventKind::Modified);
+        debouncer.record(path.clone(), RawEventKind::Modified);
+        debouncer.record(path, RawEventKind::Modified);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, StorageEventKind::Modified);
+        assert_eq!(events[0].kind, RawEventKind::Modified);
     }
 
     #[test]
@@ -179,14 +188,14 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), StorageEventKind::Created);
-        debouncer.record(path, StorageEventKind::Modified);
+        debouncer.record(path.clone(), RawEventKind::Created);
+        debouncer.record(path, RawEventKind::Modified);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, StorageEventKind::Created);
+        assert_eq!(events[0].kind, RawEventKind::Created);
     }
 
     #[test]
@@ -194,8 +203,8 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), StorageEventKind::Created);
-        debouncer.record(path, StorageEventKind::Removed);
+        debouncer.record(path.clone(), RawEventKind::Created);
+        debouncer.record(path, RawEventKind::Removed);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -208,14 +217,14 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), StorageEventKind::Modified);
-        debouncer.record(path, StorageEventKind::Removed);
+        debouncer.record(path.clone(), RawEventKind::Modified);
+        debouncer.record(path, RawEventKind::Removed);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, StorageEventKind::Removed);
+        assert_eq!(events[0].kind, RawEventKind::Removed);
     }
 
     #[test]
@@ -223,14 +232,14 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), StorageEventKind::Removed);
-        debouncer.record(path, StorageEventKind::Created);
+        debouncer.record(path.clone(), RawEventKind::Removed);
+        debouncer.record(path, RawEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, StorageEventKind::Modified);
+        assert_eq!(events[0].kind, RawEventKind::Modified);
     }
 
     #[test]
@@ -238,14 +247,14 @@ mod tests {
         let debouncer = EventDebouncer::new(Duration::from_millis(10));
         let path = PathBuf::from("/test/file.md");
 
-        debouncer.record(path.clone(), StorageEventKind::Modified);
-        debouncer.record(path, StorageEventKind::Created);
+        debouncer.record(path.clone(), RawEventKind::Modified);
+        debouncer.record(path, RawEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 
         let events = debouncer.drain_ready();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, StorageEventKind::Modified);
+        assert_eq!(events[0].kind, RawEventKind::Modified);
     }
 
     #[test]
@@ -254,8 +263,8 @@ mod tests {
         let path1 = PathBuf::from("/test/file1.md");
         let path2 = PathBuf::from("/test/file2.md");
 
-        debouncer.record(path1, StorageEventKind::Modified);
-        debouncer.record(path2, StorageEventKind::Created);
+        debouncer.record(path1, RawEventKind::Modified);
+        debouncer.record(path2, RawEventKind::Created);
 
         thread::sleep(Duration::from_millis(15));
 
@@ -265,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_coalesce_all_combinations() {
-        use StorageEventKind::{Created, Modified, Removed};
+        use RawEventKind::{Created, Modified, Removed};
 
         // Created + *
         assert_eq!(EventDebouncer::coalesce(Created, Created), Some(Created));
