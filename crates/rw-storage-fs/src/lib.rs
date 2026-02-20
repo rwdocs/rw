@@ -472,6 +472,10 @@ impl FsStorage {
 ///
 /// Checks meta.yaml title first, falls back to H1 extraction, then filename.
 /// Used by the watch drain thread to populate `StorageEventKind::Modified`.
+///
+/// FIXME: duplicates title resolution logic from `FsStorage::build_document` and
+/// reverse-engineers URL-to-path mapping from `source::file_path_to_url`. Extract
+/// a shared function or look up `DocumentRef` paths instead.
 fn resolve_title(
     source_dir: &Path,
     url_path: &str,
