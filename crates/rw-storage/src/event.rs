@@ -12,12 +12,15 @@
 use std::sync::mpsc;
 
 /// Kind of storage event.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageEventKind {
     /// Document was created.
     Created,
     /// Document was modified.
-    Modified,
+    Modified {
+        /// Resolved page title (meta.yaml > H1 > filename fallback).
+        title: String,
+    },
     /// Document was removed.
     Removed,
 }
@@ -127,8 +130,18 @@ mod tests {
 
     #[test]
     fn test_storage_event_kind_variants() {
-        assert_ne!(StorageEventKind::Created, StorageEventKind::Modified);
-        assert_ne!(StorageEventKind::Modified, StorageEventKind::Removed);
+        assert_ne!(
+            StorageEventKind::Created,
+            StorageEventKind::Modified {
+                title: "test".to_owned()
+            }
+        );
+        assert_ne!(
+            StorageEventKind::Modified {
+                title: "test".to_owned()
+            },
+            StorageEventKind::Removed
+        );
         assert_ne!(StorageEventKind::Created, StorageEventKind::Removed);
     }
 
@@ -136,11 +149,18 @@ mod tests {
     fn test_storage_event_creation() {
         let event = StorageEvent {
             path: "guide".to_owned(),
-            kind: StorageEventKind::Modified,
+            kind: StorageEventKind::Modified {
+                title: "Guide".to_owned(),
+            },
         };
 
         assert_eq!(event.path, "guide");
-        assert_eq!(event.kind, StorageEventKind::Modified);
+        assert_eq!(
+            event.kind,
+            StorageEventKind::Modified {
+                title: "Guide".to_owned()
+            }
+        );
     }
 
     #[test]
@@ -186,13 +206,20 @@ mod tests {
 
         tx.send(StorageEvent {
             path: "test".to_owned(),
-            kind: StorageEventKind::Modified,
+            kind: StorageEventKind::Modified {
+                title: "Test".to_owned(),
+            },
         })
         .unwrap();
 
         let event = receiver.try_recv().unwrap();
         assert_eq!(event.path, "test");
-        assert_eq!(event.kind, StorageEventKind::Modified);
+        assert_eq!(
+            event.kind,
+            StorageEventKind::Modified {
+                title: "Test".to_owned()
+            }
+        );
     }
 
     #[test]
@@ -207,7 +234,9 @@ mod tests {
         .unwrap();
         tx.send(StorageEvent {
             path: "b".to_owned(),
-            kind: StorageEventKind::Modified,
+            kind: StorageEventKind::Modified {
+                title: "B".to_owned(),
+            },
         })
         .unwrap();
         drop(tx);
@@ -217,7 +246,12 @@ mod tests {
         assert_eq!(result[0].path, "a");
         assert_eq!(result[0].kind, StorageEventKind::Created);
         assert_eq!(result[1].path, "b");
-        assert_eq!(result[1].kind, StorageEventKind::Modified);
+        assert_eq!(
+            result[1].kind,
+            StorageEventKind::Modified {
+                title: "B".to_owned()
+            }
+        );
     }
 
     #[test]

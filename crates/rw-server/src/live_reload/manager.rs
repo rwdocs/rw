@@ -12,14 +12,24 @@ use rw_storage::{Storage, StorageEventKind, WatchHandle};
 
 use crate::handlers::to_url_path;
 
+/// Type of reload event sent to WebSocket clients.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ReloadEventType {
+    /// Only page content changed (no navigation impact).
+    Content,
+    /// Site structure changed (new/removed/renamed pages).
+    Structure,
+}
+
 /// Event sent to connected WebSocket clients when files change.
 ///
 /// Clone is required by `tokio::sync::broadcast` which delivers a copy to each subscriber.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ReloadEvent {
-    /// Event type (always "reload").
+    /// Event type.
     #[serde(rename = "type")]
-    event_type: String,
+    event_type: ReloadEventType,
     /// Documentation path that changed.
     path: String,
 }
@@ -80,38 +90,50 @@ impl LiveReloadManager {
         site: &Arc<Site>,
         broadcaster: &broadcast::Sender<ReloadEvent>,
     ) {
-        // Storage events now use URL paths directly (e.g., "guide", "domain/api").
-        // Resolve doc path based on event kind.
-        // The debouncer already handles editor save patterns (Removed + Created → Modified),
-        // so we can trust the event types directly.
-        let known = match event.kind {
-            StorageEventKind::Modified => {
-                // Content change only - use cached site state, no traversal needed.
-                site.has_page(&event.path)
+        let url_path = to_url_path(&event.path);
+
+        match &event.kind {
+            StorageEventKind::Modified { title: new_title } => {
+                // Get old title from cached snapshot (no reload)
+                let old_title = site.page_title(&event.path);
+
+                // If page is known, always send content event
+                if old_title.is_some() {
+                    let _ = broadcaster.send(ReloadEvent {
+                        event_type: ReloadEventType::Content,
+                        path: url_path.clone(),
+                    });
+                }
+
+                // If title changed, invalidate site and send structure event
+                if old_title.as_deref() != Some(new_title) {
+                    site.invalidate();
+                    let _ = broadcaster.send(ReloadEvent {
+                        event_type: ReloadEventType::Structure,
+                        path: url_path,
+                    });
+                }
             }
             StorageEventKind::Created => {
-                // New file - invalidate so next access reloads site structure
                 site.invalidate();
-                site.has_page(&event.path)
+                if site.has_page(&event.path) {
+                    let _ = broadcaster.send(ReloadEvent {
+                        event_type: ReloadEventType::Structure,
+                        path: url_path,
+                    });
+                }
             }
             StorageEventKind::Removed => {
-                // File deleted - check cached site before invalidating
                 let known = site.has_page(&event.path);
                 site.invalidate();
-                known
+                if known {
+                    let _ = broadcaster.send(ReloadEvent {
+                        event_type: ReloadEventType::Structure,
+                        path: url_path,
+                    });
+                }
             }
-        };
-
-        if !known {
-            return;
         }
-
-        // Broadcast reload event with URL path (add leading slash for frontend)
-        let reload_event = ReloadEvent {
-            event_type: "reload".to_owned(),
-            path: to_url_path(&event.path),
-        };
-        let _ = broadcaster.send(reload_event);
     }
 
     /// Get a receiver for reload events.
@@ -126,15 +148,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_reload_event_serialization() {
+    fn test_content_event_serialization() {
         let event = ReloadEvent {
-            event_type: "reload".to_owned(),
+            event_type: ReloadEventType::Content,
             path: "/guide".to_owned(),
         };
 
         let json = serde_json::to_value(&event).unwrap();
 
-        assert_eq!(json["type"], "reload");
+        assert_eq!(json["type"], "content");
+        assert_eq!(json["path"], "/guide");
+    }
+
+    #[test]
+    fn test_structure_event_serialization() {
+        let event = ReloadEvent {
+            event_type: ReloadEventType::Structure,
+            path: "/guide".to_owned(),
+        };
+
+        let json = serde_json::to_value(&event).unwrap();
+
+        assert_eq!(json["type"], "structure");
         assert_eq!(json["path"], "/guide");
     }
 }

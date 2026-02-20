@@ -240,15 +240,17 @@ impl MockStorage {
         });
     }
 
-    /// Emit a Modified event.
+    /// Emit a Modified event with the given title.
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
-    pub fn emit_modified(&self, path: impl Into<String>) {
+    pub fn emit_modified(&self, path: impl Into<String>, title: impl Into<String>) {
         self.emit(StorageEvent {
             path: path.into(),
-            kind: StorageEventKind::Modified,
+            kind: StorageEventKind::Modified {
+                title: title.into(),
+            },
         });
     }
 
@@ -545,13 +547,13 @@ mod tests {
         let storage = MockStorage::new();
         let (rx, _handle) = storage.watch().unwrap();
 
-        storage.emit_modified("guide");
+        storage.emit_modified("guide", "Guide");
 
         let event = rx.try_recv();
         assert!(event.is_some());
         let event = event.unwrap();
         assert_eq!(event.path, "guide");
-        assert_eq!(event.kind, StorageEventKind::Modified);
+        assert!(matches!(event.kind, StorageEventKind::Modified { .. }));
     }
 
     #[test]
@@ -574,7 +576,7 @@ mod tests {
         let (rx, _handle) = storage.watch().unwrap();
 
         storage.emit_created("a");
-        storage.emit_modified("b");
+        storage.emit_modified("b", "B Title");
         storage.emit_removed("c");
 
         let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
@@ -584,7 +586,7 @@ mod tests {
         assert_eq!(events[0].kind, StorageEventKind::Created);
 
         assert_eq!(events[1].path, "b");
-        assert_eq!(events[1].kind, StorageEventKind::Modified);
+        assert!(matches!(events[1].kind, StorageEventKind::Modified { .. }));
 
         assert_eq!(events[2].path, "c");
         assert_eq!(events[2].kind, StorageEventKind::Removed);
