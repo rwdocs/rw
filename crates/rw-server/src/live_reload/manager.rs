@@ -12,14 +12,24 @@ use rw_storage::{Storage, StorageEventKind, WatchHandle};
 
 use crate::handlers::to_url_path;
 
+/// Type of reload event sent to WebSocket clients.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ReloadEventType {
+    /// Only page content changed (no navigation impact).
+    Content,
+    /// Site structure changed (new/removed/renamed pages).
+    Structure,
+}
+
 /// Event sent to connected WebSocket clients when files change.
 ///
 /// Clone is required by `tokio::sync::broadcast` which delivers a copy to each subscriber.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct ReloadEvent {
-    /// Event type: "content" or "structure".
+    /// Event type.
     #[serde(rename = "type")]
-    event_type: String,
+    event_type: ReloadEventType,
     /// Documentation path that changed.
     path: String,
 }
@@ -90,7 +100,7 @@ impl LiveReloadManager {
                 // If page is known, always send content event
                 if old_title.is_some() {
                     let _ = broadcaster.send(ReloadEvent {
-                        event_type: "content".to_owned(),
+                        event_type: ReloadEventType::Content,
                         path: url_path.clone(),
                     });
                 }
@@ -99,7 +109,7 @@ impl LiveReloadManager {
                 if old_title.as_deref() != Some(new_title) {
                     site.invalidate();
                     let _ = broadcaster.send(ReloadEvent {
-                        event_type: "structure".to_owned(),
+                        event_type: ReloadEventType::Structure,
                         path: url_path,
                     });
                 }
@@ -108,7 +118,7 @@ impl LiveReloadManager {
                 site.invalidate();
                 if site.has_page(&event.path) {
                     let _ = broadcaster.send(ReloadEvent {
-                        event_type: "structure".to_owned(),
+                        event_type: ReloadEventType::Structure,
                         path: url_path,
                     });
                 }
@@ -118,7 +128,7 @@ impl LiveReloadManager {
                 site.invalidate();
                 if known {
                     let _ = broadcaster.send(ReloadEvent {
-                        event_type: "structure".to_owned(),
+                        event_type: ReloadEventType::Structure,
                         path: url_path,
                     });
                 }
@@ -140,7 +150,7 @@ mod tests {
     #[test]
     fn test_content_event_serialization() {
         let event = ReloadEvent {
-            event_type: "content".to_owned(),
+            event_type: ReloadEventType::Content,
             path: "/guide".to_owned(),
         };
 
@@ -153,7 +163,7 @@ mod tests {
     #[test]
     fn test_structure_event_serialization() {
         let event = ReloadEvent {
-            event_type: "structure".to_owned(),
+            event_type: ReloadEventType::Structure,
             path: "/guide".to_owned(),
         };
 
