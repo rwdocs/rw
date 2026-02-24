@@ -30,18 +30,11 @@
 
 <!-- Mobile Header -->
 <header
-  class="
-    sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white px-4
-    py-3
-    md:hidden
-  "
+  class="sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white px-4 py-3 md:hidden"
 >
   <button
     onclick={openMobileMenu}
-    class="
-      -ml-2 cursor-pointer p-2 text-gray-500
-      hover:text-gray-700
-    "
+    class="-ml-2 cursor-pointer p-2 text-gray-500 hover:text-gray-700"
     aria-label="Open menu"
   >
     <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -63,17 +56,11 @@
 <!-- Mobile Drawer -->
 <MobileDrawer />
 
-<div
-  class="
-    flex min-h-screen flex-col
-    md:flex-row
-  "
->
+<div class="flex min-h-screen flex-col md:flex-row">
   <!-- Navigation Sidebar (Desktop) -->
   <aside
     class="
-      sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r
-      border-gray-200
+      sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r border-gray-200
       md:block
     "
   >
@@ -84,12 +71,7 @@
         >
       </a>
       {#if $navigation.error}
-        <div
-          class="
-            mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm
-            text-red-700
-          "
-        >
+        <div class="mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           Failed to load navigation: {$navigation.error}
         </div>
       {/if}
@@ -99,12 +81,7 @@
 
   <!-- Main Content + ToC Container -->
   <div class="flex-1">
-    <div
-      class="
-        mx-auto max-w-6xl px-4 pt-6 pb-12
-        md:px-8
-      "
-    >
+    <div class="mx-auto max-w-6xl px-4 pt-6 pb-12 md:px-8">
       {#if $page.data}
         <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
       {:else if $page.loading}
@@ -119,18 +96,9 @@
 
         <!-- Table of Contents Sidebar - reserve space during loading for consistent skeleton layout -->
         {#if $page.loading || ($page.data && $page.data.toc.length > 0)}
-          <aside
-            class="
-              hidden w-[240px] shrink-0
-              lg:block
-            "
-          >
+          <aside class="hidden w-[240px] shrink-0 lg:block">
             {#if $page.data && $page.data.toc.length > 0}
-              <div
-                class="
-                  sticky top-6 max-h-[calc(100vh-1.5rem)] overflow-y-auto pl-8
-                "
-              >
+              <div class="sticky top-6 max-h-[calc(100vh-1.5rem)] overflow-y-auto pl-8">
                 <TocSidebar toc={$page.data.toc} />
               </div>
             {/if}

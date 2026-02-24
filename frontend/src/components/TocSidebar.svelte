@@ -141,10 +141,7 @@
             block text-sm/snug transition-colors
             {activeId === entry.id
             ? 'font-medium text-blue-600'
-            : `
-              text-gray-600
-              hover:text-gray-900
-            `}"
+            : `text-gray-600 hover:text-gray-900`}"
         >
           {entry.title}
         </a>

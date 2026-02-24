@@ -29,8 +29,7 @@
       <button
         onclick={toggleExpanded}
         class="
-          mr-0.5 flex size-5 items-center justify-center rounded-sm
-          text-gray-500
+          mr-0.5 flex size-5 items-center justify-center rounded-sm text-gray-500
           hover:bg-gray-100 hover:text-gray-700
         "
         aria-label={isExpanded ? "Collapse" : "Expand"}
@@ -59,12 +58,7 @@
       href={item.path}
       class="
         flex-1 rounded-sm p-1.5 text-sm transition-colors
-        {isActive
-        ? 'font-medium text-blue-700'
-        : `
-          text-gray-700
-          hover:text-gray-900
-        `}"
+        {isActive ? 'font-medium text-blue-700' : `text-gray-700 hover:text-gray-900`}"
     >
       {item.title}
     </a>
