@@ -45,11 +45,7 @@
   <LoadingSkeleton />
 {:else if $page.loading && $page.data}
   <!-- Fast load: show previous content with reduced opacity -->
-  <article
-    class="
-      prose max-w-none opacity-50 transition-opacity duration-150 prose-slate
-    "
-  >
+  <article class="prose max-w-none opacity-50 transition-opacity duration-150 prose-slate">
     {@html $page.data.content}
   </article>
 {:else if $page.notFound}

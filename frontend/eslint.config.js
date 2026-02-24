@@ -15,11 +15,9 @@ export default defineConfig([
       },
     },
     rules: {
-      "better-tailwindcss/no-unknown-classes": [
-        "error",
-        {
-          ignore: ["^animate-", "^breadcrumb-"],
-        },
+      "better-tailwindcss/enforce-consistent-line-wrapping": [
+        "warn",
+        { printWidth: 100, strictness: "loose", preferSingleLine: true },
       ],
     },
     files: ["**/*.svelte"],

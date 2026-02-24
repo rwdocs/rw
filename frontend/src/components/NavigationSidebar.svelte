@@ -19,10 +19,7 @@
       <div class="mb-5">
         <a
           href={backLink.path}
-          class="
-            mb-2 flex items-center text-sm text-gray-500
-            hover:text-blue-600
-          "
+          class="mb-2 flex items-center text-sm text-gray-500 hover:text-blue-600"
         >
           <span class="flex w-[22px] items-center justify-center">
             <svg class="size-3.5 rotate-180" fill="currentColor" viewBox="0 0 20 20">
