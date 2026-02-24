@@ -93,9 +93,9 @@ impl EventDebouncer {
 
         match (existing, new) {
             // Created + anything
-            (Created, Created) => Some(Created),  // Duplicate
+            (Created, Created) => Some(Created),   // Duplicate
             (Created, Modified) => Some(Modified), // File was replaced (e.g., vim atomic write)
-            (Created, Removed) => None,           // File never existed for us
+            (Created, Removed) => None,            // File never existed for us
 
             // Modified + anything
             (Modified, Created) => Some(Modified), // File was replaced (e.g., vim atomic write)
