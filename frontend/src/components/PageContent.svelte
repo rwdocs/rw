@@ -45,22 +45,26 @@
   <LoadingSkeleton />
 {:else if $page.loading && $page.data}
   <!-- Fast load: show previous content with reduced opacity -->
-  <article class="prose prose-slate max-w-none opacity-50 transition-opacity duration-150">
+  <article
+    class="
+      prose max-w-none opacity-50 transition-opacity duration-150 prose-slate
+    "
+  >
     {@html $page.data.content}
   </article>
 {:else if $page.notFound}
-  <div class="flex items-center justify-center h-64">
+  <div class="flex h-64 items-center justify-center">
     <div class="text-center">
-      <h1 class="text-4xl font-bold tracking-tight text-gray-300 mb-4">404</h1>
+      <h1 class="mb-4 text-4xl font-bold tracking-tight text-gray-300">404</h1>
       <p class="text-gray-600">Page not found</p>
     </div>
   </div>
 {:else if $page.error}
-  <div class="flex items-center justify-center h-64">
+  <div class="flex h-64 items-center justify-center">
     <p class="text-red-600">Error: {$page.error}</p>
   </div>
 {:else if $page.data}
-  <article bind:this={articleRef} class="prose prose-slate max-w-none">
+  <article bind:this={articleRef} class="prose max-w-none prose-slate">
     {@html $page.data.content}
   </article>
 {/if}

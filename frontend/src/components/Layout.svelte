@@ -30,14 +30,21 @@
 
 <!-- Mobile Header -->
 <header
-  class="sticky top-0 z-30 bg-white border-b border-gray-200 px-4 py-3 flex items-center md:hidden"
+  class="
+    sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white px-4
+    py-3
+    md:hidden
+  "
 >
   <button
     onclick={openMobileMenu}
-    class="p-2 -ml-2 text-gray-500 hover:text-gray-700 cursor-pointer"
+    class="
+      -ml-2 cursor-pointer p-2 text-gray-500
+      hover:text-gray-700
+    "
     aria-label="Open menu"
   >
-    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -56,19 +63,33 @@
 <!-- Mobile Drawer -->
 <MobileDrawer />
 
-<div class="min-h-screen flex flex-col md:flex-row">
+<div
+  class="
+    flex min-h-screen flex-col
+    md:flex-row
+  "
+>
   <!-- Navigation Sidebar (Desktop) -->
   <aside
-    class="w-[280px] flex-shrink-0 border-r border-gray-200 hidden md:block h-screen sticky top-0 overflow-y-auto"
+    class="
+      sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r
+      border-gray-200
+      md:block
+    "
   >
-    <div class="pt-6 px-4 pb-4">
-      <a href="/" class="block mb-5 pl-[6px]">
+    <div class="px-4 pt-6 pb-4">
+      <a href="/" class="mb-5 block pl-[6px]">
         <span class="text-xl font-semibold uppercase"
           ><span class="text-gray-900">R</span><span class="text-gray-400">W</span></span
         >
       </a>
       {#if $navigation.error}
-        <div class="p-3 mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded">
+        <div
+          class="
+            mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm
+            text-red-700
+          "
+        >
           Failed to load navigation: {$navigation.error}
         </div>
       {/if}
@@ -78,7 +99,12 @@
 
   <!-- Main Content + ToC Container -->
   <div class="flex-1">
-    <div class="max-w-6xl mx-auto px-4 md:px-8 pt-6 pb-12">
+    <div
+      class="
+        mx-auto max-w-6xl px-4 pt-6 pb-12
+        md:px-8
+      "
+    >
       {#if $page.data}
         <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
       {:else if $page.loading}
@@ -87,15 +113,24 @@
       {/if}
       <div class="flex">
         <!-- Main Content -->
-        <main class="flex-1 min-w-0">
+        <main class="min-w-0 flex-1">
           {@render children()}
         </main>
 
         <!-- Table of Contents Sidebar - reserve space during loading for consistent skeleton layout -->
         {#if $page.loading || ($page.data && $page.data.toc.length > 0)}
-          <aside class="w-[240px] flex-shrink-0 hidden lg:block">
+          <aside
+            class="
+              hidden w-[240px] shrink-0
+              lg:block
+            "
+          >
             {#if $page.data && $page.data.toc.length > 0}
-              <div class="pl-8 sticky top-6 overflow-y-auto max-h-[calc(100vh-1.5rem)]">
+              <div
+                class="
+                  sticky top-6 max-h-[calc(100vh-1.5rem)] overflow-y-auto pl-8
+                "
+              >
                 <TocSidebar toc={$page.data.toc} />
               </div>
             {/if}

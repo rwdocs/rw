@@ -2,21 +2,21 @@
   <span class="sr-only">Loading...</span>
 
   <!-- Title -->
-  <div class="h-8 bg-gray-200 rounded w-3/4 mb-6"></div>
+  <div class="mb-6 h-8 w-3/4 rounded-sm bg-gray-200"></div>
 
   <!-- Paragraphs -->
-  <div class="space-y-3 mb-8">
-    <div class="h-4 bg-gray-200 rounded w-full"></div>
-    <div class="h-4 bg-gray-200 rounded w-5/6"></div>
-    <div class="h-4 bg-gray-200 rounded w-4/5"></div>
+  <div class="mb-8 space-y-3">
+    <div class="h-4 w-full rounded-sm bg-gray-200"></div>
+    <div class="h-4 w-5/6 rounded-sm bg-gray-200"></div>
+    <div class="h-4 w-4/5 rounded-sm bg-gray-200"></div>
   </div>
 
   <!-- Diagram placeholder -->
-  <div class="h-48 bg-gray-200 rounded mb-8"></div>
+  <div class="mb-8 h-48 rounded-sm bg-gray-200"></div>
 
   <!-- More paragraphs -->
   <div class="space-y-3">
-    <div class="h-4 bg-gray-200 rounded w-full"></div>
-    <div class="h-4 bg-gray-200 rounded w-3/4"></div>
+    <div class="h-4 w-full rounded-sm bg-gray-200"></div>
+    <div class="h-4 w-3/4 rounded-sm bg-gray-200"></div>
   </div>
 </div>
