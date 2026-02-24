@@ -10,19 +10,22 @@
 </script>
 
 {#if $navigation.loading}
-  <div class="text-gray-600 text-sm">Loading...</div>
+  <div class="text-sm text-gray-600">Loading...</div>
 {:else if $navigation.error}
-  <div class="text-red-600 text-sm">{$navigation.error}</div>
+  <div class="text-sm text-red-600">{$navigation.error}</div>
 {:else if $navigation.tree}
   <nav>
     {#if $navigation.tree.scope && backLink}
       <div class="mb-5">
         <a
           href={backLink.path}
-          class="text-sm text-gray-500 hover:text-blue-600 flex items-center mb-2"
+          class="
+            mb-2 flex items-center text-sm text-gray-500
+            hover:text-blue-600
+          "
         >
-          <span class="w-[22px] flex items-center justify-center">
-            <svg class="w-3.5 h-3.5 rotate-180" fill="currentColor" viewBox="0 0 20 20">
+          <span class="flex w-[22px] items-center justify-center">
+            <svg class="size-3.5 rotate-180" fill="currentColor" viewBox="0 0 20 20">
               <path
                 fill-rule="evenodd"
                 d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
@@ -32,7 +35,7 @@
           </span>
           <span class="px-1.5">{backLink.title}</span>
         </a>
-        <h2 class="text-xl font-light text-gray-900 pl-[28px]">{$navigation.tree.scope.title}</h2>
+        <h2 class="pl-[28px] text-xl font-light text-gray-900">{$navigation.tree.scope.title}</h2>
       </div>
     {/if}
     <NavTree items={$navigation.tree.items} />

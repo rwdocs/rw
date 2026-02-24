@@ -24,24 +24,35 @@
   <!-- Backdrop -->
   <button
     type="button"
-    class="fixed inset-0 bg-black/50 z-40 md:hidden border-none cursor-pointer"
+    class="
+      fixed inset-0 z-40 cursor-pointer border-none bg-black/50
+      md:hidden
+    "
     onclick={closeMobileMenu}
     aria-label="Close menu"
   ></button>
 
   <!-- Drawer -->
-  <aside class="fixed inset-y-0 left-0 w-[280px] bg-white z-50 shadow-xl overflow-y-auto md:hidden">
+  <aside
+    class="
+      fixed inset-y-0 left-0 z-50 w-[280px] overflow-y-auto bg-white shadow-xl
+      md:hidden
+    "
+  >
     <div class="p-4">
-      <div class="flex items-center justify-between mb-6">
+      <div class="mb-6 flex items-center justify-between">
         <a href="/" class="block">
           <span class="text-xl font-semibold text-gray-900">RW</span>
         </a>
         <button
           onclick={closeMobileMenu}
-          class="p-2 -mr-2 text-gray-500 hover:text-gray-700 cursor-pointer"
+          class="
+            -mr-2 cursor-pointer p-2 text-gray-500
+            hover:text-gray-700
+          "
           aria-label="Close menu"
         >
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <!-- svelte-ignore component_name_lowercase -->
             <path
               stroke-linecap="round"
@@ -53,7 +64,12 @@
         </button>
       </div>
       {#if $navigation.error}
-        <div class="p-3 mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded">
+        <div
+          class="
+            mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm
+            text-red-700
+          "
+        >
           Failed to load navigation: {$navigation.error}
         </div>
       {/if}

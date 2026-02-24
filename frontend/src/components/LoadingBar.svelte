@@ -34,15 +34,15 @@
 
 {#if animationState !== "idle"}
   <div
-    class="fixed top-0 left-0 right-0 z-50 h-0.5 overflow-hidden"
+    class="fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden"
     role="progressbar"
     aria-label="Page loading"
     aria-busy={animationState === "running"}
   >
     <div
-      class="h-full bg-blue-500 origin-left {animationState === 'running'
-        ? 'animate-trickle'
-        : 'animate-complete'}"
+      class="
+        h-full origin-left bg-blue-500
+        {animationState === 'running' ? 'animate-trickle' : 'animate-complete'}"
     ></div>
   </div>
 {/if}

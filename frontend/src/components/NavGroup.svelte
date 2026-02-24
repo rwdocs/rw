@@ -10,8 +10,18 @@
 </script>
 
 {#if group.label}
-  <div class="nav-group mt-5 first:mt-0">
-    <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1.5 pb-1.5">
+  <div
+    class="
+      mt-5
+      first:mt-0
+    "
+  >
+    <div
+      class="
+        px-1.5 pb-1.5 text-xs font-semibold tracking-wider text-gray-500
+        uppercase
+      "
+    >
       {group.label}
     </div>
     <ul>

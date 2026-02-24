@@ -130,16 +130,21 @@
 </script>
 
 <div>
-  <h3 class="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3">On this page</h3>
+  <h3 class="mb-3 text-xs font-semibold tracking-wider text-gray-600 uppercase">On this page</h3>
   <ul class="space-y-1.5">
     {#each filteredToc as entry (entry.id)}
       <li class={entry.level === 3 ? "ml-3" : ""}>
         <a
           href="#{entry.id}"
           onclick={(e) => scrollToHeading(e, entry.id)}
-          class="block text-sm leading-snug transition-colors {activeId === entry.id
-            ? 'text-blue-600 font-medium'
-            : 'text-gray-600 hover:text-gray-900'}"
+          class="
+            block text-sm/snug transition-colors
+            {activeId === entry.id
+            ? 'font-medium text-blue-600'
+            : `
+              text-gray-600
+              hover:text-gray-900
+            `}"
         >
           {entry.title}
         </a>

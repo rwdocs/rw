@@ -27,6 +27,7 @@ format:
 lint:
 	cargo clippy --all-targets
 	cd frontend && npm run check
+	cd frontend && npm run lint
 
 bench:
 	cargo bench -p rw-site

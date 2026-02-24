@@ -28,11 +28,17 @@
     {#if hasChildren}
       <button
         onclick={toggleExpanded}
-        class="w-5 h-5 flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded mr-0.5"
+        class="
+          mr-0.5 flex size-5 items-center justify-center rounded-sm
+          text-gray-500
+          hover:bg-gray-100 hover:text-gray-700
+        "
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
         <svg
-          class="w-3.5 h-3.5 transition-transform {isExpanded ? 'rotate-90' : 'rotate-0'}"
+          class="
+            size-3.5 transition-transform
+            {isExpanded ? 'rotate-90' : `rotate-0`}"
           fill="currentColor"
           viewBox="0 0 20 20"
         >
@@ -51,9 +57,14 @@
 
     <a
       href={item.path}
-      class="flex-1 py-1.5 px-1.5 rounded text-sm transition-colors {isActive
-        ? 'text-blue-700 font-medium'
-        : 'text-gray-700 hover:text-gray-900'}"
+      class="
+        flex-1 rounded-sm p-1.5 text-sm transition-colors
+        {isActive
+        ? 'font-medium text-blue-700'
+        : `
+          text-gray-700
+          hover:text-gray-900
+        `}"
     >
       {item.title}
     </a>
