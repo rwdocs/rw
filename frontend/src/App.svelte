@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
   import { createApiClient } from "./api/client";
   import { createRouter } from "./stores/router";
   import { createPageStore } from "./stores/page";
@@ -23,8 +23,8 @@
 
   let { apiBaseUrl = "/api", embedded = false, initialPath }: Props = $props();
 
-  const apiClient = createApiClient(apiBaseUrl);
-  const router = createRouter({ embedded });
+  const apiClient = createApiClient(untrack(() => apiBaseUrl));
+  const router = createRouter({ embedded: untrack(() => embedded) });
   const page = createPageStore(apiClient);
   const navigation = createNavigationStore(apiClient);
   const liveReload = createLiveReloadStore({ router, navigation });
