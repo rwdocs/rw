@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Frontend can now be embedded in external host applications (e.g., Backstage plugins) with configurable API base URL, memory-based routing, and no browser side effects
+- Node.js native bindings (`rw-napi`) for embedding RW in Node.js applications via napi-rs
 
 ## [0.1.8] - 2026-02-26
 
