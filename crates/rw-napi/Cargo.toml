@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 napi = { version = "3", default-features = false, features = ["napi4", "async", "tokio_rt", "serde-json"] }
-napi-derive = "2"
+napi-derive = "3"
 
 rw-cache = { workspace = true }
 rw-site = { workspace = true }
