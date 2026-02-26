@@ -52,7 +52,7 @@
       }
     }
 
-    if (config.liveReloadEnabled) {
+    if (config.liveReloadEnabled && !embedded) {
       liveReload.start();
     }
   });

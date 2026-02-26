@@ -28,25 +28,25 @@ function isExternalLink(href: string, anchor: HTMLAnchorElement): boolean {
 }
 
 /** Create a router store instance */
-export function createRouter(options?: {
-  embedded?: boolean;
-  initialPath?: string;
-}): RouterStore {
+export function createRouter(options?: { embedded?: boolean; initialPath?: string }): RouterStore {
   const embedded = options?.embedded ?? false;
 
   /** Current URL path */
   const path = writable(
-    embedded && options?.initialPath
-      ? options.initialPath
-      : window.location.pathname,
+    embedded && options?.initialPath ? options.initialPath.split("#")[0] : window.location.pathname,
   );
 
   /** Current URL hash (without the # prefix) */
-  const hash = writable(window.location.hash.slice(1));
+  const hash = writable(
+    embedded && options?.initialPath
+      ? (options.initialPath.split("#")[1] ?? "")
+      : window.location.hash.slice(1),
+  );
 
   /** Navigate to a path programmatically */
   function goto(newPath: string) {
-    const url = new URL(newPath, window.location.origin);
+    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const url = new URL(newPath, origin);
 
     if (!embedded) {
       window.history.pushState({}, "", newPath);
