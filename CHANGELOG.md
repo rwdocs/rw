@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-02-26
+
 ### Changed
 
 - `rw techdocs build` now renders pages in parallel, significantly speeding up diagram-heavy sites
