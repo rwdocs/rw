@@ -7,7 +7,7 @@ pub struct NavItemResponse {
     pub path: String,
     #[napi(js_name = "sectionType")]
     pub section_type: Option<String>,
-    pub children: Vec<NavItemResponse>,
+    pub children: Option<Vec<NavItemResponse>>,
 }
 
 #[napi(object)]

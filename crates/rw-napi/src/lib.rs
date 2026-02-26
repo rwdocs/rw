@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
+use chrono::{DateTime, Utc};
+
 use napi::Result;
 use napi_derive::napi;
 use rw_cache::NullCache;
@@ -29,7 +31,11 @@ fn convert_nav_item(item: NavItem) -> NavItemResponse {
         title: item.title,
         path: to_url_path(&item.path),
         section_type: item.section_type,
-        children: item.children.into_iter().map(convert_nav_item).collect(),
+        children: if item.children.is_empty() {
+            None
+        } else {
+            Some(item.children.into_iter().map(convert_nav_item).collect())
+        },
     }
 }
 
@@ -96,7 +102,8 @@ fn build_page_response(site: &Site, path: &str) -> Result<NapiPageResponse> {
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
     let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
-    let last_modified = humantime::format_rfc3339(source_mtime).to_string();
+    let last_modified: DateTime<Utc> = source_mtime.into();
+    let last_modified = last_modified.to_rfc3339();
     let navigation_scope = site.get_navigation_scope(path);
 
     let (description, page_type, vars) = if let Some(ref meta) = result.metadata {
@@ -176,7 +183,7 @@ mod tests {
         assert_eq!(result.title, "Getting Started");
         assert_eq!(result.path, "/guide/start");
         assert_eq!(result.section_type, None);
-        assert!(result.children.is_empty());
+        assert!(result.children.is_none());
     }
 
     #[test]
@@ -206,8 +213,9 @@ mod tests {
         };
         let result = convert_nav_item(item);
         assert_eq!(result.section_type.as_deref(), Some("guide"));
-        assert_eq!(result.children.len(), 1);
-        assert_eq!(result.children[0].path, "/guides/setup");
+        let children = result.children.as_ref().expect("should have children");
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].path, "/guides/setup");
     }
 
     #[test]
