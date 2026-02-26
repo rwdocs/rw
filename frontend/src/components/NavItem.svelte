@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { path } from "../stores/router";
-  import { navigation } from "../stores/navigation";
+  import { getRwContext } from "../lib/context";
   import type { NavItem } from "../types";
   import NavTree from "./NavTree.svelte";
 
@@ -10,6 +9,9 @@
   }
 
   let { item, depth }: Props = $props();
+
+  const { router, navigation } = getRwContext();
+  const { path } = router;
 
   // Check if this item is active (item.path already has leading slash)
   let isActive = $derived($path === item.path);

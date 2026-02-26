@@ -1,41 +1,16 @@
 import { writable } from "svelte/store";
-
-/** Current URL path */
-export const path = writable(window.location.pathname);
-
-/** Current URL hash (without the # prefix) */
-export const hash = writable(window.location.hash.slice(1));
-
-let embedded = false;
-
-/** Enable or disable embedded mode.
- * In embedded mode, goto() updates internal state without touching browser history.
- * Use this when the Svelte app is mounted inside another framework's router. */
-export function setEmbedded(value: boolean) {
-  embedded = value;
-}
+import type { Readable } from "svelte/store";
 
 /** Extract document path for API calls (strip leading slash) */
 export function extractDocPath(urlPath: string): string {
   return urlPath.replace(/^\//, "");
 }
 
-/** Navigate to a path programmatically */
-export function goto(newPath: string) {
-  const url = new URL(newPath, window.location.origin);
-
-  if (!embedded) {
-    window.history.pushState({}, "", newPath);
-  }
-
-  path.set(url.pathname);
-  hash.set(url.hash.slice(1));
-
-  // If there's a hash, scrolling will be handled by the page component
-  // Otherwise scroll to top
-  if (!url.hash && !embedded) {
-    window.scrollTo(0, 0);
-  }
+export interface RouterStore {
+  path: Readable<string>;
+  hash: Readable<string>;
+  goto(newPath: string): void;
+  initRouter(): () => void;
 }
 
 /** Check if a link should be handled externally (not by SPA router) */
@@ -51,45 +26,76 @@ function isExternalLink(href: string, anchor: HTMLAnchorElement): boolean {
   );
 }
 
-/** Initialize router - call once on app mount. Returns cleanup function. */
-export function initRouter(): () => void {
-  // Handle browser back/forward navigation
-  const handlePopState = () => {
-    path.set(window.location.pathname);
-    hash.set(window.location.hash.slice(1));
-  };
+/** Create a router store instance */
+export function createRouter(options?: { embedded?: boolean }): RouterStore {
+  const embedded = options?.embedded ?? false;
 
-  // Intercept link clicks for SPA navigation
-  const handleClick = (e: MouseEvent) => {
-    const target = e.target;
-    if (!(target instanceof Element)) return;
+  /** Current URL path */
+  const path = writable(window.location.pathname);
 
-    const anchor = target.closest("a");
-    if (!anchor) return;
+  /** Current URL hash (without the # prefix) */
+  const hash = writable(window.location.hash.slice(1));
 
-    const href = anchor.getAttribute("href");
-    if (!href) return;
+  /** Navigate to a path programmatically */
+  function goto(newPath: string) {
+    const url = new URL(newPath, window.location.origin);
 
-    // Skip if modifier key pressed (allow Cmd/Ctrl+click to open in new tab)
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-
-    // Skip external links, fragment links, and links with target/download
-    if (isExternalLink(href, anchor)) return;
-
-    // Handle internal navigation (links are already resolved by backend)
-    e.preventDefault();
-    goto(href);
-  };
-
-  if (!embedded) {
-    window.addEventListener("popstate", handlePopState);
-  }
-  document.addEventListener("click", handleClick);
-
-  return () => {
     if (!embedded) {
-      window.removeEventListener("popstate", handlePopState);
+      window.history.pushState({}, "", newPath);
     }
-    document.removeEventListener("click", handleClick);
-  };
+
+    path.set(url.pathname);
+    hash.set(url.hash.slice(1));
+
+    // If there's a hash, scrolling will be handled by the page component
+    // Otherwise scroll to top
+    if (!url.hash && !embedded) {
+      window.scrollTo(0, 0);
+    }
+  }
+
+  /** Initialize router - call once on app mount. Returns cleanup function. */
+  function initRouter(): () => void {
+    // Handle browser back/forward navigation
+    const handlePopState = () => {
+      path.set(window.location.pathname);
+      hash.set(window.location.hash.slice(1));
+    };
+
+    // Intercept link clicks for SPA navigation
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+
+      const anchor = target.closest("a");
+      if (!anchor) return;
+
+      const href = anchor.getAttribute("href");
+      if (!href) return;
+
+      // Skip if modifier key pressed (allow Cmd/Ctrl+click to open in new tab)
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
+      // Skip external links, fragment links, and links with target/download
+      if (isExternalLink(href, anchor)) return;
+
+      // Handle internal navigation (links are already resolved by backend)
+      e.preventDefault();
+      goto(href);
+    };
+
+    if (!embedded) {
+      window.addEventListener("popstate", handlePopState);
+    }
+    document.addEventListener("click", handleClick);
+
+    return () => {
+      if (!embedded) {
+        window.removeEventListener("popstate", handlePopState);
+      }
+      document.removeEventListener("click", handleClick);
+    };
+  }
+
+  return { path, hash, goto, initRouter };
 }

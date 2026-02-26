@@ -1,23 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { get } from "svelte/store";
-
-// Mock dependencies before importing liveReload
-vi.mock("./router", () => ({
-  path: {
-    subscribe: vi.fn((cb) => {
-      cb("/docs/guide");
-      return () => {};
-    }),
-  },
-  extractDocPath: vi.fn((p: string) => p.replace(/^\/docs/, "") || "/"),
-}));
-
-vi.mock("./navigation", () => ({
-  navigation: {
-    load: vi.fn().mockResolvedValue(undefined),
-    expandOnlyTo: vi.fn(),
-  },
-}));
+import { get, writable } from "svelte/store";
+import { createLiveReloadStore } from "./liveReload";
+import type { RouterStore } from "./router";
+import type { NavigationStore } from "./navigation";
 
 // Mock WebSocket
 class MockWebSocket {
@@ -61,17 +46,40 @@ class MockWebSocket {
 
 let mockWebSocketInstances: MockWebSocket[] = [];
 
-describe("liveReload store", () => {
-  let liveReload: typeof import("./liveReload").liveReload;
-  let mockNavigation: { load: ReturnType<typeof vi.fn>; expandOnlyTo: ReturnType<typeof vi.fn> };
-  let mockExtractDocPath: ReturnType<typeof vi.fn>;
+function createMockRouter(currentPath: string = "/docs/guide"): RouterStore {
+  return {
+    path: writable(currentPath),
+    hash: writable(""),
+    goto: vi.fn(),
+    initRouter: vi.fn(() => () => {}),
+  };
+}
 
-  beforeEach(async () => {
+function createMockNavigation(): NavigationStore {
+  const store = writable({
+    tree: null,
+    loading: false,
+    error: null,
+    collapsed: new Set<string>(),
+    currentScope: "",
+  });
+  return {
+    subscribe: store.subscribe,
+    load: vi.fn().mockResolvedValue(undefined),
+    loadScope: vi.fn().mockResolvedValue(undefined),
+    toggle: vi.fn(),
+    expandOnlyTo: vi.fn(),
+    _reset: vi.fn(),
+  };
+}
+
+describe("liveReload store", () => {
+  let mockRouter: RouterStore;
+  let mockNavigation: NavigationStore;
+
+  beforeEach(() => {
     vi.useFakeTimers();
     mockWebSocketInstances = [];
-
-    // Reset modules to get fresh store instance
-    vi.resetModules();
 
     // Setup WebSocket mock
     vi.stubGlobal("WebSocket", MockWebSocket);
@@ -82,30 +90,23 @@ describe("liveReload store", () => {
       host: "localhost:7979",
     });
 
-    // Import fresh module
-    const module = await import("./liveReload");
-    liveReload = module.liveReload;
-
-    // Get mocked dependencies
-    const routerMock = await import("./router");
-    mockExtractDocPath = routerMock.extractDocPath as ReturnType<typeof vi.fn>;
-
-    const navMock = await import("./navigation");
-    mockNavigation = navMock.navigation as unknown as {
-      load: ReturnType<typeof vi.fn>;
-      expandOnlyTo: ReturnType<typeof vi.fn>;
-    };
+    mockRouter = createMockRouter();
+    mockNavigation = createMockNavigation();
   });
 
   afterEach(() => {
-    liveReload.stop();
     vi.unstubAllGlobals();
     vi.useRealTimers();
     vi.clearAllMocks();
   });
 
+  function createStore() {
+    return createLiveReloadStore({ router: mockRouter, navigation: mockNavigation });
+  }
+
   describe("initial state", () => {
     it("starts disconnected", () => {
+      const liveReload = createStore();
       const state = get(liveReload);
       expect(state.connected).toBe(false);
       expect(state.lastReload).toBeNull();
@@ -114,31 +115,30 @@ describe("liveReload store", () => {
 
   describe("start()", () => {
     it("creates WebSocket connection", () => {
+      const liveReload = createStore();
       liveReload.start();
 
       expect(mockWebSocketInstances.length).toBe(1);
       expect(mockWebSocketInstances[0].url).toBe("ws://localhost:7979/ws/live-reload");
     });
 
-    it("uses wss protocol for https", async () => {
+    it("uses wss protocol for https", () => {
       vi.stubGlobal("location", {
         protocol: "https:",
         host: "localhost:7979",
       });
 
-      // Reset and reimport to pick up new location
-      vi.resetModules();
-      const module = await import("./liveReload");
-
-      module.liveReload.start();
+      const liveReload = createStore();
+      liveReload.start();
 
       const lastInstance = mockWebSocketInstances[mockWebSocketInstances.length - 1];
       expect(lastInstance.url).toBe("wss://localhost:7979/ws/live-reload");
 
-      module.liveReload.stop();
+      liveReload.stop();
     });
 
     it("does not create duplicate connection if already open", () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -150,6 +150,7 @@ describe("liveReload store", () => {
 
   describe("connection events", () => {
     it("sets connected to true on open", () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -158,6 +159,7 @@ describe("liveReload store", () => {
     });
 
     it("sets connected to false on close", () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
       mockWebSocketInstances[0].close();
@@ -167,6 +169,7 @@ describe("liveReload store", () => {
     });
 
     it("schedules reconnect on close", () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
       mockWebSocketInstances[0].close();
@@ -179,6 +182,7 @@ describe("liveReload store", () => {
     });
 
     it("closes connection on error", () => {
+      const liveReload = createStore();
       liveReload.start();
       const ws = mockWebSocketInstances[0];
       ws.simulateOpen();
@@ -191,6 +195,7 @@ describe("liveReload store", () => {
 
   describe("message handling", () => {
     it("updates lastReload on content message", async () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -203,6 +208,7 @@ describe("liveReload store", () => {
     });
 
     it("does not reload navigation on content message", async () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -214,6 +220,7 @@ describe("liveReload store", () => {
     });
 
     it("reloads navigation on structure message", async () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -225,6 +232,7 @@ describe("liveReload store", () => {
     });
 
     it("expands navigation to current path after structure reload", async () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -236,6 +244,7 @@ describe("liveReload store", () => {
     });
 
     it("ignores invalid JSON messages", async () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -248,6 +257,7 @@ describe("liveReload store", () => {
     });
 
     it("ignores unknown message types", async () => {
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -262,9 +272,12 @@ describe("liveReload store", () => {
 
   describe("onReload callback", () => {
     it("calls callback on content event for current page", async () => {
+      // Router path is /docs/guide, extractDocPath strips leading slash
+      // so extractDocPath("/docs/guide") = "docs/guide"
+      // The changed path "/docs/guide" also gives "docs/guide"
       const callback = vi.fn();
-      mockExtractDocPath.mockImplementation((p: string) => p.replace(/^\/docs/, "") || "/");
 
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
       liveReload.onReload(callback);
@@ -278,12 +291,14 @@ describe("liveReload store", () => {
 
     it("does not call callback on content event for different page", async () => {
       const callback = vi.fn();
-      mockExtractDocPath.mockReturnValueOnce("/guide").mockReturnValueOnce("/other");
 
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
       liveReload.onReload(callback);
 
+      // Current path is /docs/guide (extractDocPath -> "docs/guide")
+      // Changed path is /docs/other (extractDocPath -> "docs/other")
       mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/docs/other" });
 
       await vi.runAllTimersAsync();
@@ -293,8 +308,8 @@ describe("liveReload store", () => {
 
     it("does not call callback on structure event", async () => {
       const callback = vi.fn();
-      mockExtractDocPath.mockReturnValue("/guide");
 
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
       liveReload.onReload(callback);
@@ -308,8 +323,8 @@ describe("liveReload store", () => {
 
     it("returns unsubscribe function", async () => {
       const callback = vi.fn();
-      mockExtractDocPath.mockReturnValue("/guide");
 
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
       const unsubscribe = liveReload.onReload(callback);
@@ -326,8 +341,8 @@ describe("liveReload store", () => {
     it("unsubscribe only removes matching callback", async () => {
       const callback1 = vi.fn();
       const callback2 = vi.fn();
-      mockExtractDocPath.mockReturnValue("/guide");
 
+      const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
@@ -346,6 +361,7 @@ describe("liveReload store", () => {
 
   describe("stop()", () => {
     it("closes WebSocket connection", () => {
+      const liveReload = createStore();
       liveReload.start();
       const ws = mockWebSocketInstances[0];
       ws.simulateOpen();
@@ -356,6 +372,7 @@ describe("liveReload store", () => {
     });
 
     it("cancels pending reconnect", () => {
+      const liveReload = createStore();
       liveReload.start();
       const initialCount = mockWebSocketInstances.length;
 
@@ -372,6 +389,7 @@ describe("liveReload store", () => {
     });
 
     it("handles stop when not connected", () => {
+      const liveReload = createStore();
       // Should not throw
       expect(() => liveReload.stop()).not.toThrow();
     });

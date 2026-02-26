@@ -1,16 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { get } from "svelte/store";
 import type { NavigationTree } from "../types";
-
-// Mock the API client
-vi.mock("../api/client", () => ({
-  fetchNavigation: vi.fn(),
-}));
-
-import { navigation, collectParentPaths, getParentPaths } from "./navigation";
-import { fetchNavigation } from "../api/client";
-
-const mockFetchNavigation = vi.mocked(fetchNavigation);
+import { createNavigationStore, collectParentPaths, getParentPaths } from "./navigation";
+import type { ApiClient } from "../api/client";
 
 const mockTree: NavigationTree = {
   items: [
@@ -30,6 +22,15 @@ const mockTree: NavigationTree = {
     { title: "API", path: "/api" },
   ],
 };
+
+function createMockApiClient(overrides: Record<string, ReturnType<typeof vi.fn>> = {}): ApiClient {
+  return {
+    fetchConfig: vi.fn(),
+    fetchPage: vi.fn(),
+    fetchNavigation: vi.fn(),
+    ...overrides,
+  } as unknown as ApiClient;
+}
 
 describe("collectParentPaths", () => {
   it("returns empty array for items without children", () => {
@@ -79,14 +80,19 @@ describe("getParentPaths", () => {
 });
 
 describe("navigation store", () => {
+  let mockFetchNavigation: ReturnType<typeof vi.fn>;
+  let mockApiClient: ApiClient;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    navigation._reset();
+    mockFetchNavigation = vi.fn();
+    mockApiClient = createMockApiClient({ fetchNavigation: mockFetchNavigation });
   });
 
   describe("load", () => {
     it("fetches navigation tree and updates state", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
+      const navigation = createNavigationStore(mockApiClient);
 
       await navigation.load();
 
@@ -98,6 +104,7 @@ describe("navigation store", () => {
 
     it("collapses all parent items by default", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
+      const navigation = createNavigationStore(mockApiClient);
 
       await navigation.load();
 
@@ -112,6 +119,7 @@ describe("navigation store", () => {
 
     it("sets error on fetch failure", async () => {
       mockFetchNavigation.mockRejectedValue(new Error("Network error"));
+      const navigation = createNavigationStore(mockApiClient);
 
       await navigation.load();
 
@@ -123,6 +131,7 @@ describe("navigation store", () => {
 
     it("handles non-Error exceptions", async () => {
       mockFetchNavigation.mockRejectedValue("String error");
+      const navigation = createNavigationStore(mockApiClient);
 
       await navigation.load();
 
@@ -132,6 +141,7 @@ describe("navigation store", () => {
 
     it("passes bypassCache option to fetch", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
+      const navigation = createNavigationStore(mockApiClient);
 
       await navigation.load({ bypassCache: true });
 
@@ -153,6 +163,8 @@ describe("navigation store", () => {
       mockFetchNavigation
         .mockImplementationOnce(() => firstPromise)
         .mockResolvedValueOnce(secondTree);
+
+      const navigation = createNavigationStore(mockApiClient);
 
       // Start first request (don't await)
       void navigation.loadScope("first");
@@ -181,6 +193,7 @@ describe("navigation store", () => {
     it("silently ignores AbortError", async () => {
       const abortError = new DOMException("Aborted", "AbortError");
       mockFetchNavigation.mockRejectedValue(abortError);
+      const navigation = createNavigationStore(mockApiClient);
 
       await navigation.load();
 
@@ -195,6 +208,7 @@ describe("navigation store", () => {
   describe("toggle", () => {
     it("expands a collapsed item", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
+      const navigation = createNavigationStore(mockApiClient);
       await navigation.load();
 
       navigation.toggle("/guide");
@@ -205,6 +219,7 @@ describe("navigation store", () => {
 
     it("collapses an expanded item", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
+      const navigation = createNavigationStore(mockApiClient);
       await navigation.load();
 
       // First expand
@@ -220,6 +235,7 @@ describe("navigation store", () => {
   describe("expandOnlyTo", () => {
     it("expands path to target and collapses others", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
+      const navigation = createNavigationStore(mockApiClient);
       await navigation.load();
 
       navigation.expandOnlyTo("/guide/advanced/plugins");
@@ -231,7 +247,9 @@ describe("navigation store", () => {
     });
 
     it("does nothing if tree is not loaded", () => {
+      const navigation = createNavigationStore(mockApiClient);
       // Don't load the tree, store is in reset state
+      navigation._reset();
       navigation.expandOnlyTo("/guide");
 
       const state = get(navigation);
@@ -240,6 +258,7 @@ describe("navigation store", () => {
 
     it("skips update if path is already expanded", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
+      const navigation = createNavigationStore(mockApiClient);
       await navigation.load();
 
       // Expand to a path
