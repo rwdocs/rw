@@ -11,7 +11,7 @@ export interface RouterStore {
   hash: Readable<string>;
   embedded: boolean;
   goto(newPath: string): void;
-  initRouter(): () => void;
+  initRouter(rootElement?: HTMLElement): () => void;
 }
 
 /** Check if a link should be handled externally (not by SPA router) */
@@ -62,8 +62,10 @@ export function createRouter(options?: { embedded?: boolean; initialPath?: strin
     }
   }
 
-  /** Initialize router - call once on app mount. Returns cleanup function. */
-  function initRouter(): () => void {
+  /** Initialize router - call once on app mount. Returns cleanup function.
+   * In embedded mode, pass the app's root element to scope click handling
+   * to links within the RW app instead of the entire document. */
+  function initRouter(rootElement?: HTMLElement): () => void {
     // Handle browser back/forward navigation
     const handlePopState = () => {
       path.set(window.location.pathname);
@@ -92,16 +94,20 @@ export function createRouter(options?: { embedded?: boolean; initialPath?: strin
       goto(href);
     };
 
+    // In embedded mode, scope the click handler to the root element to avoid
+    // intercepting clicks in the host application
+    const clickTarget: Document | HTMLElement = embedded && rootElement ? rootElement : document;
+
     if (!embedded) {
       window.addEventListener("popstate", handlePopState);
     }
-    document.addEventListener("click", handleClick);
+    clickTarget.addEventListener("click", handleClick as EventListener);
 
     return () => {
       if (!embedded) {
         window.removeEventListener("popstate", handlePopState);
       }
-      document.removeEventListener("click", handleClick);
+      clickTarget.removeEventListener("click", handleClick as EventListener);
     };
   }
 

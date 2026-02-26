@@ -38,10 +38,11 @@
     liveReloadEnabled: false,
   };
 
+  let rootElement: HTMLElement;
   let cleanupRouter: (() => void) | undefined;
 
   onMount(async () => {
-    cleanupRouter = router.initRouter();
+    cleanupRouter = router.initRouter(rootElement);
 
     let config = defaultConfig;
     try {
@@ -77,12 +78,14 @@
   let route = $derived(getRoute($path));
 </script>
 
-<Layout>
-  {#if route === "home"}
-    <Home />
-  {:else if route === "page"}
-    <Page />
-  {:else}
-    <NotFound />
-  {/if}
-</Layout>
+<div bind:this={rootElement}>
+  <Layout>
+    {#if route === "home"}
+      <Home />
+    {:else if route === "page"}
+      <Page />
+    {:else}
+      <NotFound />
+    {/if}
+  </Layout>
+</div>

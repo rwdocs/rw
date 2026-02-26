@@ -421,4 +421,55 @@ describe("embedded mode", () => {
     cleanup();
     addEventSpy.mockRestore();
   });
+
+  it("initRouter scopes click handler to root element in embedded mode", () => {
+    const rootElement = document.createElement("div");
+    const rootAddEventSpy = vi.spyOn(rootElement, "addEventListener");
+    const docAddEventSpy = vi.spyOn(document, "addEventListener");
+
+    const router = createRouter({ embedded: true });
+    const cleanup = router.initRouter(rootElement);
+
+    const rootClickCall = rootAddEventSpy.mock.calls.find(([event]) => event === "click");
+    expect(rootClickCall).toBeDefined();
+
+    const docClickCall = docAddEventSpy.mock.calls.find(([event]) => event === "click");
+    expect(docClickCall).toBeUndefined();
+
+    cleanup();
+    rootAddEventSpy.mockRestore();
+    docAddEventSpy.mockRestore();
+  });
+
+  it("initRouter attaches click handler to document in normal mode", () => {
+    const rootElement = document.createElement("div");
+    const rootAddEventSpy = vi.spyOn(rootElement, "addEventListener");
+    const docAddEventSpy = vi.spyOn(document, "addEventListener");
+
+    const router = createRouter({ embedded: false });
+    const cleanup = router.initRouter(rootElement);
+
+    const rootClickCall = rootAddEventSpy.mock.calls.find(([event]) => event === "click");
+    expect(rootClickCall).toBeUndefined();
+
+    const docClickCall = docAddEventSpy.mock.calls.find(([event]) => event === "click");
+    expect(docClickCall).toBeDefined();
+
+    cleanup();
+    rootAddEventSpy.mockRestore();
+    docAddEventSpy.mockRestore();
+  });
+
+  it("initRouter falls back to document when no root element in embedded mode", () => {
+    const docAddEventSpy = vi.spyOn(document, "addEventListener");
+
+    const router = createRouter({ embedded: true });
+    const cleanup = router.initRouter();
+
+    const docClickCall = docAddEventSpy.mock.calls.find(([event]) => event === "click");
+    expect(docClickCall).toBeDefined();
+
+    cleanup();
+    docAddEventSpy.mockRestore();
+  });
 });
