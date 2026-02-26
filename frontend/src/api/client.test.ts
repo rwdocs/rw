@@ -229,6 +229,12 @@ describe("setApiBase", () => {
     vi.unstubAllGlobals();
   });
 
+  it("strips trailing slash from base URL", async () => {
+    setApiBase("/api/rw/");
+    await fetchConfig();
+    expect(fetch).toHaveBeenCalledWith("/api/rw/config");
+  });
+
   it("uses custom base URL for fetchConfig", async () => {
     setApiBase("/api/rw");
     await fetchConfig();
