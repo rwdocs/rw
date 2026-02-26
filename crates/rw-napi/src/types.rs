@@ -5,6 +5,7 @@ use serde_json::Value;
 pub struct NavItemResponse {
     pub title: String,
     pub path: String,
+    #[napi(js_name = "sectionType")]
     pub section_type: Option<String>,
     pub children: Vec<NavItemResponse>,
 }
@@ -21,6 +22,7 @@ pub struct ScopeInfoResponse {
 pub struct NavigationResponse {
     pub items: Vec<NavItemResponse>,
     pub scope: Option<ScopeInfoResponse>,
+    #[napi(js_name = "parentScope")]
     pub parent_scope: Option<ScopeInfoResponse>,
 }
 
@@ -28,12 +30,15 @@ pub struct NavigationResponse {
 pub struct PageMetaResponse {
     pub title: Option<String>,
     pub path: String,
+    #[napi(js_name = "sourceFile")]
     pub source_file: String,
+    #[napi(js_name = "lastModified")]
     pub last_modified: String,
     pub description: Option<String>,
     #[napi(js_name = "type")]
     pub page_type: Option<String>,
     pub vars: Option<Value>,
+    #[napi(js_name = "navigationScope")]
     pub navigation_scope: String,
 }
 
