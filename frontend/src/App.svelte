@@ -25,7 +25,7 @@
 
   const apiClient = createApiClient(untrack(() => apiBaseUrl));
   const router = createRouter({ embedded: untrack(() => embedded) });
-  const page = createPageStore(apiClient);
+  const page = createPageStore(apiClient, { embedded: untrack(() => embedded) });
   const navigation = createNavigationStore(apiClient);
   const liveReload = createLiveReloadStore({ router, navigation });
 

@@ -23,7 +23,8 @@ export interface PageStore extends Readable<PageState> {
   clear(): void;
 }
 
-export function createPageStore(apiClient: ApiClient): PageStore {
+export function createPageStore(apiClient: ApiClient, options?: { embedded?: boolean }): PageStore {
+  const embedded = options?.embedded ?? false;
   const { subscribe, set, update } = writable<PageState>(initialState);
   let abortController: AbortController | null = null;
 
@@ -50,7 +51,7 @@ export function createPageStore(apiClient: ApiClient): PageStore {
           signal: abortController.signal,
         });
         set({ data, loading: false, error: null, notFound: false });
-        if (data.meta.title) {
+        if (data.meta.title && !embedded) {
           document.title = `${data.meta.title} - RW`;
         }
       } catch (e) {
