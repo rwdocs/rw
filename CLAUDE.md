@@ -161,6 +161,11 @@ crates/
 │       ├── inheritance.rs    # Metadata inheritance (build_ancestor_chain, merge_metadata)
 │       └── yaml.rs           # YAML parsing helpers
 │
+├── rw-napi/               # Node.js native addon (napi-rs bindings)
+│   └── src/
+│       ├── lib.rs            # RwSite, create_site, render_page, get_navigation
+│       └── types.rs          # Napi-compatible response types
+│
 ├── rw-config/             # Configuration parsing
 │   └── src/
 │       └── lib.rs            # Config, CliSettings, MetadataConfig, ConfigError
@@ -194,6 +199,9 @@ with syntax highlighting, ToC generation, HTTP serving) → Browser
 
 **Data flow (TechDocs)**: Markdown → Rust (Site rendering, static HTML generation,
 S3 upload) → Backstage TechDocs
+
+**Data flow (NAPI)**: Node.js → rw-napi (napi-rs bindings) → rw-site, rw-renderer,
+rw-diagrams (Rust) → Node.js objects
 
 ## Key Technical Details
 

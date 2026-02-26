@@ -148,3 +148,78 @@ fn build_page_response(site: &Site, path: &str) -> Result<NapiPageResponse> {
         content: result.html,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_url_path_empty_returns_root() {
+        assert_eq!(to_url_path(""), "/");
+    }
+
+    #[test]
+    fn to_url_path_adds_leading_slash() {
+        assert_eq!(to_url_path("guide"), "/guide");
+        assert_eq!(to_url_path("guide/setup"), "/guide/setup");
+    }
+
+    #[test]
+    fn convert_nav_item_leaf() {
+        let item = NavItem {
+            title: "Getting Started".to_owned(),
+            path: "guide/start".to_owned(),
+            section_type: None,
+            children: vec![],
+        };
+        let result = convert_nav_item(item);
+        assert_eq!(result.title, "Getting Started");
+        assert_eq!(result.path, "/guide/start");
+        assert_eq!(result.section_type, None);
+        assert!(result.children.is_empty());
+    }
+
+    #[test]
+    fn convert_nav_item_root_path() {
+        let item = NavItem {
+            title: "Home".to_owned(),
+            path: String::new(),
+            section_type: None,
+            children: vec![],
+        };
+        let result = convert_nav_item(item);
+        assert_eq!(result.path, "/");
+    }
+
+    #[test]
+    fn convert_nav_item_with_children() {
+        let item = NavItem {
+            title: "Guides".to_owned(),
+            path: "guides".to_owned(),
+            section_type: Some("guide".to_owned()),
+            children: vec![NavItem {
+                title: "Setup".to_owned(),
+                path: "guides/setup".to_owned(),
+                section_type: None,
+                children: vec![],
+            }],
+        };
+        let result = convert_nav_item(item);
+        assert_eq!(result.section_type.as_deref(), Some("guide"));
+        assert_eq!(result.children.len(), 1);
+        assert_eq!(result.children[0].path, "/guides/setup");
+    }
+
+    #[test]
+    fn convert_scope_info_preserves_fields() {
+        let info = ScopeInfo {
+            path: "/domains".to_owned(),
+            title: "Domains".to_owned(),
+            section_type: "domain".to_owned(),
+        };
+        let result = convert_scope_info(info);
+        assert_eq!(result.path, "/domains");
+        assert_eq!(result.title, "Domains");
+        assert_eq!(result.section_type, "domain");
+    }
+}
