@@ -1,13 +1,24 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { path, initRouter } from "./stores/router";
+  import { path, initRouter, setEmbedded, goto } from "./stores/router";
   import { liveReload } from "./stores/liveReload";
   import type { ConfigResponse } from "./types";
-  import { fetchConfig } from "./api/client";
+  import { setApiBase, fetchConfig } from "./api/client";
   import Layout from "./components/Layout.svelte";
   import Home from "./pages/Home.svelte";
   import Page from "./pages/Page.svelte";
   import NotFound from "./pages/NotFound.svelte";
+
+  interface Props {
+    /** API base URL. Defaults to "/api". */
+    apiBaseUrl?: string;
+    /** Run in embedded mode (no pushState). Defaults to false. */
+    embedded?: boolean;
+    /** Initial path to navigate to. Defaults to current window path. */
+    initialPath?: string;
+  }
+
+  let { apiBaseUrl = "/api", embedded = false, initialPath }: Props = $props();
 
   const defaultConfig: ConfigResponse = {
     liveReloadEnabled: false,
@@ -16,6 +27,13 @@
   let cleanupRouter: (() => void) | undefined;
 
   onMount(async () => {
+    setApiBase(apiBaseUrl);
+    setEmbedded(embedded);
+
+    if (embedded && initialPath) {
+      goto(initialPath);
+    }
+
     cleanupRouter = initRouter();
 
     let config = defaultConfig;

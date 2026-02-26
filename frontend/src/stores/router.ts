@@ -6,6 +6,15 @@ export const path = writable(window.location.pathname);
 /** Current URL hash (without the # prefix) */
 export const hash = writable(window.location.hash.slice(1));
 
+let embedded = false;
+
+/** Enable or disable embedded mode.
+ * In embedded mode, goto() updates internal state without touching browser history.
+ * Use this when the Svelte app is mounted inside another framework's router. */
+export function setEmbedded(value: boolean) {
+  embedded = value;
+}
+
 /** Extract document path for API calls (strip leading slash) */
 export function extractDocPath(urlPath: string): string {
   return urlPath.replace(/^\//, "");
@@ -14,7 +23,11 @@ export function extractDocPath(urlPath: string): string {
 /** Navigate to a path programmatically */
 export function goto(newPath: string) {
   const url = new URL(newPath, window.location.origin);
-  window.history.pushState({}, "", newPath);
+
+  if (!embedded) {
+    window.history.pushState({}, "", newPath);
+  }
+
   path.set(url.pathname);
   hash.set(url.hash.slice(1));
 
@@ -68,11 +81,15 @@ export function initRouter(): () => void {
     goto(href);
   };
 
-  window.addEventListener("popstate", handlePopState);
+  if (!embedded) {
+    window.addEventListener("popstate", handlePopState);
+  }
   document.addEventListener("click", handleClick);
 
   return () => {
-    window.removeEventListener("popstate", handlePopState);
+    if (!embedded) {
+      window.removeEventListener("popstate", handlePopState);
+    }
     document.removeEventListener("click", handleClick);
   };
 }

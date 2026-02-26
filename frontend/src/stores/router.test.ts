@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { get } from "svelte/store";
-import { extractDocPath, goto, initRouter, path, hash } from "./router";
+import { extractDocPath, goto, initRouter, path, hash, setEmbedded } from "./router";
 
 describe("extractDocPath", () => {
   it("strips leading slash from path", () => {
@@ -319,5 +319,61 @@ describe("initRouter", () => {
       expect(event.preventDefault).toHaveBeenCalled();
       expect(get(path)).toBe("/nested-page");
     });
+  });
+});
+
+describe("embedded mode", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "location", {
+      value: { origin: "http://localhost:8001", pathname: "/", hash: "" },
+      writable: true,
+      configurable: true,
+    });
+    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    setEmbedded(false);
+    vi.restoreAllMocks();
+  });
+
+  it("goto does not call pushState in embedded mode", () => {
+    setEmbedded(true);
+    goto("/guide");
+
+    expect(window.history.pushState).not.toHaveBeenCalled();
+    expect(get(path)).toBe("/guide");
+  });
+
+  it("goto calls pushState in normal mode", () => {
+    setEmbedded(false);
+    goto("/guide");
+
+    expect(window.history.pushState).toHaveBeenCalled();
+  });
+
+  it("initRouter skips popstate listener in embedded mode", () => {
+    setEmbedded(true);
+    const addEventSpy = vi.spyOn(window, "addEventListener");
+    const cleanup = initRouter();
+
+    const popstateCall = addEventSpy.mock.calls.find(([event]) => event === "popstate");
+    expect(popstateCall).toBeUndefined();
+
+    cleanup();
+    addEventSpy.mockRestore();
+  });
+
+  it("initRouter registers popstate listener in normal mode", () => {
+    setEmbedded(false);
+    const addEventSpy = vi.spyOn(window, "addEventListener");
+    const cleanup = initRouter();
+
+    const popstateCall = addEventSpy.mock.calls.find(([event]) => event === "popstate");
+    expect(popstateCall).toBeDefined();
+
+    cleanup();
+    addEventSpy.mockRestore();
   });
 });
