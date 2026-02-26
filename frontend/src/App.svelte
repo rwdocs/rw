@@ -24,7 +24,10 @@
   let { apiBaseUrl = "/api", embedded = false, initialPath }: Props = $props();
 
   const apiClient = createApiClient(untrack(() => apiBaseUrl));
-  const router = createRouter({ embedded: untrack(() => embedded) });
+  const router = createRouter({
+    embedded: untrack(() => embedded),
+    initialPath: untrack(() => initialPath),
+  });
   const page = createPageStore(apiClient, { embedded: untrack(() => embedded) });
   const navigation = createNavigationStore(apiClient);
   const liveReload = createLiveReloadStore({ router, navigation });
@@ -38,10 +41,6 @@
   let cleanupRouter: (() => void) | undefined;
 
   onMount(async () => {
-    if (embedded && initialPath) {
-      router.goto(initialPath);
-    }
-
     cleanupRouter = router.initRouter();
 
     let config = defaultConfig;

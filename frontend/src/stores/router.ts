@@ -28,11 +28,18 @@ function isExternalLink(href: string, anchor: HTMLAnchorElement): boolean {
 }
 
 /** Create a router store instance */
-export function createRouter(options?: { embedded?: boolean }): RouterStore {
+export function createRouter(options?: {
+  embedded?: boolean;
+  initialPath?: string;
+}): RouterStore {
   const embedded = options?.embedded ?? false;
 
   /** Current URL path */
-  const path = writable(window.location.pathname);
+  const path = writable(
+    embedded && options?.initialPath
+      ? options.initialPath
+      : window.location.pathname,
+  );
 
   /** Current URL hash (without the # prefix) */
   const hash = writable(window.location.hash.slice(1));
