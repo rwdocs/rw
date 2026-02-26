@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchConfig, fetchNavigation, fetchPage, NotFoundError } from "./client";
+import { fetchConfig, fetchNavigation, fetchPage, NotFoundError, setApiBase } from "./client";
 import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 
 const mockNavTree: NavigationTree = {
@@ -208,5 +208,68 @@ describe("fetchConfig", () => {
     await expect(fetchConfig()).rejects.toThrow(
       "Failed to fetch config: 500 Internal Server Error",
     );
+  });
+});
+
+describe("setApiBase", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ liveReloadEnabled: false }),
+        }),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    setApiBase("/api"); // reset to default
+    vi.unstubAllGlobals();
+  });
+
+  it("uses custom base URL for fetchConfig", async () => {
+    setApiBase("/api/rw");
+    await fetchConfig();
+    expect(fetch).toHaveBeenCalledWith("/api/rw/config");
+  });
+
+  it("uses custom base URL for fetchPage", async () => {
+    setApiBase("/api/rw");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              meta: { title: "Test" },
+              breadcrumbs: [],
+              toc: [],
+              content: "<p>Test</p>",
+            }),
+        }),
+      ),
+    );
+
+    await fetchPage("guide");
+    expect(fetch).toHaveBeenCalledWith("/api/rw/pages/guide", expect.anything());
+  });
+
+  it("uses custom base URL for fetchNavigation with scope", async () => {
+    setApiBase("/api/rw");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: [] }),
+        }),
+      ),
+    );
+
+    await fetchNavigation({ scope: "domains" });
+    expect(fetch).toHaveBeenCalledWith("/api/rw/navigation?scope=domains", expect.anything());
   });
 });

@@ -1,6 +1,11 @@
 import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 
-const API_BASE = "/api";
+let apiBase = "/api";
+
+/** Set the API base URL. Default is "/api". */
+export function setApiBase(base: string) {
+  apiBase = base;
+}
 
 /** Options for API fetch functions */
 export interface FetchOptions {
@@ -40,7 +45,7 @@ export async function fetchNavigation(options?: FetchNavigationOptions): Promise
   if (options?.scope) {
     params.set("scope", options.scope);
   }
-  const url = params.toString() ? `${API_BASE}/navigation?${params}` : `${API_BASE}/navigation`;
+  const url = params.toString() ? `${apiBase}/navigation?${params}` : `${apiBase}/navigation`;
 
   const response = await fetch(url, buildRequestInit(options));
   if (!response.ok) {
@@ -51,7 +56,7 @@ export async function fetchNavigation(options?: FetchNavigationOptions): Promise
 
 /** Fetch a page by path */
 export async function fetchPage(path: string, options?: FetchOptions): Promise<PageResponse> {
-  const response = await fetch(`${API_BASE}/pages/${path}`, buildRequestInit(options));
+  const response = await fetch(`${apiBase}/pages/${path}`, buildRequestInit(options));
   if (!response.ok) {
     if (response.status === 404) {
       throw new NotFoundError(path);
@@ -63,7 +68,7 @@ export async function fetchPage(path: string, options?: FetchOptions): Promise<P
 
 /** Fetch server config */
 export async function fetchConfig(): Promise<ConfigResponse> {
-  const response = await fetch(`${API_BASE}/config`);
+  const response = await fetch(`${apiBase}/config`);
   if (!response.ok) {
     throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`);
   }
