@@ -17,9 +17,7 @@ napi = { version = "2", default-features = false, features = ["napi4", "async", 
 napi-derive = "2"
 
 rw-cache = { workspace = true }
-rw-config = { workspace = true }
 rw-site = { workspace = true }
-rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
 
 humantime = "2"
