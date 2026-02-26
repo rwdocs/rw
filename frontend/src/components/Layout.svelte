@@ -1,9 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { Snippet } from "svelte";
-  import { navigation } from "../stores/navigation";
+  import { getRwContext } from "../lib/context";
   import { openMobileMenu } from "../stores/ui";
-  import { page } from "../stores/page";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import TocSidebar from "./TocSidebar.svelte";
   import Breadcrumbs from "./Breadcrumbs.svelte";
@@ -15,6 +14,8 @@
   }
 
   let { children }: Props = $props();
+
+  const { navigation, page } = getRwContext();
 
   onMount(async () => {
     await navigation.load();

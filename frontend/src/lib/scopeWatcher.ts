@@ -1,7 +1,7 @@
 import { get } from "svelte/store";
 import type { Readable } from "svelte/store";
 import type { PageResponse } from "../types";
-import { navigation } from "../stores/navigation";
+import type { NavigationStore } from "../stores/navigation";
 
 interface PageState {
   data: PageResponse | null;
@@ -11,7 +11,10 @@ interface PageState {
  * Creates a subscription that watches for page scope changes and reloads navigation.
  * Returns an unsubscribe function that should be called in onDestroy.
  */
-export function watchPageScope(pageStore: Readable<PageState>): () => void {
+export function watchPageScope(
+  pageStore: Readable<PageState>,
+  navigation: NavigationStore,
+): () => void {
   return pageStore.subscribe((state) => {
     if (!state.data) return;
 

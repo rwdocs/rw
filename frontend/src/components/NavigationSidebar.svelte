@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { navigation } from "../stores/navigation";
+  import { getRwContext } from "../lib/context";
   import NavTree from "./NavTree.svelte";
+
+  const { navigation } = getRwContext();
 
   let backLink = $derived.by(() => {
     const tree = $navigation.tree;

@@ -1,6 +1,7 @@
 import { writable } from "svelte/store";
+import type { Readable } from "svelte/store";
 import type { NavigationTree, NavItem } from "../types";
-import { fetchNavigation } from "../api/client";
+import type { ApiClient } from "../api/client";
 
 export interface NavigationState {
   tree: NavigationTree | null;
@@ -43,7 +44,15 @@ export function getParentPaths(path: string): string[] {
   return paths;
 }
 
-function createNavigationStore() {
+export interface NavigationStore extends Readable<NavigationState> {
+  load(options?: { bypassCache?: boolean }): Promise<void>;
+  loadScope(scope: string, options?: { bypassCache?: boolean }): Promise<void>;
+  toggle(path: string): void;
+  expandOnlyTo(path: string): void;
+  _reset(): void;
+}
+
+export function createNavigationStore(apiClient: ApiClient): NavigationStore {
   const { subscribe, set, update } = writable<NavigationState>(initialState);
 
   // Track in-flight request for cancellation
@@ -57,7 +66,7 @@ function createNavigationStore() {
 
     update((state) => ({ ...state, loading: true, error: null }));
     try {
-      const tree = await fetchNavigation({
+      const tree = await apiClient.fetchNavigation({
         ...options,
         scope: scope || undefined,
         signal: controller.signal,
@@ -133,5 +142,3 @@ function createNavigationStore() {
     },
   };
 }
-
-export const navigation = createNavigationStore();

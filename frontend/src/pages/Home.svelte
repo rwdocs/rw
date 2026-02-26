@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { page } from "../stores/page";
-  import { liveReload } from "../stores/liveReload";
+  import { getRwContext } from "../lib/context";
   import { watchPageScope } from "../lib/scopeWatcher";
   import PageContent from "../components/PageContent.svelte";
 
-  const unsubscribePage = watchPageScope(page);
+  const { page, navigation, liveReload } = getRwContext();
+
+  const unsubscribePage = watchPageScope(page, navigation);
 
   onMount(() => {
     page.load("");

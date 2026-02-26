@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { hash } from "../stores/router";
+  import { getRwContext } from "../lib/context";
   import type { TocEntry } from "../types";
 
   interface Props {
@@ -8,6 +8,9 @@
   }
 
   let { toc }: Props = $props();
+
+  const { router } = getRwContext();
+  const { hash } = router;
 
   // Filter to only show h2 and h3 (two levels deep, excludes h1)
   let filteredToc = $derived(toc.filter((entry) => entry.level >= 2 && entry.level <= 3));
@@ -17,8 +20,9 @@
 
   // React to hash changes (e.g., when page loads with #hash or when clicking links)
   $effect(() => {
-    if ($hash && filteredToc.some((entry) => entry.id === $hash)) {
-      activeId = $hash;
+    const currentHash = $hash;
+    if (currentHash && filteredToc.some((entry) => entry.id === currentHash)) {
+      activeId = currentHash;
       isUserScrolling = true;
 
       // Wait for any browser-initiated scroll to complete

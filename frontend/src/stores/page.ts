@@ -1,6 +1,8 @@
 import { writable } from "svelte/store";
+import type { Readable } from "svelte/store";
 import type { PageResponse } from "../types";
-import { fetchPage, NotFoundError } from "../api/client";
+import type { ApiClient } from "../api/client";
+import { NotFoundError } from "../api/client";
 
 interface PageState {
   data: PageResponse | null;
@@ -16,7 +18,12 @@ const initialState: PageState = {
   notFound: false,
 };
 
-function createPageStore() {
+export interface PageStore extends Readable<PageState> {
+  load(path: string, options?: { bypassCache?: boolean; silent?: boolean }): Promise<void>;
+  clear(): void;
+}
+
+export function createPageStore(apiClient: ApiClient): PageStore {
   const { subscribe, set, update } = writable<PageState>(initialState);
   let abortController: AbortController | null = null;
 
@@ -38,7 +45,7 @@ function createPageStore() {
       }
 
       try {
-        const data = await fetchPage(path, {
+        const data = await apiClient.fetchPage(path, {
           bypassCache: options?.bypassCache,
           signal: abortController.signal,
         });
@@ -68,5 +75,3 @@ function createPageStore() {
     },
   };
 }
-
-export const page = createPageStore();

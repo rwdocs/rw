@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { page } from "../stores/page";
-  import { hash } from "../stores/router";
+  import { getRwContext } from "../lib/context";
   import { initializeTabs } from "../lib/tabs";
   import { LOADING_SHOW_DELAY } from "../lib/constants";
   import LoadingSkeleton from "./LoadingSkeleton.svelte";
+
+  const { page, router } = getRwContext();
+  const { hash } = router;
 
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
@@ -29,8 +31,9 @@
 
   // Scroll to hash target when content loads or hash changes
   $effect(() => {
-    if ($page.data && articleRef && $hash) {
-      const target = document.getElementById($hash);
+    const currentHash = $hash;
+    if ($page.data && articleRef && currentHash) {
+      const target = document.getElementById(currentHash);
       if (target) {
         // Use requestAnimationFrame to ensure DOM is fully rendered
         requestAnimationFrame(() => {

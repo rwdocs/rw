@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { path, initRouter, setEmbedded, goto } from "./stores/router";
-  import { liveReload } from "./stores/liveReload";
+  import { createApiClient } from "./api/client";
+  import { createRouter } from "./stores/router";
+  import { createPageStore } from "./stores/page";
+  import { createNavigationStore } from "./stores/navigation";
+  import { createLiveReloadStore } from "./stores/liveReload";
+  import { setRwContext } from "./lib/context";
   import type { ConfigResponse } from "./types";
-  import { setApiBase, fetchConfig } from "./api/client";
   import Layout from "./components/Layout.svelte";
   import Home from "./pages/Home.svelte";
   import Page from "./pages/Page.svelte";
@@ -20,6 +23,14 @@
 
   let { apiBaseUrl = "/api", embedded = false, initialPath }: Props = $props();
 
+  const apiClient = createApiClient(apiBaseUrl);
+  const router = createRouter({ embedded });
+  const page = createPageStore(apiClient);
+  const navigation = createNavigationStore(apiClient);
+  const liveReload = createLiveReloadStore({ router, navigation });
+
+  setRwContext({ apiClient, router, page, navigation, liveReload });
+
   const defaultConfig: ConfigResponse = {
     liveReloadEnabled: false,
   };
@@ -27,18 +38,15 @@
   let cleanupRouter: (() => void) | undefined;
 
   onMount(async () => {
-    setApiBase(apiBaseUrl);
-    setEmbedded(embedded);
-
     if (embedded && initialPath) {
-      goto(initialPath);
+      router.goto(initialPath);
     }
 
-    cleanupRouter = initRouter();
+    cleanupRouter = router.initRouter();
 
     let config = defaultConfig;
     try {
-      config = await fetchConfig();
+      config = await apiClient.fetchConfig();
     } catch (e) {
       if (import.meta.env.DEV) {
         console.warn("[App] Failed to fetch config, using defaults:", e);
@@ -66,6 +74,7 @@
     return "page";
   };
 
+  const { path } = router;
   let route = $derived(getRoute($path));
 </script>
 

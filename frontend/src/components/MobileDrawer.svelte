@@ -1,8 +1,10 @@
 <script lang="ts">
   import { mobileMenuOpen, closeMobileMenu } from "../stores/ui";
-  import { path } from "../stores/router";
-  import { navigation } from "../stores/navigation";
+  import { getRwContext } from "../lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
+
+  const { router, navigation } = getRwContext();
+  const { path } = router;
 
   // Close drawer on route change
   $effect(() => {

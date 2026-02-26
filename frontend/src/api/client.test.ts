@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchConfig, fetchNavigation, fetchPage, NotFoundError, setApiBase } from "./client";
+import { createApiClient, NotFoundError } from "./client";
 import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 
 const mockNavTree: NavigationTree = {
@@ -37,14 +37,16 @@ describe("fetchNavigation", () => {
   });
 
   it("fetches navigation from API", async () => {
-    const result = await fetchNavigation();
+    const client = createApiClient();
+    const result = await client.fetchNavigation();
 
     expect(fetch).toHaveBeenCalledWith("/api/navigation", {});
     expect(result).toEqual(mockNavTree);
   });
 
   it("passes cache: no-store when bypassCache is true", async () => {
-    await fetchNavigation({ bypassCache: true });
+    const client = createApiClient();
+    await client.fetchNavigation({ bypassCache: true });
 
     expect(fetch).toHaveBeenCalledWith("/api/navigation", { cache: "no-store" });
   });
@@ -61,7 +63,8 @@ describe("fetchNavigation", () => {
       ),
     );
 
-    await expect(fetchNavigation()).rejects.toThrow(
+    const client = createApiClient();
+    await expect(client.fetchNavigation()).rejects.toThrow(
       "Failed to fetch navigation: 500 Internal Server Error",
     );
   });
@@ -85,28 +88,32 @@ describe("fetchPage", () => {
   });
 
   it("fetches page from API", async () => {
-    const result = await fetchPage("test");
+    const client = createApiClient();
+    const result = await client.fetchPage("test");
 
     expect(fetch).toHaveBeenCalledWith("/api/pages/test", {});
     expect(result).toEqual(mockPage);
   });
 
   it("passes cache: no-store when bypassCache is true", async () => {
-    await fetchPage("test", { bypassCache: true });
+    const client = createApiClient();
+    await client.fetchPage("test", { bypassCache: true });
 
     expect(fetch).toHaveBeenCalledWith("/api/pages/test", { cache: "no-store" });
   });
 
   it("passes signal when provided", async () => {
     const controller = new AbortController();
-    await fetchPage("test", { signal: controller.signal });
+    const client = createApiClient();
+    await client.fetchPage("test", { signal: controller.signal });
 
     expect(fetch).toHaveBeenCalledWith("/api/pages/test", { signal: controller.signal });
   });
 
   it("passes both cache and signal when provided", async () => {
     const controller = new AbortController();
-    await fetchPage("test", { bypassCache: true, signal: controller.signal });
+    const client = createApiClient();
+    await client.fetchPage("test", { bypassCache: true, signal: controller.signal });
 
     expect(fetch).toHaveBeenCalledWith("/api/pages/test", {
       cache: "no-store",
@@ -126,8 +133,9 @@ describe("fetchPage", () => {
       ),
     );
 
-    await expect(fetchPage("missing")).rejects.toThrow(NotFoundError);
-    await expect(fetchPage("missing")).rejects.toThrow("Page not found: missing");
+    const client = createApiClient();
+    await expect(client.fetchPage("missing")).rejects.toThrow(NotFoundError);
+    await expect(client.fetchPage("missing")).rejects.toThrow("Page not found: missing");
   });
 
   it("throws generic error on other non-ok responses", async () => {
@@ -142,7 +150,8 @@ describe("fetchPage", () => {
       ),
     );
 
-    await expect(fetchPage("test")).rejects.toThrow(
+    const client = createApiClient();
+    await expect(client.fetchPage("test")).rejects.toThrow(
       "Failed to fetch page: 500 Internal Server Error",
     );
   });
@@ -187,7 +196,8 @@ describe("fetchConfig", () => {
   });
 
   it("fetches config from API", async () => {
-    const result = await fetchConfig();
+    const client = createApiClient();
+    const result = await client.fetchConfig();
 
     expect(fetch).toHaveBeenCalledWith("/api/config");
     expect(result).toEqual(mockConfig);
@@ -205,13 +215,14 @@ describe("fetchConfig", () => {
       ),
     );
 
-    await expect(fetchConfig()).rejects.toThrow(
+    const client = createApiClient();
+    await expect(client.fetchConfig()).rejects.toThrow(
       "Failed to fetch config: 500 Internal Server Error",
     );
   });
 });
 
-describe("setApiBase", () => {
+describe("createApiClient with custom base", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
@@ -225,24 +236,22 @@ describe("setApiBase", () => {
   });
 
   afterEach(() => {
-    setApiBase("/api"); // reset to default
     vi.unstubAllGlobals();
   });
 
   it("strips trailing slash from base URL", async () => {
-    setApiBase("/api/rw/");
-    await fetchConfig();
+    const client = createApiClient("/api/rw/");
+    await client.fetchConfig();
     expect(fetch).toHaveBeenCalledWith("/api/rw/config");
   });
 
   it("uses custom base URL for fetchConfig", async () => {
-    setApiBase("/api/rw");
-    await fetchConfig();
+    const client = createApiClient("/api/rw");
+    await client.fetchConfig();
     expect(fetch).toHaveBeenCalledWith("/api/rw/config");
   });
 
   it("uses custom base URL for fetchPage", async () => {
-    setApiBase("/api/rw");
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -259,12 +268,12 @@ describe("setApiBase", () => {
       ),
     );
 
-    await fetchPage("guide");
+    const client = createApiClient("/api/rw");
+    await client.fetchPage("guide");
     expect(fetch).toHaveBeenCalledWith("/api/rw/pages/guide", expect.anything());
   });
 
   it("uses custom base URL for fetchNavigation with scope", async () => {
-    setApiBase("/api/rw");
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -275,7 +284,8 @@ describe("setApiBase", () => {
       ),
     );
 
-    await fetchNavigation({ scope: "domains" });
+    const client = createApiClient("/api/rw");
+    await client.fetchNavigation({ scope: "domains" });
     expect(fetch).toHaveBeenCalledWith("/api/rw/navigation?scope=domains", expect.anything());
   });
 });

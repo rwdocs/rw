@@ -1,6 +1,8 @@
 import { writable, get } from "svelte/store";
-import { path, extractDocPath } from "./router";
-import { navigation } from "./navigation";
+import type { Readable } from "svelte/store";
+import { extractDocPath } from "./router";
+import type { RouterStore } from "./router";
+import type { NavigationStore } from "./navigation";
 
 interface LiveReloadState {
   connected: boolean;
@@ -12,7 +14,16 @@ interface ReloadMessage {
   path: string;
 }
 
-function createLiveReloadStore() {
+export interface LiveReloadStore extends Readable<LiveReloadState> {
+  start(): void;
+  stop(): void;
+  onReload(callback: (path: string) => void): () => void;
+}
+
+export function createLiveReloadStore(deps: {
+  router: RouterStore;
+  navigation: NavigationStore;
+}): LiveReloadStore {
   const { subscribe, update } = writable<LiveReloadState>({
     connected: false,
     lastReload: null,
@@ -74,7 +85,7 @@ function createLiveReloadStore() {
       console.log("[LiveReload] Content changed:", changedPath);
     }
 
-    if (onReloadCallback && shouldReload(get(path), changedPath)) {
+    if (onReloadCallback && shouldReload(get(deps.router.path), changedPath)) {
       onReloadCallback(changedPath);
     }
   }
@@ -84,11 +95,11 @@ function createLiveReloadStore() {
       console.log("[LiveReload] Structure changed");
     }
 
-    await navigation.load({ bypassCache: true });
+    await deps.navigation.load({ bypassCache: true });
 
-    const currentPath = get(path);
+    const currentPath = get(deps.router.path);
     if (currentPath !== "/") {
-      navigation.expandOnlyTo(currentPath);
+      deps.navigation.expandOnlyTo(currentPath);
     }
   }
 
@@ -140,5 +151,3 @@ function createLiveReloadStore() {
     },
   };
 }
-
-export const liveReload = createLiveReloadStore();
