@@ -33,14 +33,12 @@ export function createRouter(options?: { embedded?: boolean; initialPath?: strin
 
   /** Current URL path */
   const path = writable(
-    embedded && options?.initialPath ? options.initialPath.split("#")[0] : window.location.pathname,
+    embedded ? (options?.initialPath?.split("#")[0] ?? "/") : window.location.pathname,
   );
 
   /** Current URL hash (without the # prefix) */
   const hash = writable(
-    embedded && options?.initialPath
-      ? (options.initialPath.split("#")[1] ?? "")
-      : window.location.hash.slice(1),
+    embedded ? (options?.initialPath?.split("#")[1] ?? "") : window.location.hash.slice(1),
   );
 
   /** Navigate to a path programmatically */

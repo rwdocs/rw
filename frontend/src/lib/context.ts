@@ -4,6 +4,7 @@ import type { RouterStore } from "../stores/router";
 import type { PageStore } from "../stores/page";
 import type { NavigationStore } from "../stores/navigation";
 import type { LiveReloadStore } from "../stores/liveReload";
+import type { UiStore } from "../stores/ui";
 
 export interface RwContext {
   apiClient: ApiClient;
@@ -11,6 +12,7 @@ export interface RwContext {
   page: PageStore;
   navigation: NavigationStore;
   liveReload: LiveReloadStore;
+  ui: UiStore;
 }
 
 const RW_KEY = Symbol("rw");

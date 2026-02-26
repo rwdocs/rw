@@ -1,33 +1,37 @@
 <script lang="ts">
-  import { mobileMenuOpen, closeMobileMenu } from "../stores/ui";
   import { getRwContext } from "../lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
 
-  const { router, navigation } = getRwContext();
+  const { router, navigation, ui } = getRwContext();
   const { path } = router;
 
   // Close drawer on route change
   $effect(() => {
     void $path;
-    closeMobileMenu();
+    ui.closeMobileMenu();
   });
 
-  // Close drawer on escape key
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && $mobileMenuOpen) {
-      closeMobileMenu();
+  // Close drawer on escape key (skip in embedded mode to avoid interfering with host app)
+  $effect(() => {
+    if (router.embedded) return;
+
+    function handleKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape" && $ui.mobileMenuOpen) {
+        ui.closeMobileMenu();
+      }
     }
-  }
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
-{#if $mobileMenuOpen}
+{#if $ui.mobileMenuOpen}
   <!-- Backdrop -->
   <button
     type="button"
     class="fixed inset-0 z-40 cursor-pointer border-none bg-black/50 md:hidden"
-    onclick={closeMobileMenu}
+    onclick={ui.closeMobileMenu}
     aria-label="Close menu"
   ></button>
 
@@ -39,7 +43,7 @@
           <span class="text-xl font-semibold text-gray-900">RW</span>
         </a>
         <button
-          onclick={closeMobileMenu}
+          onclick={ui.closeMobileMenu}
           class="-mr-2 cursor-pointer p-2 text-gray-500 hover:text-gray-700"
           aria-label="Close menu"
         >

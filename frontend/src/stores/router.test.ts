@@ -370,9 +370,16 @@ describe("embedded mode", () => {
     expect(get(router.path)).toBe("/");
   });
 
-  it("falls back to window.location.pathname when no initialPath in embedded mode", () => {
+  it("defaults to / when no initialPath in embedded mode", () => {
+    Object.defineProperty(window, "location", {
+      value: { origin: "http://localhost:8001", pathname: "/backstage/catalog", hash: "" },
+      writable: true,
+      configurable: true,
+    });
+
     const router = createRouter({ embedded: true });
 
+    // Should default to "/" not the host app's pathname
     expect(get(router.path)).toBe("/");
   });
 

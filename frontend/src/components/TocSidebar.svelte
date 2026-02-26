@@ -23,25 +23,28 @@
     const currentHash = $hash;
     if (currentHash && filteredToc.some((entry) => entry.id === currentHash)) {
       activeId = currentHash;
-      isUserScrolling = true;
 
-      // Wait for any browser-initiated scroll to complete
-      const scrollBefore = window.scrollY;
-      requestAnimationFrame(() => {
-        if (window.scrollY === scrollBefore) {
-          // No scroll happened, reset immediately
-          isUserScrolling = false;
-        } else {
-          // Scroll happened, wait for scrollend
-          window.addEventListener(
-            "scrollend",
-            () => {
-              isUserScrolling = false;
-            },
-            { once: true },
-          );
-        }
-      });
+      if (!router.embedded) {
+        isUserScrolling = true;
+
+        // Wait for any browser-initiated scroll to complete
+        const scrollBefore = window.scrollY;
+        requestAnimationFrame(() => {
+          if (window.scrollY === scrollBefore) {
+            // No scroll happened, reset immediately
+            isUserScrolling = false;
+          } else {
+            // Scroll happened, wait for scrollend
+            window.addEventListener(
+              "scrollend",
+              () => {
+                isUserScrolling = false;
+              },
+              { once: true },
+            );
+          }
+        });
+      }
     }
   });
 
@@ -50,31 +53,33 @@
     const element = document.getElementById(id);
     if (element) {
       activeId = id;
-      isUserScrolling = true;
 
-      const scrollBefore = window.scrollY;
-      element.scrollIntoView({ behavior: "auto" });
-      // Update URL hash without jumping (skip in embedded mode to avoid interfering with host router)
+      // In embedded mode, skip scrolling and URL mutation to avoid host page side effects
       if (!router.embedded) {
-        history.pushState(null, "", `#${id}`);
-      }
+        isUserScrolling = true;
 
-      // Wait for scroll completion using scrollend event
-      requestAnimationFrame(() => {
-        if (window.scrollY === scrollBefore) {
-          // No scroll happened (element already in view), reset immediately
-          isUserScrolling = false;
-        } else {
-          // Scroll happened, wait for scrollend
-          window.addEventListener(
-            "scrollend",
-            () => {
-              isUserScrolling = false;
-            },
-            { once: true },
-          );
-        }
-      });
+        const scrollBefore = window.scrollY;
+        element.scrollIntoView({ behavior: "auto" });
+        // Update URL hash without jumping
+        history.pushState(null, "", `#${id}`);
+
+        // Wait for scroll completion using scrollend event
+        requestAnimationFrame(() => {
+          if (window.scrollY === scrollBefore) {
+            // No scroll happened (element already in view), reset immediately
+            isUserScrolling = false;
+          } else {
+            // Scroll happened, wait for scrollend
+            window.addEventListener(
+              "scrollend",
+              () => {
+                isUserScrolling = false;
+              },
+              { once: true },
+            );
+          }
+        });
+      }
     }
   }
 

@@ -5,6 +5,7 @@
   import { createPageStore } from "./stores/page";
   import { createNavigationStore } from "./stores/navigation";
   import { createLiveReloadStore } from "./stores/liveReload";
+  import { createUiStore } from "./stores/ui";
   import { setRwContext } from "./lib/context";
   import type { ConfigResponse } from "./types";
   import Layout from "./components/Layout.svelte";
@@ -31,8 +32,9 @@
   const page = createPageStore(apiClient, { embedded: untrack(() => embedded) });
   const navigation = createNavigationStore(apiClient);
   const liveReload = createLiveReloadStore({ router, navigation });
+  const ui = createUiStore();
 
-  setRwContext({ apiClient, router, page, navigation, liveReload });
+  setRwContext({ apiClient, router, page, navigation, liveReload, ui });
 
   const defaultConfig: ConfigResponse = {
     liveReloadEnabled: false,
