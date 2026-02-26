@@ -54,8 +54,10 @@
 
       const scrollBefore = window.scrollY;
       element.scrollIntoView({ behavior: "auto" });
-      // Update URL hash without jumping
-      history.pushState(null, "", `#${id}`);
+      // Update URL hash without jumping (skip in embedded mode to avoid interfering with host router)
+      if (!router.embedded) {
+        history.pushState(null, "", `#${id}`);
+      }
 
       // Wait for scroll completion using scrollend event
       requestAnimationFrame(() => {
