@@ -77,68 +77,74 @@ impl RwSite {
     }
 
     #[napi]
-    pub fn render_page(&self, path: String) -> Result<NapiPageResponse> {
-        let result = self
-            .site
-            .render(&path)
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-
-        let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
-        let last_modified = humantime::format_rfc3339(source_mtime).to_string();
-        let navigation_scope = self.site.get_navigation_scope(&path);
-
-        let (description, page_type, vars) = if let Some(ref meta) = result.metadata {
-            (
-                meta.description.clone(),
-                meta.page_type.clone(),
-                if meta.vars.is_empty() {
-                    None
-                } else {
-                    Some(serde_json::to_value(&meta.vars).unwrap_or_default())
-                },
-            )
-        } else {
-            (None, None, None)
-        };
-
-        Ok(NapiPageResponse {
-            meta: PageMetaResponse {
-                title: result.title,
-                path: to_url_path(&path),
-                source_file: if result.has_content {
-                    path.clone()
-                } else {
-                    String::new()
-                },
-                last_modified,
-                description,
-                page_type,
-                vars,
-                navigation_scope,
-            },
-            breadcrumbs: result
-                .breadcrumbs
-                .into_iter()
-                .map(|b| BreadcrumbResponse {
-                    title: b.title,
-                    path: to_url_path(&b.path),
-                })
-                .collect(),
-            toc: result
-                .toc
-                .iter()
-                .map(|t| TocEntryResponse {
-                    level: u32::from(t.level),
-                    title: t.title.clone(),
-                    id: t.id.clone(),
-                })
-                .collect(),
-            content: result.html,
-        })
+    pub async fn render_page(&self, path: String) -> Result<NapiPageResponse> {
+        let site = Arc::clone(&self.site);
+        tokio::task::spawn_blocking(move || build_page_response(&site, &path))
+            .await
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     #[napi]
     pub fn reload(&self) {
         self.site.invalidate();
     }
+}
+
+fn build_page_response(site: &Site, path: &str) -> Result<NapiPageResponse> {
+    let result = site
+        .render(path)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
+    let last_modified = humantime::format_rfc3339(source_mtime).to_string();
+    let navigation_scope = site.get_navigation_scope(path);
+
+    let (description, page_type, vars) = if let Some(ref meta) = result.metadata {
+        (
+            meta.description.clone(),
+            meta.page_type.clone(),
+            if meta.vars.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_value(&meta.vars).unwrap_or_default())
+            },
+        )
+    } else {
+        (None, None, None)
+    };
+
+    Ok(NapiPageResponse {
+        meta: PageMetaResponse {
+            title: result.title,
+            path: to_url_path(path),
+            source_file: if result.has_content {
+                path.to_owned()
+            } else {
+                String::new()
+            },
+            last_modified,
+            description,
+            page_type,
+            vars,
+            navigation_scope,
+        },
+        breadcrumbs: result
+            .breadcrumbs
+            .into_iter()
+            .map(|b| BreadcrumbResponse {
+                title: b.title,
+                path: to_url_path(&b.path),
+            })
+            .collect(),
+        toc: result
+            .toc
+            .iter()
+            .map(|t| TocEntryResponse {
+                level: u32::from(t.level),
+                title: t.title.clone(),
+                id: t.id.clone(),
+            })
+            .collect(),
+        content: result.html,
+    })
 }
