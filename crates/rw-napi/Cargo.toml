@@ -13,7 +13,7 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "2", default-features = false, features = ["napi4", "async", "serde-json"] }
+napi = { version = "2", default-features = false, features = ["napi4", "async", "tokio_rt", "serde-json"] }
 napi-derive = "2"
 
 rw-cache = { workspace = true }
@@ -21,6 +21,7 @@ rw-site = { workspace = true }
 rw-storage-fs = { workspace = true }
 
 humantime = "2"
+tokio = { version = "1", features = ["rt"] }
 serde_json = { workspace = true }
 
 [build-dependencies]
