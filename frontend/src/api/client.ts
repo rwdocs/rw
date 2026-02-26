@@ -4,7 +4,7 @@ let apiBase = "/api";
 
 /** Set the API base URL. Default is "/api". */
 export function setApiBase(base: string) {
-  apiBase = base;
+  apiBase = base.replace(/\/+$/, "");
 }
 
 /** Options for API fetch functions */

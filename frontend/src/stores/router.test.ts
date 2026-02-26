@@ -346,6 +346,13 @@ describe("embedded mode", () => {
     expect(get(path)).toBe("/guide");
   });
 
+  it("goto does not scroll to top in embedded mode", () => {
+    setEmbedded(true);
+    goto("/guide");
+
+    expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+
   it("goto calls pushState in normal mode", () => {
     setEmbedded(false);
     goto("/guide");

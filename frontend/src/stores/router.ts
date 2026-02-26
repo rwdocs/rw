@@ -33,7 +33,7 @@ export function goto(newPath: string) {
 
   // If there's a hash, scrolling will be handled by the page component
   // Otherwise scroll to top
-  if (!url.hash) {
+  if (!url.hash && !embedded) {
     window.scrollTo(0, 0);
   }
 }
