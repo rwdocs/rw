@@ -1,0 +1,28 @@
+[package]
+name = "rw-napi"
+description = "NAPI native addon exposing RW core to Node.js"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", default-features = false, features = ["napi4", "async"] }
+napi-derive = "2"
+
+rw-cache = { workspace = true }
+rw-config = { workspace = true }
+rw-site = { workspace = true }
+rw-storage = { workspace = true }
+rw-storage-fs = { workspace = true }
+
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"
