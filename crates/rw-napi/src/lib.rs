@@ -2,6 +2,7 @@ mod types;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, UNIX_EPOCH};
 
 use napi::Result;
 use napi_derive::napi;
@@ -9,7 +10,10 @@ use rw_cache::NullCache;
 use rw_site::{NavItem, PageRendererConfig, ScopeInfo, Site};
 use rw_storage_fs::FsStorage;
 
-use crate::types::{NavItemResponse, NavigationResponse, ScopeInfoResponse};
+use crate::types::{
+    BreadcrumbResponse, NavItemResponse, NavigationResponse, PageMetaResponse,
+    PageResponse as NapiPageResponse, ScopeInfoResponse, TocEntryResponse,
+};
 
 /// Convert internal path (no leading slash) to URL path (with leading slash).
 fn to_url_path(path: &str) -> String {
@@ -43,6 +47,8 @@ pub struct RwSite {
     site: Arc<Site>,
 }
 
+// napi-rs requires owned types for JavaScript bindings.
+#[allow(clippy::needless_pass_by_value)]
 #[napi]
 pub fn create_site(docs_dir: String, kroki_url: Option<String>) -> Result<RwSite> {
     let storage = Arc::new(FsStorage::new(PathBuf::from(&docs_dir)));
@@ -57,6 +63,7 @@ pub fn create_site(docs_dir: String, kroki_url: Option<String>) -> Result<RwSite
 }
 
 #[napi]
+#[allow(clippy::needless_pass_by_value)]
 impl RwSite {
     #[napi]
     pub fn get_navigation(&self, scope: Option<String>) -> NavigationResponse {
@@ -67,6 +74,67 @@ impl RwSite {
             scope: nav.scope.map(convert_scope_info),
             parent_scope: nav.parent_scope.map(convert_scope_info),
         }
+    }
+
+    #[napi]
+    pub fn render_page(&self, path: String) -> Result<NapiPageResponse> {
+        let result = self
+            .site
+            .render(&path)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+        let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
+        let last_modified = humantime::format_rfc3339(source_mtime).to_string();
+        let navigation_scope = self.site.get_navigation_scope(&path);
+
+        let (description, page_type, vars) = if let Some(ref meta) = result.metadata {
+            (
+                meta.description.clone(),
+                meta.page_type.clone(),
+                if meta.vars.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::to_value(&meta.vars).unwrap_or_default())
+                },
+            )
+        } else {
+            (None, None, None)
+        };
+
+        Ok(NapiPageResponse {
+            meta: PageMetaResponse {
+                title: result.title,
+                path: to_url_path(&path),
+                source_file: if result.has_content {
+                    path.clone()
+                } else {
+                    String::new()
+                },
+                last_modified,
+                description,
+                page_type,
+                vars,
+                navigation_scope,
+            },
+            breadcrumbs: result
+                .breadcrumbs
+                .into_iter()
+                .map(|b| BreadcrumbResponse {
+                    title: b.title,
+                    path: to_url_path(&b.path),
+                })
+                .collect(),
+            toc: result
+                .toc
+                .iter()
+                .map(|t| TocEntryResponse {
+                    level: u32::from(t.level),
+                    title: t.title.clone(),
+                    id: t.id.clone(),
+                })
+                .collect(),
+            content: result.html,
+        })
     }
 
     #[napi]
