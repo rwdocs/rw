@@ -345,6 +345,24 @@ describe("embedded mode", () => {
     vi.restoreAllMocks();
   });
 
+  it("uses initialPath as starting path in embedded mode", () => {
+    const router = createRouter({ embedded: true, initialPath: "/guide" });
+
+    expect(get(router.path)).toBe("/guide");
+  });
+
+  it("ignores initialPath in normal mode", () => {
+    const router = createRouter({ embedded: false, initialPath: "/guide" });
+
+    expect(get(router.path)).toBe("/");
+  });
+
+  it("falls back to window.location.pathname when no initialPath in embedded mode", () => {
+    const router = createRouter({ embedded: true });
+
+    expect(get(router.path)).toBe("/");
+  });
+
   it("goto does not call pushState in embedded mode", () => {
     const router = createRouter({ embedded: true });
     router.goto("/guide");
