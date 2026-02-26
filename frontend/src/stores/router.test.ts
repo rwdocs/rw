@@ -351,6 +351,19 @@ describe("embedded mode", () => {
     expect(get(router.path)).toBe("/guide");
   });
 
+  it("parses hash from initialPath in embedded mode", () => {
+    const router = createRouter({ embedded: true, initialPath: "/guide#section" });
+
+    expect(get(router.path)).toBe("/guide");
+    expect(get(router.hash)).toBe("section");
+  });
+
+  it("initializes hash to empty when initialPath has no hash in embedded mode", () => {
+    const router = createRouter({ embedded: true, initialPath: "/guide" });
+
+    expect(get(router.hash)).toBe("");
+  });
+
   it("ignores initialPath in normal mode", () => {
     const router = createRouter({ embedded: false, initialPath: "/guide" });
 
