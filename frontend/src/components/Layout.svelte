@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { Snippet } from "svelte";
+  import { get } from "svelte/store";
   import { getRwContext } from "../lib/context";
   import { openMobileMenu } from "../stores/ui";
   import NavigationSidebar from "./NavigationSidebar.svelte";
@@ -15,12 +16,12 @@
 
   let { children }: Props = $props();
 
-  const { navigation, page } = getRwContext();
+  const { router, navigation, page } = getRwContext();
 
   onMount(async () => {
     await navigation.load();
     // Expand to current path after initial load
-    const currentPath = window.location.pathname;
+    const currentPath = get(router.path);
     if (currentPath !== "/") {
       navigation.expandOnlyTo(currentPath);
     }

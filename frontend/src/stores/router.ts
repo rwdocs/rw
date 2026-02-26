@@ -9,6 +9,7 @@ export function extractDocPath(urlPath: string): string {
 export interface RouterStore {
   path: Readable<string>;
   hash: Readable<string>;
+  embedded: boolean;
   goto(newPath: string): void;
   initRouter(): () => void;
 }
@@ -97,5 +98,5 @@ export function createRouter(options?: { embedded?: boolean }): RouterStore {
     };
   }
 
-  return { path, hash, goto, initRouter };
+  return { path, hash, embedded, goto, initRouter };
 }

@@ -50,6 +50,7 @@ function createMockRouter(currentPath: string = "/docs/guide"): RouterStore {
   return {
     path: writable(currentPath),
     hash: writable(""),
+    embedded: false,
     goto: vi.fn(),
     initRouter: vi.fn(() => () => {}),
   };
