@@ -3,7 +3,6 @@
   import type { Snippet } from "svelte";
   import { get } from "svelte/store";
   import { getRwContext } from "../lib/context";
-  import { openMobileMenu } from "../stores/ui";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import TocSidebar from "./TocSidebar.svelte";
   import Breadcrumbs from "./Breadcrumbs.svelte";
@@ -16,7 +15,7 @@
 
   let { children }: Props = $props();
 
-  const { router, navigation, page } = getRwContext();
+  const { router, navigation, page, ui } = getRwContext();
 
   onMount(async () => {
     await navigation.load();
@@ -35,7 +34,7 @@
   class="sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white px-4 py-3 md:hidden"
 >
   <button
-    onclick={openMobileMenu}
+    onclick={ui.openMobileMenu}
     class="-ml-2 cursor-pointer p-2 text-gray-500 hover:text-gray-700"
     aria-label="Open menu"
   >

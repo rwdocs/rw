@@ -1,40 +1,49 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { get } from "svelte/store";
-import { mobileMenuOpen, openMobileMenu, closeMobileMenu } from "./ui";
+import { createUiStore } from "./ui";
 
-describe("mobileMenuOpen store", () => {
-  beforeEach(() => {
-    // Reset to closed state
-    closeMobileMenu();
-  });
-
-  it("starts closed", () => {
-    expect(get(mobileMenuOpen)).toBe(false);
+describe("ui store", () => {
+  it("starts with menu closed", () => {
+    const ui = createUiStore();
+    expect(get(ui).mobileMenuOpen).toBe(false);
   });
 
   it("opens with openMobileMenu", () => {
-    openMobileMenu();
+    const ui = createUiStore();
+    ui.openMobileMenu();
 
-    expect(get(mobileMenuOpen)).toBe(true);
+    expect(get(ui).mobileMenuOpen).toBe(true);
   });
 
   it("closes with closeMobileMenu", () => {
-    openMobileMenu();
-    closeMobileMenu();
+    const ui = createUiStore();
+    ui.openMobileMenu();
+    ui.closeMobileMenu();
 
-    expect(get(mobileMenuOpen)).toBe(false);
+    expect(get(ui).mobileMenuOpen).toBe(false);
   });
 
   it("can be toggled multiple times", () => {
-    expect(get(mobileMenuOpen)).toBe(false);
+    const ui = createUiStore();
+    expect(get(ui).mobileMenuOpen).toBe(false);
 
-    openMobileMenu();
-    expect(get(mobileMenuOpen)).toBe(true);
+    ui.openMobileMenu();
+    expect(get(ui).mobileMenuOpen).toBe(true);
 
-    closeMobileMenu();
-    expect(get(mobileMenuOpen)).toBe(false);
+    ui.closeMobileMenu();
+    expect(get(ui).mobileMenuOpen).toBe(false);
 
-    openMobileMenu();
-    expect(get(mobileMenuOpen)).toBe(true);
+    ui.openMobileMenu();
+    expect(get(ui).mobileMenuOpen).toBe(true);
+  });
+
+  it("each instance is independent", () => {
+    const ui1 = createUiStore();
+    const ui2 = createUiStore();
+
+    ui1.openMobileMenu();
+
+    expect(get(ui1).mobileMenuOpen).toBe(true);
+    expect(get(ui2).mobileMenuOpen).toBe(false);
   });
 });

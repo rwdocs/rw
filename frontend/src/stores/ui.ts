@@ -1,12 +1,21 @@
 import { writable } from "svelte/store";
+import type { Readable } from "svelte/store";
 
-/** Mobile navigation drawer state */
-export const mobileMenuOpen = writable(false);
-
-export function openMobileMenu() {
-  mobileMenuOpen.set(true);
+export interface UiStore extends Readable<{ mobileMenuOpen: boolean }> {
+  openMobileMenu(): void;
+  closeMobileMenu(): void;
 }
 
-export function closeMobileMenu() {
-  mobileMenuOpen.set(false);
+export function createUiStore(): UiStore {
+  const { subscribe, update } = writable({ mobileMenuOpen: false });
+
+  return {
+    subscribe,
+    openMobileMenu() {
+      update((state) => ({ ...state, mobileMenuOpen: true }));
+    },
+    closeMobileMenu() {
+      update((state) => ({ ...state, mobileMenuOpen: false }));
+    },
+  };
 }
