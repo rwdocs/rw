@@ -12,6 +12,7 @@ use rw_diagrams::resolve_plantuml_includes;
 use rw_storage::{Document, Storage};
 
 use crate::format::{self, Manifest, ManifestDocument, PageBundle};
+use crate::s3::{self, S3Config};
 
 static PLANTUML_FENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^(\s*`{3,})\s*(?:plantuml|puml|c4plantuml)\b[^\n]*\n").unwrap()
@@ -67,13 +68,20 @@ impl BackstagePublisher {
         storage: &dyn Storage,
         include_dirs: &[PathBuf],
     ) -> Result<usize, PublishError> {
-        let client = self.build_client().await;
+        let s3_config = self.s3_config();
+        let client = s3::build_client(&s3_config).await;
         let documents = storage.scan()?;
 
         let manifest = build_manifest(&documents);
         let manifest_json = serde_json::to_vec(&manifest)?;
-        self.upload(&client, "manifest.json", manifest_json, "application/json")
-            .await?;
+        self.upload(
+            &client,
+            &s3_config,
+            "manifest.json",
+            manifest_json,
+            "application/json",
+        )
+        .await?;
 
         let mut uploaded = 1; // manifest
 
@@ -93,7 +101,7 @@ impl BackstagePublisher {
 
             let bundle_json = serde_json::to_vec(&bundle)?;
             let key = format::page_bundle_key(&doc.path);
-            self.upload(&client, &key, bundle_json, "application/json")
+            self.upload(&client, &s3_config, &key, bundle_json, "application/json")
                 .await?;
 
             uploaded += 1;
@@ -103,34 +111,24 @@ impl BackstagePublisher {
         Ok(uploaded)
     }
 
-    async fn build_client(&self) -> Client {
-        let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_config::Region::new(self.config.region.clone()));
-
-        if let Some(endpoint) = &self.config.endpoint {
-            loader = loader.endpoint_url(endpoint);
+    fn s3_config(&self) -> S3Config {
+        S3Config {
+            region: self.config.region.clone(),
+            endpoint: self.config.endpoint.clone(),
+            bucket_root_path: self.config.bucket_root_path.clone(),
+            entity: self.config.entity.clone(),
         }
-
-        let sdk_config = loader.load().await;
-
-        if self.config.endpoint.is_some() {
-            let s3_config = aws_sdk_s3::config::Builder::from(&sdk_config)
-                .force_path_style(true)
-                .build();
-            return Client::from_conf(s3_config);
-        }
-
-        Client::new(&sdk_config)
     }
 
     async fn upload(
         &self,
         client: &Client,
+        s3_config: &S3Config,
         relative_key: &str,
         body: Vec<u8>,
         content_type: &str,
     ) -> Result<(), PublishError> {
-        let key = self.build_key(relative_key);
+        let key = s3::build_key(s3_config, relative_key);
         client
             .put_object()
             .bucket(&self.config.bucket)
@@ -139,19 +137,9 @@ impl BackstagePublisher {
             .content_type(content_type)
             .send()
             .await
-            .map_err(|e| PublishError::S3(error_chain(&e)))?;
+            .map_err(|e| PublishError::S3(s3::error_chain(&e)))?;
         tracing::debug!(key = %key, "Uploaded");
         Ok(())
-    }
-
-    fn build_key(&self, relative_path: &str) -> String {
-        let mut parts = Vec::new();
-        if let Some(root) = &self.config.bucket_root_path {
-            parts.push(root.as_str());
-        }
-        parts.push(&self.config.entity);
-        parts.push(relative_path);
-        parts.join("/")
     }
 }
 
@@ -196,8 +184,11 @@ fn resolve_markdown_includes(markdown: &str, include_dirs: &[PathBuf]) -> String
 
         if let Some(close_pos) = find_closing_fence(remaining, &closing_fence) {
             let code_content = &remaining[..close_pos];
-            let resolved = resolve_plantuml_includes(code_content, include_dirs);
-            result.push_str(&resolved);
+            let resolve_result = resolve_plantuml_includes(code_content, include_dirs);
+            for warning in &resolve_result.warnings {
+                tracing::warn!("{warning}");
+            }
+            result.push_str(&resolve_result.source);
             remaining = &remaining[close_pos..];
         } else {
             result.push_str(remaining);
@@ -209,26 +200,21 @@ fn resolve_markdown_includes(markdown: &str, include_dirs: &[PathBuf]) -> String
     result
 }
 
-/// Find the position of a closing fence in the remaining text.
+/// Find the byte position of a closing fence in the remaining text.
 fn find_closing_fence(text: &str, fence: &str) -> Option<usize> {
-    for (i, line) in text.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed == fence {
-            let offset: usize = text.lines().take(i).map(|l| l.len() + 1).sum();
+    let mut offset = 0;
+    for line in text.lines() {
+        if line.trim() == fence {
             return Some(offset);
+        }
+        // Advance past this line + its newline character.
+        // If the line doesn't end with '\n' (last line), we still advance past it.
+        offset += line.len();
+        if text.as_bytes().get(offset) == Some(&b'\n') {
+            offset += 1;
         }
     }
     None
-}
-
-fn error_chain(err: &dyn std::error::Error) -> String {
-    let mut msgs = vec![err.to_string()];
-    let mut source = err.source();
-    while let Some(s) = source {
-        msgs.push(s.to_string());
-        source = s.source();
-    }
-    msgs.join(": ")
 }
 
 #[cfg(test)]

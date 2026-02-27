@@ -11,17 +11,13 @@ workspace = true
 
 [features]
 default = []
-publish = ["rw-storage-fs", "rw-config", "rw-site", "rw-diagrams", "rw-cache", "regex"]
+publish = ["rw-diagrams", "regex"]
 
 [dependencies]
 rw-storage = { workspace = true }
 
 # Publish-only deps
-rw-storage-fs = { workspace = true, optional = true }
-rw-config = { workspace = true, optional = true }
-rw-site = { workspace = true, optional = true }
 rw-diagrams = { workspace = true, optional = true }
-rw-cache = { workspace = true, optional = true }
 regex = { workspace = true, optional = true }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
