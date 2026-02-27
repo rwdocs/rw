@@ -178,7 +178,7 @@ pub fn prepare_diagram_source(
     }
 }
 
-/// Resolve all `!include` directives in PlantUML source.
+/// Resolve all `!include` directives in `PlantUML` source.
 ///
 /// Recursively reads referenced files from `include_dirs` and inlines them.
 /// Stdlib includes (`<...>`) are left unchanged.

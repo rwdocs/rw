@@ -1,6 +1,6 @@
 //! Backstage bundle publisher.
 //!
-//! Scans local documentation, resolves PlantUML includes, builds bundles,
+//! Scans local documentation, resolves `PlantUML` includes, builds bundles,
 //! and uploads them to S3. Only available with the `publish` feature.
 
 use std::path::PathBuf;
@@ -59,7 +59,7 @@ impl BackstagePublisher {
     /// Publish documentation from a storage backend to S3.
     ///
     /// Scans the storage for documents, builds bundles with pre-resolved
-    /// PlantUML includes, and uploads everything to S3.
+    /// `PlantUML` includes, and uploads everything to S3.
     ///
     /// Returns the number of files uploaded.
     pub async fn publish(
@@ -170,7 +170,7 @@ fn build_manifest(documents: &[Document]) -> Manifest {
     Manifest::new(docs)
 }
 
-/// Resolve PlantUML `!include` directives within markdown code fences.
+/// Resolve `PlantUML` `!include` directives within markdown code fences.
 ///
 /// Finds all plantuml/puml/c4plantuml code blocks and resolves `!include`
 /// directives by reading files from `include_dirs`.

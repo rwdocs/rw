@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `rw backstage publish` command for publishing documentation bundles to S3 for the Backstage plugin
+- S3 storage backend for serving docs in deployed Backstage instances without local files
 - Frontend can now be embedded in external host applications (e.g., Backstage plugins) with configurable API base URL, memory-based routing, and no browser side effects
 - Node.js native bindings (`rw-napi`) for embedding RW in Node.js applications via napi-rs
 

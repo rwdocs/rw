@@ -46,10 +46,20 @@ crates/
 │           │   ├── mod.rs         # `confluence` subcommand group
 │           │   ├── update.rs      # `confluence update` command
 │           │   └── generate_tokens.rs  # `confluence generate-tokens` command
+│           ├── backstage/
+│           │   ├── mod.rs         # `backstage` subcommand group
+│           │   └── publish.rs     # `backstage publish` command
 │           └── techdocs/
 │               ├── mod.rs         # `techdocs` subcommand group
 │               ├── build.rs       # `techdocs build` command
 │               └── publish.rs     # `techdocs publish` command
+│
+├── rw-backstage/          # Backstage integration (S3 bundle publish and storage)
+│   └── src/
+│       ├── lib.rs            # Public API exports
+│       ├── format.rs         # Bundle format types (Manifest, PageBundle)
+│       ├── storage.rs        # S3Storage (Storage trait implementation)
+│       └── publisher.rs      # BackstagePublisher (feature = "publish")
 │
 ├── rw-assets/             # Frontend asset serving (embedded + filesystem)
 │   └── src/

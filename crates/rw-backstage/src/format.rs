@@ -44,7 +44,7 @@ pub struct ManifestDocument {
 /// Per-page bundle containing content and resolved metadata.
 ///
 /// Stored at `{prefix}/pages/{path}.json` in S3.
-/// PlantUML `!include` directives are pre-resolved in the content.
+/// `PlantUML` `!include` directives are pre-resolved in the content.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct PageBundle {
     /// Markdown content with includes resolved.

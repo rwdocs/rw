@@ -68,7 +68,7 @@ impl PublishArgs {
             &config.metadata.name,
         ));
 
-        let include_dirs = config.diagrams_resolved.include_dirs.clone();
+        let include_dirs = config.diagrams_resolved.include_dirs;
 
         let publish_config = PublishConfig {
             bucket: self.bucket,

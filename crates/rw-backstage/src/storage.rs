@@ -115,13 +115,12 @@ impl S3Storage {
             .send()
             .await
             .map_err(|e| {
-                let kind = if e.to_string().contains("NoSuchKey")
-                    || e.to_string().contains("not found")
-                {
-                    StorageErrorKind::NotFound
-                } else {
-                    StorageErrorKind::Unavailable
-                };
+                let kind =
+                    if e.to_string().contains("NoSuchKey") || e.to_string().contains("not found") {
+                        StorageErrorKind::NotFound
+                    } else {
+                        StorageErrorKind::Unavailable
+                    };
                 StorageError::new(kind)
                     .with_backend("S3")
                     .with_path(key)
