@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This struct is serialization-friendly and can be used by backends
 /// that store metadata in various formats (YAML, JSON, TOML, etc.).
-#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Metadata {
     /// Custom page title (overrides H1 extraction).
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,0 +1,37 @@
+[package]
+name = "rw-backstage"
+description = "Backstage integration: S3 bundle publishing and storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+publish = ["rw-storage-fs", "rw-config", "rw-site", "rw-diagrams", "rw-cache", "regex"]
+
+[dependencies]
+rw-storage = { workspace = true }
+
+# Publish-only deps
+rw-storage-fs = { workspace = true, optional = true }
+rw-config = { workspace = true, optional = true }
+rw-site = { workspace = true, optional = true }
+rw-diagrams = { workspace = true, optional = true }
+rw-cache = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
+
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
