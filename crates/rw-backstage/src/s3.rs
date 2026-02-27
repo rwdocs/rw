@@ -43,6 +43,7 @@ pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
 }
 
 /// Format an error and its full source chain into a single string.
+#[cfg(feature = "publish")]
 pub(crate) fn error_chain(err: &dyn std::error::Error) -> String {
     let mut msgs = vec![err.to_string()];
     let mut source = err.source();

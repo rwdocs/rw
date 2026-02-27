@@ -58,6 +58,7 @@ crates/
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── format.rs         # Bundle format types (Manifest, PageBundle)
+│       ├── s3.rs             # Shared S3 client utilities
 │       ├── storage.rs        # S3Storage (Storage trait implementation)
 │       └── publisher.rs      # BackstagePublisher (feature = "publish")
 │
