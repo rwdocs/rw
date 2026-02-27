@@ -3072,6 +3072,7 @@ dependencies = [
  "clap",
  "console",
  "rw-assets",
+ "rw-backstage",
  "rw-config",
  "rw-confluence",
  "rw-server",
@@ -3091,6 +3092,23 @@ version = "0.1.8"
 dependencies = [
  "mime_guess",
  "rust-embed",
+]
+
+[[package]]
+name = "rw-backstage"
+version = "0.1.8"
+dependencies = [
+ "aws-config",
+ "aws-sdk-s3",
+ "pretty_assertions",
+ "regex",
+ "rw-diagrams",
+ "rw-storage",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

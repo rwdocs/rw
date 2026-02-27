@@ -12,6 +12,7 @@ use aws_sdk_s3::Client;
 use rw_storage::{Document, Metadata, Storage, StorageError, StorageErrorKind};
 
 use crate::format::{self, FORMAT_VERSION, Manifest, PageBundle};
+use crate::s3::{self, S3Config};
 
 /// Configuration for S3 storage.
 #[derive(Debug, Clone)]
@@ -32,13 +33,20 @@ pub struct S3StorageConfig {
 ///
 /// Uses a dedicated tokio runtime for async S3 operations within
 /// the synchronous `Storage` trait interface.
+///
+/// **Note:** The page cache grows without bound — every page bundle fetched via
+/// `read()` or `meta()` is kept in memory for the lifetime of this instance.
+/// This is acceptable when each `S3Storage` serves a single entity, but callers
+/// should be aware of memory usage for very large sites.
 pub struct S3Storage {
     client: Client,
     runtime: tokio::runtime::Runtime,
+    s3_config: S3Config,
     config: S3StorageConfig,
     /// Cached manifest from `scan()`.
     manifest: RwLock<Option<CachedManifest>>,
     /// Cached page bundles from `read()`/`meta()`.
+    /// Grows without bound — see struct-level docs.
     page_cache: RwLock<HashMap<String, PageBundle>>,
 }
 
@@ -60,46 +68,22 @@ impl S3Storage {
                 .with_source(e)
         })?;
 
-        let client = runtime.block_on(Self::build_client(&config));
+        let s3_config = S3Config {
+            region: config.region.clone(),
+            endpoint: config.endpoint.clone(),
+            bucket_root_path: config.bucket_root_path.clone(),
+            entity: config.entity.clone(),
+        };
+        let client = runtime.block_on(s3::build_client(&s3_config));
 
         Ok(Self {
             client,
             runtime,
+            s3_config,
             config,
             manifest: RwLock::new(None),
             page_cache: RwLock::new(HashMap::new()),
         })
-    }
-
-    async fn build_client(config: &S3StorageConfig) -> Client {
-        let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_config::Region::new(config.region.clone()));
-
-        if let Some(endpoint) = &config.endpoint {
-            loader = loader.endpoint_url(endpoint);
-        }
-
-        let sdk_config = loader.load().await;
-
-        if config.endpoint.is_some() {
-            let s3_config = aws_sdk_s3::config::Builder::from(&sdk_config)
-                .force_path_style(true)
-                .build();
-            return Client::from_conf(s3_config);
-        }
-
-        Client::new(&sdk_config)
-    }
-
-    /// Build full S3 key from a relative path within the bundle.
-    fn build_key(&self, relative_path: &str) -> String {
-        let mut parts = Vec::new();
-        if let Some(root) = &self.config.bucket_root_path {
-            parts.push(root.as_str());
-        }
-        parts.push(&self.config.entity);
-        parts.push(relative_path);
-        parts.join("/")
     }
 
     /// Fetch and parse a JSON file from S3.
@@ -144,11 +128,16 @@ impl S3Storage {
 
     /// Ensure manifest is loaded, returning cached documents.
     fn ensure_manifest(&self) -> Result<(), StorageError> {
-        if self.manifest.read().unwrap().is_some() {
+        if self
+            .manifest
+            .read()
+            .expect("manifest lock poisoned")
+            .is_some()
+        {
             return Ok(());
         }
 
-        let key = self.build_key("manifest.json");
+        let key = s3::build_key(&self.s3_config, "manifest.json");
         let manifest: Manifest = self.runtime.block_on(self.fetch_json(&key))?;
 
         if manifest.version != FORMAT_VERSION {
@@ -178,7 +167,7 @@ impl S3Storage {
             .map(|d| d.path.clone())
             .collect();
 
-        *self.manifest.write().unwrap() = Some(CachedManifest {
+        *self.manifest.write().expect("manifest lock poisoned") = Some(CachedManifest {
             documents,
             content_paths,
         });
@@ -188,16 +177,21 @@ impl S3Storage {
 
     /// Ensure a page bundle is loaded and cached.
     fn ensure_page_bundle(&self, path: &str) -> Result<(), StorageError> {
-        if self.page_cache.read().unwrap().contains_key(path) {
+        if self
+            .page_cache
+            .read()
+            .expect("page_cache lock poisoned")
+            .contains_key(path)
+        {
             return Ok(());
         }
 
-        let bundle_key = self.build_key(&format::page_bundle_key(path));
+        let bundle_key = s3::build_key(&self.s3_config, &format::page_bundle_key(path));
         let bundle: PageBundle = self.runtime.block_on(self.fetch_json(&bundle_key))?;
 
         self.page_cache
             .write()
-            .unwrap()
+            .expect("page_cache lock poisoned")
             .insert(path.to_owned(), bundle);
 
         Ok(())
@@ -207,14 +201,14 @@ impl S3Storage {
 impl Storage for S3Storage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         self.ensure_manifest()?;
-        let guard = self.manifest.read().unwrap();
+        let guard = self.manifest.read().expect("manifest lock poisoned");
         let cached = guard.as_ref().unwrap();
         Ok(cached.documents.clone())
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
         self.ensure_page_bundle(path)?;
-        let guard = self.page_cache.read().unwrap();
+        let guard = self.page_cache.read().expect("page_cache lock poisoned");
         guard
             .get(path)
             .map(|b| b.content.clone())
@@ -225,7 +219,7 @@ impl Storage for S3Storage {
         if self.ensure_manifest().is_err() {
             return false;
         }
-        let guard = self.manifest.read().unwrap();
+        let guard = self.manifest.read().expect("manifest lock poisoned");
         guard
             .as_ref()
             .is_some_and(|m| m.content_paths.contains(path))
@@ -240,7 +234,7 @@ impl Storage for S3Storage {
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
         self.ensure_page_bundle(path)?;
-        let guard = self.page_cache.read().unwrap();
+        let guard = self.page_cache.read().expect("page_cache lock poisoned");
         Ok(guard.get(path).and_then(|b| b.metadata.clone()))
     }
 }

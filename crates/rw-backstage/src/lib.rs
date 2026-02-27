@@ -9,6 +9,7 @@
 //! - `publish`: Bundle publisher for uploading docs to S3
 
 pub mod format;
+mod s3;
 mod storage;
 
 pub use storage::{S3Storage, S3StorageConfig};
