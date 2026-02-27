@@ -2,6 +2,7 @@
 //!
 //! Provides commands for:
 //! - `serve`: Start the documentation server
+//! - `backstage publish`: Publish documentation bundles to S3 for Backstage
 //! - `confluence update`: Update Confluence pages from markdown
 //! - `confluence generate-tokens`: Generate OAuth access tokens
 

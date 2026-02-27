@@ -66,6 +66,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 | Command | Description |
 |---------|-------------|
 | `rw serve` | Start documentation server with live reload |
+| `rw backstage publish` | Publish documentation bundles to S3 for Backstage |
 | `rw confluence update` | Publish markdown to a Confluence page |
 | `rw confluence generate-tokens` | Generate OAuth access tokens |
 | `rw techdocs build` | Build a static site for Backstage TechDocs |
