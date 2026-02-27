@@ -12,7 +12,7 @@ mod output;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use commands::{ConfluenceCommand, ServeArgs, TechdocsCommand};
+use commands::{BackstageCommand, ConfluenceCommand, ServeArgs, TechdocsCommand};
 use output::Output;
 
 /// Application version from Cargo.toml.
@@ -30,6 +30,9 @@ struct Cli {
 enum Commands {
     /// Start the documentation server.
     Serve(ServeArgs),
+    /// Backstage documentation publishing.
+    #[command(subcommand)]
+    Backstage(BackstageCommand),
     /// Confluence publishing commands.
     #[command(subcommand)]
     Confluence(ConfluenceCommand),
@@ -59,6 +62,7 @@ fn main() {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
             rt.block_on(args.execute(VERSION))
         }
+        Commands::Backstage(cmd) => cmd.execute(),
         Commands::Confluence(cmd) => cmd.execute(),
         Commands::Techdocs(cmd) => cmd.execute(),
     };
