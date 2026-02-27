@@ -128,6 +128,7 @@ impl S3Storage {
 
     /// Ensure manifest is loaded, returning cached documents.
     fn ensure_manifest(&self) -> Result<(), StorageError> {
+        // Fast path: already cached.
         if self
             .manifest
             .read()
@@ -137,6 +138,7 @@ impl S3Storage {
             return Ok(());
         }
 
+        // Slow path: fetch from S3.
         let key = s3::build_key(&self.s3_config, "manifest.json");
         let manifest: Manifest = self.runtime.block_on(self.fetch_json(&key))?;
 
@@ -167,16 +169,21 @@ impl S3Storage {
             .map(|d| d.path.clone())
             .collect();
 
-        *self.manifest.write().expect("manifest lock poisoned") = Some(CachedManifest {
-            documents,
-            content_paths,
-        });
+        // Re-check under write lock to avoid duplicate S3 fetches under concurrency.
+        let mut guard = self.manifest.write().expect("manifest lock poisoned");
+        if guard.is_none() {
+            *guard = Some(CachedManifest {
+                documents,
+                content_paths,
+            });
+        }
 
         Ok(())
     }
 
     /// Ensure a page bundle is loaded and cached.
     fn ensure_page_bundle(&self, path: &str) -> Result<(), StorageError> {
+        // Fast path: already cached.
         if self
             .page_cache
             .read()
@@ -186,13 +193,16 @@ impl S3Storage {
             return Ok(());
         }
 
+        // Slow path: fetch from S3.
         let bundle_key = s3::build_key(&self.s3_config, &format::page_bundle_key(path));
         let bundle: PageBundle = self.runtime.block_on(self.fetch_json(&bundle_key))?;
 
+        // Re-check under write lock to avoid duplicate S3 fetches under concurrency.
         self.page_cache
             .write()
             .expect("page_cache lock poisoned")
-            .insert(path.to_owned(), bundle);
+            .entry(path.to_owned())
+            .or_insert(bundle);
 
         Ok(())
     }
