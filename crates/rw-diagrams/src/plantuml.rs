@@ -178,6 +178,17 @@ pub fn prepare_diagram_source(
     }
 }
 
+/// Resolve all `!include` directives in PlantUML source.
+///
+/// Recursively reads referenced files from `include_dirs` and inlines them.
+/// Stdlib includes (`<...>`) are left unchanged.
+///
+/// Used by the Backstage publisher to pre-resolve includes before uploading.
+pub fn resolve_plantuml_includes(source: &str, include_dirs: &[PathBuf]) -> String {
+    let mut warnings = Vec::new();
+    resolve_includes(source, include_dirs, None, None, 0, &mut warnings)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

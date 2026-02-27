@@ -42,4 +42,5 @@ mod processor;
 pub use cache::DiagramKey;
 pub use meta_includes::{EntityInfo, LinkConfig, MetaIncludeSource, resolve_meta_include};
 pub use output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
+pub use plantuml::resolve_plantuml_includes;
 pub use processor::{DiagramProcessor, to_extracted_diagram, to_extracted_diagrams};
