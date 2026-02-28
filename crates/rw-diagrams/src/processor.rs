@@ -1080,7 +1080,6 @@ mod tests {
         assert!(result.is_none());
     }
 
-
     #[test]
     fn test_preprocess_resolves_filesystem_include() {
         let temp_dir = std::env::temp_dir();

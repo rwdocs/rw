@@ -234,7 +234,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_diagram_format_default() {
         let format = DiagramFormat::default();
