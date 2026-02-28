@@ -60,6 +60,12 @@ pub struct RwSite {
 #[allow(clippy::needless_pass_by_value)]
 #[napi]
 pub fn create_site(config: SiteConfig) -> Result<RwSite> {
+    if config.project_dir.is_some() && config.s3.is_some() {
+        return Err(napi::Error::from_reason(
+            "Cannot specify both projectDir and s3",
+        ));
+    }
+
     let link_prefix = config.link_prefix;
 
     let (storage, renderer_config): (Arc<dyn Storage>, PageRendererConfig) =
