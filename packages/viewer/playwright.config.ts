@@ -18,9 +18,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "./target/debug/rw serve -c frontend/e2e/fixtures/rw.toml",
+    command: "./target/debug/rw serve -c packages/viewer/e2e/fixtures/rw.toml",
     url: "http://127.0.0.1:8081",
-    cwd: "..",
+    cwd: "../..",
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },
