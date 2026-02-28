@@ -56,12 +56,17 @@ pub struct RwSite {
 // napi-rs requires owned types for JavaScript bindings.
 #[allow(clippy::needless_pass_by_value)]
 #[napi]
-pub fn create_site(docs_dir: String, kroki_url: Option<String>) -> Result<RwSite> {
+pub fn create_site(
+    docs_dir: String,
+    kroki_url: Option<String>,
+    link_prefix: Option<String>,
+) -> Result<RwSite> {
     let storage = Arc::new(FsStorage::new(PathBuf::from(&docs_dir)));
     let cache: Arc<dyn rw_cache::Cache> = Arc::new(NullCache);
     let config = PageRendererConfig {
         extract_title: true,
         kroki_url,
+        link_prefix,
         ..Default::default()
     };
     let site = Arc::new(Site::new(storage, cache, config));

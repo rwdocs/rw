@@ -41,6 +41,10 @@ pub struct PageRendererConfig {
     ///
     /// Default: `false`.
     pub static_tabs: bool,
+    /// Prefix prepended to all resolved internal link paths (e.g. `/rw-docs`).
+    ///
+    /// Default: `None` (no prefix).
+    pub link_prefix: Option<String>,
 }
 
 impl Default for PageRendererConfig {
@@ -53,6 +57,7 @@ impl Default for PageRendererConfig {
             relative_links: false,
             trailing_slash: false,
             static_tabs: false,
+            link_prefix: None,
         }
     }
 }
@@ -145,6 +150,7 @@ pub(crate) struct PageRenderer {
     relative_links: bool,
     trailing_slash: bool,
     static_tabs: bool,
+    link_prefix: Option<String>,
 }
 
 impl PageRenderer {
@@ -165,6 +171,7 @@ impl PageRenderer {
             relative_links: config.relative_links,
             trailing_slash: config.trailing_slash,
             static_tabs: config.static_tabs,
+            link_prefix: config.link_prefix,
         }
     }
 
@@ -276,6 +283,10 @@ impl PageRenderer {
             .with_relative_links(self.relative_links)
             .with_trailing_slash(self.trailing_slash)
             .with_directives(directives);
+
+        if let Some(prefix) = &self.link_prefix {
+            renderer = renderer.with_link_prefix(prefix);
+        }
 
         if self.extract_title {
             renderer = renderer.with_title_extraction();

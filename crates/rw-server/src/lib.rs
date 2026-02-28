@@ -153,6 +153,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::
         relative_links: false,
         trailing_slash: false,
         static_tabs: false,
+        link_prefix: None,
     };
     let site = Arc::new(Site::new(Arc::clone(&storage), cache, site_config));
 
