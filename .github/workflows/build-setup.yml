@@ -1,0 +1,6 @@
+- name: Enable Corepack
+  run: corepack enable
+- name: Install Yarn
+  run: corepack install
+- name: Build frontend
+  run: yarn install --immutable && yarn workspace rw-frontend run build

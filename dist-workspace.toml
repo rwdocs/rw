@@ -11,6 +11,8 @@ ci = "github"
 installers = ["shell", "powershell", "homebrew"]
 # Features to pass to cargo build
 features = ["rw/embed-assets"]
+# Steps to run before building (enables corepack for yarn)
+github-build-setup = "build-setup.yml"
 # A GitHub repo to push Homebrew formulas to
 tap = "rwdocs/homebrew-tap"
 # Target platforms to build apps for (Rust target-triple syntax)

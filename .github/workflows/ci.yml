@@ -26,16 +26,18 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Yarn
+        run: corepack install
 
       - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
+        run: yarn install --immutable
 
       - name: Build frontend bundle
-        run: npm run build
-        working-directory: frontend
+        run: yarn workspace rw-frontend run build
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
@@ -44,12 +46,10 @@ jobs:
         run: cargo clippy --all-targets -- -W clippy::pedantic
 
       - name: Run svelte-check
-        run: npm run check
-        working-directory: frontend
+        run: yarn workspace rw-frontend run check
 
       - name: Check Prettier formatting
-        run: npm run format -- --check
-        working-directory: frontend
+        run: yarn workspace rw-frontend exec prettier --check .
 
   test:
     name: Test (${{ matrix.os }})
@@ -80,23 +80,24 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Yarn
+        run: corepack install
 
       - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
+        run: yarn install --immutable
 
       - name: Build frontend bundle
-        run: npm run build
-        working-directory: frontend
+        run: yarn workspace rw-frontend run build
 
       - name: Run Rust tests
         run: cargo test --all-targets
 
       - name: Run frontend tests
-        run: npm run test
-        working-directory: frontend
+        run: yarn workspace rw-frontend run test
 
   e2e:
     name: E2E Tests
@@ -124,16 +125,18 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Yarn
+        run: corepack install
 
       - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
+        run: yarn install --immutable
 
       - name: Build frontend bundle
-        run: npm run build
-        working-directory: frontend
+        run: yarn workspace rw-frontend run build
 
       - name: Build CLI
         run: cargo build -p rw
@@ -143,8 +146,7 @@ jobs:
         working-directory: frontend
 
       - name: Run E2E tests
-        run: npm run test:e2e
-        working-directory: frontend
+        run: yarn workspace rw-frontend run test:e2e
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v6
