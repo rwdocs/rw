@@ -4,6 +4,7 @@
 //! and uploads them to S3. Only available with the `publish` feature.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use rw_diagrams::DiagramProcessor;
 use rw_renderer::bundle_markdown;
@@ -50,7 +51,8 @@ impl BundlePublisher {
         let client = s3::build_client(&self.config).await;
         let documents = storage.scan()?;
 
-        let mut uploaded = 1; // manifest counts as 1
+        // Build all page bundles sequentially (DiagramProcessor is stateful).
+        let mut bundles = Vec::with_capacity(documents.len());
         let mut processor = DiagramProcessor::new("").include_dirs(include_dirs);
 
         for doc in &documents {
@@ -69,12 +71,36 @@ impl BundlePublisher {
 
             let bundle_json = serde_json::to_vec(&bundle)?;
             let key = format::page_bundle_key(&doc.path);
-            s3::upload(&client, &self.config, &key, bundle_json, "application/json")
-                .await
-                .map_err(BundlePublishError::S3)?;
+            bundles.push((key, bundle_json));
+        }
 
-            uploaded += 1;
-            tracing::debug!(path = %doc.path, "Published page bundle");
+        // Upload page bundles with bounded concurrency.
+        const MAX_CONCURRENT_UPLOADS: usize = 32;
+        let mut tasks: tokio::task::JoinSet<Result<(), String>> = tokio::task::JoinSet::new();
+        let config = Arc::new(self.config.clone());
+        let num_bundles = bundles.len();
+
+        for (key, body) in bundles {
+            if tasks.len() >= MAX_CONCURRENT_UPLOADS {
+                tasks
+                    .join_next()
+                    .await
+                    .expect("task set is non-empty")
+                    .expect("upload task panicked")
+                    .map_err(BundlePublishError::S3)?;
+            }
+
+            let client = client.clone();
+            let config = Arc::clone(&config);
+            tasks.spawn(async move {
+                s3::upload(&client, &config, &key, body, "application/json").await
+            });
+        }
+
+        while let Some(result) = tasks.join_next().await {
+            result
+                .expect("upload task panicked")
+                .map_err(BundlePublishError::S3)?;
         }
 
         // Upload manifest last so readers don't see a manifest referencing
@@ -91,6 +117,6 @@ impl BundlePublisher {
         .await
         .map_err(BundlePublishError::S3)?;
 
-        Ok(uploaded)
+        Ok(num_bundles + 1)
     }
 }
