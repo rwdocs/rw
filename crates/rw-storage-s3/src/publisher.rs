@@ -48,11 +48,18 @@ impl BundlePublisher {
         storage: &dyn Storage,
         include_dirs: &[PathBuf],
     ) -> Result<usize, BundlePublishError> {
+        const MAX_CONCURRENT_UPLOADS: usize = 32;
+
         let client = s3::build_client(&self.config).await;
         let documents = storage.scan()?;
 
-        // Build all page bundles sequentially (DiagramProcessor is stateful).
-        let mut bundles = Vec::with_capacity(documents.len());
+        // Build bundles and upload with bounded concurrency.
+        // Bundles are submitted to the upload pool as they are built so that
+        // memory usage is bounded by MAX_CONCURRENT_UPLOADS rather than total
+        // site size. Building is sequential because DiagramProcessor is stateful.
+        let mut tasks: tokio::task::JoinSet<Result<(), String>> = tokio::task::JoinSet::new();
+        let config = Arc::new(self.config.clone());
+        let mut num_bundles = 0;
         let mut processor = DiagramProcessor::new("").include_dirs(include_dirs);
 
         for doc in &documents {
@@ -71,16 +78,8 @@ impl BundlePublisher {
 
             let bundle_json = serde_json::to_vec(&bundle)?;
             let key = format::page_bundle_key(&doc.path);
-            bundles.push((key, bundle_json));
-        }
+            num_bundles += 1;
 
-        // Upload page bundles with bounded concurrency.
-        const MAX_CONCURRENT_UPLOADS: usize = 32;
-        let mut tasks: tokio::task::JoinSet<Result<(), String>> = tokio::task::JoinSet::new();
-        let config = Arc::new(self.config.clone());
-        let num_bundles = bundles.len();
-
-        for (key, body) in bundles {
             if tasks.len() >= MAX_CONCURRENT_UPLOADS {
                 tasks
                     .join_next()
@@ -93,7 +92,7 @@ impl BundlePublisher {
             let client = client.clone();
             let config = Arc::clone(&config);
             tasks.spawn(async move {
-                s3::upload(&client, &config, &key, body, "application/json").await
+                s3::upload(&client, &config, &key, bundle_json, "application/json").await
             });
         }
 
