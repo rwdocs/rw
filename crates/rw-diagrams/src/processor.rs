@@ -361,7 +361,11 @@ impl CodeBlockProcessor for DiagramProcessor {
             &mut warnings,
         );
         self.warnings.extend(warnings);
-        Some(resolved)
+        if resolved == source {
+            None
+        } else {
+            Some(resolved)
+        }
     }
 }
 
@@ -1061,28 +1065,27 @@ mod tests {
     }
 
     #[test]
-    fn test_preprocess_plantuml_without_includes() {
+    fn test_preprocess_plantuml_without_includes_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let source = "@startuml\nAlice -> Bob\n@enduml";
         let result = processor.preprocess("plantuml", source);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), source);
+        assert!(result.is_none());
     }
 
     #[test]
-    fn test_preprocess_c4plantuml() {
+    fn test_preprocess_c4plantuml_without_includes_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let source = "@startuml\nPerson(user, \"User\")\n@enduml";
         let result = processor.preprocess("c4plantuml", source);
-        assert!(result.is_some());
+        assert!(result.is_none());
     }
 
     #[test]
-    fn test_preprocess_puml_alias() {
+    fn test_preprocess_puml_alias_without_includes_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let source = "@startuml\nA -> B\n@enduml";
         let result = processor.preprocess("puml", source);
-        assert!(result.is_some());
+        assert!(result.is_none());
     }
 
     #[test]
