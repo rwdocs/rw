@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
 use aws_sdk_s3::Client;
+use aws_sdk_s3::operation::get_object::GetObjectError;
 use rw_storage::{Document, Metadata, Storage, StorageError, StorageErrorKind};
 
 use crate::format::{self, FORMAT_VERSION, Manifest, PageBundle};
@@ -99,12 +100,11 @@ impl S3Storage {
             .send()
             .await
             .map_err(|e| {
-                let kind =
-                    if e.to_string().contains("NoSuchKey") || e.to_string().contains("not found") {
-                        StorageErrorKind::NotFound
-                    } else {
-                        StorageErrorKind::Unavailable
-                    };
+                let kind = if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_))) {
+                    StorageErrorKind::NotFound
+                } else {
+                    StorageErrorKind::Unavailable
+                };
                 StorageError::new(kind)
                     .with_backend("S3")
                     .with_path(key)
