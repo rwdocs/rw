@@ -33,7 +33,7 @@ impl PublishArgs {
         let output = Output::new();
 
         let cli_settings = CliSettings {
-            source_dir: self.source_dir.clone(),
+            source_dir: self.source_dir,
             ..CliSettings::default()
         };
         let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
