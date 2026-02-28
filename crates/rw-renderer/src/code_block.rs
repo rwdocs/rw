@@ -138,9 +138,9 @@ pub trait CodeBlockProcessor {
         &[]
     }
 
-    /// Preprocess code block source before rendering.
+    /// Bundle code block source before rendering.
     ///
-    /// Called by [`preprocess_markdown`](crate::preprocess_markdown) to resolve
+    /// Called by [`bundle_markdown`](crate::bundle_markdown) to resolve
     /// external references (e.g., `PlantUML` `!include` directives).
     ///
     /// Return `Some(resolved_source)` to replace the code block content,
@@ -150,7 +150,7 @@ pub trait CodeBlockProcessor {
     ///
     /// * `language` - Language identifier from fence info string
     /// * `source` - Raw content of the code block
-    fn preprocess(&mut self, _language: &str, _source: &str) -> Option<String> {
+    fn bundle(&mut self, _language: &str, _source: &str) -> Option<String> {
         None
     }
 }

@@ -28,19 +28,19 @@
 //! ```
 
 mod backend;
+mod bundle;
 mod code_block;
 pub mod directive;
 mod html;
-mod preprocess;
 mod renderer;
 mod state;
 pub(crate) mod tabs;
 mod util;
 
 pub use backend::{AlertKind, RenderBackend};
+pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use html::HtmlBackend;
-pub use preprocess::preprocess_markdown;
 pub use renderer::{MarkdownRenderer, RenderResult};
 pub use state::{TocEntry, escape_html};
 pub use tabs::{TabMetadata, TabsDirective, TabsGroup, TabsPreprocessor, TabsProcessor};

@@ -61,6 +61,7 @@ crates/
 │       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend>
 │       ├── backend.rs        # RenderBackend trait definition
 │       ├── code_block.rs     # CodeBlockProcessor trait for extensible code block handling
+│       ├── bundle.rs         # bundle_markdown() for resolving code block references
 │       ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
 │       ├── html.rs           # HtmlBackend implementation
 │       ├── directive/        # Pluggable directives API (CommonMark syntax)
