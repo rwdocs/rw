@@ -51,12 +51,8 @@ impl BundlePublisher {
         let client = s3::build_client(&self.config).await;
         let documents = storage.scan()?;
 
-        let manifest = Manifest::new(documents.clone());
-        let manifest_json = serde_json::to_vec(&manifest)?;
-        self.upload(&client, MANIFEST_KEY, manifest_json, "application/json")
-            .await?;
-
-        let mut uploaded = 1; // manifest
+        let mut uploaded = 1; // manifest counts as 1
+        let mut processor = DiagramProcessor::new("").include_dirs(include_dirs);
 
         for doc in &documents {
             if !doc.has_content {
@@ -64,7 +60,6 @@ impl BundlePublisher {
             }
 
             let content = storage.read(&doc.path)?;
-            let mut processor = DiagramProcessor::new("").include_dirs(include_dirs);
             let resolved_content = bundle_markdown(&content, &mut [&mut processor]);
             let metadata = storage.meta(&doc.path)?;
 
@@ -75,12 +70,17 @@ impl BundlePublisher {
 
             let bundle_json = serde_json::to_vec(&bundle)?;
             let key = format::page_bundle_key(&doc.path);
-            self.upload(&client, &key, bundle_json, "application/json")
-                .await?;
+            self.upload(&client, &key, bundle_json).await?;
 
             uploaded += 1;
             tracing::debug!(path = %doc.path, "Published page bundle");
         }
+
+        // Upload manifest last so readers don't see a manifest referencing
+        // pages that haven't been uploaded yet.
+        let manifest = Manifest::new(documents);
+        let manifest_json = serde_json::to_vec(&manifest)?;
+        self.upload(&client, MANIFEST_KEY, manifest_json).await?;
 
         Ok(uploaded)
     }
@@ -90,7 +90,6 @@ impl BundlePublisher {
         client: &Client,
         relative_key: &str,
         body: Vec<u8>,
-        content_type: &str,
     ) -> Result<(), PublishError> {
         let key = s3::build_key(&self.config, relative_key);
         client
@@ -98,7 +97,7 @@ impl BundlePublisher {
             .bucket(&self.config.bucket)
             .key(&key)
             .body(body.into())
-            .content_type(content_type)
+            .content_type("application/json")
             .send()
             .await
             .map_err(|e| PublishError::S3(s3::error_chain(&e)))?;

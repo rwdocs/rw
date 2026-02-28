@@ -3274,19 +3274,17 @@ dependencies = [
 name = "rw-techdocs"
 version = "0.1.8"
 dependencies = [
- "aws-config",
- "aws-sdk-s3",
  "minijinja",
  "rayon",
  "rw-assets",
  "rw-cache",
  "rw-site",
  "rw-storage",
+ "rw-storage-s3",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
- "tokio",
  "tracing",
 ]
 

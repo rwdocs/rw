@@ -15,6 +15,8 @@ use rw_storage::{Document, Metadata, Storage, StorageError, StorageErrorKind};
 use crate::format::{self, FORMAT_VERSION, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
 
+const BACKEND: &str = "S3";
+
 /// S3-backed storage that reads pre-built documentation bundles.
 ///
 /// Uses a dedicated tokio runtime for async S3 operations within
@@ -49,7 +51,7 @@ impl S3Storage {
     pub fn new(config: S3Config) -> Result<Self, StorageError> {
         let runtime = tokio::runtime::Runtime::new().map_err(|e| {
             StorageError::new(StorageErrorKind::Other)
-                .with_backend("S3")
+                .with_backend(BACKEND)
                 .with_source(e)
         })?;
 
@@ -83,21 +85,21 @@ impl S3Storage {
                     StorageErrorKind::Unavailable
                 };
                 StorageError::new(kind)
-                    .with_backend("S3")
+                    .with_backend(BACKEND)
                     .with_path(key)
                     .with_source(std::io::Error::other(format!("{e}")))
             })?;
 
         let bytes = resp.body.collect().await.map_err(|e| {
             StorageError::new(StorageErrorKind::Other)
-                .with_backend("S3")
+                .with_backend(BACKEND)
                 .with_path(key)
                 .with_source(std::io::Error::other(format!("{e}")))
         })?;
 
         serde_json::from_slice(&bytes.into_bytes()).map_err(|e| {
             StorageError::new(StorageErrorKind::Other)
-                .with_backend("S3")
+                .with_backend(BACKEND)
                 .with_path(key)
                 .with_source(e)
         })
@@ -121,7 +123,7 @@ impl S3Storage {
 
         if manifest.version != FORMAT_VERSION {
             return Err(StorageError::new(StorageErrorKind::Other)
-                .with_backend("S3")
+                .with_backend(BACKEND)
                 .with_source(std::io::Error::other(format!(
                     "Unsupported manifest version: {} (expected {FORMAT_VERSION})",
                     manifest.version
@@ -188,7 +190,7 @@ impl Storage for S3Storage {
         guard
             .get(path)
             .map(|b| b.content.clone())
-            .ok_or_else(|| StorageError::not_found(path).with_backend("S3"))
+            .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))
     }
 
     fn exists(&self, path: &str) -> bool {
@@ -203,7 +205,7 @@ impl Storage for S3Storage {
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         if !self.exists(path) {
-            return Err(StorageError::not_found(path).with_backend("S3"));
+            return Err(StorageError::not_found(path).with_backend(BACKEND));
         }
         Ok(0.0)
     }

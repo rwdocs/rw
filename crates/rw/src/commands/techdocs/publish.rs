@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
-use rw_techdocs::{PublishConfig, S3Publisher};
+use rw_techdocs::{S3Config, S3Publisher};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -58,14 +58,13 @@ impl PublishArgs {
             self.entity
         ));
 
-        let publish_config = PublishConfig {
+        let publisher = S3Publisher::new(S3Config {
             bucket: self.bucket,
-            entity: self.entity,
-            endpoint: self.endpoint,
+            prefix: self.entity,
             region: self.region,
+            endpoint: self.endpoint,
             bucket_root_path: self.bucket_root_path,
-        };
-        let publisher = S3Publisher::new(publish_config);
+        });
 
         let rt = tokio::runtime::Runtime::new()?;
         let uploaded = rt.block_on(publisher.publish(&directory))?;

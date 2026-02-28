@@ -5,4 +5,5 @@ mod publisher;
 mod template;
 
 pub use builder::{BuildConfig, BuildError, StaticSiteBuilder};
-pub use publisher::{PublishConfig, PublishError, S3Publisher};
+pub use publisher::{PublishError, S3Publisher};
+pub use rw_storage_s3::S3Config;
