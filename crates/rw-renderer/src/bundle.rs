@@ -58,7 +58,6 @@ pub fn bundle_markdown(markdown: &str, processors: &mut [&mut dyn CodeBlockProce
     let parser = Parser::new_ext(markdown, Options::empty());
     let mut replacements: Vec<(Range<usize>, String)> = Vec::new();
 
-    let mut in_code_block = false;
     let mut current_language: Option<String> = None;
     let mut content_range: Option<Range<usize>> = None;
     let mut content = String::new();
@@ -66,13 +65,12 @@ pub fn bundle_markdown(markdown: &str, processors: &mut [&mut dyn CodeBlockProce
     for (event, range) in parser.into_offset_iter() {
         match event {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
-                in_code_block = true;
                 let (lang, _attrs) = parse_fence_info(&info);
                 current_language = if lang.is_empty() { None } else { Some(lang) };
                 content.clear();
                 content_range = None;
             }
-            Event::Text(text) if in_code_block => {
+            Event::Text(text) if current_language.is_some() => {
                 if content_range.is_none() {
                     content_range = Some(range.clone());
                 } else if let Some(ref mut cr) = content_range {
@@ -97,7 +95,6 @@ pub fn bundle_markdown(markdown: &str, processors: &mut [&mut dyn CodeBlockProce
                         }
                     }
                 }
-                in_code_block = false;
                 current_language = None;
                 content_range = None;
                 content.clear();
@@ -110,12 +107,15 @@ pub fn bundle_markdown(markdown: &str, processors: &mut [&mut dyn CodeBlockProce
         return markdown.to_owned();
     }
 
-    // Apply replacements in reverse order to preserve byte offsets
-    let mut result = markdown.to_owned();
-    replacements.sort_by(|a, b| b.0.start.cmp(&a.0.start));
-    for (range, new_content) in replacements {
-        result.replace_range(range, &new_content);
+    // Single-pass forward copy: splice in replacements while copying unchanged segments
+    let mut result = String::with_capacity(markdown.len());
+    let mut pos = 0;
+    for (range, new_content) in &replacements {
+        result.push_str(&markdown[pos..range.start]);
+        result.push_str(new_content);
+        pos = range.end;
     }
+    result.push_str(&markdown[pos..]);
     result
 }
 
