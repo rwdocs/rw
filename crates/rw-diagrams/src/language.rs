@@ -37,7 +37,7 @@ impl DiagramLanguage {
         let lang = s.strip_prefix("kroki-").unwrap_or(s);
 
         match lang {
-            "plantuml" => Some(Self::PlantUml),
+            "plantuml" | "puml" => Some(Self::PlantUml),
             "c4plantuml" => Some(Self::C4PlantUml),
             "mermaid" => Some(Self::Mermaid),
             "graphviz" | "dot" => Some(Self::GraphViz),
@@ -232,6 +232,15 @@ mod tests {
                 "Wrong endpoint for {lang:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_puml_alias() {
+        assert_eq!(
+            DiagramLanguage::parse("puml"),
+            Some(DiagramLanguage::PlantUml)
+        );
+        assert!(DiagramLanguage::PlantUml.needs_plantuml_preprocessing());
     }
 
     #[test]

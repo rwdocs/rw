@@ -42,7 +42,7 @@ pub struct PrepareResult {
 }
 
 /// Resolve `PlantUML` !include directives in diagram source.
-fn resolve_includes(
+pub(crate) fn resolve_includes(
     source: &str,
     include_dirs: &[PathBuf],
     meta_source: Option<&dyn MetaIncludeSource>,

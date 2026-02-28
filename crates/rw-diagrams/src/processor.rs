@@ -21,7 +21,7 @@ use crate::kroki::{
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::meta_includes::{LinkConfig, MetaIncludeSource};
 use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
-use crate::plantuml::{PrepareResult, prepare_diagram_source};
+use crate::plantuml::{PrepareResult, prepare_diagram_source, resolve_includes};
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 
 /// Configuration for diagram processing (immutable after setup).
@@ -344,6 +344,24 @@ impl CodeBlockProcessor for DiagramProcessor {
 
     fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    fn preprocess(&mut self, language: &str, source: &str) -> Option<String> {
+        let lang = DiagramLanguage::parse(language)?;
+        if !lang.needs_plantuml_preprocessing() {
+            return None;
+        }
+        let mut warnings = Vec::new();
+        let resolved = resolve_includes(
+            source,
+            &self.config.include_dirs,
+            self.config.meta_include_source.as_deref(),
+            self.config.link_config.as_ref(),
+            0,
+            &mut warnings,
+        );
+        self.warnings.extend(warnings);
+        Some(resolved)
     }
 }
 
@@ -1028,6 +1046,60 @@ mod tests {
         replacements.apply(&mut html);
 
         assert_eq!(html, "content");
+    }
+
+    #[test]
+    fn test_preprocess_non_plantuml_returns_none() {
+        let mut processor = DiagramProcessor::new("https://kroki.io");
+        assert!(
+            processor
+                .preprocess("mermaid", "graph TD\nA --> B")
+                .is_none()
+        );
+        assert!(processor.preprocess("rust", "fn main() {}").is_none());
+        assert!(processor.preprocess("graphviz", "digraph {}").is_none());
+    }
+
+    #[test]
+    fn test_preprocess_plantuml_without_includes() {
+        let mut processor = DiagramProcessor::new("https://kroki.io");
+        let source = "@startuml\nAlice -> Bob\n@enduml";
+        let result = processor.preprocess("plantuml", source);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), source);
+    }
+
+    #[test]
+    fn test_preprocess_c4plantuml() {
+        let mut processor = DiagramProcessor::new("https://kroki.io");
+        let source = "@startuml\nPerson(user, \"User\")\n@enduml";
+        let result = processor.preprocess("c4plantuml", source);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_preprocess_puml_alias() {
+        let mut processor = DiagramProcessor::new("https://kroki.io");
+        let source = "@startuml\nA -> B\n@enduml";
+        let result = processor.preprocess("puml", source);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_preprocess_resolves_filesystem_include() {
+        let temp_dir = std::env::temp_dir();
+        let include_file = temp_dir.join("preprocess_test.iuml");
+        std::fs::write(&include_file, "Bob -> Charlie").unwrap();
+
+        let mut processor =
+            DiagramProcessor::new("https://kroki.io").include_dirs(&[temp_dir.clone()]);
+        let source = "@startuml\n!include preprocess_test.iuml\n@enduml";
+        let result = processor.preprocess("plantuml", source).unwrap();
+
+        std::fs::remove_file(&include_file).unwrap();
+
+        assert!(result.contains("Bob -> Charlie"));
+        assert!(!result.contains("!include"));
     }
 
     #[test]
