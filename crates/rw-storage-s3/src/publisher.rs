@@ -4,19 +4,14 @@
 //! and uploads them to S3. Only available with the `publish` feature.
 
 use std::path::PathBuf;
-use std::sync::LazyLock;
 
 use aws_sdk_s3::Client;
-use regex::Regex;
-use rw_diagrams::resolve_plantuml_includes;
+use rw_diagrams::DiagramProcessor;
+use rw_renderer::bundle_markdown;
 use rw_storage::Storage;
 
 use crate::format::{self, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
-
-static PLANTUML_FENCE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^(\s*`{3,})\s*(?:plantuml|puml|c4plantuml)\b[^\n]*\n").unwrap()
-});
 
 /// Configuration for publishing documentation bundles to S3.
 #[derive(Debug, Clone)]
@@ -91,7 +86,8 @@ impl BundlePublisher {
             }
 
             let content = storage.read(&doc.path)?;
-            let resolved_content = resolve_markdown_includes(&content, include_dirs);
+            let mut processor = DiagramProcessor::new("").include_dirs(include_dirs);
+            let resolved_content = bundle_markdown(&content, &mut [&mut processor]);
             let metadata = storage.meta(&doc.path)?;
 
             let bundle = PageBundle {
@@ -140,105 +136,5 @@ impl BundlePublisher {
             .map_err(|e| PublishError::S3(s3::error_chain(&e)))?;
         tracing::debug!(key = %key, "Uploaded");
         Ok(())
-    }
-}
-
-/// Resolve `PlantUML` `!include` directives within markdown code fences.
-///
-/// Finds all plantuml/puml/c4plantuml code blocks and resolves `!include`
-/// directives by reading files from `include_dirs`.
-fn resolve_markdown_includes(markdown: &str, include_dirs: &[PathBuf]) -> String {
-    if include_dirs.is_empty() || !markdown.contains("!include") {
-        return markdown.to_owned();
-    }
-
-    let mut result = String::with_capacity(markdown.len());
-    let mut remaining = markdown;
-
-    while let Some(fence_match) = PLANTUML_FENCE.find(remaining) {
-        result.push_str(&remaining[..fence_match.end()]);
-        remaining = &remaining[fence_match.end()..];
-
-        let fence_line = fence_match.as_str();
-        let backtick_count = fence_line
-            .trim_start()
-            .chars()
-            .take_while(|&c| c == '`')
-            .count();
-        let closing_fence = "`".repeat(backtick_count);
-
-        if let Some(close_pos) = find_closing_fence(remaining, &closing_fence) {
-            let code_content = &remaining[..close_pos];
-            let resolve_result = resolve_plantuml_includes(code_content, include_dirs);
-            for warning in &resolve_result.warnings {
-                tracing::warn!("{warning}");
-            }
-            result.push_str(&resolve_result.source);
-            remaining = &remaining[close_pos..];
-        } else {
-            result.push_str(remaining);
-            return result;
-        }
-    }
-
-    result.push_str(remaining);
-    result
-}
-
-/// Find the byte position of a closing fence in the remaining text.
-fn find_closing_fence(text: &str, fence: &str) -> Option<usize> {
-    let mut offset = 0;
-    for line in text.lines() {
-        if line.trim() == fence {
-            return Some(offset);
-        }
-        // Advance past this line + its newline character.
-        // If the line doesn't end with '\n' (last line), we still advance past it.
-        offset += line.len();
-        if text.as_bytes().get(offset) == Some(&b'\n') {
-            offset += 1;
-        }
-    }
-    None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_resolve_markdown_includes_no_plantuml() {
-        let md = "# Hello\n\nSome text\n\n```rust\nfn main() {}\n```\n";
-        let result = resolve_markdown_includes(md, &[PathBuf::from("/tmp")]);
-        assert_eq!(result, md);
-    }
-
-    #[test]
-    fn test_resolve_markdown_includes_no_include_dirs() {
-        let md = "```plantuml\n@startuml\n!include foo.puml\n@enduml\n```\n";
-        let result = resolve_markdown_includes(md, &[]);
-        assert_eq!(result, md);
-    }
-
-    #[test]
-    fn test_resolve_markdown_includes_no_include_directive() {
-        let md = "```plantuml\n@startuml\nA -> B\n@enduml\n```\n";
-        let result = resolve_markdown_includes(md, &[PathBuf::from("/tmp")]);
-        assert_eq!(result, md);
-    }
-
-    #[test]
-    fn test_find_closing_fence_basic() {
-        let text = "@startuml\nA -> B\n@enduml\n```\nmore text";
-        let pos = find_closing_fence(text, "```");
-        assert!(pos.is_some());
-        assert_eq!(&text[pos.unwrap()..].lines().next().unwrap(), &"```");
-    }
-
-    #[test]
-    fn test_find_closing_fence_none() {
-        let text = "@startuml\nA -> B\n@enduml\n";
-        let pos = find_closing_fence(text, "```");
-        assert!(pos.is_none());
     }
 }
