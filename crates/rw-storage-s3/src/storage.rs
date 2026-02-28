@@ -55,12 +55,12 @@ impl S3Storage {
                 .send()
                 .await
                 .map_err(|e| {
-                    let kind =
-                        if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_))) {
-                            StorageErrorKind::NotFound
-                        } else {
-                            StorageErrorKind::Unavailable
-                        };
+                    let kind = if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_)))
+                    {
+                        StorageErrorKind::NotFound
+                    } else {
+                        StorageErrorKind::Unavailable
+                    };
                     StorageError::new(kind)
                         .with_backend(BACKEND)
                         .with_path(key)
@@ -120,7 +120,10 @@ impl Storage for S3Storage {
         let Ok(manifest) = self.fetch_manifest() else {
             return false;
         };
-        manifest.documents.iter().any(|d| d.has_content && d.path == path)
+        manifest
+            .documents
+            .iter()
+            .any(|d| d.has_content && d.path == path)
     }
 
     fn mtime(&self, _path: &str) -> Result<f64, StorageError> {
