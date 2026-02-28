@@ -168,7 +168,13 @@ mod tests {
 
         fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
             if language == "expand" {
-                Some(source.chars().map(|c| format!("[{c}]")).collect())
+                let mut result = String::with_capacity(source.len() * 3);
+                for c in source.chars() {
+                    result.push('[');
+                    result.push(c);
+                    result.push(']');
+                }
+                Some(result)
             } else {
                 None
             }

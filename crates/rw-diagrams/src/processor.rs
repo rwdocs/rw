@@ -1083,7 +1083,7 @@ mod tests {
         std::fs::write(&include_file, "Bob -> Charlie").unwrap();
 
         let mut processor =
-            DiagramProcessor::new("https://kroki.io").include_dirs(&[temp_dir.clone()]);
+            DiagramProcessor::new("https://kroki.io").include_dirs(std::slice::from_ref(&temp_dir));
         let source = "@startuml\n!include bundle_test.iuml\n@enduml";
         let result = processor.bundle("plantuml", source).unwrap();
 
