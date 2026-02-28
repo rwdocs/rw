@@ -346,7 +346,7 @@ impl CodeBlockProcessor for DiagramProcessor {
         &self.warnings
     }
 
-    fn preprocess(&mut self, language: &str, source: &str) -> Option<String> {
+    fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
         let lang = DiagramLanguage::parse(language)?;
         if !lang.needs_plantuml_preprocessing() {
             return None;
@@ -1053,43 +1053,39 @@ mod tests {
     }
 
     #[test]
-    fn test_preprocess_non_plantuml_returns_none() {
+    fn test_bundle_non_plantuml_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        assert!(
-            processor
-                .preprocess("mermaid", "graph TD\nA --> B")
-                .is_none()
-        );
-        assert!(processor.preprocess("rust", "fn main() {}").is_none());
-        assert!(processor.preprocess("graphviz", "digraph {}").is_none());
+        assert!(processor.bundle("mermaid", "graph TD\nA --> B").is_none());
+        assert!(processor.bundle("rust", "fn main() {}").is_none());
+        assert!(processor.bundle("graphviz", "digraph {}").is_none());
     }
 
     #[test]
-    fn test_preprocess_plantuml_without_includes_returns_none() {
+    fn test_bundle_plantuml_without_includes_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let source = "@startuml\nAlice -> Bob\n@enduml";
-        let result = processor.preprocess("plantuml", source);
+        let result = processor.bundle("plantuml", source);
         assert!(result.is_none());
     }
 
     #[test]
-    fn test_preprocess_c4plantuml_without_includes_returns_none() {
+    fn test_bundle_c4plantuml_without_includes_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let source = "@startuml\nPerson(user, \"User\")\n@enduml";
-        let result = processor.preprocess("c4plantuml", source);
+        let result = processor.bundle("c4plantuml", source);
         assert!(result.is_none());
     }
 
     #[test]
-    fn test_preprocess_resolves_filesystem_include() {
+    fn test_bundle_resolves_filesystem_include() {
         let temp_dir = std::env::temp_dir();
-        let include_file = temp_dir.join("preprocess_test.iuml");
+        let include_file = temp_dir.join("bundle_test.iuml");
         std::fs::write(&include_file, "Bob -> Charlie").unwrap();
 
         let mut processor =
             DiagramProcessor::new("https://kroki.io").include_dirs(&[temp_dir.clone()]);
-        let source = "@startuml\n!include preprocess_test.iuml\n@enduml";
-        let result = processor.preprocess("plantuml", source).unwrap();
+        let source = "@startuml\n!include bundle_test.iuml\n@enduml";
+        let result = processor.bundle("plantuml", source).unwrap();
 
         std::fs::remove_file(&include_file).unwrap();
 

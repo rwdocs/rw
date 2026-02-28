@@ -1,10 +1,10 @@
-//! Markdown preprocessing for resolving external references.
+//! Markdown bundling for resolving external references.
 //!
-//! This module provides [`preprocess_markdown`], which parses markdown using
+//! This module provides [`bundle_markdown`], which parses markdown using
 //! pulldown-cmark to find code blocks and dispatches to registered
-//! [`CodeBlockProcessor`]s for preprocessing (e.g., resolving `!include` directives).
+//! [`CodeBlockProcessor`]s for bundling (e.g., resolving `!include` directives).
 //!
-//! Unlike rendering, preprocessing returns modified markdown (not HTML),
+//! Unlike rendering, bundling returns modified markdown (not HTML),
 //! preserving all formatting outside of processed code blocks.
 
 use std::ops::Range;
@@ -13,10 +13,10 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use crate::code_block::{CodeBlockProcessor, parse_fence_info};
 
-/// Preprocess markdown by resolving external references in code blocks.
+/// Bundle markdown by resolving external references in code blocks.
 ///
 /// Parses markdown with pulldown-cmark, finds fenced code blocks, and calls
-/// [`CodeBlockProcessor::preprocess`] on each processor. The first processor
+/// [`CodeBlockProcessor::bundle`] on each processor. The first processor
 /// returning `Some(resolved_source)` wins.
 ///
 /// Returns modified markdown with code block contents replaced. Everything
@@ -27,7 +27,7 @@ use crate::code_block::{CodeBlockProcessor, parse_fence_info};
 ///
 /// ```
 /// use std::collections::HashMap;
-/// use rw_renderer::{CodeBlockProcessor, ProcessResult, preprocess_markdown};
+/// use rw_renderer::{CodeBlockProcessor, ProcessResult, bundle_markdown};
 ///
 /// struct UpperCaseProcessor;
 ///
@@ -36,7 +36,7 @@ use crate::code_block::{CodeBlockProcessor, parse_fence_info};
 ///                _: &str, _: usize) -> ProcessResult {
 ///         ProcessResult::PassThrough
 ///     }
-///     fn preprocess(&mut self, language: &str, source: &str) -> Option<String> {
+///     fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
 ///         if language == "upper" {
 ///             Some(source.to_uppercase())
 ///         } else {
@@ -47,13 +47,10 @@ use crate::code_block::{CodeBlockProcessor, parse_fence_info};
 ///
 /// let md = "```upper\nhello world\n```";
 /// let mut proc = UpperCaseProcessor;
-/// let result = preprocess_markdown(md, &mut [&mut proc]);
+/// let result = bundle_markdown(md, &mut [&mut proc]);
 /// assert!(result.contains("HELLO WORLD"));
 /// ```
-pub fn preprocess_markdown(
-    markdown: &str,
-    processors: &mut [&mut dyn CodeBlockProcessor],
-) -> String {
+pub fn bundle_markdown(markdown: &str, processors: &mut [&mut dyn CodeBlockProcessor]) -> String {
     if processors.is_empty() {
         return markdown.to_owned();
     }
@@ -94,7 +91,7 @@ pub fn preprocess_markdown(
                         (content.as_str(), cr.clone())
                     };
                     for processor in processors.iter_mut() {
-                        if let Some(resolved) = processor.preprocess(lang, source) {
+                        if let Some(resolved) = processor.bundle(lang, source) {
                             replacements.push((replace_range, resolved));
                             break;
                         }
@@ -145,7 +142,7 @@ mod tests {
             ProcessResult::PassThrough
         }
 
-        fn preprocess(&mut self, language: &str, source: &str) -> Option<String> {
+        fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
             if language == "upper" {
                 Some(source.to_uppercase())
             } else {
@@ -169,7 +166,7 @@ mod tests {
             ProcessResult::PassThrough
         }
 
-        fn preprocess(&mut self, language: &str, source: &str) -> Option<String> {
+        fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
             if language == "expand" {
                 Some(source.chars().map(|c| format!("[{c}]")).collect())
             } else {
@@ -192,7 +189,7 @@ mod tests {
             ProcessResult::PassThrough
         }
 
-        fn preprocess(&mut self, language: &str, source: &str) -> Option<String> {
+        fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
             if language == "reverse" {
                 Some(source.chars().rev().collect())
             } else {
@@ -204,7 +201,7 @@ mod tests {
     #[test]
     fn test_no_processors_returns_unchanged() {
         let md = "# Hello\n\n```rust\nfn main() {}\n```\n";
-        let result = preprocess_markdown(md, &mut []);
+        let result = bundle_markdown(md, &mut []);
         assert_eq!(result, md);
     }
 
@@ -212,7 +209,7 @@ mod tests {
     fn test_no_code_blocks_returns_unchanged() {
         let md = "# Hello\n\nSome paragraph text.\n\n- List item\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(result, md);
     }
 
@@ -220,7 +217,7 @@ mod tests {
     fn test_non_matching_language_unchanged() {
         let md = "```rust\nfn main() {}\n```\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(result, md);
     }
 
@@ -228,7 +225,7 @@ mod tests {
     fn test_matching_language_content_replaced() {
         let md = "```upper\nhello world\n```\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(result, "```upper\nHELLO WORLD\n```\n");
     }
 
@@ -236,7 +233,7 @@ mod tests {
     fn test_surrounding_content_preserved() {
         let md = "# Title\n\nBefore.\n\n```upper\nhello\n```\n\nAfter.\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(
             result,
             "# Title\n\nBefore.\n\n```upper\nHELLO\n```\n\nAfter.\n"
@@ -247,7 +244,7 @@ mod tests {
     fn test_multiple_code_blocks_only_matching_replaced() {
         let md = "```rust\nlet x = 1;\n```\n\n```upper\nhello\n```\n\n```python\nprint(1)\n```\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(
             result,
             "```rust\nlet x = 1;\n```\n\n```upper\nHELLO\n```\n\n```python\nprint(1)\n```\n"
@@ -260,7 +257,7 @@ mod tests {
         let md = "```upper\nhello\n```\n";
         let mut proc1 = UpperCaseProcessor;
         let mut proc2 = ReverseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc1, &mut proc2]);
+        let result = bundle_markdown(md, &mut [&mut proc1, &mut proc2]);
         assert_eq!(result, "```upper\nHELLO\n```\n");
     }
 
@@ -269,7 +266,7 @@ mod tests {
         let md = "```upper\nhello\n```\n\n```reverse\nabc\n```\n";
         let mut proc1 = UpperCaseProcessor;
         let mut proc2 = ReverseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc1, &mut proc2]);
+        let result = bundle_markdown(md, &mut [&mut proc1, &mut proc2]);
         assert_eq!(result, "```upper\nHELLO\n```\n\n```reverse\ncba\n```\n");
     }
 
@@ -277,7 +274,7 @@ mod tests {
     fn test_code_block_with_attributes_preserved() {
         let md = "```upper format=png\nhello\n```\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(result, "```upper format=png\nHELLO\n```\n");
     }
 
@@ -285,7 +282,7 @@ mod tests {
     fn test_four_backtick_fence() {
         let md = "````upper\nhello\n````\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(result, "````upper\nHELLO\n````\n");
     }
 
@@ -294,7 +291,7 @@ mod tests {
         // Indented code blocks (4 spaces) are not fenced, should be skipped
         let md = "    indented code\n    more code\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(result, md);
     }
 
@@ -302,7 +299,7 @@ mod tests {
     fn test_empty_code_block() {
         let md = "```upper\n```\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         // Empty code block — processor gets empty string
         assert_eq!(result, "```upper\n```\n");
     }
@@ -311,7 +308,7 @@ mod tests {
     fn test_code_block_no_language() {
         let md = "```\nsome content\n```\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(result, md);
     }
 
@@ -319,7 +316,7 @@ mod tests {
     fn test_multiline_content() {
         let md = "```upper\nline one\nline two\nline three\n```\n";
         let mut proc = UpperCaseProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(result, "```upper\nLINE ONE\nLINE TWO\nLINE THREE\n```\n");
     }
 
@@ -328,7 +325,7 @@ mod tests {
         // "ab" (2 bytes) expands to "[a][b]" (6 bytes), "xy" to "[x][y]"
         let md = "```expand\nab\n```\n\nMiddle text.\n\n```expand\nxy\n```\n";
         let mut proc = ExpandProcessor;
-        let result = preprocess_markdown(md, &mut [&mut proc]);
+        let result = bundle_markdown(md, &mut [&mut proc]);
         assert_eq!(
             result,
             "```expand\n[a][b]\n```\n\nMiddle text.\n\n```expand\n[x][y]\n```\n"
