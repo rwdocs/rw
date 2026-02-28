@@ -5,7 +5,6 @@
 
 use std::path::PathBuf;
 
-use aws_sdk_s3::Client;
 use rw_diagrams::DiagramProcessor;
 use rw_renderer::bundle_markdown;
 use rw_storage::Storage;
@@ -70,7 +69,9 @@ impl BundlePublisher {
 
             let bundle_json = serde_json::to_vec(&bundle)?;
             let key = format::page_bundle_key(&doc.path);
-            self.upload(&client, &key, bundle_json).await?;
+            s3::upload(&client, &self.config, &key, bundle_json, "application/json")
+                .await
+                .map_err(PublishError::S3)?;
 
             uploaded += 1;
             tracing::debug!(path = %doc.path, "Published page bundle");
@@ -80,28 +81,16 @@ impl BundlePublisher {
         // pages that haven't been uploaded yet.
         let manifest = Manifest::new(documents);
         let manifest_json = serde_json::to_vec(&manifest)?;
-        self.upload(&client, MANIFEST_KEY, manifest_json).await?;
+        s3::upload(
+            &client,
+            &self.config,
+            MANIFEST_KEY,
+            manifest_json,
+            "application/json",
+        )
+        .await
+        .map_err(PublishError::S3)?;
 
         Ok(uploaded)
-    }
-
-    async fn upload(
-        &self,
-        client: &Client,
-        relative_key: &str,
-        body: Vec<u8>,
-    ) -> Result<(), PublishError> {
-        let key = s3::build_key(&self.config, relative_key);
-        client
-            .put_object()
-            .bucket(&self.config.bucket)
-            .key(&key)
-            .body(body.into())
-            .content_type("application/json")
-            .send()
-            .await
-            .map_err(|e| PublishError::S3(s3::error_chain(&e)))?;
-        tracing::debug!(key = %key, "Uploaded");
-        Ok(())
     }
 }

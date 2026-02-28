@@ -8,7 +8,7 @@
 //! - Default: `S3Storage` reader and format types
 //! - `publish`: Bundle publisher for uploading docs to S3
 
-pub mod format;
+pub(crate) mod format;
 pub mod s3;
 mod storage;
 
