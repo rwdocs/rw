@@ -2,35 +2,35 @@ all: build test format lint
 
 build:
 	yarn install
-	yarn workspace rw-frontend run build
+	yarn workspace @rw/viewer run build
 	cargo build -p rw
 
 build-release:
 	yarn install
-	yarn workspace rw-frontend run build
+	yarn workspace @rw/viewer run build
 	cargo build --release -p rw --features embed-assets
 
 install:
 	yarn install
-	yarn workspace rw-frontend run build
+	yarn workspace @rw/viewer run build
 	cargo install --path crates/rw --features embed-assets
 
 test:
 	cargo llvm-cov --html
 	cargo test --doc --workspace
-	yarn workspace rw-frontend run test
+	yarn workspace @rw/viewer run test
 
 test-e2e:
-	yarn workspace rw-frontend run test:e2e
+	yarn workspace @rw/viewer run test:e2e
 
 format:
 	cargo fmt
-	yarn workspace rw-frontend run format
+	yarn workspace @rw/viewer run format
 
 lint:
 	cargo clippy --all-targets
-	yarn workspace rw-frontend run check
-	yarn workspace rw-frontend run lint
+	yarn workspace @rw/viewer run check
+	yarn workspace @rw/viewer run lint
 
 bench:
 	cargo bench -p rw-site
