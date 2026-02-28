@@ -30,7 +30,7 @@ use crate::metadata::Metadata;
 /// - `"guide"` - standalone page (maps to `guide.md` or `guide/index.md`)
 /// - `"domain"` - directory section (maps to `domain/index.md`)
 /// - `"domain/billing"` - nested page
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Document {
     /// URL path (e.g., "", "guide", "domain", "domain/billing").
     pub path: String,
@@ -40,9 +40,11 @@ pub struct Document {
     pub has_content: bool,
     /// Page type from metadata (e.g., "domain", "guide").
     /// Used for section detection. Not inherited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_type: Option<String>,
     /// Page description from metadata.
     /// Not inherited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
 

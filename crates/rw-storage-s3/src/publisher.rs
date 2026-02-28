@@ -9,9 +9,9 @@ use std::sync::LazyLock;
 use aws_sdk_s3::Client;
 use regex::Regex;
 use rw_diagrams::resolve_plantuml_includes;
-use rw_storage::{Document, Storage};
+use rw_storage::Storage;
 
-use crate::format::{self, Manifest, ManifestDocument, PageBundle};
+use crate::format::{self, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
 
 static PLANTUML_FENCE: LazyLock<Regex> = LazyLock::new(|| {
@@ -72,7 +72,7 @@ impl BundlePublisher {
         let client = s3::build_client(&s3_config).await;
         let documents = storage.scan()?;
 
-        let manifest = build_manifest(&documents);
+        let manifest = Manifest::new(documents.clone());
         let manifest_json = serde_json::to_vec(&manifest)?;
         self.upload(
             &client,
@@ -143,21 +143,6 @@ impl BundlePublisher {
     }
 }
 
-/// Build a manifest from scanned documents.
-fn build_manifest(documents: &[Document]) -> Manifest {
-    let docs = documents
-        .iter()
-        .map(|d| ManifestDocument {
-            path: d.path.clone(),
-            title: d.title.clone(),
-            has_content: d.has_content,
-            page_type: d.page_type.clone(),
-            description: d.description.clone(),
-        })
-        .collect();
-    Manifest::new(docs)
-}
-
 /// Resolve `PlantUML` `!include` directives within markdown code fences.
 ///
 /// Finds all plantuml/puml/c4plantuml code blocks and resolves `!include`
@@ -220,33 +205,6 @@ fn find_closing_fence(text: &str, fence: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_build_manifest() {
-        let documents = vec![
-            Document {
-                path: String::new(),
-                title: "Home".to_owned(),
-                has_content: true,
-                page_type: None,
-                description: None,
-            },
-            Document {
-                path: "guide".to_owned(),
-                title: "Guide".to_owned(),
-                has_content: true,
-                page_type: Some("guide".to_owned()),
-                description: Some("A guide".to_owned()),
-            },
-        ];
-
-        let manifest = build_manifest(&documents);
-
-        assert_eq!(manifest.version, format::FORMAT_VERSION);
-        assert_eq!(manifest.documents.len(), 2);
-        assert_eq!(manifest.documents[0].path, "");
-        assert_eq!(manifest.documents[1].page_type, Some("guide".to_owned()));
-    }
 
     #[test]
     fn test_resolve_markdown_includes_no_plantuml() {

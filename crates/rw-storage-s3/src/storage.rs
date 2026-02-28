@@ -151,19 +151,8 @@ impl S3Storage {
                 ))));
         }
 
-        let documents: Vec<Document> = manifest
+        let content_paths: HashSet<String> = manifest
             .documents
-            .iter()
-            .map(|d| Document {
-                path: d.path.clone(),
-                title: d.title.clone(),
-                has_content: d.has_content,
-                page_type: d.page_type.clone(),
-                description: d.description.clone(),
-            })
-            .collect();
-
-        let content_paths: HashSet<String> = documents
             .iter()
             .filter(|d| d.has_content)
             .map(|d| d.path.clone())
@@ -173,7 +162,7 @@ impl S3Storage {
         let mut guard = self.manifest.write().expect("manifest lock poisoned");
         if guard.is_none() {
             *guard = Some(CachedManifest {
-                documents,
+                documents: manifest.documents,
                 content_paths,
             });
         }
