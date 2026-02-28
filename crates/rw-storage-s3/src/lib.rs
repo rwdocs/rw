@@ -9,7 +9,7 @@
 //! - `publish`: Bundle publisher for uploading docs to S3
 
 pub mod format;
-pub(crate) mod s3;
+pub mod s3;
 mod storage;
 
 pub use s3::S3Config;

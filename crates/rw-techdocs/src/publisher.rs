@@ -1,25 +1,11 @@
 //! S3 publishing for `TechDocs` sites.
 
-use std::error::Error;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use aws_sdk_s3::Client;
-
-/// Configuration for S3 publishing.
-pub struct PublishConfig {
-    /// S3 bucket name.
-    pub bucket: String,
-    /// Backstage entity (e.g. "default/Component/arch").
-    pub entity: String,
-    /// S3-compatible endpoint URL.
-    pub endpoint: Option<String>,
-    /// AWS region.
-    pub region: String,
-    /// Optional prefix path within the bucket.
-    pub bucket_root_path: Option<String>,
-}
+use rw_storage_s3::S3Config;
+use rw_storage_s3::s3;
 
 /// Error returned by the publisher.
 #[derive(Debug, thiserror::Error)]
@@ -34,13 +20,13 @@ pub enum PublishError {
 
 /// Publishes a built site directory to S3.
 pub struct S3Publisher {
-    config: PublishConfig,
+    config: S3Config,
 }
 
 impl S3Publisher {
     /// Create a new publisher with the given configuration.
     #[must_use]
-    pub fn new(config: PublishConfig) -> Self {
+    pub fn new(config: S3Config) -> Self {
         Self { config }
     }
 
@@ -53,10 +39,10 @@ impl S3Publisher {
         }
 
         let files = Self::collect_files(directory)?;
-        let client = self.build_client().await;
+        let client = s3::build_client(&self.config).await;
 
         for (relative_path, abs_path) in &files {
-            let key = self.build_key(relative_path);
+            let key = s3::build_key(&self.config, relative_path);
             let content_type = guess_content_type(relative_path);
             let body = fs::read(abs_path)?;
 
@@ -68,45 +54,12 @@ impl S3Publisher {
                 .content_type(content_type)
                 .send()
                 .await
-                .map_err(|e| PublishError::S3(error_chain(&e)))?;
+                .map_err(|e| PublishError::S3(s3::error_chain(&e)))?;
 
             tracing::debug!(key = %key, "Uploaded");
         }
 
         Ok(files.len())
-    }
-
-    async fn build_client(&self) -> Client {
-        let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_config::Region::new(self.config.region.clone()));
-
-        if let Some(endpoint) = &self.config.endpoint {
-            loader = loader.endpoint_url(endpoint);
-        }
-
-        let sdk_config = loader.load().await;
-
-        // Custom endpoints (LocalStack, MinIO, Yandex Cloud) require path-style
-        // addressing (e.g. endpoint/bucket/key) instead of the default
-        // virtual-hosted-style (bucket.endpoint/key).
-        if self.config.endpoint.is_some() {
-            let s3_config = aws_sdk_s3::config::Builder::from(&sdk_config)
-                .force_path_style(true)
-                .build();
-            return Client::from_conf(s3_config);
-        }
-
-        Client::new(&sdk_config)
-    }
-
-    fn build_key(&self, relative_path: &str) -> String {
-        let mut parts = Vec::new();
-        if let Some(root) = &self.config.bucket_root_path {
-            parts.push(root.as_str());
-        }
-        parts.push(&self.config.entity);
-        parts.push(relative_path);
-        parts.join("/")
     }
 
     fn collect_files(directory: &Path) -> Result<Vec<(String, PathBuf)>, io::Error> {
@@ -136,17 +89,6 @@ fn walk_dir(
         }
     }
     Ok(())
-}
-
-/// Walk the error source chain and join all messages.
-fn error_chain(err: &dyn Error) -> String {
-    let mut msgs = vec![err.to_string()];
-    let mut source = err.source();
-    while let Some(s) = source {
-        msgs.push(s.to_string());
-        source = s.source();
-    }
-    msgs.join(": ")
 }
 
 fn guess_content_type(path: &str) -> &'static str {
@@ -197,30 +139,30 @@ mod tests {
 
     #[test]
     fn build_key_simple() {
-        let publisher = S3Publisher::new(PublishConfig {
+        let config = S3Config {
             bucket: "bucket".to_owned(),
-            entity: "default/Component/arch".to_owned(),
+            prefix: "default/Component/arch".to_owned(),
             endpoint: None,
             region: "us-east-1".to_owned(),
             bucket_root_path: None,
-        });
+        };
         assert_eq!(
-            publisher.build_key("index.html"),
+            s3::build_key(&config, "index.html"),
             "default/Component/arch/index.html"
         );
     }
 
     #[test]
     fn build_key_with_root_path() {
-        let publisher = S3Publisher::new(PublishConfig {
+        let config = S3Config {
             bucket: "bucket".to_owned(),
-            entity: "default/Component/arch".to_owned(),
+            prefix: "default/Component/arch".to_owned(),
             endpoint: None,
             region: "us-east-1".to_owned(),
             bucket_root_path: Some("techdocs".to_owned()),
-        });
+        };
         assert_eq!(
-            publisher.build_key("index.html"),
+            s3::build_key(&config, "index.html"),
             "techdocs/default/Component/arch/index.html"
         );
     }

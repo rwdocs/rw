@@ -18,7 +18,7 @@ pub struct S3Config {
 }
 
 /// Build an S3 client from connection configuration.
-pub(crate) async fn build_client(config: &S3Config) -> Client {
+pub async fn build_client(config: &S3Config) -> Client {
     let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(aws_config::Region::new(config.region.clone()));
 
@@ -39,7 +39,7 @@ pub(crate) async fn build_client(config: &S3Config) -> Client {
 }
 
 /// Build a full S3 key from a relative path within the bundle.
-pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
+pub fn build_key(config: &S3Config, relative_path: &str) -> String {
     let mut parts = Vec::new();
     if let Some(root) = &config.bucket_root_path {
         parts.push(root.as_str());
@@ -50,8 +50,7 @@ pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
 }
 
 /// Format an error and its full source chain into a single string.
-#[cfg(feature = "publish")]
-pub(crate) fn error_chain(err: &dyn std::error::Error) -> String {
+pub fn error_chain(err: &dyn std::error::Error) -> String {
     let mut msgs = vec![err.to_string()];
     let mut source = err.source();
     while let Some(s) = source {
