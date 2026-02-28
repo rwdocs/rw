@@ -17,8 +17,11 @@ napi = { version = "3", default-features = false, features = ["napi4", "async", 
 napi-derive = "3"
 
 rw-cache = { workspace = true }
+rw-config = { workspace = true }
 rw-site = { workspace = true }
+rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
+rw-storage-s3 = { workspace = true }
 
 chrono = "0.4"
 tokio = { version = "1", features = ["rt"] }

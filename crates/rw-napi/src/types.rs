@@ -2,6 +2,25 @@ use napi_derive::napi;
 use serde_json::Value;
 
 #[napi(object)]
+pub struct SiteConfig {
+    #[napi(js_name = "projectDir")]
+    pub project_dir: Option<String>,
+    pub s3: Option<S3Config>,
+    #[napi(js_name = "linkPrefix")]
+    pub link_prefix: Option<String>,
+}
+
+#[napi(object)]
+pub struct S3Config {
+    pub bucket: String,
+    pub entity: String,
+    pub region: Option<String>,
+    pub endpoint: Option<String>,
+    #[napi(js_name = "bucketRootPath")]
+    pub bucket_root_path: Option<String>,
+}
+
+#[napi(object)]
 pub struct NavItemResponse {
     pub title: String,
     pub path: String,

@@ -9,12 +9,15 @@ use chrono::{DateTime, Utc};
 use napi::Result;
 use napi_derive::napi;
 use rw_cache::NullCache;
+use rw_config::Config;
 use rw_site::{NavItem, PageRendererConfig, ScopeInfo, Site};
+use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
+use rw_storage_s3::{S3Config as RustS3Config, S3Storage};
 
 use crate::types::{
-    BreadcrumbResponse, NavItemResponse, NavigationResponse, PageMetaResponse,
-    PageResponse as NapiPageResponse, ScopeInfoResponse, TocEntryResponse,
+    BreadcrumbResponse, NavItemResponse, NavigationResponse, PageMetaResponse, PageResponse,
+    ScopeInfoResponse, SiteConfig, TocEntryResponse,
 };
 
 /// Convert internal path (no leading slash) to URL path (with leading slash).
@@ -56,20 +59,59 @@ pub struct RwSite {
 // napi-rs requires owned types for JavaScript bindings.
 #[allow(clippy::needless_pass_by_value)]
 #[napi]
-pub fn create_site(
-    docs_dir: String,
-    kroki_url: Option<String>,
-    link_prefix: Option<String>,
-) -> Result<RwSite> {
-    let storage = Arc::new(FsStorage::new(PathBuf::from(&docs_dir)));
+pub fn create_site(config: SiteConfig) -> Result<RwSite> {
+    let link_prefix = config.link_prefix;
+
+    let (storage, renderer_config): (Arc<dyn Storage>, PageRendererConfig) =
+        if let Some(s3) = config.s3 {
+            let s3_config = RustS3Config {
+                bucket: s3.bucket,
+                prefix: s3.entity,
+                region: s3.region.unwrap_or_else(|| "us-east-1".to_owned()),
+                endpoint: s3.endpoint,
+                bucket_root_path: s3.bucket_root_path,
+            };
+            let storage = Arc::new(S3Storage::new(s3_config).map_err(|e| {
+                napi::Error::from_reason(format!("Failed to create S3 storage: {e}"))
+            })?);
+            let renderer_config = PageRendererConfig {
+                extract_title: true,
+                link_prefix,
+                ..Default::default()
+            };
+            (storage, renderer_config)
+        } else if let Some(project_dir) = config.project_dir {
+            let project_path = PathBuf::from(&project_dir);
+            let config_path = project_path.join("rw.toml");
+            let config_file = if config_path.exists() {
+                Some(config_path.as_path())
+            } else {
+                None
+            };
+            let rw_config = Config::load(config_file, None)
+                .map_err(|e| napi::Error::from_reason(format!("Failed to load rw.toml: {e}")))?;
+
+            let storage = Arc::new(FsStorage::with_meta_filename(
+                rw_config.docs_resolved.source_dir.clone(),
+                &rw_config.metadata.name,
+            ));
+            let renderer_config = PageRendererConfig {
+                extract_title: true,
+                kroki_url: rw_config.diagrams_resolved.kroki_url,
+                include_dirs: rw_config.diagrams_resolved.include_dirs,
+                dpi: rw_config.diagrams_resolved.dpi,
+                link_prefix,
+                ..Default::default()
+            };
+            (storage, renderer_config)
+        } else {
+            return Err(napi::Error::from_reason(
+                "Either projectDir or s3 must be provided",
+            ));
+        };
+
     let cache: Arc<dyn rw_cache::Cache> = Arc::new(NullCache);
-    let config = PageRendererConfig {
-        extract_title: true,
-        kroki_url,
-        link_prefix,
-        ..Default::default()
-    };
-    let site = Arc::new(Site::new(storage, cache, config));
+    let site = Arc::new(Site::new(storage, cache, renderer_config));
     Ok(RwSite { site })
 }
 
@@ -88,7 +130,7 @@ impl RwSite {
     }
 
     #[napi]
-    pub async fn render_page(&self, path: String) -> Result<NapiPageResponse> {
+    pub async fn render_page(&self, path: String) -> Result<PageResponse> {
         let site = Arc::clone(&self.site);
         tokio::task::spawn_blocking(move || build_page_response(&site, &path))
             .await
@@ -101,7 +143,7 @@ impl RwSite {
     }
 }
 
-fn build_page_response(site: &Site, path: &str) -> Result<NapiPageResponse> {
+fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let result = site
         .render(path)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
@@ -125,7 +167,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<NapiPageResponse> {
         (None, None, None)
     };
 
-    Ok(NapiPageResponse {
+    Ok(PageResponse {
         meta: PageMetaResponse {
             title: result.title,
             path: to_url_path(path),
