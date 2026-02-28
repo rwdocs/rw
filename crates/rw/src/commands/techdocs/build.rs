@@ -83,6 +83,7 @@ impl BuildArgs {
                 relative_links: true,
                 trailing_slash: true,
                 static_tabs: true,
+                link_prefix: None,
             },
         );
 
