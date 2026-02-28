@@ -18,6 +18,29 @@
   let activeId = $state<string | null>(null);
   let isUserScrolling = false;
 
+  /** Mark scroll in progress and reset after the browser finishes scrolling. */
+  function waitForScrollEnd() {
+    isUserScrolling = true;
+    const scrollBefore = window.scrollY;
+    requestAnimationFrame(() => {
+      if (window.scrollY === scrollBefore) {
+        isUserScrolling = false;
+      } else {
+        const fallback = setTimeout(() => {
+          isUserScrolling = false;
+        }, 500);
+        window.addEventListener(
+          "scrollend",
+          () => {
+            clearTimeout(fallback);
+            isUserScrolling = false;
+          },
+          { once: true },
+        );
+      }
+    });
+  }
+
   // React to hash changes (e.g., when page loads with #hash or when clicking links)
   $effect(() => {
     const currentHash = $hash;
@@ -25,25 +48,7 @@
       activeId = currentHash;
 
       if (!router.embedded) {
-        isUserScrolling = true;
-
-        // Wait for any browser-initiated scroll to complete
-        const scrollBefore = window.scrollY;
-        requestAnimationFrame(() => {
-          if (window.scrollY === scrollBefore) {
-            // No scroll happened, reset immediately
-            isUserScrolling = false;
-          } else {
-            // Scroll happened, wait for scrollend
-            window.addEventListener(
-              "scrollend",
-              () => {
-                isUserScrolling = false;
-              },
-              { once: true },
-            );
-          }
-        });
+        waitForScrollEnd();
       }
     }
   });
@@ -53,30 +58,9 @@
     const element = document.getElementById(id);
     if (element) {
       activeId = id;
-      isUserScrolling = true;
-
-      const scrollBefore = window.scrollY;
       element.scrollIntoView({ behavior: "auto" });
-
-      // Update URL hash so the browser reflects the current heading
       history.pushState(null, "", `#${id}`);
-
-      // Wait for scroll completion using scrollend event
-      requestAnimationFrame(() => {
-        if (window.scrollY === scrollBefore) {
-          // No scroll happened (element already in view), reset immediately
-          isUserScrolling = false;
-        } else {
-          // Scroll happened, wait for scrollend
-          window.addEventListener(
-            "scrollend",
-            () => {
-              isUserScrolling = false;
-            },
-            { once: true },
-          );
-        }
-      });
+      waitForScrollEnd();
     }
   }
 
