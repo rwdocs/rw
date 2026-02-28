@@ -27,15 +27,13 @@ pub async fn build_client(config: &S3Config) -> Client {
     }
 
     let sdk_config = loader.load().await;
+    let mut s3_builder = aws_sdk_s3::config::Builder::from(&sdk_config);
 
     if config.endpoint.is_some() {
-        let s3_config = aws_sdk_s3::config::Builder::from(&sdk_config)
-            .force_path_style(true)
-            .build();
-        return Client::from_conf(s3_config);
+        s3_builder = s3_builder.force_path_style(true);
     }
 
-    Client::new(&sdk_config)
+    Client::from_conf(s3_builder.build())
 }
 
 /// Build a full S3 key from a relative path within the bundle.
