@@ -20,15 +20,39 @@
     embedded?: boolean;
     /** Initial path to navigate to. Defaults to current window path. */
     initialPath?: string;
+    /** Path prefix for link hrefs (e.g. "/rw-docs"). */
+    basePath?: string;
+    /** Called when the user navigates to a new path (embedded mode only). */
+    onNavigate?: (path: string) => void;
+    /** Custom fetch function (e.g. Backstage authenticated fetch). */
+    fetchFn?: typeof fetch;
+    /** Called during mount with the router's goto function, for external navigation control. */
+    exposeGoto?: (goto: (path: string) => void) => void;
   }
 
-  let { apiBaseUrl = "/api", embedded = false, initialPath }: Props = $props();
+  let {
+    apiBaseUrl = "/api",
+    embedded = false,
+    initialPath,
+    basePath,
+    onNavigate,
+    fetchFn,
+    exposeGoto,
+  }: Props = $props();
 
-  const apiClient = createApiClient(untrack(() => apiBaseUrl));
+  const apiClient = createApiClient(
+    untrack(() => apiBaseUrl),
+    untrack(() => fetchFn),
+  );
   const router = createRouter({
     embedded: untrack(() => embedded),
     initialPath: untrack(() => initialPath),
+    basePath: untrack(() => basePath),
+    onNavigate: untrack(() => onNavigate),
   });
+
+  // Expose goto for external navigation control (e.g. browser back/forward)
+  untrack(() => exposeGoto)?.(router.goto);
   const page = createPageStore(apiClient, { embedded: untrack(() => embedded) });
   const navigation = createNavigationStore(apiClient);
   const liveReload = createLiveReloadStore({ router, navigation });

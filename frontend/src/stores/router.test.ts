@@ -398,6 +398,24 @@ describe("embedded mode", () => {
     expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
+  it("goto calls onNavigate callback in embedded mode", () => {
+    const onNavigate = vi.fn();
+    const router = createRouter({ embedded: true, onNavigate });
+    router.goto("/guide");
+
+    expect(onNavigate).toHaveBeenCalledWith("/guide");
+    expect(window.history.pushState).not.toHaveBeenCalled();
+  });
+
+  it("goto does not call onNavigate in normal mode", () => {
+    const onNavigate = vi.fn();
+    const router = createRouter({ embedded: false, onNavigate });
+    router.goto("/guide");
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(window.history.pushState).toHaveBeenCalled();
+  });
+
   it("goto calls pushState in normal mode", () => {
     const router = createRouter({ embedded: false });
     router.goto("/guide");
@@ -478,5 +496,82 @@ describe("embedded mode", () => {
 
     cleanup();
     docAddEventSpy.mockRestore();
+  });
+});
+
+describe("basePath", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "location", {
+      value: { origin: "http://localhost:3000", pathname: "/", hash: "" },
+      writable: true,
+      configurable: true,
+    });
+    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("prefixPath returns path unchanged when no basePath", () => {
+    const router = createRouter({ embedded: true });
+    expect(router.prefixPath("/docs/guide")).toBe("/docs/guide");
+  });
+
+  it("prefixPath prepends basePath to path", () => {
+    const router = createRouter({ embedded: true, basePath: "/rw-docs" });
+    expect(router.prefixPath("/docs/guide")).toBe("/rw-docs/docs/guide");
+  });
+
+  it("prefixPath handles root path", () => {
+    const router = createRouter({ embedded: true, basePath: "/rw-docs" });
+    expect(router.prefixPath("/")).toBe("/rw-docs/");
+  });
+
+  it("click handler strips basePath from href before navigating", () => {
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = createRouter({ embedded: true, basePath: "/rw-docs", onNavigate });
+    const cleanup = router.initRouter(rootElement);
+
+    const anchor = document.createElement("a");
+    anchor.setAttribute("href", "/rw-docs/docs/guide");
+    rootElement.appendChild(anchor);
+
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    vi.spyOn(event, "preventDefault");
+    Object.defineProperty(event, "target", { value: anchor });
+
+    // Dispatch through the rootElement's click handler
+    rootElement.dispatchEvent(event);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(onNavigate).toHaveBeenCalledWith("/docs/guide");
+    expect(get(router.path)).toBe("/docs/guide");
+
+    cleanup();
+  });
+
+  it("click handler handles root basePath href", () => {
+    const onNavigate = vi.fn();
+    const rootElement = document.createElement("div");
+    const router = createRouter({ embedded: true, basePath: "/rw-docs", onNavigate });
+    const cleanup = router.initRouter(rootElement);
+
+    const anchor = document.createElement("a");
+    anchor.setAttribute("href", "/rw-docs");
+    rootElement.appendChild(anchor);
+
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    vi.spyOn(event, "preventDefault");
+    Object.defineProperty(event, "target", { value: anchor });
+
+    rootElement.dispatchEvent(event);
+
+    expect(onNavigate).toHaveBeenCalledWith("/");
+    expect(get(router.path)).toBe("/");
+
+    cleanup();
   });
 });

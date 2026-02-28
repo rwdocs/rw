@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:lib": "vite build --config vite.lib.config.ts",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
@@ -41,8 +42,15 @@
     "vite": "^7.0.0",
     "vitest": "^4.0.15"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/lib/embed.js",
+      "types": "./src/embed.ts"
+    },
+    "./embed.css": "./dist/lib/embed.css"
+  },
   "engines": {
-    "node": "24"
+    "node": ">=20"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",

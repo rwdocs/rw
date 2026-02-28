@@ -2,7 +2,7 @@
   import { getRwContext } from "../lib/context";
   import NavTree from "./NavTree.svelte";
 
-  const { navigation } = getRwContext();
+  const { navigation, router } = getRwContext();
 
   let backLink = $derived.by(() => {
     const tree = $navigation.tree;
@@ -20,7 +20,7 @@
     {#if $navigation.tree.scope && backLink}
       <div class="mb-5">
         <a
-          href={backLink.path}
+          href={router.prefixPath(backLink.path)}
           class="mb-2 flex items-center text-sm text-gray-500 hover:text-blue-600"
         >
           <span class="flex w-[22px] items-center justify-center">

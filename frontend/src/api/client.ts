@@ -39,7 +39,8 @@ export interface ApiClient {
 }
 
 /** Create an API client bound to the given base URL */
-export function createApiClient(apiBase: string = "/api"): ApiClient {
+export function createApiClient(apiBase: string = "/api", fetchFn?: typeof fetch): ApiClient {
+  const doFetch = fetchFn ?? fetch;
   const base = apiBase.replace(/\/+$/, "");
 
   return {
@@ -50,7 +51,7 @@ export function createApiClient(apiBase: string = "/api"): ApiClient {
       }
       const url = params.toString() ? `${base}/navigation?${params}` : `${base}/navigation`;
 
-      const response = await fetch(url, buildRequestInit(options));
+      const response = await doFetch(url, buildRequestInit(options));
       if (!response.ok) {
         throw new Error(`Failed to fetch navigation: ${response.status} ${response.statusText}`);
       }
@@ -58,7 +59,7 @@ export function createApiClient(apiBase: string = "/api"): ApiClient {
     },
 
     async fetchPage(path: string, options?: FetchOptions): Promise<PageResponse> {
-      const response = await fetch(`${base}/pages/${path}`, buildRequestInit(options));
+      const response = await doFetch(`${base}/pages/${path}`, buildRequestInit(options));
       if (!response.ok) {
         if (response.status === 404) {
           throw new NotFoundError(path);
@@ -69,7 +70,7 @@ export function createApiClient(apiBase: string = "/api"): ApiClient {
     },
 
     async fetchConfig(): Promise<ConfigResponse> {
-      const response = await fetch(`${base}/config`);
+      const response = await doFetch(`${base}/config`);
       if (!response.ok) {
         throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`);
       }
