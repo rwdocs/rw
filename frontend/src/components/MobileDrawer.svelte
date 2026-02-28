@@ -39,7 +39,7 @@
   <aside class="fixed inset-y-0 left-0 z-50 w-[280px] overflow-y-auto bg-white shadow-xl md:hidden">
     <div class="p-4">
       <div class="mb-6 flex items-center justify-between">
-        <a href="/" class="block">
+        <a href={router.prefixPath("/")} class="block">
           <span class="text-xl font-semibold text-gray-900">RW</span>
         </a>
         <button

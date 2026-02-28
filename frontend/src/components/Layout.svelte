@@ -16,6 +16,7 @@
   let { children }: Props = $props();
 
   const { router, navigation, page, ui } = getRwContext();
+  const homeHref = router.prefixPath("/");
 
   onMount(async () => {
     await navigation.load();
@@ -47,7 +48,7 @@
       />
     </svg>
   </button>
-  <a href="/" class="ml-3">
+  <a href={homeHref} class="ml-3">
     <span class="text-lg font-semibold uppercase"
       ><span class="text-gray-900">R</span><span class="text-gray-400">W</span></span
     >
@@ -66,7 +67,7 @@
     "
   >
     <div class="px-4 pt-6 pb-4">
-      <a href="/" class="mb-5 block pl-[6px]">
+      <a href={homeHref} class="mb-5 block pl-[6px]">
         <span class="text-xl font-semibold uppercase"
           ><span class="text-gray-900">R</span><span class="text-gray-400">W</span></span
         >

@@ -10,6 +10,8 @@ export interface RouterStore {
   path: Readable<string>;
   hash: Readable<string>;
   embedded: boolean;
+  /** Prefix an internal path with basePath for use in href attributes. */
+  prefixPath(path: string): string;
   goto(newPath: string): void;
   initRouter(rootElement?: HTMLElement): () => void;
 }
@@ -28,8 +30,15 @@ function isExternalLink(href: string, anchor: HTMLAnchorElement): boolean {
 }
 
 /** Create a router store instance */
-export function createRouter(options?: { embedded?: boolean; initialPath?: string }): RouterStore {
+export function createRouter(options?: {
+  embedded?: boolean;
+  initialPath?: string;
+  basePath?: string;
+  onNavigate?: (path: string) => void;
+}): RouterStore {
   const embedded = options?.embedded ?? false;
+  const basePath = options?.basePath ?? "";
+  const onNavigate = options?.onNavigate;
 
   /** Current URL path */
   const path = writable(
@@ -41,6 +50,11 @@ export function createRouter(options?: { embedded?: boolean; initialPath?: strin
     embedded ? (options?.initialPath?.split("#")[1] ?? "") : window.location.hash.slice(1),
   );
 
+  /** Prefix an internal path with basePath for use in href attributes. */
+  function prefixPath(path: string): string {
+    return basePath + path;
+  }
+
   /** Navigate to a path programmatically */
   function goto(newPath: string) {
     const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
@@ -48,6 +62,8 @@ export function createRouter(options?: { embedded?: boolean; initialPath?: strin
 
     if (!embedded) {
       window.history.pushState({}, "", newPath);
+    } else if (onNavigate) {
+      onNavigate(newPath);
     }
 
     path.set(url.pathname);
@@ -87,9 +103,13 @@ export function createRouter(options?: { embedded?: boolean; initialPath?: strin
       // Skip external links, fragment links, and links with target/download
       if (isExternalLink(href, anchor)) return;
 
+      // Strip basePath prefix from href to get the internal RW path
+      const internalPath =
+        basePath && href.startsWith(basePath) ? href.slice(basePath.length) || "/" : href;
+
       // Handle internal navigation (links are already resolved by backend)
       e.preventDefault();
-      goto(href);
+      goto(internalPath);
     };
 
     // In embedded mode, scope the click handler to the root element to avoid
@@ -109,5 +129,5 @@ export function createRouter(options?: { embedded?: boolean; initialPath?: strin
     };
   }
 
-  return { path, hash, embedded, goto, initRouter };
+  return { path, hash, embedded, prefixPath, goto, initRouter };
 }

@@ -53,33 +53,30 @@
     const element = document.getElementById(id);
     if (element) {
       activeId = id;
+      isUserScrolling = true;
 
-      // In embedded mode, skip scrolling and URL mutation to avoid host page side effects
-      if (!router.embedded) {
-        isUserScrolling = true;
+      const scrollBefore = window.scrollY;
+      element.scrollIntoView({ behavior: "auto" });
 
-        const scrollBefore = window.scrollY;
-        element.scrollIntoView({ behavior: "auto" });
-        // Update URL hash without jumping
-        history.pushState(null, "", `#${id}`);
+      // Update URL hash so the browser reflects the current heading
+      history.pushState(null, "", `#${id}`);
 
-        // Wait for scroll completion using scrollend event
-        requestAnimationFrame(() => {
-          if (window.scrollY === scrollBefore) {
-            // No scroll happened (element already in view), reset immediately
-            isUserScrolling = false;
-          } else {
-            // Scroll happened, wait for scrollend
-            window.addEventListener(
-              "scrollend",
-              () => {
-                isUserScrolling = false;
-              },
-              { once: true },
-            );
-          }
-        });
-      }
+      // Wait for scroll completion using scrollend event
+      requestAnimationFrame(() => {
+        if (window.scrollY === scrollBefore) {
+          // No scroll happened (element already in view), reset immediately
+          isUserScrolling = false;
+        } else {
+          // Scroll happened, wait for scrollend
+          window.addEventListener(
+            "scrollend",
+            () => {
+              isUserScrolling = false;
+            },
+            { once: true },
+          );
+        }
+      });
     }
   }
 
@@ -134,8 +131,29 @@
       activeId = filteredToc[0].id;
     }
 
+    // In embedded mode, the router skips popstate handling. Listen here so
+    // browser Back/Forward after TOC clicks scrolls to the correct heading.
+    const handlePopState = router.embedded
+      ? () => {
+          const id = decodeURIComponent(window.location.hash.slice(1));
+          if (id && filteredToc.some((entry) => entry.id === id)) {
+            activeId = id;
+            const element = document.getElementById(id);
+            if (element) {
+              element.scrollIntoView({ behavior: "auto" });
+            }
+          }
+        }
+      : null;
+    if (handlePopState) {
+      window.addEventListener("popstate", handlePopState);
+    }
+
     return () => {
       observer.disconnect();
+      if (handlePopState) {
+        window.removeEventListener("popstate", handlePopState);
+      }
     };
   });
 </script>
