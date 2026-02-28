@@ -11,14 +11,14 @@ workspace = true
 
 [features]
 default = []
-publish = ["rw-diagrams", "regex"]
+publish = ["rw-diagrams", "rw-renderer"]
 
 [dependencies]
 rw-storage = { workspace = true }
 
 # Publish-only deps
 rw-diagrams = { workspace = true, optional = true }
-regex = { workspace = true, optional = true }
+rw-renderer = { workspace = true, optional = true }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1"

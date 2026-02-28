@@ -178,27 +178,6 @@ pub fn prepare_diagram_source(
     }
 }
 
-/// Result of resolving `PlantUML` includes.
-#[derive(Debug)]
-pub struct ResolveIncludesResult {
-    /// Source with includes resolved.
-    pub source: String,
-    /// Warnings generated during resolution (e.g., unresolved includes).
-    pub warnings: Vec<String>,
-}
-
-/// Resolve all `!include` directives in `PlantUML` source.
-///
-/// Recursively reads referenced files from `include_dirs` and inlines them.
-/// Stdlib includes (`<...>`) are left unchanged.
-///
-/// Used by the Backstage publisher to pre-resolve includes before uploading.
-pub fn resolve_plantuml_includes(source: &str, include_dirs: &[PathBuf]) -> ResolveIncludesResult {
-    let mut warnings = Vec::new();
-    let source = resolve_includes(source, include_dirs, None, None, 0, &mut warnings);
-    ResolveIncludesResult { source, warnings }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
