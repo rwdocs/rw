@@ -3164,8 +3164,11 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "rw-cache",
+ "rw-config",
  "rw-site",
+ "rw-storage",
  "rw-storage-fs",
+ "rw-storage-s3",
  "serde_json",
  "tokio",
 ]
