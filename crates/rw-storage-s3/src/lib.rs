@@ -9,13 +9,14 @@
 //! - `publish`: Bundle publisher for uploading docs to S3
 
 pub mod format;
-mod s3;
+pub(crate) mod s3;
 mod storage;
 
-pub use storage::{S3Storage, S3StorageConfig};
+pub use s3::S3Config;
+pub use storage::S3Storage;
 
 #[cfg(feature = "publish")]
 mod publisher;
 
 #[cfg(feature = "publish")]
-pub use publisher::{BundlePublisher, PublishConfig, PublishError};
+pub use publisher::{BundlePublisher, PublishError};

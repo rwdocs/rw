@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 /// Current bundle format version.
 pub const FORMAT_VERSION: u32 = 1;
 
+/// S3 key for the manifest file (relative to prefix).
+pub const MANIFEST_KEY: &str = "manifest.json";
+
 /// Manifest containing the document index.
 ///
 /// Stored at `{prefix}/manifest.json` in S3.
