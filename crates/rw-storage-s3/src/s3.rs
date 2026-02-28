@@ -40,13 +40,10 @@ pub async fn build_client(config: &S3Config) -> Client {
 
 /// Build a full S3 key from a relative path within the bundle.
 pub fn build_key(config: &S3Config, relative_path: &str) -> String {
-    let mut parts = Vec::new();
-    if let Some(root) = &config.bucket_root_path {
-        parts.push(root.as_str());
+    match &config.bucket_root_path {
+        Some(root) => format!("{root}/{}/{relative_path}", config.prefix),
+        None => format!("{}/{relative_path}", config.prefix),
     }
-    parts.push(&config.prefix);
-    parts.push(relative_path);
-    parts.join("/")
 }
 
 /// Upload a single object to S3.
@@ -76,7 +73,7 @@ pub async fn upload(
 }
 
 /// Format an error and its full source chain into a single string.
-pub fn error_chain(err: &dyn std::error::Error) -> String {
+pub(crate) fn error_chain(err: &dyn std::error::Error) -> String {
     let mut msgs = vec![err.to_string()];
     let mut source = err.source();
     while let Some(s) = source {

@@ -14,7 +14,7 @@ use crate::s3::{self, S3Config};
 
 /// Errors that can occur during publishing.
 #[derive(Debug, thiserror::Error)]
-pub enum PublishError {
+pub enum BundlePublishError {
     #[error("Storage error: {0}")]
     Storage(#[from] rw_storage::StorageError),
     #[error("JSON error: {0}")]
@@ -46,7 +46,7 @@ impl BundlePublisher {
         &self,
         storage: &dyn Storage,
         include_dirs: &[PathBuf],
-    ) -> Result<usize, PublishError> {
+    ) -> Result<usize, BundlePublishError> {
         let client = s3::build_client(&self.config).await;
         let documents = storage.scan()?;
 
@@ -71,7 +71,7 @@ impl BundlePublisher {
             let key = format::page_bundle_key(&doc.path);
             s3::upload(&client, &self.config, &key, bundle_json, "application/json")
                 .await
-                .map_err(PublishError::S3)?;
+                .map_err(BundlePublishError::S3)?;
 
             uploaded += 1;
             tracing::debug!(path = %doc.path, "Published page bundle");
@@ -89,7 +89,7 @@ impl BundlePublisher {
             "application/json",
         )
         .await
-        .map_err(PublishError::S3)?;
+        .map_err(BundlePublishError::S3)?;
 
         Ok(uploaded)
     }
