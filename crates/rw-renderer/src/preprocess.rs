@@ -154,6 +154,30 @@ mod tests {
         }
     }
 
+    /// Test processor that expands content for "expand" language.
+    /// Each char becomes "char=X " to produce longer output.
+    struct ExpandProcessor;
+
+    impl CodeBlockProcessor for ExpandProcessor {
+        fn process(
+            &mut self,
+            _language: &str,
+            _attrs: &HashMap<String, String>,
+            _source: &str,
+            _index: usize,
+        ) -> ProcessResult {
+            ProcessResult::PassThrough
+        }
+
+        fn preprocess(&mut self, language: &str, source: &str) -> Option<String> {
+            if language == "expand" {
+                Some(source.chars().map(|c| format!("[{c}]")).collect())
+            } else {
+                None
+            }
+        }
+    }
+
     /// Test processor that reverses content for "reverse" language.
     struct ReverseProcessor;
 
@@ -297,5 +321,17 @@ mod tests {
         let mut proc = UpperCaseProcessor;
         let result = preprocess_markdown(md, &mut [&mut proc]);
         assert_eq!(result, "```upper\nLINE ONE\nLINE TWO\nLINE THREE\n```\n");
+    }
+
+    #[test]
+    fn test_replacement_changes_content_length() {
+        // "ab" (2 bytes) expands to "[a][b]" (6 bytes), "xy" to "[x][y]"
+        let md = "```expand\nab\n```\n\nMiddle text.\n\n```expand\nxy\n```\n";
+        let mut proc = ExpandProcessor;
+        let result = preprocess_markdown(md, &mut [&mut proc]);
+        assert_eq!(
+            result,
+            "```expand\n[a][b]\n```\n\nMiddle text.\n\n```expand\n[x][y]\n```\n"
+        );
     }
 }
