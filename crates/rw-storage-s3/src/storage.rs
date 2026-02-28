@@ -87,14 +87,14 @@ impl S3Storage {
                 StorageError::new(kind)
                     .with_backend(BACKEND)
                     .with_path(key)
-                    .with_source(std::io::Error::other(format!("{e}")))
+                    .with_source(e)
             })?;
 
         let bytes = resp.body.collect().await.map_err(|e| {
             StorageError::new(StorageErrorKind::Other)
                 .with_backend(BACKEND)
                 .with_path(key)
-                .with_source(std::io::Error::other(format!("{e}")))
+                .with_source(e)
         })?;
 
         serde_json::from_slice(&bytes.into_bytes()).map_err(|e| {
@@ -204,7 +204,12 @@ impl Storage for S3Storage {
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
-        if !self.exists(path) {
+        self.ensure_manifest()?;
+        let guard = self.manifest.read().expect("manifest lock poisoned");
+        if !guard
+            .as_ref()
+            .is_some_and(|m| m.content_paths.contains(path))
+        {
             return Err(StorageError::not_found(path).with_backend(BACKEND));
         }
         Ok(0.0)
