@@ -2,12 +2,19 @@
 
 use aws_sdk_s3::Client;
 
-/// S3 connection configuration common to both publisher and storage.
-pub(crate) struct S3Config {
-    pub region: String,
-    pub endpoint: Option<String>,
-    pub bucket_root_path: Option<String>,
+/// S3 bucket configuration shared by storage and publisher.
+#[derive(Debug, Clone)]
+pub struct S3Config {
+    /// S3 bucket name.
+    pub bucket: String,
+    /// S3 key prefix (e.g., `"default/Component/arch"`).
     pub prefix: String,
+    /// AWS region.
+    pub region: String,
+    /// Optional S3-compatible endpoint URL.
+    pub endpoint: Option<String>,
+    /// Optional prefix path within the bucket.
+    pub bucket_root_path: Option<String>,
 }
 
 /// Build an S3 client from connection configuration.

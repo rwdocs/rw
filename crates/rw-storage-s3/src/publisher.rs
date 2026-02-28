@@ -10,23 +10,8 @@ use rw_diagrams::DiagramProcessor;
 use rw_renderer::bundle_markdown;
 use rw_storage::Storage;
 
-use crate::format::{self, Manifest, PageBundle};
+use crate::format::{self, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
-
-/// Configuration for publishing documentation bundles to S3.
-#[derive(Debug, Clone)]
-pub struct PublishConfig {
-    /// S3 bucket name.
-    pub bucket: String,
-    /// S3 key prefix (e.g., `"default/Component/arch"`).
-    pub prefix: String,
-    /// AWS region (default: `"us-east-1"`).
-    pub region: String,
-    /// Optional S3-compatible endpoint URL.
-    pub endpoint: Option<String>,
-    /// Optional prefix path within the bucket.
-    pub bucket_root_path: Option<String>,
-}
 
 /// Errors that can occur during publishing.
 #[derive(Debug, thiserror::Error)]
@@ -43,12 +28,12 @@ pub enum PublishError {
 
 /// Publisher that builds and uploads documentation bundles to S3.
 pub struct BundlePublisher {
-    config: PublishConfig,
+    config: S3Config,
 }
 
 impl BundlePublisher {
     #[must_use]
-    pub fn new(config: PublishConfig) -> Self {
+    pub fn new(config: S3Config) -> Self {
         Self { config }
     }
 
@@ -63,20 +48,13 @@ impl BundlePublisher {
         storage: &dyn Storage,
         include_dirs: &[PathBuf],
     ) -> Result<usize, PublishError> {
-        let s3_config = self.s3_config();
-        let client = s3::build_client(&s3_config).await;
+        let client = s3::build_client(&self.config).await;
         let documents = storage.scan()?;
 
         let manifest = Manifest::new(documents.clone());
         let manifest_json = serde_json::to_vec(&manifest)?;
-        self.upload(
-            &client,
-            &s3_config,
-            "manifest.json",
-            manifest_json,
-            "application/json",
-        )
-        .await?;
+        self.upload(&client, MANIFEST_KEY, manifest_json, "application/json")
+            .await?;
 
         let mut uploaded = 1; // manifest
 
@@ -97,7 +75,7 @@ impl BundlePublisher {
 
             let bundle_json = serde_json::to_vec(&bundle)?;
             let key = format::page_bundle_key(&doc.path);
-            self.upload(&client, &s3_config, &key, bundle_json, "application/json")
+            self.upload(&client, &key, bundle_json, "application/json")
                 .await?;
 
             uploaded += 1;
@@ -107,24 +85,14 @@ impl BundlePublisher {
         Ok(uploaded)
     }
 
-    fn s3_config(&self) -> S3Config {
-        S3Config {
-            region: self.config.region.clone(),
-            endpoint: self.config.endpoint.clone(),
-            bucket_root_path: self.config.bucket_root_path.clone(),
-            prefix: self.config.prefix.clone(),
-        }
-    }
-
     async fn upload(
         &self,
         client: &Client,
-        s3_config: &S3Config,
         relative_key: &str,
         body: Vec<u8>,
         content_type: &str,
     ) -> Result<(), PublishError> {
-        let key = s3::build_key(s3_config, relative_key);
+        let key = s3::build_key(&self.config, relative_key);
         client
             .put_object()
             .bucket(&self.config.bucket)

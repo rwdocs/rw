@@ -7,7 +7,7 @@ use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
-use rw_storage_s3::{BundlePublisher, PublishConfig};
+use rw_storage_s3::{BundlePublisher, S3Config};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -70,14 +70,13 @@ impl PublishArgs {
 
         let include_dirs = config.diagrams_resolved.include_dirs;
 
-        let publish_config = PublishConfig {
+        let publisher = BundlePublisher::new(S3Config {
             bucket: self.bucket,
             prefix: self.entity,
-            endpoint: self.endpoint,
             region: self.region,
+            endpoint: self.endpoint,
             bucket_root_path: self.bucket_root_path,
-        };
-        let publisher = BundlePublisher::new(publish_config);
+        });
 
         let rt = tokio::runtime::Runtime::new()?;
         let uploaded = rt.block_on(publisher.publish(storage.as_ref(), &include_dirs))?;

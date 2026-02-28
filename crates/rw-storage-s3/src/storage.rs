@@ -12,23 +12,8 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use rw_storage::{Document, Metadata, Storage, StorageError, StorageErrorKind};
 
-use crate::format::{self, FORMAT_VERSION, Manifest, PageBundle};
+use crate::format::{self, FORMAT_VERSION, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
-
-/// Configuration for S3 storage.
-#[derive(Debug, Clone)]
-pub struct S3StorageConfig {
-    /// S3 bucket name.
-    pub bucket: String,
-    /// S3 key prefix (e.g., `"default/Component/arch"`).
-    pub prefix: String,
-    /// AWS region.
-    pub region: String,
-    /// Optional S3-compatible endpoint URL.
-    pub endpoint: Option<String>,
-    /// Optional prefix path within the bucket.
-    pub bucket_root_path: Option<String>,
-}
 
 /// S3-backed storage that reads pre-built documentation bundles.
 ///
@@ -42,8 +27,7 @@ pub struct S3StorageConfig {
 pub struct S3Storage {
     client: Client,
     runtime: tokio::runtime::Runtime,
-    s3_config: S3Config,
-    config: S3StorageConfig,
+    config: S3Config,
     /// Cached manifest from `scan()`.
     manifest: RwLock<Option<CachedManifest>>,
     /// Cached page bundles from `read()`/`meta()`.
@@ -62,25 +46,18 @@ impl S3Storage {
     /// Create a new `S3Storage`.
     ///
     /// Initializes an S3 client and a dedicated tokio runtime.
-    pub fn new(config: S3StorageConfig) -> Result<Self, StorageError> {
+    pub fn new(config: S3Config) -> Result<Self, StorageError> {
         let runtime = tokio::runtime::Runtime::new().map_err(|e| {
             StorageError::new(StorageErrorKind::Other)
                 .with_backend("S3")
                 .with_source(e)
         })?;
 
-        let s3_config = S3Config {
-            region: config.region.clone(),
-            endpoint: config.endpoint.clone(),
-            bucket_root_path: config.bucket_root_path.clone(),
-            prefix: config.prefix.clone(),
-        };
-        let client = runtime.block_on(s3::build_client(&s3_config));
+        let client = runtime.block_on(s3::build_client(&config));
 
         Ok(Self {
             client,
             runtime,
-            s3_config,
             config,
             manifest: RwLock::new(None),
             page_cache: RwLock::new(HashMap::new()),
@@ -139,7 +116,7 @@ impl S3Storage {
         }
 
         // Slow path: fetch from S3.
-        let key = s3::build_key(&self.s3_config, "manifest.json");
+        let key = s3::build_key(&self.config, MANIFEST_KEY);
         let manifest: Manifest = self.runtime.block_on(self.fetch_json(&key))?;
 
         if manifest.version != FORMAT_VERSION {
@@ -183,7 +160,7 @@ impl S3Storage {
         }
 
         // Slow path: fetch from S3.
-        let bundle_key = s3::build_key(&self.s3_config, &format::page_bundle_key(path));
+        let bundle_key = s3::build_key(&self.config, &format::page_bundle_key(path));
         let bundle: PageBundle = self.runtime.block_on(self.fetch_json(&bundle_key))?;
 
         // Re-check under write lock to avoid duplicate S3 fetches under concurrency.
