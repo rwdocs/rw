@@ -1,6 +1,6 @@
 [package]
-name = "rw-backstage"
-description = "Backstage integration: S3 bundle publishing and storage"
+name = "rw-storage-s3"
+description = "S3 storage backend and bundle publisher for RW"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

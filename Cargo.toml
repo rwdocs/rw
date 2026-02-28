@@ -20,7 +20,7 @@ rw-server = { path = "crates/rw-server" }
 rw-site = { path = "crates/rw-site" }
 rw-storage = { path = "crates/rw-storage" }
 rw-storage-fs = { path = "crates/rw-storage-fs" }
-rw-backstage = { path = "crates/rw-backstage" }
+rw-storage-s3 = { path = "crates/rw-storage-s3" }
 rw-techdocs = { path = "crates/rw-techdocs" }
 
 # External dependencies

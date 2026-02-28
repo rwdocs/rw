@@ -3072,13 +3072,13 @@ dependencies = [
  "clap",
  "console",
  "rw-assets",
- "rw-backstage",
  "rw-config",
  "rw-confluence",
  "rw-server",
  "rw-site",
  "rw-storage",
  "rw-storage-fs",
+ "rw-storage-s3",
  "rw-techdocs",
  "thiserror",
  "tokio",
@@ -3092,23 +3092,6 @@ version = "0.1.8"
 dependencies = [
  "mime_guess",
  "rust-embed",
-]
-
-[[package]]
-name = "rw-backstage"
-version = "0.1.8"
-dependencies = [
- "aws-config",
- "aws-sdk-s3",
- "pretty_assertions",
- "regex",
- "rw-diagrams",
- "rw-storage",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -3267,6 +3250,23 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "rw-storage-s3"
+version = "0.1.8"
+dependencies = [
+ "aws-config",
+ "aws-sdk-s3",
+ "pretty_assertions",
+ "regex",
+ "rw-diagrams",
+ "rw-storage",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
  "tracing",
 ]
 

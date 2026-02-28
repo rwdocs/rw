@@ -20,8 +20,8 @@ use crate::s3::{self, S3Config};
 pub struct S3StorageConfig {
     /// S3 bucket name.
     pub bucket: String,
-    /// Backstage entity identifier (e.g., `"default/Component/arch"`).
-    pub entity: String,
+    /// S3 key prefix (e.g., `"default/Component/arch"`).
+    pub prefix: String,
     /// AWS region.
     pub region: String,
     /// Optional S3-compatible endpoint URL.
@@ -37,7 +37,7 @@ pub struct S3StorageConfig {
 ///
 /// **Note:** The page cache grows without bound — every page bundle fetched via
 /// `read()` or `meta()` is kept in memory for the lifetime of this instance.
-/// This is acceptable when each `S3Storage` serves a single entity, but callers
+/// This is acceptable when each `S3Storage` serves a single prefix, but callers
 /// should be aware of memory usage for very large sites.
 pub struct S3Storage {
     client: Client,
@@ -73,7 +73,7 @@ impl S3Storage {
             region: config.region.clone(),
             endpoint: config.endpoint.clone(),
             bucket_root_path: config.bucket_root_path.clone(),
-            entity: config.entity.clone(),
+            prefix: config.prefix.clone(),
         };
         let client = runtime.block_on(s3::build_client(&s3_config));
 

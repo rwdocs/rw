@@ -26,7 +26,7 @@ pub(crate) enum CliError {
     Publish(#[from] PublishError),
 
     #[error("{0}")]
-    BackstagePublish(#[from] rw_backstage::PublishError),
+    BundlePublish(#[from] rw_storage_s3::PublishError),
 
     #[error("{0}")]
     Server(String),

@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Args;
-use rw_backstage::{BackstagePublisher, PublishConfig};
 use rw_config::{CliSettings, Config};
 use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
+use rw_storage_s3::{BundlePublisher, PublishConfig};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -72,12 +72,12 @@ impl PublishArgs {
 
         let publish_config = PublishConfig {
             bucket: self.bucket,
-            entity: self.entity,
+            prefix: self.entity,
             endpoint: self.endpoint,
             region: self.region,
             bucket_root_path: self.bucket_root_path,
         };
-        let publisher = BackstagePublisher::new(publish_config);
+        let publisher = BundlePublisher::new(publish_config);
 
         let rt = tokio::runtime::Runtime::new()?;
         let uploaded = rt.block_on(publisher.publish(storage.as_ref(), &include_dirs))?;
