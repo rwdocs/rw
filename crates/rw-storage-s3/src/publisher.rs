@@ -1,4 +1,4 @@
-//! Backstage bundle publisher.
+//! Bundle publisher.
 //!
 //! Scans local documentation, resolves `PlantUML` includes, builds bundles,
 //! and uploads them to S3. Only available with the `publish` feature.
@@ -23,8 +23,8 @@ static PLANTUML_FENCE: LazyLock<Regex> = LazyLock::new(|| {
 pub struct PublishConfig {
     /// S3 bucket name.
     pub bucket: String,
-    /// Backstage entity identifier (e.g., `"default/Component/arch"`).
-    pub entity: String,
+    /// S3 key prefix (e.g., `"default/Component/arch"`).
+    pub prefix: String,
     /// AWS region (default: `"us-east-1"`).
     pub region: String,
     /// Optional S3-compatible endpoint URL.
@@ -47,11 +47,11 @@ pub enum PublishError {
 }
 
 /// Publisher that builds and uploads documentation bundles to S3.
-pub struct BackstagePublisher {
+pub struct BundlePublisher {
     config: PublishConfig,
 }
 
-impl BackstagePublisher {
+impl BundlePublisher {
     #[must_use]
     pub fn new(config: PublishConfig) -> Self {
         Self { config }
@@ -116,7 +116,7 @@ impl BackstagePublisher {
             region: self.config.region.clone(),
             endpoint: self.config.endpoint.clone(),
             bucket_root_path: self.config.bucket_root_path.clone(),
-            entity: self.config.entity.clone(),
+            prefix: self.config.prefix.clone(),
         }
     }
 

@@ -7,7 +7,7 @@ pub(crate) struct S3Config {
     pub region: String,
     pub endpoint: Option<String>,
     pub bucket_root_path: Option<String>,
-    pub entity: String,
+    pub prefix: String,
 }
 
 /// Build an S3 client from connection configuration.
@@ -37,7 +37,7 @@ pub(crate) fn build_key(config: &S3Config, relative_path: &str) -> String {
     if let Some(root) = &config.bucket_root_path {
         parts.push(root.as_str());
     }
-    parts.push(&config.entity);
+    parts.push(&config.prefix);
     parts.push(relative_path);
     parts.join("/")
 }

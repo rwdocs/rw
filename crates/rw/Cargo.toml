@@ -20,7 +20,7 @@ embed-assets = ["rw-assets/embed"]
 
 [dependencies]
 rw-assets = { workspace = true }
-rw-backstage = { workspace = true, features = ["publish"] }
+rw-storage-s3 = { workspace = true, features = ["publish"] }
 rw-config = { workspace = true }
 rw-confluence = { workspace = true }
 rw-server = { workspace = true }

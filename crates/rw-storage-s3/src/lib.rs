@@ -1,7 +1,7 @@
-//! Backstage integration for RW.
+//! S3 storage backend and bundle publisher for RW.
 //!
-//! Provides S3 bundle publishing and a `Storage` implementation
-//! for serving docs from S3.
+//! Provides a `Storage` implementation for serving docs from S3
+//! and a bundle publisher for uploading docs.
 //!
 //! # Features
 //!
@@ -18,4 +18,4 @@ pub use storage::{S3Storage, S3StorageConfig};
 mod publisher;
 
 #[cfg(feature = "publish")]
-pub use publisher::{BackstagePublisher, PublishConfig, PublishError};
+pub use publisher::{BundlePublisher, PublishConfig, PublishError};

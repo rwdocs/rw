@@ -54,13 +54,13 @@ crates/
 │               ├── build.rs       # `techdocs build` command
 │               └── publish.rs     # `techdocs publish` command
 │
-├── rw-backstage/          # Backstage integration (S3 bundle publish and storage)
+├── rw-storage-s3/         # S3 storage backend and bundle publisher
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── format.rs         # Bundle format types (Manifest, PageBundle)
 │       ├── s3.rs             # Shared S3 client utilities
 │       ├── storage.rs        # S3Storage (Storage trait implementation)
-│       └── publisher.rs      # BackstagePublisher (feature = "publish")
+│       └── publisher.rs      # BundlePublisher (feature = "publish")
 │
 ├── rw-assets/             # Frontend asset serving (embedded + filesystem)
 │   └── src/
