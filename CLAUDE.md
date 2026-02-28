@@ -27,7 +27,7 @@ make lint                 # Lint all code (clippy, svelte-check)
 cargo build -p rw && ./target/debug/rw serve
 
 # Frontend dev server
-cd frontend && yarn dev
+cd packages/viewer && yarn dev
 ```
 
 ## Architecture
@@ -189,18 +189,22 @@ crates/
         ├── live_reload/      # File watching and WebSocket broadcasting
         └── static_files.rs   # Static file serving with SPA fallback
 
-frontend/                  # Svelte 5 SPA (Vite + Tailwind)
-├── src/
-│   ├── components/        # Svelte components
-│   ├── pages/             # Page components
-│   ├── stores/            # Svelte stores (router, navigation, page)
-│   ├── api/               # API client
-│   ├── lib/               # Utility libraries (tabs.ts)
-│   ├── styles/            # Shared CSS (content.css: prose, diagrams, alerts, tabs)
-│   ├── types/             # TypeScript interfaces
-│   ├── techdocs.ts        # TechDocs CSS entry point (Vite second input)
-│   └── techdocs.css       # Self-contained TechDocs styles (td-* classes)
-└── dist/                  # Production build output
+packages/
+├── viewer/                # @rw/viewer — Svelte 5 SPA (Vite + Tailwind)
+│   ├── src/
+│   │   ├── components/        # Svelte components
+│   │   ├── pages/             # Page components
+│   │   ├── stores/            # Svelte stores (router, navigation, page)
+│   │   ├── api/               # API client
+│   │   ├── lib/               # Utility libraries (tabs.ts)
+│   │   ├── styles/            # Shared CSS (content.css: prose, diagrams, alerts, tabs)
+│   │   ├── types/             # TypeScript interfaces
+│   │   ├── techdocs.ts        # TechDocs CSS entry point (Vite second input)
+│   │   └── techdocs.css       # Self-contained TechDocs styles (td-* classes)
+│   └── dist/                  # Production build output
+├── core/                  # @rw/core — Node.js native addon (napi-rs bindings)
+├── backstage-plugin/      # @rw/backstage-plugin — Backstage frontend plugin
+└── backstage-plugin-backend/  # @rw/backstage-plugin-backend — Backstage backend plugin
 ```
 
 **Data flow (Confluence)**: Markdown → Rust (pulldown-cmark parsing, PlantUML
