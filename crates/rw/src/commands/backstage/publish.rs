@@ -7,33 +7,17 @@ use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
-use rw_storage_s3::{BundlePublisher, S3Config};
+use rw_storage_s3::BundlePublisher;
 
+use crate::commands::S3Args;
 use crate::error::CliError;
 use crate::output::Output;
 
 /// Arguments for the backstage publish command.
 #[derive(Args)]
 pub(crate) struct PublishArgs {
-    /// Backstage entity (e.g. "default/Component/arch").
-    #[arg(long)]
-    entity: String,
-
-    /// S3 bucket name.
-    #[arg(long)]
-    bucket: String,
-
-    /// S3-compatible endpoint URL (for non-AWS, e.g. Yandex Cloud).
-    #[arg(long)]
-    endpoint: Option<String>,
-
-    /// AWS region.
-    #[arg(long, default_value = "us-east-1")]
-    region: String,
-
-    /// Optional prefix path within the bucket.
-    #[arg(long)]
-    bucket_root_path: Option<String>,
+    #[command(flatten)]
+    s3: S3Args,
 
     /// Override source directory.
     #[arg(short, long)]
@@ -60,7 +44,7 @@ impl PublishArgs {
         ));
         output.info(&format!(
             "Publishing to s3://{}/{}",
-            self.bucket, self.entity
+            self.s3.bucket, self.s3.entity
         ));
 
         let storage: Arc<dyn Storage> = Arc::new(FsStorage::with_meta_filename(
@@ -69,14 +53,7 @@ impl PublishArgs {
         ));
 
         let include_dirs = config.diagrams_resolved.include_dirs;
-
-        let publisher = BundlePublisher::new(S3Config {
-            bucket: self.bucket,
-            prefix: self.entity,
-            region: self.region,
-            endpoint: self.endpoint,
-            bucket_root_path: self.bucket_root_path,
-        });
+        let publisher = BundlePublisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;
         let uploaded = rt.block_on(publisher.publish(storage.as_ref(), &include_dirs))?;

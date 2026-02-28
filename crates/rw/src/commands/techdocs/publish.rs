@@ -4,8 +4,9 @@ use std::path::PathBuf;
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
-use rw_techdocs::{S3Config, S3Publisher};
+use rw_techdocs::S3Publisher;
 
+use crate::commands::S3Args;
 use crate::error::CliError;
 use crate::output::Output;
 
@@ -16,25 +17,8 @@ pub(crate) struct PublishArgs {
     #[arg(short, long)]
     directory: Option<PathBuf>,
 
-    /// Backstage entity (e.g. "default/Component/arch").
-    #[arg(long)]
-    entity: String,
-
-    /// S3 bucket name.
-    #[arg(long)]
-    bucket: String,
-
-    /// S3-compatible endpoint URL (for non-AWS, e.g. Yandex Cloud).
-    #[arg(long)]
-    endpoint: Option<String>,
-
-    /// AWS region.
-    #[arg(long, default_value = "us-east-1")]
-    region: String,
-
-    /// Optional prefix path within the bucket.
-    #[arg(long)]
-    bucket_root_path: Option<String>,
+    #[command(flatten)]
+    s3: S3Args,
 
     /// Path to configuration file (default: auto-discover rw.toml).
     #[arg(short, long)]
@@ -54,17 +38,11 @@ impl PublishArgs {
         output.info(&format!(
             "Publishing {} to s3://{}/{}",
             directory.display(),
-            self.bucket,
-            self.entity
+            self.s3.bucket,
+            self.s3.entity
         ));
 
-        let publisher = S3Publisher::new(S3Config {
-            bucket: self.bucket,
-            prefix: self.entity,
-            region: self.region,
-            endpoint: self.endpoint,
-            bucket_root_path: self.bucket_root_path,
-        });
+        let publisher = S3Publisher::new(self.s3.into_config());
 
         let rt = tokio::runtime::Runtime::new()?;
         let uploaded = rt.block_on(publisher.publish(&directory))?;

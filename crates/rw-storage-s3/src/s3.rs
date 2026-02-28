@@ -49,6 +49,32 @@ pub fn build_key(config: &S3Config, relative_path: &str) -> String {
     parts.join("/")
 }
 
+/// Upload a single object to S3.
+///
+/// Builds the full key from the config and relative path, uploads the body,
+/// and logs the result. Returns `Err(String)` with the formatted error chain
+/// on failure.
+pub async fn upload(
+    client: &Client,
+    config: &S3Config,
+    relative_key: &str,
+    body: Vec<u8>,
+    content_type: &str,
+) -> Result<(), String> {
+    let key = build_key(config, relative_key);
+    client
+        .put_object()
+        .bucket(&config.bucket)
+        .key(&key)
+        .body(body.into())
+        .content_type(content_type)
+        .send()
+        .await
+        .map_err(|e| error_chain(&e))?;
+    tracing::debug!(key = %key, "Uploaded");
+    Ok(())
+}
+
 /// Format an error and its full source chain into a single string.
 pub fn error_chain(err: &dyn std::error::Error) -> String {
     let mut msgs = vec![err.to_string()];

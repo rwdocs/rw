@@ -42,21 +42,12 @@ impl S3Publisher {
         let client = s3::build_client(&self.config).await;
 
         for (relative_path, abs_path) in &files {
-            let key = s3::build_key(&self.config, relative_path);
             let content_type = guess_content_type(relative_path);
             let body = fs::read(abs_path)?;
 
-            client
-                .put_object()
-                .bucket(&self.config.bucket)
-                .key(&key)
-                .body(body.into())
-                .content_type(content_type)
-                .send()
+            s3::upload(&client, &self.config, relative_path, body, content_type)
                 .await
-                .map_err(|e| PublishError::S3(s3::error_chain(&e)))?;
-
-            tracing::debug!(key = %key, "Uploaded");
+                .map_err(PublishError::S3)?;
         }
 
         Ok(files.len())
