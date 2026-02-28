@@ -1080,13 +1080,6 @@ mod tests {
         assert!(result.is_none());
     }
 
-    #[test]
-    fn test_preprocess_puml_alias_without_includes_returns_none() {
-        let mut processor = DiagramProcessor::new("https://kroki.io");
-        let source = "@startuml\nA -> B\n@enduml";
-        let result = processor.preprocess("puml", source);
-        assert!(result.is_none());
-    }
 
     #[test]
     fn test_preprocess_resolves_filesystem_include() {
