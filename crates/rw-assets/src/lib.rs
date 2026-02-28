@@ -4,7 +4,7 @@
 //! filesystem modes:
 //!
 //! - **`embed` feature on**: Assets are compiled into the binary via `rust-embed`
-//! - **`embed` feature off**: Assets are read from `frontend/dist/` at runtime
+//! - **`embed` feature off**: Assets are read from `packages/viewer/dist/` at runtime
 
 use std::borrow::Cow;
 #[cfg(not(feature = "embed"))]
@@ -13,7 +13,7 @@ use std::path::Path;
 /// Embedded frontend assets (only available with `embed` feature).
 #[cfg(feature = "embed")]
 #[derive(rust_embed::RustEmbed)]
-#[folder = "../../frontend/dist"]
+#[folder = "../../packages/viewer/dist"]
 #[prefix = ""]
 struct Assets;
 
@@ -22,9 +22,9 @@ struct Assets;
 /// Uses `CARGO_MANIFEST_DIR` so the binary finds assets regardless of the
 /// working directory it is launched from.
 #[cfg(not(feature = "embed"))]
-const DEV_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../frontend/dist");
+const DEV_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/viewer/dist");
 
-/// Get a frontend asset by path (relative to `frontend/dist/`).
+/// Get a frontend asset by path (relative to `packages/viewer/dist/`).
 ///
 /// Returns the file contents if the asset exists, `None` otherwise.
 #[cfg(feature = "embed")]
@@ -32,7 +32,7 @@ pub fn get(path: &str) -> Option<Cow<'static, [u8]>> {
     Assets::get(path).map(|f| f.data)
 }
 
-/// Get a frontend asset by path (relative to `frontend/dist/`).
+/// Get a frontend asset by path (relative to `packages/viewer/dist/`).
 ///
 /// Returns the file contents if the asset exists, `None` otherwise.
 #[cfg(not(feature = "embed"))]
