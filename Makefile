@@ -4,11 +4,13 @@ build:
 	yarn install
 	yarn workspace @rw/viewer run build
 	cargo build -p rw
+	yarn workspace @rw/core run build
 
 build-release:
 	yarn install
 	yarn workspace @rw/viewer run build
 	cargo build --release -p rw --features embed-assets
+	yarn workspace @rw/core run build
 
 install:
 	yarn install
