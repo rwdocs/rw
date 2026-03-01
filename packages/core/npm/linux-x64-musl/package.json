@@ -1,0 +1,17 @@
+{
+  "name": "@rwdocs/core-linux-x64-musl",
+  "version": "0.1.9",
+  "cpu": [
+    "x64"
+  ],
+  "main": "core.linux-x64-musl.node",
+  "files": [
+    "core.linux-x64-musl.node"
+  ],
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "musl"
+  ]
+}
