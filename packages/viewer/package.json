@@ -1,6 +1,10 @@
 {
   "name": "@rwdocs/viewer",
   "version": "0.1.9",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rwdocs/rw"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
