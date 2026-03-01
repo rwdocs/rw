@@ -17,6 +17,8 @@ node_modules/
 
 # Rust
 /target
+/crates/rw-napi/target
+/crates/rw-napi/Cargo.lock
 
 # napi-rs build artifacts
 *.node

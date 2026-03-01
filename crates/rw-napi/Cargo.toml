@@ -1,13 +1,10 @@
 [package]
 name = "rw-napi"
 description = "NAPI native addon exposing RW core to Node.js"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-
-[lints]
-workspace = true
+version = "0.1.9"
+edition = "2024"
+rust-version = "1.91"
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib"]
@@ -16,16 +13,41 @@ crate-type = ["cdylib"]
 napi = { version = "3", default-features = false, features = ["napi4", "async", "tokio_rt", "serde-json"] }
 napi-derive = "3"
 
-rw-cache = { workspace = true }
-rw-config = { workspace = true }
-rw-site = { workspace = true }
-rw-storage = { workspace = true }
-rw-storage-fs = { workspace = true }
-rw-storage-s3 = { workspace = true }
+rw-cache = { path = "../rw-cache" }
+rw-config = { path = "../rw-config" }
+rw-site = { path = "../rw-site" }
+rw-storage = { path = "../rw-storage" }
+rw-storage-fs = { path = "../rw-storage-fs" }
+rw-storage-s3 = { path = "../rw-storage-s3" }
 
 chrono = "0.4"
 tokio = { version = "1", features = ["rt"] }
-serde_json = { workspace = true }
+serde_json = "1"
 
 [build-dependencies]
 napi-build = "2"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -2 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+empty_drop = "warn"
+empty_structs_with_brackets = "warn"
+exit = "warn"
+get_unwrap = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+str_to_string = "warn"
+todo = "warn"
+unimplemented = "warn"
+verbose_file_reads = "warn"
+debug_assert_with_mut_call = "warn"
+redundant_clone = "warn"
+unused_peekable = "warn"

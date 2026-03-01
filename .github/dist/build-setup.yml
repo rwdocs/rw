@@ -3,4 +3,4 @@
 - name: Install Yarn
   run: corepack install
 - name: Build frontend
-  run: yarn install --immutable && yarn workspace @rwdocs/viewer run build
+  run: corepack yarn install --immutable && corepack yarn workspace @rwdocs/viewer run build
