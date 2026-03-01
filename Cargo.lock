@@ -3067,7 +3067,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rw"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "clap",
  "console",
@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "rw-assets"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "mime_guess",
  "rust-embed",
@@ -3096,7 +3096,7 @@ dependencies = [
 
 [[package]]
 name = "rw-cache"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -3106,7 +3106,7 @@ dependencies = [
 
 [[package]]
 name = "rw-config"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "pretty_assertions",
  "serde",
@@ -3117,7 +3117,7 @@ dependencies = [
 
 [[package]]
 name = "rw-confluence"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64",
  "hex",
@@ -3141,7 +3141,7 @@ dependencies = [
 
 [[package]]
 name = "rw-diagrams"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64",
  "hex",
@@ -3157,7 +3157,7 @@ dependencies = [
 
 [[package]]
 name = "rw-napi"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chrono",
  "napi",
@@ -3175,7 +3175,7 @@ dependencies = [
 
 [[package]]
 name = "rw-renderer"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "pretty_assertions",
  "pulldown-cmark",
@@ -3185,7 +3185,7 @@ dependencies = [
 
 [[package]]
 name = "rw-server"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "axum",
  "chrono",
@@ -3212,7 +3212,7 @@ dependencies = [
 
 [[package]]
 name = "rw-site"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "criterion",
  "regex",
@@ -3232,7 +3232,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -3241,7 +3241,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-fs"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "glob",
  "ignore",
@@ -3258,7 +3258,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-s3"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -3275,7 +3275,7 @@ dependencies = [
 
 [[package]]
 name = "rw-techdocs"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "minijinja",
  "rayon",
