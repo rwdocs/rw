@@ -44,12 +44,13 @@
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.56.1",
     "vite": "^7.0.0",
+    "vite-plugin-dts": "^4.5.4",
     "vitest": "^4.0.15"
   },
   "exports": {
     ".": {
       "import": "./dist/lib/embed.js",
-      "types": "./src/embed.ts"
+      "types": "./dist/lib/embed.d.ts"
     },
     "./embed.css": "./dist/lib/embed.css"
   },
