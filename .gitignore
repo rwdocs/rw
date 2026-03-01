@@ -18,6 +18,9 @@ node_modules/
 # Rust
 /target
 
+# napi-rs build artifacts
+*.node
+
 # RW
 /.rw
 rw.toml
