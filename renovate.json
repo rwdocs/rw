@@ -5,5 +5,8 @@
   ],
   "ignorePaths": [
     ".github/workflows/release.yml"
+  ],
+  "postUpdateOptions": [
+    "yarnDedupeHighest"
   ]
 }
