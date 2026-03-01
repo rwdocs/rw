@@ -12,14 +12,11 @@
   },
   "scripts": {
     "build": "napi build --manifest-path ../../crates/rw-napi/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
-    "build:debug": "napi build --manifest-path ../../crates/rw-napi/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir ."
+    "build:debug": "napi build --manifest-path ../../crates/rw-napi/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir .",
+    "prepublishOnly": "napi prepublish -t npm"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3"
-  },
-  "optionalDependencies": {
-    "@rwdocs/core-darwin-arm64": "0.1.8",
-    "@rwdocs/core-linux-x64-gnu": "0.1.8"
   },
   "files": [
     "index.js",
