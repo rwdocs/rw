@@ -37,7 +37,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Build frontend bundle
-        run: yarn workspace @rw/viewer run build
+        run: yarn workspace @rwdocs/viewer run build
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
@@ -46,10 +46,10 @@ jobs:
         run: cargo clippy --all-targets -- -W clippy::pedantic
 
       - name: Run svelte-check
-        run: yarn workspace @rw/viewer run check
+        run: yarn workspace @rwdocs/viewer run check
 
       - name: Check Prettier formatting
-        run: yarn workspace @rw/viewer exec prettier --check .
+        run: yarn workspace @rwdocs/viewer exec prettier --check .
 
   test:
     name: Test (${{ matrix.os }})
@@ -91,13 +91,13 @@ jobs:
         run: yarn install --immutable
 
       - name: Build frontend bundle
-        run: yarn workspace @rw/viewer run build
+        run: yarn workspace @rwdocs/viewer run build
 
       - name: Run Rust tests
         run: cargo test --all-targets
 
       - name: Run frontend tests
-        run: yarn workspace @rw/viewer run test
+        run: yarn workspace @rwdocs/viewer run test
 
   e2e:
     name: E2E Tests
@@ -136,7 +136,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Build frontend bundle
-        run: yarn workspace @rw/viewer run build
+        run: yarn workspace @rwdocs/viewer run build
 
       - name: Build CLI
         run: cargo build -p rw
@@ -146,7 +146,7 @@ jobs:
         working-directory: packages/viewer
 
       - name: Run E2E tests
-        run: yarn workspace @rw/viewer run test:e2e
+        run: yarn workspace @rwdocs/viewer run test:e2e
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v6

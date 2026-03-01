@@ -190,7 +190,7 @@ crates/
         └── static_files.rs   # Static file serving with SPA fallback
 
 packages/
-├── viewer/                # @rw/viewer — Svelte 5 SPA (Vite + Tailwind)
+├── viewer/                # @rwdocs/viewer — Svelte 5 SPA (Vite + Tailwind)
 │   ├── src/
 │   │   ├── components/        # Svelte components
 │   │   ├── pages/             # Page components
@@ -202,9 +202,9 @@ packages/
 │   │   ├── techdocs.ts        # TechDocs CSS entry point (Vite second input)
 │   │   └── techdocs.css       # Self-contained TechDocs styles (td-* classes)
 │   └── dist/                  # Production build output
-├── core/                  # @rw/core — Node.js native addon (napi-rs bindings)
-├── backstage-plugin/      # @rw/backstage-plugin — Backstage frontend plugin
-└── backstage-plugin-backend/  # @rw/backstage-plugin-backend — Backstage backend plugin
+├── core/                  # @rwdocs/core — Node.js native addon (napi-rs bindings)
+├── backstage-plugin/      # @rwdocs/backstage-plugin — Backstage frontend plugin
+└── backstage-plugin-backend/  # @rwdocs/backstage-plugin-backend — Backstage backend plugin
 ```
 
 **Data flow (Confluence)**: Markdown → Rust (pulldown-cmark parsing, PlantUML
