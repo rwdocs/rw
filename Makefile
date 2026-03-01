@@ -3,12 +3,22 @@ all: build test format lint
 build:
 	yarn install
 	yarn workspace @rw/viewer run build
+	yarn workspace @rw/viewer run build:lib
 	cargo build -p rw
+	yarn workspace @rw/core run build
+	npx tsc --project tsconfig.json
+	yarn workspace @rw/backstage-plugin run build
+	yarn workspace @rw/backstage-plugin-backend run build
 
 build-release:
 	yarn install
 	yarn workspace @rw/viewer run build
+	yarn workspace @rw/viewer run build:lib
 	cargo build --release -p rw --features embed-assets
+	yarn workspace @rw/core run build
+	npx tsc --project tsconfig.json
+	yarn workspace @rw/backstage-plugin run build
+	yarn workspace @rw/backstage-plugin-backend run build
 
 install:
 	yarn install
@@ -26,11 +36,15 @@ test-e2e:
 format:
 	cargo fmt
 	yarn workspace @rw/viewer run format
+	yarn workspace @rw/backstage-plugin run format
+	yarn workspace @rw/backstage-plugin-backend run format
 
 lint:
 	cargo clippy --all-targets
 	yarn workspace @rw/viewer run check
 	yarn workspace @rw/viewer run lint
+	yarn workspace @rw/backstage-plugin run lint
+	yarn workspace @rw/backstage-plugin-backend run lint
 
 bench:
 	cargo bench -p rw-site

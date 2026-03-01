@@ -1,0 +1,15 @@
+{
+  "extends": "@backstage/cli/config/tsconfig.json",
+  "include": [
+    "packages/backstage-plugin/src",
+    "packages/backstage-plugin-backend/src",
+    "packages/backstage-plugin-backend/config.d.ts"
+  ],
+  "compilerOptions": {
+    "outDir": "dist-types",
+    "rootDir": ".",
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "module": "ESNext"
+  }
+}

@@ -15,6 +15,10 @@ node_modules/
 !.yarn/sdks
 !.yarn/versions
 
+# Backstage
+/dist-types
+*.tsbuildinfo
+
 # Rust
 /target
 
