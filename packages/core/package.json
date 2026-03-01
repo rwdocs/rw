@@ -1,0 +1,24 @@
+{
+  "name": "@rw/core",
+  "version": "0.1.0",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "binaryName": "core",
+    "targets": [
+      "aarch64-apple-darwin"
+    ]
+  },
+  "scripts": {
+    "build": "napi build --manifest-path ../../crates/rw-napi/Cargo.toml --platform --release --js index.js --dts index.d.ts --output-dir .",
+    "build:debug": "napi build --manifest-path ../../crates/rw-napi/Cargo.toml --platform --js index.js --dts index.d.ts --output-dir ."
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ]
+}
