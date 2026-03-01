@@ -37,7 +37,7 @@ jobs:
 
       - name: Prepare platform packages
         working-directory: packages/core
-        run: npx napi artifacts --artifacts-dir artifacts --npm-dir npm
+        run: npx napi artifacts --output-dir artifacts --npm-dir npm
 
       - name: Publish platform packages
         working-directory: packages/core
@@ -74,6 +74,6 @@ jobs:
 
       - name: Publish
         working-directory: packages/viewer
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
