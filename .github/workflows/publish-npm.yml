@@ -20,14 +20,8 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install Yarn
-        run: corepack install
-
       - name: Install dependencies
-        run: yarn install --immutable
+        run: npm ci
 
       - name: Download native artifacts
         uses: actions/download-artifact@v4

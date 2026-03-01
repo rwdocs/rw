@@ -127,12 +127,8 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
-      - name: "Enable Corepack"
-        run: "corepack enable"
-      - name: "Install Yarn"
-        run: "corepack install"
       - name: "Build frontend"
-        run: "corepack yarn install --immutable && corepack yarn workspace @rwdocs/viewer run build"
+        run: "npm ci && npm -w @rwdocs/viewer run build"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest

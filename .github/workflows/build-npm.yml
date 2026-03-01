@@ -46,18 +46,12 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install Yarn
-        run: corepack install
-
       - name: Install dependencies
-        run: yarn install --immutable
+        run: npm ci
 
       - name: Build native addon
         run: |
-          yarn workspace @rwdocs/core run build ${{ matrix.use-zigbuild && '-x' || '' }}
+          npm -w @rwdocs/core run build -- ${{ matrix.use-zigbuild && '-x' || '' }}
         env:
           NAPI_RS_TARGET: ${{ matrix.target }}
 
@@ -79,17 +73,11 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install Yarn
-        run: corepack install
-
       - name: Install dependencies
-        run: yarn install --immutable
+        run: npm ci
 
       - name: Build library
-        run: yarn workspace @rwdocs/viewer run build:lib
+        run: npm -w @rwdocs/viewer run build:lib
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
