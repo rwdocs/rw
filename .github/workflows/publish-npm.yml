@@ -45,14 +45,10 @@ jobs:
           for dir in npm/*/; do
             npm publish "$dir" --access public --provenance
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish main package
         working-directory: packages/core
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-viewer:
     name: Publish @rwdocs/viewer
@@ -75,5 +71,3 @@ jobs:
       - name: Publish
         working-directory: packages/viewer
         run: npm publish --access public --provenance --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
