@@ -39,7 +39,7 @@ version:
 
 	cargo set-version --workspace $(VERSION)
 	cargo set-version --manifest-path crates/rw-napi/Cargo.toml $(VERSION)
-	cargo generate-lockfile
+	cargo update -w
 
 	cd packages/core && npm version $(VERSION) --no-git-tag-version && npx napi version
 	cd packages/viewer && npm version $(VERSION) --no-git-tag-version
