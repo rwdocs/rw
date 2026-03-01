@@ -1742,17 +1742,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@rw/core@workspace:packages/core":
+"@rwdocs/core@workspace:packages/core":
   version: 0.0.0-use.local
-  resolution: "@rw/core@workspace:packages/core"
+  resolution: "@rwdocs/core@workspace:packages/core"
   dependencies:
     "@napi-rs/cli": "npm:^3"
   languageName: unknown
   linkType: soft
 
-"@rw/viewer@workspace:packages/viewer":
+"@rwdocs/viewer@workspace:packages/viewer":
   version: 0.0.0-use.local
-  resolution: "@rw/viewer@workspace:packages/viewer"
+  resolution: "@rwdocs/viewer@workspace:packages/viewer"
   dependencies:
     "@fontsource/jetbrains-mono": "npm:^5.2.8"
     "@fontsource/roboto": "npm:^5.2.9"
