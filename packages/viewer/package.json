@@ -1,12 +1,12 @@
 {
   "name": "@rwdocs/viewer",
-  "private": true,
   "version": "0.1.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "build:lib": "vite build --config vite.lib.config.ts",
+    "prepublishOnly": "vite build --config vite.lib.config.ts",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
@@ -49,6 +49,9 @@
     },
     "./embed.css": "./dist/lib/embed.css"
   },
+  "files": [
+    "dist/lib/"
+  ],
   "engines": {
     "node": ">=20"
   },
