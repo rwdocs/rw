@@ -6,7 +6,8 @@
   "napi": {
     "binaryName": "core",
     "targets": [
-      "aarch64-apple-darwin"
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu"
     ]
   },
   "scripts": {
@@ -15,6 +16,10 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^3"
+  },
+  "optionalDependencies": {
+    "@rwdocs/core-darwin-arm64": "0.1.8",
+    "@rwdocs/core-linux-x64-gnu": "0.1.8"
   },
   "files": [
     "index.js",
