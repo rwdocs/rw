@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `@rwdocs/core` npm package now includes JavaScript bindings and TypeScript declarations
+- `@rwdocs/viewer` npm package now ships generated `.d.ts` type declarations
+
 ## [0.1.9] - 2026-03-01
 
 ### Added
