@@ -8046,6 +8046,8 @@ __metadata:
     express-promise-router: "npm:^4.1.0"
     prettier: "npm:^3.4.2"
     typescript: "npm:^5.7.0"
+  peerDependencies:
+    "@backstage/backend-plugin-api": ^1.0.0
   languageName: unknown
   linkType: soft
 
@@ -8066,6 +8068,10 @@ __metadata:
     react-router-dom: "npm:~6.30.2"
     typescript: "npm:^5.7.0"
   peerDependencies:
+    "@backstage/core-components": ^0.16.0
+    "@backstage/core-plugin-api": ^1.0.0
+    "@backstage/frontend-plugin-api": ^0.14.0
+    "@backstage/plugin-catalog-react": ^2.0.0
     react: ^18.0.0
     react-dom: ^18.0.0
     react-router-dom: ^6.0.0
