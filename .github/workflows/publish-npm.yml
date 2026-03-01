@@ -1,0 +1,79 @@
+name: Publish npm packages
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  publish-core:
+    name: Publish @rwdocs/core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install Yarn
+        run: corepack install
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: npm-native-*
+          path: packages/core/artifacts
+
+      - name: Prepare platform packages
+        working-directory: packages/core
+        run: npx napi artifacts --artifacts-dir artifacts --npm-dir npm
+
+      - name: Publish platform packages
+        working-directory: packages/core
+        run: |
+          for dir in npm/*/; do
+            npm publish "$dir" --access public --provenance
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish main package
+        working-directory: packages/core
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-viewer:
+    name: Publish @rwdocs/viewer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download viewer build
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-viewer
+          path: packages/viewer/dist/lib
+
+      - name: Publish
+        working-directory: packages/viewer
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
