@@ -34,6 +34,17 @@ lint:
 	yarn workspace @rwdocs/viewer run check
 	yarn workspace @rwdocs/viewer run lint
 
+version:
+	@test -n "$(VERSION)" || (echo "Usage: make version VERSION=0.2.0" && exit 1)
+	
+	cargo set-version --workspace $(VERSION)
+	cargo set-version --manifest-path crates/rw-napi/Cargo.toml $(VERSION)
+	cargo generate-lockfile
+	
+	cd packages/core && npm version $(VERSION) --no-git-tag-version && npx napi version
+	cd packages/viewer && npm version $(VERSION) --no-git-tag-version
+	yarn install
+
 bench:
 	cargo bench -p rw-site
 
