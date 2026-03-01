@@ -173,8 +173,8 @@ crates/
 │       ├── inheritance.rs    # Metadata inheritance (build_ancestor_chain, merge_metadata)
 │       └── yaml.rs           # YAML parsing helpers
 │
-├── rw-napi/               # Node.js native addon (napi-rs bindings)
-│   └── src/
+├── rw-napi/               # Node.js native addon (napi-rs bindings, excluded from workspace)
+│   └── src/                 # Standalone crate: cdylib can't build for musl with cargo --workspace
 │       ├── lib.rs            # RwSite, create_site, render_page, get_navigation
 │       └── types.rs          # Napi-compatible response types
 │

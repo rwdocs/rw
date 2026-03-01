@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S3 storage backend for serving docs in deployed Backstage instances without local files
 - Frontend can now be embedded in external host applications (e.g., Backstage plugins) with configurable API base URL, memory-based routing, and no browser side effects
 - Node.js native bindings (`rw-napi`) for embedding RW in Node.js applications via napi-rs
+- Published `@rwdocs/core` and `@rwdocs/viewer` to npm (macOS arm64, Linux x64, Linux x64 musl/Alpine)
 
 ## [0.1.8] - 2026-02-26
 
