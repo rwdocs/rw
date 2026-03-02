@@ -8,14 +8,15 @@
   "files": [
     "core.linux-x64-musl.node"
   ],
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rwdocs/rw"
+  },
   "os": [
     "linux"
   ],
   "libc": [
     "musl"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/rwdocs/rw"
-  }
+  ]
 }
