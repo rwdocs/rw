@@ -5,6 +5,7 @@
     "type": "git",
     "url": "https://github.com/rwdocs/rw"
   },
+  "license": "MIT OR Apache-2.0",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
@@ -26,6 +27,8 @@
   "files": [
     "index.js",
     "index.d.ts",
-    "*.node"
+    "*.node",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
   ]
 }

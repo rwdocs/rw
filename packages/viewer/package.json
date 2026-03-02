@@ -5,6 +5,7 @@
     "type": "git",
     "url": "https://github.com/rwdocs/rw"
   },
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -55,7 +56,9 @@
     "./embed.css": "./dist/lib/embed.css"
   },
   "files": [
-    "dist/lib/"
+    "dist/lib/",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
   ],
   "engines": {
     "node": ">=20"

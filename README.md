@@ -79,3 +79,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 - [Confluence Publishing](docs/confluence.md)
 - [TechDocs](docs/techdocs.md)
 - [Diagram Rendering](docs/diagrams.md)
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT License](LICENSE-MIT), at your option.
