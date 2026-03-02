@@ -8,14 +8,15 @@
   "files": [
     "core.linux-x64-gnu.node"
   ],
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rwdocs/rw"
+  },
   "os": [
     "linux"
   ],
   "libc": [
     "glibc"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/rwdocs/rw"
-  }
+  ]
 }
