@@ -274,5 +274,71 @@ describe("navigation store", () => {
       // State reference should be the same (no update)
       expect(stateAfter).toBe(stateBefore);
     });
+
+    it("re-expands active path after loadScope replaces the tree", async () => {
+      const scopedTree: NavigationTree = {
+        items: [
+          {
+            title: "Billing",
+            path: "/billing",
+            children: [
+              { title: "Payments", path: "/billing/payments" },
+              { title: "Invoices", path: "/billing/invoices" },
+            ],
+          },
+        ],
+      };
+
+      mockFetchNavigation.mockResolvedValue(scopedTree);
+      const navigation = createNavigationStore(mockApiClient);
+
+      // Set active path before tree is loaded (simulates Page.svelte subscription)
+      navigation.expandOnlyTo("/billing/payments");
+
+      // Load navigation (simulates scopeWatcher calling loadScope)
+      await navigation.loadScope("billing");
+
+      const state = get(navigation);
+      // /billing should be expanded (ancestor of active path)
+      expect(state.collapsed.has("/billing")).toBe(false);
+    });
+
+    it("re-expands active path when scope changes after initial load", async () => {
+      const scopedTree: NavigationTree = {
+        items: [
+          {
+            title: "Guide",
+            path: "/guide",
+            children: [
+              { title: "Getting Started", path: "/guide/getting-started" },
+              {
+                title: "Advanced",
+                path: "/guide/advanced",
+                children: [{ title: "Plugins", path: "/guide/advanced/plugins" }],
+              },
+            ],
+          },
+        ],
+      };
+
+      mockFetchNavigation.mockResolvedValueOnce(mockTree).mockResolvedValueOnce(scopedTree);
+      const navigation = createNavigationStore(mockApiClient);
+
+      // Initial load and expand (simulates Layout.svelte)
+      await navigation.load();
+      navigation.expandOnlyTo("/guide/advanced/plugins");
+
+      // Verify expanded
+      expect(get(navigation).collapsed.has("/guide")).toBe(false);
+      expect(get(navigation).collapsed.has("/guide/advanced")).toBe(false);
+
+      // Scope change replaces the tree (simulates scopeWatcher)
+      await navigation.loadScope("guide");
+
+      // Active path should still be expanded in the new tree
+      const state = get(navigation);
+      expect(state.collapsed.has("/guide")).toBe(false);
+      expect(state.collapsed.has("/guide/advanced")).toBe(false);
+    });
   });
 });

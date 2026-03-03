@@ -58,6 +58,30 @@ export function createNavigationStore(apiClient: ApiClient): NavigationStore {
   // Track in-flight request for cancellation
   let currentController: AbortController | null = null;
 
+  // Remember the last requested expand path so loadScope can restore it
+  // after replacing the tree (which resets all collapsed state).
+  let activePath: string | null = null;
+
+  /** Expand ancestors of `path` in the current tree (no-op if tree is null). */
+  const doExpandTo = (path: string): void => {
+    update((state) => {
+      if (!state.tree) return state;
+
+      const pathsToExpand = getParentPaths(path);
+      // Optimization: skip update if target path is already expanded.
+      const alreadyCorrect = pathsToExpand.every((p) => !state.collapsed.has(p));
+      if (alreadyCorrect) return state;
+
+      // Collapse all parent items
+      const collapsed = new Set(collectParentPaths(state.tree.items));
+      // Expand the path to the current page
+      for (const parentPath of pathsToExpand) {
+        collapsed.delete(parentPath);
+      }
+      return { ...state, collapsed };
+    });
+  };
+
   const loadScope = async (scope: string, options?: { bypassCache?: boolean }): Promise<void> => {
     // Abort any in-flight request
     currentController?.abort();
@@ -82,6 +106,10 @@ export function createNavigationStore(apiClient: ApiClient): NavigationStore {
         collapsed: new Set(allParentPaths),
         currentScope: scope,
       }));
+      // Re-expand to the active path after tree replacement
+      if (activePath) {
+        doExpandTo(activePath);
+      }
     } catch (e) {
       // Silently ignore aborted requests
       if (e instanceof DOMException && e.name === "AbortError") return;
@@ -116,28 +144,13 @@ export function createNavigationStore(apiClient: ApiClient): NavigationStore {
 
     /** Expand only the path to the current page, collapse all others */
     expandOnlyTo(path: string) {
-      update((state) => {
-        if (!state.tree) return state;
-
-        const pathsToExpand = getParentPaths(path);
-        // Optimization: skip update if target path is already expanded.
-        // This handles clicks on the current page or its children.
-        // For navigation to different branches, the full re-collapse happens below.
-        const alreadyCorrect = pathsToExpand.every((p) => !state.collapsed.has(p));
-        if (alreadyCorrect) return state;
-
-        // Collapse all parent items
-        const collapsed = new Set(collectParentPaths(state.tree.items));
-        // Expand the path to the current page
-        for (const parentPath of pathsToExpand) {
-          collapsed.delete(parentPath);
-        }
-        return { ...state, collapsed };
-      });
+      activePath = path;
+      doExpandTo(path);
     },
 
     /** Reset store to initial state (for testing) */
     _reset() {
+      activePath = null;
       set({ ...initialState, collapsed: new Set() });
     },
   };
