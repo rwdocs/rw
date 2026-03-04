@@ -57,7 +57,9 @@
 {:else if $page.notFound}
   <div class="flex h-64 items-center justify-center">
     <div class="text-center">
-      <h1 class="mb-4 text-4xl font-bold tracking-tight text-gray-300 dark:text-neutral-600">404</h1>
+      <h1 class="mb-4 text-4xl font-bold tracking-tight text-gray-300 dark:text-neutral-600">
+        404
+      </h1>
       <p class="text-gray-600 dark:text-neutral-400">Page not found</p>
     </div>
   </div>
