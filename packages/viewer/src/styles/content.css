@@ -70,7 +70,7 @@
 
   /* Alert type-specific colors */
   .prose .alert-note {
-    @apply bg-blue-50 border-blue-500 dark:bg-blue-950 dark:border-blue-400;
+    @apply bg-blue-50 border-blue-500 dark:bg-blue-500/10 dark:border-blue-400;
   }
 
   .prose .alert-note .alert-title {
@@ -78,7 +78,7 @@
   }
 
   .prose .alert-tip {
-    @apply bg-green-50 border-green-500 dark:bg-green-950 dark:border-green-400;
+    @apply bg-green-50 border-green-500 dark:bg-green-500/10 dark:border-green-400;
   }
 
   .prose .alert-tip .alert-title {
@@ -86,7 +86,7 @@
   }
 
   .prose .alert-important {
-    @apply bg-purple-50 border-purple-500 dark:bg-purple-950 dark:border-purple-400;
+    @apply bg-purple-50 border-purple-500 dark:bg-purple-500/10 dark:border-purple-400;
   }
 
   .prose .alert-important .alert-title {
@@ -94,7 +94,7 @@
   }
 
   .prose .alert-warning {
-    @apply bg-amber-50 border-amber-500 dark:bg-amber-950 dark:border-amber-400;
+    @apply bg-amber-50 border-amber-500 dark:bg-amber-500/10 dark:border-amber-400;
   }
 
   .prose .alert-warning .alert-title {
@@ -102,7 +102,7 @@
   }
 
   .prose .alert-caution {
-    @apply bg-red-50 border-red-500 dark:bg-red-950 dark:border-red-400;
+    @apply bg-red-50 border-red-500 dark:bg-red-500/10 dark:border-red-400;
   }
 
   .prose .alert-caution .alert-title {
