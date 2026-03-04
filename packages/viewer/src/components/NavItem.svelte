@@ -31,8 +31,8 @@
       <button
         onclick={toggleExpanded}
         class="
-          mr-0.5 flex size-5 items-center justify-center rounded-sm text-gray-500
-          hover:bg-gray-100 hover:text-gray-700
+          mr-0.5 flex size-5 items-center justify-center rounded-sm text-gray-500 dark:text-neutral-400
+          hover:bg-gray-100 dark:hover:bg-neutral-600 hover:text-gray-700 dark:hover:text-neutral-300
         "
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
@@ -60,7 +60,9 @@
       href={router.prefixPath(item.path)}
       class="
         flex-1 rounded-sm p-1.5 text-sm transition-colors
-        {isActive ? 'font-medium text-blue-700' : `text-gray-700 hover:text-gray-900`}"
+        {isActive
+        ? 'font-medium text-blue-700 dark:text-blue-400'
+        : `text-gray-700 dark:text-neutral-300 hover:text-gray-900 dark:hover:text-neutral-100`}"
     >
       {item.title}
     </a>

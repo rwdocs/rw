@@ -16,6 +16,8 @@ export interface MountOptions {
   fetchFn?: typeof fetch;
   /** Called when the user navigates to a new path (embedded mode only). */
   onNavigate?: (path: string) => void;
+  /** Color scheme: 'light', 'dark', or 'auto' (OS preference). Defaults to 'auto'. */
+  colorScheme?: "light" | "dark" | "auto";
 }
 
 export interface RwInstance {
@@ -31,6 +33,25 @@ export interface RwInstance {
  */
 export function mountRw(target: HTMLElement, options: MountOptions): RwInstance {
   let gotoFn: ((path: string) => void) | undefined;
+
+  const colorScheme = options.colorScheme ?? "auto";
+  const applyDarkClass = (isDark: boolean) => {
+    target.classList.toggle("dark", isDark);
+  };
+
+  let mediaQuery: MediaQueryList | undefined;
+  let mediaQueryHandler: ((e: MediaQueryListEvent) => void) | undefined;
+
+  if (colorScheme === "dark") {
+    applyDarkClass(true);
+  } else if (colorScheme === "light") {
+    applyDarkClass(false);
+  } else {
+    mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    mediaQueryHandler = (e) => applyDarkClass(e.matches);
+    applyDarkClass(mediaQuery.matches);
+    mediaQuery.addEventListener("change", mediaQueryHandler);
+  }
 
   const instance = mount(App, {
     target,
@@ -48,7 +69,12 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
   });
 
   return {
-    destroy: () => unmount(instance),
+    destroy: () => {
+      if (mediaQuery && mediaQueryHandler) {
+        mediaQuery.removeEventListener("change", mediaQueryHandler);
+      }
+      unmount(instance);
+    },
     navigateTo: (path: string) => gotoFn?.(path),
   };
 }

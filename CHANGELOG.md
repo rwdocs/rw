@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Dark theme support — automatically follows OS dark mode preference
+- `colorScheme` option for embedded mode (`mountRw`) to set 'light', 'dark', or 'auto'
+
 ### Fixed
 
 - Fixed navigation sidebar collapsing after page refresh on inner pages

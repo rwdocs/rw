@@ -11,7 +11,9 @@
 
 {#if group.label}
   <div class="mt-5 first:mt-0">
-    <div class="px-1.5 pb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase">
+    <div
+      class="px-1.5 pb-1.5 text-xs font-semibold tracking-wider text-gray-500 dark:text-neutral-400 uppercase"
+    >
       {group.label}
     </div>
     <ul>
