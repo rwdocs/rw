@@ -45,6 +45,8 @@ version:
 	cd packages/viewer && npm version $(VERSION) --no-git-tag-version
 	npm install
 
+	$(MAKE) build
+
 bench:
 	cargo bench -p rw-site
 
