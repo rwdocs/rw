@@ -41,7 +41,7 @@
   >
     <div
       class="
-        h-full origin-left bg-blue-500 dark:bg-blue-400 will-change-[transform,opacity]
+        h-full origin-left bg-blue-500 will-change-[transform,opacity] dark:bg-blue-400
         {animationState === 'running' ? 'animate-trickle' : 'animate-complete'}"
     ></div>
   </div>

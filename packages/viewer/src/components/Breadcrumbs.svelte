@@ -16,11 +16,15 @@
     <ol class="flex items-center text-sm text-gray-600 dark:text-neutral-400">
       {#each breadcrumbs as crumb (crumb.path)}
         <li
-          class="after:mx-2 after:text-gray-400 dark:after:text-neutral-500 after:content-['/'] last:after:content-none"
+          class="
+            after:mx-2 after:text-gray-400 after:content-['/']
+            last:after:content-none
+            dark:after:text-neutral-500
+          "
         >
           <a
             href={router.prefixPath(crumb.path)}
-            class="hover:text-gray-700 dark:hover:text-neutral-300 hover:underline"
+            class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
           >
             {crumb.title}
           </a>

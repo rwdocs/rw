@@ -50,7 +50,10 @@
 {:else if $page.loading && $page.data}
   <!-- Fast load: show previous content with reduced opacity -->
   <article
-    class="prose max-w-none opacity-50 transition-opacity duration-150 prose-slate dark:prose-invert"
+    class="
+      prose max-w-none opacity-50 transition-opacity duration-150 prose-slate
+      dark:prose-invert
+    "
   >
     {@html $page.data.content}
   </article>
