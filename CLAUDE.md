@@ -89,9 +89,7 @@ crates/
 │       ├── tabs/             # Tabbed content blocks
 │       │   ├── mod.rs        # Module exports
 │       │   ├── directive.rs  # TabsDirective (ContainerDirective impl)
-│       │   ├── fence.rs      # FenceTracker for code fence state
-│       │   ├── preprocessor.rs  # TabsPreprocessor (legacy API)
-│       │   └── processor.rs  # TabsProcessor (legacy API)
+│       │   └── fence.rs      # FenceTracker for code fence state
 │       └── util.rs           # heading_level_to_num()
 │
 ├── rw-confluence/         # Confluence integration
