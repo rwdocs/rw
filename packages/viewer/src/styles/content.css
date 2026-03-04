@@ -115,7 +115,7 @@
   }
 
   .prose .tabs-buttons {
-    @apply flex gap-0 border-b border-gray-200 dark:border-neutral-700;
+    @apply flex gap-0 border-b border-gray-200 dark:border-neutral-600;
   }
 
   .prose .tabs-buttons [role="tab"] {
