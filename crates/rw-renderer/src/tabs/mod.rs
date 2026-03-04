@@ -20,8 +20,6 @@
 //! 2. **Post-processing**: Transforms the intermediate elements to accessible
 //!    HTML with ARIA attributes.
 //!
-//! ## Using the Directive API (Recommended)
-//!
 //! Use [`TabsDirective`] with [`DirectiveProcessor`](crate::directive::DirectiveProcessor):
 //!
 //! ```
@@ -43,18 +41,9 @@
 //!
 //! assert!(html.contains(r#"role="tablist""#));
 //! ```
-//!
-//! ## Legacy API
-//!
-//! [`TabsPreprocessor`] and [`TabsProcessor`] are still available for backward
-//! compatibility but using the directive API is recommended for new code.
 
 mod directive;
 mod fence;
-mod preprocessor;
-mod processor;
 
 pub use directive::TabsDirective;
 pub(crate) use fence::FenceTracker;
-pub use preprocessor::{TabMetadata, TabsGroup, TabsPreprocessor};
-pub use processor::TabsProcessor;

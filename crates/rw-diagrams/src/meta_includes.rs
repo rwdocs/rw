@@ -11,7 +11,7 @@ use rw_renderer::relative_path;
 /// When provided, diagram link URLs are transformed to match the renderer's
 /// link mode (relative paths, trailing slashes).
 #[derive(Clone, Debug)]
-pub struct LinkConfig {
+pub(crate) struct LinkConfig {
     /// Base path of the page containing the diagram (e.g., "/domains/billing").
     pub base_path: String,
     /// Convert absolute URLs to relative paths.
@@ -207,7 +207,7 @@ fn render_c4_macro(
 ///
 /// Returns `None` if the path doesn't match the meta include pattern or the
 /// entity is not found.
-pub fn resolve_meta_include(
+pub(crate) fn resolve_meta_include(
     include_path: &str,
     source: &dyn MetaIncludeSource,
     link_config: Option<&LinkConfig>,

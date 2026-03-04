@@ -682,26 +682,8 @@ impl Replacements {
 /// Convert an [`ExtractedCodeBlock`] to an [`ExtractedDiagram`].
 ///
 /// Returns `None` if the code block is not a diagram type.
-///
-/// # Example
-///
-/// ```
-/// use std::collections::HashMap;
-/// use rw_diagrams::to_extracted_diagram;
-/// use rw_renderer::ExtractedCodeBlock;
-///
-/// let block = ExtractedCodeBlock {
-///     index: 0,
-///     language: "plantuml".to_owned(),
-///     source: "@startuml\nA -> B\n@enduml".to_owned(),
-///     attrs: HashMap::new(),
-/// };
-/// if let Some(diagram) = to_extracted_diagram(&block) {
-///     assert_eq!(format!("{:?}", diagram.language), "PlantUml");
-/// }
-/// ```
 #[must_use]
-pub fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<ExtractedDiagram> {
+pub(crate) fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<ExtractedDiagram> {
     let language = DiagramLanguage::parse(&block.language)?;
     let format = block
         .attrs
@@ -720,33 +702,8 @@ pub fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<ExtractedDiagr
 /// Convert multiple [`ExtractedCodeBlock`]s to [`ExtractedDiagram`]s.
 ///
 /// Filters out non-diagram blocks automatically.
-///
-/// # Example
-///
-/// ```
-/// use std::collections::HashMap;
-/// use rw_diagrams::to_extracted_diagrams;
-/// use rw_renderer::ExtractedCodeBlock;
-///
-/// let blocks = vec![
-///     ExtractedCodeBlock {
-///         index: 0,
-///         language: "plantuml".to_owned(),
-///         source: "@startuml\nA -> B\n@enduml".to_owned(),
-///         attrs: HashMap::new(),
-///     },
-///     ExtractedCodeBlock {
-///         index: 1,
-///         language: "rust".to_owned(),
-///         source: "fn main() {}".to_owned(),
-///         attrs: HashMap::new(),
-///     },
-/// ];
-/// let diagrams = to_extracted_diagrams(&blocks);
-/// assert_eq!(diagrams.len(), 1); // Only plantuml is a diagram
-/// ```
 #[must_use]
-pub fn to_extracted_diagrams(blocks: &[ExtractedCodeBlock]) -> Vec<ExtractedDiagram> {
+pub(crate) fn to_extracted_diagrams(blocks: &[ExtractedCodeBlock]) -> Vec<ExtractedDiagram> {
     blocks.iter().filter_map(to_extracted_diagram).collect()
 }
 

@@ -32,9 +32,9 @@ pub(crate) mod page;
 pub(crate) mod site;
 pub(crate) mod site_state;
 
-pub use page::{BreadcrumbItem, Page, PageRenderResult, PageRendererConfig, RenderError};
+pub use page::{BreadcrumbItem, PageRenderResult, PageRendererConfig, RenderError};
 pub use site::Site;
-pub use site_state::{NavItem, Navigation, ScopeInfo, SectionInfo};
+pub use site_state::{NavItem, Navigation, ScopeInfo};
 
 // Re-export TocEntry from rw-renderer for convenience
 pub use rw_renderer::TocEntry;
