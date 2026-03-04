@@ -36,7 +36,7 @@
 
   /* Error state for diagrams that failed to render */
   .prose figure.diagram-error {
-    @apply border border-red-200 bg-red-50 rounded p-4;
+    @apply border border-red-200 bg-red-50 rounded p-4 dark:border-red-800 dark:bg-red-950;
   }
 
   .prose figure.diagram-error pre {
@@ -70,43 +70,43 @@
 
   /* Alert type-specific colors */
   .prose .alert-note {
-    @apply bg-blue-50 border-blue-500;
+    @apply bg-blue-50 border-blue-500 dark:bg-blue-950 dark:border-blue-400;
   }
 
   .prose .alert-note .alert-title {
-    @apply text-blue-600;
+    @apply text-blue-600 dark:text-blue-400;
   }
 
   .prose .alert-tip {
-    @apply bg-green-50 border-green-500;
+    @apply bg-green-50 border-green-500 dark:bg-green-950 dark:border-green-400;
   }
 
   .prose .alert-tip .alert-title {
-    @apply text-green-600;
+    @apply text-green-600 dark:text-green-400;
   }
 
   .prose .alert-important {
-    @apply bg-purple-50 border-purple-500;
+    @apply bg-purple-50 border-purple-500 dark:bg-purple-950 dark:border-purple-400;
   }
 
   .prose .alert-important .alert-title {
-    @apply text-purple-600;
+    @apply text-purple-600 dark:text-purple-400;
   }
 
   .prose .alert-warning {
-    @apply bg-amber-50 border-amber-500;
+    @apply bg-amber-50 border-amber-500 dark:bg-amber-950 dark:border-amber-400;
   }
 
   .prose .alert-warning .alert-title {
-    @apply text-amber-600;
+    @apply text-amber-600 dark:text-amber-400;
   }
 
   .prose .alert-caution {
-    @apply bg-red-50 border-red-500;
+    @apply bg-red-50 border-red-500 dark:bg-red-950 dark:border-red-400;
   }
 
   .prose .alert-caution .alert-title {
-    @apply text-red-600;
+    @apply text-red-600 dark:text-red-400;
   }
 
   /* Tabs styling */
@@ -115,19 +115,19 @@
   }
 
   .prose .tabs-buttons {
-    @apply flex gap-0 border-b border-gray-200;
+    @apply flex gap-0 border-b border-gray-200 dark:border-neutral-700;
   }
 
   .prose .tabs-buttons [role="tab"] {
-    @apply px-4 py-2 text-sm font-medium text-gray-600 bg-transparent border-b-2 border-transparent cursor-pointer transition-colors;
+    @apply px-4 py-2 text-sm font-medium text-gray-600 bg-transparent border-b-2 border-transparent cursor-pointer transition-colors dark:text-neutral-400;
   }
 
   .prose .tabs-buttons [role="tab"]:hover {
-    @apply text-gray-900 border-gray-300;
+    @apply text-gray-900 border-gray-300 dark:text-neutral-100 dark:border-neutral-600;
   }
 
   .prose .tabs-buttons [role="tab"][aria-selected="true"] {
-    @apply text-blue-600 border-blue-600;
+    @apply text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400;
   }
 
   .prose .tabs-buttons [role="tab"]:focus {
@@ -135,7 +135,7 @@
   }
 
   .prose .tabs-buttons [role="tab"]:focus-visible {
-    @apply text-blue-600 border-blue-600;
+    @apply text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400;
   }
 
   .prose .tabs [role="tabpanel"] {
@@ -174,11 +174,11 @@
   }
 
   .prose .tabs--static .tabs-buttons label {
-    @apply px-4 py-2 text-sm font-medium text-gray-600 bg-transparent border-b-2 border-transparent cursor-pointer transition-colors;
+    @apply px-4 py-2 text-sm font-medium text-gray-600 bg-transparent border-b-2 border-transparent cursor-pointer transition-colors dark:text-neutral-400;
   }
 
   .prose .tabs--static .tabs-buttons label:hover {
-    @apply text-gray-900 border-gray-300;
+    @apply text-gray-900 border-gray-300 dark:text-neutral-100 dark:border-neutral-600;
   }
 
   .prose .tabs--static > .tabs-panel > :first-child {
@@ -224,6 +224,6 @@
   .prose .tabs--static > input:nth-child(8):checked ~ .tabs-buttons > label:nth-child(8),
   .prose .tabs--static > input:nth-child(9):checked ~ .tabs-buttons > label:nth-child(9),
   .prose .tabs--static > input:nth-child(10):checked ~ .tabs-buttons > label:nth-child(10) {
-    @apply text-blue-600 border-blue-600;
+    @apply text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400;
   }
 }

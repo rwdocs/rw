@@ -143,7 +143,9 @@
 </script>
 
 <div>
-  <h3 class="mb-3 text-xs font-semibold tracking-wider text-gray-600 uppercase">On this page</h3>
+  <h3 class="mb-3 text-xs font-semibold tracking-wider text-gray-600 dark:text-neutral-400 uppercase">
+    On this page
+  </h3>
   <ul class="space-y-1.5">
     {#each filteredToc as entry (entry.id)}
       <li class={entry.level === 3 ? "ml-3" : ""}>
@@ -153,8 +155,8 @@
           class="
             block text-sm/snug transition-colors
             {activeId === entry.id
-            ? 'font-medium text-blue-600'
-            : `text-gray-600 hover:text-gray-900`}"
+            ? 'font-medium text-blue-600 dark:text-blue-400'
+            : `text-gray-600 dark:text-neutral-400 hover:text-gray-900 dark:hover:text-neutral-100`}"
         >
           {entry.title}
         </a>

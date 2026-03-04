@@ -32,11 +32,11 @@
 
 <!-- Mobile Header -->
 <header
-  class="sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white px-4 py-3 md:hidden"
+  class="sticky top-0 z-30 flex items-center border-b border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 md:hidden"
 >
   <button
     onclick={ui.openMobileMenu}
-    class="-ml-2 cursor-pointer p-2 text-gray-500 hover:text-gray-700"
+    class="-ml-2 cursor-pointer p-2 text-gray-500 dark:text-neutral-400 hover:text-gray-700 dark:hover:text-neutral-300"
     aria-label="Open menu"
   >
     <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -50,7 +50,9 @@
   </button>
   <a href={homeHref} class="ml-3">
     <span class="text-lg font-semibold uppercase"
-      ><span class="text-gray-900">R</span><span class="text-gray-400">W</span></span
+      ><span class="text-gray-900 dark:text-neutral-100">R</span><span
+        class="text-gray-400 dark:text-neutral-500">W</span
+      ></span
     >
   </a>
 </header>
@@ -62,18 +64,22 @@
   <!-- Navigation Sidebar (Desktop) -->
   <aside
     class="
-      sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r border-gray-200
+      sticky top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto border-r border-gray-200 dark:border-neutral-700
       md:block
     "
   >
     <div class="px-4 pt-6 pb-4">
       <a href={homeHref} class="mb-5 block pl-[6px]">
         <span class="text-xl font-semibold uppercase"
-          ><span class="text-gray-900">R</span><span class="text-gray-400">W</span></span
+          ><span class="text-gray-900 dark:text-neutral-100">R</span><span
+            class="text-gray-400 dark:text-neutral-500">W</span
+          ></span
         >
       </a>
       {#if $navigation.error}
-        <div class="mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div
+          class="mb-4 rounded-sm border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 p-3 text-sm text-red-700 dark:text-red-300"
+        >
           Failed to load navigation: {$navigation.error}
         </div>
       {/if}
