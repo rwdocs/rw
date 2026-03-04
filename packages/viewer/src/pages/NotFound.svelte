@@ -10,7 +10,12 @@
     <p class="mb-8 text-xl text-gray-600 dark:text-neutral-400">Page not found</p>
     <a
       href={router.prefixPath("/")}
-      class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
+      class="
+        text-blue-600
+        hover:text-blue-800 hover:underline
+        dark:text-blue-400
+        dark:hover:text-blue-300
+      "
     >
       Go to home
     </a>
