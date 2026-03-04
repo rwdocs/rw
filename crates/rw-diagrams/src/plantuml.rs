@@ -150,7 +150,9 @@ pub fn prepare_diagram_source(
     );
 
     // Inject DPI and font config after @startuml directive
-    let config_block = format!("skinparam dpi {dpi}\nskinparam defaultFontName Roboto\n");
+    let config_block = format!(
+        "skinparam dpi {dpi}\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\n"
+    );
 
     // Find @startuml and inject config after it
     let final_source = if let Some(pos) = resolved.find("@startuml") {
@@ -191,7 +193,7 @@ mod tests {
         // DPI and font should be injected after @startuml
         assert_eq!(
             result.source,
-            "@startuml\nskinparam dpi 192\nskinparam defaultFontName Roboto\nAlice -> Bob\n@enduml"
+            "@startuml\nskinparam dpi 192\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\nAlice -> Bob\n@enduml"
         );
         assert!(result.warnings.is_empty());
     }
@@ -203,7 +205,7 @@ mod tests {
 
         assert_eq!(
             result.source,
-            "@startuml\nskinparam dpi 300\nskinparam defaultFontName Roboto\nAlice -> Bob\n@enduml"
+            "@startuml\nskinparam dpi 300\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\nAlice -> Bob\n@enduml"
         );
         assert!(result.warnings.is_empty());
     }
@@ -216,7 +218,7 @@ mod tests {
         // Content before @startuml should be preserved
         assert_eq!(
             result.source,
-            "' comment\n@startuml\nskinparam dpi 192\nskinparam defaultFontName Roboto\nAlice -> Bob\n@enduml"
+            "' comment\n@startuml\nskinparam dpi 192\nskinparam defaultFontName Roboto\nskinparam backgroundColor transparent\nAlice -> Bob\n@enduml"
         );
         assert!(result.warnings.is_empty());
     }

@@ -143,7 +143,9 @@
 </script>
 
 <div>
-  <h3 class="mb-3 text-xs font-semibold tracking-wider text-gray-600 dark:text-neutral-400 uppercase">
+  <h3
+    class="mb-3 text-xs font-semibold tracking-wider text-gray-600 dark:text-neutral-400 uppercase"
+  >
     On this page
   </h3>
   <ul class="space-y-1.5">
