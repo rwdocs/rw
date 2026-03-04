@@ -43,5 +43,5 @@ pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use html::HtmlBackend;
 pub use renderer::{MarkdownRenderer, RenderResult};
 pub use state::{TocEntry, escape_html};
-pub use tabs::{TabMetadata, TabsDirective, TabsGroup, TabsPreprocessor, TabsProcessor};
+pub use tabs::TabsDirective;
 pub use util::relative_path;
