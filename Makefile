@@ -3,18 +3,21 @@ all: build test format lint
 build:
 	npm install
 	npm -w @rwdocs/viewer run build
+	npm -w @rwdocs/viewer run build:lib
 	cargo build -p rw
 	npm -w @rwdocs/core run build
 
 build-release:
 	npm install
 	npm -w @rwdocs/viewer run build
+	npm -w @rwdocs/viewer run build:lib
 	cargo build --release -p rw --features embed-assets
 	npm -w @rwdocs/core run build
 
 install:
 	npm install
 	npm -w @rwdocs/viewer run build
+	npm -w @rwdocs/viewer run build:lib
 	cargo install --path crates/rw --features embed-assets
 
 test:

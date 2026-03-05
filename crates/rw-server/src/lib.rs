@@ -99,6 +99,8 @@ pub struct ServerConfig {
     pub meta_filename: String,
     /// README.md path to use as homepage fallback.
     pub readme_path: PathBuf,
+    /// Enable embedded preview mode (serves Backstage-like shell at /_preview/).
+    pub embedded_preview: bool,
 }
 
 impl Default for ServerConfig {
@@ -116,6 +118,7 @@ impl Default for ServerConfig {
             version: String::new(),
             meta_filename: "meta.yaml".to_owned(),
             readme_path: PathBuf::from("README.md"),
+            embedded_preview: false,
         }
     }
 }
@@ -171,6 +174,7 @@ pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
         live_reload,
         verbose: config.verbose,
         version: config.version.clone(),
+        embedded_preview: config.embedded_preview,
     });
 
     // Create router
@@ -208,6 +212,7 @@ pub fn server_config_from_rw_config(
     config: &rw_config::Config,
     version: String,
     verbose: bool,
+    embedded_preview: bool,
 ) -> ServerConfig {
     // Auto-detect README.md as homepage fallback (FsStorage checks existence at runtime)
     let readme_path = config
@@ -236,5 +241,6 @@ pub fn server_config_from_rw_config(
         version,
         meta_filename: config.metadata.name.clone(),
         readme_path,
+        embedded_preview,
     }
 }
