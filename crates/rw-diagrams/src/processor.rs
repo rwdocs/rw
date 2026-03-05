@@ -565,11 +565,7 @@ impl DiagramProcessor {
             &config.agent,
         );
         for r in result.rendered {
-            let info = RenderedDiagramInfo {
-                filename: r.filename,
-                width: r.width,
-                height: r.height,
-            };
+            let info = RenderedDiagramInfo::new(r.filename, r.width, r.height);
             let tag = tag_generator.generate_tag(&info, config.dpi);
             replacements.add(r.index, tag);
         }

@@ -12,15 +12,40 @@ use crate::consts::STANDARD_DPI;
 /// Information about a rendered diagram for tag generation.
 #[derive(Debug)]
 pub struct RenderedDiagramInfo {
-    /// Filename of the diagram (e.g., "`diagram_abc123.png`").
-    pub filename: String,
-    /// Physical width in pixels.
-    pub width: u32,
-    /// Physical height in pixels.
-    pub height: u32,
+    filename: String,
+    width: u32,
+    height: u32,
 }
 
 impl RenderedDiagramInfo {
+    /// Create a new rendered diagram info.
+    #[must_use]
+    pub fn new(filename: String, width: u32, height: u32) -> Self {
+        Self {
+            filename,
+            width,
+            height,
+        }
+    }
+
+    /// Filename of the diagram (e.g., "`diagram_abc123.png`").
+    #[must_use]
+    pub fn filename(&self) -> &str {
+        &self.filename
+    }
+
+    /// Physical width in pixels.
+    #[must_use]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Physical height in pixels.
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
     /// Calculate display width for a given rendering DPI.
     ///
     /// High-DPI diagrams (e.g., 192 DPI) should be displayed at half their
@@ -115,7 +140,7 @@ impl DiagramTagGenerator for ImgTagGenerator {
         format!(
             r#"<img src="{}{}" width="{}" alt="diagram">"#,
             self.path_prefix,
-            info.filename,
+            info.filename(),
             info.display_width(dpi)
         )
     }
@@ -147,7 +172,7 @@ impl DiagramTagGenerator for FigureTagGenerator {
         format!(
             r#"<figure class="diagram"><img src="{}{}" width="{}" alt="diagram"></figure>"#,
             self.path_prefix,
-            info.filename,
+            info.filename(),
             info.display_width(dpi)
         )
     }
@@ -160,11 +185,7 @@ mod tests {
     #[test]
     fn test_img_tag_generator() {
         let generator = ImgTagGenerator::new("/diagrams/");
-        let info = RenderedDiagramInfo {
-            filename: "test.png".to_owned(),
-            width: 400,
-            height: 200,
-        };
+        let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
         // At 192 DPI (2x), width should be halved: 400 * 96 / 192 = 200
         let tag = generator.generate_tag(&info, 192);
         assert_eq!(
@@ -176,11 +197,7 @@ mod tests {
     #[test]
     fn test_img_tag_generator_96_dpi() {
         let generator = ImgTagGenerator::new("/assets/");
-        let info = RenderedDiagramInfo {
-            filename: "diagram.png".to_owned(),
-            width: 300,
-            height: 150,
-        };
+        let info = RenderedDiagramInfo::new("diagram.png".to_owned(), 300, 150);
         // At 96 DPI, width unchanged: 300 * 96 / 96 = 300
         let tag = generator.generate_tag(&info, 96);
         assert_eq!(
@@ -192,11 +209,7 @@ mod tests {
     #[test]
     fn test_figure_tag_generator() {
         let generator = FigureTagGenerator::new("/diagrams/");
-        let info = RenderedDiagramInfo {
-            filename: "test.png".to_owned(),
-            width: 400,
-            height: 200,
-        };
+        let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
         let tag = generator.generate_tag(&info, 192);
         assert_eq!(
             tag,
@@ -212,33 +225,21 @@ mod tests {
 
     #[test]
     fn test_display_width_192_dpi() {
-        let info = RenderedDiagramInfo {
-            filename: "test.png".to_owned(),
-            width: 400,
-            height: 200,
-        };
+        let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
         // At 192 DPI (2x), width should be halved: 400 * 96 / 192 = 200
         assert_eq!(info.display_width(192), 200);
     }
 
     #[test]
     fn test_display_width_96_dpi() {
-        let info = RenderedDiagramInfo {
-            filename: "test.png".to_owned(),
-            width: 300,
-            height: 150,
-        };
+        let info = RenderedDiagramInfo::new("test.png".to_owned(), 300, 150);
         // At 96 DPI, width unchanged: 300 * 96 / 96 = 300
         assert_eq!(info.display_width(96), 300);
     }
 
     #[test]
     fn test_display_height_192_dpi() {
-        let info = RenderedDiagramInfo {
-            filename: "test.png".to_owned(),
-            width: 400,
-            height: 200,
-        };
+        let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
         // At 192 DPI (2x), height should be halved: 200 * 96 / 192 = 100
         assert_eq!(info.display_height(192), 100);
     }
