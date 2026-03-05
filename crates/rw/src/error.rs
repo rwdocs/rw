@@ -2,6 +2,7 @@
 
 use rw_config::ConfigError;
 use rw_confluence::{ConfluenceError, UpdateError};
+use rw_server::ServerError;
 use rw_techdocs::{BuildError, PublishError};
 
 /// CLI error type.
@@ -29,7 +30,7 @@ pub(crate) enum CliError {
     BundlePublish(#[from] rw_storage_s3::BundlePublishError),
 
     #[error("{0}")]
-    Server(String),
+    Server(#[from] ServerError),
 
     #[error("{0}")]
     Validation(String),

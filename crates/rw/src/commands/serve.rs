@@ -115,9 +115,7 @@ impl ServeArgs {
 
         // Build server config and run
         let server_config = server_config_from_rw_config(&config, version.to_owned(), self.verbose);
-        run_server(server_config)
-            .await
-            .map_err(|e| CliError::Server(e.to_string()))?;
+        run_server(server_config).await?;
 
         Ok(())
     }
@@ -135,8 +133,7 @@ impl ServeArgs {
 
 /// Ensure the `.rw/` project directory exists with a `.gitignore`.
 fn ensure_project_dir(project_dir: &Path) -> Result<(), CliError> {
-    std::fs::create_dir_all(project_dir)
-        .map_err(|e| CliError::Server(format!("Failed to create project directory: {e}")))?;
+    std::fs::create_dir_all(project_dir)?;
 
     let gitignore_path = project_dir.join(".gitignore");
     if !gitignore_path.exists() {

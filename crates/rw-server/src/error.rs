@@ -1,12 +1,31 @@
 //! Error types for the HTTP server.
 
+use std::net::AddrParseError;
+
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use rw_storage::StorageError;
 use serde_json::json;
 
-/// Server error type.
+/// Error returned when the server fails to start.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ServerError {
+pub enum ServerError {
+    /// Failed to start file watching for live reload.
+    #[error("failed to start file watcher: {0}")]
+    Watch(#[from] StorageError),
+
+    /// Invalid bind address.
+    #[error("invalid bind address: {0}")]
+    InvalidAddress(#[from] AddrParseError),
+
+    /// I/O error (bind or serve failure).
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// Handler error type (internal).
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum HandlerError {
     /// Page not found at the given path.
     #[error("Page not found: {0}")]
     PageNotFound(String),
@@ -20,7 +39,7 @@ pub(crate) enum ServerError {
     Io(#[from] std::io::Error),
 }
 
-impl IntoResponse for ServerError {
+impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
         let (status, body) = match &self {
             Self::PageNotFound(path) => (

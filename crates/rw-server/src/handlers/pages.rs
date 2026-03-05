@@ -16,7 +16,7 @@ use rw_renderer::TocEntry;
 use rw_site::BreadcrumbItem;
 use serde::Serialize;
 
-use crate::error::ServerError;
+use crate::error::HandlerError;
 use crate::handlers::to_url_path;
 use crate::state::AppState;
 
@@ -101,7 +101,7 @@ impl From<&TocEntry> for TocResponse {
 pub(crate) async fn get_root_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, ServerError> {
+) -> Result<impl IntoResponse, HandlerError> {
     get_page_impl(String::new(), state, headers)
 }
 
@@ -110,7 +110,7 @@ pub(crate) async fn get_page(
     Path(path): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, ServerError> {
+) -> Result<impl IntoResponse, HandlerError> {
     get_page_impl(path, state, headers)
 }
 
@@ -120,12 +120,12 @@ fn get_page_impl(
     path: String,
     state: Arc<AppState>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, ServerError> {
+) -> Result<impl IntoResponse, HandlerError> {
     // Render the page using unified Site API (path is already without leading slash)
     let result = state
         .site
         .render(&path)
-        .map_err(|_| ServerError::PageNotFound(path.clone()))?;
+        .map_err(|_| HandlerError::PageNotFound(path.clone()))?;
 
     // Log warnings in verbose mode
     if state.verbose && !result.warnings.is_empty() {

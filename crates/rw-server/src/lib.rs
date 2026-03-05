@@ -60,6 +60,8 @@ mod middleware;
 mod state;
 mod static_files;
 
+pub use error::ServerError;
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -127,7 +129,7 @@ impl Default for ServerConfig {
 /// # Errors
 ///
 /// Returns an error if the server fails to start.
-pub async fn run_server(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
     // Create shared storage backend
     let storage: Arc<dyn rw_storage::Storage> = Arc::new(
         FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename)
