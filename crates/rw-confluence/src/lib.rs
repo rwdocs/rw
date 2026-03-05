@@ -11,7 +11,6 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::Path;
 //! use rw_confluence::{ConfluenceClient, PageUpdater, UpdateConfig};
-//! use rw_config::DiagramsConfig;
 //!
 //! let client = ConfluenceClient::from_config(
 //!     "https://confluence.example.com",
@@ -22,7 +21,9 @@
 //! )?;
 //!
 //! let config = UpdateConfig {
-//!     diagrams: DiagramsConfig::default(),
+//!     kroki_url: Some("https://kroki.io".to_owned()),
+//!     include_dirs: vec![],
+//!     dpi: 192,
 //!     extract_title: true,
 //! };
 //! let updater = PageUpdater::new(&client, config);

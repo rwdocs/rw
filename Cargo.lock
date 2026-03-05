@@ -2957,7 +2957,6 @@ dependencies = [
  "rand 0.10.0",
  "regex",
  "rsa",
- "rw-config",
  "rw-diagrams",
  "rw-renderer",
  "serde",

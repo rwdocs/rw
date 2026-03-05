@@ -10,7 +10,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-rw-config = { workspace = true }
 rw-diagrams = { workspace = true }
 rw-renderer = { workspace = true }
 

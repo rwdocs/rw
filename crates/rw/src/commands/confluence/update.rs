@@ -75,7 +75,9 @@ impl UpdateArgs {
 
         // Create update config
         let update_config = UpdateConfig {
-            diagrams: config.diagrams_resolved,
+            kroki_url: config.diagrams_resolved.kroki_url,
+            include_dirs: config.diagrams_resolved.include_dirs,
+            dpi: config.diagrams_resolved.dpi,
             extract_title: self.resolve_extract_title(),
         };
         let updater = PageUpdater::new(&client, update_config);

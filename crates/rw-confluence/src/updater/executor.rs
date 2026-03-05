@@ -142,18 +142,17 @@ impl<'a> PageUpdater<'a> {
     }
 
     fn kroki_url(&self) -> Result<&str, UpdateError> {
-        self.config.diagrams.kroki_url.as_deref().ok_or_else(|| {
+        self.config.kroki_url.as_deref().ok_or_else(|| {
             UpdateError::Config("kroki_url required (via --kroki-url or [diagrams] config)".into())
         })
     }
 
     fn create_renderer(&self) -> PageRenderer {
-        let diagrams = &self.config.diagrams;
         PageRenderer::new()
             .prepend_toc(true)
             .extract_title(self.config.extract_title)
-            .include_dirs(diagrams.include_dirs.clone())
-            .dpi(diagrams.dpi)
+            .include_dirs(self.config.include_dirs.clone())
+            .dpi(self.config.dpi)
     }
 
     fn collect_attachments(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, UpdateError> {

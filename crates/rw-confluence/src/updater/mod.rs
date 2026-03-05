@@ -15,7 +15,6 @@
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::Path;
 //! use rw_confluence::{ConfluenceClient, PageUpdater, UpdateConfig};
-//! use rw_config::DiagramsConfig;
 //!
 //! let client = ConfluenceClient::from_config(
 //!     "https://confluence.example.com",
@@ -25,7 +24,9 @@
 //!     "access_secret",
 //! )?;
 //! let config = UpdateConfig {
-//!     diagrams: DiagramsConfig::default(),
+//!     kroki_url: Some("https://kroki.io".to_owned()),
+//!     include_dirs: vec![],
+//!     dpi: 192,
 //!     extract_title: true,
 //! };
 //! let updater = PageUpdater::new(&client, config);
@@ -39,6 +40,8 @@
 //! # }
 //! ```
 
+use std::path::PathBuf;
+
 mod error;
 mod executor;
 mod result;
@@ -47,12 +50,14 @@ pub use error::UpdateError;
 pub use executor::PageUpdater;
 pub use result::{DryRunResult, UpdateResult};
 
-use rw_config::DiagramsConfig;
-
 /// Configuration for updating a Confluence page from markdown.
 pub struct UpdateConfig {
-    /// Diagram rendering configuration (Kroki URL, include directories, etc.).
-    pub diagrams: DiagramsConfig,
+    /// Kroki server URL for diagram rendering.
+    pub kroki_url: Option<String>,
+    /// Directories to search for PlantUML `!include` directives.
+    pub include_dirs: Vec<PathBuf>,
+    /// DPI for diagram rendering.
+    pub dpi: u32,
     /// Whether to extract title from first H1 heading.
     pub extract_title: bool,
 }
