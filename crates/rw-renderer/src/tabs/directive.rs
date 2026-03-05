@@ -131,10 +131,10 @@ impl ContainerDirective for TabsDirective {
                 tabs: vec![TabMetadata {
                     id: tab_id,
                     label,
-                    line: ctx.line,
+                    line: ctx.line(),
                 }],
             });
-            self.stack.push(ctx.line);
+            self.stack.push(ctx.line());
 
             // Blank line after opening tags for pulldown-cmark
             DirectiveOutput::html(format!(
@@ -149,7 +149,7 @@ impl ContainerDirective for TabsDirective {
                 group.tabs.push(TabMetadata {
                     id: tab_id,
                     label,
-                    line: ctx.line,
+                    line: ctx.line(),
                 });
             }
 

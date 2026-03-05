@@ -115,7 +115,9 @@ mod tests {
                 Err(e) => {
                     self.warnings.push(format!(
                         "line {}: failed to include '{}': {}",
-                        ctx.line, args.content, e
+                        ctx.line(),
+                        args.content,
+                        e
                     ));
                     DirectiveOutput::Skip
                 }

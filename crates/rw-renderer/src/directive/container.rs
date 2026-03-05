@@ -130,7 +130,7 @@ mod tests {
         }
 
         fn start(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput {
-            self.stack.push(ctx.line);
+            self.stack.push(ctx.line());
             let summary = if args.content.is_empty() {
                 "Details"
             } else {

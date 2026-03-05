@@ -14,54 +14,46 @@ use std::path::{Path, PathBuf};
 /// - Base directory for resolving relative paths
 /// - File reading callback for `::include` and similar directives
 ///
-/// # Example
+/// # Methods
 ///
-/// ```
-/// use std::path::Path;
-/// use rw_renderer::directive::DirectiveContext;
-///
-/// let ctx = DirectiveContext {
-///     source_path: Some(Path::new("docs/guide.md")),
-///     base_dir: Path::new("docs"),
-///     line: 42,
-///     read_file: &|path| std::fs::read_to_string(path),
-/// };
-///
-/// let resolved = ctx.resolve_path("snippets/example.md");
-/// assert_eq!(resolved, Path::new("docs/snippets/example.md"));
-/// ```
+/// Use the getter methods [`source_path()`](Self::source_path),
+/// [`base_dir()`](Self::base_dir), and [`line()`](Self::line) to access
+/// context information. Use [`read()`](Self::read) to read files and
+/// [`resolve_path()`](Self::resolve_path) to resolve relative paths.
 pub struct DirectiveContext<'a> {
     /// Path to the source file being rendered (if known).
-    pub source_path: Option<&'a Path>,
+    pub(crate) source_path: Option<&'a Path>,
     /// Base directory for resolving relative paths.
-    pub base_dir: &'a Path,
+    pub(crate) base_dir: &'a Path,
     /// Line number where the directive appears (1-indexed).
-    pub line: usize,
+    pub(crate) line: usize,
     /// Callback to read a file from the file system.
-    pub read_file: &'a dyn Fn(&Path) -> io::Result<String>,
+    pub(crate) read_file: &'a dyn Fn(&Path) -> io::Result<String>,
 }
 
 impl DirectiveContext<'_> {
+    /// Path to the source file being rendered (if known).
+    #[must_use]
+    pub fn source_path(&self) -> Option<&Path> {
+        self.source_path
+    }
+
+    /// Base directory for resolving relative paths.
+    #[must_use]
+    pub fn base_dir(&self) -> &Path {
+        self.base_dir
+    }
+
+    /// Line number where the directive appears (1-indexed).
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
     /// Resolve a relative path against the base directory.
     ///
     /// Returns the joined path. Use [`resolve_path_safe`](Self::resolve_path_safe)
     /// to validate that the resolved path stays within the base directory.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use std::path::Path;
-    /// use rw_renderer::directive::DirectiveContext;
-    ///
-    /// let ctx = DirectiveContext {
-    ///     source_path: None,
-    ///     base_dir: Path::new("/docs"),
-    ///     line: 1,
-    ///     read_file: &|_| Ok(String::new()),
-    /// };
-    ///
-    /// assert_eq!(ctx.resolve_path("guide.md"), Path::new("/docs/guide.md"));
-    /// ```
     #[must_use]
     pub fn resolve_path(&self, relative: &str) -> PathBuf {
         self.base_dir.join(relative)
@@ -75,29 +67,6 @@ impl DirectiveContext<'_> {
     /// This method canonicalizes both paths and validates that the resolved path
     /// starts with the base directory. Returns `None` if the file doesn't exist
     /// (since canonicalization requires the path to exist).
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use std::path::Path;
-    /// use rw_renderer::directive::DirectiveContext;
-    ///
-    /// let ctx = DirectiveContext {
-    ///     source_path: None,
-    ///     base_dir: Path::new("."),
-    ///     line: 1,
-    ///     read_file: &|_| Ok(String::new()),
-    /// };
-    ///
-    /// // Path traversal attempt returns None
-    /// assert!(ctx.resolve_path_safe("../../etc/passwd").is_none());
-    ///
-    /// // Non-existent file also returns None (can't canonicalize)
-    /// assert!(ctx.resolve_path_safe("nonexistent.md").is_none());
-    ///
-    /// // Existing file within base_dir returns Some(canonical_path)
-    /// // (requires actual file to exist for canonicalize to work)
-    /// ```
     #[must_use]
     pub fn resolve_path_safe(&self, relative: &str) -> Option<PathBuf> {
         let resolved = self.base_dir.join(relative);
