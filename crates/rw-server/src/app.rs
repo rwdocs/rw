@@ -34,6 +34,17 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
         router = router.route("/ws/live-reload", get(live_reload::ws_handler));
     }
 
+    // Embedded preview shell
+    if state.embedded_preview {
+        router = router
+            .route(
+                "/_preview/preview.js",
+                get(handlers::preview::preview_script),
+            )
+            .route("/_preview/", get(handlers::preview::preview_page))
+            .route("/_preview/{*path}", get(handlers::preview::preview_page));
+    }
+
     // Static files and SPA fallback
     router = router.merge(static_files::static_router());
 

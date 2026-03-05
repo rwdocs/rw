@@ -11,6 +11,7 @@ use crate::output::Output;
 
 /// Arguments for the serve command.
 #[derive(Args)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct ServeArgs {
     /// Path to configuration file (default: auto-discover rw.toml).
     #[arg(short, long)]
@@ -51,6 +52,10 @@ pub(crate) struct ServeArgs {
     /// Disable caching.
     #[arg(long, conflicts_with = "cache")]
     no_cache: bool,
+
+    /// Serve an embedded preview page at /_preview/ (Backstage-like shell).
+    #[arg(long)]
+    embedded_preview: bool,
 }
 
 impl ServeArgs {
@@ -113,8 +118,20 @@ impl ServeArgs {
             output.info("Live reload: disabled");
         }
 
+        if self.embedded_preview {
+            output.info(&format!(
+                "Embedded preview: http://{}:{}/_preview/",
+                config.server.host, config.server.port
+            ));
+        }
+
         // Build server config and run
-        let server_config = server_config_from_rw_config(&config, version.to_owned(), self.verbose);
+        let server_config = server_config_from_rw_config(
+            &config,
+            version.to_owned(),
+            self.verbose,
+            self.embedded_preview,
+        );
         run_server(server_config).await?;
 
         Ok(())
