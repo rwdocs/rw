@@ -91,7 +91,9 @@ impl<'a> PageUpdater<'a> {
         let comments = self.client.get_comments(page_id)?;
 
         Ok(UpdateResult {
-            page: updated_page,
+            page_id: updated_page.id,
+            page_title: updated_page.title,
+            page_version: updated_page.version.number,
             url,
             comment_count: comments.size,
             unmatched_comments: preserve_result.unmatched_comments,

@@ -143,9 +143,9 @@ fn print_dry_run_result(output: &Output, result: &DryRunResult) {
 
 fn print_update_result(output: &Output, result: &UpdateResult) {
     output.success("\nPage updated successfully!");
-    output.info(&format!("ID: {}", result.page.id));
-    output.info(&format!("Title: {}", result.page.title));
-    output.info(&format!("Version: {}", result.page.version.number));
+    output.info(&format!("ID: {}", result.page_id));
+    output.info(&format!("Title: {}", result.page_title));
+    output.info(&format!("Version: {}", result.page_version));
     output.info(&format!("URL: {}", result.url));
     output.info(&format!("\nComments on page: {}", result.comment_count));
 

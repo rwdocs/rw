@@ -1,12 +1,15 @@
 //! Result types for page update operations.
 
 use crate::comment_preservation::UnmatchedComment;
-use crate::types::Page;
 
 /// Result of a successful page update.
 pub struct UpdateResult {
-    /// Updated page information.
-    pub page: Page,
+    /// Confluence page ID.
+    pub page_id: String,
+    /// Page title after update.
+    pub page_title: String,
+    /// Page version number after update.
+    pub page_version: u32,
     /// URL to view the updated page.
     pub url: String,
     /// Total comment count after update.
