@@ -1174,7 +1174,7 @@ Install with apt.
             }
 
             fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content))
+                DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
             }
         }
 

@@ -37,7 +37,7 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 ///     fn name(&self) -> &str { "note" }
 ///
 ///     fn start(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-///         let title = if args.content.is_empty() { "Note" } else { &args.content };
+///         let title = if args.content().is_empty() { "Note" } else { args.content() };
 ///         DirectiveOutput::html(format!(
 ///             r#"<div class="note"><div class="note-title">{title}</div><div class="note-body">"#
 ///         ))
@@ -101,10 +101,10 @@ mod tests {
         }
 
         fn start(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-            let title = if args.content.is_empty() {
+            let title = if args.content().is_empty() {
                 "Note"
             } else {
-                &args.content
+                args.content()
             };
             DirectiveOutput::html(format!(r#"<div class="note" data-title="{title}">"#))
         }
@@ -131,10 +131,10 @@ mod tests {
 
         fn start(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput {
             self.stack.push(ctx.line());
-            let summary = if args.content.is_empty() {
+            let summary = if args.content().is_empty() {
                 "Details"
             } else {
-                &args.content
+                args.content()
             };
             DirectiveOutput::html(format!(
                 "<details><summary>{summary}</summary><div class=\"details-body\">"

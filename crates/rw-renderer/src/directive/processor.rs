@@ -118,7 +118,7 @@ fn default_read_file(path: &Path) -> io::Result<String> {
 /// impl InlineDirective for KbdDirective {
 ///     fn name(&self) -> &str { "kbd" }
 ///     fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-///         DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content))
+///         DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
 ///     }
 /// }
 ///
@@ -433,7 +433,7 @@ mod tests {
         }
 
         fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-            DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content))
+            DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
         }
     }
 
@@ -448,7 +448,7 @@ mod tests {
         fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
             DirectiveOutput::html(format!(
                 r#"<iframe src="https://www.youtube.com/embed/{}"></iframe>"#,
-                args.content
+                args.content()
             ))
         }
     }
@@ -462,10 +462,10 @@ mod tests {
         }
 
         fn start(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-            let title = if args.content.is_empty() {
+            let title = if args.content().is_empty() {
                 "Note".to_owned()
             } else {
-                args.content
+                args.content().to_owned()
             };
             DirectiveOutput::html(format!(r#"<div class="note" data-title="{title}">"#))
         }
@@ -586,10 +586,10 @@ mod tests {
                 DirectiveOutput::html(format!(
                     "<details data-depth=\"{}\"><summary>{}</summary>",
                     self.depth,
-                    if args.content.is_empty() {
+                    if args.content().is_empty() {
                         "Details"
                     } else {
-                        &args.content
+                        args.content()
                     }
                 ))
             }

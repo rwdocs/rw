@@ -37,7 +37,7 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 ///         let height = args.get("height").unwrap_or("315");
 ///         DirectiveOutput::html(format!(
 ///             r#"<iframe src="https://www.youtube.com/embed/{}" width="{width}" height="{height}" frameborder="0" allowfullscreen></iframe>"#,
-///             args.content
+///             args.content()
 ///         ))
 ///     }
 /// }
@@ -86,7 +86,7 @@ mod tests {
         fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
             DirectiveOutput::html(format!(
                 r#"<iframe src="https://www.youtube.com/embed/{}"></iframe>"#,
-                args.content
+                args.content()
             ))
         }
     }
@@ -109,14 +109,14 @@ mod tests {
         }
 
         fn process(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput {
-            let path = ctx.resolve_path(&args.content);
+            let path = ctx.resolve_path(args.content());
             match ctx.read(&path) {
                 Ok(contents) => DirectiveOutput::markdown(contents),
                 Err(e) => {
                     self.warnings.push(format!(
                         "line {}: failed to include '{}': {}",
                         ctx.line(),
-                        args.content,
+                        args.content(),
                         e
                     ));
                     DirectiveOutput::Skip

@@ -113,10 +113,10 @@ impl ContainerDirective for TabsDirective {
     }
 
     fn start(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput {
-        let label = if args.content.is_empty() {
+        let label = if args.content().is_empty() {
             "Tab".to_owned()
         } else {
-            strip_quotes(&args.content).to_owned()
+            strip_quotes(args.content()).to_owned()
         };
 
         if self.stack.is_empty() {

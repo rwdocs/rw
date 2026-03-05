@@ -26,7 +26,7 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput};
 ///     fn name(&self) -> &str { "kbd" }
 ///
 ///     fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-///         DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content))
+///         DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
 ///     }
 /// }
 /// ```
@@ -59,7 +59,7 @@ mod tests {
         }
 
         fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-            DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content))
+            DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
         }
     }
 

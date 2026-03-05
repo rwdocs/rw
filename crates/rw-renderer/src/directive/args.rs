@@ -15,21 +15,21 @@ use std::collections::HashMap;
 /// use rw_renderer::directive::DirectiveArgs;
 ///
 /// let args = DirectiveArgs::parse("hello", r#"#my-id .foo .bar lang="en""#);
-/// assert_eq!(args.content, "hello");
-/// assert_eq!(args.id, Some("my-id".to_string()));
-/// assert_eq!(args.classes, vec!["foo", "bar"]);
+/// assert_eq!(args.content(), "hello");
+/// assert_eq!(args.id(), Some("my-id"));
+/// assert_eq!(args.classes(), &["foo", "bar"]);
 /// assert_eq!(args.get("lang"), Some("en"));
 /// ```
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct DirectiveArgs {
     /// Content from brackets: `[content]` (empty string if not provided).
-    pub content: String,
+    pub(crate) content: String,
     /// ID from attributes: `{#id}`.
-    pub id: Option<String>,
+    pub(crate) id: Option<String>,
     /// Classes from attributes: `{.class1 .class2}`.
-    pub classes: Vec<String>,
+    pub(crate) classes: Vec<String>,
     /// Key-value attributes: `{key="value"}`.
-    pub attrs: HashMap<String, String>,
+    pub(crate) attrs: HashMap<String, String>,
 }
 
 impl DirectiveArgs {
@@ -81,6 +81,24 @@ impl DirectiveArgs {
         }
 
         args
+    }
+
+    /// Get the content from brackets: `[content]`.
+    #[must_use]
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+
+    /// Get the ID from attributes: `{#id}`.
+    #[must_use]
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    /// Get the classes from attributes: `{.class1 .class2}`.
+    #[must_use]
+    pub fn classes(&self) -> &[String] {
+        &self.classes
     }
 
     /// Get an attribute value by key.
