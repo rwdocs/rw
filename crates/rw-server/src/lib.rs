@@ -27,7 +27,6 @@
 //!         include_dirs: vec![PathBuf::from(".")],
 //!         dpi: 192,
 //!         live_reload_enabled: true,
-//!         watch_patterns: None,
 //!         verbose: false,
 //!         version: "1.0.0".to_owned(),
 //!         ..Default::default()
@@ -90,8 +89,6 @@ pub struct ServerConfig {
     pub dpi: u32,
     /// Enable live reload.
     pub live_reload_enabled: bool,
-    /// Watch patterns for live reload.
-    pub watch_patterns: Option<Vec<String>>,
     /// Enable verbose output.
     pub verbose: bool,
     /// Application version (for cache invalidation).
@@ -113,7 +110,6 @@ impl Default for ServerConfig {
             include_dirs: Vec::new(),
             dpi: 192,
             live_reload_enabled: false,
-            watch_patterns: None,
             verbose: false,
             version: String::new(),
             meta_filename: "meta.yaml".to_owned(),
@@ -234,7 +230,6 @@ pub fn server_config_from_rw_config(
         include_dirs: config.diagrams_resolved.include_dirs.clone(),
         dpi: config.diagrams_resolved.dpi,
         live_reload_enabled: config.live_reload.enabled,
-        watch_patterns: config.live_reload.watch_patterns.clone(),
         verbose,
         version,
         meta_filename: config.metadata.name.clone(),

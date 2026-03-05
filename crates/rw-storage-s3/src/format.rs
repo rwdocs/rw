@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub const FORMAT_VERSION: u32 = 1;
 
 /// S3 key for the manifest file (relative to prefix).
-pub const MANIFEST_KEY: &str = "manifest.json";
+pub(crate) const MANIFEST_KEY: &str = "manifest.json";
 
 /// Manifest containing the document index.
 ///
@@ -43,7 +43,7 @@ pub struct PageBundle {
 /// Root path (`""`) maps to `pages/_index.json`.
 /// Other paths map to `pages/{path}.json`.
 #[must_use]
-pub fn page_bundle_key(path: &str) -> String {
+pub(crate) fn page_bundle_key(path: &str) -> String {
     if path.is_empty() {
         "pages/_index.json".to_owned()
     } else {
