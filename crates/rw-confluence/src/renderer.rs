@@ -20,14 +20,12 @@
 //! Create a `PageRenderer` with builder methods (`prepend_toc`, `extract_title`, `dpi`),
 //! then call `render(markdown, kroki_url, diagram_dir)` to produce Confluence XHTML.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
 use rw_diagrams::{DiagramOutput, DiagramProcessor};
 use rw_renderer::{MarkdownRenderer, RenderResult, TocEntry};
+use std::path::{Path, PathBuf};
 
 use crate::backend::ConfluenceBackend;
-use crate::tags::ConfluenceTagGenerator;
+use crate::tags::confluence_tag_generator;
 
 const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version="1" />"#;
 
@@ -125,7 +123,7 @@ impl PageRenderer {
                 .create_diagram_processor(url)
                 .output(DiagramOutput::Files {
                     output_dir: dir.to_path_buf(),
-                    tag_generator: Arc::new(ConfluenceTagGenerator),
+                    tag_generator: confluence_tag_generator(),
                 });
             renderer = renderer.with_processor(processor);
         }

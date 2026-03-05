@@ -20,7 +20,7 @@ use crate::kroki::{
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::meta_includes::{LinkConfig, MetaIncludeSource};
-use crate::output::{DiagramOutput, DiagramTagGenerator, RenderedDiagramInfo};
+use crate::output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
 use crate::plantuml::{PrepareResult, prepare_diagram_source, resolve_includes};
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 
@@ -540,7 +540,7 @@ impl DiagramProcessor {
         html: &mut String,
         diagrams: &[ExtractedDiagram],
         output_dir: &std::path::Path,
-        tag_generator: &Arc<dyn DiagramTagGenerator>,
+        tag_generator: &TagGenerator,
     ) {
         // Collect all replacements for single-pass application
         let mut replacements = Replacements::with_capacity(diagrams.len());
@@ -566,7 +566,7 @@ impl DiagramProcessor {
         );
         for r in result.rendered {
             let info = RenderedDiagramInfo::new(r.filename, r.width, r.height);
-            let tag = tag_generator.generate_tag(&info, config.dpi);
+            let tag = tag_generator(&info, config.dpi);
             replacements.add(r.index, tag);
         }
         for e in result.errors {

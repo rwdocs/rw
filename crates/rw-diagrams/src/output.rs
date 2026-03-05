@@ -62,23 +62,10 @@ impl RenderedDiagramInfo {
     }
 }
 
-/// Trait for generating HTML tags from rendered diagram info.
+/// Callback that generates an HTML tag for a rendered diagram.
 ///
-/// Implement this trait to customize how diagrams are embedded in HTML.
-/// The generated tag replaces the diagram placeholder in the output.
-pub trait DiagramTagGenerator: Send + Sync {
-    /// Generate an HTML tag for a rendered diagram.
-    ///
-    /// # Arguments
-    ///
-    /// - `info` - Information about the rendered diagram
-    /// - `dpi` - DPI used for rendering (for display width calculation)
-    ///
-    /// # Returns
-    ///
-    /// HTML string to replace the diagram placeholder.
-    fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String;
-}
+/// Arguments: `(info, dpi)` → HTML string to replace the diagram placeholder.
+pub type TagGenerator = Arc<dyn Fn(&RenderedDiagramInfo, u32) -> String + Send + Sync>;
 
 /// Output mode for diagram rendering.
 #[derive(Default)]
@@ -96,8 +83,8 @@ pub enum DiagramOutput {
     Files {
         /// Directory to save rendered diagram files.
         output_dir: PathBuf,
-        /// Function to generate HTML tag from rendered diagram info.
-        tag_generator: Arc<dyn DiagramTagGenerator>,
+        /// Callback to generate HTML tag from rendered diagram info.
+        tag_generator: TagGenerator,
     },
 }
 
@@ -108,73 +95,9 @@ impl std::fmt::Debug for DiagramOutput {
             Self::Files { output_dir, .. } => f
                 .debug_struct("DiagramOutput::Files")
                 .field("output_dir", output_dir)
-                .field("tag_generator", &"<dyn DiagramTagGenerator>")
+                .field("tag_generator", &"<TagGenerator>")
                 .finish(),
         }
-    }
-}
-
-/// Simple `<img>` tag generator for static sites.
-///
-/// Generates: `<img src="{prefix}{filename}" width="{display_width}" alt="diagram">`
-#[allow(dead_code)] // Used in tests as example DiagramTagGenerator implementation
-#[derive(Debug)]
-pub(crate) struct ImgTagGenerator {
-    /// Path prefix (e.g., "/assets/diagrams/").
-    pub path_prefix: String,
-}
-
-#[allow(dead_code)]
-impl ImgTagGenerator {
-    /// Create a new img tag generator with the given path prefix.
-    #[must_use]
-    pub fn new(path_prefix: impl Into<String>) -> Self {
-        Self {
-            path_prefix: path_prefix.into(),
-        }
-    }
-}
-
-impl DiagramTagGenerator for ImgTagGenerator {
-    fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
-        format!(
-            r#"<img src="{}{}" width="{}" alt="diagram">"#,
-            self.path_prefix,
-            info.filename(),
-            info.display_width(dpi)
-        )
-    }
-}
-
-/// Figure-wrapped tag generator.
-///
-/// Generates: `<figure class="diagram"><img src="..." width="..." alt="diagram"></figure>`
-#[allow(dead_code)] // Used in tests as example DiagramTagGenerator implementation
-#[derive(Debug)]
-pub(crate) struct FigureTagGenerator {
-    /// Path prefix (e.g., "/assets/diagrams/").
-    pub path_prefix: String,
-}
-
-#[allow(dead_code)]
-impl FigureTagGenerator {
-    /// Create a new figure tag generator with the given path prefix.
-    #[must_use]
-    pub fn new(path_prefix: impl Into<String>) -> Self {
-        Self {
-            path_prefix: path_prefix.into(),
-        }
-    }
-}
-
-impl DiagramTagGenerator for FigureTagGenerator {
-    fn generate_tag(&self, info: &RenderedDiagramInfo, dpi: u32) -> String {
-        format!(
-            r#"<figure class="diagram"><img src="{}{}" width="{}" alt="diagram"></figure>"#,
-            self.path_prefix,
-            info.filename(),
-            info.display_width(dpi)
-        )
     }
 }
 
@@ -182,12 +105,24 @@ impl DiagramTagGenerator for FigureTagGenerator {
 mod tests {
     use super::*;
 
+    fn img_tag_generator(prefix: &str) -> TagGenerator {
+        let prefix = prefix.to_owned();
+        Arc::new(move |info: &RenderedDiagramInfo, dpi: u32| {
+            format!(
+                r#"<img src="{}{}" width="{}" alt="diagram">"#,
+                prefix,
+                info.filename(),
+                info.display_width(dpi)
+            )
+        })
+    }
+
     #[test]
     fn test_img_tag_generator() {
-        let generator = ImgTagGenerator::new("/diagrams/");
+        let generator = img_tag_generator("/diagrams/");
         let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
         // At 192 DPI (2x), width should be halved: 400 * 96 / 192 = 200
-        let tag = generator.generate_tag(&info, 192);
+        let tag = generator(&info, 192);
         assert_eq!(
             tag,
             r#"<img src="/diagrams/test.png" width="200" alt="diagram">"#
@@ -196,10 +131,10 @@ mod tests {
 
     #[test]
     fn test_img_tag_generator_96_dpi() {
-        let generator = ImgTagGenerator::new("/assets/");
+        let generator = img_tag_generator("/assets/");
         let info = RenderedDiagramInfo::new("diagram.png".to_owned(), 300, 150);
         // At 96 DPI, width unchanged: 300 * 96 / 96 = 300
-        let tag = generator.generate_tag(&info, 96);
+        let tag = generator(&info, 96);
         assert_eq!(
             tag,
             r#"<img src="/assets/diagram.png" width="300" alt="diagram">"#
@@ -208,9 +143,17 @@ mod tests {
 
     #[test]
     fn test_figure_tag_generator() {
-        let generator = FigureTagGenerator::new("/diagrams/");
+        let prefix = "/diagrams/".to_owned();
+        let generator: TagGenerator = Arc::new(move |info: &RenderedDiagramInfo, dpi: u32| {
+            format!(
+                r#"<figure class="diagram"><img src="{}{}" width="{}" alt="diagram"></figure>"#,
+                prefix,
+                info.filename(),
+                info.display_width(dpi)
+            )
+        });
         let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
-        let tag = generator.generate_tag(&info, 192);
+        let tag = generator(&info, 192);
         assert_eq!(
             tag,
             r#"<figure class="diagram"><img src="/diagrams/test.png" width="200" alt="diagram"></figure>"#
@@ -254,11 +197,11 @@ mod tests {
     fn test_diagram_output_debug_files() {
         let output = DiagramOutput::Files {
             output_dir: PathBuf::from("/tmp/diagrams"),
-            tag_generator: Arc::new(ImgTagGenerator::new("/assets/")),
+            tag_generator: img_tag_generator("/assets/"),
         };
         let debug = format!("{output:?}");
         assert!(debug.contains("DiagramOutput::Files"));
         assert!(debug.contains("/tmp/diagrams"));
-        assert!(debug.contains("<dyn DiagramTagGenerator>"));
+        assert!(debug.contains("<TagGenerator>"));
     }
 }
