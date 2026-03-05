@@ -38,20 +38,23 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
 <title>RW Embedded Preview</title>
 <link rel="stylesheet" href="/lib/embed.css">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  *, *::before, *::after { box-sizing: border-box; }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background: #F8F8F8;
-    color: #333;
   }
 
-  body.dark-shell {
-    background: #1E1E1E;
-    color: #E0E0E0;
+  .bs-header, .bs-sidebar, .bs-header *, .bs-sidebar * {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Shell elements use system font; the RW viewer inherits its own font from embed.css */
+  .bs-header, .bs-sidebar {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 
   /* Header */
