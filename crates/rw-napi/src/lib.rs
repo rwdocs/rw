@@ -61,7 +61,8 @@ pub struct RwSite {
 #[napi]
 pub fn create_site(config: SiteConfig) -> Result<RwSite> {
     if config.project_dir.is_some() && config.s3.is_some() {
-        return Err(napi::Error::from_reason(
+        return Err(napi::Error::new(
+            napi::Status::InvalidArg,
             "Cannot specify both projectDir and s3",
         ));
     }
@@ -111,7 +112,8 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             };
             (storage, renderer_config)
         } else {
-            return Err(napi::Error::from_reason(
+            return Err(napi::Error::new(
+                napi::Status::InvalidArg,
                 "Either projectDir or s3 must be provided",
             ));
         };
