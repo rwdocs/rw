@@ -62,17 +62,11 @@ pub enum ConfluenceError {
 
 /// RSA key loading/parsing error.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum RsaKeyError {
-    /// Invalid UTF-8 in key file.
-    #[error("invalid UTF-8 in key")]
-    InvalidUtf8(#[from] Utf8Error),
+#[error("invalid RSA key: {0}")]
+pub struct RsaKeyError(Box<dyn std::error::Error + Send + Sync>);
 
-    /// PKCS#1 key parsing error.
-    #[error("PKCS#1 key error")]
-    Pkcs1(#[from] rsa::pkcs1::Error),
-
-    /// PKCS#8 key parsing error (returned when both formats fail).
-    #[error("PKCS#8 key error")]
-    Pkcs8(#[from] rsa::pkcs8::Error),
+impl RsaKeyError {
+    pub(crate) fn new(source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Box::new(source))
+    }
 }

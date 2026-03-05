@@ -19,7 +19,7 @@ pub fn load_private_key_from_file(path: &Path) -> Result<RsaPrivateKey, Confluen
 /// Supports both PKCS#8 (`-----BEGIN PRIVATE KEY-----`) and
 /// PKCS#1 (`-----BEGIN RSA PRIVATE KEY-----`) formats.
 pub fn load_private_key(pem: &[u8]) -> Result<RsaPrivateKey, RsaKeyError> {
-    let pem_str = std::str::from_utf8(pem).map_err(RsaKeyError::InvalidUtf8)?;
+    let pem_str = std::str::from_utf8(pem).map_err(RsaKeyError::new)?;
 
     // Try PKCS#8 first (-----BEGIN PRIVATE KEY-----)
     if let Ok(key) = RsaPrivateKey::from_pkcs8_pem(pem_str) {
@@ -27,7 +27,7 @@ pub fn load_private_key(pem: &[u8]) -> Result<RsaPrivateKey, RsaKeyError> {
     }
 
     // Fall back to PKCS#1 (-----BEGIN RSA PRIVATE KEY-----)
-    RsaPrivateKey::from_pkcs1_pem(pem_str).map_err(RsaKeyError::Pkcs1)
+    RsaPrivateKey::from_pkcs1_pem(pem_str).map_err(RsaKeyError::new)
 }
 
 #[cfg(test)]
