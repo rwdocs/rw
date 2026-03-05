@@ -908,12 +908,12 @@ mod tests {
             index: usize,
         ) -> ProcessResult {
             if language == "diagram" {
-                self.extracted.push(ExtractedCodeBlock {
+                self.extracted.push(ExtractedCodeBlock::new(
                     index,
-                    language: language.to_owned(),
-                    source: source.to_owned(),
-                    attrs: attrs.clone(),
-                });
+                    language.to_owned(),
+                    source.to_owned(),
+                    attrs.clone(),
+                ));
                 ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
             } else {
                 ProcessResult::PassThrough

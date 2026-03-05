@@ -302,12 +302,12 @@ impl CodeBlockProcessor for DiagramProcessor {
         );
 
         // Extract the code block
-        self.extracted.push(ExtractedCodeBlock {
+        self.extracted.push(ExtractedCodeBlock::new(
             index,
-            language: language.to_owned(),
-            source: source.to_owned(),
-            attrs: stored_attrs,
-        });
+            language.to_owned(),
+            source.to_owned(),
+            stored_attrs,
+        ));
 
         ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
     }
@@ -686,7 +686,7 @@ impl Replacements {
 pub(crate) fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<ExtractedDiagram> {
     let language = DiagramLanguage::parse(&block.language)?;
     let format = block
-        .attrs
+        .attrs()
         .get("format")
         .and_then(|s| DiagramFormat::parse(s))
         .unwrap_or_default();
@@ -777,7 +777,7 @@ mod tests {
         processor.process("plantuml", &attrs, "source", 0);
 
         assert_eq!(
-            processor.extracted()[0].attrs.get("format"),
+            processor.extracted()[0].attrs().get("format"),
             Some(&"png".to_owned())
         );
         assert!(processor.warnings().is_empty());
@@ -793,7 +793,7 @@ mod tests {
 
         // Should default to svg
         assert_eq!(
-            processor.extracted()[0].attrs.get("format"),
+            processor.extracted()[0].attrs().get("format"),
             Some(&"svg".to_owned())
         );
         assert_eq!(processor.warnings().len(), 1);
@@ -827,12 +827,12 @@ mod tests {
 
     #[test]
     fn test_to_extracted_diagram() {
-        let block = ExtractedCodeBlock {
-            index: 0,
-            language: "plantuml".to_owned(),
-            source: "@startuml\nA -> B\n@enduml".to_owned(),
-            attrs: HashMap::from([("format".to_owned(), "png".to_owned())]),
-        };
+        let block = ExtractedCodeBlock::new(
+            0,
+            "plantuml".to_owned(),
+            "@startuml\nA -> B\n@enduml".to_owned(),
+            HashMap::from([("format".to_owned(), "png".to_owned())]),
+        );
 
         let diagram = to_extracted_diagram(&block).unwrap();
 
@@ -844,12 +844,12 @@ mod tests {
 
     #[test]
     fn test_to_extracted_diagram_non_diagram() {
-        let block = ExtractedCodeBlock {
-            index: 0,
-            language: "rust".to_owned(),
-            source: "fn main() {}".to_owned(),
-            attrs: HashMap::new(),
-        };
+        let block = ExtractedCodeBlock::new(
+            0,
+            "rust".to_owned(),
+            "fn main() {}".to_owned(),
+            HashMap::new(),
+        );
 
         assert!(to_extracted_diagram(&block).is_none());
     }
@@ -857,24 +857,24 @@ mod tests {
     #[test]
     fn test_to_extracted_diagrams() {
         let blocks = vec![
-            ExtractedCodeBlock {
-                index: 0,
-                language: "plantuml".to_owned(),
-                source: "source1".to_owned(),
-                attrs: HashMap::new(),
-            },
-            ExtractedCodeBlock {
-                index: 1,
-                language: "rust".to_owned(), // Not a diagram
-                source: "source2".to_owned(),
-                attrs: HashMap::new(),
-            },
-            ExtractedCodeBlock {
-                index: 2,
-                language: "mermaid".to_owned(),
-                source: "source3".to_owned(),
-                attrs: HashMap::new(),
-            },
+            ExtractedCodeBlock::new(
+                0,
+                "plantuml".to_owned(),
+                "source1".to_owned(),
+                HashMap::new(),
+            ),
+            ExtractedCodeBlock::new(
+                1,
+                "rust".to_owned(), // Not a diagram
+                "source2".to_owned(),
+                HashMap::new(),
+            ),
+            ExtractedCodeBlock::new(
+                2,
+                "mermaid".to_owned(),
+                "source3".to_owned(),
+                HashMap::new(),
+            ),
         ];
 
         let diagrams = to_extracted_diagrams(&blocks);
@@ -894,7 +894,7 @@ mod tests {
         processor.process("plantuml", &attrs, "source", 0);
 
         assert_eq!(
-            processor.extracted()[0].attrs.get("endpoint"),
+            processor.extracted()[0].attrs().get("endpoint"),
             Some(&"plantuml".to_owned())
         );
     }

@@ -29,12 +29,12 @@
 //!         index: usize,
 //!     ) -> ProcessResult {
 //!         if language == "plantuml" || language == "mermaid" {
-//!             self.extracted.push(ExtractedCodeBlock {
+//!             self.extracted.push(ExtractedCodeBlock::new(
 //!                 index,
-//!                 language: language.to_string(),
-//!                 source: source.to_string(),
-//!                 attrs: attrs.clone(),
-//!             });
+//!                 language.to_string(),
+//!                 source.to_string(),
+//!                 attrs.clone(),
+//!             ));
 //!             ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
 //!         } else {
 //!             ProcessResult::PassThrough
@@ -79,7 +79,31 @@ pub struct ExtractedCodeBlock {
     /// Raw source content of the code block.
     pub source: String,
     /// Attributes parsed from fence (e.g., `format=png` → {"format": "png"}).
-    pub attrs: HashMap<String, String>,
+    attrs: HashMap<String, String>,
+}
+
+impl ExtractedCodeBlock {
+    /// Create a new extracted code block.
+    #[must_use]
+    pub fn new(
+        index: usize,
+        language: String,
+        source: String,
+        attrs: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            index,
+            language,
+            source,
+            attrs,
+        }
+    }
+
+    /// Attributes parsed from the fence info string.
+    #[must_use]
+    pub fn attrs(&self) -> &HashMap<String, String> {
+        &self.attrs
+    }
 }
 
 /// Trait for processing special code blocks.
@@ -247,17 +271,17 @@ mod tests {
 
     #[test]
     fn test_extracted_code_block() {
-        let block = ExtractedCodeBlock {
-            index: 0,
-            language: "plantuml".to_owned(),
-            source: "@startuml\nA -> B\n@enduml".to_owned(),
-            attrs: HashMap::from([("format".to_owned(), "png".to_owned())]),
-        };
+        let block = ExtractedCodeBlock::new(
+            0,
+            "plantuml".to_owned(),
+            "@startuml\nA -> B\n@enduml".to_owned(),
+            HashMap::from([("format".to_owned(), "png".to_owned())]),
+        );
 
         assert_eq!(block.index, 0);
         assert_eq!(block.language, "plantuml");
         assert_eq!(block.source, "@startuml\nA -> B\n@enduml");
-        assert_eq!(block.attrs.get("format"), Some(&"png".to_owned()));
+        assert_eq!(block.attrs().get("format"), Some(&"png".to_owned()));
     }
 
     struct TestProcessor {
@@ -284,12 +308,12 @@ mod tests {
         ) -> ProcessResult {
             match language {
                 "test-placeholder" => {
-                    self.extracted.push(ExtractedCodeBlock {
+                    self.extracted.push(ExtractedCodeBlock::new(
                         index,
-                        language: language.to_owned(),
-                        source: source.to_owned(),
-                        attrs: attrs.clone(),
-                    });
+                        language.to_owned(),
+                        source.to_owned(),
+                        attrs.clone(),
+                    ));
                     ProcessResult::Placeholder(format!("{{{{TEST_{index}}}}}"))
                 }
                 "test-inline" => ProcessResult::Inline(format!("<div>{source}</div>")),
