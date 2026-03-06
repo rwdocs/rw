@@ -177,6 +177,7 @@ const PREVIEW_JS: &str = r#"import { mountRw } from "/lib/embed.js";
 const PREVIEW_PREFIX = "/_preview";
 const root = document.getElementById("rw-root");
 const themeBtn = document.getElementById("theme-toggle");
+const darkMq = window.matchMedia("(prefers-color-scheme: dark)");
 
 // Extract initial path from URL
 const fullPath = window.location.pathname;
@@ -189,16 +190,20 @@ const themes = ["auto", "light", "dark"];
 let themeIndex = 0;
 let currentInstance = null;
 
+function applyShellTheme() {
+  const colorScheme = themes[themeIndex];
+  document.body.classList.toggle("dark-shell",
+    colorScheme === "dark" ||
+    (colorScheme === "auto" && darkMq.matches)
+  );
+}
+
 function mountViewer() {
   if (currentInstance) currentInstance.destroy();
 
   const colorScheme = themes[themeIndex];
 
-  // Apply shell theme
-  document.body.classList.toggle("dark-shell",
-    colorScheme === "dark" ||
-    (colorScheme === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches)
-  );
+  applyShellTheme();
 
   currentInstance = mountRw(root, {
     apiBaseUrl: "/api",
@@ -213,6 +218,9 @@ function mountViewer() {
 
   themeBtn.textContent = "Theme: " + colorScheme;
 }
+
+// Update shell when OS preference changes (auto mode)
+darkMq.addEventListener("change", () => applyShellTheme());
 
 themeBtn.addEventListener("click", () => {
   themeIndex = (themeIndex + 1) % themes.length;
