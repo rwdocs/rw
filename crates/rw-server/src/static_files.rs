@@ -103,8 +103,7 @@ mod tests {
 
         #[tokio::test]
         async fn fallback_returns_preview_for_unknown_path() {
-            let response =
-                asset_or_preview_fallback(request_for("/some/doc/path")).await;
+            let response = asset_or_preview_fallback(request_for("/some/doc/path")).await;
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(
                 response.headers().get(header::CONTENT_TYPE).unwrap(),
