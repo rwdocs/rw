@@ -54,7 +54,7 @@ pub(crate) struct ServeArgs {
     no_cache: bool,
 
     /// Serve an embedded preview page (host-app shell).
-    /// Only available in debug builds.
+    /// Only available when the `embedded-preview` feature is enabled.
     #[cfg(feature = "embedded-preview")]
     #[arg(long = "embedded")]
     embedded_preview: bool,
