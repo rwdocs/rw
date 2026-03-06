@@ -11,3 +11,6 @@ workspace = true
 
 [dependencies]
 axum = "0.8"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
