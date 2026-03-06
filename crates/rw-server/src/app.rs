@@ -34,7 +34,8 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
         router = router.route("/ws/live-reload", get(live_reload::ws_handler));
     }
 
-    // Embedded preview shell
+    // Embedded preview shell (debug builds only)
+    #[cfg(feature = "embedded-preview")]
     if state.embedded_preview {
         router = router.merge(rw_embedded_preview::router());
     }

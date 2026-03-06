@@ -19,6 +19,7 @@ pub(crate) struct AppState {
     /// Application version for cache invalidation.
     pub(crate) version: String,
     /// Enable embedded preview page at /_preview/.
+    #[cfg(feature = "embedded-preview")]
     pub(crate) embedded_preview: bool,
 }
 
