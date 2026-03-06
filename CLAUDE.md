@@ -130,6 +130,10 @@ crates/
 │       ├── template.rs       # HTML page template (mirrors Svelte frontend)
 │       └── publisher.rs      # S3Publisher, PublishConfig, PublishError
 │
+├── rw-embedded-preview/   # Embedded preview shell (dev-only Backstage-like wrapper)
+│   └── src/
+│       └── lib.rs            # Preview HTML/JS/CSS, axum router
+│
 ├── rw-diagrams/           # Diagram rendering via Kroki
 │   └── src/
 │       ├── lib.rs            # Public API exports

@@ -1,16 +1,31 @@
-//! Embedded preview page handler.
+//! Embedded preview shell for RW documentation engine.
 //!
 //! Serves a self-contained HTML page that wraps the RW viewer in a
 //! minimal host-app shell for visual testing of embedded mode.
 
+use axum::Router;
 use axum::http::{StatusCode, header};
 use axum::response::Response;
+use axum::routing::get;
+
+/// Create a router with embedded preview routes.
+///
+/// Returns a router with the following routes:
+/// - `GET /_preview/preview.js` — the preview page script
+/// - `GET /_preview/` — the preview HTML page
+/// - `GET /_preview/{*path}` — SPA fallback (same page, path extracted by JS)
+pub fn router<S: Clone + Send + Sync + 'static>() -> Router<S> {
+    Router::new()
+        .route("/_preview/preview.js", get(preview_script))
+        .route("/_preview/", get(preview_page))
+        .route("/_preview/{*path}", get(preview_page))
+}
 
 /// Serve the embedded preview HTML page.
 ///
 /// Returns the same page regardless of the path — the JS extracts
 /// the document path from the URL and passes it as `initialPath`.
-pub(crate) async fn preview_page() -> Response {
+async fn preview_page() -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
@@ -22,7 +37,7 @@ pub(crate) async fn preview_page() -> Response {
 ///
 /// Separated from the HTML to comply with Content-Security-Policy
 /// `script-src 'self'` (inline scripts are blocked).
-pub(crate) async fn preview_script() -> Response {
+async fn preview_script() -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/javascript; charset=utf-8")
