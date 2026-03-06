@@ -45,15 +45,12 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
     if use_embedded_preview {
         #[cfg(feature = "embedded-preview")]
         {
-            // Preview script route is explicit; preview HTML is the fallback.
-            // Static assets are tried first via the nested asset router.
             router = router
                 .route(
                     "/__embedded_preview.js",
                     get(rw_embedded_preview::preview_script),
                 )
-                .merge(static_files::asset_router())
-                .fallback(rw_embedded_preview::preview_page);
+                .fallback(static_files::asset_or_preview_fallback);
         }
     } else {
         router = router.merge(static_files::static_router());

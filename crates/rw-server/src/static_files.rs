@@ -17,15 +17,6 @@ pub(crate) fn static_router() -> Router<Arc<AppState>> {
     Router::new().fallback(serve_asset)
 }
 
-/// Create router for static asset serving only (no SPA fallback).
-///
-/// Used when embedded preview replaces the SPA — assets like JS, CSS,
-/// and images are still served, but unknown paths are not mapped to `index.html`.
-#[cfg(feature = "embedded-preview")]
-pub(crate) fn asset_router() -> Router<Arc<AppState>> {
-    Router::new().fallback(serve_asset_only)
-}
-
 /// Serve a static asset or fall back to `index.html` for SPA routing.
 async fn serve_asset(req: Request<Body>) -> Response {
     let path = req.uri().path().trim_start_matches('/');
@@ -55,24 +46,27 @@ async fn serve_asset(req: Request<Body>) -> Response {
     StatusCode::NOT_FOUND.into_response()
 }
 
-/// Serve a static asset without SPA fallback.
+/// Serve a static asset, falling back to the embedded preview page.
 ///
-/// Returns 404 for unknown paths instead of falling back to `index.html`.
+/// Only serves actual asset files (JS, CSS, images etc). For any path
+/// that doesn't match a real asset, returns the preview shell HTML.
 #[cfg(feature = "embedded-preview")]
-async fn serve_asset_only(req: Request<Body>) -> Response {
+pub(crate) async fn asset_or_preview_fallback(req: Request<Body>) -> Response {
     let path = req.uri().path().trim_start_matches('/');
-    let file_path = if path.is_empty() { "index.html" } else { path };
 
-    if let Some(content) = rw_assets::get(file_path) {
-        let mime = rw_assets::mime_for(file_path);
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, mime)
-            .body(Body::from(content.into_owned()))
-            .unwrap();
+    // Only serve real asset files — don't map root or SPA routes to index.html.
+    if !path.is_empty() {
+        if let Some(content) = rw_assets::get(path) {
+            let mime = rw_assets::mime_for(path);
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, mime)
+                .body(Body::from(content.into_owned()))
+                .unwrap();
+        }
     }
 
-    StatusCode::NOT_FOUND.into_response()
+    rw_embedded_preview::preview_page().await
 }
 
 #[cfg(test)]
