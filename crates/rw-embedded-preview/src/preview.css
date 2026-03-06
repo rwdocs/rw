@@ -1,0 +1,106 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-header, .shell-sidebar, .shell-header *, .shell-sidebar * {
+  margin: 0;
+  padding: 0;
+}
+
+/* Shell elements use system font; the RW viewer inherits its own font from embed.css */
+.shell-header, .shell-sidebar {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Header */
+.shell-header {
+  height: 64px;
+  background: #333;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+.shell-header-logo {
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.shell-header-spacer { flex: 1; }
+
+.shell-theme-toggle {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+}
+.shell-theme-toggle:hover { background: rgba(255,255,255,0.25); }
+
+/* Body layout */
+.shell-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar */
+.shell-sidebar {
+  width: 250px;
+  background: #fff;
+  border-right: 1px solid #E0E0E0;
+  padding: 16px 0;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+.dark-shell .shell-sidebar {
+  background: #272727;
+  border-right-color: #444;
+}
+
+.shell-sidebar-item {
+  padding: 10px 24px;
+  font-size: 14px;
+  color: #666;
+  cursor: default;
+}
+.dark-shell .shell-sidebar-item { color: #999; }
+
+.shell-sidebar-item.active {
+  color: #1F5493;
+  font-weight: 600;
+  background: #E8F0FE;
+}
+.dark-shell .shell-sidebar-item.active {
+  color: #90CAF9;
+  background: rgba(144,202,249,0.1);
+}
+
+.shell-sidebar-section {
+  padding: 8px 24px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #999;
+  font-weight: 600;
+}
+.dark-shell .shell-sidebar-section { color: #666; }
+
+/* Content area */
+.shell-content {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
