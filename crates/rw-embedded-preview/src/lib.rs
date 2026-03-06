@@ -13,11 +13,7 @@ use axum::response::Response;
 /// Returns the same page regardless of the path — the JS extracts
 /// the document path from the URL and passes it as `initialPath`.
 pub async fn preview_page() -> Response {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-        .body(PREVIEW_HTML.into())
-        .unwrap()
+    static_response(PREVIEW_HTML, "text/html; charset=utf-8")
 }
 
 /// Serve the preview page JavaScript as an external script.
@@ -25,15 +21,27 @@ pub async fn preview_page() -> Response {
 /// Separated from the HTML to comply with Content-Security-Policy
 /// `script-src 'self'` (inline scripts are blocked).
 pub async fn preview_script() -> Response {
+    static_response(PREVIEW_JS, "text/javascript; charset=utf-8")
+}
+
+/// Serve the preview page CSS as an external stylesheet.
+///
+/// Separated from the HTML for consistency with the external JS approach.
+pub async fn preview_style() -> Response {
+    static_response(PREVIEW_CSS, "text/css; charset=utf-8")
+}
+
+fn static_response(body: &'static str, content_type: &str) -> Response {
     Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/javascript; charset=utf-8")
-        .body(PREVIEW_JS.into())
+        .header(header::CONTENT_TYPE, content_type)
+        .body(body.into())
         .unwrap()
 }
 
 const PREVIEW_HTML: &str = include_str!("preview.html");
 const PREVIEW_JS: &str = include_str!("preview.js");
+const PREVIEW_CSS: &str = include_str!("preview.css");
 
 #[cfg(test)]
 mod tests {
@@ -56,6 +64,16 @@ mod tests {
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),
             "text/javascript; charset=utf-8"
+        );
+    }
+
+    #[tokio::test]
+    async fn preview_style_returns_css() {
+        let response = preview_style().await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "text/css; charset=utf-8"
         );
     }
 }

@@ -50,6 +50,10 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
                     "/__embedded_preview.js",
                     get(rw_embedded_preview::preview_script),
                 )
+                .route(
+                    "/__embedded_preview.css",
+                    get(rw_embedded_preview::preview_style),
+                )
                 .fallback(static_files::asset_or_preview_fallback);
         }
     } else {
