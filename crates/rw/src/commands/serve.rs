@@ -122,10 +122,7 @@ impl ServeArgs {
 
         #[cfg(feature = "embedded-preview")]
         if self.embedded_preview {
-            output.info(&format!(
-                "Embedded preview: http://{}:{}/_preview/",
-                config.server.host, config.server.port
-            ));
+            output.info("Embedded preview: enabled");
         }
 
         // Build server config and run

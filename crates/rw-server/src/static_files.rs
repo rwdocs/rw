@@ -17,6 +17,15 @@ pub(crate) fn static_router() -> Router<Arc<AppState>> {
     Router::new().fallback(serve_asset)
 }
 
+/// Create router for static asset serving only (no SPA fallback).
+///
+/// Used when embedded preview replaces the SPA — assets like JS, CSS,
+/// and images are still served, but unknown paths are not mapped to `index.html`.
+#[cfg(feature = "embedded-preview")]
+pub(crate) fn asset_router() -> Router<Arc<AppState>> {
+    Router::new().fallback(serve_asset_only)
+}
+
 /// Serve a static asset or fall back to `index.html` for SPA routing.
 async fn serve_asset(req: Request<Body>) -> Response {
     let path = req.uri().path().trim_start_matches('/');
@@ -40,6 +49,26 @@ async fn serve_asset(req: Request<Body>) -> Response {
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
             .body(Body::from(index.into_owned()))
+            .unwrap();
+    }
+
+    StatusCode::NOT_FOUND.into_response()
+}
+
+/// Serve a static asset without SPA fallback.
+///
+/// Returns 404 for unknown paths instead of falling back to `index.html`.
+#[cfg(feature = "embedded-preview")]
+async fn serve_asset_only(req: Request<Body>) -> Response {
+    let path = req.uri().path().trim_start_matches('/');
+    let file_path = if path.is_empty() { "index.html" } else { path };
+
+    if let Some(content) = rw_assets::get(file_path) {
+        let mime = rw_assets::mime_for(file_path);
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime)
+            .body(Body::from(content.into_owned()))
             .unwrap();
     }
 

@@ -2,30 +2,17 @@
 //!
 //! Serves a self-contained HTML page that wraps the RW viewer in a
 //! minimal host-app shell for visual testing of embedded mode.
+//! Replaces the normal SPA frontend with a Backstage-like shell
+//! that embeds the viewer via `mountRw()`.
 
-use axum::Router;
 use axum::http::{StatusCode, header};
 use axum::response::Response;
-use axum::routing::get;
-
-/// Create a router with embedded preview routes.
-///
-/// Returns a router with the following routes:
-/// - `GET /_preview/preview.js` — the preview page script
-/// - `GET /_preview/` — the preview HTML page
-/// - `GET /_preview/{*path}` — SPA fallback (same page, path extracted by JS)
-pub fn router<S: Clone + Send + Sync + 'static>() -> Router<S> {
-    Router::new()
-        .route("/_preview/preview.js", get(preview_script))
-        .route("/_preview/", get(preview_page))
-        .route("/_preview/{*path}", get(preview_page))
-}
 
 /// Serve the embedded preview HTML page.
 ///
 /// Returns the same page regardless of the path — the JS extracts
 /// the document path from the URL and passes it as `initialPath`.
-async fn preview_page() -> Response {
+pub async fn preview_page() -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
@@ -37,7 +24,7 @@ async fn preview_page() -> Response {
 ///
 /// Separated from the HTML to comply with Content-Security-Policy
 /// `script-src 'self'` (inline scripts are blocked).
-async fn preview_script() -> Response {
+pub async fn preview_script() -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/javascript; charset=utf-8")
@@ -182,23 +169,18 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
     <div class="shell-content" id="rw-root"></div>
   </div>
 
-  <script type="module" src="/_preview/preview.js"></script>
+  <script type="module" src="/__embedded_preview.js"></script>
 </body>
 </html>
 "#;
 
 const PREVIEW_JS: &str = r#"import { mountRw } from "/lib/embed.js";
 
-const PREVIEW_PREFIX = "/_preview";
 const root = document.getElementById("rw-root");
 const themeBtn = document.getElementById("theme-toggle");
 const darkMq = window.matchMedia("(prefers-color-scheme: dark)");
 
-// Extract initial path from URL
-const fullPath = window.location.pathname;
-let initialPath = fullPath.startsWith(PREVIEW_PREFIX)
-  ? fullPath.slice(PREVIEW_PREFIX.length) || "/"
-  : "/";
+let initialPath = window.location.pathname || "/";
 
 // Theme cycling: auto -> light -> dark -> auto
 const themes = ["auto", "light", "dark"];
@@ -227,7 +209,7 @@ function mountViewer() {
     initialPath: initialPath,
     onNavigate: (path) => {
       initialPath = path;
-      window.history.pushState({}, "", PREVIEW_PREFIX + path);
+      window.history.pushState({}, "", path);
     },
   });
 
@@ -244,10 +226,7 @@ themeBtn.addEventListener("click", () => {
 
 // Handle browser back/forward
 window.addEventListener("popstate", () => {
-  const p = window.location.pathname;
-  initialPath = p.startsWith(PREVIEW_PREFIX)
-    ? p.slice(PREVIEW_PREFIX.length) || "/"
-    : "/";
+  initialPath = window.location.pathname || "/";
   mountViewer();
 });
 
