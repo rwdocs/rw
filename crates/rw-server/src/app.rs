@@ -36,13 +36,7 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
 
     // Embedded preview shell
     if state.embedded_preview {
-        router = router
-            .route(
-                "/_preview/preview.js",
-                get(handlers::preview::preview_script),
-            )
-            .route("/_preview/", get(handlers::preview::preview_page))
-            .route("/_preview/{*path}", get(handlers::preview::preview_page));
+        router = router.merge(rw_embedded_preview::router());
     }
 
     // Static files and SPA fallback

@@ -2985,6 +2985,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-embedded-preview"
+version = "0.1.11"
+dependencies = [
+ "axum",
+]
+
+[[package]]
 name = "rw-renderer"
 version = "0.1.11"
 dependencies = [
@@ -3006,6 +3013,7 @@ dependencies = [
  "rw-assets",
  "rw-cache",
  "rw-config",
+ "rw-embedded-preview",
  "rw-renderer",
  "rw-site",
  "rw-storage",
