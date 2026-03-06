@@ -34,3 +34,28 @@ pub async fn preview_script() -> Response {
 
 const PREVIEW_HTML: &str = include_str!("preview.html");
 const PREVIEW_JS: &str = include_str!("preview.js");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn preview_page_returns_html() {
+        let response = preview_page().await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "text/html; charset=utf-8"
+        );
+    }
+
+    #[tokio::test]
+    async fn preview_script_returns_javascript() {
+        let response = preview_script().await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "text/javascript; charset=utf-8"
+        );
+    }
+}

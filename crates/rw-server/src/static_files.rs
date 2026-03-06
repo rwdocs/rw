@@ -78,4 +78,38 @@ mod tests {
         // Verify that the router can be constructed without panicking
         let _router: Router<Arc<AppState>> = static_router();
     }
+
+    #[cfg(feature = "embedded-preview")]
+    mod embedded_preview {
+        use super::*;
+        use axum::http::Uri;
+
+        fn request_for(path: &str) -> Request<Body> {
+            Request::builder()
+                .uri(path.parse::<Uri>().unwrap())
+                .body(Body::empty())
+                .unwrap()
+        }
+
+        #[tokio::test]
+        async fn fallback_returns_preview_for_root() {
+            let response = asset_or_preview_fallback(request_for("/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers().get(header::CONTENT_TYPE).unwrap(),
+                "text/html; charset=utf-8"
+            );
+        }
+
+        #[tokio::test]
+        async fn fallback_returns_preview_for_unknown_path() {
+            let response =
+                asset_or_preview_fallback(request_for("/some/doc/path")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers().get(header::CONTENT_TYPE).unwrap(),
+                "text/html; charset=utf-8"
+            );
+        }
+    }
 }
