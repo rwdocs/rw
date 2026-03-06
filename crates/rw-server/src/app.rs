@@ -34,14 +34,30 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
         router = router.route("/ws/live-reload", get(live_reload::ws_handler));
     }
 
-    // Embedded preview shell (debug builds only)
+    // Static files and SPA fallback.
+    // When embedded preview is enabled, the preview shell replaces the
+    // normal SPA as the fallback — static assets are still served normally.
     #[cfg(feature = "embedded-preview")]
-    if state.embedded_preview {
-        router = router.merge(rw_embedded_preview::router());
-    }
+    let use_embedded_preview = state.embedded_preview;
+    #[cfg(not(feature = "embedded-preview"))]
+    let use_embedded_preview = false;
 
-    // Static files and SPA fallback
-    router = router.merge(static_files::static_router());
+    if use_embedded_preview {
+        #[cfg(feature = "embedded-preview")]
+        {
+            // Preview script route is explicit; preview HTML is the fallback.
+            // Static assets are tried first via the nested asset router.
+            router = router
+                .route(
+                    "/__embedded_preview.js",
+                    get(rw_embedded_preview::preview_script),
+                )
+                .merge(static_files::asset_router())
+                .fallback(rw_embedded_preview::preview_page);
+        }
+    } else {
+        router = router.merge(static_files::static_router());
+    }
 
     // Add security headers middleware
     router
