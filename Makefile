@@ -4,7 +4,7 @@ build:
 	npm install
 	npm -w @rwdocs/viewer run build
 	npm -w @rwdocs/viewer run build:lib
-	cargo build -p rw
+	cargo build -p rw --features embedded-preview
 	npm -w @rwdocs/core run build
 
 build-release:

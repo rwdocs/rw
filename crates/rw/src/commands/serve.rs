@@ -54,6 +54,8 @@ pub(crate) struct ServeArgs {
     no_cache: bool,
 
     /// Serve an embedded preview page at /_preview/ (host-app shell).
+    /// Only available in debug builds.
+    #[cfg(feature = "embedded-preview")]
     #[arg(long)]
     embedded_preview: bool,
 }
@@ -118,6 +120,7 @@ impl ServeArgs {
             output.info("Live reload: disabled");
         }
 
+        #[cfg(feature = "embedded-preview")]
         if self.embedded_preview {
             output.info(&format!(
                 "Embedded preview: http://{}:{}/_preview/",
@@ -126,12 +129,13 @@ impl ServeArgs {
         }
 
         // Build server config and run
-        let server_config = server_config_from_rw_config(
-            &config,
-            version.to_owned(),
-            self.verbose,
-            self.embedded_preview,
-        );
+        #[allow(unused_mut)]
+        let mut server_config =
+            server_config_from_rw_config(&config, version.to_owned(), self.verbose);
+        #[cfg(feature = "embedded-preview")]
+        {
+            server_config.embedded_preview = self.embedded_preview;
+        }
         run_server(server_config).await?;
 
         Ok(())
