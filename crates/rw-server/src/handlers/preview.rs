@@ -1,7 +1,7 @@
 //! Embedded preview page handler.
 //!
 //! Serves a self-contained HTML page that wraps the RW viewer in a
-//! minimal Backstage-like shell for visual testing of embedded mode.
+//! minimal host-app shell for visual testing of embedded mode.
 
 use axum::http::{StatusCode, header};
 use axum::response::Response;
@@ -35,7 +35,7 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RW Embedded Preview</title>
+<title>Embedded Preview</title>
 <link rel="stylesheet" href="/lib/embed.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; }
@@ -47,18 +47,18 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
     flex-direction: column;
   }
 
-  .bs-header, .bs-sidebar, .bs-header *, .bs-sidebar * {
+  .shell-header, .shell-sidebar, .shell-header *, .shell-sidebar * {
     margin: 0;
     padding: 0;
   }
 
   /* Shell elements use system font; the RW viewer inherits its own font from embed.css */
-  .bs-header, .bs-sidebar {
+  .shell-header, .shell-sidebar {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
 
   /* Header */
-  .bs-header {
+  .shell-header {
     height: 64px;
     background: #333;
     display: flex;
@@ -68,16 +68,16 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
     gap: 16px;
   }
 
-  .bs-header-logo {
+  .shell-header-logo {
     color: #fff;
     font-size: 20px;
     font-weight: 700;
     letter-spacing: -0.5px;
   }
 
-  .bs-header-spacer { flex: 1; }
+  .shell-header-spacer { flex: 1; }
 
-  .bs-theme-toggle {
+  .shell-theme-toggle {
     background: rgba(255,255,255,0.15);
     border: none;
     color: #fff;
@@ -87,17 +87,17 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
     font-size: 13px;
     font-family: inherit;
   }
-  .bs-theme-toggle:hover { background: rgba(255,255,255,0.25); }
+  .shell-theme-toggle:hover { background: rgba(255,255,255,0.25); }
 
   /* Body layout */
-  .bs-body {
+  .shell-body {
     display: flex;
     flex: 1;
     overflow: hidden;
   }
 
   /* Sidebar */
-  .bs-sidebar {
+  .shell-sidebar {
     width: 250px;
     background: #fff;
     border-right: 1px solid #E0E0E0;
@@ -105,30 +105,30 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
     flex-shrink: 0;
     overflow-y: auto;
   }
-  .dark-shell .bs-sidebar {
+  .dark-shell .shell-sidebar {
     background: #272727;
     border-right-color: #444;
   }
 
-  .bs-sidebar-item {
+  .shell-sidebar-item {
     padding: 10px 24px;
     font-size: 14px;
     color: #666;
     cursor: default;
   }
-  .dark-shell .bs-sidebar-item { color: #999; }
+  .dark-shell .shell-sidebar-item { color: #999; }
 
-  .bs-sidebar-item.active {
+  .shell-sidebar-item.active {
     color: #1F5493;
     font-weight: 600;
     background: #E8F0FE;
   }
-  .dark-shell .bs-sidebar-item.active {
+  .dark-shell .shell-sidebar-item.active {
     color: #90CAF9;
     background: rgba(144,202,249,0.1);
   }
 
-  .bs-sidebar-section {
+  .shell-sidebar-section {
     padding: 8px 24px 4px;
     font-size: 11px;
     text-transform: uppercase;
@@ -136,10 +136,10 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
     color: #999;
     font-weight: 600;
   }
-  .dark-shell .bs-sidebar-section { color: #666; }
+  .dark-shell .shell-sidebar-section { color: #666; }
 
   /* Content area */
-  .bs-content {
+  .shell-content {
     flex: 1;
     overflow: hidden;
     position: relative;
@@ -147,24 +147,24 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
 </style>
 </head>
 <body>
-  <header class="bs-header">
-    <div class="bs-header-logo">Backstage</div>
-    <div class="bs-header-spacer"></div>
-    <button class="bs-theme-toggle" id="theme-toggle">Theme: auto</button>
+  <header class="shell-header">
+    <div class="shell-header-logo">Host App</div>
+    <div class="shell-header-spacer"></div>
+    <button class="shell-theme-toggle" id="theme-toggle">Theme: auto</button>
   </header>
 
-  <div class="bs-body">
-    <nav class="bs-sidebar">
-      <div class="bs-sidebar-section">Menu</div>
-      <div class="bs-sidebar-item">Home</div>
-      <div class="bs-sidebar-item">APIs</div>
-      <div class="bs-sidebar-item active">Docs</div>
-      <div class="bs-sidebar-item">Tech Radar</div>
-      <div class="bs-sidebar-section">Admin</div>
-      <div class="bs-sidebar-item">Settings</div>
+  <div class="shell-body">
+    <nav class="shell-sidebar">
+      <div class="shell-sidebar-section">Navigation</div>
+      <div class="shell-sidebar-item">Home</div>
+      <div class="shell-sidebar-item">Dashboard</div>
+      <div class="shell-sidebar-item active">Docs</div>
+      <div class="shell-sidebar-item">Search</div>
+      <div class="shell-sidebar-section">Admin</div>
+      <div class="shell-sidebar-item">Settings</div>
     </nav>
 
-    <div class="bs-content" id="rw-root"></div>
+    <div class="shell-content" id="rw-root"></div>
   </div>
 
   <script type="module" src="/_preview/preview.js"></script>

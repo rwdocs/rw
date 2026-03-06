@@ -69,7 +69,9 @@
 <!-- Mobile Drawer -->
 <MobileDrawer />
 
-<div class="flex min-h-screen flex-col md:flex-row">
+<div
+  class="flex min-h-screen flex-col bg-white text-gray-900 md:flex-row dark:bg-neutral-800 dark:text-neutral-100"
+>
   <!-- Navigation Sidebar (Desktop) -->
   <aside
     class="

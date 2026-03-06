@@ -53,7 +53,7 @@ pub(crate) struct ServeArgs {
     #[arg(long, conflicts_with = "cache")]
     no_cache: bool,
 
-    /// Serve an embedded preview page at /_preview/ (Backstage-like shell).
+    /// Serve an embedded preview page at /_preview/ (host-app shell).
     #[arg(long)]
     embedded_preview: bool,
 }
