@@ -132,7 +132,9 @@ crates/
 │
 ├── rw-embedded-preview/   # Embedded preview shell (dev-only Backstage-like wrapper)
 │   └── src/
-│       └── lib.rs            # Preview HTML/JS/CSS, axum router
+│       ├── lib.rs            # Public API, axum router
+│       ├── preview.html      # Preview shell HTML (Backstage-like layout)
+│       └── preview.js        # Preview shell JS (mountRw, theme toggle)
 │
 ├── rw-diagrams/           # Diagram rendering via Kroki
 │   └── src/

@@ -99,8 +99,8 @@ pub struct ServerConfig {
     pub meta_filename: String,
     /// README.md path to use as homepage fallback.
     pub readme_path: PathBuf,
-    /// Enable embedded preview mode (serves Backstage-like shell at /_preview/).
-    /// Only available in debug builds.
+    /// Enable embedded preview mode (serves Backstage-like shell at /).
+    /// Only available when the `embedded-preview` feature is enabled.
     #[cfg(feature = "embedded-preview")]
     pub embedded_preview: bool,
 }
