@@ -143,7 +143,7 @@ const PREVIEW_HTML: &str = r#"<!DOCTYPE html>
   /* Content area */
   .shell-content {
     flex: 1;
-    overflow: hidden;
+    overflow: auto;
     position: relative;
   }
 </style>
