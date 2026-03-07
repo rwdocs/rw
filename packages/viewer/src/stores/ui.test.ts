@@ -46,4 +46,27 @@ describe("ui store", () => {
     expect(get(ui1).mobileMenuOpen).toBe(true);
     expect(get(ui2).mobileMenuOpen).toBe(false);
   });
+
+  it("starts with tocPopoverOpen false", () => {
+    const ui = createUiStore();
+    expect(get(ui).tocPopoverOpen).toBe(false);
+  });
+
+  it("toggleTocPopover toggles tocPopoverOpen", () => {
+    const ui = createUiStore();
+    ui.toggleTocPopover();
+    expect(get(ui).tocPopoverOpen).toBe(true);
+
+    ui.toggleTocPopover();
+    expect(get(ui).tocPopoverOpen).toBe(false);
+  });
+
+  it("closeTocPopover closes tocPopoverOpen", () => {
+    const ui = createUiStore();
+    ui.toggleTocPopover();
+    expect(get(ui).tocPopoverOpen).toBe(true);
+
+    ui.closeTocPopover();
+    expect(get(ui).tocPopoverOpen).toBe(false);
+  });
 });

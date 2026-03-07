@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `--embedded` flag for `rw serve` to preview docs inside a Backstage-like shell during development
+- "On this page" popover button for accessing table of contents when the sidebar is hidden on narrow screens
 
 ### Changed
 

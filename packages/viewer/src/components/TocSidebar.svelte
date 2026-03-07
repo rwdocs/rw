@@ -5,9 +5,10 @@
 
   interface Props {
     toc: TocEntry[];
+    onnavigate?: () => void;
   }
 
-  let { toc }: Props = $props();
+  let { toc, onnavigate }: Props = $props();
 
   const { router } = getRwContext();
   const { hash } = router;
@@ -153,7 +154,10 @@
       <li class={entry.level === 3 ? "ml-3" : ""}>
         <a
           href="#{entry.id}"
-          onclick={(e) => scrollToHeading(e, entry.id)}
+          onclick={(e) => {
+            scrollToHeading(e, entry.id);
+            onnavigate?.();
+          }}
           class="
             block text-sm/snug transition-colors
             {activeId === entry.id

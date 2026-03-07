@@ -1,4 +1,9 @@
 @layer components {
+  /* Offset heading anchors so they align with the sticky TOC button (top-6 = 1.5rem) */
+  .prose :where(h1, h2, h3, h4, h5, h6)[id] {
+    scroll-margin-top: 1.5rem;
+  }
+
   /* Remove backticks from inline code (typography plugin default) */
   .prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::before,
   .prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::after {
