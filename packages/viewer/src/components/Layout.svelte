@@ -109,8 +109,8 @@
         {#if $page.data}
           <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
         {:else if $page.loading}
-          <!-- Reserve breadcrumb space during first load (matches Breadcrumbs mb-6) -->
-          <div class="mb-6"></div>
+          <!-- Reserve breadcrumb space during first load (matches Breadcrumbs nav mb-6 + h-5) -->
+          <div class="mb-6 h-5"></div>
         {/if}
         <div class="flex">
           <!-- Main Content -->
