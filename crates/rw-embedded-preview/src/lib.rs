@@ -12,7 +12,8 @@ use axum::response::Response;
 ///
 /// Returns the same page regardless of the path — the JS extracts
 /// the document path from the URL and passes it as `initialPath`.
-pub fn preview_page() -> Response {
+#[allow(clippy::unused_async)] // must be async to satisfy axum's Handler trait
+pub async fn preview_page() -> Response {
     static_response(PREVIEW_HTML, "text/html; charset=utf-8")
 }
 
@@ -20,14 +21,16 @@ pub fn preview_page() -> Response {
 ///
 /// Separated from the HTML to comply with Content-Security-Policy
 /// `script-src 'self'` (inline scripts are blocked).
-pub fn preview_script() -> Response {
+#[allow(clippy::unused_async)] // must be async to satisfy axum's Handler trait
+pub async fn preview_script() -> Response {
     static_response(PREVIEW_JS, "text/javascript; charset=utf-8")
 }
 
 /// Serve the preview page CSS as an external stylesheet.
 ///
 /// Separated from the HTML for consistency with the external JS approach.
-pub fn preview_style() -> Response {
+#[allow(clippy::unused_async)] // must be async to satisfy axum's Handler trait
+pub async fn preview_style() -> Response {
     static_response(PREVIEW_CSS, "text/css; charset=utf-8")
 }
 
@@ -47,9 +50,9 @@ const PREVIEW_CSS: &str = include_str!("preview.css");
 mod tests {
     use super::*;
 
-    #[test]
-    fn preview_page_returns_html() {
-        let response = preview_page();
+    #[tokio::test]
+    async fn preview_page_returns_html() {
+        let response = preview_page().await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),
@@ -57,9 +60,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn preview_script_returns_javascript() {
-        let response = preview_script();
+    #[tokio::test]
+    async fn preview_script_returns_javascript() {
+        let response = preview_script().await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),
@@ -67,9 +70,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn preview_style_returns_css() {
-        let response = preview_style();
+    #[tokio::test]
+    async fn preview_style_returns_css() {
+        let response = preview_style().await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),

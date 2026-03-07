@@ -66,7 +66,7 @@ pub(crate) async fn asset_or_preview_fallback(req: Request<Body>) -> Response {
         }
     }
 
-    rw_embedded_preview::preview_page()
+    rw_embedded_preview::preview_page().await
 }
 
 #[cfg(test)]
