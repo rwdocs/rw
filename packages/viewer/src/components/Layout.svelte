@@ -122,11 +122,7 @@
           {#if $page.loading || ($page.data && $page.data.toc.length > 0)}
             <aside class="layout-toc hidden w-[240px] shrink-0">
               {#if $page.data && $page.data.toc.length > 0}
-                <div
-                  class="
-                    sticky top-6 max-h-[calc(100cqb-1.5rem)] overflow-y-auto pl-8
-                  "
-                >
+                <div class="sticky top-6 max-h-[calc(100cqb-1.5rem)] overflow-y-auto pl-8">
                   <TocSidebar toc={$page.data.toc} />
                 </div>
               {/if}

@@ -78,6 +78,7 @@ mod tests {
         let cache = FileCache::new(tmp.path().join("cache"), "v1");
         let bucket = cache.bucket("test");
 
+        #[allow(clippy::items_after_statements)]
         #[derive(Serialize, Deserialize, PartialEq, Debug)]
         struct Data {
             value: i32,

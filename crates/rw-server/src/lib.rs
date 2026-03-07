@@ -227,6 +227,7 @@ pub fn server_config_from_rw_config(
         .unwrap_or_default()
         .join("README.md");
 
+    #[allow(clippy::needless_update)]
     ServerConfig {
         host: config.server.host.clone(),
         port: config.server.port,

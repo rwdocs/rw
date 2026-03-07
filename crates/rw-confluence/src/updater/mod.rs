@@ -54,7 +54,7 @@ pub use result::{DryRunResult, UpdateResult};
 pub struct UpdateConfig {
     /// Kroki server URL for diagram rendering.
     pub kroki_url: Option<String>,
-    /// Directories to search for PlantUML `!include` directives.
+    /// Directories to search for `PlantUML` `!include` directives.
     pub include_dirs: Vec<PathBuf>,
     /// DPI for diagram rendering.
     pub dpi: u32,
