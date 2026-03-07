@@ -69,11 +69,8 @@ export function createRouter(options?: {
     path.set(url.pathname);
     hash.set(url.hash.slice(1));
 
-    // If there's a hash, scrolling will be handled by the page component
-    // Otherwise scroll to top
-    if (!url.hash && !embedded) {
-      window.scrollTo(0, 0);
-    }
+    // Scroll-to-top on navigation is handled by Layout component
+    // which scrolls the actual content container element
   }
 
   /** Initialize router - call once on app mount. Returns cleanup function.
