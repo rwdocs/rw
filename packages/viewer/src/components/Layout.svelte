@@ -5,6 +5,7 @@
   import { getRwContext } from "../lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import TocSidebar from "./TocSidebar.svelte";
+  import TocPopover from "./TocPopover.svelte";
   import Breadcrumbs from "./Breadcrumbs.svelte";
   import MobileDrawer from "./MobileDrawer.svelte";
   import LoadingBar from "./LoadingBar.svelte";
@@ -25,6 +26,12 @@
     if (currentPath !== "/") {
       navigation.expandOnlyTo(currentPath);
     }
+  });
+
+  // Close TOC popover when navigating to a different page
+  $effect(() => {
+    void $page.data?.meta.path;
+    ui.closeTocPopover();
   });
 </script>
 
@@ -82,7 +89,7 @@
       "
     >
       <div class="px-4 pt-6 pb-4">
-        <a href={homeHref} class="mb-5 block pl-[6px]">
+        <a href={homeHref} class="mb-7 flex min-h-8 items-center pl-[6px]">
           <span class="text-xl font-semibold uppercase"
             ><span class="text-gray-900 dark:text-neutral-100">R</span><span
               class="text-gray-400 dark:text-neutral-500">W</span
@@ -107,10 +114,15 @@
     <div class="min-w-0 flex-1 overflow-y-auto">
       <div class="layout-content mx-auto max-w-6xl px-4 pt-6 pb-12">
         {#if $page.data}
+          {#if $page.data.toc.length > 0}
+            <div class="layout-toc-popover sticky top-6 z-30 float-right mt-[-6px]">
+              <TocPopover toc={$page.data.toc} />
+            </div>
+          {/if}
           <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
         {:else if $page.loading}
-          <!-- Reserve breadcrumb space during first load (matches Breadcrumbs nav mb-6 + h-5) -->
-          <div class="mb-6 h-5"></div>
+          <!-- Reserve breadcrumb space during first load (matches Breadcrumbs nav mb-6 + h-8) -->
+          <div class="mb-6 h-8"></div>
         {/if}
         <div class="flex">
           <!-- Main Content -->
@@ -165,6 +177,9 @@
   @container (min-width: 1224px) {
     .layout-toc {
       display: block;
+    }
+    .layout-toc-popover {
+      display: none;
     }
   }
 </style>

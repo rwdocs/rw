@@ -11,9 +11,9 @@
   const { router } = getRwContext();
 </script>
 
-<nav class="mb-6">
+<nav class="mb-6 min-h-8">
   {#if breadcrumbs.length > 0}
-    <ol class="flex items-center text-sm text-gray-600 dark:text-neutral-400">
+    <ol class="flex min-h-8 flex-wrap items-center text-sm text-gray-600 dark:text-neutral-400">
       {#each breadcrumbs as crumb (crumb.path)}
         <li
           class="
@@ -32,6 +32,6 @@
       {/each}
     </ol>
   {:else}
-    <div class="h-5"></div>
+    <div class="h-8"></div>
   {/if}
 </nav>
