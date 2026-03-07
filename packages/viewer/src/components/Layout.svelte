@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import type { Snippet } from "svelte";
   import { get } from "svelte/store";
   import { getRwContext } from "../lib/context";
@@ -17,7 +17,10 @@
   let { children }: Props = $props();
 
   const { router, navigation, page, ui } = getRwContext();
+  const routerPath = router.path;
   const homeHref = router.prefixPath("/");
+
+  let contentArea: HTMLElement;
 
   onMount(async () => {
     await navigation.load();
@@ -25,6 +28,14 @@
     const currentPath = get(router.path);
     if (currentPath !== "/") {
       navigation.expandOnlyTo(currentPath);
+    }
+  });
+
+  // Scroll content area to top when navigating to a new page (without hash)
+  $effect(() => {
+    void $routerPath;
+    if (!untrack(() => get(router.hash)) && contentArea) {
+      contentArea.scrollTop = 0;
     }
   });
 
@@ -111,7 +122,7 @@
     </aside>
 
     <!-- Main Content + ToC Container -->
-    <div class="min-w-0 flex-1 overflow-y-auto">
+    <div class="min-w-0 flex-1 overflow-y-auto" bind:this={contentArea}>
       <div class="layout-content mx-auto max-w-6xl px-4 pt-6 pb-12">
         {#if $page.data}
           {#if $page.data.toc.length > 0}

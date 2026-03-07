@@ -153,6 +153,32 @@ test.describe("Navigation", () => {
     );
   });
 
+  test("scrolls to top when navigating to a different page", async ({ page }) => {
+    // Use a small viewport so page content requires scrolling
+    await page.setViewportSize({ width: 1280, height: 200 });
+    await page.goto("/getting-started/installation");
+
+    // Wait for content to load
+    await expect(page.locator("article")).toContainText("Install via npm");
+
+    // Scroll the content area to the bottom
+    const contentArea = page.locator(".flex-1.overflow-y-auto");
+    await contentArea.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    const scrolledTop = await contentArea.evaluate((el) => el.scrollTop);
+    expect(scrolledTop).toBeGreaterThan(0);
+
+    // Click a different page in the navigation
+    const aside = page.locator("aside").first();
+    await aside.getByRole("link", { name: "Configuration" }).click();
+    await expect(page).toHaveURL(/\/getting-started\/configuration$/);
+
+    // Content area should be scrolled to top
+    const newScrollTop = await contentArea.evaluate((el) => el.scrollTop);
+    expect(newScrollTop).toBe(0);
+  });
+
   test("auto-expands navigation to current page", async ({ page }) => {
     // Navigate directly to a nested page
     await page.goto("/advanced/plugins/custom");

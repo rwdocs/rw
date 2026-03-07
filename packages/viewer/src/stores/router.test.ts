@@ -28,7 +28,6 @@ describe("goto", () => {
       configurable: true,
     });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
-    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -64,19 +63,8 @@ describe("goto", () => {
     expect(get(router.hash)).toBe("");
   });
 
-  it("scrolls to top when no hash", () => {
-    const router = createRouter();
-    router.goto("/new-path");
-
-    expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
-  });
-
-  it("does not scroll when hash is present", () => {
-    const router = createRouter();
-    router.goto("/new-path#section");
-
-    expect(window.scrollTo).not.toHaveBeenCalled();
-  });
+  // Scroll-to-top on navigation is handled by Layout component
+  // which scrolls the actual content container element
 });
 
 describe("initRouter", () => {
@@ -99,7 +87,6 @@ describe("initRouter", () => {
       if (event === "click") clickHandler = handler as (e: MouseEvent) => void;
     });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
-    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 
     router = createRouter();
     cleanup = router.initRouter();
@@ -338,7 +325,6 @@ describe("embedded mode", () => {
       configurable: true,
     });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
-    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -389,13 +375,6 @@ describe("embedded mode", () => {
 
     expect(window.history.pushState).not.toHaveBeenCalled();
     expect(get(router.path)).toBe("/guide");
-  });
-
-  it("goto does not scroll to top in embedded mode", () => {
-    const router = createRouter({ embedded: true });
-    router.goto("/guide");
-
-    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
   it("goto calls onNavigate callback in embedded mode", () => {
@@ -507,7 +486,6 @@ describe("basePath", () => {
       configurable: true,
     });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
-    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   });
 
   afterEach(() => {
