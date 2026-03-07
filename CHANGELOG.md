@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `--embedded` flag for `rw serve` to preview docs inside a Backstage-like shell during development
 
+### Changed
+
+- Viewer layout now uses container queries instead of viewport breakpoints, adapting to actual available space when embedded in host applications
+
+### Fixed
+
+- Fixed sidebar, table of contents, mobile drawer, and loading bar overflowing container bounds when viewer is embedded in a smaller host element
+
 ## [0.1.11] - 2026-03-04
 
 ### Added
