@@ -26,7 +26,7 @@ test.describe("Mobile Navigation", () => {
     await page.getByRole("button", { name: "Open menu" }).click();
 
     // Mobile drawer should appear
-    const drawer = page.locator("aside.fixed");
+    const drawer = page.locator("aside.absolute");
     await expect(drawer).toBeVisible();
 
     // Should show navigation items
@@ -40,7 +40,7 @@ test.describe("Mobile Navigation", () => {
     // Open drawer
     await page.getByRole("button", { name: "Open menu" }).click();
 
-    const drawer = page.locator("aside.fixed");
+    const drawer = page.locator("aside.absolute");
     await expect(drawer).toBeVisible();
 
     // Expand Getting Started
@@ -64,7 +64,7 @@ test.describe("Mobile Navigation", () => {
     // Open drawer
     await page.getByRole("button", { name: "Open menu" }).click();
 
-    const drawer = page.locator("aside.fixed");
+    const drawer = page.locator("aside.absolute");
     await expect(drawer).toBeVisible();
 
     // Press escape
@@ -80,7 +80,7 @@ test.describe("Mobile Navigation", () => {
     // Open drawer
     await page.getByRole("button", { name: "Open menu" }).click();
 
-    const drawer = page.locator("aside.fixed");
+    const drawer = page.locator("aside.absolute");
     await expect(drawer).toBeVisible();
 
     // Click outside the drawer on the backdrop overlay
@@ -128,7 +128,7 @@ test.describe("Mobile Navigation", () => {
 
     // Open drawer and navigate
     await page.getByRole("button", { name: "Open menu" }).click();
-    const drawer = page.locator("aside.fixed");
+    const drawer = page.locator("aside.absolute");
 
     // Expand Getting Started
     const gsLink = drawer.getByRole("link", { name: "Getting Started" });
@@ -141,11 +141,74 @@ test.describe("Mobile Navigation", () => {
 
     // Navigate to another page
     await page.getByRole("button", { name: "Open menu" }).click();
-    await page.locator("aside.fixed").getByRole("link", { name: "API Reference" }).click();
+    await page.locator("aside.absolute").getByRole("link", { name: "API Reference" }).click();
 
     // Verify second navigation
     await expect(page).toHaveURL(/\/api$/);
     await expect(page.locator("article h1")).toContainText("API Reference");
+  });
+
+  test("drawer panel stays within container bounds when container is shorter than viewport", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    // Simulate embedded mode: constrain the viewer container so it doesn't
+    // fill the full viewport (e.g., host app has a footer below).
+    await page.evaluate(() => {
+      const container = document.querySelector(".layout-container") as HTMLElement;
+      container.style.height = "500px";
+      container.style.overflow = "hidden";
+    });
+
+    // Open drawer
+    await page.getByRole("button", { name: "Open menu" }).click();
+    const panel = page.locator("aside.absolute > div").first();
+    await expect(panel).toBeVisible();
+
+    // The panel bottom should not extend past the container bottom
+    const { panelBottom, containerBottom } = await page.evaluate(() => {
+      const p = document.querySelector("aside.absolute > div") as HTMLElement;
+      const c = document.querySelector(".layout-container") as HTMLElement;
+      return {
+        panelBottom: p.getBoundingClientRect().bottom,
+        containerBottom: c.getBoundingClientRect().bottom,
+      };
+    });
+
+    expect(panelBottom).toBeLessThanOrEqual(containerBottom);
+  });
+
+  test("drawer panel height updates when container resizes without viewport change", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    // Constrain the container to simulate embedded mode
+    await page.evaluate(() => {
+      const container = document.querySelector(".layout-container") as HTMLElement;
+      container.style.height = "600px";
+      container.style.overflow = "hidden";
+    });
+
+    // Open drawer and read initial panel height
+    await page.getByRole("button", { name: "Open menu" }).click();
+    const panel = page.locator("aside.absolute > div").first();
+    await expect(panel).toBeVisible();
+
+    const initialHeight = await panel.evaluate((el) => el.getBoundingClientRect().height);
+
+    // Shrink the container (NOT the viewport)
+    await page.evaluate(() => {
+      const container = document.querySelector(".layout-container") as HTMLElement;
+      container.style.height = "400px";
+    });
+
+    // Panel height should adapt to the smaller container
+    await expect(async () => {
+      const newHeight = await panel.evaluate((el) => el.getBoundingClientRect().height);
+      expect(newHeight).toBeLessThan(initialHeight);
+    }).toPass({ timeout: 2000 });
   });
 
   test("breadcrumbs work on mobile", async ({ page }) => {

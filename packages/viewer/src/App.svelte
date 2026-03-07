@@ -104,7 +104,7 @@
   let route = $derived(getRoute($path));
 </script>
 
-<div bind:this={rootElement}>
+<div bind:this={rootElement} class="h-full">
   <Layout>
     {#if route === "home"}
       <Home />
