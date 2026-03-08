@@ -64,27 +64,6 @@ describe("goto", () => {
 
   // Scroll-to-top on navigation is handled by Layout component
   // which scrolls the actual content container element
-
-  it("notifies path change listeners on goto", () => {
-    const router = new Router();
-    const listener = vi.fn();
-    router.onPathChange(listener);
-
-    router.goto("/new-path");
-
-    expect(listener).toHaveBeenCalledOnce();
-  });
-
-  it("does not notify after unsubscribe", () => {
-    const router = new Router();
-    const listener = vi.fn();
-    const unsub = router.onPathChange(listener);
-
-    unsub();
-    router.goto("/new-path");
-
-    expect(listener).not.toHaveBeenCalled();
-  });
 });
 
 describe("initRouter", () => {
@@ -153,21 +132,6 @@ describe("initRouter", () => {
 
       expect(router.path).toBe("/back-path");
       expect(router.hash).toBe("section");
-    });
-
-    it("notifies path change listeners on popstate", () => {
-      const listener = vi.fn();
-      router.onPathChange(listener);
-
-      Object.defineProperty(window, "location", {
-        value: { pathname: "/back-path", hash: "" },
-        writable: true,
-        configurable: true,
-      });
-
-      popstateHandler!({} as PopStateEvent);
-
-      expect(listener).toHaveBeenCalledOnce();
     });
   });
 

@@ -22,7 +22,6 @@ export class Router {
   readonly embedded: boolean;
   private readonly basePath: string;
   private readonly onNavigate?: (path: string) => void;
-  private pathChangeListeners: Set<() => void> = new Set();
 
   constructor(options?: {
     embedded?: boolean;
@@ -43,16 +42,6 @@ export class Router {
     }
   }
 
-  /** Register a callback that fires on path changes. Returns an unsubscribe function. */
-  onPathChange = (callback: () => void): (() => void) => {
-    this.pathChangeListeners.add(callback);
-    return () => this.pathChangeListeners.delete(callback);
-  };
-
-  private notifyPathChange = () => {
-    for (const cb of this.pathChangeListeners) cb();
-  };
-
   /** Prefix an internal path with basePath for use in href attributes. */
   prefixPath = (path: string): string => {
     return this.basePath + path;
@@ -71,7 +60,6 @@ export class Router {
 
     this.path = url.pathname;
     this.hash = url.hash.slice(1);
-    this.notifyPathChange();
   };
 
   /** Initialize router - call once on app mount. Returns cleanup function.
@@ -81,7 +69,6 @@ export class Router {
     const handlePopState = () => {
       this.path = window.location.pathname;
       this.hash = window.location.hash.slice(1);
-      this.notifyPathChange();
     };
 
     const handleClick = (e: MouseEvent) => {

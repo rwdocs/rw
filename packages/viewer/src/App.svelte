@@ -58,11 +58,16 @@
   const liveReload = new LiveReload({ router });
   const ui = new Ui();
 
-  // Side effects on any navigation
-  const unsubPathChange = router.onPathChange(() => {
-    ui.closeMobileMenu();
-    ui.closeTocPopover();
-    navigation.expandOnlyTo(router.path);
+  // Close menus and expand navigation on any path change
+  let previousPath = router.path;
+  $effect(() => {
+    const currentPath = router.path;
+    if (currentPath !== previousPath) {
+      previousPath = currentPath;
+      ui.closeMobileMenu();
+      ui.closeTocPopover();
+      navigation.expandOnlyTo(currentPath);
+    }
   });
 
   // Reload navigation tree when file structure changes
@@ -110,7 +115,6 @@
   onDestroy(() => {
     cleanupRouter?.();
     liveReload.stop();
-    unsubPathChange();
     unsubStructureReload();
   });
 
