@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getRwContext } from "../lib/context";
+  import { dismissible } from "../lib/dismissible";
   import TocSidebar from "./TocSidebar.svelte";
   import type { TocEntry } from "../types";
 
@@ -13,29 +14,7 @@
 
   let popoverEl: HTMLDivElement | undefined = $state();
 
-  function handleClickOutside(event: MouseEvent) {
-    if (popoverEl && !popoverEl.contains(event.target as Node)) {
-      ui.closeTocPopover();
-    }
-  }
-
-  $effect(() => {
-    if ($ui.tocPopoverOpen) {
-      document.addEventListener("click", handleClickOutside, true);
-      return () => document.removeEventListener("click", handleClickOutside, true);
-    }
-  });
-
-  $effect(() => {
-    if (!$ui.tocPopoverOpen) return;
-    function handleKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        ui.closeTocPopover();
-      }
-    }
-    window.addEventListener("keydown", handleKeydown);
-    return () => window.removeEventListener("keydown", handleKeydown);
-  });
+  $effect(() => dismissible($ui.tocPopoverOpen, popoverEl, ui.closeTocPopover));
 </script>
 
 <div class="relative" bind:this={popoverEl}>
