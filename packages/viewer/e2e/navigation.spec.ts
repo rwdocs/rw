@@ -5,14 +5,14 @@ test.describe("Navigation", () => {
     await page.goto("/");
 
     // Home page should load and show content
-    await expect(page.locator("article")).toContainText("Test Documentation");
+    await expect(page.getByRole("article")).toContainText("Test Documentation");
   });
 
   test("shows navigation sidebar with top-level sections", async ({ page }) => {
     await page.goto("/");
 
     // Navigation sidebar should be visible
-    const aside = page.locator("aside").first();
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
     await expect(aside).toBeVisible();
 
     // Should show top-level navigation items
@@ -24,7 +24,7 @@ test.describe("Navigation", () => {
   test("expands navigation tree on click", async ({ page }) => {
     await page.goto("/");
 
-    const aside = page.locator("aside").first();
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
 
     // Click the expand button next to Getting Started
     const gettingStartedLink = aside.getByRole("link", { name: "Getting Started" });
@@ -39,7 +39,7 @@ test.describe("Navigation", () => {
   test("collapses expanded navigation on second click", async ({ page }) => {
     await page.goto("/");
 
-    const aside = page.locator("aside").first();
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
 
     // Expand Getting Started section
     const gettingStartedLink = aside.getByRole("link", { name: "Getting Started" });
@@ -59,7 +59,7 @@ test.describe("Navigation", () => {
   test("navigates to page on click", async ({ page }) => {
     await page.goto("/");
 
-    const aside = page.locator("aside").first();
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
 
     // Expand Getting Started section
     const gettingStartedLink = aside.getByRole("link", { name: "Getting Started" });
@@ -73,46 +73,52 @@ test.describe("Navigation", () => {
     await expect(page).toHaveURL(/\/getting-started\/installation$/);
 
     // Page content should load
-    await expect(page.locator("article")).toContainText("Install via npm");
+    await expect(page.getByRole("article")).toContainText("Install via npm");
   });
 
   test("shows breadcrumbs on nested pages", async ({ page }) => {
     await page.goto("/getting-started/installation");
 
     // Breadcrumbs should show path
-    const breadcrumbNav = page.locator("nav ol");
-    await expect(breadcrumbNav).toBeVisible();
+    const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(breadcrumbs).toBeVisible();
 
     // Check breadcrumb content
-    await expect(breadcrumbNav).toContainText("Home");
-    await expect(breadcrumbNav).toContainText("Getting Started");
+    await expect(breadcrumbs).toContainText("Home");
+    await expect(breadcrumbs).toContainText("Getting Started");
   });
 
   test("breadcrumb links navigate correctly", async ({ page }) => {
     await page.goto("/getting-started/installation");
 
     // Click on Getting Started breadcrumb
-    await page.locator("nav ol").getByRole("link", { name: "Getting Started" }).click();
+    await page
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .getByRole("link", { name: "Getting Started" })
+      .click();
 
     // Should navigate to getting started section
     await expect(page).toHaveURL(/\/getting-started$/);
-    await expect(page.locator("article")).toContainText("This guide will help you get started");
+    await expect(page.getByRole("article")).toContainText("This guide will help you get started");
   });
 
   test("breadcrumb Home link navigates to homepage", async ({ page }) => {
     await page.goto("/getting-started/installation");
 
     // Click on Home breadcrumb
-    await page.locator("nav ol").getByRole("link", { name: "Home" }).click();
+    await page
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .getByRole("link", { name: "Home" })
+      .click();
 
     // Should navigate to home
-    await expect(page.locator("article")).toContainText("Test Documentation");
+    await expect(page.getByRole("article")).toContainText("Test Documentation");
   });
 
   test("highlights active navigation item", async ({ page }) => {
     await page.goto("/");
 
-    const aside = page.locator("aside").first();
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
 
     // Expand and navigate to Installation
     const gettingStartedLink = aside.getByRole("link", { name: "Getting Started" });
@@ -131,7 +137,7 @@ test.describe("Navigation", () => {
   test("deep navigation works (3 levels)", async ({ page }) => {
     await page.goto("/");
 
-    const aside = page.locator("aside").first();
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
 
     // Expand Advanced Topics
     const advancedLink = aside.getByRole("link", { name: "Advanced Topics" });
@@ -148,7 +154,7 @@ test.describe("Navigation", () => {
 
     // Should navigate to deep nested page
     await expect(page).toHaveURL(/\/advanced\/plugins\/custom$/);
-    await expect(page.locator("article")).toContainText(
+    await expect(page.getByRole("article")).toContainText(
       "Step-by-step guide to creating a custom plugin",
     );
   });
@@ -159,10 +165,10 @@ test.describe("Navigation", () => {
     await page.goto("/getting-started/installation");
 
     // Wait for content to load
-    await expect(page.locator("article")).toContainText("Install via npm");
+    await expect(page.getByRole("article")).toContainText("Install via npm");
 
     // Scroll the content area to the bottom
-    const contentArea = page.locator(".flex-1.overflow-y-auto");
+    const contentArea = page.getByTestId("content-scroll-area");
     await contentArea.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
@@ -170,7 +176,7 @@ test.describe("Navigation", () => {
     expect(scrolledTop).toBeGreaterThan(0);
 
     // Click a different page in the navigation
-    const aside = page.locator("aside").first();
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
     await aside.getByRole("link", { name: "Configuration" }).click();
     await expect(page).toHaveURL(/\/getting-started\/configuration$/);
 
@@ -183,7 +189,7 @@ test.describe("Navigation", () => {
     // Navigate directly to a nested page
     await page.goto("/advanced/plugins/custom");
 
-    const aside = page.locator("aside").first();
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
 
     // The path to the current page should be expanded
     await expect(aside.getByRole("link", { name: "Custom Plugin Guide" })).toBeVisible();
