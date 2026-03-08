@@ -11,7 +11,6 @@
   let { toc, onnavigate }: Props = $props();
 
   const { router } = getRwContext();
-  const { hash } = router;
 
   // Filter to only show h2 and h3 (two levels deep, excludes h1)
   let filteredToc = $derived(toc.filter((entry) => entry.level >= 2 && entry.level <= 3));
@@ -44,7 +43,7 @@
 
   // React to hash changes (e.g., when page loads with #hash or when clicking links)
   $effect(() => {
-    const currentHash = $hash;
+    const currentHash = router.hash;
     if (currentHash && filteredToc.some((entry) => entry.id === currentHash)) {
       activeId = currentHash;
 

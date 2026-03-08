@@ -11,12 +11,11 @@
   let { item, depth }: Props = $props();
 
   const { router, navigation } = getRwContext();
-  const { path } = router;
 
   // Check if this item is active (item.path already has leading slash)
-  let isActive = $derived($path === item.path);
+  let isActive = $derived(router.path === item.path);
   let hasChildren = $derived(item.children && item.children.length > 0);
-  let isExpanded = $derived(!$navigation.collapsed.has(item.path));
+  let isExpanded = $derived(!navigation.collapsed.has(item.path));
 
   function toggleExpanded(e: MouseEvent) {
     e.preventDefault();

@@ -5,19 +5,19 @@
   const { navigation, router } = getRwContext();
 
   let backLink = $derived.by(() => {
-    const tree = $navigation.tree;
+    const tree = navigation.tree;
     if (!tree?.scope) return null;
     return tree.parentScope ?? { path: "/", title: "Home" };
   });
 </script>
 
-{#if $navigation.loading}
+{#if navigation.loading}
   <div class="text-sm text-gray-600 dark:text-neutral-400">Loading...</div>
-{:else if $navigation.error}
-  <div class="text-sm text-red-600 dark:text-red-400">{$navigation.error}</div>
-{:else if $navigation.tree}
+{:else if navigation.error}
+  <div class="text-sm text-red-600 dark:text-red-400">{navigation.error}</div>
+{:else if navigation.tree}
   <nav>
-    {#if $navigation.tree.scope && backLink}
+    {#if navigation.tree.scope && backLink}
       <div class="mb-5">
         <a
           href={router.prefixPath(backLink.path)}
@@ -40,10 +40,10 @@
           <span class="px-1.5">{backLink.title}</span>
         </a>
         <h2 class="pl-[28px] text-xl font-light text-gray-900 dark:text-neutral-100">
-          {$navigation.tree.scope.title}
+          {navigation.tree.scope.title}
         </h2>
       </div>
     {/if}
-    <NavTree items={$navigation.tree.items} />
+    <NavTree items={navigation.tree.items} />
   </nav>
 {/if}

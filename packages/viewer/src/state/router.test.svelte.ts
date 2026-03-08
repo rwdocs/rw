@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { get } from "svelte/store";
-import { extractDocPath, createRouter } from "./router";
+import { extractDocPath, Router } from "./router.svelte";
 
 describe("extractDocPath", () => {
   it("strips leading slash from path", () => {
@@ -35,43 +34,64 @@ describe("goto", () => {
   });
 
   it("pushes new path to history", () => {
-    const router = createRouter();
+    const router = new Router();
     router.goto("/new-path");
 
     expect(window.history.pushState).toHaveBeenCalledWith({}, "", "/new-path");
   });
 
   it("updates path store", () => {
-    const router = createRouter();
+    const router = new Router();
     router.goto("/new-path");
 
-    expect(get(router.path)).toBe("/new-path");
+    expect(router.path).toBe("/new-path");
   });
 
   it("updates hash store when hash is present", () => {
-    const router = createRouter();
+    const router = new Router();
     router.goto("/new-path#section");
 
-    expect(get(router.path)).toBe("/new-path");
-    expect(get(router.hash)).toBe("section");
+    expect(router.path).toBe("/new-path");
+    expect(router.hash).toBe("section");
   });
 
   it("clears hash store when hash is not present", () => {
-    const router = createRouter();
+    const router = new Router();
     router.goto("/new-path");
 
-    expect(get(router.hash)).toBe("");
+    expect(router.hash).toBe("");
   });
 
   // Scroll-to-top on navigation is handled by Layout component
   // which scrolls the actual content container element
+
+  it("notifies path change listeners on goto", () => {
+    const router = new Router();
+    const listener = vi.fn();
+    router.onPathChange(listener);
+
+    router.goto("/new-path");
+
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("does not notify after unsubscribe", () => {
+    const router = new Router();
+    const listener = vi.fn();
+    const unsub = router.onPathChange(listener);
+
+    unsub();
+    router.goto("/new-path");
+
+    expect(listener).not.toHaveBeenCalled();
+  });
 });
 
 describe("initRouter", () => {
   let popstateHandler: ((e: PopStateEvent) => void) | null = null;
   let clickHandler: ((e: MouseEvent) => void) | null = null;
   let cleanup: (() => void) | null = null;
-  let router: ReturnType<typeof createRouter>;
+  let router: Router;
 
   beforeEach(() => {
     Object.defineProperty(window, "location", {
@@ -88,7 +108,7 @@ describe("initRouter", () => {
     });
     vi.spyOn(window.history, "pushState").mockImplementation(() => {});
 
-    router = createRouter();
+    router = new Router();
     cleanup = router.initRouter();
   });
 
@@ -118,8 +138,8 @@ describe("initRouter", () => {
 
       popstateHandler!({} as PopStateEvent);
 
-      expect(get(router.path)).toBe("/back-path");
-      expect(get(router.hash)).toBe("");
+      expect(router.path).toBe("/back-path");
+      expect(router.hash).toBe("");
     });
 
     it("updates hash store when navigating to URL with hash", () => {
@@ -131,8 +151,23 @@ describe("initRouter", () => {
 
       popstateHandler!({} as PopStateEvent);
 
-      expect(get(router.path)).toBe("/back-path");
-      expect(get(router.hash)).toBe("section");
+      expect(router.path).toBe("/back-path");
+      expect(router.hash).toBe("section");
+    });
+
+    it("notifies path change listeners on popstate", () => {
+      const listener = vi.fn();
+      router.onPathChange(listener);
+
+      Object.defineProperty(window, "location", {
+        value: { pathname: "/back-path", hash: "" },
+        writable: true,
+        configurable: true,
+      });
+
+      popstateHandler!({} as PopStateEvent);
+
+      expect(listener).toHaveBeenCalledOnce();
     });
   });
 
@@ -169,7 +204,7 @@ describe("initRouter", () => {
       clickHandler!(event);
 
       expect(event.preventDefault).toHaveBeenCalled();
-      expect(get(router.path)).toBe("/internal-page");
+      expect(router.path).toBe("/internal-page");
     });
 
     it("ignores clicks not on anchors", () => {
@@ -312,7 +347,7 @@ describe("initRouter", () => {
       clickHandler!(event);
 
       expect(event.preventDefault).toHaveBeenCalled();
-      expect(get(router.path)).toBe("/nested-page");
+      expect(router.path).toBe("/nested-page");
     });
   });
 });
@@ -332,28 +367,28 @@ describe("embedded mode", () => {
   });
 
   it("uses initialPath as starting path in embedded mode", () => {
-    const router = createRouter({ embedded: true, initialPath: "/guide" });
+    const router = new Router({ embedded: true, initialPath: "/guide" });
 
-    expect(get(router.path)).toBe("/guide");
+    expect(router.path).toBe("/guide");
   });
 
   it("parses hash from initialPath in embedded mode", () => {
-    const router = createRouter({ embedded: true, initialPath: "/guide#section" });
+    const router = new Router({ embedded: true, initialPath: "/guide#section" });
 
-    expect(get(router.path)).toBe("/guide");
-    expect(get(router.hash)).toBe("section");
+    expect(router.path).toBe("/guide");
+    expect(router.hash).toBe("section");
   });
 
   it("initializes hash to empty when initialPath has no hash in embedded mode", () => {
-    const router = createRouter({ embedded: true, initialPath: "/guide" });
+    const router = new Router({ embedded: true, initialPath: "/guide" });
 
-    expect(get(router.hash)).toBe("");
+    expect(router.hash).toBe("");
   });
 
   it("ignores initialPath in normal mode", () => {
-    const router = createRouter({ embedded: false, initialPath: "/guide" });
+    const router = new Router({ embedded: false, initialPath: "/guide" });
 
-    expect(get(router.path)).toBe("/");
+    expect(router.path).toBe("/");
   });
 
   it("defaults to / when no initialPath in embedded mode", () => {
@@ -363,23 +398,23 @@ describe("embedded mode", () => {
       configurable: true,
     });
 
-    const router = createRouter({ embedded: true });
+    const router = new Router({ embedded: true });
 
     // Should default to "/" not the host app's pathname
-    expect(get(router.path)).toBe("/");
+    expect(router.path).toBe("/");
   });
 
   it("goto does not call pushState in embedded mode", () => {
-    const router = createRouter({ embedded: true });
+    const router = new Router({ embedded: true });
     router.goto("/guide");
 
     expect(window.history.pushState).not.toHaveBeenCalled();
-    expect(get(router.path)).toBe("/guide");
+    expect(router.path).toBe("/guide");
   });
 
   it("goto calls onNavigate callback in embedded mode", () => {
     const onNavigate = vi.fn();
-    const router = createRouter({ embedded: true, onNavigate });
+    const router = new Router({ embedded: true, onNavigate });
     router.goto("/guide");
 
     expect(onNavigate).toHaveBeenCalledWith("/guide");
@@ -388,7 +423,7 @@ describe("embedded mode", () => {
 
   it("goto does not call onNavigate in normal mode", () => {
     const onNavigate = vi.fn();
-    const router = createRouter({ embedded: false, onNavigate });
+    const router = new Router({ embedded: false, onNavigate });
     router.goto("/guide");
 
     expect(onNavigate).not.toHaveBeenCalled();
@@ -396,7 +431,7 @@ describe("embedded mode", () => {
   });
 
   it("goto calls pushState in normal mode", () => {
-    const router = createRouter({ embedded: false });
+    const router = new Router({ embedded: false });
     router.goto("/guide");
 
     expect(window.history.pushState).toHaveBeenCalled();
@@ -404,7 +439,7 @@ describe("embedded mode", () => {
 
   it("initRouter skips popstate listener in embedded mode", () => {
     const addEventSpy = vi.spyOn(window, "addEventListener");
-    const router = createRouter({ embedded: true });
+    const router = new Router({ embedded: true });
     const cleanup = router.initRouter();
 
     const popstateCall = addEventSpy.mock.calls.find(([event]) => event === "popstate");
@@ -416,7 +451,7 @@ describe("embedded mode", () => {
 
   it("initRouter registers popstate listener in normal mode", () => {
     const addEventSpy = vi.spyOn(window, "addEventListener");
-    const router = createRouter({ embedded: false });
+    const router = new Router({ embedded: false });
     const cleanup = router.initRouter();
 
     const popstateCall = addEventSpy.mock.calls.find(([event]) => event === "popstate");
@@ -431,7 +466,7 @@ describe("embedded mode", () => {
     const rootAddEventSpy = vi.spyOn(rootElement, "addEventListener");
     const docAddEventSpy = vi.spyOn(document, "addEventListener");
 
-    const router = createRouter({ embedded: true });
+    const router = new Router({ embedded: true });
     const cleanup = router.initRouter(rootElement);
 
     const rootClickCall = rootAddEventSpy.mock.calls.find(([event]) => event === "click");
@@ -450,7 +485,7 @@ describe("embedded mode", () => {
     const rootAddEventSpy = vi.spyOn(rootElement, "addEventListener");
     const docAddEventSpy = vi.spyOn(document, "addEventListener");
 
-    const router = createRouter({ embedded: false });
+    const router = new Router({ embedded: false });
     const cleanup = router.initRouter(rootElement);
 
     const rootClickCall = rootAddEventSpy.mock.calls.find(([event]) => event === "click");
@@ -467,7 +502,7 @@ describe("embedded mode", () => {
   it("initRouter falls back to document when no root element in embedded mode", () => {
     const docAddEventSpy = vi.spyOn(document, "addEventListener");
 
-    const router = createRouter({ embedded: true });
+    const router = new Router({ embedded: true });
     const cleanup = router.initRouter();
 
     const docClickCall = docAddEventSpy.mock.calls.find(([event]) => event === "click");
@@ -493,24 +528,24 @@ describe("basePath", () => {
   });
 
   it("prefixPath returns path unchanged when no basePath", () => {
-    const router = createRouter({ embedded: true });
+    const router = new Router({ embedded: true });
     expect(router.prefixPath("/docs/guide")).toBe("/docs/guide");
   });
 
   it("prefixPath prepends basePath to path", () => {
-    const router = createRouter({ embedded: true, basePath: "/rw-docs" });
+    const router = new Router({ embedded: true, basePath: "/rw-docs" });
     expect(router.prefixPath("/docs/guide")).toBe("/rw-docs/docs/guide");
   });
 
   it("prefixPath handles root path", () => {
-    const router = createRouter({ embedded: true, basePath: "/rw-docs" });
+    const router = new Router({ embedded: true, basePath: "/rw-docs" });
     expect(router.prefixPath("/")).toBe("/rw-docs/");
   });
 
   it("click handler strips basePath from href before navigating", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = createRouter({ embedded: true, basePath: "/rw-docs", onNavigate });
+    const router = new Router({ embedded: true, basePath: "/rw-docs", onNavigate });
     const cleanup = router.initRouter(rootElement);
 
     const anchor = document.createElement("a");
@@ -526,7 +561,7 @@ describe("basePath", () => {
 
     expect(event.preventDefault).toHaveBeenCalled();
     expect(onNavigate).toHaveBeenCalledWith("/docs/guide");
-    expect(get(router.path)).toBe("/docs/guide");
+    expect(router.path).toBe("/docs/guide");
 
     cleanup();
   });
@@ -534,7 +569,7 @@ describe("basePath", () => {
   it("click handler handles root basePath href", () => {
     const onNavigate = vi.fn();
     const rootElement = document.createElement("div");
-    const router = createRouter({ embedded: true, basePath: "/rw-docs", onNavigate });
+    const router = new Router({ embedded: true, basePath: "/rw-docs", onNavigate });
     const cleanup = router.initRouter(rootElement);
 
     const anchor = document.createElement("a");
@@ -548,7 +583,7 @@ describe("basePath", () => {
     rootElement.dispatchEvent(event);
 
     expect(onNavigate).toHaveBeenCalledWith("/");
-    expect(get(router.path)).toBe("/");
+    expect(router.path).toBe("/");
 
     cleanup();
   });

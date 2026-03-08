@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from "svelte";
   import { createApiClient } from "./api/client";
-  import { createRouter } from "./stores/router";
-  import { createPageStore } from "./stores/page";
-  import { createNavigationStore } from "./stores/navigation";
-  import { createLiveReloadStore } from "./stores/liveReload";
-  import { createUiStore } from "./stores/ui";
+  import { Router } from "./state/router.svelte";
+  import { Page as PageState } from "./state/page.svelte";
+  import { Navigation } from "./state/navigation.svelte";
+  import { LiveReload } from "./state/liveReload.svelte";
+  import { Ui } from "./state/ui.svelte";
   import { setRwContext } from "./lib/context";
   import type { ConfigResponse } from "./types";
   import Layout from "./components/Layout.svelte";
@@ -44,7 +44,7 @@
     untrack(() => apiBaseUrl),
     untrack(() => fetchFn),
   );
-  const router = createRouter({
+  const router = new Router({
     embedded: untrack(() => embedded),
     initialPath: untrack(() => initialPath),
     basePath: untrack(() => basePath),
@@ -53,10 +53,26 @@
 
   // Expose goto for external navigation control (e.g. browser back/forward)
   untrack(() => exposeGoto)?.(router.goto);
-  const page = createPageStore(apiClient, { embedded: untrack(() => embedded) });
-  const navigation = createNavigationStore(apiClient);
-  const liveReload = createLiveReloadStore({ router, navigation });
-  const ui = createUiStore();
+  const page = new PageState(apiClient, { embedded: untrack(() => embedded) });
+  const navigation = new Navigation(apiClient);
+  const liveReload = new LiveReload({ router });
+  const ui = new Ui();
+
+  // Side effects on any navigation
+  const unsubPathChange = router.onPathChange(() => {
+    ui.closeMobileMenu();
+    ui.closeTocPopover();
+    navigation.expandOnlyTo(router.path);
+  });
+
+  // Reload navigation tree when file structure changes
+  const unsubStructureReload = liveReload.onStructureReload(async () => {
+    await navigation.load({ bypassCache: true });
+    const currentPath = router.path;
+    if (currentPath !== "/") {
+      navigation.expandOnlyTo(currentPath);
+    }
+  });
 
   setRwContext({ apiClient, router, page, navigation, liveReload, ui });
 
@@ -69,6 +85,13 @@
 
   onMount(async () => {
     cleanupRouter = router.initRouter(rootElement);
+
+    // Load navigation tree and expand to current path
+    await navigation.load();
+    const currentPath = router.path;
+    if (currentPath !== "/") {
+      navigation.expandOnlyTo(currentPath);
+    }
 
     let config = defaultConfig;
     try {
@@ -87,6 +110,8 @@
   onDestroy(() => {
     cleanupRouter?.();
     liveReload.stop();
+    unsubPathChange();
+    unsubStructureReload();
   });
 
   // Determine which page to render based on path
@@ -100,8 +125,7 @@
     return "page";
   };
 
-  const { path } = router;
-  let route = $derived(getRoute($path));
+  let route = $derived(getRoute(router.path));
 </script>
 
 <div bind:this={rootElement} class="h-full">
