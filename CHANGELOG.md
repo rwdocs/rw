@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed sidebar, table of contents, mobile drawer, and loading bar overflowing container bounds when viewer is embedded in a smaller host element
+- Long breadcrumb trails progressively collapse middle items into a "..." dropdown, showing as many items as fit
 
 ## [0.1.11] - 2026-03-04
 
