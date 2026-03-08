@@ -2,11 +2,12 @@ import { fileURLToPath } from "url";
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
+import { fontPreload } from "./vite-plugin-font-preload";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
-  plugins: [svelte(), tailwindcss()],
+  plugins: [svelte(), tailwindcss(), fontPreload()],
   build: {
     sourcemap: true,
     rollupOptions: {
