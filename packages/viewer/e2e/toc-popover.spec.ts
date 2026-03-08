@@ -12,7 +12,7 @@ test.describe("TOC Popover", () => {
     await expect(button).toBeVisible();
 
     // Full TOC sidebar should be hidden at this width
-    const tocSidebar = page.locator(".layout-toc");
+    const tocSidebar = page.getByRole("complementary", { name: "Page outline" });
     await expect(tocSidebar).toBeHidden();
   });
 
@@ -21,7 +21,7 @@ test.describe("TOC Popover", () => {
     await page.setViewportSize({ width: 1400, height: 800 });
     await page.goto("/");
 
-    const tocSidebar = page.locator(".layout-toc");
+    const tocSidebar = page.getByRole("complementary", { name: "Page outline" });
     await expect(tocSidebar).toBeVisible();
 
     const button = page.getByRole("button", { name: "Table of contents" });
@@ -35,7 +35,7 @@ test.describe("TOC Popover", () => {
     await button.click();
 
     // Popover nav should appear with TOC links
-    const popover = page.locator("nav[aria-label='Table of contents']");
+    const popover = page.getByRole("navigation", { name: "Table of contents" });
     await expect(popover).toBeVisible();
 
     // Should contain heading links from the page
@@ -62,7 +62,7 @@ test.describe("TOC Popover", () => {
     const button = page.getByRole("button", { name: "Table of contents" });
     await button.click();
 
-    const popover = page.locator("nav[aria-label='Table of contents']");
+    const popover = page.getByRole("navigation", { name: "Table of contents" });
     await expect(popover).toBeVisible();
 
     await page.keyboard.press("Escape");
@@ -75,11 +75,11 @@ test.describe("TOC Popover", () => {
     const button = page.getByRole("button", { name: "Table of contents" });
     await button.click();
 
-    const popover = page.locator("nav[aria-label='Table of contents']");
+    const popover = page.getByRole("navigation", { name: "Table of contents" });
     await expect(popover).toBeVisible();
 
     // Click on the article content area (outside the popover)
-    await page.locator("article").click();
+    await page.getByRole("article").click();
     await expect(popover).toBeHidden();
   });
 
@@ -89,7 +89,7 @@ test.describe("TOC Popover", () => {
     const button = page.getByRole("button", { name: "Table of contents" });
     await button.click();
 
-    const popover = page.locator("nav[aria-label='Table of contents']");
+    const popover = page.getByRole("navigation", { name: "Table of contents" });
     await popover.getByRole("link", { name: "Code Example" }).click();
 
     // Popover should close after navigation
@@ -105,7 +105,7 @@ test.describe("TOC Popover", () => {
     await page.goto("/getting-started/installation");
 
     // Wait for page content to load
-    await expect(page.locator("article h1")).toContainText("Installation");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Installation");
 
     // Check if TOC popover button is present — it should only render
     // when the page has TOC entries

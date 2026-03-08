@@ -11,7 +11,7 @@
   const { router } = getRwContext();
 </script>
 
-<nav class="mb-6 min-h-8">
+<nav aria-label="Breadcrumb" class="mb-6 min-h-8">
   {#if breadcrumbs.length > 0}
     <ol class="flex min-h-8 flex-wrap items-center text-sm text-gray-600 dark:text-neutral-400">
       {#each breadcrumbs as crumb (crumb.path)}

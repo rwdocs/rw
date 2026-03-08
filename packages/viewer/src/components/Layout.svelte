@@ -46,7 +46,7 @@
   });
 </script>
 
-<div class="layout-container">
+<div class="layout-container" data-testid="viewer-root">
   <LoadingBar loading={$page.loading} />
   <!-- Mobile Header -->
   <header
@@ -94,6 +94,7 @@
   >
     <!-- Navigation Sidebar (Desktop) -->
     <aside
+      aria-label="Sidebar"
       class="
         layout-sidebar hidden h-full w-[280px] shrink-0 overflow-y-auto border-r border-gray-200
         dark:border-neutral-700
@@ -122,7 +123,11 @@
     </aside>
 
     <!-- Main Content + ToC Container -->
-    <div class="min-w-0 flex-1 overflow-y-auto" bind:this={contentArea}>
+    <div
+      class="min-w-0 flex-1 overflow-y-auto"
+      data-testid="content-scroll-area"
+      bind:this={contentArea}
+    >
       <div class="layout-content mx-auto max-w-6xl px-4 pt-6 pb-12">
         {#if $page.data}
           {#if $page.data.toc.length > 0}
@@ -143,9 +148,12 @@
 
           <!-- Table of Contents Sidebar - reserve space during loading for consistent skeleton layout -->
           {#if $page.loading || ($page.data && $page.data.toc.length > 0)}
-            <aside class="layout-toc hidden w-[240px] shrink-0">
+            <aside aria-label="Page outline" class="layout-toc hidden w-[240px] shrink-0">
               {#if $page.data && $page.data.toc.length > 0}
-                <div class="sticky top-6 max-h-[calc(100cqb-1.5rem)] overflow-y-auto pl-8">
+                <div
+                  class="sticky top-6 max-h-[calc(100cqb-1.5rem)] overflow-y-auto pl-8"
+                  data-testid="toc-sticky-wrapper"
+                >
                   <TocSidebar toc={$page.data.toc} />
                 </div>
               {/if}

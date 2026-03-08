@@ -36,8 +36,11 @@
   ></button>
 
   <!-- Drawer -->
-  <aside class="absolute inset-y-0 left-0 z-50 w-[280px]">
-    <div class="h-[100cqb] overflow-y-auto bg-white shadow-xl dark:bg-neutral-800">
+  <aside aria-label="Mobile navigation" class="absolute inset-y-0 left-0 z-50 w-[280px]">
+    <div
+      data-testid="mobile-drawer-panel"
+      class="h-[100cqb] overflow-y-auto bg-white shadow-xl dark:bg-neutral-800"
+    >
       <div class="p-4">
         <div class="mb-6 flex items-center justify-between">
           <a href={router.prefixPath("/")} class="block">
