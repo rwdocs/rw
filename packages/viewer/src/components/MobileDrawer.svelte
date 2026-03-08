@@ -3,20 +3,13 @@
   import NavigationSidebar from "./NavigationSidebar.svelte";
 
   const { router, navigation, ui } = getRwContext();
-  const { path } = router;
-
-  // Close drawer on route change
-  $effect(() => {
-    void $path;
-    ui.closeMobileMenu();
-  });
 
   // Close drawer on escape key (skip in embedded mode to avoid interfering with host app)
   $effect(() => {
     if (router.embedded) return;
 
     function handleKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape" && $ui.mobileMenuOpen) {
+      if (e.key === "Escape" && ui.mobileMenuOpen) {
         ui.closeMobileMenu();
       }
     }
@@ -26,7 +19,7 @@
   });
 </script>
 
-{#if $ui.mobileMenuOpen}
+{#if ui.mobileMenuOpen}
   <!-- Backdrop -->
   <button
     type="button"
@@ -67,14 +60,14 @@
             </svg>
           </button>
         </div>
-        {#if $navigation.error}
+        {#if navigation.error}
           <div
             class="
               mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm text-red-700
               dark:border-red-800 dark:bg-red-950 dark:text-red-300
             "
           >
-            Failed to load navigation: {$navigation.error}
+            Failed to load navigation: {navigation.error}
           </div>
         {/if}
         <NavigationSidebar />

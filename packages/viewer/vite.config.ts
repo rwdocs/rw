@@ -24,12 +24,12 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.svelte.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
       include: ["src/**/*.ts", "src/**/*.svelte"],
-      exclude: ["src/**/*.test.ts", "src/main.ts"],
+      exclude: ["src/**/*.test.ts", "src/**/*.test.svelte.ts", "src/main.ts"],
     },
   },
 });

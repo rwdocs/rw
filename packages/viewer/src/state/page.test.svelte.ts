@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { get } from "svelte/store";
 import type { PageResponse } from "../types";
-import { createPageStore } from "./page";
+import { Page } from "./page.svelte";
 import type { ApiClient } from "../api/client";
 import { NotFoundError } from "../api/client";
 
@@ -40,15 +39,14 @@ describe("page store", () => {
   describe("load", () => {
     it("fetches page and updates state", async () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       await page.load("test");
 
-      const state = get(page);
-      expect(state.data).toEqual(mockPageResponse);
-      expect(state.loading).toBe(false);
-      expect(state.error).toBeNull();
-      expect(state.notFound).toBe(false);
+      expect(page.data).toEqual(mockPageResponse);
+      expect(page.loading).toBe(false);
+      expect(page.error).toBeNull();
+      expect(page.notFound).toBe(false);
     });
 
     it("sets loading state while fetching", async () => {
@@ -58,23 +56,23 @@ describe("page store", () => {
           resolvePromise = resolve;
         }),
       );
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       const loadPromise = page.load("test");
 
       // Check loading state before resolve
-      expect(get(page).loading).toBe(true);
+      expect(page.loading).toBe(true);
 
       // Resolve and wait
       resolvePromise!(mockPageResponse);
       await loadPromise;
 
-      expect(get(page).loading).toBe(false);
+      expect(page.loading).toBe(false);
     });
 
     it("updates document title on successful load", async () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       await page.load("test");
 
@@ -84,7 +82,7 @@ describe("page store", () => {
     it("does not update document title in embedded mode", async () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
       document.title = "Host App";
-      const page = createPageStore(mockApiClient, { embedded: true });
+      const page = new Page(mockApiClient, { embedded: true });
 
       await page.load("test");
 
@@ -93,43 +91,40 @@ describe("page store", () => {
 
     it("sets notFound on 404 error", async () => {
       mockFetchPage.mockRejectedValue(new NotFoundError("missing"));
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       await page.load("missing");
 
-      const state = get(page);
-      expect(state.data).toBeNull();
-      expect(state.loading).toBe(false);
-      expect(state.error).toBeNull();
-      expect(state.notFound).toBe(true);
+      expect(page.data).toBeNull();
+      expect(page.loading).toBe(false);
+      expect(page.error).toBeNull();
+      expect(page.notFound).toBe(true);
     });
 
     it("sets error on other failures", async () => {
       mockFetchPage.mockRejectedValue(new Error("Server error"));
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       await page.load("test");
 
-      const state = get(page);
-      expect(state.data).toBeNull();
-      expect(state.loading).toBe(false);
-      expect(state.error).toBe("Server error");
-      expect(state.notFound).toBe(false);
+      expect(page.data).toBeNull();
+      expect(page.loading).toBe(false);
+      expect(page.error).toBe("Server error");
+      expect(page.notFound).toBe(false);
     });
 
     it("handles non-Error exceptions", async () => {
       mockFetchPage.mockRejectedValue("String error");
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       await page.load("test");
 
-      const state = get(page);
-      expect(state.error).toBe("Unknown error");
+      expect(page.error).toBe("Unknown error");
     });
 
     it("passes bypassCache option to fetch", async () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       await page.load("test", { bypassCache: true });
 
@@ -141,7 +136,7 @@ describe("page store", () => {
 
     it("passes AbortSignal to fetch", async () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       await page.load("test");
 
@@ -152,35 +147,35 @@ describe("page store", () => {
     });
 
     it("clears previous error on new load", async () => {
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       // First load with error
       mockFetchPage.mockRejectedValue(new Error("First error"));
       await page.load("test");
-      expect(get(page).error).toBe("First error");
+      expect(page.error).toBe("First error");
 
       // Second load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
       await page.load("test");
-      expect(get(page).error).toBeNull();
+      expect(page.error).toBeNull();
     });
 
     it("clears previous notFound on new load", async () => {
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       // First load returns 404
       mockFetchPage.mockRejectedValue(new NotFoundError("missing"));
       await page.load("missing");
-      expect(get(page).notFound).toBe(true);
+      expect(page.notFound).toBe(true);
 
       // Second load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
       await page.load("test");
-      expect(get(page).notFound).toBe(false);
+      expect(page.notFound).toBe(false);
     });
 
     it("ignores AbortError when request is cancelled", async () => {
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
       const abortError = new DOMException("Aborted", "AbortError");
       mockFetchPage.mockRejectedValue(abortError);
 
@@ -188,13 +183,12 @@ describe("page store", () => {
 
       // State should remain in loading since AbortError is ignored
       // and no set() is called after the error
-      const state = get(page);
-      expect(state.loading).toBe(true);
-      expect(state.error).toBeNull();
+      expect(page.loading).toBe(true);
+      expect(page.error).toBeNull();
     });
 
     it("cancels previous request when new load is called", async () => {
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
       let capturedSignal: AbortSignal | undefined;
       mockFetchPage.mockImplementation((_path: string, options?: { signal?: AbortSignal }) => {
         capturedSignal = options?.signal;
@@ -219,25 +213,24 @@ describe("page store", () => {
     });
 
     it("preserves previous data during new load for smooth transitions", async () => {
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       // First load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
       await page.load("first");
-      expect(get(page).data).not.toBeNull();
+      expect(page.data).not.toBeNull();
 
       // Set up a slow second load
       mockFetchPage.mockReturnValue(new Promise(() => {}));
       page.load("second");
 
       // Previous data should be preserved for smooth transitions, loading should be true
-      const state = get(page);
-      expect(state.data).not.toBeNull();
-      expect(state.loading).toBe(true);
+      expect(page.data).not.toBeNull();
+      expect(page.loading).toBe(true);
     });
 
     it("skips loading state when silent option is true", async () => {
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       // First load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
@@ -254,9 +247,8 @@ describe("page store", () => {
       const loadPromise = page.load("second", { silent: true });
 
       // Loading should still be false, data should be preserved
-      const stateWhileFetching = get(page);
-      expect(stateWhileFetching.loading).toBe(false);
-      expect(stateWhileFetching.data).toEqual(mockPageResponse);
+      expect(page.loading).toBe(false);
+      expect(page.data).toEqual(mockPageResponse);
 
       // Complete the load
       const newResponse = { ...mockPageResponse, content: "<h1>Updated</h1>" };
@@ -264,27 +256,27 @@ describe("page store", () => {
       await loadPromise;
 
       // Data should be updated
-      expect(get(page).data).toEqual(newResponse);
+      expect(page.data).toEqual(newResponse);
     });
 
     it("preserves existing data during silent load", async () => {
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       // First load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
       await page.load("first");
-      const originalData = get(page).data;
+      const originalData = page.data;
 
       // Start silent load that doesn't resolve
       mockFetchPage.mockReturnValue(new Promise(() => {}));
       page.load("second", { silent: true });
 
       // Original data should still be present
-      expect(get(page).data).toBe(originalData);
+      expect(page.data).toBe(originalData);
     });
 
     it("updates data after silent load completes", async () => {
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
 
       // First load succeeds
       mockFetchPage.mockResolvedValue(mockPageResponse);
@@ -296,25 +288,23 @@ describe("page store", () => {
       await page.load("second", { silent: true, bypassCache: true });
 
       // Data should be updated without going through loading state
-      const state = get(page);
-      expect(state.data).toEqual(updatedResponse);
-      expect(state.loading).toBe(false);
+      expect(page.data).toEqual(updatedResponse);
+      expect(page.loading).toBe(false);
     });
   });
 
   describe("clear", () => {
     it("resets state to initial values", async () => {
       mockFetchPage.mockResolvedValue(mockPageResponse);
-      const page = createPageStore(mockApiClient);
+      const page = new Page(mockApiClient);
       await page.load("test");
 
       page.clear();
 
-      const state = get(page);
-      expect(state.data).toBeNull();
-      expect(state.loading).toBe(false);
-      expect(state.error).toBeNull();
-      expect(state.notFound).toBe(false);
+      expect(page.data).toBeNull();
+      expect(page.loading).toBe(false);
+      expect(page.error).toBeNull();
+      expect(page.notFound).toBe(false);
     });
   });
 });

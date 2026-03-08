@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { untrack } from "svelte";
   import type { Snippet } from "svelte";
-  import { get } from "svelte/store";
   import { getRwContext } from "../lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import TocSidebar from "./TocSidebar.svelte";
@@ -17,37 +16,21 @@
   let { children }: Props = $props();
 
   const { router, navigation, page, ui } = getRwContext();
-  const routerPath = router.path;
   const homeHref = router.prefixPath("/");
 
   let contentArea: HTMLElement;
 
-  onMount(async () => {
-    await navigation.load();
-    // Expand to current path after initial load
-    const currentPath = get(router.path);
-    if (currentPath !== "/") {
-      navigation.expandOnlyTo(currentPath);
-    }
-  });
-
   // Scroll content area to top when navigating to a new page (without hash)
   $effect(() => {
-    void $routerPath;
-    if (!untrack(() => get(router.hash)) && contentArea) {
+    void router.path;
+    if (!untrack(() => router.hash) && contentArea) {
       contentArea.scrollTop = 0;
     }
-  });
-
-  // Close TOC popover when navigating to a different page
-  $effect(() => {
-    void $page.data?.meta.path;
-    ui.closeTocPopover();
   });
 </script>
 
 <div class="layout-container" data-testid="viewer-root">
-  <LoadingBar loading={$page.loading} />
+  <LoadingBar loading={page.loading} />
   <!-- Mobile Header -->
   <header
     class="
@@ -108,14 +91,14 @@
             ></span
           >
         </a>
-        {#if $navigation.error}
+        {#if navigation.error}
           <div
             class="
               mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm text-red-700
               dark:border-red-800 dark:bg-red-950 dark:text-red-300
             "
           >
-            Failed to load navigation: {$navigation.error}
+            Failed to load navigation: {navigation.error}
           </div>
         {/if}
         <NavigationSidebar />
@@ -129,14 +112,14 @@
       bind:this={contentArea}
     >
       <div class="layout-content mx-auto max-w-6xl px-4 pt-6 pb-12">
-        {#if $page.data}
-          {#if $page.data.toc.length > 0}
+        {#if page.data}
+          {#if page.data.toc.length > 0}
             <div class="layout-toc-popover sticky top-6 z-30 float-right mt-[-6px]">
-              <TocPopover toc={$page.data.toc} />
+              <TocPopover toc={page.data.toc} />
             </div>
           {/if}
-          <Breadcrumbs breadcrumbs={$page.data.breadcrumbs} />
-        {:else if $page.loading}
+          <Breadcrumbs breadcrumbs={page.data.breadcrumbs} />
+        {:else if page.loading}
           <!-- Reserve breadcrumb space during first load (matches Breadcrumbs nav mb-6 + h-8) -->
           <div class="mb-6 h-8"></div>
         {/if}
@@ -147,14 +130,14 @@
           </main>
 
           <!-- Table of Contents Sidebar - reserve space during loading for consistent skeleton layout -->
-          {#if $page.loading || ($page.data && $page.data.toc.length > 0)}
+          {#if page.loading || (page.data && page.data.toc.length > 0)}
             <aside aria-label="Page outline" class="layout-toc hidden w-[240px] shrink-0">
-              {#if $page.data && $page.data.toc.length > 0}
+              {#if page.data && page.data.toc.length > 0}
                 <div
                   class="sticky top-6 max-h-[calc(100cqb-1.5rem)] overflow-y-auto pl-8"
                   data-testid="toc-sticky-wrapper"
                 >
-                  <TocSidebar toc={$page.data.toc} />
+                  <TocSidebar toc={page.data.toc} />
                 </div>
               {/if}
             </aside>

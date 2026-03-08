@@ -14,7 +14,7 @@
 
   let popoverEl: HTMLDivElement | undefined = $state();
 
-  $effect(() => dismissible($ui.tocPopoverOpen, popoverEl, ui.closeTocPopover));
+  $effect(() => dismissible(ui.tocPopoverOpen, popoverEl, ui.closeTocPopover));
 </script>
 
 <div class="relative" bind:this={popoverEl}>
@@ -27,10 +27,10 @@
       dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400
       dark:hover:border-neutral-500 dark:hover:text-neutral-300
     "
-    class:border-gray-300={$ui.tocPopoverOpen}
-    class:dark:border-neutral-500={$ui.tocPopoverOpen}
+    class:border-gray-300={ui.tocPopoverOpen}
+    class:dark:border-neutral-500={ui.tocPopoverOpen}
     aria-label="Table of contents"
-    aria-expanded={$ui.tocPopoverOpen}
+    aria-expanded={ui.tocPopoverOpen}
   >
     <svg
       class="size-4"
@@ -46,7 +46,7 @@
     </svg>
   </button>
 
-  {#if $ui.tocPopoverOpen}
+  {#if ui.tocPopoverOpen}
     <nav
       class="
         absolute top-full right-0 z-40 mt-2 max-h-[min(24rem,calc(100cqb-5rem))] w-64

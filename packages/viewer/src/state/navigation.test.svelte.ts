@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { get } from "svelte/store";
 import type { NavigationTree } from "../types";
-import { createNavigationStore, collectParentPaths, getParentPaths } from "./navigation";
+import { Navigation, collectParentPaths, getParentPaths } from "./navigation.svelte";
 import type { ApiClient } from "../api/client";
 
 const mockTree: NavigationTree = {
@@ -92,56 +91,52 @@ describe("navigation store", () => {
   describe("load", () => {
     it("fetches navigation tree and updates state", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       await navigation.load();
 
-      const state = get(navigation);
-      expect(state.tree).toEqual(mockTree);
-      expect(state.loading).toBe(false);
-      expect(state.error).toBeNull();
+      expect(navigation.tree).toEqual(mockTree);
+      expect(navigation.loading).toBe(false);
+      expect(navigation.error).toBeNull();
     });
 
     it("collapses all parent items by default", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       await navigation.load();
 
-      const state = get(navigation);
       // /guide and /guide/advanced have children, so they should be collapsed
-      expect(state.collapsed.has("/guide")).toBe(true);
-      expect(state.collapsed.has("/guide/advanced")).toBe(true);
+      expect(navigation.collapsed.has("/guide")).toBe(true);
+      expect(navigation.collapsed.has("/guide/advanced")).toBe(true);
       // Items without children should not be in collapsed set
-      expect(state.collapsed.has("/")).toBe(false);
-      expect(state.collapsed.has("/api")).toBe(false);
+      expect(navigation.collapsed.has("/")).toBe(false);
+      expect(navigation.collapsed.has("/api")).toBe(false);
     });
 
     it("sets error on fetch failure", async () => {
       mockFetchNavigation.mockRejectedValue(new Error("Network error"));
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       await navigation.load();
 
-      const state = get(navigation);
-      expect(state.tree).toBeNull();
-      expect(state.loading).toBe(false);
-      expect(state.error).toBe("Network error");
+      expect(navigation.tree).toBeNull();
+      expect(navigation.loading).toBe(false);
+      expect(navigation.error).toBe("Network error");
     });
 
     it("handles non-Error exceptions", async () => {
       mockFetchNavigation.mockRejectedValue("String error");
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       await navigation.load();
 
-      const state = get(navigation);
-      expect(state.error).toBe("Unknown error");
+      expect(navigation.error).toBe("Unknown error");
     });
 
     it("passes bypassCache option to fetch", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       await navigation.load({ bypassCache: true });
 
@@ -164,7 +159,7 @@ describe("navigation store", () => {
         .mockImplementationOnce(() => firstPromise)
         .mockResolvedValueOnce(secondTree);
 
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       // Start first request (don't await)
       void navigation.loadScope("first");
@@ -185,94 +180,92 @@ describe("navigation store", () => {
       await secondLoad;
 
       // State should have second tree, not first
-      const state = get(navigation);
-      expect(state.tree).toEqual(secondTree);
-      expect(state.currentScope).toBe("second");
+      expect(navigation.tree).toEqual(secondTree);
+      expect(navigation.currentScope).toBe("second");
     });
 
     it("silently ignores AbortError", async () => {
       const abortError = new DOMException("Aborted", "AbortError");
       mockFetchNavigation.mockRejectedValue(abortError);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       await navigation.load();
 
-      const state = get(navigation);
       // Should not set error for AbortError
-      expect(state.error).toBeNull();
+      expect(navigation.error).toBeNull();
       // Should still be loading since we didn't complete
-      expect(state.loading).toBe(true);
+      expect(navigation.loading).toBe(true);
     });
   });
 
   describe("toggle", () => {
     it("expands a collapsed item", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
       await navigation.load();
 
       navigation.toggle("/guide");
 
-      const state = get(navigation);
-      expect(state.collapsed.has("/guide")).toBe(false);
+      expect(navigation.collapsed.has("/guide")).toBe(false);
     });
 
     it("collapses an expanded item", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
       await navigation.load();
 
       // First expand
       navigation.toggle("/guide");
-      expect(get(navigation).collapsed.has("/guide")).toBe(false);
+      expect(navigation.collapsed.has("/guide")).toBe(false);
 
       // Then collapse
       navigation.toggle("/guide");
-      expect(get(navigation).collapsed.has("/guide")).toBe(true);
+      expect(navigation.collapsed.has("/guide")).toBe(true);
     });
   });
 
   describe("expandOnlyTo", () => {
     it("expands path to target and collapses others", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
       await navigation.load();
 
       navigation.expandOnlyTo("/guide/advanced/plugins");
 
-      const state = get(navigation);
       // Path to target should be expanded
-      expect(state.collapsed.has("/guide")).toBe(false);
-      expect(state.collapsed.has("/guide/advanced")).toBe(false);
+      expect(navigation.collapsed.has("/guide")).toBe(false);
+      expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
     });
 
     it("does nothing if tree is not loaded", () => {
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
       // Don't load the tree, store is in reset state
       navigation._reset();
       navigation.expandOnlyTo("/guide");
 
-      const state = get(navigation);
-      expect(state.tree).toBeNull();
+      expect(navigation.tree).toBeNull();
     });
 
     it("skips update if path is already expanded", async () => {
       mockFetchNavigation.mockResolvedValue(mockTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
       await navigation.load();
 
       // Expand to a path
       navigation.expandOnlyTo("/guide/getting-started");
 
-      // Get initial state
-      const stateBefore = get(navigation);
+      // Get collapsed state before
+      const collapsedBefore = new Set(navigation.collapsed);
 
       // Expand to same path again - should be a no-op
       navigation.expandOnlyTo("/guide/getting-started");
 
-      const stateAfter = get(navigation);
-      // State reference should be the same (no update)
-      expect(stateAfter).toBe(stateBefore);
+      const collapsedAfter = navigation.collapsed;
+      // Same contents
+      expect(collapsedAfter.size).toBe(collapsedBefore.size);
+      for (const p of collapsedBefore) {
+        expect(collapsedAfter.has(p)).toBe(true);
+      }
     });
 
     it("re-expands active path after loadScope replaces the tree", async () => {
@@ -290,7 +283,7 @@ describe("navigation store", () => {
       };
 
       mockFetchNavigation.mockResolvedValue(scopedTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       // Set active path before tree is loaded (simulates Page.svelte subscription)
       navigation.expandOnlyTo("/billing/payments");
@@ -298,9 +291,8 @@ describe("navigation store", () => {
       // Load navigation (simulates scopeWatcher calling loadScope)
       await navigation.loadScope("billing");
 
-      const state = get(navigation);
       // /billing should be expanded (ancestor of active path)
-      expect(state.collapsed.has("/billing")).toBe(false);
+      expect(navigation.collapsed.has("/billing")).toBe(false);
     });
 
     it("re-expands active path when scope changes after initial load", async () => {
@@ -322,23 +314,22 @@ describe("navigation store", () => {
       };
 
       mockFetchNavigation.mockResolvedValueOnce(mockTree).mockResolvedValueOnce(scopedTree);
-      const navigation = createNavigationStore(mockApiClient);
+      const navigation = new Navigation(mockApiClient);
 
       // Initial load and expand (simulates Layout.svelte)
       await navigation.load();
       navigation.expandOnlyTo("/guide/advanced/plugins");
 
       // Verify expanded
-      expect(get(navigation).collapsed.has("/guide")).toBe(false);
-      expect(get(navigation).collapsed.has("/guide/advanced")).toBe(false);
+      expect(navigation.collapsed.has("/guide")).toBe(false);
+      expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
 
       // Scope change replaces the tree (simulates scopeWatcher)
       await navigation.loadScope("guide");
 
       // Active path should still be expanded in the new tree
-      const state = get(navigation);
-      expect(state.collapsed.has("/guide")).toBe(false);
-      expect(state.collapsed.has("/guide/advanced")).toBe(false);
+      expect(navigation.collapsed.has("/guide")).toBe(false);
+      expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
     });
   });
 });

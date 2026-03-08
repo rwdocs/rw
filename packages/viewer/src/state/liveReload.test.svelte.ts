@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { get, writable } from "svelte/store";
-import { createLiveReloadStore } from "./liveReload";
-import type { RouterStore } from "./router";
-import type { NavigationStore } from "./navigation";
+import { LiveReload } from "./liveReload.svelte";
+import type { Router } from "./router.svelte";
 
 // Mock WebSocket
 class MockWebSocket {
@@ -46,38 +44,19 @@ class MockWebSocket {
 
 let mockWebSocketInstances: MockWebSocket[] = [];
 
-function createMockRouter(currentPath: string = "/docs/guide"): RouterStore {
+function createMockRouter(currentPath: string = "/docs/guide"): Router {
   return {
-    path: writable(currentPath),
-    hash: writable(""),
+    path: currentPath,
+    hash: "",
     embedded: false,
     prefixPath: (path: string) => path,
     goto: vi.fn(),
     initRouter: vi.fn(() => () => {}),
-  };
-}
-
-function createMockNavigation(): NavigationStore {
-  const store = writable({
-    tree: null,
-    loading: false,
-    error: null,
-    collapsed: new Set<string>(),
-    currentScope: "",
-  });
-  return {
-    subscribe: store.subscribe,
-    load: vi.fn().mockResolvedValue(undefined),
-    loadScope: vi.fn().mockResolvedValue(undefined),
-    toggle: vi.fn(),
-    expandOnlyTo: vi.fn(),
-    _reset: vi.fn(),
-  };
+  } as unknown as Router;
 }
 
 describe("liveReload store", () => {
-  let mockRouter: RouterStore;
-  let mockNavigation: NavigationStore;
+  let mockRouter: Router;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -93,7 +72,6 @@ describe("liveReload store", () => {
     });
 
     mockRouter = createMockRouter();
-    mockNavigation = createMockNavigation();
   });
 
   afterEach(() => {
@@ -103,15 +81,14 @@ describe("liveReload store", () => {
   });
 
   function createStore() {
-    return createLiveReloadStore({ router: mockRouter, navigation: mockNavigation });
+    return new LiveReload({ router: mockRouter });
   }
 
   describe("initial state", () => {
     it("starts disconnected", () => {
       const liveReload = createStore();
-      const state = get(liveReload);
-      expect(state.connected).toBe(false);
-      expect(state.lastReload).toBeNull();
+      expect(liveReload.connected).toBe(false);
+      expect(liveReload.lastReload).toBeNull();
     });
   });
 
@@ -156,8 +133,7 @@ describe("liveReload store", () => {
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
 
-      const state = get(liveReload);
-      expect(state.connected).toBe(true);
+      expect(liveReload.connected).toBe(true);
     });
 
     it("sets connected to false on close", () => {
@@ -166,8 +142,7 @@ describe("liveReload store", () => {
       mockWebSocketInstances[0].simulateOpen();
       mockWebSocketInstances[0].close();
 
-      const state = get(liveReload);
-      expect(state.connected).toBe(false);
+      expect(liveReload.connected).toBe(false);
     });
 
     it("schedules reconnect on close", () => {
@@ -205,44 +180,21 @@ describe("liveReload store", () => {
 
       await vi.runAllTimersAsync();
 
-      const state = get(liveReload);
-      expect(state.lastReload).toBe("/guide");
+      expect(liveReload.lastReload).toBe("/guide");
     });
 
-    it("does not reload navigation on content message", async () => {
+    it("calls onStructureReload callback on structure message", async () => {
+      const callback = vi.fn();
       const liveReload = createStore();
       liveReload.start();
       mockWebSocketInstances[0].simulateOpen();
-
-      mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/guide" });
-
-      await vi.runAllTimersAsync();
-
-      expect(mockNavigation.load).not.toHaveBeenCalled();
-    });
-
-    it("reloads navigation on structure message", async () => {
-      const liveReload = createStore();
-      liveReload.start();
-      mockWebSocketInstances[0].simulateOpen();
+      liveReload.onStructureReload(callback);
 
       mockWebSocketInstances[0].simulateMessage({ type: "structure", path: "/guide" });
 
       await vi.runAllTimersAsync();
 
-      expect(mockNavigation.load).toHaveBeenCalledWith({ bypassCache: true });
-    });
-
-    it("expands navigation to current path after structure reload", async () => {
-      const liveReload = createStore();
-      liveReload.start();
-      mockWebSocketInstances[0].simulateOpen();
-
-      mockWebSocketInstances[0].simulateMessage({ type: "structure", path: "/guide" });
-
-      await vi.runAllTimersAsync();
-
-      expect(mockNavigation.expandOnlyTo).toHaveBeenCalledWith("/docs/guide");
+      expect(callback).toHaveBeenCalled();
     });
 
     it("ignores invalid JSON messages", async () => {
@@ -254,8 +206,7 @@ describe("liveReload store", () => {
 
       await vi.runAllTimersAsync();
 
-      const state = get(liveReload);
-      expect(state.lastReload).toBeNull();
+      expect(liveReload.lastReload).toBeNull();
     });
 
     it("ignores unknown message types", async () => {
@@ -267,8 +218,7 @@ describe("liveReload store", () => {
 
       await vi.runAllTimersAsync();
 
-      const state = get(liveReload);
-      expect(state.lastReload).toBeNull();
+      expect(liveReload.lastReload).toBeNull();
     });
   });
 
@@ -354,6 +304,45 @@ describe("liveReload store", () => {
       unsubscribe1();
 
       mockWebSocketInstances[0].simulateMessage({ type: "content", path: "/docs/guide" });
+
+      await vi.runAllTimersAsync();
+
+      expect(callback2).toHaveBeenCalled();
+    });
+  });
+
+  describe("onStructureReload callback", () => {
+    it("returns unsubscribe function", async () => {
+      const callback = vi.fn();
+
+      const liveReload = createStore();
+      liveReload.start();
+      mockWebSocketInstances[0].simulateOpen();
+      const unsubscribe = liveReload.onStructureReload(callback);
+
+      unsubscribe();
+
+      mockWebSocketInstances[0].simulateMessage({ type: "structure", path: "/guide" });
+
+      await vi.runAllTimersAsync();
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("unsubscribe only removes matching callback", async () => {
+      const callback1 = vi.fn();
+      const callback2 = vi.fn();
+
+      const liveReload = createStore();
+      liveReload.start();
+      mockWebSocketInstances[0].simulateOpen();
+
+      const unsubscribe1 = liveReload.onStructureReload(callback1);
+      liveReload.onStructureReload(callback2);
+
+      unsubscribe1();
+
+      mockWebSocketInstances[0].simulateMessage({ type: "structure", path: "/guide" });
 
       await vi.runAllTimersAsync();
 

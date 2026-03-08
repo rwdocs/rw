@@ -5,14 +5,13 @@
   import LoadingSkeleton from "./LoadingSkeleton.svelte";
 
   const { page, router } = getRwContext();
-  const { hash } = router;
 
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
 
   // Show skeleton only if loading takes longer than SHOW_DELAY
   $effect(() => {
-    if ($page.loading) {
+    if (page.loading) {
       const timeout = setTimeout(() => {
         showSkeleton = true;
       }, LOADING_SHOW_DELAY);
@@ -24,7 +23,7 @@
 
   // Initialize tabs when content changes
   $effect(() => {
-    if ($page.data && articleRef) {
+    if (page.data && articleRef) {
       return initializeTabs(articleRef);
     }
   });
@@ -32,8 +31,8 @@
   // Scroll to hash target when content loads or hash changes (skip in embedded mode
   // to avoid scrolling the host page)
   $effect(() => {
-    const currentHash = $hash;
-    if (!router.embedded && $page.data && articleRef && currentHash) {
+    const currentHash = router.hash;
+    if (!router.embedded && page.data && articleRef && currentHash) {
       const target = document.getElementById(currentHash);
       if (target) {
         // Use requestAnimationFrame to ensure DOM is fully rendered
@@ -45,9 +44,9 @@
   });
 </script>
 
-{#if $page.loading && showSkeleton}
+{#if page.loading && showSkeleton}
   <LoadingSkeleton />
-{:else if $page.loading && $page.data}
+{:else if page.loading && page.data}
   <!-- Fast load: show previous content with reduced opacity -->
   <article
     class="
@@ -55,9 +54,9 @@
       dark:prose-invert
     "
   >
-    {@html $page.data.content}
+    {@html page.data.content}
   </article>
-{:else if $page.notFound}
+{:else if page.notFound}
   <div class="flex h-64 items-center justify-center">
     <div class="text-center">
       <h1 class="mb-4 text-4xl font-bold tracking-tight text-gray-300 dark:text-neutral-600">
@@ -66,12 +65,12 @@
       <p class="text-gray-600 dark:text-neutral-400">Page not found</p>
     </div>
   </div>
-{:else if $page.error}
+{:else if page.error}
   <div class="flex h-64 items-center justify-center">
-    <p class="text-red-600 dark:text-red-400">Error: {$page.error}</p>
+    <p class="text-red-600 dark:text-red-400">Error: {page.error}</p>
   </div>
-{:else if $page.data}
+{:else if page.data}
   <article bind:this={articleRef} class="prose max-w-none prose-slate dark:prose-invert">
-    {@html $page.data.content}
+    {@html page.data.content}
   </article>
 {/if}
