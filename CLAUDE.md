@@ -27,7 +27,7 @@ make lint                 # Lint all code (clippy, svelte-check)
 cargo build -p rw && ./target/debug/rw serve
 
 # Frontend dev server
-cd packages/viewer && yarn dev
+npm -w @rwdocs/viewer run dev
 ```
 
 ## Architecture
