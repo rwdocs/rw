@@ -17,9 +17,23 @@ use rw_storage_fs::FsStorage;
 use rw_storage_s3::{S3Config, S3Storage};
 
 use crate::types::{
-    BreadcrumbResponse, NavItemResponse, NavigationResponse, PageMetaResponse, PageResponse,
-    ScopeInfoResponse, SiteConfig, TocEntryResponse,
+    BreadcrumbResponse, DiagramsConfig, NavItemResponse, NavigationResponse, PageMetaResponse,
+    PageResponse, ScopeInfoResponse, SiteConfig, TocEntryResponse,
 };
+
+fn apply_diagrams_config(
+    renderer_config: &mut PageRendererConfig,
+    diagrams: Option<&DiagramsConfig>,
+) {
+    if let Some(diagrams) = diagrams {
+        if let Some(ref url) = diagrams.kroki_url {
+            renderer_config.kroki_url = Some(url.clone());
+        }
+        if let Some(dpi) = diagrams.dpi {
+            renderer_config.dpi = dpi;
+        }
+    }
+}
 
 /// Convert internal path (no leading slash) to URL path (with leading slash).
 fn to_url_path(path: &str) -> String {
@@ -93,11 +107,12 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             storage.config().base_prefix(),
         ));
 
-        let renderer_config = PageRendererConfig {
+        let mut renderer_config = PageRendererConfig {
             extract_title: true,
             link_prefix,
             ..Default::default()
         };
+        apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
         (Arc::new(storage), renderer_config, cache)
     } else if let Some(project_dir) = config.project_dir {
         let project_path = PathBuf::from(&project_dir);
@@ -114,7 +129,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             rw_config.docs_resolved.source_dir.clone(),
             &rw_config.metadata.name,
         ));
-        let renderer_config = PageRendererConfig {
+        let mut renderer_config = PageRendererConfig {
             extract_title: true,
             kroki_url: rw_config.diagrams_resolved.kroki_url,
             include_dirs: rw_config.diagrams_resolved.include_dirs,
@@ -122,6 +137,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             link_prefix,
             ..Default::default()
         };
+        apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
         (storage, renderer_config, Arc::new(NullCache))
     } else {
         return Err(napi::Error::new(
@@ -282,6 +298,43 @@ mod tests {
         let children = result.children.as_ref().expect("should have children");
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].path, "/guides/setup");
+    }
+
+    #[test]
+    fn apply_diagrams_config_sets_kroki_url() {
+        let diagrams = Some(DiagramsConfig {
+            kroki_url: Some("https://kroki.io".to_owned()),
+            dpi: None,
+        });
+        let mut renderer_config = PageRendererConfig::default();
+        apply_diagrams_config(&mut renderer_config, diagrams.as_ref());
+        assert_eq!(
+            renderer_config.kroki_url,
+            Some("https://kroki.io".to_owned())
+        );
+        assert_eq!(renderer_config.dpi, 192); // default unchanged
+    }
+
+    #[test]
+    fn apply_diagrams_config_sets_dpi() {
+        let diagrams = Some(DiagramsConfig {
+            kroki_url: None,
+            dpi: Some(96),
+        });
+        let mut renderer_config = PageRendererConfig::default();
+        apply_diagrams_config(&mut renderer_config, diagrams.as_ref());
+        assert!(renderer_config.kroki_url.is_none());
+        assert_eq!(renderer_config.dpi, 96);
+    }
+
+    #[test]
+    fn apply_diagrams_config_none_is_noop() {
+        let mut renderer_config = PageRendererConfig::default();
+        let before_kroki = renderer_config.kroki_url.clone();
+        let before_dpi = renderer_config.dpi;
+        apply_diagrams_config(&mut renderer_config, None);
+        assert_eq!(renderer_config.kroki_url, before_kroki);
+        assert_eq!(renderer_config.dpi, before_dpi);
     }
 
     #[test]

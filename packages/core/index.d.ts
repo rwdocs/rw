@@ -13,6 +13,11 @@ export interface BreadcrumbResponse {
 
 export declare function createSite(config: SiteConfig): RwSite
 
+export interface DiagramsConfig {
+  krokiUrl?: string
+  dpi?: number
+}
+
 export interface NavigationResponse {
   items: Array<NavItemResponse>
   scope?: ScopeInfoResponse
@@ -62,6 +67,7 @@ export interface SiteConfig {
   projectDir?: string
   s3?: S3Config
   linkPrefix?: string
+  diagrams?: DiagramsConfig
 }
 
 export interface TocEntryResponse {
