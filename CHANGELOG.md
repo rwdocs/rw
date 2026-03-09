@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-03-09
+
 ### Added
 
 - `--embedded` flag for `rw serve` to preview docs inside a Backstage-like shell during development
@@ -28,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clicking a heading in the mobile "On this page" menu no longer scrolls the heading behind the sticky header
 - Scrolling back to top after using mobile table of contents no longer hides the page title behind the mobile header
 - Fixed page content flickering (shifting left and back) when navigating between pages on wide viewports
+- Fixed flash of unstyled text (FOUT) by preloading critical fonts
+- Fixed page not scrolling to top when navigating between pages
+- Fixed page title vertical position misaligned between home page and inner pages
 
 ## [0.1.11] - 2026-03-04
 
