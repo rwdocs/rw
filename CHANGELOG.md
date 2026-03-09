@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Viewer layout now uses container queries instead of viewport breakpoints, adapting to actual available space when embedded in host applications
+- Mobile header now shows breadcrumbs and table of contents button instead of the logo
 
 ### Fixed
 
@@ -22,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Long breadcrumb trails progressively collapse middle items into a "..." dropdown, showing as many items as fit
 - Embed library CSS is now scoped under `[data-rw-viewer]` to prevent style leaks into host pages
 - Embed library no longer bundles font files, reducing CSS bundle size by 96%
+- Clicking a heading in the mobile "On this page" menu no longer scrolls the heading behind the sticky header
+- Scrolling back to top after using mobile table of contents no longer hides the page title behind the mobile header
 
 ## [0.1.11] - 2026-03-04
 

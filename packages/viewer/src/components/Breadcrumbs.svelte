@@ -5,9 +5,10 @@
 
   interface Props {
     breadcrumbs: Breadcrumb[];
+    compact?: boolean;
   }
 
-  let { breadcrumbs }: Props = $props();
+  let { breadcrumbs, compact = false }: Props = $props();
 
   const { router } = getRwContext();
 
@@ -127,7 +128,13 @@
     if (!navEl) return;
 
     const observer = new ResizeObserver(() => {
-      computeHiddenCount();
+      // Re-measure item widths when transitioning from hidden (display:none)
+      // to visible — all widths will be zero from the initial measurement.
+      if (itemWidthsTotal === 0 && breadcrumbs.length > 2) {
+        measureItemWidths();
+      } else {
+        computeHiddenCount();
+      }
     });
 
     observer.observe(navEl);
@@ -135,7 +142,7 @@
   });
 </script>
 
-<div class="relative mb-6 min-h-8" bind:this={wrapperEl}>
+<div class={compact ? "relative min-h-8" : "relative mb-6 min-h-8"} bind:this={wrapperEl}>
   <nav aria-label="Breadcrumb" class="min-h-8 overflow-hidden" bind:this={navEl}>
     {#if breadcrumbs.length > 0}
       <ol
