@@ -55,6 +55,13 @@ describe("goto", () => {
     expect(router.hash).toBe("section");
   });
 
+  it("decodes percent-encoded hash", () => {
+    const router = new Router();
+    router.goto("/page#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82");
+
+    expect(router.hash).toBe("привет");
+  });
+
   it("clears hash store when hash is not present", () => {
     const router = new Router();
     router.goto("/new-path");
@@ -132,6 +139,18 @@ describe("initRouter", () => {
 
       expect(router.path).toBe("/back-path");
       expect(router.hash).toBe("section");
+    });
+
+    it("decodes percent-encoded hash on popstate", () => {
+      Object.defineProperty(window, "location", {
+        value: { pathname: "/page", hash: "#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82" },
+        writable: true,
+        configurable: true,
+      });
+
+      popstateHandler!({} as PopStateEvent);
+
+      expect(router.hash).toBe("привет");
     });
   });
 
@@ -343,10 +362,35 @@ describe("embedded mode", () => {
     expect(router.hash).toBe("section");
   });
 
+  it("decodes percent-encoded hash from initialPath in embedded mode", () => {
+    const router = new Router({
+      embedded: true,
+      initialPath: "/guide#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82",
+    });
+
+    expect(router.hash).toBe("привет");
+  });
+
   it("initializes hash to empty when initialPath has no hash in embedded mode", () => {
     const router = new Router({ embedded: true, initialPath: "/guide" });
 
     expect(router.hash).toBe("");
+  });
+
+  it("decodes percent-encoded hash from window.location in normal mode", () => {
+    Object.defineProperty(window, "location", {
+      value: {
+        origin: "http://localhost:8001",
+        pathname: "/page",
+        hash: "#%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82",
+      },
+      writable: true,
+      configurable: true,
+    });
+
+    const router = new Router();
+
+    expect(router.hash).toBe("привет");
   });
 
   it("ignores initialPath in normal mode", () => {

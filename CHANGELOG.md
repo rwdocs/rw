@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed hash fragment navigation not scrolling to headings with non-Latin characters (e.g., Cyrillic) when opening a URL directly
 - Fixed sidebar, table of contents, mobile drawer, and loading bar overflowing container bounds when viewer is embedded in a smaller host element
 - Long breadcrumb trails progressively collapse middle items into a "..." dropdown, showing as many items as fit
 - Embed library CSS is now scoped under `[data-rw-viewer]` to prevent style leaks into host pages

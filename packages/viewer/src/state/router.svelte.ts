@@ -16,6 +16,14 @@ function isExternalLink(href: string, anchor: HTMLAnchorElement): boolean {
   );
 }
 
+function decodeHash(encoded: string): string {
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
 export class Router {
   path = $state("/");
   hash = $state("");
@@ -35,10 +43,10 @@ export class Router {
 
     if (this.embedded) {
       this.path = options?.initialPath?.split("#")[0] ?? "/";
-      this.hash = options?.initialPath?.split("#")[1] ?? "";
+      this.hash = decodeHash(options?.initialPath?.split("#")[1] ?? "");
     } else {
       this.path = window.location.pathname;
-      this.hash = window.location.hash.slice(1);
+      this.hash = decodeHash(window.location.hash.slice(1));
     }
   }
 
@@ -59,7 +67,7 @@ export class Router {
     }
 
     this.path = url.pathname;
-    this.hash = url.hash.slice(1);
+    this.hash = decodeHash(url.hash.slice(1));
   };
 
   /** Initialize router - call once on app mount. Returns cleanup function.
@@ -68,7 +76,7 @@ export class Router {
   initRouter = (rootElement?: HTMLElement): (() => void) => {
     const handlePopState = () => {
       this.path = window.location.pathname;
-      this.hash = window.location.hash.slice(1);
+      this.hash = decodeHash(window.location.hash.slice(1));
     };
 
     const handleClick = (e: MouseEvent) => {
