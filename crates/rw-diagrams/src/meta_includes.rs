@@ -11,13 +11,15 @@ use rw_renderer::relative_path;
 /// When provided, diagram link URLs are transformed to match the renderer's
 /// link mode (relative paths, trailing slashes).
 #[derive(Clone, Debug)]
-pub(crate) struct LinkConfig {
+pub struct LinkConfig {
     /// Base path of the page containing the diagram (e.g., "/domains/billing").
     pub base_path: String,
     /// Convert absolute URLs to relative paths.
     pub relative_links: bool,
     /// Append trailing slash to URLs.
     pub trailing_slash: bool,
+    /// Optional prefix to prepend to absolute URLs (e.g., "/rw-docs").
+    pub link_prefix: Option<String>,
 }
 
 /// Entity metadata for generating `PlantUML` C4 includes.
@@ -44,6 +46,11 @@ pub trait MetaIncludeSource: Send + Sync {
     /// * `entity_type` - One of "domain", "system", "service"
     /// * `name` - Normalized name with underscores (e.g., `payment_gateway`)
     fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo>;
+}
+
+/// Check if a path matches the meta include pattern (e.g., `systems/sys_*.iuml`).
+pub(crate) fn is_meta_include_pattern(path: &str) -> bool {
+    parse_include_path(path).is_some()
 }
 
 /// Parsed components of a meta include path.
@@ -109,9 +116,11 @@ fn escape_description(desc: &str) -> String {
 
 /// Transform a URL according to link configuration.
 ///
-/// Mirrors the logic of `MarkdownRenderer::resolve_href()`:
+/// Mirrors the logic of `MarkdownRenderer::resolve_href()` (without fragment
+/// handling, since C4 `$link` URLs don't contain fragments):
 /// 1. Add trailing slash if enabled
 /// 2. Convert to relative path if enabled
+/// 3. Prepend link prefix to absolute paths (skipped when relative links enabled)
 fn resolve_link(url: &str, config: &LinkConfig) -> String {
     let mut path = url.to_owned();
 
@@ -126,6 +135,12 @@ fn resolve_link(url: &str, config: &LinkConfig) -> String {
             config.base_path.clone()
         };
         relative_path(&from, &path)
+    } else if let Some(prefix) = &config.link_prefix {
+        if path.starts_with('/') {
+            format!("{prefix}{path}")
+        } else {
+            path
+        }
     } else {
         path
     }
@@ -538,6 +553,7 @@ mod tests {
             base_path: "/overview".to_owned(),
             relative_links: false,
             trailing_slash: true,
+            link_prefix: None,
         };
         let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
         assert!(result.contains("$link=\"/domains/billing/systems/payment-gateway/\""));
@@ -550,6 +566,7 @@ mod tests {
             base_path: "/domains/payments".to_owned(),
             relative_links: true,
             trailing_slash: false,
+            link_prefix: None,
         };
         let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
         assert!(result.contains("$link=\"billing/systems/payment-gateway\""));
@@ -562,6 +579,7 @@ mod tests {
             base_path: "/domains/payments".to_owned(),
             relative_links: true,
             trailing_slash: true,
+            link_prefix: None,
         };
         let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
         assert!(result.contains("$link=\"../billing/systems/payment-gateway/\""));
@@ -578,8 +596,48 @@ mod tests {
             base_path: "/overview".to_owned(),
             relative_links: true,
             trailing_slash: true,
+            link_prefix: None,
         };
         let result = render_c4_macro("system", "virtual", &entity, false, Some(&config));
         assert!(!result.contains("$link"));
+    }
+
+    #[test]
+    fn test_render_with_link_prefix() {
+        let entity = system_entity();
+        let config = LinkConfig {
+            base_path: "/overview".to_owned(),
+            relative_links: false,
+            trailing_slash: false,
+            link_prefix: Some("/rw-docs".to_owned()),
+        };
+        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
+        assert!(result.contains("$link=\"/rw-docs/domains/billing/systems/payment-gateway\""));
+    }
+
+    #[test]
+    fn test_render_with_link_prefix_and_trailing_slash() {
+        let entity = system_entity();
+        let config = LinkConfig {
+            base_path: "/overview".to_owned(),
+            relative_links: false,
+            trailing_slash: true,
+            link_prefix: Some("/rw-docs".to_owned()),
+        };
+        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
+        assert!(result.contains("$link=\"/rw-docs/domains/billing/systems/payment-gateway/\""));
+    }
+
+    #[test]
+    fn test_render_with_link_prefix_skipped_when_relative() {
+        let entity = system_entity();
+        let config = LinkConfig {
+            base_path: "/domains/payments".to_owned(),
+            relative_links: true,
+            trailing_slash: false,
+            link_prefix: Some("/rw-docs".to_owned()),
+        };
+        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
+        assert!(result.contains("$link=\"billing/systems/payment-gateway\""));
     }
 }

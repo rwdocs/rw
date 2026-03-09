@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
+use rw_diagrams::{DiagramProcessor, LinkConfig, MetaIncludeSource};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
@@ -315,12 +315,13 @@ impl PageRenderer {
             processor = processor.with_meta_include_source(source);
         }
 
-        if self.relative_links || self.trailing_slash {
-            processor = processor.with_link_config(
-                format!("/{base_path}"),
-                self.relative_links,
-                self.trailing_slash,
-            );
+        if self.relative_links || self.trailing_slash || self.link_prefix.is_some() {
+            processor = processor.with_link_config(LinkConfig {
+                base_path: format!("/{base_path}"),
+                relative_links: self.relative_links,
+                trailing_slash: self.trailing_slash,
+                link_prefix: self.link_prefix.clone(),
+            });
         }
 
         Some(processor)
