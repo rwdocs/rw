@@ -121,8 +121,8 @@
             {@render children()}
           </main>
 
-          <!-- Table of Contents Sidebar - reserve space during loading for consistent skeleton layout -->
-          {#if page.loading || (page.data && page.data.toc.length > 0)}
+          <!-- Table of Contents Sidebar -->
+          {#if page.data && page.data.toc.length > 0}
             <aside aria-label="Page outline" class="layout-toc hidden w-[240px] shrink-0">
               {#if page.data && page.data.toc.length > 0}
                 <div

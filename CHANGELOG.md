@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Embed library no longer bundles font files, reducing CSS bundle size by 96%
 - Clicking a heading in the mobile "On this page" menu no longer scrolls the heading behind the sticky header
 - Scrolling back to top after using mobile table of contents no longer hides the page title behind the mobile header
+- Fixed page content flickering (shifting left and back) when navigating between pages on wide viewports
 
 ## [0.1.11] - 2026-03-04
 
