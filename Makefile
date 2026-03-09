@@ -2,6 +2,9 @@ all: build test format lint
 
 FEATURES ?=
 
+dev:
+	npm -w @rwdocs/viewer run dev
+
 build:
 	npm install
 	npm -w @rwdocs/viewer run build
