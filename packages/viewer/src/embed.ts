@@ -25,18 +25,19 @@ export interface RwInstance {
   destroy: () => void;
   /** Navigate to a path programmatically (for external navigation like browser back/forward). */
   navigateTo: (path: string) => void;
+  /** Update the color scheme without re-mounting. */
+  setColorScheme: (scheme: "light" | "dark" | "auto") => void;
 }
 
 /**
  * Mount the RW documentation viewer into a DOM element.
- * Returns a handle with `destroy()` and `navigateTo()` methods.
+ * Returns a handle with `destroy()`, `navigateTo()`, and `setColorScheme()` methods.
  */
 export function mountRw(target: HTMLElement, options: MountOptions): RwInstance {
   let gotoFn: ((path: string) => void) | undefined;
 
   target.setAttribute("data-rw-viewer", "");
 
-  const colorScheme = options.colorScheme ?? "auto";
   const applyDarkClass = (isDark: boolean) => {
     target.classList.toggle("dark", isDark);
   };
@@ -44,16 +45,27 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
   let mediaQuery: MediaQueryList | undefined;
   let mediaQueryHandler: ((e: MediaQueryListEvent) => void) | undefined;
 
-  if (colorScheme === "dark") {
-    applyDarkClass(true);
-  } else if (colorScheme === "light") {
-    applyDarkClass(false);
-  } else {
-    mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    mediaQueryHandler = (e) => applyDarkClass(e.matches);
-    applyDarkClass(mediaQuery.matches);
-    mediaQuery.addEventListener("change", mediaQueryHandler);
+  function applyColorScheme(scheme: "light" | "dark" | "auto") {
+    // Tear down any existing media query listener
+    if (mediaQuery && mediaQueryHandler) {
+      mediaQuery.removeEventListener("change", mediaQueryHandler);
+      mediaQuery = undefined;
+      mediaQueryHandler = undefined;
+    }
+
+    if (scheme === "dark") {
+      applyDarkClass(true);
+    } else if (scheme === "light") {
+      applyDarkClass(false);
+    } else {
+      mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+      mediaQueryHandler = (e) => applyDarkClass(e.matches);
+      applyDarkClass(mediaQuery.matches);
+      mediaQuery.addEventListener("change", mediaQueryHandler);
+    }
   }
+
+  applyColorScheme(options.colorScheme ?? "auto");
 
   const instance = mount(App, {
     target,
@@ -79,5 +91,6 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       target.removeAttribute("data-rw-viewer");
     },
     navigateTo: (path: string) => gotoFn?.(path),
+    setColorScheme: (scheme: "light" | "dark" | "auto") => applyColorScheme(scheme),
   };
 }
