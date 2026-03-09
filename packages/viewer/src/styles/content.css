@@ -1,7 +1,10 @@
 @layer components {
-  /* Offset heading anchors so they align with the sticky TOC button (top-6 = 1.5rem) */
+  /* Offset heading anchors so they don't sit flush against the top of the
+     scroll area.  The content area scrolls independently below the mobile
+     header, so only a small breathing-room offset is needed (matching the
+     floating TOC button position on mid-width viewports: top-6 = 1.5rem). */
   .prose :where(h1, h2, h3, h4, h5, h6)[id] {
-    scroll-margin-top: 1.5rem;
+    scroll-margin-top: var(--scroll-anchor-offset, 1.5rem);
   }
 
   /* Remove backticks from inline code (typography plugin default) */

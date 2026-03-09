@@ -222,4 +222,67 @@ test.describe("Mobile Navigation", () => {
     // Should navigate home
     await expect(page.getByRole("article")).toContainText("Test Documentation");
   });
+
+  test("shows breadcrumbs in mobile header, not in content area", async ({ page }) => {
+    await page.goto("/getting-started/installation");
+
+    const header = page.locator("header");
+    const headerBreadcrumbs = header.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(headerBreadcrumbs).toBeVisible();
+
+    // Desktop breadcrumbs in the content area should be hidden
+    const desktopBreadcrumbs = page.locator(".layout-desktop-breadcrumbs");
+    await expect(desktopBreadcrumbs).toBeHidden();
+  });
+
+  test("shows TOC button in mobile header", async ({ page }) => {
+    await page.goto("/");
+
+    const header = page.locator("header");
+    const tocButton = header.getByRole("button", { name: "Table of contents" });
+    await expect(tocButton).toBeVisible();
+
+    // Content area TOC popover should be hidden on mobile
+    const contentTocPopover = page.locator(".layout-toc-popover");
+    await expect(contentTocPopover).toBeHidden();
+  });
+
+  test("mobile header TOC button opens popover and navigates to heading", async ({ page }) => {
+    await page.goto("/");
+
+    const header = page.locator("header");
+    const tocButton = header.getByRole("button", { name: "Table of contents" });
+    await tocButton.click();
+
+    // Popover should appear with TOC links
+    const popover = page.getByRole("navigation", { name: "Table of contents" });
+    await expect(popover).toBeVisible();
+
+    // Click a heading link
+    await popover.getByRole("link", { name: "Code Example" }).click();
+
+    // Popover should close after navigation
+    await expect(popover).toBeHidden();
+
+    // Target heading should be visible (not behind the sticky header)
+    const heading = page.locator("#code-example");
+    await expect(heading).toBeInViewport();
+  });
+
+  test("heading is not hidden behind mobile header after TOC navigation", async ({ page }) => {
+    await page.goto("/");
+
+    // Open TOC and click a heading
+    const header = page.locator("header");
+    await header.getByRole("button", { name: "Table of contents" }).click();
+    const popover = page.getByRole("navigation", { name: "Table of contents" });
+    await popover.getByRole("link", { name: "Code Example" }).click();
+
+    // The heading's top should be below the mobile header's bottom
+    const headerBox = await header.boundingBox();
+    const headingBox = await page.locator("#code-example").boundingBox();
+    expect(headerBox).not.toBeNull();
+    expect(headingBox).not.toBeNull();
+    expect(headingBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
+  });
 });

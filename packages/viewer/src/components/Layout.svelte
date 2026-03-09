@@ -7,6 +7,7 @@
   import TocPopover from "./TocPopover.svelte";
   import Breadcrumbs from "./Breadcrumbs.svelte";
   import MobileDrawer from "./MobileDrawer.svelte";
+  import IconButton from "./IconButton.svelte";
   import LoadingBar from "./LoadingBar.svelte";
 
   interface Props {
@@ -35,36 +36,25 @@
   <header
     class="
       layout-mobile-header sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white
-      px-4 py-3
+      px-4 py-2
       dark:border-neutral-700 dark:bg-neutral-800
     "
   >
-    <button
-      onclick={ui.openMobileMenu}
-      class="
-        -ml-2 cursor-pointer p-2 text-gray-500
-        hover:text-gray-700
-        dark:text-neutral-400
-        dark:hover:text-neutral-300
-      "
-      aria-label="Open menu"
-    >
-      <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 6h16M4 12h16M4 18h16"
-        />
+    <IconButton onclick={ui.openMobileMenu} aria-label="Open menu" class="mr-2 shrink-0">
+      <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
       </svg>
-    </button>
-    <a href={homeHref} class="ml-3">
-      <span class="text-lg font-semibold uppercase"
-        ><span class="text-gray-900 dark:text-neutral-100">R</span><span
-          class="text-gray-400 dark:text-neutral-500">W</span
-        ></span
-      >
-    </a>
+    </IconButton>
+    {#if page.data}
+      <div class="min-w-0 flex-1">
+        <Breadcrumbs breadcrumbs={page.data.breadcrumbs} compact />
+      </div>
+      {#if page.data.toc.length > 0}
+        <div class="ml-2 shrink-0">
+          <TocPopover toc={page.data.toc} />
+        </div>
+      {/if}
+    {/if}
   </header>
 
   <!-- Mobile Drawer -->
@@ -118,7 +108,9 @@
               <TocPopover toc={page.data.toc} />
             </div>
           {/if}
-          <Breadcrumbs breadcrumbs={page.data.breadcrumbs} />
+          <div class="layout-desktop-breadcrumbs">
+            <Breadcrumbs breadcrumbs={page.data.breadcrumbs} />
+          </div>
         {:else if page.loading}
           <!-- Reserve breadcrumb space during first load (matches Breadcrumbs nav mb-6 + h-8) -->
           <div class="mb-6 h-8"></div>
@@ -155,7 +147,16 @@
     container-type: size;
     position: relative;
     height: 100%;
-    overflow: hidden;
+    overflow: clip;
+  }
+
+  /* Hide desktop breadcrumbs and content TOC popover on mobile —
+     they live in the mobile header instead. */
+  .layout-desktop-breadcrumbs {
+    display: none;
+  }
+  .layout-toc-popover {
+    display: none;
   }
 
   /* 952px = sidebar (280px) + comfortable content area (~672px) */
@@ -172,6 +173,12 @@
     .layout-content {
       padding-left: 2rem;
       padding-right: 2rem;
+    }
+    .layout-desktop-breadcrumbs {
+      display: block;
+    }
+    .layout-toc-popover {
+      display: block;
     }
   }
 

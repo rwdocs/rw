@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getRwContext } from "../lib/context";
   import { dismissible } from "../lib/dismissible";
+  import IconButton from "./IconButton.svelte";
   import TocSidebar from "./TocSidebar.svelte";
   import type { TocEntry } from "../types";
 
@@ -10,28 +11,30 @@
 
   let { toc }: Props = $props();
 
-  const { ui } = getRwContext();
+  const { router } = getRwContext();
 
+  let open = $state(false);
   let popoverEl: HTMLDivElement | undefined = $state();
 
-  $effect(() => dismissible(ui.tocPopoverOpen, popoverEl, ui.closeTocPopover));
+  function toggle() {
+    open = !open;
+  }
+
+  function close() {
+    open = false;
+  }
+
+  // Close on navigation
+  $effect(() => {
+    void router.path;
+    close();
+  });
+
+  $effect(() => dismissible(open, popoverEl, close));
 </script>
 
 <div class="relative" bind:this={popoverEl}>
-  <button
-    onclick={ui.toggleTocPopover}
-    class="
-      flex size-8 cursor-pointer items-center justify-center rounded-sm border border-gray-200
-      bg-white text-gray-500
-      hover:border-gray-300 hover:text-gray-700
-      dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400
-      dark:hover:border-neutral-500 dark:hover:text-neutral-300
-    "
-    class:border-gray-300={ui.tocPopoverOpen}
-    class:dark:border-neutral-500={ui.tocPopoverOpen}
-    aria-label="Table of contents"
-    aria-expanded={ui.tocPopoverOpen}
-  >
+  <IconButton onclick={toggle} aria-label="Table of contents" aria-expanded={open} active={open}>
     <svg
       class="size-4"
       fill="currentColor"
@@ -44,9 +47,9 @@
       <circle cx="3" cy="12" r="1.5" stroke="none" />
       <circle cx="3" cy="18" r="1.5" stroke="none" />
     </svg>
-  </button>
+  </IconButton>
 
-  {#if ui.tocPopoverOpen}
+  {#if open}
     <nav
       class="
         absolute top-full right-0 z-40 mt-2 max-h-[min(24rem,calc(100cqb-5rem))] w-64
@@ -55,7 +58,7 @@
       "
       aria-label="Table of contents"
     >
-      <TocSidebar {toc} onnavigate={ui.closeTocPopover} />
+      <TocSidebar {toc} onnavigate={close} />
     </nav>
   {/if}
 </div>

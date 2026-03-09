@@ -65,7 +65,6 @@
     if (currentPath !== previousPath) {
       previousPath = currentPath;
       ui.closeMobileMenu();
-      ui.closeTocPopover();
       navigation.expandOnlyTo(currentPath);
     }
   });

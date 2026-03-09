@@ -45,27 +45,4 @@ describe("ui store", () => {
     expect(ui1.mobileMenuOpen).toBe(true);
     expect(ui2.mobileMenuOpen).toBe(false);
   });
-
-  it("starts with tocPopoverOpen false", () => {
-    const ui = new Ui();
-    expect(ui.tocPopoverOpen).toBe(false);
-  });
-
-  it("toggleTocPopover toggles tocPopoverOpen", () => {
-    const ui = new Ui();
-    ui.toggleTocPopover();
-    expect(ui.tocPopoverOpen).toBe(true);
-
-    ui.toggleTocPopover();
-    expect(ui.tocPopoverOpen).toBe(false);
-  });
-
-  it("closeTocPopover closes tocPopoverOpen", () => {
-    const ui = new Ui();
-    ui.toggleTocPopover();
-    expect(ui.tocPopoverOpen).toBe(true);
-
-    ui.closeTocPopover();
-    expect(ui.tocPopoverOpen).toBe(false);
-  });
 });
