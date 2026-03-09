@@ -159,6 +159,18 @@
     display: none;
   }
 
+  /* Wider padding once there's enough horizontal space */
+  @container (min-width: 640px) {
+    .layout-mobile-header {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+    .layout-content {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
+
   /* 952px = sidebar (280px) + comfortable content area (~672px) */
   @container (min-width: 952px) {
     .layout-mobile-header {
@@ -169,10 +181,6 @@
     }
     .layout-sidebar {
       display: block;
-    }
-    .layout-content {
-      padding-left: 2rem;
-      padding-right: 2rem;
     }
     .layout-desktop-breadcrumbs {
       display: block;
