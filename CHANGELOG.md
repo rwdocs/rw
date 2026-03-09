@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `diagrams` option for `@rwdocs/core` `createSite()` to configure `krokiUrl` and `dpi` without `rw.toml`
+- `setColorScheme()` method on `RwInstance` to update the color scheme without re-mounting the viewer
 
 ## [0.1.12] - 2026-03-09
 
