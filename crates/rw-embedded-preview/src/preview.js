@@ -4,54 +4,45 @@ const root = document.getElementById("rw-root");
 const themeBtn = document.getElementById("theme-toggle");
 const darkMq = window.matchMedia("(prefers-color-scheme: dark)");
 
-let initialPath = window.location.pathname || "/";
-
 // Theme cycling: auto -> light -> dark -> auto
 const themes = ["auto", "light", "dark"];
 let themeIndex = 0;
-let currentInstance = null;
 
 function applyShellTheme() {
   const colorScheme = themes[themeIndex];
-  document.body.classList.toggle("dark-shell",
+  document.body.classList.toggle(
+    "dark-shell",
     colorScheme === "dark" ||
-    (colorScheme === "auto" && darkMq.matches)
+      (colorScheme === "auto" && darkMq.matches),
   );
 }
 
-function mountViewer() {
-  if (currentInstance) currentInstance.destroy();
+// Mount the viewer once on page load
+applyShellTheme();
 
-  const colorScheme = themes[themeIndex];
+const currentInstance = mountRw(root, {
+  apiBaseUrl: "/api",
+  embedded: true,
+  colorScheme: themes[themeIndex],
+  initialPath: window.location.pathname || "/",
+  onNavigate: (path) => {
+    window.history.pushState({}, "", path);
+  },
+});
 
-  applyShellTheme();
-
-  currentInstance = mountRw(root, {
-    apiBaseUrl: "/api",
-    embedded: true,
-    colorScheme: colorScheme,
-    initialPath: initialPath,
-    onNavigate: (path) => {
-      initialPath = path;
-      window.history.pushState({}, "", path);
-    },
-  });
-
-  themeBtn.textContent = "Theme: " + colorScheme;
-}
+themeBtn.textContent = "Theme: " + themes[themeIndex];
 
 // Update shell when OS preference changes (auto mode)
 darkMq.addEventListener("change", () => applyShellTheme());
 
 themeBtn.addEventListener("click", () => {
   themeIndex = (themeIndex + 1) % themes.length;
-  mountViewer();
+  applyShellTheme();
+  currentInstance.setColorScheme(themes[themeIndex]);
+  themeBtn.textContent = "Theme: " + themes[themeIndex];
 });
 
 // Handle browser back/forward
 window.addEventListener("popstate", () => {
-  initialPath = window.location.pathname || "/";
-  mountViewer();
+  currentInstance.navigateTo(window.location.pathname || "/");
 });
-
-mountViewer();
