@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { getRwContext } from "../lib/context";
   import { watchPageScope } from "../lib/scopeWatcher.svelte";
   import PageContent from "../components/PageContent.svelte";
@@ -8,7 +7,7 @@
 
   watchPageScope(page, navigation);
 
-  onMount(() => {
+  $effect(() => {
     page.load("");
     return liveReload.onReload(() => {
       page.load("", { bypassCache: true });

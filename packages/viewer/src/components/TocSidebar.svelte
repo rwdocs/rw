@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { getRwContext } from "../lib/context";
   import type { TocEntry } from "../types";
 
@@ -64,7 +63,7 @@
     }
   }
 
-  onMount(() => {
+  $effect(() => {
     if (filteredToc.length === 0) return;
 
     // Track visible headings

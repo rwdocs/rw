@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from "svelte";
+  import { untrack } from "svelte";
   import { createApiClient } from "./api/client";
   import { Router } from "./state/router.svelte";
   import { Page as PageState } from "./state/page.svelte";
@@ -85,36 +85,37 @@
   };
 
   let rootElement: HTMLElement;
-  let cleanupRouter: (() => void) | undefined;
 
-  onMount(async () => {
-    cleanupRouter = router.initRouter(rootElement);
+  $effect(() => {
+    const cleanupRouter = router.initRouter(rootElement);
 
-    // Load navigation tree and expand to current path
-    await navigation.load();
-    const currentPath = router.path;
-    if (currentPath !== "/") {
-      navigation.expandOnlyTo(currentPath);
-    }
-
-    let config = defaultConfig;
-    try {
-      config = await apiClient.fetchConfig();
-    } catch (e) {
-      if (import.meta.env.DEV) {
-        console.warn("[App] Failed to fetch config, using defaults:", e);
+    // Load navigation tree, fetch config, start live reload
+    (async () => {
+      await navigation.load();
+      const currentPath = router.path;
+      if (currentPath !== "/") {
+        navigation.expandOnlyTo(currentPath);
       }
-    }
 
-    if (config.liveReloadEnabled && !embedded) {
-      liveReload.start();
-    }
-  });
+      let config = defaultConfig;
+      try {
+        config = await apiClient.fetchConfig();
+      } catch (e) {
+        if (import.meta.env.DEV) {
+          console.warn("[App] Failed to fetch config, using defaults:", e);
+        }
+      }
 
-  onDestroy(() => {
-    cleanupRouter?.();
-    liveReload.stop();
-    unsubStructureReload();
+      if (config.liveReloadEnabled && !embedded) {
+        liveReload.start();
+      }
+    })();
+
+    return () => {
+      cleanupRouter?.();
+      liveReload.stop();
+      unsubStructureReload();
+    };
   });
 
   // Determine which page to render based on path
