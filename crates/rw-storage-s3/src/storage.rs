@@ -44,6 +44,21 @@ impl S3Storage {
         })
     }
 
+    /// Returns a reference to the S3 client.
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
+    /// Returns a handle to the tokio runtime.
+    pub fn runtime_handle(&self) -> tokio::runtime::Handle {
+        self.runtime.handle().clone()
+    }
+
+    /// Returns a reference to the S3 configuration.
+    pub fn config(&self) -> &S3Config {
+        &self.config
+    }
+
     /// Fetch and parse a JSON file from S3.
     fn fetch_json<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<T, StorageError> {
         self.runtime.block_on(async {

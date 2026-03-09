@@ -36,12 +36,21 @@ pub async fn build_client(config: &S3Config) -> Client {
     Client::from_conf(s3_builder.build())
 }
 
+impl S3Config {
+    /// Return the base prefix combining `bucket_root_path` and `prefix`.
+    ///
+    /// Layout: `{bucket_root_path}/{prefix}` or just `{prefix}`.
+    pub fn base_prefix(&self) -> String {
+        match &self.bucket_root_path {
+            Some(root) => format!("{root}/{}", self.prefix),
+            None => self.prefix.clone(),
+        }
+    }
+}
+
 /// Build a full S3 key from a relative path within the bundle.
 pub fn build_key(config: &S3Config, relative_path: &str) -> String {
-    match &config.bucket_root_path {
-        Some(root) => format!("{root}/{}/{relative_path}", config.prefix),
-        None => format!("{}/{relative_path}", config.prefix),
-    }
+    format!("{}/{relative_path}", config.base_prefix())
 }
 
 /// Upload a single object to S3.

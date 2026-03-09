@@ -153,6 +153,10 @@ crates/
 │       ├── ext.rs            # CacheBucketExt (typed get_json/set_json/get_string/set_string)
 │       └── file.rs           # FileCache (file-based impl with version validation)
 │
+├── rw-cache-s3/           # S3-backed cache implementation
+│   └── src/
+│       └── lib.rs            # S3Cache, S3CacheBucket
+│
 ├── rw-site/               # Site structure and page rendering
 │   └── src/
 │       ├── lib.rs            # Public API exports
