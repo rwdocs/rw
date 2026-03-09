@@ -13,6 +13,7 @@ license = "MIT OR Apache-2.0"
 # Internal crates
 rw-assets = { path = "crates/rw-assets" }
 rw-cache = { path = "crates/rw-cache" }
+rw-cache-s3 = { path = "crates/rw-cache-s3" }
 rw-config = { path = "crates/rw-config" }
 rw-confluence = { path = "crates/rw-confluence" }
 rw-diagrams = { path = "crates/rw-diagrams" }
