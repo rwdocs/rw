@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::meta_includes::{LinkConfig, MetaIncludeSource, resolve_meta_include};
+use crate::meta_includes::{
+    LinkConfig, MetaIncludeSource, is_meta_include_pattern, resolve_meta_include,
+};
 
 static INCLUDE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^(\s*)!include\s+(.+)$").unwrap());
@@ -98,6 +100,12 @@ pub(crate) fn resolve_includes(
         }
 
         if !resolved {
+            // Skip warning for meta-pattern includes (systems/sys_*.iuml etc.)
+            // when no meta source is available — they'll be resolved at request time.
+            if meta_source.is_none() && is_meta_include_pattern(include_path) {
+                continue;
+            }
+
             let searched_paths: Vec<_> = include_dirs
                 .iter()
                 .map(|d| d.join(include_path).display().to_string())
@@ -455,5 +463,21 @@ mod tests {
         let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
         assert!(!result.warnings.is_empty());
         assert!(result.warnings[0].contains("missing.iuml"));
+    }
+
+    #[test]
+    fn test_meta_pattern_include_no_warning_without_meta_source() {
+        let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
+        let result = prepare_diagram_source(source, &[], DEFAULT_DPI, None, None);
+        assert!(
+            result.warnings.is_empty(),
+            "Meta-pattern includes should not warn when no meta source: {:?}",
+            result.warnings
+        );
+        assert!(
+            result
+                .source
+                .contains("!include systems/sys_payment_gateway.iuml")
+        );
     }
 }

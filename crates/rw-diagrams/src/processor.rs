@@ -226,19 +226,10 @@ impl DiagramProcessor {
     /// Set link configuration for transforming `$link` URLs in C4 macros.
     ///
     /// When set, diagram include URLs are transformed to match the renderer's
-    /// link mode (relative paths, trailing slashes).
+    /// link mode (relative paths, trailing slashes, link prefix).
     #[must_use]
-    pub fn with_link_config(
-        mut self,
-        base_path: String,
-        relative_links: bool,
-        trailing_slash: bool,
-    ) -> Self {
-        self.config.link_config = Some(LinkConfig {
-            base_path,
-            relative_links,
-            trailing_slash,
-        });
+    pub fn with_link_config(mut self, link_config: LinkConfig) -> Self {
+        self.config.link_config = Some(link_config);
         self
     }
 
@@ -355,8 +346,8 @@ impl CodeBlockProcessor for DiagramProcessor {
         let resolved = resolve_includes(
             source,
             &self.config.include_dirs,
-            self.config.meta_include_source.as_deref(),
-            self.config.link_config.as_ref(),
+            None, // Skip meta includes — resolved at request time with link_prefix
+            None,
             0,
             &mut warnings,
         );
@@ -1065,5 +1056,37 @@ mod tests {
             DiagramProcessor::new("https://kroki.io").timeout(Duration::from_millis(100));
 
         assert!(processor.extracted().is_empty());
+    }
+
+    #[test]
+    fn test_bundle_preserves_meta_includes() {
+        use std::sync::Arc;
+
+        use crate::meta_includes::{EntityInfo, MetaIncludeSource};
+
+        struct TestMetaSource;
+        impl MetaIncludeSource for TestMetaSource {
+            fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
+                if entity_type == "system" && name == "payment_gateway" {
+                    Some(EntityInfo {
+                        title: "Payment Gateway".to_owned(),
+                        description: Some("Processes payments".to_owned()),
+                        url_path: Some("/domains/billing/systems/payment-gateway".to_owned()),
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+
+        let mut processor = DiagramProcessor::new("https://kroki.io")
+            .with_meta_include_source(Arc::new(TestMetaSource));
+        let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
+        let result = processor.bundle("plantuml", source);
+        // Meta includes should NOT be resolved at bundle time
+        assert!(
+            result.is_none(),
+            "bundle() should not resolve meta includes"
+        );
     }
 }
