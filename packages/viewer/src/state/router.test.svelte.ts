@@ -333,15 +333,31 @@ describe("initRouter", () => {
       expect(router.path).toBe("/nested-page");
     });
 
-    it("navigates on SVG link with target attribute (e.g., PlantUML diagrams)", () => {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const anchor = document.createElementNS("http://www.w3.org/2000/svg", "a");
-      anchor.setAttribute("href", "/domains/billing");
-      anchor.setAttribute("target", "_top");
-      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    function createSvgAnchor(
+      href: string,
+      options: { xlink?: boolean; attributes?: Record<string, string> } = {},
+    ): SVGElement {
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      const XLINK_NS = "http://www.w3.org/1999/xlink";
+
+      const svg = document.createElementNS(SVG_NS, "svg");
+      const anchor = document.createElementNS(SVG_NS, "a");
+      if (options.xlink) {
+        anchor.setAttributeNS(XLINK_NS, "xlink:href", href);
+      } else {
+        anchor.setAttribute("href", href);
+      }
+      for (const [key, value] of Object.entries(options.attributes ?? {})) {
+        anchor.setAttribute(key, value);
+      }
+      const text = document.createElementNS(SVG_NS, "text");
       anchor.appendChild(text);
       svg.appendChild(anchor);
+      return text;
+    }
 
+    it("navigates on SVG link with target attribute (e.g., PlantUML diagrams)", () => {
+      const text = createSvgAnchor("/domains/billing", { attributes: { target: "_top" } });
       const event = createClickEvent();
       Object.defineProperty(event, "target", { value: text });
 
@@ -352,15 +368,9 @@ describe("initRouter", () => {
     });
 
     it("navigates on SVG link with xlink:href", () => {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const anchor = document.createElementNS("http://www.w3.org/2000/svg", "a");
-      anchor.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "/domains/billing");
-      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      anchor.appendChild(rect);
-      svg.appendChild(anchor);
-
+      const text = createSvgAnchor("/domains/billing", { xlink: true });
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: rect });
+      Object.defineProperty(event, "target", { value: text });
 
       clickHandler!(event);
 
@@ -369,13 +379,7 @@ describe("initRouter", () => {
     });
 
     it("ignores SVG links with external URLs", () => {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const anchor = document.createElementNS("http://www.w3.org/2000/svg", "a");
-      anchor.setAttribute("href", "https://external.com");
-      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      anchor.appendChild(text);
-      svg.appendChild(anchor);
-
+      const text = createSvgAnchor("https://external.com");
       const event = createClickEvent();
       Object.defineProperty(event, "target", { value: text });
 
