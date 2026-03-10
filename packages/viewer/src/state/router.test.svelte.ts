@@ -332,6 +332,57 @@ describe("initRouter", () => {
       expect(event.preventDefault).toHaveBeenCalled();
       expect(router.path).toBe("/nested-page");
     });
+
+    it("navigates on SVG link with target attribute (e.g., PlantUML diagrams)", () => {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const anchor = document.createElementNS("http://www.w3.org/2000/svg", "a");
+      anchor.setAttribute("href", "/domains/billing");
+      anchor.setAttribute("target", "_top");
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      anchor.appendChild(text);
+      svg.appendChild(anchor);
+
+      const event = createClickEvent();
+      Object.defineProperty(event, "target", { value: text });
+
+      clickHandler!(event);
+
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(router.path).toBe("/domains/billing");
+    });
+
+    it("navigates on SVG link with xlink:href", () => {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const anchor = document.createElementNS("http://www.w3.org/2000/svg", "a");
+      anchor.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "/domains/billing");
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      anchor.appendChild(rect);
+      svg.appendChild(anchor);
+
+      const event = createClickEvent();
+      Object.defineProperty(event, "target", { value: rect });
+
+      clickHandler!(event);
+
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(router.path).toBe("/domains/billing");
+    });
+
+    it("ignores SVG links with external URLs", () => {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const anchor = document.createElementNS("http://www.w3.org/2000/svg", "a");
+      anchor.setAttribute("href", "https://external.com");
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      anchor.appendChild(text);
+      svg.appendChild(anchor);
+
+      const event = createClickEvent();
+      Object.defineProperty(event, "target", { value: text });
+
+      clickHandler!(event);
+
+      expect(event.preventDefault).not.toHaveBeenCalled();
+    });
   });
 });
 

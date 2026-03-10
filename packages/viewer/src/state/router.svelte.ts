@@ -4,16 +4,22 @@ export function extractDocPath(urlPath: string): string {
 }
 
 /** Check if a link should be handled externally (not by SPA router) */
-function isExternalLink(href: string, anchor: HTMLAnchorElement): boolean {
-  return (
+function isExternalLink(href: string, anchor: Element): boolean {
+  if (
     href.startsWith("http") ||
     href.startsWith("//") ||
     href.startsWith("mailto:") ||
     href.startsWith("tel:") ||
-    href.startsWith("#") ||
-    anchor.hasAttribute("target") ||
-    anchor.hasAttribute("download")
-  );
+    href.startsWith("#")
+  ) {
+    return true;
+  }
+
+  // SVG links (e.g., PlantUML diagrams) add target="_top" — ignore element
+  // attributes for SVG anchors so internal diagram links use SPA routing.
+  if (anchor instanceof SVGElement) return false;
+
+  return anchor.hasAttribute("target") || anchor.hasAttribute("download");
 }
 
 function decodeHash(encoded: string): string {
@@ -86,7 +92,9 @@ export class Router {
       const anchor = target.closest("a");
       if (!anchor) return;
 
-      const href = anchor.getAttribute("href");
+      const href =
+        anchor.getAttribute("href") ??
+        anchor.getAttributeNS("http://www.w3.org/1999/xlink", "href");
       if (!href) return;
 
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
