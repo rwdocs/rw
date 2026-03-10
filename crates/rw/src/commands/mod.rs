@@ -45,6 +45,8 @@ impl S3Args {
             region: self.region,
             endpoint: self.endpoint,
             bucket_root_path: self.bucket_root_path,
+            access_key_id: None,
+            secret_access_key: None,
         }
     }
 }
