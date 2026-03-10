@@ -14,12 +14,14 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             os: macos-14
+            build-flags: ""
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            use-napi-cross: true
+            build-flags: "--use-napi-cross"
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             use-zigbuild: true
+            build-flags: "-x"
     name: Build native - ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     steps:
@@ -52,7 +54,7 @@ jobs:
 
       - name: Build native addon
         run: |
-          npm -w @rwdocs/core run build -- ${{ matrix.use-zigbuild && '-x' || matrix.use-napi-cross && '--use-napi-cross' || '' }}
+          npm -w @rwdocs/core run build -- ${{ matrix.build-flags }}
         env:
           NAPI_RS_TARGET: ${{ matrix.target }}
 
