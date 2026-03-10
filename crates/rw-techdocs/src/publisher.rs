@@ -136,6 +136,8 @@ mod tests {
             endpoint: None,
             region: "us-east-1".to_owned(),
             bucket_root_path: None,
+            access_key_id: None,
+            secret_access_key: None,
         };
         assert_eq!(
             s3::build_key(&config, "index.html"),
@@ -151,6 +153,8 @@ mod tests {
             endpoint: None,
             region: "us-east-1".to_owned(),
             bucket_root_path: Some("techdocs".to_owned()),
+            access_key_id: None,
+            secret_access_key: None,
         };
         assert_eq!(
             s3::build_key(&config, "index.html"),

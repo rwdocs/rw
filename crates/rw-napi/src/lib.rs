@@ -89,12 +89,21 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
         PageRendererConfig,
         Arc<dyn Cache>,
     ) = if let Some(s3) = config.s3 {
+        if s3.access_key_id.is_some() != s3.secret_access_key.is_some() {
+            return Err(napi::Error::new(
+                napi::Status::InvalidArg,
+                "s3.accessKeyId and s3.secretAccessKey must be provided together",
+            ));
+        }
+
         let s3_config = S3Config {
             bucket: s3.bucket,
             prefix: s3.entity,
             region: s3.region.unwrap_or_else(|| "us-east-1".to_owned()),
             endpoint: s3.endpoint,
             bucket_root_path: s3.bucket_root_path,
+            access_key_id: s3.access_key_id,
+            secret_access_key: s3.secret_access_key,
         };
         let storage = S3Storage::new(s3_config).map_err(|e| {
             napi::Error::from_reason(format!("Failed to create S3 storage: {e}"))

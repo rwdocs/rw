@@ -26,6 +26,10 @@ pub struct S3Config {
     pub endpoint: Option<String>,
     #[napi(js_name = "bucketRootPath")]
     pub bucket_root_path: Option<String>,
+    #[napi(js_name = "accessKeyId")]
+    pub access_key_id: Option<String>,
+    #[napi(js_name = "secretAccessKey")]
+    pub secret_access_key: Option<String>,
 }
 
 #[napi(object)]

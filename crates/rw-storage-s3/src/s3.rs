@@ -1,9 +1,11 @@
 //! Shared S3 client utilities.
 
+use std::fmt;
+
 use aws_sdk_s3::Client;
 
 /// S3 bucket configuration shared by storage and publisher.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct S3Config {
     /// S3 bucket name.
     pub bucket: String,
@@ -15,6 +17,27 @@ pub struct S3Config {
     pub endpoint: Option<String>,
     /// Optional prefix path within the bucket.
     pub bucket_root_path: Option<String>,
+    /// Optional AWS access key ID for explicit credentials.
+    pub access_key_id: Option<String>,
+    /// Optional AWS secret access key for explicit credentials.
+    pub secret_access_key: Option<String>,
+}
+
+impl fmt::Debug for S3Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("S3Config")
+            .field("bucket", &self.bucket)
+            .field("prefix", &self.prefix)
+            .field("region", &self.region)
+            .field("endpoint", &self.endpoint)
+            .field("bucket_root_path", &self.bucket_root_path)
+            .field("access_key_id", &self.access_key_id)
+            .field(
+                "secret_access_key",
+                &self.secret_access_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 /// Build an S3 client from connection configuration.
@@ -24,6 +47,19 @@ pub async fn build_client(config: &S3Config) -> Client {
 
     if let Some(endpoint) = &config.endpoint {
         loader = loader.endpoint_url(endpoint);
+    }
+
+    if let (Some(access_key_id), Some(secret_access_key)) =
+        (&config.access_key_id, &config.secret_access_key)
+    {
+        let credentials = aws_sdk_s3::config::Credentials::new(
+            access_key_id,
+            secret_access_key,
+            None, // session token
+            None, // expiry
+            "rw", // provider name
+        );
+        loader = loader.credentials_provider(credentials);
     }
 
     let sdk_config = loader.load().await;

@@ -55,6 +55,8 @@ export interface S3Config {
   region?: string
   endpoint?: string
   bucketRootPath?: string
+  accessKeyId?: string
+  secretAccessKey?: string
 }
 
 export interface ScopeInfoResponse {
