@@ -137,3 +137,7 @@ jobs:
           name: playwright-report
           path: packages/viewer/playwright-report/
           retention-days: 7
+
+  native-bindings:
+    name: Native bindings
+    uses: ./.github/workflows/build-npm.yml
