@@ -28,8 +28,6 @@ rw-server = { workspace = true }
 rw-site = { workspace = true }
 rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
-rw-techdocs = { workspace = true }
-
 clap = { version = "4", features = ["derive", "env"] }
 console = "0.16"
 thiserror = { workspace = true }

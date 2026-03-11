@@ -5,7 +5,7 @@ and start serving — pages are rendered when requested, not ahead of time.
 One file changed? Only that page is re-rendered. Your site can have 10 pages or
 10,000; startup time is the same.
 
-Publish the same markdown to Confluence pages or build static sites for Backstage TechDocs.
+Publish the same markdown to Confluence pages or embed in Backstage with native plugins.
 
 ## Features
 
@@ -17,7 +17,7 @@ Publish the same markdown to Confluence pages or build static sites for Backstag
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
 - **Page metadata** — YAML sidecar files for titles, descriptions, and custom variables
 - **Confluence publishing** — update pages via REST API with OAuth authentication
-- **TechDocs output** — build static sites compatible with Backstage
+- **Backstage integration** — embed docs with native Backstage plugins
 
 ## Quickstart
 
@@ -69,15 +69,12 @@ See the [configuration guide](docs/configuration.md) for all options.
 | `rw backstage publish` | Publish documentation bundles to S3 for Backstage |
 | `rw confluence update` | Publish markdown to a Confluence page |
 | `rw confluence generate-tokens` | Generate OAuth access tokens |
-| `rw techdocs build` | Build a static site for Backstage TechDocs |
-| `rw techdocs publish` | Upload static site to S3 |
 
 ## Documentation
 
 - [Configuration](docs/configuration.md)
 - [Page Metadata](docs/metadata.md)
 - [Confluence Publishing](docs/confluence.md)
-- [TechDocs](docs/techdocs.md)
 - [Diagram Rendering](docs/diagrams.md)
 
 ## License

@@ -13,7 +13,7 @@ After code changes:
 
 RW is a documentation engine with no build step. It renders CommonMark documents
 on demand — pages are rendered when requested, not ahead of time. Also publishes
-to Confluence and builds static sites for Backstage TechDocs.
+to Confluence. Also supports embedding in Backstage via native plugins.
 
 ## Development Commands
 
@@ -46,13 +46,9 @@ crates/
 │           │   ├── mod.rs         # `confluence` subcommand group
 │           │   ├── update.rs      # `confluence update` command
 │           │   └── generate_tokens.rs  # `confluence generate-tokens` command
-│           ├── backstage/
-│           │   ├── mod.rs         # `backstage` subcommand group
-│           │   └── publish.rs     # `backstage publish` command
-│           └── techdocs/
-│               ├── mod.rs         # `techdocs` subcommand group
-│               ├── build.rs       # `techdocs build` command
-│               └── publish.rs     # `techdocs publish` command
+│           └── backstage/
+│               ├── mod.rs         # `backstage` subcommand group
+│               └── publish.rs     # `backstage publish` command
 │
 ├── rw-storage-s3/         # S3 storage backend and bundle publisher
 │   └── src/
@@ -122,13 +118,6 @@ crates/
 │           ├── executor.rs   # Update workflow implementation
 │           ├── result.rs     # UpdateResult, DryRunResult
 │           └── error.rs      # UpdateError
-│
-├── rw-techdocs/           # TechDocs static site generation and S3 publishing
-│   └── src/
-│       ├── lib.rs            # Public API exports
-│       ├── builder.rs        # StaticSiteBuilder, BuildConfig, BuildError
-│       ├── template.rs       # HTML page template (mirrors Svelte frontend)
-│       └── publisher.rs      # S3Publisher, PublishConfig, PublishError
 │
 ├── rw-embedded-preview/   # Embedded preview shell (dev-only Backstage-like wrapper)
 │   └── src/
@@ -206,9 +195,7 @@ packages/
 │   │   ├── api/               # API client
 │   │   ├── lib/               # Utility libraries (tabs.ts)
 │   │   ├── styles/            # Shared CSS (content.css: prose, diagrams, alerts, tabs)
-│   │   ├── types/             # TypeScript interfaces
-│   │   ├── techdocs.ts        # TechDocs CSS entry point (Vite second input)
-│   │   └── techdocs.css       # Self-contained TechDocs styles (td-* classes)
+│   │   └── types/             # TypeScript interfaces
 │   └── dist/                  # Production build output
 ├── core/                  # @rwdocs/core — Node.js native addon (napi-rs bindings)
 ├── backstage-plugin/      # @rwdocs/backstage-plugin — Backstage frontend plugin
@@ -220,9 +207,6 @@ extraction, Confluence rendering, Kroki diagram rendering, API calls) → Conflu
 
 **Data flow (HTML)**: Markdown → Rust (pulldown-cmark parsing, HTML rendering
 with syntax highlighting, ToC generation, HTTP serving) → Browser
-
-**Data flow (TechDocs)**: Markdown → Rust (Site rendering, static HTML generation,
-S3 upload) → Backstage TechDocs
 
 **Data flow (NAPI)**: Node.js → rw-napi (napi-rs bindings) → rw-site, rw-renderer,
 rw-diagrams (Rust) → Node.js objects

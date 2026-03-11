@@ -1,1 +1,0 @@
-import "./techdocs.css";
