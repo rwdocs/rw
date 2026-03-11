@@ -3,17 +3,14 @@
 pub(crate) mod backstage;
 pub(crate) mod confluence;
 pub(crate) mod serve;
-pub(crate) mod techdocs;
-
 pub(crate) use backstage::BackstageCommand;
 pub(crate) use confluence::ConfluenceCommand;
 pub(crate) use serve::ServeArgs;
-pub(crate) use techdocs::TechdocsCommand;
 
 use clap::Args;
 use rw_storage_s3::S3Config;
 
-/// Shared S3 CLI arguments used by backstage and techdocs publish commands.
+/// Shared S3 CLI arguments used by backstage publish commands.
 #[derive(Args)]
 pub(crate) struct S3Args {
     /// Backstage entity (e.g. "default/Component/arch").

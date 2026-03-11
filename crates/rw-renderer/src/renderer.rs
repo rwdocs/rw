@@ -11,7 +11,6 @@ use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
 use crate::directive::DirectiveProcessor;
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
-use crate::util::relative_path;
 
 /// Result of rendering markdown.
 #[derive(Debug)]
@@ -59,10 +58,6 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     alert_stack: Vec<Option<AlertKind>>,
     /// Optional directive processor for `CommonMark` directives.
     directives: Option<DirectiveProcessor>,
-    /// Produce relative links instead of absolute (for static site builds).
-    relative_links: bool,
-    /// Append trailing slash to resolved link paths.
-    trailing_slash: bool,
     /// Prefix prepended to all resolved internal link paths (e.g. `/rw-docs`).
     link_prefix: Option<String>,
     _backend: PhantomData<B>,
@@ -87,8 +82,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             gfm: true,
             alert_stack: Vec::new(),
             directives: None,
-            relative_links: false,
-            trailing_slash: false,
             link_prefix: None,
             _backend: PhantomData,
         }
@@ -160,40 +153,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Enable relative link output instead of absolute paths.
-    ///
-    /// When enabled, resolved links that start with `/` are converted to
-    /// relative paths based on the current page's `base_path`. This is needed
-    /// for static site builds where pages are served as plain HTML files.
-    ///
-    /// Default: `false` (absolute paths for SPA navigation).
-    #[must_use]
-    pub fn with_relative_links(mut self, enabled: bool) -> Self {
-        self.relative_links = enabled;
-        self
-    }
-
-    /// Append trailing slash to resolved link paths.
-    ///
-    /// When enabled, resolved links that start with `/` get a trailing `/`
-    /// appended (e.g., `/a/b` → `/a/b/`). Works independently of
-    /// `relative_links` — can produce absolute (`/a/b/`) or relative
-    /// (`../b/`) trailing-slash URLs.
-    ///
-    /// Default: `false`.
-    #[must_use]
-    pub fn with_trailing_slash(mut self, enabled: bool) -> Self {
-        self.trailing_slash = enabled;
-        self
-    }
-
     /// Set a prefix for all resolved internal link paths (e.g., `/rw-docs`).
     ///
     /// When set, absolute link paths like `/docs/guide` become `/rw-docs/docs/guide`.
     /// External links, fragment links, and protocol-relative links are not affected.
-    ///
-    /// The prefix is not applied when [`with_relative_links`](Self::with_relative_links)
-    /// is enabled, since that converts paths to relative form.
     ///
     /// The prefix should not end with `/` to avoid double slashes in output.
     #[must_use]
@@ -306,57 +269,22 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         }
     }
 
-    /// Apply link-prefix, trailing-slash, and relative-link transformations to a resolved href.
+    /// Apply link-prefix transformation to a resolved href.
     ///
     /// Handles fragment (`#section`) correctly by splitting before path manipulation
     /// and rejoining after.
     fn resolve_href(&self, href: &str) -> String {
-        let needs_transform = self.trailing_slash || self.relative_links;
-        if (!needs_transform && self.link_prefix.is_none()) || !href.starts_with('/') {
-            return href.to_owned();
+        if let Some(prefix) = &self.link_prefix
+            && href.starts_with('/')
+        {
+            // Split fragment before path manipulation
+            let (path, fragment) = match href.find('#') {
+                Some(pos) => (&href[..pos], &href[pos..]),
+                None => (href, ""),
+            };
+            return format!("{prefix}{path}{fragment}");
         }
-
-        // Split fragment before path manipulation
-        let (path, fragment) = match href.find('#') {
-            Some(pos) => (&href[..pos], Some(&href[pos..])),
-            None => (href, None),
-        };
-
-        // Add trailing slash to absolute path
-        let path = if self.trailing_slash && !path.ends_with('/') {
-            format!("{path}/")
-        } else {
-            path.to_owned()
-        };
-
-        // Convert to relative path
-        let path = if self.relative_links {
-            let from = self.base_path.as_deref().unwrap_or("/");
-            if self.trailing_slash && !from.ends_with('/') {
-                relative_path(&format!("{from}/"), &path)
-            } else {
-                relative_path(from, &path)
-            }
-        } else {
-            path
-        };
-
-        // Prepend link prefix to absolute paths (skip relative paths from above)
-        let path = if let Some(prefix) = &self.link_prefix {
-            if path.starts_with('/') {
-                format!("{prefix}{path}")
-            } else {
-                path
-            }
-        } else {
-            path
-        };
-
-        // Rejoin fragment
-        match fragment {
-            Some(frag) => format!("{path}{frag}"),
-            None => path,
-        }
+        href.to_owned()
     }
 
     /// Render markdown events and return the result.
@@ -1203,105 +1131,6 @@ Install with apt.
     }
 
     #[test]
-    fn test_relative_links_converts_absolute_to_relative() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_relative_links(true);
-        // ../other.md resolves to /a/other, then relative_path("/a/b", "/a/other") = "other"
-        let result = renderer.render_markdown("[link](../other.md)");
-        assert!(result.html.contains(r#"href="other""#));
-    }
-
-    #[test]
-    fn test_relative_links_disabled_keeps_absolute() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_base_path("/a/b");
-        let result = renderer.render_markdown("[link](../other.md)");
-        assert!(result.html.contains(r#"href="/a/other""#));
-    }
-
-    #[test]
-    fn test_relative_links_external_unchanged() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_relative_links(true);
-        let result = renderer.render_markdown("[link](https://example.com)");
-        assert!(result.html.contains(r#"href="https://example.com""#));
-    }
-
-    #[test]
-    fn test_relative_links_fragment_unchanged() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_relative_links(true);
-        let result = renderer.render_markdown("[link](#section)");
-        assert!(result.html.contains(r##"href="#section""##));
-    }
-
-    #[test]
-    fn test_trailing_slash_absolute_links() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_trailing_slash(true);
-        let result = renderer.render_markdown("[link](../other.md)");
-        assert!(result.html.contains(r#"href="/a/other/""#));
-    }
-
-    #[test]
-    fn test_trailing_slash_with_fragment() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_trailing_slash(true);
-        let result = renderer.render_markdown("[link](./page.md#section)");
-        assert!(result.html.contains(r#"href="/a/b/page/#section""#));
-    }
-
-    #[test]
-    fn test_trailing_slash_with_relative_links() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_trailing_slash(true)
-            .with_relative_links(true);
-        // ../other.md → /a/other/ → relative from /a/b/ → ../other/
-        let result = renderer.render_markdown("[link](../other.md)");
-        assert!(result.html.contains(r#"href="../other/""#));
-    }
-
-    #[test]
-    fn test_trailing_slash_with_relative_links_and_fragment() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_trailing_slash(true)
-            .with_relative_links(true);
-        let result = renderer.render_markdown("[link](./page.md#section)");
-        assert!(result.html.contains(r#"href="page/#section""#));
-    }
-
-    #[test]
-    fn test_trailing_slash_external_unchanged() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_trailing_slash(true);
-        let result = renderer.render_markdown("[link](https://example.com)");
-        assert!(result.html.contains(r#"href="https://example.com""#));
-    }
-
-    #[test]
-    fn test_trailing_slash_fragment_only_unchanged() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/a/b")
-            .with_trailing_slash(true);
-        let result = renderer.render_markdown("[link](#section)");
-        assert!(result.html.contains(r##"href="#section""##));
-    }
-
-    #[test]
-    fn test_trailing_slash_disabled_by_default() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_base_path("/a/b");
-        let result = renderer.render_markdown("[link](../other.md)");
-        assert!(result.html.contains(r#"href="/a/other""#));
-    }
-
-    #[test]
     fn test_link_prefix_prepends_to_internal_links() {
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/docs/usage")
@@ -1339,26 +1168,5 @@ Install with apt.
             .with_link_prefix("/rw-docs");
         let result = renderer.render_markdown("[link](./page.md#section)");
         assert!(result.html.contains(r#"href="/rw-docs/docs/page#section""#));
-    }
-
-    #[test]
-    fn test_link_prefix_with_trailing_slash() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/docs")
-            .with_trailing_slash(true)
-            .with_link_prefix("/rw-docs");
-        let result = renderer.render_markdown("[link](./page.md)");
-        assert!(result.html.contains(r#"href="/rw-docs/docs/page/""#));
-    }
-
-    #[test]
-    fn test_link_prefix_skipped_when_relative_links() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/docs/usage")
-            .with_relative_links(true)
-            .with_link_prefix("/rw-docs");
-        let result = renderer.render_markdown("[link](../other.md)");
-        // relative_links converts to relative path, link_prefix does not apply
-        assert!(result.html.contains(r#"href="other""#));
     }
 }

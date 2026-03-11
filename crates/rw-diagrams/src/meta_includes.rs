@@ -4,20 +4,12 @@
 //! `!include systems/sys_payment_gateway.iuml` to resolve dynamically
 //! from `meta.yaml` files without maintaining separate `.iuml` files.
 
-use rw_renderer::relative_path;
-
 /// Configuration for transforming `$link` URLs in C4 macros.
 ///
-/// When provided, diagram link URLs are transformed to match the renderer's
-/// link mode (relative paths, trailing slashes).
+/// When provided, diagram link URLs are transformed to prepend a prefix
+/// (e.g., `/rw-docs`) to absolute URLs.
 #[derive(Clone, Debug)]
 pub struct LinkConfig {
-    /// Base path of the page containing the diagram (e.g., "/domains/billing").
-    pub base_path: String,
-    /// Convert absolute URLs to relative paths.
-    pub relative_links: bool,
-    /// Append trailing slash to URLs.
-    pub trailing_slash: bool,
     /// Optional prefix to prepend to absolute URLs (e.g., "/rw-docs").
     pub link_prefix: Option<String>,
 }
@@ -116,34 +108,14 @@ fn escape_description(desc: &str) -> String {
 
 /// Transform a URL according to link configuration.
 ///
-/// Mirrors the logic of `MarkdownRenderer::resolve_href()` (without fragment
-/// handling, since C4 `$link` URLs don't contain fragments):
-/// 1. Add trailing slash if enabled
-/// 2. Convert to relative path if enabled
-/// 3. Prepend link prefix to absolute paths (skipped when relative links enabled)
+/// Prepends `link_prefix` to absolute URLs when configured.
 fn resolve_link(url: &str, config: &LinkConfig) -> String {
-    let mut path = url.to_owned();
-
-    if config.trailing_slash && !path.ends_with('/') {
-        path.push('/');
+    if let Some(prefix) = &config.link_prefix
+        && url.starts_with('/')
+    {
+        return format!("{prefix}{url}");
     }
-
-    if config.relative_links {
-        let from = if config.trailing_slash && !config.base_path.ends_with('/') {
-            format!("{}/", config.base_path)
-        } else {
-            config.base_path.clone()
-        };
-        relative_path(&from, &path)
-    } else if let Some(prefix) = &config.link_prefix {
-        if path.starts_with('/') {
-            format!("{prefix}{path}")
-        } else {
-            path
-        }
-    } else {
-        path
-    }
+    url.to_owned()
 }
 
 /// Render a C4 `PlantUML` macro call from entity metadata.
@@ -547,57 +519,13 @@ mod tests {
     // ── LinkConfig tests ─────────────────────────────────────────────
 
     #[test]
-    fn test_render_with_trailing_slash() {
-        let entity = system_entity();
-        let config = LinkConfig {
-            base_path: "/overview".to_owned(),
-            relative_links: false,
-            trailing_slash: true,
-            link_prefix: None,
-        };
-        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
-        assert!(result.contains("$link=\"/domains/billing/systems/payment-gateway/\""));
-    }
-
-    #[test]
-    fn test_render_with_relative_links() {
-        let entity = system_entity();
-        let config = LinkConfig {
-            base_path: "/domains/payments".to_owned(),
-            relative_links: true,
-            trailing_slash: false,
-            link_prefix: None,
-        };
-        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
-        assert!(result.contains("$link=\"billing/systems/payment-gateway\""));
-    }
-
-    #[test]
-    fn test_render_with_relative_links_and_trailing_slash() {
-        let entity = system_entity();
-        let config = LinkConfig {
-            base_path: "/domains/payments".to_owned(),
-            relative_links: true,
-            trailing_slash: true,
-            link_prefix: None,
-        };
-        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
-        assert!(result.contains("$link=\"../billing/systems/payment-gateway/\""));
-    }
-
-    #[test]
     fn test_render_no_url_with_link_config() {
         let entity = EntityInfo {
             title: "Virtual".to_owned(),
             description: None,
             url_path: None,
         };
-        let config = LinkConfig {
-            base_path: "/overview".to_owned(),
-            relative_links: true,
-            trailing_slash: true,
-            link_prefix: None,
-        };
+        let config = LinkConfig { link_prefix: None };
         let result = render_c4_macro("system", "virtual", &entity, false, Some(&config));
         assert!(!result.contains("$link"));
     }
@@ -606,38 +534,9 @@ mod tests {
     fn test_render_with_link_prefix() {
         let entity = system_entity();
         let config = LinkConfig {
-            base_path: "/overview".to_owned(),
-            relative_links: false,
-            trailing_slash: false,
             link_prefix: Some("/rw-docs".to_owned()),
         };
         let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
         assert!(result.contains("$link=\"/rw-docs/domains/billing/systems/payment-gateway\""));
-    }
-
-    #[test]
-    fn test_render_with_link_prefix_and_trailing_slash() {
-        let entity = system_entity();
-        let config = LinkConfig {
-            base_path: "/overview".to_owned(),
-            relative_links: false,
-            trailing_slash: true,
-            link_prefix: Some("/rw-docs".to_owned()),
-        };
-        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
-        assert!(result.contains("$link=\"/rw-docs/domains/billing/systems/payment-gateway/\""));
-    }
-
-    #[test]
-    fn test_render_with_link_prefix_skipped_when_relative() {
-        let entity = system_entity();
-        let config = LinkConfig {
-            base_path: "/domains/payments".to_owned(),
-            relative_links: true,
-            trailing_slash: false,
-            link_prefix: Some("/rw-docs".to_owned()),
-        };
-        let result = render_c4_macro("system", "payment_gateway", &entity, false, Some(&config));
-        assert!(result.contains("$link=\"billing/systems/payment-gateway\""));
     }
 }

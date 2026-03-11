@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for [`PageRenderer`].
 #[derive(Debug, Clone)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct PageRendererConfig {
     /// Extract title from first H1 heading.
     pub extract_title: bool,
@@ -28,19 +27,6 @@ pub struct PageRendererConfig {
     pub include_dirs: Vec<PathBuf>,
     /// DPI for diagram rendering (default: 192 for retina).
     pub dpi: u32,
-    /// Produce relative links instead of absolute paths.
-    ///
-    /// Default: `false` (absolute paths for SPA navigation).
-    /// Set to `true` for static site builds (e.g., `TechDocs`).
-    pub relative_links: bool,
-    /// Append trailing slash to resolved link paths.
-    ///
-    /// Default: `false`.
-    pub trailing_slash: bool,
-    /// Produce CSS-only tabs instead of JS-dependent tabs.
-    ///
-    /// Default: `false`.
-    pub static_tabs: bool,
     /// Prefix prepended to all resolved internal link paths (e.g. `/rw-docs`).
     ///
     /// Default: `None` (no prefix).
@@ -54,9 +40,6 @@ impl Default for PageRendererConfig {
             kroki_url: None,
             include_dirs: Vec::new(),
             dpi: 192,
-            relative_links: false,
-            trailing_slash: false,
-            static_tabs: false,
             link_prefix: None,
         }
     }
@@ -138,7 +121,6 @@ impl From<StorageError> for RenderError {
 /// Handles markdown-to-HTML conversion with caching, diagram processing,
 /// and metadata loading. Operates on individual pages without knowledge of
 /// site structure or reload logic.
-#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct PageRenderer {
     storage: Arc<dyn Storage>,
     cache: Arc<dyn Cache>,
@@ -147,9 +129,6 @@ pub(crate) struct PageRenderer {
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
     dpi: u32,
-    relative_links: bool,
-    trailing_slash: bool,
-    static_tabs: bool,
     link_prefix: Option<String>,
 }
 
@@ -168,9 +147,6 @@ impl PageRenderer {
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
             dpi: config.dpi,
-            relative_links: config.relative_links,
-            trailing_slash: config.trailing_slash,
-            static_tabs: config.static_tabs,
             link_prefix: config.link_prefix,
         }
     }
@@ -270,18 +246,11 @@ impl PageRenderer {
         base_path: &str,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let tabs = if self.static_tabs {
-            TabsDirective::new_static()
-        } else {
-            TabsDirective::new()
-        };
-        let directives = DirectiveProcessor::new().with_container(tabs);
+        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
 
         let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_gfm(true)
             .with_base_path(format!("/{base_path}"))
-            .with_relative_links(self.relative_links)
-            .with_trailing_slash(self.trailing_slash)
             .with_directives(directives);
 
         if let Some(prefix) = &self.link_prefix {
@@ -292,7 +261,7 @@ impl PageRenderer {
             renderer = renderer.with_title_extraction();
         }
 
-        if let Some(processor) = self.create_diagram_processor(base_path, meta_include_source) {
+        if let Some(processor) = self.create_diagram_processor(meta_include_source) {
             renderer = renderer.with_processor(processor);
         }
 
@@ -301,7 +270,6 @@ impl PageRenderer {
 
     fn create_diagram_processor(
         &self,
-        base_path: &str,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
     ) -> Option<DiagramProcessor> {
         let url = self.kroki_url.as_ref()?;
@@ -315,11 +283,8 @@ impl PageRenderer {
             processor = processor.with_meta_include_source(source);
         }
 
-        if self.relative_links || self.trailing_slash || self.link_prefix.is_some() {
+        if self.link_prefix.is_some() {
             processor = processor.with_link_config(LinkConfig {
-                base_path: format!("/{base_path}"),
-                relative_links: self.relative_links,
-                trailing_slash: self.trailing_slash,
                 link_prefix: self.link_prefix.clone(),
             });
         }

@@ -13,7 +13,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: __dirname + "index.html",
-        techdocs: __dirname + "src/techdocs.ts",
       },
     },
   },

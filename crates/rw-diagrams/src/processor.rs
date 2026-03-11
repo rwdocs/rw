@@ -225,8 +225,7 @@ impl DiagramProcessor {
 
     /// Set link configuration for transforming `$link` URLs in C4 macros.
     ///
-    /// When set, diagram include URLs are transformed to match the renderer's
-    /// link mode (relative paths, trailing slashes, link prefix).
+    /// When set, diagram include URLs are transformed to prepend a link prefix.
     #[must_use]
     pub fn with_link_config(mut self, link_config: LinkConfig) -> Self {
         self.config.link_config = Some(link_config);

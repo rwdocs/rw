@@ -13,7 +13,7 @@ mod output;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use commands::{BackstageCommand, ConfluenceCommand, ServeArgs, TechdocsCommand};
+use commands::{BackstageCommand, ConfluenceCommand, ServeArgs};
 use output::Output;
 
 /// Application version from Cargo.toml.
@@ -37,9 +37,6 @@ enum Commands {
     /// Confluence publishing commands.
     #[command(subcommand)]
     Confluence(ConfluenceCommand),
-    /// `TechDocs` static site generation and publishing.
-    #[command(subcommand)]
-    Techdocs(TechdocsCommand),
 }
 
 fn main() {
@@ -65,7 +62,6 @@ fn main() {
         }
         Commands::Backstage(cmd) => cmd.execute(),
         Commands::Confluence(cmd) => cmd.execute(),
-        Commands::Techdocs(cmd) => cmd.execute(),
     };
 
     if let Err(err) = result {

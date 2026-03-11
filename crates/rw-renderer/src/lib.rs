@@ -44,4 +44,3 @@ pub use html::HtmlBackend;
 pub use renderer::{MarkdownRenderer, RenderResult};
 pub use state::{TocEntry, escape_html};
 pub use tabs::TabsDirective;
-pub use util::relative_path;

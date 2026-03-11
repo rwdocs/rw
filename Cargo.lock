@@ -2150,15 +2150,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "minijinja"
-version = "2.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ea5ea1e90055f200af6b8e52a4a34e05e77e7fee953a9fb40c631efdc43cab1"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2909,7 +2900,6 @@ dependencies = [
  "rw-storage",
  "rw-storage-fs",
  "rw-storage-s3",
- "rw-techdocs",
  "thiserror",
  "tokio",
  "tracing",
@@ -3100,24 +3090,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
- "tracing",
-]
-
-[[package]]
-name = "rw-techdocs"
-version = "0.1.17"
-dependencies = [
- "minijinja",
- "rayon",
- "rw-assets",
- "rw-cache",
- "rw-site",
- "rw-storage",
- "rw-storage-s3",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
  "tracing",
 ]
 
