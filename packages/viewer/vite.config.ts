@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [svelte(), tailwindcss(), fontPreload()],
   build: {
     sourcemap: true,
-    rollupOptions: {
+    rolldownOptions: {
       input: {
         main: __dirname + "index.html",
       },
