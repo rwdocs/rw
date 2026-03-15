@@ -151,64 +151,6 @@ test.describe("Mobile Navigation", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("API Reference");
   });
 
-  test("drawer panel stays within container bounds when container is shorter than viewport", async ({
-    page,
-  }) => {
-    await page.goto("/");
-
-    // Simulate embedded mode: constrain the viewer container so it doesn't
-    // fill the full viewport (e.g., host app has a footer below).
-    await page.getByTestId("viewer-root").evaluate((el) => {
-      el.style.height = "500px";
-      el.style.overflow = "hidden";
-    });
-
-    // Open drawer
-    await page.getByRole("button", { name: "Open menu" }).click();
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
-    const panel = drawer.getByTestId("mobile-drawer-panel");
-    await expect(panel).toBeVisible();
-
-    // The panel bottom should not extend past the container bottom
-    const [panelBottom, containerBottom] = await Promise.all([
-      panel.evaluate((el) => el.getBoundingClientRect().bottom),
-      page.getByTestId("viewer-root").evaluate((el) => el.getBoundingClientRect().bottom),
-    ]);
-
-    expect(panelBottom).toBeLessThanOrEqual(containerBottom);
-  });
-
-  test("drawer panel height updates when container resizes without viewport change", async ({
-    page,
-  }) => {
-    await page.goto("/");
-
-    // Constrain the container to simulate embedded mode
-    await page.getByTestId("viewer-root").evaluate((el) => {
-      el.style.height = "600px";
-      el.style.overflow = "hidden";
-    });
-
-    // Open drawer and read initial panel height
-    await page.getByRole("button", { name: "Open menu" }).click();
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
-    const panel = drawer.getByTestId("mobile-drawer-panel");
-    await expect(panel).toBeVisible();
-
-    const initialHeight = await panel.evaluate((el) => el.getBoundingClientRect().height);
-
-    // Shrink the container (NOT the viewport)
-    await page.getByTestId("viewer-root").evaluate((el) => {
-      el.style.height = "400px";
-    });
-
-    // Panel height should adapt to the smaller container
-    await expect(async () => {
-      const newHeight = await panel.evaluate((el) => el.getBoundingClientRect().height);
-      expect(newHeight).toBeLessThan(initialHeight);
-    }).toPass({ timeout: 2000 });
-  });
-
   test("breadcrumbs work on mobile", async ({ page }) => {
     await page.goto("/getting-started/installation");
 

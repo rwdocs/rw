@@ -52,7 +52,7 @@
   {#if open}
     <nav
       class="
-        absolute top-full right-0 z-40 mt-2 max-h-[min(24rem,calc(100cqb-5rem))] w-64
+        absolute top-full right-0 z-40 mt-2 max-h-[min(24rem,calc(100dvh-5rem))] w-64
         overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-lg
         dark:border-neutral-600 dark:bg-neutral-800
       "

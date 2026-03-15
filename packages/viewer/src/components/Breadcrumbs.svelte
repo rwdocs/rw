@@ -147,7 +147,7 @@
     {#if breadcrumbs.length > 0}
       <ol
         class="
-          flex min-w-fit min-h-8 items-center text-sm whitespace-nowrap text-gray-600
+          flex min-h-8 min-w-fit items-center text-sm whitespace-nowrap text-gray-600
           dark:text-neutral-400
         "
         bind:this={olEl}

@@ -1,0 +1,13 @@
+# Test configuration for embedded E2E tests
+# Used by Playwright to start the embedded preview server
+
+[server]
+host = "127.0.0.1"
+port = 8082
+
+[docs]
+source_dir = "docs"
+cache_enabled = false
+
+[live_reload]
+enabled = false

@@ -19,21 +19,23 @@
   const { router, navigation, page, ui } = getRwContext();
   const homeHref = router.prefixPath("/");
 
-  let contentArea: HTMLElement;
-
-  // Scroll content area to top when navigating to a new page (without hash)
+  // Scroll to top when navigating to a new page (without hash)
   $effect(() => {
     void router.path;
-    if (!untrack(() => router.hash) && contentArea) {
-      contentArea.scrollTop = 0;
+    if (!untrack(() => router.hash)) {
+      window.scrollTo(0, 0);
     }
   });
 </script>
 
 <div class="layout-container" data-testid="viewer-root">
   <LoadingBar loading={page.loading} />
+  <!-- Mobile Drawer (before header so the sticky anchor covers it in flow mode) -->
+  <MobileDrawer />
+
   <!-- Mobile Header -->
   <header
+    aria-label="Mobile header"
     class="
       layout-mobile-header sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white
       px-4 py-2
@@ -56,9 +58,6 @@
       {/if}
     {/if}
   </header>
-
-  <!-- Mobile Drawer -->
-  <MobileDrawer />
   <div
     class="
       layout-root flex h-full flex-col bg-white text-gray-900
@@ -96,15 +95,11 @@
     </aside>
 
     <!-- Main Content + ToC Container -->
-    <div
-      class="min-w-0 flex-1 overflow-y-auto"
-      data-testid="content-scroll-area"
-      bind:this={contentArea}
-    >
+    <div class="layout-content-area min-w-0" data-testid="content-area">
       <div class="layout-content mx-auto max-w-6xl px-4 pt-6 pb-12">
         {#if page.data}
           {#if page.data.toc.length > 0}
-            <div class="layout-toc-popover sticky top-6 z-30 float-right mt-[-6px]">
+            <div class="layout-toc-popover sticky top-6 z-30 float-right">
               <TocPopover toc={page.data.toc} />
             </div>
           {/if}
@@ -126,7 +121,7 @@
             <aside aria-label="Page outline" class="layout-toc hidden w-[240px] shrink-0">
               {#if page.data && page.data.toc.length > 0}
                 <div
-                  class="sticky top-6 max-h-[calc(100cqb-1.5rem)] overflow-y-auto pl-8"
+                  class="layout-toc-sticky sticky top-6 overflow-y-auto pl-8"
                   data-testid="toc-sticky-wrapper"
                 >
                   <TocSidebar toc={page.data.toc} />
@@ -144,10 +139,35 @@
   /* Use container queries instead of viewport breakpoints so the layout
      adapts to actual available space (important when embedded in a host app). */
   .layout-container {
-    container-type: size;
+    container-type: inline-size;
     position: relative;
-    height: 100%;
-    overflow: clip;
+    height: auto;
+    overflow-x: clip;
+    overflow-y: visible;
+  }
+
+  .layout-root {
+    height: auto;
+    /* The window scrolls, so headings need enough scroll-margin
+       to clear the sticky mobile header (~49px).  Set on .layout-root (not
+       .layout-container) so the @container query at 952px can reset it —
+       container queries cannot target the container element itself. */
+    --scroll-anchor-offset: 3.5rem;
+  }
+
+  .layout-content-area {
+    overflow-y: visible;
+    flex: 0 1 auto;
+  }
+
+  .layout-sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+
+  .layout-toc-sticky {
+    max-height: calc(100vh - 1.5rem);
   }
 
   /* Hide desktop breadcrumbs and content TOC popover on mobile —
@@ -178,6 +198,10 @@
     }
     .layout-root {
       flex-direction: row;
+      --scroll-anchor-offset: 1.5rem;
+    }
+    .layout-content-area {
+      flex-grow: 1;
     }
     .layout-sidebar {
       display: block;

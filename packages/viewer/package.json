@@ -18,8 +18,8 @@
     "format": "prettier --write .",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e": "npm run build && npm run build:lib && playwright test",
+    "test:e2e:ui": "npm run build && npm run build:lib && playwright test --ui"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
