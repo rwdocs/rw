@@ -2,7 +2,7 @@
 
 body {
   margin: 0;
-  height: 100vh;
+  height: auto;
   display: flex;
   flex-direction: column;
 }
@@ -53,7 +53,7 @@ body {
 .shell-body {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* Sidebar */
@@ -101,6 +101,6 @@ body {
 /* Content area */
 .shell-content {
   flex: 1;
-  overflow: auto;
+  overflow: visible;
   position: relative;
 }

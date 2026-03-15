@@ -10,106 +10,11 @@ test.describe("ToC sticky behavior", () => {
     const tocHeading = page.getByText("On this page");
     await expect(tocHeading).toBeVisible();
 
-    // Scroll the content area down
-    await page.getByTestId("content-scroll-area").evaluate((el) => {
-      el.scrollTop = el.scrollHeight;
-    });
+    // Scroll the window down
+    await page.evaluate(() => window.scrollBy(0, 1000));
 
     // The TOC should still be visible at the top after scrolling
     await expect(tocHeading).toBeInViewport();
-  });
-});
-
-test.describe("Embedded Layout", () => {
-  test.use({ viewport: { width: 1280, height: 900 } });
-
-  test("sidebar height is bounded by container, not viewport", async ({ page }) => {
-    await page.goto("/");
-
-    // Wait for desktop sidebar to be visible (requires >= 952px container width)
-    const sidebar = page.getByRole("complementary", { name: "Sidebar" });
-    await expect(sidebar).toBeVisible();
-
-    // Simulate embedded mode: constrain the viewer container to be much
-    // shorter than the viewport (e.g., host app has a header/footer).
-    const containerHeight = 400;
-    await page.getByTestId("viewer-root").evaluate((el, h) => {
-      el.style.height = `${h}px`;
-      el.style.overflow = "hidden";
-    }, containerHeight);
-
-    // The sidebar height should not exceed the container height.
-    // With the bug, it uses h-screen (100vh = 900px) which overflows
-    // the 400px container.
-    const sidebarHeight = await sidebar.evaluate((el) => el.getBoundingClientRect().height);
-
-    expect(sidebarHeight).toBeLessThanOrEqual(containerHeight);
-  });
-
-  test("ToC max-height is bounded by container, not viewport", async ({ page }) => {
-    await page.goto("/");
-
-    // Wait for ToC to be visible (requires >= 1224px container width)
-    const tocAside = page.getByRole("complementary", { name: "Page outline" });
-    await expect(tocAside).toBeVisible();
-
-    // Simulate embedded mode: constrain the viewer container to be much
-    // shorter than the viewport (e.g., host app has a header/footer).
-    const containerHeight = 400;
-    await page.getByTestId("viewer-root").evaluate((el, h) => {
-      el.style.height = `${h}px`;
-      el.style.overflow = "hidden";
-    }, containerHeight);
-
-    // The ToC sticky wrapper's max-height should not exceed the container
-    // height. With the bug, it uses 100vh (~900px) which is much larger
-    // than the 400px container.
-    await expect(async () => {
-      const maxH = await page
-        .getByTestId("toc-sticky-wrapper")
-        .evaluate((el) => parseFloat(getComputedStyle(el).maxHeight));
-      expect(maxH).toBeLessThanOrEqual(containerHeight);
-    }).toPass({ timeout: 2000 });
-  });
-
-  test("sidebar navigation is scrollable when container is shorter than content", async ({
-    page,
-  }) => {
-    await page.goto("/");
-
-    const sidebar = page.getByRole("complementary", { name: "Sidebar" });
-    await expect(sidebar).toBeVisible();
-
-    // Expand all navigation sections so the sidebar content is tall
-    for (const toggle of await sidebar.locator("button").all()) {
-      await toggle.click();
-    }
-
-    // Simulate embedded mode: the host app wraps the viewer in a
-    // fixed-height container with overflow hidden. The viewer's own
-    // sidebar must remain scrollable within these bounds.
-    const containerHeight = 150;
-    await page.getByTestId("viewer-root").evaluate((container, h) => {
-      const wrapper = document.createElement("div");
-      wrapper.style.height = `${h}px`;
-      wrapper.style.overflow = "hidden";
-      container.parentElement!.insertBefore(wrapper, container);
-      wrapper.appendChild(container);
-    }, containerHeight);
-
-    // The sidebar content should overflow and be scrollable
-    await expect(async () => {
-      const { isScrollable, canScrollToBottom } = await sidebar.evaluate((sb) => {
-        const overflows = sb.scrollHeight > sb.clientHeight;
-        sb.scrollTop = sb.scrollHeight;
-        return {
-          isScrollable: overflows,
-          canScrollToBottom: sb.scrollTop > 0,
-        };
-      });
-      expect(isScrollable).toBe(true);
-      expect(canScrollToBottom).toBe(true);
-    }).toPass({ timeout: 2000 });
   });
 });
 

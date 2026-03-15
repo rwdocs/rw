@@ -167,22 +167,19 @@ test.describe("Navigation", () => {
     // Wait for content to load
     await expect(page.getByRole("article")).toContainText("Install via npm");
 
-    // Scroll the content area to the bottom
-    const contentArea = page.getByTestId("content-scroll-area");
-    await contentArea.evaluate((el) => {
-      el.scrollTop = el.scrollHeight;
-    });
-    const scrolledTop = await contentArea.evaluate((el) => el.scrollTop);
-    expect(scrolledTop).toBeGreaterThan(0);
+    // Scroll the window down
+    await page.evaluate(() => window.scrollBy(0, 500));
+    const scrolledY = await page.evaluate(() => window.scrollY);
+    expect(scrolledY).toBeGreaterThan(0);
 
     // Click a different page in the navigation
     const aside = page.getByRole("complementary", { name: "Sidebar" });
     await aside.getByRole("link", { name: "Configuration" }).click();
     await expect(page).toHaveURL(/\/getting-started\/configuration$/);
 
-    // Content area should be scrolled to top
-    const newScrollTop = await contentArea.evaluate((el) => el.scrollTop);
-    expect(newScrollTop).toBe(0);
+    // Window should be scrolled to top
+    const newScrollY = await page.evaluate(() => window.scrollY);
+    expect(newScrollY).toBe(0);
   });
 
   test("auto-expands navigation to current page", async ({ page }) => {
