@@ -1,9 +1,9 @@
 import type { NavItem, NavGroup } from "../types";
 
 /**
- * Pluralize type names for group labels.
+ * Pluralize kind names for group labels.
  */
-function pluralizeType(type: string): string {
+function pluralizeKind(type: string): string {
   const map: Record<string, string> = {
     domain: "Domains",
     system: "Systems",
@@ -15,24 +15,24 @@ function pluralizeType(type: string): string {
 }
 
 /**
- * Group navigation items by section type.
- * Returns ungrouped items first, then typed groups (alphabetically).
+ * Group navigation items by section kind.
+ * Returns ungrouped items first, then kind groups (alphabetically).
  */
 export function groupNavItems(items: NavItem[]): NavGroup[] {
   const typedGroups = new Map<string, NavItem[]>();
   const ungrouped: NavItem[] = [];
 
   for (const item of items) {
-    if (item.sectionType) {
-      const group = typedGroups.get(item.sectionType) ?? [];
+    if (item.sectionKind) {
+      const group = typedGroups.get(item.sectionKind) ?? [];
       group.push(item);
-      typedGroups.set(item.sectionType, group);
+      typedGroups.set(item.sectionKind, group);
     } else {
       ungrouped.push(item);
     }
   }
 
-  // Build result: ungrouped first, then typed groups (sorted)
+  // Build result: ungrouped first, then kind groups (sorted)
   const groups: NavGroup[] = [];
 
   if (ungrouped.length > 0) {
@@ -42,7 +42,7 @@ export function groupNavItems(items: NavItem[]): NavGroup[] {
   const typedGroupsSorted = [...typedGroups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([type, groupItems]) => ({
-      label: pluralizeType(type),
+      label: pluralizeKind(type),
       items: groupItems,
     }));
 

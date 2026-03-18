@@ -2,8 +2,8 @@
 export interface NavItem {
   title: string;
   path: string;
-  /** Section type if this item is a section root. */
-  sectionType?: string;
+  /** Section kind if this item is a section root. */
+  sectionKind?: string;
   children?: NavItem[];
 }
 
@@ -21,8 +21,8 @@ export interface ScopeInfo {
   path: string;
   /** Display title. */
   title: string;
-  /** Section type (e.g., "domain", "system"). */
-  type: string;
+  /** Section kind (e.g., "domain", "system"). */
+  kind: string;
 }
 
 /** Complete navigation tree with scope information */
@@ -41,7 +41,7 @@ export interface PageMeta {
   sourceFile: string;
   lastModified: string; // ISO 8601
   description?: string;
-  type?: string;
+  kind?: string;
   vars?: Record<string, unknown>;
   /** Navigation scope path (without leading slash, empty for root scope). */
   navigationScope: string;
