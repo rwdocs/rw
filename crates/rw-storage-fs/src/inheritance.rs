@@ -35,7 +35,7 @@ pub(crate) fn build_ancestor_chain(path: &str) -> Vec<String> {
 ///
 /// - `title`: Never inherited (child's value or `None`)
 /// - `description`: Never inherited (child's value or `None`)
-/// - `page_type`: Never inherited (child's value or `None`)
+/// - `page_kind`: Never inherited (child's value or `None`)
 /// - `vars`: Deep merged (child values override parent keys)
 #[must_use]
 pub(crate) fn merge_metadata(parent: &Metadata, child: &Metadata) -> Metadata {
@@ -43,7 +43,7 @@ pub(crate) fn merge_metadata(parent: &Metadata, child: &Metadata) -> Metadata {
     let mut merged = Metadata {
         title: child.title.clone(),             // Never inherited
         description: child.description.clone(), // Never inherited
-        page_type: child.page_type.clone(),     // Never inherited
+        page_kind: child.page_kind.clone(),     // Never inherited
         ..Default::default()
     };
 
@@ -131,16 +131,16 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_page_type_not_inherited() {
+    fn test_merge_page_kind_not_inherited() {
         let parent = Metadata {
-            page_type: Some("domain".to_owned()),
+            page_kind: Some("domain".to_owned()),
             ..Default::default()
         };
         let child = Metadata::default();
         let merged = merge_metadata(&parent, &child);
         assert!(
-            merged.page_type.is_none(),
-            "page_type should not be inherited"
+            merged.page_kind.is_none(),
+            "page_kind should not be inherited"
         );
     }
 

@@ -58,8 +58,8 @@ use source::file_path_to_url;
 #[derive(Deserialize)]
 struct YamlFields {
     pub title: Option<String>,
-    #[serde(rename = "type")]
-    pub page_type: Option<String>,
+    #[serde(rename = "kind", alias = "type")]
+    pub page_kind: Option<String>,
     pub description: Option<String>,
 }
 
@@ -330,7 +330,7 @@ impl FsStorage {
             .and_then(|c| serde_yaml::from_str(&c).ok());
 
         let meta_title = fields.as_ref().and_then(|f| f.title.clone());
-        let page_type = fields.as_ref().and_then(|f| f.page_type.clone());
+        let page_kind = fields.as_ref().and_then(|f| f.page_kind.clone());
         let description = fields.as_ref().and_then(|f| f.description.clone());
 
         if let Some(md_path) = &doc_ref.content_path {
@@ -346,7 +346,7 @@ impl FsStorage {
                 path: doc_ref.url_path.clone(),
                 title,
                 has_content: true,
-                page_type,
+                page_kind,
                 description,
             })
         } else if doc_ref.meta_path.is_some() {
@@ -363,7 +363,7 @@ impl FsStorage {
                 path: doc_ref.url_path.clone(),
                 title,
                 has_content: false,
-                page_type,
+                page_kind,
                 description,
             })
         } else {
@@ -564,7 +564,7 @@ impl Storage for FsStorage {
                 path: String::new(),
                 title,
                 has_content: true,
-                page_type: None,
+                page_kind: None,
                 description: None,
             });
         }
@@ -798,11 +798,11 @@ impl Storage for FsStorage {
         }
 
         // If the requested path doesn't have its own metadata file,
-        // clear title/description/page_type (only vars are inherited)
+        // clear title/description/page_kind (only vars are inherited)
         if !has_own_meta && let Some(ref mut meta) = accumulated {
             meta.title = None;
             meta.description = None;
-            meta.page_type = None;
+            meta.page_kind = None;
         }
 
         Ok(accumulated)
@@ -921,12 +921,12 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_extracts_page_type() {
+    fn test_scan_extracts_page_kind() {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-        fs::write(domain_dir.join("meta.yaml"), "type: domain").unwrap();
+        fs::write(domain_dir.join("meta.yaml"), "kind: domain").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
@@ -935,7 +935,7 @@ mod tests {
         let doc = &docs[0];
         assert_eq!(doc.path, "domain");
         assert!(doc.has_content);
-        assert_eq!(doc.page_type, Some("domain".to_owned()));
+        assert_eq!(doc.page_kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -944,7 +944,7 @@ mod tests {
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-        fs::write(domain_dir.join("config.yml"), "type: section").unwrap();
+        fs::write(domain_dir.join("config.yml"), "kind: section").unwrap();
         fs::write(domain_dir.join("meta.yaml"), "ignored").unwrap(); // Should be ignored
 
         let storage = FsStorage::with_meta_filename(temp_dir.path().to_path_buf(), "config.yml");
@@ -953,11 +953,11 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert!(doc.has_content);
-        assert_eq!(doc.page_type, Some("section".to_owned()));
+        assert_eq!(doc.page_kind, Some("section".to_owned()));
     }
 
     #[test]
-    fn test_scan_no_page_type_without_type_field() {
+    fn test_scan_no_page_kind_without_kind_field() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
         fs::write(temp_dir.path().join("meta.yaml"), "title: Home Title").unwrap();
@@ -969,7 +969,7 @@ mod tests {
         let doc = &docs[0];
         assert_eq!(doc.path, "");
         assert!(doc.has_content);
-        assert!(doc.page_type.is_none()); // No type field in metadata
+        assert!(doc.page_kind.is_none()); // No kind field in metadata
     }
 
     #[test]
@@ -988,7 +988,7 @@ mod tests {
         assert_eq!(doc.path, "domain");
         assert_eq!(doc.title, "Domain Title");
         assert!(!doc.has_content); // Virtual page
-        assert!(doc.page_type.is_none());
+        assert!(doc.page_kind.is_none());
     }
 
     #[test]
@@ -996,8 +996,8 @@ mod tests {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("my-nice-domain");
         fs::create_dir(&domain_dir).unwrap();
-        // No title but has type in meta.yaml
-        fs::write(domain_dir.join("meta.yaml"), "type: domain").unwrap();
+        // No title but has kind in meta.yaml
+        fs::write(domain_dir.join("meta.yaml"), "kind: domain").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
@@ -1005,7 +1005,7 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert_eq!(doc.title, "My Nice Domain"); // Fallback to directory name
-        assert_eq!(doc.page_type, Some("domain".to_owned()));
+        assert_eq!(doc.page_kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -1029,7 +1029,7 @@ mod tests {
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
         fs::write(
             domain_dir.join("meta.yaml"),
-            "title: Domain Title\ntype: domain",
+            "title: Domain Title\nkind: domain",
         )
         .unwrap();
 
@@ -1039,7 +1039,7 @@ mod tests {
         assert!(meta.is_some());
         let meta = meta.unwrap();
         assert_eq!(meta.title, Some("Domain Title".to_owned()));
-        assert_eq!(meta.page_type, Some("domain".to_owned()));
+        assert_eq!(meta.page_kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -1108,14 +1108,14 @@ mod tests {
         let child_dir = temp_dir.path().join("child");
         fs::create_dir(&child_dir).unwrap();
         fs::write(child_dir.join("index.md"), "# Child").unwrap();
-        fs::write(child_dir.join("meta.yaml"), "type: section").unwrap();
+        fs::write(child_dir.join("meta.yaml"), "kind: section").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
         let meta = storage.meta("child").unwrap().unwrap();
 
         // Title should NOT be inherited
         assert!(meta.title.is_none());
-        assert_eq!(meta.page_type, Some("section".to_owned()));
+        assert_eq!(meta.page_kind, Some("section".to_owned()));
     }
 
     #[test]
@@ -1156,7 +1156,7 @@ mod tests {
         fs::write(parent.join("index.md"), "# Parent").unwrap();
         fs::write(
             parent.join("meta.yaml"),
-            "title: Parent Title\ndescription: Parent Desc\ntype: domain\nvars:\n  key: value",
+            "title: Parent Title\ndescription: Parent Desc\nkind: domain\nvars:\n  key: value",
         )
         .unwrap();
 
@@ -1172,10 +1172,10 @@ mod tests {
         // Only vars should be inherited
         assert_eq!(meta.vars.get("key"), Some(&serde_json::json!("value")));
 
-        // title/description/page_type should NOT be inherited
+        // title/description/page_kind should NOT be inherited
         assert!(meta.title.is_none());
         assert!(meta.description.is_none());
-        assert!(meta.page_type.is_none());
+        assert!(meta.page_kind.is_none());
     }
 
     #[test]
