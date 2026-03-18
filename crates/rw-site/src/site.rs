@@ -82,7 +82,7 @@ impl MetaIncludeSource for SiteSnapshot {
             .state
             .find_sections_by_name(&raw_name)
             .into_iter()
-            .find(|s| s.section_type == entity_type)?;
+            .find(|s| s.section_kind == entity_type)?;
 
         let has_content = self
             .state
@@ -340,7 +340,7 @@ impl Site {
     /// `has_content=false` flag.
     ///
     /// Page titles are determined by:
-    /// 1. Metadata title from storage (if page has `page_type`)
+    /// 1. Metadata title from storage (if page has `page_kind`)
     /// 2. Document title from storage (extracted from H1 or filename)
     fn load_from_storage(&self) -> SiteState {
         let mut builder = SiteStateBuilder::new();
@@ -378,7 +378,7 @@ impl Site {
                 doc.path.clone(),
                 doc.has_content,
                 parent_idx,
-                doc.page_type.as_deref(),
+                doc.page_kind.as_deref(),
                 doc.description.as_deref(),
             );
             url_to_idx.insert(doc.path.clone(), idx);
@@ -791,7 +791,7 @@ mod tests {
     #[test]
     fn test_virtual_page_discovered_from_storage() {
         let storage =
-            MockStorage::new().with_virtual_page_and_type("my-domain", "My Domain", "domain");
+            MockStorage::new().with_virtual_page_and_kind("my-domain", "My Domain", "domain");
 
         let site = create_site_with_storage(storage);
 
@@ -803,17 +803,17 @@ mod tests {
         assert_eq!(page.title, "My Domain");
         assert!(!page.has_content); // Virtual page
 
-        // page_type is tracked via sections index
+        // page_kind is tracked via sections index
         let sections = snapshot.state.find_sections_by_name("my-domain");
         assert_eq!(sections.len(), 1);
-        assert_eq!(sections[0].section_type, "domain");
+        assert_eq!(sections[0].section_kind, "domain");
     }
 
     #[test]
     fn test_real_page_with_type() {
-        // Has both content and page_type
+        // Has both content and page_kind
         let storage =
-            MockStorage::new().with_document_and_type("real-domain", "Meta Title", "domain");
+            MockStorage::new().with_document_and_kind("real-domain", "Meta Title", "domain");
 
         let site = create_site_with_storage(storage);
 
@@ -831,7 +831,7 @@ mod tests {
     #[test]
     fn test_virtual_page_renders_title_only() {
         let storage = MockStorage::new()
-            .with_virtual_page_and_type("my-domain", "My Domain", "domain")
+            .with_virtual_page_and_kind("my-domain", "My Domain", "domain")
             .with_mtime("my-domain", 1000.0)
             .with_document("my-domain/child1", "Child One")
             .with_document("my-domain/child2", "Child Two");
@@ -850,7 +850,7 @@ mod tests {
     #[test]
     fn test_virtual_page_in_navigation() {
         let storage = MockStorage::new()
-            .with_virtual_page_and_type("my-domain", "My Domain", "domain")
+            .with_virtual_page_and_kind("my-domain", "My Domain", "domain")
             .with_document("my-domain/child", "Child Page");
 
         let site = create_site_with_storage(storage);
@@ -869,9 +869,9 @@ mod tests {
         let storage = MockStorage::new()
             .with_file("", "Home", "# Home")
             // Parent virtual page
-            .with_virtual_page_and_type("domains", "Domains", "section")
+            .with_virtual_page_and_kind("domains", "Domains", "section")
             // Nested virtual page
-            .with_virtual_page_and_type("domains/billing", "Billing", "domain")
+            .with_virtual_page_and_kind("domains/billing", "Billing", "domain")
             // Real page in nested virtual
             .with_document("domains/billing/overview", "Overview");
 
