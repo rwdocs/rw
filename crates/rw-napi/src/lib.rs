@@ -48,7 +48,7 @@ fn convert_nav_item(item: NavItem) -> NavItemResponse {
     NavItemResponse {
         title: item.title,
         path: to_url_path(&item.path),
-        section_type: item.section_type,
+        section_kind: item.section_kind,
         children: if item.children.is_empty() {
             None
         } else {
@@ -62,7 +62,7 @@ fn convert_scope_info(info: ScopeInfo) -> ScopeInfoResponse {
         // ScopeInfo.path already has leading slash
         path: info.path,
         title: info.title,
-        section_type: info.section_type,
+        section_kind: info.section_kind,
     }
 }
 
@@ -197,10 +197,10 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let last_modified = last_modified.to_rfc3339();
     let navigation_scope = site.get_navigation_scope(path);
 
-    let (description, page_type, vars) = if let Some(ref meta) = result.metadata {
+    let (description, page_kind, vars) = if let Some(ref meta) = result.metadata {
         (
             meta.description.clone(),
-            meta.page_type.clone(),
+            meta.page_kind.clone(),
             if meta.vars.is_empty() {
                 None
             } else {
@@ -222,7 +222,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
             },
             last_modified,
             description,
-            page_type,
+            page_kind,
             vars,
             navigation_scope,
         },
@@ -267,13 +267,13 @@ mod tests {
         let item = NavItem {
             title: "Getting Started".to_owned(),
             path: "guide/start".to_owned(),
-            section_type: None,
+            section_kind: None,
             children: vec![],
         };
         let result = convert_nav_item(item);
         assert_eq!(result.title, "Getting Started");
         assert_eq!(result.path, "/guide/start");
-        assert_eq!(result.section_type, None);
+        assert_eq!(result.section_kind, None);
         assert!(result.children.is_none());
     }
 
@@ -282,7 +282,7 @@ mod tests {
         let item = NavItem {
             title: "Home".to_owned(),
             path: String::new(),
-            section_type: None,
+            section_kind: None,
             children: vec![],
         };
         let result = convert_nav_item(item);
@@ -294,16 +294,16 @@ mod tests {
         let item = NavItem {
             title: "Guides".to_owned(),
             path: "guides".to_owned(),
-            section_type: Some("guide".to_owned()),
+            section_kind: Some("guide".to_owned()),
             children: vec![NavItem {
                 title: "Setup".to_owned(),
                 path: "guides/setup".to_owned(),
-                section_type: None,
+                section_kind: None,
                 children: vec![],
             }],
         };
         let result = convert_nav_item(item);
-        assert_eq!(result.section_type.as_deref(), Some("guide"));
+        assert_eq!(result.section_kind.as_deref(), Some("guide"));
         let children = result.children.as_ref().expect("should have children");
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].path, "/guides/setup");
@@ -351,11 +351,11 @@ mod tests {
         let info = ScopeInfo {
             path: "/domains".to_owned(),
             title: "Domains".to_owned(),
-            section_type: "domain".to_owned(),
+            section_kind: "domain".to_owned(),
         };
         let result = convert_scope_info(info);
         assert_eq!(result.path, "/domains");
         assert_eq!(result.title, "Domains");
-        assert_eq!(result.section_type, "domain");
+        assert_eq!(result.section_kind, "domain");
     }
 }

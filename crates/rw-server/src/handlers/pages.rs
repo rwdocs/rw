@@ -48,9 +48,9 @@ struct PageMeta {
     /// Page description (from metadata).
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
-    /// Page type (from metadata, indicates a section).
-    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
-    page_type: Option<String>,
+    /// Page kind (from metadata, indicates a section).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "kind")]
+    page_kind: Option<String>,
     /// Custom variables (from metadata).
     #[serde(skip_serializing_if = "Option::is_none")]
     vars: Option<serde_json::Value>,
@@ -150,10 +150,10 @@ fn get_page_impl(
 
     // Build response using render result fields directly
     // Add leading slash to path for JSON response (frontend expects URLs with leading slash)
-    let (description, page_type, vars) = if let Some(ref meta) = result.metadata {
+    let (description, page_kind, vars) = if let Some(ref meta) = result.metadata {
         (
             meta.description.clone(),
-            meta.page_type.clone(),
+            meta.page_kind.clone(),
             if meta.vars.is_empty() {
                 None
             } else {
@@ -178,7 +178,7 @@ fn get_page_impl(
             },
             last_modified: last_modified.to_rfc3339(),
             description,
-            page_type,
+            page_kind,
             vars,
             navigation_scope,
         },
@@ -254,7 +254,7 @@ mod tests {
             source_file: "/docs/guide.md".to_owned(),
             last_modified: "2025-01-01T00:00:00Z".to_owned(),
             description: None,
-            page_type: None,
+            page_kind: None,
             vars: None,
             navigation_scope: String::new(),
         };
@@ -266,9 +266,9 @@ mod tests {
         assert_eq!(json["sourceFile"], "/docs/guide.md");
         assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
         assert_eq!(json["navigationScope"], "");
-        // description, type, and vars should be omitted when None
+        // description, kind, and vars should be omitted when None
         assert!(json.get("description").is_none());
-        assert!(json.get("type").is_none());
+        assert!(json.get("kind").is_none());
         assert!(json.get("vars").is_none());
     }
 
@@ -283,7 +283,7 @@ mod tests {
             source_file: "/docs/domain/index.md".to_owned(),
             last_modified: "2025-01-01T00:00:00Z".to_owned(),
             description: Some("Domain overview".to_owned()),
-            page_type: Some("domain".to_owned()),
+            page_kind: Some("domain".to_owned()),
             vars: Some(serde_json::to_value(vars).unwrap()),
             navigation_scope: "domain".to_owned(),
         };
@@ -292,7 +292,7 @@ mod tests {
 
         assert_eq!(json["title"], "Domain Guide");
         assert_eq!(json["description"], "Domain overview");
-        assert_eq!(json["type"], "domain");
+        assert_eq!(json["kind"], "domain");
         assert_eq!(json["vars"]["owner"], "team-a");
         assert_eq!(json["navigationScope"], "domain");
     }
