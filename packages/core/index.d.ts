@@ -27,7 +27,7 @@ export interface NavigationResponse {
 export interface NavItemResponse {
   title: string
   path: string
-  sectionType?: string
+  sectionKind?: string
   children?: Array<NavItemResponse>
 }
 
@@ -37,7 +37,7 @@ export interface PageMetaResponse {
   sourceFile: string
   lastModified: string
   description?: string
-  type?: string
+  kind?: string
   vars?: any
   navigationScope: string
 }
@@ -62,7 +62,7 @@ export interface S3Config {
 export interface ScopeInfoResponse {
   path: string
   title: string
-  type: string
+  kind: string
 }
 
 export interface SiteConfig {
