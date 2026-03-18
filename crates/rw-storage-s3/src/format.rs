@@ -73,14 +73,14 @@ mod tests {
                 path: String::new(),
                 title: "Home".to_owned(),
                 has_content: true,
-                page_type: None,
+                page_kind: None,
                 description: None,
             },
             Document {
                 path: "guide".to_owned(),
                 title: "Guide".to_owned(),
                 has_content: true,
-                page_type: Some("guide".to_owned()),
+                page_kind: Some("guide".to_owned()),
                 description: Some("Getting started".to_owned()),
             },
         ]);
@@ -100,7 +100,7 @@ mod tests {
             metadata: Some(Metadata {
                 title: Some("Hello".to_owned()),
                 description: None,
-                page_type: None,
+                page_kind: None,
                 vars: [("team".to_owned(), serde_json::json!("platform"))]
                     .into_iter()
                     .collect(),
@@ -133,12 +133,12 @@ mod tests {
             path: "guide".to_owned(),
             title: "Guide".to_owned(),
             has_content: true,
-            page_type: None,
+            page_kind: None,
             description: None,
         };
 
         let json = serde_json::to_string(&doc).unwrap();
-        assert!(!json.contains("page_type"));
+        assert!(!json.contains("page_kind"));
         assert!(!json.contains("description"));
     }
 
