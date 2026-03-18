@@ -3,7 +3,7 @@ import type { NavItem, NavGroup } from "../types";
 /**
  * Pluralize kind names for group labels.
  */
-function pluralizeKind(type: string): string {
+function pluralizeKind(kind: string): string {
   const map: Record<string, string> = {
     domain: "Domains",
     system: "Systems",
@@ -11,7 +11,7 @@ function pluralizeKind(type: string): string {
     api: "APIs",
     guide: "Guides",
   };
-  return map[type.toLowerCase()] ?? `${type}s`;
+  return map[kind.toLowerCase()] ?? `${kind}s`;
 }
 
 /**
