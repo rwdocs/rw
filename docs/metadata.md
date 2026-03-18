@@ -8,7 +8,7 @@ Pages can have metadata defined in YAML sidecar files (default: `meta.yaml` in t
 # docs/domain-a/meta.yaml
 title: "My Domain"
 description: "Domain overview"
-type: domain
+kind: domain
 vars:
   owner: team-a
   priority: 1
@@ -18,7 +18,7 @@ vars:
 
 - `title` -- custom page title (overrides H1 extraction)
 - `description` -- page description for display
-- `type` -- page type (e.g., `domain`, `guide`). Pages with `type` are registered as sections
+- `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections
 - `vars` -- custom variables (key-value pairs)
 
 ## Inheritance
@@ -27,7 +27,7 @@ Metadata is inherited from parent directories:
 
 - `title` -- never inherited
 - `description` -- never inherited
-- `type` -- never inherited
+- `kind` -- never inherited
 - `vars` -- deep merged (child values override parent keys)
 
 ## Virtual Pages
@@ -54,7 +54,7 @@ docs/
 
 ## Diagram Includes
 
-Pages with `type` set to `domain`, `system`, or `service` automatically generate PlantUML C4 model includes. Use them in PlantUML diagrams:
+Pages with `kind` set to `domain`, `system`, or `service` automatically generate PlantUML C4 model includes. Use them in PlantUML diagrams:
 
 ````plantuml
 !include systems/sys_payment_gateway.iuml
@@ -63,7 +63,7 @@ Pages with `type` set to `domain`, `system`, or `service` automatically generate
 Rel(sys_payment_gateway, sys_yookassa, "Processes payments")
 ````
 
-### Include paths by type
+### Include paths by kind
 
 | Type | Regular | External |
 |------|---------|----------|
