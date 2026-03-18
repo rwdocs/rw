@@ -38,10 +38,10 @@ pub struct Document {
     pub title: String,
     /// True if .md file exists.
     pub has_content: bool,
-    /// Page type from metadata (e.g., "domain", "guide").
+    /// Page kind from metadata (e.g., "domain", "guide").
     /// Used for section detection. Not inherited.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page_type: Option<String>,
+    pub page_kind: Option<String>,
     /// Page description from metadata.
     /// Not inherited.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,14 +311,14 @@ mod tests {
             path: String::new(),
             title: "Home".to_owned(),
             has_content: true,
-            page_type: None,
+            page_kind: None,
             description: None,
         };
 
         assert_eq!(doc.path, "");
         assert_eq!(doc.title, "Home");
         assert!(doc.has_content);
-        assert!(doc.page_type.is_none());
+        assert!(doc.page_kind.is_none());
     }
 
     #[test]
@@ -327,14 +327,14 @@ mod tests {
             path: "guide".to_owned(),
             title: "Guide".to_owned(),
             has_content: true,
-            page_type: None,
+            page_kind: None,
             description: None,
         };
 
         assert_eq!(doc.path, "guide");
         assert_eq!(doc.title, "Guide");
         assert!(doc.has_content);
-        assert!(doc.page_type.is_none());
+        assert!(doc.page_kind.is_none());
     }
 
     #[test]
@@ -343,13 +343,13 @@ mod tests {
             path: "domain/billing".to_owned(),
             title: "Billing".to_owned(),
             has_content: true,
-            page_type: Some("domain".to_owned()),
+            page_kind: Some("domain".to_owned()),
             description: None,
         };
 
         assert_eq!(doc.path, "domain/billing");
         assert!(doc.has_content);
-        assert_eq!(doc.page_type, Some("domain".to_owned()));
+        assert_eq!(doc.page_kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -358,13 +358,13 @@ mod tests {
             path: "domains".to_owned(),
             title: "Domains".to_owned(),
             has_content: false,
-            page_type: Some("section".to_owned()),
+            page_kind: Some("section".to_owned()),
             description: None,
         };
 
         assert_eq!(doc.path, "domains");
         assert!(!doc.has_content);
-        assert_eq!(doc.page_type, Some("section".to_owned()));
+        assert_eq!(doc.page_kind, Some("section".to_owned()));
     }
 
     #[test]
