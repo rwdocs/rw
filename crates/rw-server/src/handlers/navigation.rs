@@ -40,9 +40,9 @@ struct ScopeInfoResponse {
     path: String,
     /// Display title.
     title: String,
-    /// Section type.
-    #[serde(rename = "type")]
-    section_type: String,
+    /// Section kind.
+    #[serde(rename = "kind")]
+    section_kind: String,
 }
 
 impl From<ScopeInfo> for ScopeInfoResponse {
@@ -51,7 +51,7 @@ impl From<ScopeInfo> for ScopeInfoResponse {
             // ScopeInfo.path already has leading slash
             path: info.path,
             title: info.title,
-            section_type: info.section_type,
+            section_kind: info.section_kind,
         }
     }
 }
@@ -63,9 +63,9 @@ struct NavItemResponse {
     title: String,
     /// Link target path (with leading slash for frontend).
     path: String,
-    /// Section type if this item is a section root.
-    #[serde(rename = "sectionType", skip_serializing_if = "Option::is_none")]
-    section_type: Option<String>,
+    /// Section kind if this item is a section root.
+    #[serde(rename = "sectionKind", skip_serializing_if = "Option::is_none")]
+    section_kind: Option<String>,
     /// Child navigation items.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     children: Vec<NavItemResponse>,
@@ -76,7 +76,7 @@ impl From<NavItem> for NavItemResponse {
         Self {
             title: item.title,
             path: to_url_path(&item.path),
-            section_type: item.section_type,
+            section_kind: item.section_kind,
             children: item
                 .children
                 .into_iter()
@@ -120,7 +120,7 @@ mod tests {
         let nav_item = NavItem {
             title: "Guide".to_owned(),
             path: "guide".to_owned(),
-            section_type: None,
+            section_kind: None,
             children: vec![],
         };
         // Convert to NavItemResponse which adds leading slash
@@ -147,7 +147,7 @@ mod tests {
             scope: Some(ScopeInfoResponse {
                 path: "/domains/billing".to_owned(),
                 title: "Billing".to_owned(),
-                section_type: "domain".to_owned(),
+                section_kind: "domain".to_owned(),
             }),
             parent_scope: None,
         };
@@ -156,7 +156,7 @@ mod tests {
 
         assert_eq!(json["scope"]["path"], "/domains/billing");
         assert_eq!(json["scope"]["title"], "Billing");
-        assert_eq!(json["scope"]["type"], "domain");
+        assert_eq!(json["scope"]["kind"], "domain");
         assert!(json.get("parentScope").is_none());
     }
 }

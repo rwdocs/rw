@@ -36,8 +36,8 @@ pub struct S3Config {
 pub struct NavItemResponse {
     pub title: String,
     pub path: String,
-    #[napi(js_name = "sectionType")]
-    pub section_type: Option<String>,
+    #[napi(js_name = "sectionKind")]
+    pub section_kind: Option<String>,
     pub children: Option<Vec<NavItemResponse>>,
 }
 
@@ -45,8 +45,8 @@ pub struct NavItemResponse {
 pub struct ScopeInfoResponse {
     pub path: String,
     pub title: String,
-    #[napi(js_name = "type")]
-    pub section_type: String,
+    #[napi(js_name = "kind")]
+    pub section_kind: String,
 }
 
 #[napi(object)]
@@ -66,8 +66,8 @@ pub struct PageMetaResponse {
     #[napi(js_name = "lastModified")]
     pub last_modified: String,
     pub description: Option<String>,
-    #[napi(js_name = "type")]
-    pub page_type: Option<String>,
+    #[napi(js_name = "kind")]
+    pub page_kind: Option<String>,
     pub vars: Option<Value>,
     #[napi(js_name = "navigationScope")]
     pub navigation_scope: String,
