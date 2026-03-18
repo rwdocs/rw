@@ -8,7 +8,7 @@
 //!
 //! - `title`: Custom page title (overrides H1 extraction)
 //! - `description`: Page description for display
-//! - `page_type`: Page type (e.g., "domain", "guide")
+//! - `page_kind`: Page kind (e.g., "domain", "guide")
 //! - `vars`: Custom variables for templating
 
 use std::collections::HashMap;
@@ -32,10 +32,15 @@ pub struct Metadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    /// Page type (e.g., "domain", "guide", "api").
+    /// Page kind (e.g., "domain", "guide", "api").
     /// When set, the page is registered as a section.
-    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
-    pub page_type: Option<String>,
+    #[serde(
+        default,
+        rename = "kind",
+        alias = "type",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub page_kind: Option<String>,
 
     /// Custom variables for templating or frontend use.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -48,7 +53,7 @@ impl Metadata {
     pub fn is_empty(&self) -> bool {
         self.title.is_none()
             && self.description.is_none()
-            && self.page_type.is_none()
+            && self.page_kind.is_none()
             && self.vars.is_empty()
     }
 }
@@ -70,7 +75,7 @@ mod tests {
         let meta = Metadata::default();
         assert!(meta.title.is_none());
         assert!(meta.description.is_none());
-        assert!(meta.page_type.is_none());
+        assert!(meta.page_kind.is_none());
         assert!(meta.vars.is_empty());
     }
 
@@ -99,9 +104,9 @@ mod tests {
     }
 
     #[test]
-    fn test_is_empty_with_page_type() {
+    fn test_is_empty_with_page_kind() {
         let meta = Metadata {
-            page_type: Some("domain".to_owned()),
+            page_kind: Some("domain".to_owned()),
             ..Default::default()
         };
         assert!(!meta.is_empty());

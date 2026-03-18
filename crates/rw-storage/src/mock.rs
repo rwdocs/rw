@@ -63,7 +63,7 @@ impl MockStorage {
 
     /// Add a document with the given URL path and title.
     ///
-    /// The document has `has_content=true` and no `page_type`.
+    /// The document has `has_content=true` and no `page_kind`.
     ///
     /// # Panics
     ///
@@ -74,37 +74,37 @@ impl MockStorage {
             path: path.into(),
             title: title.into(),
             has_content: true,
-            page_type: None,
+            page_kind: None,
             description: None,
         });
         self
     }
 
-    /// Add a document with a page type (section).
+    /// Add a document with a page kind (section).
     ///
-    /// The document has `has_content=true` and the specified `page_type`.
+    /// The document has `has_content=true` and the specified `page_kind`.
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_document_and_type(
+    pub fn with_document_and_kind(
         self,
         path: impl Into<String>,
         title: impl Into<String>,
-        page_type: impl Into<String>,
+        page_kind: impl Into<String>,
     ) -> Self {
         self.documents.write().unwrap().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: true,
-            page_type: Some(page_type.into()),
+            page_kind: Some(page_kind.into()),
             description: None,
         });
         self
     }
 
-    /// Add a virtual page (no content, with optional type).
+    /// Add a virtual page (no content, with optional kind).
     ///
     /// The document has `has_content=false`.
     ///
@@ -117,29 +117,29 @@ impl MockStorage {
             path: path.into(),
             title: title.into(),
             has_content: false,
-            page_type: None,
+            page_kind: None,
             description: None,
         });
         self
     }
 
-    /// Add a virtual page with a page type.
+    /// Add a virtual page with a page kind.
     ///
     /// # Panics
     ///
     /// Panics if the internal lock is poisoned.
     #[must_use]
-    pub fn with_virtual_page_and_type(
+    pub fn with_virtual_page_and_kind(
         self,
         path: impl Into<String>,
         title: impl Into<String>,
-        page_type: impl Into<String>,
+        page_kind: impl Into<String>,
     ) -> Self {
         self.documents.write().unwrap().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: false,
-            page_type: Some(page_type.into()),
+            page_kind: Some(page_kind.into()),
             description: None,
         });
         self
@@ -161,7 +161,7 @@ impl MockStorage {
 
     /// Add a document with both document entry and content.
     ///
-    /// The document has `has_content=true` and no `page_type`.
+    /// The document has `has_content=true` and no `page_kind`.
     ///
     /// # Panics
     ///
@@ -178,7 +178,7 @@ impl MockStorage {
             path: path.clone(),
             title: title.into(),
             has_content: true,
-            page_type: None,
+            page_kind: None,
             description: None,
         });
         self.contents.write().unwrap().insert(path, content.into());
@@ -276,7 +276,7 @@ impl Storage for MockStorage {
                 path: d.path.clone(),
                 title: d.title.clone(),
                 has_content: d.has_content,
-                page_type: d.page_type.clone(),
+                page_kind: d.page_kind.clone(),
                 description: d.description.clone(),
             })
             .collect())
@@ -328,7 +328,7 @@ impl Storage for MockStorage {
         Ok(self.metadata.read().unwrap().get(path).map(|m| Metadata {
             title: m.title.clone(),
             description: m.description.clone(),
-            page_type: m.page_type.clone(),
+            page_kind: m.page_kind.clone(),
             vars: m.vars.clone(),
         }))
     }
@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(docs[0].path, "guide");
         assert_eq!(docs[0].title, "Guide");
         assert!(docs[0].has_content);
-        assert!(docs[0].page_type.is_none());
+        assert!(docs[0].page_kind.is_none());
         assert_eq!(docs[1].path, "api");
         assert_eq!(docs[1].title, "API");
     }
@@ -390,20 +390,20 @@ mod tests {
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].title, "User Guide");
         assert!(docs[0].has_content);
-        assert!(docs[0].page_type.is_none());
+        assert!(docs[0].page_kind.is_none());
         assert_eq!(content, "# User Guide\n\nContent.");
     }
 
     #[test]
-    fn test_with_document_and_type() {
-        let storage = MockStorage::new().with_document_and_type("domain", "Domain", "domain");
+    fn test_with_document_and_kind() {
+        let storage = MockStorage::new().with_document_and_kind("domain", "Domain", "domain");
 
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].path, "domain");
         assert!(docs[0].has_content);
-        assert_eq!(docs[0].page_type, Some("domain".to_owned()));
+        assert_eq!(docs[0].page_kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -417,20 +417,20 @@ mod tests {
         assert_eq!(doc.path, "domain");
         assert_eq!(doc.title, "Domain Title");
         assert!(!doc.has_content);
-        assert!(doc.page_type.is_none());
+        assert!(doc.page_kind.is_none());
     }
 
     #[test]
-    fn test_with_virtual_page_and_type() {
+    fn test_with_virtual_page_and_kind() {
         let storage =
-            MockStorage::new().with_virtual_page_and_type("domain", "Domain Title", "section");
+            MockStorage::new().with_virtual_page_and_kind("domain", "Domain Title", "section");
 
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert!(!doc.has_content);
-        assert_eq!(doc.page_type, Some("section".to_owned()));
+        assert_eq!(doc.page_kind, Some("section".to_owned()));
     }
 
     #[test]
@@ -452,7 +452,7 @@ mod tests {
     fn test_meta_returns_stored_metadata() {
         let meta = Metadata {
             title: Some("Domain Title".to_owned()),
-            page_type: Some("domain".to_owned()),
+            page_kind: Some("domain".to_owned()),
             ..Default::default()
         };
         let storage = MockStorage::new().with_metadata("domain", meta);
@@ -462,7 +462,7 @@ mod tests {
         assert!(result.is_some());
         let result = result.unwrap();
         assert_eq!(result.title, Some("Domain Title".to_owned()));
-        assert_eq!(result.page_type, Some("domain".to_owned()));
+        assert_eq!(result.page_kind, Some("domain".to_owned()));
     }
 
     #[test]
