@@ -19,7 +19,7 @@ use crate::kroki::{
     render_all_svg_partial,
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
-use crate::meta_includes::{LinkConfig, MetaIncludeSource};
+use crate::meta_includes::MetaIncludeSource;
 use crate::output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
 use crate::plantuml::{PrepareResult, prepare_diagram_source, resolve_includes};
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
@@ -45,8 +45,6 @@ struct ProcessorConfig {
     agent: Agent,
     /// Optional metadata source for resolving virtual `PlantUML` includes.
     meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
-    /// Optional link configuration for transforming `$link` URLs in C4 macros.
-    link_config: Option<LinkConfig>,
 }
 
 /// Code block processor for diagram languages.
@@ -112,7 +110,6 @@ impl DiagramProcessor {
                 output: DiagramOutput::default(),
                 agent: create_agent(DEFAULT_TIMEOUT),
                 meta_include_source: None,
-                link_config: None,
             },
             extracted: Vec::new(),
             warnings: Vec::new(),
@@ -223,15 +220,6 @@ impl DiagramProcessor {
         self
     }
 
-    /// Set link configuration for transforming `$link` URLs in C4 macros.
-    ///
-    /// When set, diagram include URLs are transformed to prepend a link prefix.
-    #[must_use]
-    pub fn with_link_config(mut self, link_config: LinkConfig) -> Self {
-        self.config.link_config = Some(link_config);
-        self
-    }
-
     /// Prepare diagram source for rendering.
     ///
     /// For `PlantUML` diagrams, this resolves `!include` directives and injects config.
@@ -243,7 +231,6 @@ impl DiagramProcessor {
                 &config.include_dirs,
                 config.dpi,
                 config.meta_include_source.as_deref(),
-                config.link_config.as_ref(),
             )
         } else {
             PrepareResult {
@@ -345,8 +332,7 @@ impl CodeBlockProcessor for DiagramProcessor {
         let resolved = resolve_includes(
             source,
             &self.config.include_dirs,
-            None, // Skip meta includes — resolved at request time with link_prefix
-            None,
+            None, // Skip meta includes — resolved at request time
             0,
             &mut warnings,
         );

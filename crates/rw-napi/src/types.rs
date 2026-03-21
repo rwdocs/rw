@@ -14,8 +14,6 @@ pub struct SiteConfig {
     #[napi(js_name = "projectDir")]
     pub project_dir: Option<String>,
     pub s3: Option<S3Config>,
-    #[napi(js_name = "linkPrefix")]
-    pub link_prefix: Option<String>,
     pub diagrams: Option<DiagramsConfig>,
 }
 
