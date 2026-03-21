@@ -11,6 +11,7 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
+use rw_sections::Section;
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +59,8 @@ pub struct BreadcrumbItem {
     pub title: String,
     /// Link target path.
     pub path: String,
+    /// Section identity if this breadcrumb's path matches a section.
+    pub section: Option<Section>,
 }
 
 /// Result of rendering a markdown page.
@@ -157,10 +160,20 @@ impl PageRenderer {
         breadcrumbs: Vec<BreadcrumbItem>,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
     ) -> Result<PageRenderResult, RenderError> {
-        if !page.has_content {
-            return Ok(self.render_virtual(path, page, breadcrumbs));
+        if page.has_content {
+            self.render_content(path, page, breadcrumbs, meta_include_source)
+        } else {
+            Ok(self.render_virtual(path, page, breadcrumbs))
         }
+    }
 
+    fn render_content(
+        &self,
+        path: &str,
+        page: &Page,
+        breadcrumbs: Vec<BreadcrumbItem>,
+        meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    ) -> Result<PageRenderResult, RenderError> {
         let source_mtime = self
             .storage
             .mtime(path)

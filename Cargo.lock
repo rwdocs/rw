@@ -3002,6 +3002,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-sections"
+version = "0.1.17"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "rw-server"
 version = "0.1.17"
 dependencies = [
@@ -3038,6 +3045,7 @@ dependencies = [
  "rw-cache",
  "rw-diagrams",
  "rw-renderer",
+ "rw-sections",
  "rw-storage",
  "rw-storage-fs",
  "serde",

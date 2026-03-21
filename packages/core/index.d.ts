@@ -9,6 +9,7 @@ export declare class RwSite {
 export interface BreadcrumbResponse {
   title: string
   path: string
+  section?: SectionResponse
 }
 
 export declare function createSite(config: SiteConfig): RwSite

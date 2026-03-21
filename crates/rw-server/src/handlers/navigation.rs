@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Query, State};
-use rw_site::{NavItem, ScopeInfo};
+use rw_site::{NavItem, ScopeInfo, Section};
 use serde::{Deserialize, Serialize};
 
-use crate::handlers::{SectionResponse, to_url_path};
+use crate::handlers::to_url_path;
 use crate::state::AppState;
 
 /// Query parameters for GET /api/navigation.
@@ -41,7 +41,7 @@ struct ScopeInfoResponse {
     /// Display title.
     title: String,
     /// Section identity.
-    section: SectionResponse,
+    section: Section,
 }
 
 impl From<ScopeInfo> for ScopeInfoResponse {
@@ -49,7 +49,7 @@ impl From<ScopeInfo> for ScopeInfoResponse {
         Self {
             path: info.path,
             title: info.title,
-            section: info.section.into(),
+            section: info.section,
         }
     }
 }
@@ -63,7 +63,7 @@ struct NavItemResponse {
     path: String,
     /// Section identity if this item's path matches a section.
     #[serde(skip_serializing_if = "Option::is_none")]
-    section: Option<SectionResponse>,
+    section: Option<Section>,
     /// Child navigation items.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     children: Vec<NavItemResponse>,
@@ -74,7 +74,7 @@ impl From<NavItem> for NavItemResponse {
         Self {
             title: item.title,
             path: to_url_path(&item.path),
-            section: item.section.map(SectionResponse::from),
+            section: item.section,
             children: item
                 .children
                 .into_iter()
@@ -145,7 +145,7 @@ mod tests {
             scope: Some(ScopeInfoResponse {
                 path: "/domains/billing".to_owned(),
                 title: "Billing".to_owned(),
-                section: SectionResponse {
+                section: Section {
                     kind: "domain".to_owned(),
                     name: "billing".to_owned(),
                 },
