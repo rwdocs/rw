@@ -1,9 +1,17 @@
+/** Section identity from the API. */
+export interface Section {
+  /** Section kind (e.g., "domain", "system"). */
+  kind: string;
+  /** Section name — last path segment (e.g., "billing"). */
+  name: string;
+}
+
 /** Navigation tree item from GET /api/navigation */
 export interface NavItem {
   title: string;
   path: string;
-  /** Section kind if this item is a section root. */
-  sectionKind?: string;
+  /** Section identity if this item is a section root. */
+  section?: Section;
   children?: NavItem[];
 }
 
@@ -21,8 +29,8 @@ export interface ScopeInfo {
   path: string;
   /** Display title. */
   title: string;
-  /** Section kind (e.g., "domain", "system"). */
-  kind: string;
+  /** Section identity. */
+  section: Section;
 }
 
 /** Complete navigation tree with scope information */

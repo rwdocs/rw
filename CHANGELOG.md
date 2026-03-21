@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Section metadata field renamed from `type` to `kind` to align with Backstage and Kubernetes conventions — `type` is still accepted in YAML for backward compatibility
-- API responses now use `kind` (was `type`) and `sectionKind` (was `sectionType`)
+- API responses now use a nested `section: { kind, name }` object (was flat `sectionType` field) on navigation items, scope info, and `@rwdocs/core` responses
 - Embedded viewer (`mountRw()`) now uses flow layout — content takes its natural height and the parent page controls scrolling, instead of filling a fixed container with internal scroll
 
 ### Removed

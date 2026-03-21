@@ -27,7 +27,7 @@ export interface NavigationResponse {
 export interface NavItemResponse {
   title: string
   path: string
-  sectionKind?: string
+  section?: SectionResponse
   children?: Array<NavItemResponse>
 }
 
@@ -62,7 +62,12 @@ export interface S3Config {
 export interface ScopeInfoResponse {
   path: string
   title: string
+  section: SectionResponse
+}
+
+export interface SectionResponse {
   kind: string
+  name: string
 }
 
 export interface SiteConfig {
