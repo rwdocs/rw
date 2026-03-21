@@ -58,8 +58,6 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     alert_stack: Vec<Option<AlertKind>>,
     /// Optional directive processor for `CommonMark` directives.
     directives: Option<DirectiveProcessor>,
-    /// Prefix prepended to all resolved internal link paths (e.g. `/rw-docs`).
-    link_prefix: Option<String>,
     _backend: PhantomData<B>,
 }
 
@@ -82,7 +80,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             gfm: true,
             alert_stack: Vec::new(),
             directives: None,
-            link_prefix: None,
             _backend: PhantomData,
         }
     }
@@ -150,18 +147,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn with_directives(mut self, processor: DirectiveProcessor) -> Self {
         self.directives = Some(processor);
-        self
-    }
-
-    /// Set a prefix for all resolved internal link paths (e.g., `/rw-docs`).
-    ///
-    /// When set, absolute link paths like `/docs/guide` become `/rw-docs/docs/guide`.
-    /// External links, fragment links, and protocol-relative links are not affected.
-    ///
-    /// The prefix should not end with `/` to avoid double slashes in output.
-    #[must_use]
-    pub fn with_link_prefix(mut self, prefix: impl Into<String>) -> Self {
-        self.link_prefix = Some(prefix.into());
         self
     }
 
@@ -267,24 +252,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         } else {
             self.output.push_str(content);
         }
-    }
-
-    /// Apply link-prefix transformation to a resolved href.
-    ///
-    /// Handles fragment (`#section`) correctly by splitting before path manipulation
-    /// and rejoining after.
-    fn resolve_href(&self, href: &str) -> String {
-        if let Some(prefix) = &self.link_prefix
-            && href.starts_with('/')
-        {
-            // Split fragment before path manipulation
-            let (path, fragment) = match href.find('#') {
-                Some(pos) => (&href[..pos], &href[pos..]),
-                None => (href, ""),
-            };
-            return format!("{prefix}{path}{fragment}");
-        }
-        href.to_owned()
     }
 
     /// Render markdown events and return the result.
@@ -406,7 +373,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Strikethrough => self.push_inline("<s>"),
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
-                let href = self.resolve_href(&href);
                 let link_tag = format!(r#"<a href="{}">"#, escape_html(&href));
                 self.push_inline(&link_tag);
             }
@@ -1128,45 +1094,5 @@ Install with apt.
         let result = renderer.render_markdown(":::tab[Test]\nContent");
 
         assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
-    }
-
-    #[test]
-    fn test_link_prefix_prepends_to_internal_links() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/docs/usage")
-            .with_link_prefix("/rw-docs");
-        let result = renderer.render_markdown("[link](./quick-start.md)");
-        assert!(
-            result
-                .html
-                .contains(r#"href="/rw-docs/docs/usage/quick-start""#)
-        );
-    }
-
-    #[test]
-    fn test_link_prefix_skips_external_links() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/docs")
-            .with_link_prefix("/rw-docs");
-        let result = renderer.render_markdown("[link](https://example.com)");
-        assert!(result.html.contains(r#"href="https://example.com""#));
-    }
-
-    #[test]
-    fn test_link_prefix_skips_fragment_links() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/docs")
-            .with_link_prefix("/rw-docs");
-        let result = renderer.render_markdown("[link](#section)");
-        assert!(result.html.contains(r##"href="#section""##));
-    }
-
-    #[test]
-    fn test_link_prefix_preserves_fragment_on_internal_links() {
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_base_path("/docs")
-            .with_link_prefix("/rw-docs");
-        let result = renderer.render_markdown("[link](./page.md#section)");
-        assert!(result.html.contains(r#"href="/rw-docs/docs/page#section""#));
     }
 }

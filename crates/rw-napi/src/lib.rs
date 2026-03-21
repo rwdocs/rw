@@ -81,8 +81,6 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
         ));
     }
 
-    let link_prefix = config.link_prefix;
-
     let (storage, renderer_config, cache): (
         Arc<dyn Storage>,
         PageRendererConfig,
@@ -117,7 +115,6 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
 
         let mut renderer_config = PageRendererConfig {
             extract_title: true,
-            link_prefix,
             ..Default::default()
         };
         apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
@@ -142,7 +139,6 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             kroki_url: rw_config.diagrams_resolved.kroki_url,
             include_dirs: rw_config.diagrams_resolved.include_dirs,
             dpi: rw_config.diagrams_resolved.dpi,
-            link_prefix,
             ..Default::default()
         };
         apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());

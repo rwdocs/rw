@@ -73,7 +73,6 @@ export interface SectionResponse {
 export interface SiteConfig {
   projectDir?: string
   s3?: S3Config
-  linkPrefix?: string
   diagrams?: DiagramsConfig
 }
 

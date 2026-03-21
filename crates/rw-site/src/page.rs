@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramProcessor, LinkConfig, MetaIncludeSource};
+use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
@@ -27,10 +27,6 @@ pub struct PageRendererConfig {
     pub include_dirs: Vec<PathBuf>,
     /// DPI for diagram rendering (default: 192 for retina).
     pub dpi: u32,
-    /// Prefix prepended to all resolved internal link paths (e.g. `/rw-docs`).
-    ///
-    /// Default: `None` (no prefix).
-    pub link_prefix: Option<String>,
 }
 
 impl Default for PageRendererConfig {
@@ -40,7 +36,6 @@ impl Default for PageRendererConfig {
             kroki_url: None,
             include_dirs: Vec::new(),
             dpi: 192,
-            link_prefix: None,
         }
     }
 }
@@ -129,7 +124,6 @@ pub(crate) struct PageRenderer {
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
     dpi: u32,
-    link_prefix: Option<String>,
 }
 
 impl PageRenderer {
@@ -147,7 +141,6 @@ impl PageRenderer {
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
             dpi: config.dpi,
-            link_prefix: config.link_prefix,
         }
     }
 
@@ -253,10 +246,6 @@ impl PageRenderer {
             .with_base_path(format!("/{base_path}"))
             .with_directives(directives);
 
-        if let Some(prefix) = &self.link_prefix {
-            renderer = renderer.with_link_prefix(prefix);
-        }
-
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
@@ -281,12 +270,6 @@ impl PageRenderer {
 
         if let Some(source) = meta_include_source {
             processor = processor.with_meta_include_source(source);
-        }
-
-        if self.link_prefix.is_some() {
-            processor = processor.with_link_config(LinkConfig {
-                link_prefix: self.link_prefix.clone(),
-            });
         }
 
         Some(processor)
