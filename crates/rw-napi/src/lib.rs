@@ -227,6 +227,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
             .map(|b| BreadcrumbResponse {
                 title: b.title,
                 path: to_url_path(&b.path),
+                section: b.section.map(SectionResponse::from),
             })
             .collect(),
         toc: result

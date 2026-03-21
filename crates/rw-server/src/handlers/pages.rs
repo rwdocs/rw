@@ -13,7 +13,7 @@ use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
 use md5::{Digest, Md5};
 use rw_renderer::TocEntry;
-use rw_site::BreadcrumbItem;
+use rw_site::{BreadcrumbItem, Section};
 use serde::Serialize;
 
 use crate::error::HandlerError;
@@ -65,6 +65,9 @@ struct BreadcrumbResponse {
     title: String,
     /// Link target path.
     path: String,
+    /// Section identity if this breadcrumb's path matches a section.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    section: Option<Section>,
 }
 
 impl From<BreadcrumbItem> for BreadcrumbResponse {
@@ -72,6 +75,7 @@ impl From<BreadcrumbItem> for BreadcrumbResponse {
         Self {
             title: item.title,
             path: to_url_path(&item.path),
+            section: item.section,
         }
     }
 }

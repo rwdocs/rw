@@ -146,11 +146,15 @@ crates/
 │   └── src/
 │       └── lib.rs            # S3Cache, S3CacheBucket
 │
+├── rw-sections/           # Section reference types and utilities
+│   └── src/
+│       └── lib.rs            # Section, SectionRef, find_section_ref, section_name
+│
 ├── rw-site/               # Site structure and page rendering
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── site.rs           # Site (state management + reload), SiteSnapshot
-│       ├── site_state.rs     # SiteState (pure data), NavItem, SectionInfo
+│       ├── site_state.rs     # SiteState (pure data), NavItem, ScopeInfo
 │       └── page.rs            # Page, BreadcrumbItem, PageRenderer, PageRendererConfig, PageRenderResult, RenderError
 │
 ├── rw-storage/            # Storage abstraction layer (core traits)

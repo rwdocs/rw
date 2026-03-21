@@ -89,6 +89,7 @@ pub struct PageMetaResponse {
 pub struct BreadcrumbResponse {
     pub title: String,
     pub path: String,
+    pub section: Option<SectionResponse>,
 }
 
 #[napi(object)]

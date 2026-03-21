@@ -1,5 +1,5 @@
 /** Section identity from the API. */
-export interface Section {
+export interface SectionInfo {
   /** Section kind (e.g., "domain", "system"). */
   kind: string;
   /** Section name — last path segment (e.g., "billing"). */
@@ -10,8 +10,10 @@ export interface Section {
 export interface NavItem {
   title: string;
   path: string;
+  /** Resolved external URL for cross-section navigation (bypasses prefixPath). */
+  href?: string;
   /** Section identity if this item is a section root. */
-  section?: Section;
+  section?: SectionInfo;
   children?: NavItem[];
 }
 
@@ -27,10 +29,12 @@ export interface NavGroup {
 export interface ScopeInfo {
   /** URL path (with leading slash). */
   path: string;
+  /** Resolved external URL for cross-section navigation (bypasses prefixPath). */
+  href?: string;
   /** Display title. */
   title: string;
   /** Section identity. */
-  section: Section;
+  section: SectionInfo;
 }
 
 /** Complete navigation tree with scope information */
@@ -59,6 +63,10 @@ export interface PageMeta {
 export interface Breadcrumb {
   title: string;
   path: string;
+  /** Resolved external URL for cross-section navigation (bypasses prefixPath). */
+  href?: string;
+  /** Section identity if this breadcrumb's path matches a section. */
+  section?: SectionInfo;
 }
 
 /** Table of contents entry */

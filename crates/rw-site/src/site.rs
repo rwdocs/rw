@@ -51,6 +51,7 @@ use crate::page::{
 use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
 use rw_diagrams::{EntityInfo, MetaIncludeSource};
+use rw_sections::Sections;
 use rw_storage::Storage;
 
 /// Get the depth of a URL path.
@@ -73,6 +74,7 @@ fn url_depth(path: &str) -> usize {
 /// include resolution using the state's name-based section index.
 pub(crate) struct SiteSnapshot {
     pub(crate) state: SiteState,
+    pub(crate) sections: Arc<Sections>,
 }
 
 impl MetaIncludeSource for SiteSnapshot {
@@ -147,6 +149,7 @@ impl Site {
         let initial_state = SiteStateBuilder::new().build();
         let initial_snapshot = Arc::new(SiteSnapshot {
             state: initial_state,
+            sections: Arc::new(Sections::default()),
         });
         let site_bucket = cache.bucket("site");
         let renderer = PageRenderer::new(Arc::clone(&storage), cache, config);
@@ -287,7 +290,8 @@ impl Site {
             state
         };
 
-        let snapshot = Arc::new(SiteSnapshot { state });
+        let sections = state.build_sections();
+        let snapshot = Arc::new(SiteSnapshot { state, sections });
 
         *self.current_snapshot.write().unwrap() = Arc::clone(&snapshot);
         self.cache_valid.store(true, Ordering::Release);
@@ -330,7 +334,13 @@ impl Site {
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
         let breadcrumbs = snapshot.state.get_breadcrumbs(path);
         let meta = Arc::clone(&snapshot) as Arc<dyn MetaIncludeSource>;
-        self.renderer.render(path, page, breadcrumbs, Some(meta))
+        let mut result = self.renderer.render(path, page, breadcrumbs, Some(meta))?;
+        for crumb in &mut result.breadcrumbs {
+            if let Some(section) = snapshot.sections.get(&crumb.path) {
+                crumb.section = Some(section.clone());
+            }
+        }
+        Ok(result)
     }
 
     /// Load site state from storage and build hierarchy.

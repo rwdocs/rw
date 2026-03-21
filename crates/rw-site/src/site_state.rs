@@ -13,23 +13,16 @@
 //! - O(d) breadcrumb building where d is the page depth
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use rw_cache::{CacheBucket, CacheBucketExt};
+use rw_sections::{Section, Sections};
 use serde::{Deserialize, Serialize};
 
 use crate::page::{BreadcrumbItem, Page};
 
-/// Section identity for API responses.
-#[derive(Debug, PartialEq, Eq, Serialize)]
-pub struct Section {
-    /// Section kind (e.g., `"component"`, `"domain"`).
-    pub kind: String,
-    /// Section name — last path segment (e.g., `"billing"`).
-    pub name: String,
-}
-
-/// Extract the last segment of a URL path as the section name.
-fn section_name(path: &str) -> &str {
+/// Extracts the last path segment from a `/`-separated path.
+fn last_segment(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
@@ -68,7 +61,7 @@ impl From<&SectionInfo> for Section {
     fn from(info: &SectionInfo) -> Self {
         Self {
             kind: info.section_kind.clone(),
-            name: section_name(&info.path).to_owned(),
+            name: last_segment(&info.path).to_owned(),
         }
     }
 }
@@ -167,7 +160,7 @@ impl SiteState {
         let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();
         for path in sections.keys() {
             if let Some(&idx) = path_index.get(path.as_str()) {
-                let dir_name = section_name(path);
+                let dir_name = last_segment(path);
                 sections_by_name
                     .entry(dir_name.to_owned())
                     .or_default()
@@ -262,6 +255,7 @@ impl SiteState {
             return vec![BreadcrumbItem {
                 title: "Home".to_owned(),
                 path: String::new(),
+                section: None,
             }];
         };
 
@@ -280,6 +274,7 @@ impl SiteState {
         let mut breadcrumbs = vec![BreadcrumbItem {
             title: "Home".to_owned(),
             path: String::new(),
+            section: None,
         }];
 
         // Skip the last element (current page) and exclude root page (already represented by Home)
@@ -291,6 +286,7 @@ impl SiteState {
                 .map(|page| BreadcrumbItem {
                     title: page.title.clone(),
                     path: page.path.clone(),
+                    section: None,
                 }),
         );
 
@@ -381,7 +377,7 @@ impl SiteState {
             let scope = Some(ScopeInfo {
                 path: format!("/{scope_path}"),
                 title: section.title.clone(),
-                section: Section::from(section),
+                section: section.into(),
             });
 
             // Find parent section for back navigation
@@ -428,6 +424,7 @@ impl SiteState {
     /// Only includes children that have markdown content in their subtree.
     fn build_nav_item_with_section_cutoff(&self, page: &Page) -> NavItem {
         let section_info = self.sections.get(&page.path);
+        let section = section_info.map(Section::from);
 
         // Sections become leaf nodes - don't include children
         let children = if section_info.is_some() {
@@ -438,8 +435,6 @@ impl SiteState {
                 .map(|child| self.build_nav_item_with_section_cutoff(child))
                 .collect()
         };
-
-        let section = section_info.map(Section::from);
 
         NavItem {
             title: page.title.clone(),
@@ -465,12 +460,26 @@ impl SiteState {
                 return Some(ScopeInfo {
                     path: format!("/{parent}"),
                     title: section.title.clone(),
-                    section: Section::from(section),
+                    section: section.into(),
                 });
             }
             current = parent;
         }
         None
+    }
+
+    /// Build a sections map for cross-section link annotation.
+    ///
+    /// Maps section root paths to `Section` structs containing the section
+    /// kind and name (last path segment).
+    #[must_use]
+    pub fn build_sections(&self) -> Arc<Sections> {
+        Arc::new(Sections::new(
+            self.sections
+                .iter()
+                .map(|(path, info)| (path.clone(), Section::from(info)))
+                .collect(),
+        ))
     }
 }
 
@@ -854,6 +863,7 @@ mod tests {
         let item = BreadcrumbItem {
             title: "Home".to_owned(),
             path: String::new(),
+            section: None,
         };
 
         assert_eq!(item.title, "Home");
@@ -989,7 +999,7 @@ mod tests {
     }
 
     #[test]
-    fn test_navigation_includes_section_kind() {
+    fn test_navigation_includes_section() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page("Home".to_owned(), String::new(), true, None, None, None);
         builder.add_page(
