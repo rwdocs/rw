@@ -9,7 +9,7 @@ use axum::extract::{Query, State};
 use rw_site::{NavItem, ScopeInfo};
 use serde::{Deserialize, Serialize};
 
-use crate::handlers::to_url_path;
+use crate::handlers::{SectionResponse, to_url_path};
 use crate::state::AppState;
 
 /// Query parameters for GET /api/navigation.
@@ -40,18 +40,16 @@ struct ScopeInfoResponse {
     path: String,
     /// Display title.
     title: String,
-    /// Section kind.
-    #[serde(rename = "kind")]
-    section_kind: String,
+    /// Section identity.
+    section: SectionResponse,
 }
 
 impl From<ScopeInfo> for ScopeInfoResponse {
     fn from(info: ScopeInfo) -> Self {
         Self {
-            // ScopeInfo.path already has leading slash
             path: info.path,
             title: info.title,
-            section_kind: info.section_kind,
+            section: info.section.into(),
         }
     }
 }
@@ -63,9 +61,9 @@ struct NavItemResponse {
     title: String,
     /// Link target path (with leading slash for frontend).
     path: String,
-    /// Section kind if this item is a section root.
-    #[serde(rename = "sectionKind", skip_serializing_if = "Option::is_none")]
-    section_kind: Option<String>,
+    /// Section identity if this item's path matches a section.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    section: Option<SectionResponse>,
     /// Child navigation items.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     children: Vec<NavItemResponse>,
@@ -76,7 +74,7 @@ impl From<NavItem> for NavItemResponse {
         Self {
             title: item.title,
             path: to_url_path(&item.path),
-            section_kind: item.section_kind,
+            section: item.section.map(SectionResponse::from),
             children: item
                 .children
                 .into_iter()
@@ -120,7 +118,7 @@ mod tests {
         let nav_item = NavItem {
             title: "Guide".to_owned(),
             path: "guide".to_owned(),
-            section_kind: None,
+            section: None,
             children: vec![],
         };
         // Convert to NavItemResponse which adds leading slash
@@ -147,7 +145,10 @@ mod tests {
             scope: Some(ScopeInfoResponse {
                 path: "/domains/billing".to_owned(),
                 title: "Billing".to_owned(),
-                section_kind: "domain".to_owned(),
+                section: SectionResponse {
+                    kind: "domain".to_owned(),
+                    name: "billing".to_owned(),
+                },
             }),
             parent_scope: None,
         };
@@ -156,7 +157,8 @@ mod tests {
 
         assert_eq!(json["scope"]["path"], "/domains/billing");
         assert_eq!(json["scope"]["title"], "Billing");
-        assert_eq!(json["scope"]["kind"], "domain");
+        assert_eq!(json["scope"]["section"]["kind"], "domain");
+        assert_eq!(json["scope"]["section"]["name"], "billing");
         assert!(json.get("parentScope").is_none());
     }
 }

@@ -1,4 +1,5 @@
 use napi_derive::napi;
+use rw_site::Section;
 use serde_json::Value;
 
 #[napi(object)]
@@ -33,11 +34,25 @@ pub struct S3Config {
 }
 
 #[napi(object)]
+pub struct SectionResponse {
+    pub kind: String,
+    pub name: String,
+}
+
+impl From<Section> for SectionResponse {
+    fn from(s: Section) -> Self {
+        Self {
+            kind: s.kind,
+            name: s.name,
+        }
+    }
+}
+
+#[napi(object)]
 pub struct NavItemResponse {
     pub title: String,
     pub path: String,
-    #[napi(js_name = "sectionKind")]
-    pub section_kind: Option<String>,
+    pub section: Option<SectionResponse>,
     pub children: Option<Vec<NavItemResponse>>,
 }
 
@@ -45,8 +60,7 @@ pub struct NavItemResponse {
 pub struct ScopeInfoResponse {
     pub path: String,
     pub title: String,
-    #[napi(js_name = "kind")]
-    pub section_kind: String,
+    pub section: SectionResponse,
 }
 
 #[napi(object)]

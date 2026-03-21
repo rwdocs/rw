@@ -18,7 +18,7 @@ use rw_storage_s3::{S3Config, S3Storage};
 
 use crate::types::{
     BreadcrumbResponse, DiagramsConfig, NavItemResponse, NavigationResponse, PageMetaResponse,
-    PageResponse, ScopeInfoResponse, SiteConfig, TocEntryResponse,
+    PageResponse, ScopeInfoResponse, SectionResponse, SiteConfig, TocEntryResponse,
 };
 
 fn apply_diagrams_config(
@@ -48,7 +48,7 @@ fn convert_nav_item(item: NavItem) -> NavItemResponse {
     NavItemResponse {
         title: item.title,
         path: to_url_path(&item.path),
-        section_kind: item.section_kind,
+        section: item.section.map(SectionResponse::from),
         children: if item.children.is_empty() {
             None
         } else {
@@ -59,10 +59,9 @@ fn convert_nav_item(item: NavItem) -> NavItemResponse {
 
 fn convert_scope_info(info: ScopeInfo) -> ScopeInfoResponse {
     ScopeInfoResponse {
-        // ScopeInfo.path already has leading slash
         path: info.path,
         title: info.title,
-        section_kind: info.section_kind,
+        section: info.section.into(),
     }
 }
 
@@ -267,13 +266,13 @@ mod tests {
         let item = NavItem {
             title: "Getting Started".to_owned(),
             path: "guide/start".to_owned(),
-            section_kind: None,
+            section: None,
             children: vec![],
         };
         let result = convert_nav_item(item);
         assert_eq!(result.title, "Getting Started");
         assert_eq!(result.path, "/guide/start");
-        assert_eq!(result.section_kind, None);
+        assert!(result.section.is_none());
         assert!(result.children.is_none());
     }
 
@@ -282,7 +281,7 @@ mod tests {
         let item = NavItem {
             title: "Home".to_owned(),
             path: String::new(),
-            section_kind: None,
+            section: None,
             children: vec![],
         };
         let result = convert_nav_item(item);
@@ -294,16 +293,19 @@ mod tests {
         let item = NavItem {
             title: "Guides".to_owned(),
             path: "guides".to_owned(),
-            section_kind: Some("guide".to_owned()),
+            section: Some(rw_site::Section {
+                kind: "guide".to_owned(),
+                name: "guides".to_owned(),
+            }),
             children: vec![NavItem {
                 title: "Setup".to_owned(),
                 path: "guides/setup".to_owned(),
-                section_kind: None,
+                section: None,
                 children: vec![],
             }],
         };
         let result = convert_nav_item(item);
-        assert_eq!(result.section_kind.as_deref(), Some("guide"));
+        assert_eq!(result.section.as_ref().unwrap().kind, "guide");
         let children = result.children.as_ref().expect("should have children");
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].path, "/guides/setup");
@@ -351,11 +353,15 @@ mod tests {
         let info = ScopeInfo {
             path: "/domains".to_owned(),
             title: "Domains".to_owned(),
-            section_kind: "domain".to_owned(),
+            section: rw_site::Section {
+                kind: "domain".to_owned(),
+                name: "domains".to_owned(),
+            },
         };
         let result = convert_scope_info(info);
         assert_eq!(result.path, "/domains");
         assert_eq!(result.title, "Domains");
-        assert_eq!(result.section_kind, "domain");
+        assert_eq!(result.section.kind, "domain");
+        assert_eq!(result.section.name, "domains");
     }
 }

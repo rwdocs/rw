@@ -19,14 +19,14 @@ function pluralizeKind(kind: string): string {
  * Returns ungrouped items first, then kind groups (alphabetically).
  */
 export function groupNavItems(items: NavItem[]): NavGroup[] {
-  const typedGroups = new Map<string, NavItem[]>();
+  const kindGroups = new Map<string, NavItem[]>();
   const ungrouped: NavItem[] = [];
 
   for (const item of items) {
-    if (item.sectionKind) {
-      const group = typedGroups.get(item.sectionKind) ?? [];
+    if (item.section) {
+      const group = kindGroups.get(item.section.kind) ?? [];
       group.push(item);
-      typedGroups.set(item.sectionKind, group);
+      kindGroups.set(item.section.kind, group);
     } else {
       ungrouped.push(item);
     }
@@ -39,14 +39,14 @@ export function groupNavItems(items: NavItem[]): NavGroup[] {
     groups.push({ label: null, items: ungrouped });
   }
 
-  const typedGroupsSorted = [...typedGroups.entries()]
+  const kindGroupsSorted = [...kindGroups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([type, groupItems]) => ({
-      label: pluralizeKind(type),
+    .map(([kind, groupItems]) => ({
+      label: pluralizeKind(kind),
       items: groupItems,
     }));
 
-  groups.push(...typedGroupsSorted);
+  groups.push(...kindGroupsSorted);
 
   return groups;
 }

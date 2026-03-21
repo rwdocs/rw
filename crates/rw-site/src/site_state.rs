@@ -19,6 +19,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::page::{BreadcrumbItem, Page};
 
+/// Section identity for API responses.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct Section {
+    /// Section kind (e.g., `"component"`, `"domain"`).
+    pub kind: String,
+    /// Section name — last path segment (e.g., `"billing"`).
+    pub name: String,
+}
+
+/// Extract the last segment of a URL path as the section name.
+fn section_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
 /// Navigation item with children for UI tree.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct NavItem {
@@ -26,9 +40,9 @@ pub struct NavItem {
     pub title: String,
     /// Link target path.
     pub path: String,
-    /// Section kind if this item is a section root.
+    /// Section identity if this item's path matches a section.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub section_kind: Option<String>,
+    pub section: Option<Section>,
     /// Child navigation items.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<NavItem>,
@@ -50,6 +64,15 @@ pub struct SectionInfo {
     pub description: Option<String>,
 }
 
+impl From<&SectionInfo> for Section {
+    fn from(info: &SectionInfo) -> Self {
+        Self {
+            kind: info.section_kind.clone(),
+            name: section_name(&info.path).to_owned(),
+        }
+    }
+}
+
 /// Information about a navigation scope for the frontend.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct ScopeInfo {
@@ -57,9 +80,8 @@ pub struct ScopeInfo {
     pub path: String,
     /// Display title.
     pub title: String,
-    /// Section kind.
-    #[serde(rename = "kind")]
-    pub section_kind: String,
+    /// Section identity.
+    pub section: Section,
 }
 
 /// Result of scoped navigation query.
@@ -145,7 +167,7 @@ impl SiteState {
         let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();
         for path in sections.keys() {
             if let Some(&idx) = path_index.get(path.as_str()) {
-                let dir_name = path.rsplit('/').next().unwrap_or(path);
+                let dir_name = section_name(path);
                 sections_by_name
                     .entry(dir_name.to_owned())
                     .or_default()
@@ -359,7 +381,7 @@ impl SiteState {
             let scope = Some(ScopeInfo {
                 path: format!("/{scope_path}"),
                 title: section.title.clone(),
-                section_kind: section.section_kind.clone(),
+                section: Section::from(section),
             });
 
             // Find parent section for back navigation
@@ -388,12 +410,12 @@ impl SiteState {
         }
 
         // Walk up the path to find the nearest section ancestor
-        let mut current = page_path.to_owned();
+        let mut current = page_path;
         while let Some((parent, _)) = current.rsplit_once('/') {
             if self.sections.contains_key(parent) {
                 return parent.to_owned();
             }
-            current = parent.to_owned();
+            current = parent;
         }
 
         // No section ancestor found, return root scope
@@ -405,10 +427,10 @@ impl SiteState {
     /// Sections become leaf nodes - they don't include their children.
     /// Only includes children that have markdown content in their subtree.
     fn build_nav_item_with_section_cutoff(&self, page: &Page) -> NavItem {
-        let is_section = self.sections.contains_key(&page.path);
+        let section_info = self.sections.get(&page.path);
 
         // Sections become leaf nodes - don't include children
-        let children = if is_section {
+        let children = if section_info.is_some() {
             Vec::new()
         } else {
             self.get_children_with_content(&page.path)
@@ -417,15 +439,12 @@ impl SiteState {
                 .collect()
         };
 
-        let section_kind = self
-            .sections
-            .get(&page.path)
-            .map(|s| s.section_kind.clone());
+        let section = section_info.map(Section::from);
 
         NavItem {
             title: page.title.clone(),
             path: page.path.clone(),
-            section_kind,
+            section,
             children,
         }
     }
@@ -440,16 +459,16 @@ impl SiteState {
     ///
     /// `ScopeInfo` for the parent section, or `None` if at root level.
     fn find_parent_section(&self, path: &str) -> Option<ScopeInfo> {
-        let mut current = path.to_owned();
+        let mut current = path;
         while let Some((parent, _)) = current.rsplit_once('/') {
             if let Some(section) = self.sections.get(parent) {
                 return Some(ScopeInfo {
                     path: format!("/{parent}"),
                     title: section.title.clone(),
-                    section_kind: section.section_kind.clone(),
+                    section: Section::from(section),
                 });
             }
-            current = parent.to_owned();
+            current = parent;
         }
         None
     }
@@ -1020,9 +1039,9 @@ mod tests {
             .find(|item| item.title == "Getting Started")
             .unwrap();
 
-        assert_eq!(billing.section_kind, Some("domain".to_owned()));
-        assert_eq!(payments.section_kind, Some("system".to_owned()));
-        assert_eq!(getting_started.section_kind, None);
+        assert_eq!(billing.section.as_ref().unwrap().kind, "domain");
+        assert_eq!(payments.section.as_ref().unwrap().kind, "system");
+        assert!(getting_started.section.is_none());
     }
 
     // NavItem tests
@@ -1032,7 +1051,7 @@ mod tests {
         let item = NavItem {
             title: "Guide".to_owned(),
             path: "guide".to_owned(),
-            section_kind: None,
+            section: None,
             children: Vec::new(),
         };
 
@@ -1046,13 +1065,13 @@ mod tests {
         let child = NavItem {
             title: "Child".to_owned(),
             path: "parent/child".to_owned(),
-            section_kind: None,
+            section: None,
             children: Vec::new(),
         };
         let item = NavItem {
             title: "Parent".to_owned(),
             path: "parent".to_owned(),
-            section_kind: None,
+            section: None,
             children: vec![child],
         };
 
@@ -1065,7 +1084,7 @@ mod tests {
         let item = NavItem {
             title: "Guide".to_owned(),
             path: "guide".to_owned(),
-            section_kind: None,
+            section: None,
             children: Vec::new(),
         };
 
@@ -1081,13 +1100,13 @@ mod tests {
         let child = NavItem {
             title: "Child".to_owned(),
             path: "parent/child".to_owned(),
-            section_kind: None,
+            section: None,
             children: Vec::new(),
         };
         let item = NavItem {
             title: "Parent".to_owned(),
             path: "parent".to_owned(),
-            section_kind: None,
+            section: None,
             children: vec![child],
         };
 
@@ -1101,11 +1120,14 @@ mod tests {
     }
 
     #[test]
-    fn test_nav_item_serialization_with_section_kind() {
+    fn test_nav_item_serialization_with_section() {
         let item = NavItem {
             title: "Billing".to_owned(),
             path: "domains/billing".to_owned(),
-            section_kind: Some("domain".to_owned()),
+            section: Some(Section {
+                kind: "domain".to_owned(),
+                name: "billing".to_owned(),
+            }),
             children: Vec::new(),
         };
 
@@ -1113,21 +1135,22 @@ mod tests {
 
         assert_eq!(json["title"], "Billing");
         assert_eq!(json["path"], "domains/billing");
-        assert_eq!(json["section_kind"], "domain");
+        assert_eq!(json["section"]["kind"], "domain");
+        assert_eq!(json["section"]["name"], "billing");
     }
 
     #[test]
-    fn test_nav_item_serialization_skips_none_section_kind() {
+    fn test_nav_item_serialization_skips_none_section() {
         let item = NavItem {
             title: "Guide".to_owned(),
             path: "guide".to_owned(),
-            section_kind: None,
+            section: None,
             children: Vec::new(),
         };
 
         let json = serde_json::to_value(&item).unwrap();
 
-        assert!(json.get("section_kind").is_none()); // Skipped when None
+        assert!(json.get("section").is_none()); // Skipped when None
     }
 
     // Scoped navigation tests
@@ -1166,7 +1189,7 @@ mod tests {
         // Billing (a section) should have no children in root scope
         let billing = nav.items.iter().find(|i| i.title == "Billing").unwrap();
         assert!(billing.children.is_empty());
-        assert_eq!(billing.section_kind, Some("domain".to_owned()));
+        assert_eq!(billing.section.as_ref().unwrap().kind, "domain");
     }
 
     #[test]
@@ -1236,7 +1259,8 @@ mod tests {
         let scope = nav.scope.unwrap();
         assert_eq!(scope.path, "/billing");
         assert_eq!(scope.title, "Billing");
-        assert_eq!(scope.section_kind, "domain");
+        assert_eq!(scope.section.kind, "domain");
+        assert_eq!(scope.section.name, "billing");
 
         // No parent section
         assert!(nav.parent_scope.is_none());
@@ -1285,13 +1309,15 @@ mod tests {
         let scope = nav.scope.as_ref().unwrap();
         assert_eq!(scope.path, "/billing/payments");
         assert_eq!(scope.title, "Payments");
-        assert_eq!(scope.section_kind, "system");
+        assert_eq!(scope.section.kind, "system");
+        assert_eq!(scope.section.name, "payments");
 
         // Should have parent scope pointing to billing
         let parent = nav.parent_scope.as_ref().unwrap();
         assert_eq!(parent.path, "/billing");
         assert_eq!(parent.title, "Billing");
-        assert_eq!(parent.section_kind, "domain");
+        assert_eq!(parent.section.kind, "domain");
+        assert_eq!(parent.section.name, "billing");
 
         // Should show payments' children
         assert_eq!(nav.items.len(), 1);

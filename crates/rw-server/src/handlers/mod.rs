@@ -1,8 +1,27 @@
 //! HTTP request handlers.
 
+use rw_site::Section;
+use serde::Serialize;
+
 pub(crate) mod config;
 pub(crate) mod navigation;
 pub(crate) mod pages;
+
+/// Section identity for JSON response.
+#[derive(Serialize)]
+pub(crate) struct SectionResponse {
+    kind: String,
+    name: String,
+}
+
+impl From<Section> for SectionResponse {
+    fn from(s: Section) -> Self {
+        Self {
+            kind: s.kind,
+            name: s.name,
+        }
+    }
+}
 
 /// Convert internal path (without leading slash) to URL path (with leading slash).
 ///
