@@ -12,7 +12,7 @@ const mockPage: PageResponse = {
     path: "/test",
     sourceFile: "test.md",
     lastModified: "2025-01-01T00:00:00Z",
-    sectionRef: undefined,
+    sectionRef: "section:default/root",
   },
   breadcrumbs: [],
   toc: [],

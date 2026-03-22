@@ -13,6 +13,9 @@ pub const ROOT_SECTION_KIND: &str = "section";
 /// Name used for sections rooted at the empty path (both implicit and explicit).
 pub const ROOT_SECTION_NAME: &str = "root";
 
+/// Section ref string for the implicit root section (`"section:default/root"`).
+pub const ROOT_SECTION_REF: &str = "section:default/root";
+
 /// Section identity.
 ///
 /// Represents a documentation section with a kind (e.g., `"domain"`, `"system"`)

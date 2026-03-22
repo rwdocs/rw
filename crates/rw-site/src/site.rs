@@ -192,7 +192,8 @@ impl Site {
     /// Get the section ref string for the section a page belongs to.
     ///
     /// Reloads site if needed and returns the ref (e.g., `"domain:default/billing"`)
-    /// for the nearest section ancestor, or `None` if the page is at root scope.
+    /// for the nearest section ancestor, falling back to the implicit root
+    /// section (`section:default/root`) when no explicit section is found.
     ///
     /// # Arguments
     ///
@@ -202,7 +203,7 @@ impl Site {
     ///
     /// Panics if internal locks are poisoned.
     #[must_use]
-    pub fn get_section_ref(&self, page_path: &str) -> Option<String> {
+    pub fn get_section_ref(&self, page_path: &str) -> String {
         self.reload_if_needed().state.get_section_ref(page_path)
     }
 
