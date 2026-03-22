@@ -7,6 +7,12 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+/// Default kind for the implicit root section.
+pub const ROOT_SECTION_KIND: &str = "section";
+
+/// Name used for sections rooted at the empty path (both implicit and explicit).
+pub const ROOT_SECTION_NAME: &str = "root";
+
 /// Section identity.
 ///
 /// Represents a documentation section with a kind (e.g., `"domain"`, `"system"`)

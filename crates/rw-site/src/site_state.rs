@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rw_cache::{CacheBucket, CacheBucketExt};
-use rw_sections::{Section, Sections};
+use rw_sections::{ROOT_SECTION_KIND, ROOT_SECTION_NAME, Section, Sections};
 use serde::{Deserialize, Serialize};
 
 use crate::page::{BreadcrumbItem, Page};
@@ -59,9 +59,14 @@ pub struct SectionInfo {
 
 impl From<&SectionInfo> for Section {
     fn from(info: &SectionInfo) -> Self {
+        let name = if info.path.is_empty() {
+            ROOT_SECTION_NAME
+        } else {
+            last_segment(&info.path)
+        };
         Self {
             kind: info.section_kind.clone(),
-            name: last_segment(&info.path).to_owned(),
+            name: name.to_owned(),
         }
     }
 }
@@ -453,7 +458,9 @@ impl SiteState {
     ///
     /// # Returns
     ///
-    /// `ScopeInfo` for the parent section, or `None` if at root level.
+    /// `ScopeInfo` for the parent section, or `None` if at root level
+    /// (including pages in the implicit root section, which have no parent
+    /// to navigate back to).
     fn find_parent_section(&self, path: &str) -> Option<ScopeInfo> {
         let mut current = path;
         while let Some((parent, _)) = current.rsplit_once('/') {
@@ -471,16 +478,26 @@ impl SiteState {
 
     /// Build a sections map for cross-section link annotation.
     ///
+    /// Always contains at least a root entry (`section:default/root`) so
+    /// embedded consumers always have a `sectionRef` to resolve.
+    ///
     /// Maps section root paths to `Section` structs containing the section
     /// kind and name (last path segment).
     #[must_use]
     pub fn build_sections(&self) -> Arc<Sections> {
-        Arc::new(Sections::new(
-            self.sections
-                .iter()
-                .map(|(path, info)| (path.clone(), Section::from(info)))
-                .collect(),
-        ))
+        let mut map: HashMap<String, Section> = self
+            .sections
+            .iter()
+            .map(|(path, info)| (path.clone(), Section::from(info)))
+            .collect();
+
+        // Insert implicit root section if no explicit section exists at root
+        map.entry(String::new()).or_insert_with(|| Section {
+            kind: ROOT_SECTION_KIND.to_owned(),
+            name: ROOT_SECTION_NAME.to_owned(),
+        });
+
+        Arc::new(Sections::new(map))
     }
 }
 
@@ -1623,5 +1640,110 @@ mod tests {
         // Only real child should be in scoped navigation
         assert_eq!(nav.items.len(), 1);
         assert_eq!(nav.items[0].title, "Payments");
+    }
+
+    // Implicit root section tests
+
+    #[test]
+    fn test_build_sections_implicit_root_when_no_sections() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page("Home".to_owned(), String::new(), true, None, None, None);
+        builder.add_page(
+            "Guide".to_owned(),
+            "guide".to_owned(),
+            true,
+            None,
+            None,
+            None,
+        );
+        let site = builder.build();
+
+        let sections = site.build_sections();
+
+        // Should have implicit root section
+        let root = sections
+            .get("")
+            .expect("implicit root section should exist");
+        assert_eq!(root.kind, ROOT_SECTION_KIND);
+        assert_eq!(root.name, ROOT_SECTION_NAME);
+    }
+
+    #[test]
+    fn test_build_sections_no_implicit_root_when_explicit_root_exists() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            "Home".to_owned(),
+            String::new(),
+            true,
+            None,
+            Some("component"),
+            None,
+        );
+        let site = builder.build();
+
+        let sections = site.build_sections();
+
+        let root = sections
+            .get("")
+            .expect("explicit root section should exist");
+        assert_eq!(root.kind, "component");
+        assert_eq!(root.name, ROOT_SECTION_NAME);
+    }
+
+    #[test]
+    fn test_build_sections_implicit_root_with_nested_sections() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page("Home".to_owned(), String::new(), true, None, None, None);
+        builder.add_page(
+            "Billing".to_owned(),
+            "billing".to_owned(),
+            true,
+            Some(root_idx),
+            Some("domain"),
+            None,
+        );
+        let site = builder.build();
+
+        let sections = site.build_sections();
+
+        // Should have both implicit root and explicit nested section
+        let root = sections
+            .get("")
+            .expect("implicit root section should exist");
+        assert_eq!(root.kind, ROOT_SECTION_KIND);
+        assert_eq!(root.name, ROOT_SECTION_NAME);
+
+        let billing = sections
+            .get("billing")
+            .expect("explicit section should exist");
+        assert_eq!(billing.kind, "domain");
+        assert_eq!(billing.name, "billing");
+    }
+
+    #[test]
+    fn test_build_sections_find_by_ref_implicit_root() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page("Home".to_owned(), String::new(), true, None, None, None);
+        let site = builder.build();
+
+        let sections = site.build_sections();
+
+        let root_ref = format!("{ROOT_SECTION_KIND}:default/{ROOT_SECTION_NAME}");
+        assert_eq!(sections.find_by_ref(&root_ref), Some(""));
+    }
+
+    #[test]
+    fn test_section_from_root_section_info_uses_root_name() {
+        let info = SectionInfo {
+            title: "Home".to_owned(),
+            path: String::new(),
+            section_kind: "component".to_owned(),
+            description: None,
+        };
+
+        let section = Section::from(&info);
+
+        assert_eq!(section.kind, "component");
+        assert_eq!(section.name, ROOT_SECTION_NAME);
     }
 }
