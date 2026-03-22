@@ -12,7 +12,7 @@ const mockPage: PageResponse = {
     path: "/test",
     sourceFile: "test.md",
     lastModified: "2025-01-01T00:00:00Z",
-    navigationScope: "",
+    sectionRef: undefined,
   },
   breadcrumbs: [],
   toc: [],
@@ -222,6 +222,31 @@ describe("fetchConfig", () => {
   });
 });
 
+describe("fetchNavigation with sectionRef", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("passes sectionRef query param to fetchNavigation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ items: [] }),
+        }),
+      ),
+    );
+
+    const client = createApiClient("/api/rw");
+    await client.fetchNavigation({ sectionRef: "domain:default/billing" });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/rw/navigation?sectionRef=domain%3Adefault%2Fbilling",
+      expect.anything(),
+    );
+  });
+});
+
 describe("createApiClient with custom base", () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -273,7 +298,7 @@ describe("createApiClient with custom base", () => {
     expect(fetch).toHaveBeenCalledWith("/api/rw/pages/guide", expect.anything());
   });
 
-  it("uses custom base URL for fetchNavigation with scope", async () => {
+  it("uses custom base URL for fetchNavigation with sectionRef", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -285,7 +310,10 @@ describe("createApiClient with custom base", () => {
     );
 
     const client = createApiClient("/api/rw");
-    await client.fetchNavigation({ scope: "domains" });
-    expect(fetch).toHaveBeenCalledWith("/api/rw/navigation?scope=domains", expect.anything());
+    await client.fetchNavigation({ sectionRef: "domain:default/billing" });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/rw/navigation?sectionRef=domain%3Adefault%2Fbilling",
+      expect.anything(),
+    );
   });
 });

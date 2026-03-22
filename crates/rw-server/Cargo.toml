@@ -51,3 +51,4 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile = { workspace = true }
 pretty_assertions = { workspace = true }
 tokio-test = "0.4"
+serde_urlencoded = "0.7"

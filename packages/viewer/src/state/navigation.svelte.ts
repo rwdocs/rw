@@ -31,7 +31,7 @@ export class Navigation {
   error = $state<string | null>(null);
   // Reassign the entire Set to trigger reactivity — in-place .add()/.delete() won't.
   collapsed = $state<Set<string>>(new Set());
-  currentScope = $state("");
+  currentSectionRef = $state<string | undefined>(undefined);
 
   private apiClient: ApiClient;
   private currentController: AbortController | null = null;
@@ -42,10 +42,13 @@ export class Navigation {
   }
 
   load = async (options?: { bypassCache?: boolean }): Promise<void> => {
-    return this.loadScope("", options);
+    return this.loadSection(undefined, options);
   };
 
-  loadScope = async (scope: string, options?: { bypassCache?: boolean }): Promise<void> => {
+  loadSection = async (
+    sectionRef: string | undefined,
+    options?: { bypassCache?: boolean },
+  ): Promise<void> => {
     this.currentController?.abort();
     const controller = new AbortController();
     this.currentController = controller;
@@ -56,7 +59,7 @@ export class Navigation {
     try {
       const tree = await this.apiClient.fetchNavigation({
         ...options,
-        scope: scope || undefined,
+        sectionRef,
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
@@ -65,7 +68,7 @@ export class Navigation {
       this.tree = tree;
       this.loading = false;
       this.collapsed = new Set(allParentPaths);
-      this.currentScope = scope;
+      this.currentSectionRef = sectionRef;
 
       if (this.activePath) {
         this.doExpandTo(this.activePath);
@@ -99,7 +102,7 @@ export class Navigation {
     this.loading = true;
     this.error = null;
     this.collapsed = new Set();
-    this.currentScope = "";
+    this.currentSectionRef = undefined;
   };
 
   private doExpandTo = (path: string): void => {

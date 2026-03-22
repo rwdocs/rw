@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::str::FromStr;
 
 /// Section identity.
 ///
@@ -25,6 +26,34 @@ impl fmt::Display for Section {
     /// Formats as a section reference string (e.g., `"domain:default/billing"`).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:default/{}", self.kind, self.name)
+    }
+}
+
+/// Error returned when parsing a section ref string fails.
+#[derive(Debug)]
+pub struct ParseSectionError;
+
+impl fmt::Display for ParseSectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid section ref: expected \"kind:default/name\"")
+    }
+}
+
+impl std::error::Error for ParseSectionError {}
+
+impl FromStr for Section {
+    type Err = ParseSectionError;
+
+    /// Parses a section ref string (e.g., `"domain:default/billing"`).
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (kind, name) = s
+            .split_once(":default/")
+            .filter(|(k, n)| !k.is_empty() && !n.is_empty())
+            .ok_or(ParseSectionError)?;
+        Ok(Self {
+            kind: kind.to_owned(),
+            name: name.to_owned(),
+        })
     }
 }
 
@@ -94,6 +123,20 @@ impl Sections {
         };
 
         Some((section, remainder))
+    }
+
+    /// Find the scope path (without leading slash) for a section ref string.
+    ///
+    /// The ref format is `"kind:default/name"` (e.g., `"domain:default/billing"`).
+    /// Returns `None` if the ref is malformed or no section matches.
+    /// Linear scan — the map is small.
+    #[must_use]
+    pub fn find_by_ref(&self, ref_string: &str) -> Option<&str> {
+        let target: Section = ref_string.parse().ok()?;
+        self.map
+            .iter()
+            .find(|(_, section)| **section == target)
+            .map(|(path, _)| path.as_str())
     }
 
     /// Resolve an href to section ref attributes for link annotation.
@@ -213,5 +256,44 @@ mod tests {
     #[test]
     fn resolve_ref_no_match() {
         assert!(billing().resolve_ref("/other/path").is_none());
+    }
+
+    #[test]
+    fn parse_section_valid() {
+        let section: Section = "domain:default/billing".parse().unwrap();
+        assert_eq!(section.kind, "domain");
+        assert_eq!(section.name, "billing");
+    }
+
+    #[test]
+    fn parse_section_roundtrip() {
+        let section = Section {
+            kind: "system".to_owned(),
+            name: "payments".to_owned(),
+        };
+        let parsed: Section = section.to_string().parse().unwrap();
+        assert_eq!(parsed, section);
+    }
+
+    #[test]
+    fn parse_section_invalid() {
+        assert!("".parse::<Section>().is_err());
+        assert!("domain".parse::<Section>().is_err());
+        assert!(":default/".parse::<Section>().is_err());
+        assert!("domain:default/".parse::<Section>().is_err());
+        assert!(":default/billing".parse::<Section>().is_err());
+    }
+
+    #[test]
+    fn find_by_ref_exact_match() {
+        let sections = billing();
+        let path = sections.find_by_ref("domain:default/billing");
+        assert_eq!(path, Some("domains/billing"));
+    }
+
+    #[test]
+    fn find_by_ref_no_match() {
+        let sections = billing();
+        assert!(sections.find_by_ref("system:default/unknown").is_none());
     }
 }

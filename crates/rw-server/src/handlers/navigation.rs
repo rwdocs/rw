@@ -15,9 +15,10 @@ use crate::state::AppState;
 /// Query parameters for GET /api/navigation.
 #[derive(Deserialize)]
 pub(crate) struct NavigationQuery {
-    /// Scope path (optional). If provided, returns navigation for that section.
-    /// Path should be without leading slash (e.g., "domains/billing").
-    scope: Option<String>,
+    /// Section ref (optional). If provided, returns navigation for that section.
+    /// Format: "kind:default/name" (e.g., "domain:default/billing").
+    #[serde(rename = "sectionRef")]
+    section_ref: Option<String>,
 }
 
 /// Response for GET /api/navigation.
@@ -89,13 +90,7 @@ pub(crate) async fn get_navigation(
     Query(query): Query<NavigationQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Json<NavigationResponse> {
-    // Normalize scope path: remove leading slash if present
-    let scope_path = query
-        .scope
-        .as_deref()
-        .map_or("", |s| s.strip_prefix('/').unwrap_or(s));
-
-    let scoped_nav = state.site.navigation(scope_path);
+    let scoped_nav = state.site.navigation(query.section_ref.as_deref());
 
     Json(NavigationResponse {
         items: scoped_nav
@@ -136,6 +131,13 @@ mod tests {
         // scope and parentScope should be omitted when None
         assert!(json.get("scope").is_none());
         assert!(json.get("parentScope").is_none());
+    }
+
+    #[test]
+    fn test_navigation_query_deserializes_section_ref() {
+        let query: NavigationQuery =
+            serde_urlencoded::from_str("sectionRef=domain:default/billing").unwrap();
+        assert_eq!(query.section_ref.as_deref(), Some("domain:default/billing"));
     }
 
     #[test]

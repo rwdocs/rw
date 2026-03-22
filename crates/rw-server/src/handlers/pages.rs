@@ -54,8 +54,9 @@ struct PageMeta {
     /// Custom variables (from metadata).
     #[serde(skip_serializing_if = "Option::is_none")]
     vars: Option<serde_json::Value>,
-    /// Navigation scope path (without leading slash, empty for root scope).
-    navigation_scope: String,
+    /// Section ref for this page's section (null at root scope).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    section_ref: Option<String>,
 }
 
 /// Breadcrumb item for serialization.
@@ -168,8 +169,8 @@ fn get_page_impl(
         (None, None, None)
     };
 
-    // Get navigation scope for this page
-    let navigation_scope = state.site.get_navigation_scope(&path);
+    // Get section ref for this page's section
+    let section_ref = state.site.get_section_ref(&path);
 
     let response = PageResponse {
         meta: PageMeta {
@@ -184,7 +185,7 @@ fn get_page_impl(
             description,
             page_kind,
             vars,
-            navigation_scope,
+            section_ref,
         },
         breadcrumbs: result
             .breadcrumbs
@@ -260,7 +261,7 @@ mod tests {
             description: None,
             page_kind: None,
             vars: None,
-            navigation_scope: String::new(),
+            section_ref: None,
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -269,8 +270,8 @@ mod tests {
         assert_eq!(json["path"], "/guide");
         assert_eq!(json["sourceFile"], "/docs/guide.md");
         assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
-        assert_eq!(json["navigationScope"], "");
-        // description, kind, and vars should be omitted when None
+        // sectionRef, description, kind, and vars should be omitted when None
+        assert!(json.get("sectionRef").is_none());
         assert!(json.get("description").is_none());
         assert!(json.get("kind").is_none());
         assert!(json.get("vars").is_none());
@@ -289,7 +290,7 @@ mod tests {
             description: Some("Domain overview".to_owned()),
             page_kind: Some("domain".to_owned()),
             vars: Some(serde_json::to_value(vars).unwrap()),
-            navigation_scope: "domain".to_owned(),
+            section_ref: Some("domain:default/domain".to_owned()),
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -298,6 +299,6 @@ mod tests {
         assert_eq!(json["description"], "Domain overview");
         assert_eq!(json["kind"], "domain");
         assert_eq!(json["vars"]["owner"], "team-a");
-        assert_eq!(json["navigationScope"], "domain");
+        assert_eq!(json["sectionRef"], "domain:default/domain");
     }
 }

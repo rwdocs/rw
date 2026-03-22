@@ -19,8 +19,8 @@
 //! let cache = Arc::new(NullCache);
 //! let site = Arc::new(Site::new(storage, cache, config));
 //!
-//! // Get navigation (root scope)
-//! let nav = site.navigation("");
+//! // Get navigation (root)
+//! let nav = site.navigation(None);
 //!
 //! // Render a page
 //! let result = site.render("guide")?;
