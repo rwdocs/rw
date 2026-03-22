@@ -28,8 +28,8 @@ export class NotFoundError extends Error {
 
 /** Options for fetching navigation */
 export interface FetchNavigationOptions extends FetchOptions {
-  /** Scope path (without leading slash) to load navigation for a specific section. */
-  scope?: string;
+  /** Section ref string (e.g., "domain:default/billing") to load navigation for a specific section. */
+  sectionRef?: string;
 }
 
 export interface ApiClient {
@@ -46,8 +46,8 @@ export function createApiClient(apiBase: string = "/api", fetchFn?: typeof fetch
   return {
     async fetchNavigation(options?: FetchNavigationOptions): Promise<NavigationTree> {
       const params = new URLSearchParams();
-      if (options?.scope) {
-        params.set("scope", options.scope);
+      if (options?.sectionRef) {
+        params.set("sectionRef", options.sectionRef);
       }
       const url = params.toString() ? `${base}/navigation?${params}` : `${base}/navigation`;
 

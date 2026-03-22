@@ -1,7 +1,7 @@
 <script lang="ts">
   import { extractDocPath } from "../state/router.svelte";
   import { getRwContext } from "../lib/context";
-  import { watchPageScope } from "../lib/scopeWatcher.svelte";
+  import { watchPageSection } from "../lib/sectionWatcher.svelte";
   import PageContent from "../components/PageContent.svelte";
 
   const { router, page, navigation, liveReload } = getRwContext();
@@ -13,7 +13,7 @@
     page.load(apiPath);
   });
 
-  watchPageScope(page, navigation);
+  watchPageSection(page, navigation);
 
   $effect(() => {
     return liveReload.onReload(() => {

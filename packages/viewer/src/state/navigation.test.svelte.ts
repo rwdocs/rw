@@ -162,10 +162,10 @@ describe("navigation store", () => {
       const navigation = new Navigation(mockApiClient);
 
       // Start first request (don't await)
-      void navigation.loadScope("first");
+      void navigation.loadSection("first");
 
       // Start second request before first completes
-      const secondLoad = navigation.loadScope("second");
+      const secondLoad = navigation.loadSection("second");
 
       // First request's signal should be aborted
       const firstCall = mockFetchNavigation.mock.calls[0]?.[0] as { signal: AbortSignal };
@@ -181,7 +181,7 @@ describe("navigation store", () => {
 
       // State should have second tree, not first
       expect(navigation.tree).toEqual(secondTree);
-      expect(navigation.currentScope).toBe("second");
+      expect(navigation.currentSectionRef).toBe("second");
     });
 
     it("silently ignores AbortError", async () => {
@@ -268,7 +268,7 @@ describe("navigation store", () => {
       }
     });
 
-    it("re-expands active path after loadScope replaces the tree", async () => {
+    it("re-expands active path after loadSection replaces the tree", async () => {
       const scopedTree: NavigationTree = {
         items: [
           {
@@ -288,8 +288,8 @@ describe("navigation store", () => {
       // Set active path before tree is loaded (simulates Page.svelte subscription)
       navigation.expandOnlyTo("/billing/payments");
 
-      // Load navigation (simulates scopeWatcher calling loadScope)
-      await navigation.loadScope("billing");
+      // Load navigation (simulates sectionWatcher calling loadSection)
+      await navigation.loadSection("billing");
 
       // /billing should be expanded (ancestor of active path)
       expect(navigation.collapsed.has("/billing")).toBe(false);
@@ -324,8 +324,8 @@ describe("navigation store", () => {
       expect(navigation.collapsed.has("/guide")).toBe(false);
       expect(navigation.collapsed.has("/guide/advanced")).toBe(false);
 
-      // Scope change replaces the tree (simulates scopeWatcher)
-      await navigation.loadScope("guide");
+      // Section change replaces the tree (simulates sectionWatcher)
+      await navigation.loadSection("guide");
 
       // Active path should still be expanded in the new tree
       expect(navigation.collapsed.has("/guide")).toBe(false);

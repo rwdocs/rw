@@ -81,8 +81,8 @@ pub struct PageMetaResponse {
     #[napi(js_name = "kind")]
     pub page_kind: Option<String>,
     pub vars: Option<Value>,
-    #[napi(js_name = "navigationScope")]
-    pub navigation_scope: String,
+    #[napi(js_name = "sectionRef")]
+    pub section_ref: Option<String>,
 }
 
 #[napi(object)]

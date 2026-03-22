@@ -157,10 +157,9 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
 #[napi]
 #[allow(clippy::needless_pass_by_value)]
 impl RwSite {
-    #[napi]
-    pub fn get_navigation(&self, scope: Option<String>) -> NavigationResponse {
-        let scope_path = scope.as_deref().unwrap_or("");
-        let nav = self.site.navigation(scope_path);
+    #[napi(js_name = "getNavigation")]
+    pub fn get_navigation(&self, section_ref: Option<String>) -> NavigationResponse {
+        let nav = self.site.navigation(section_ref.as_deref());
         NavigationResponse {
             items: nav.items.into_iter().map(convert_nav_item).collect(),
             scope: nav.scope.map(convert_scope_info),
@@ -190,7 +189,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
     let last_modified: DateTime<Utc> = source_mtime.into();
     let last_modified = last_modified.to_rfc3339();
-    let navigation_scope = site.get_navigation_scope(path);
+    let section_ref = site.get_section_ref(path);
 
     let (description, page_kind, vars) = if let Some(ref meta) = result.metadata {
         (
@@ -219,7 +218,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
             description,
             page_kind,
             vars,
-            navigation_scope,
+            section_ref,
         },
         breadcrumbs: result
             .breadcrumbs

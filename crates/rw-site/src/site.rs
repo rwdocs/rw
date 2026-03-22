@@ -33,7 +33,7 @@
 //! let site = Arc::new(Site::new(storage, cache, config));
 //!
 //! // Load site structure
-//! let nav = site.navigation("");
+//! let nav = site.navigation(None);
 //!
 //! // Render a page
 //! let result = site.render("guide")?;
@@ -171,26 +171,28 @@ impl Site {
 
     /// Get scoped navigation tree.
     ///
-    /// Reloads site if needed and returns navigation scoped to the specified section.
-    ///
-    /// # Arguments
-    ///
-    /// * `scope_path` - Path to scope (without leading slash), empty for root scope.
+    /// Reloads site if needed and returns navigation for the given section.
+    /// Pass `None` for root navigation, or a section ref string
+    /// (e.g., `"domain:default/billing"`) to scope to that section.
     ///
     /// # Panics
     ///
     /// Panics if internal locks are poisoned.
     #[must_use]
-    pub fn navigation(&self, scope_path: &str) -> Navigation {
+    pub fn navigation(&self, section_ref: Option<&str>) -> Navigation {
         let snapshot = self.reload_if_needed();
-        let mut nav = snapshot.state.navigation(scope_path);
+        let scope_path = section_ref
+            .and_then(|r| snapshot.sections.find_by_ref(r).map(str::to_owned))
+            .unwrap_or_default();
+        let mut nav = snapshot.state.navigation(&scope_path);
         nav.apply_sections(&snapshot.sections);
         nav
     }
 
-    /// Get navigation scope for a page.
+    /// Get the section ref string for the section a page belongs to.
     ///
-    /// Reloads site if needed and returns the scope path for the given page.
+    /// Reloads site if needed and returns the ref (e.g., `"domain:default/billing"`)
+    /// for the nearest section ancestor, or `None` if the page is at root scope.
     ///
     /// # Arguments
     ///
@@ -200,10 +202,8 @@ impl Site {
     ///
     /// Panics if internal locks are poisoned.
     #[must_use]
-    pub fn get_navigation_scope(&self, page_path: &str) -> String {
-        self.reload_if_needed()
-            .state
-            .get_navigation_scope(page_path)
+    pub fn get_section_ref(&self, page_path: &str) -> Option<String> {
+        self.reload_if_needed().state.get_section_ref(page_path)
     }
 
     /// Check if a page exists at the given URL path.
@@ -863,7 +863,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let nav = site.navigation("");
+        let nav = site.navigation(None);
 
         assert_eq!(nav.items.len(), 1);
         assert_eq!(nav.items[0].title, "My Domain");
@@ -904,21 +904,21 @@ mod tests {
 
         // Check navigation structure via scoped navigation
         // Domains section in root scope
-        let root_nav = site.navigation("");
+        let root_nav = site.navigation(None);
         assert_eq!(root_nav.items.len(), 1);
         assert_eq!(root_nav.items[0].title, "Domains");
         // Sections are leaves in root scope
         assert!(root_nav.items[0].children.is_empty());
 
         // Navigate into Domains section
-        let domains_nav = site.navigation("domains");
+        let domains_nav = site.navigation(Some("section:default/domains"));
         assert_eq!(domains_nav.items.len(), 1);
         assert_eq!(domains_nav.items[0].title, "Billing");
         // Billing is also a section, so it's a leaf in domains scope
         assert!(domains_nav.items[0].children.is_empty());
 
         // Navigate into Billing section
-        let billing_nav = site.navigation("domains/billing");
+        let billing_nav = site.navigation(Some("domain:default/billing"));
         assert_eq!(billing_nav.items.len(), 1);
         assert_eq!(billing_nav.items[0].title, "Overview");
     }

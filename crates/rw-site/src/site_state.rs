@@ -391,31 +391,32 @@ impl SiteState {
         }
     }
 
-    /// Determine the navigation scope for a page.
+    /// Get the section ref string for the section a page belongs to.
     ///
-    /// Returns the path of the section this page belongs to (empty for root).
+    /// Returns the ref (e.g., `"domain:default/billing"`) for the nearest section
+    /// ancestor, or `None` if the page is at root scope.
     ///
     /// # Arguments
     ///
     /// * `page_path` - URL path without leading slash.
     #[must_use]
-    pub fn get_navigation_scope(&self, page_path: &str) -> String {
-        // If the page itself is a section, that's the scope
-        if self.sections.contains_key(page_path) {
-            return page_path.to_owned();
+    pub fn get_section_ref(&self, page_path: &str) -> Option<String> {
+        // If the page itself is a section, return its ref
+        if let Some(section) = self.sections.get(page_path) {
+            return Some(Section::from(section).to_string());
         }
 
         // Walk up the path to find the nearest section ancestor
         let mut current = page_path;
         while let Some((parent, _)) = current.rsplit_once('/') {
-            if self.sections.contains_key(parent) {
-                return parent.to_owned();
+            if let Some(section) = self.sections.get(parent) {
+                return Some(Section::from(section).to_string());
             }
             current = parent;
         }
 
-        // No section ancestor found, return root scope
-        String::new()
+        // No section ancestor found — root scope
+        None
     }
 
     /// Build [`NavItem`] but stop recursion at section boundaries.
@@ -1360,7 +1361,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_navigation_scope_page_is_section() {
+    fn test_get_section_ref_page_is_section() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Billing".to_owned(),
@@ -1372,13 +1373,13 @@ mod tests {
         );
         let site = builder.build();
 
-        let scope = site.get_navigation_scope("billing");
+        let section_ref = site.get_section_ref("billing");
 
-        assert_eq!(scope, "billing");
+        assert_eq!(section_ref.as_deref(), Some("domain:default/billing"));
     }
 
     #[test]
-    fn test_get_navigation_scope_page_inside_section() {
+    fn test_get_section_ref_page_inside_section() {
         let mut builder = SiteStateBuilder::new();
         let billing_idx = builder.add_page(
             "Billing".to_owned(),
@@ -1398,13 +1399,13 @@ mod tests {
         );
         let site = builder.build();
 
-        let scope = site.get_navigation_scope("billing/payments");
+        let section_ref = site.get_section_ref("billing/payments");
 
-        assert_eq!(scope, "billing");
+        assert_eq!(section_ref.as_deref(), Some("domain:default/billing"));
     }
 
     #[test]
-    fn test_get_navigation_scope_page_deeply_nested() {
+    fn test_get_section_ref_page_deeply_nested() {
         let mut builder = SiteStateBuilder::new();
         let billing_idx = builder.add_page(
             "Billing".to_owned(),
@@ -1433,12 +1434,12 @@ mod tests {
         let site = builder.build();
 
         // API page should belong to the payments section (nearest ancestor)
-        let scope = site.get_navigation_scope("billing/payments/api");
-        assert_eq!(scope, "billing/payments");
+        let section_ref = site.get_section_ref("billing/payments/api");
+        assert_eq!(section_ref.as_deref(), Some("system:default/payments"));
     }
 
     #[test]
-    fn test_get_navigation_scope_page_not_in_section() {
+    fn test_get_section_ref_page_not_in_section() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             "Guide".to_owned(),
@@ -1450,9 +1451,9 @@ mod tests {
         );
         let site = builder.build();
 
-        let scope = site.get_navigation_scope("guide");
+        let section_ref = site.get_section_ref("guide");
 
-        assert_eq!(scope, ""); // Root scope
+        assert!(section_ref.is_none()); // Root scope
     }
 
     #[test]
