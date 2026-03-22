@@ -3,10 +3,14 @@
 //! This module handles embedding rendered diagrams into HTML:
 //! - SVG dimension scaling based on DPI
 //! - Google Fonts stripping from SVG
+//! - SVG link annotation with section ref data attributes
 
+use std::fmt::Write;
 use std::sync::LazyLock;
 
 use regex::Regex;
+use rw_renderer::escape_html;
+use rw_sections::Sections;
 
 use crate::consts::STANDARD_DPI;
 
@@ -84,9 +88,169 @@ pub fn strip_google_fonts_import(svg: &str) -> String {
     GOOGLE_FONTS_RE.replace_all(svg, "").to_string()
 }
 
+/// Extract an attribute value from an SVG tag string.
+///
+/// Uses a space prefix to avoid matching attribute name suffixes
+/// (e.g., `href=` won't match `xlink:href=`).
+fn extract_attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let needle = format!(" {name}=\"");
+    let start = tag.find(&needle)? + needle.len();
+    let end = tag[start..].find('"')? + start;
+    Some(&tag[start..end])
+}
+
+/// Annotate SVG `<a>` elements with `data-section-ref` and `data-section-path`.
+///
+/// Scans SVG for `<a>` tags, extracts `href`, resolves against sections,
+/// and injects data attributes before the closing `>`.
+///
+/// Returns the SVG unmodified if no annotations are needed.
+#[must_use]
+pub fn annotate_svg_links(svg: &str, sections: &Sections) -> String {
+    if sections.is_empty() || !svg.contains("<a ") {
+        return svg.to_owned();
+    }
+
+    let mut result = String::with_capacity(svg.len());
+    let mut remaining = svg;
+    let mut changed = false;
+
+    while let Some(tag_start) = remaining.find("<a ") {
+        let after_tag = &remaining[tag_start..];
+        let Some(tag_end) = after_tag.find('>') else {
+            break;
+        };
+        let tag = &after_tag[..=tag_end];
+
+        let Some(href) = extract_attr(tag, "href") else {
+            result.push_str(&remaining[..=tag_start + tag_end]);
+            remaining = &remaining[tag_start + tag_end + 1..];
+            continue;
+        };
+
+        let Some((ref_string, section_path)) = sections.resolve_ref(href) else {
+            result.push_str(&remaining[..=tag_start + tag_end]);
+            remaining = &remaining[tag_start + tag_end + 1..];
+            continue;
+        };
+
+        changed = true;
+        result.push_str(&remaining[..tag_start + tag_end]);
+
+        write!(
+            result,
+            r#" data-section-ref="{}""#,
+            escape_html(&ref_string)
+        )
+        .unwrap();
+        if !section_path.is_empty() {
+            write!(
+                result,
+                r#" data-section-path="{}""#,
+                escape_html(&section_path)
+            )
+            .unwrap();
+        }
+        result.push('>');
+
+        remaining = &remaining[tag_start + tag_end + 1..];
+    }
+
+    if changed {
+        result.push_str(remaining);
+        result
+    } else {
+        svg.to_owned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use rw_sections::{Section, Sections};
+
     use super::*;
+
+    fn billing_sections() -> Sections {
+        Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                name: "billing".to_owned(),
+            },
+        )]))
+    }
+
+    #[test]
+    fn annotate_svg_links_cross_section() {
+        let sections = billing_sections();
+        let svg = r#"<svg><a href="/domains/billing/systems/pay" target="_top" xlink:href="/domains/billing/systems/pay"><text>Pay</text></a></svg>"#;
+        let result = annotate_svg_links(svg, &sections);
+        assert!(
+            result.contains(r#"data-section-ref="domain:default/billing""#),
+            "Should have data-section-ref: {result}"
+        );
+        assert!(
+            result.contains(r#"data-section-path="systems/pay""#),
+            "Should have data-section-path: {result}"
+        );
+    }
+
+    #[test]
+    fn annotate_svg_links_exact_section_root() {
+        let sections = billing_sections();
+        let svg = r#"<svg><a href="/domains/billing" xlink:href="/domains/billing"><text>Billing</text></a></svg>"#;
+        let result = annotate_svg_links(svg, &sections);
+        assert!(
+            result.contains(r#"data-section-ref="domain:default/billing""#),
+            "Should have data-section-ref: {result}"
+        );
+        assert!(
+            !result.contains("data-section-path"),
+            "Exact root match should omit data-section-path: {result}"
+        );
+    }
+
+    #[test]
+    fn annotate_svg_links_no_match() {
+        let sections = billing_sections();
+        let svg =
+            r#"<svg><a href="/other/path" xlink:href="/other/path"><text>Other</text></a></svg>"#;
+        let original = svg.to_owned();
+        let result = annotate_svg_links(svg, &sections);
+        assert_eq!(result, original, "Non-matching link should not be modified");
+    }
+
+    #[test]
+    fn annotate_svg_links_external_link() {
+        let sections = billing_sections();
+        let svg = r#"<svg><a href="https://example.com" xlink:href="https://example.com"><text>Ext</text></a></svg>"#;
+        let original = svg.to_owned();
+        let result = annotate_svg_links(svg, &sections);
+        assert_eq!(result, original, "External link should not be modified");
+    }
+
+    #[test]
+    fn annotate_svg_links_no_a_tags() {
+        let sections = billing_sections();
+        let svg = r#"<svg><rect width="100" height="50"/></svg>"#;
+        let original = svg.to_owned();
+        let result = annotate_svg_links(svg, &sections);
+        assert_eq!(result, original, "SVG without links should not be modified");
+    }
+
+    #[test]
+    fn annotate_svg_links_empty_sections() {
+        let sections = Sections::default();
+        let svg = r#"<svg><a href="/domains/billing" xlink:href="/domains/billing"><text>B</text></a></svg>"#;
+        let original = svg.to_owned();
+        let result = annotate_svg_links(svg, &sections);
+        assert_eq!(
+            result, original,
+            "Empty sections should not modify anything"
+        );
+    }
 
     #[test]
     fn test_scale_svg_dimensions_at_192_dpi() {
