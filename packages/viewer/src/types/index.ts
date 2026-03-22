@@ -55,8 +55,8 @@ export interface PageMeta {
   description?: string;
   kind?: string;
   vars?: Record<string, unknown>;
-  /** Section ref for this page's section (e.g., "domain:default/billing"). Absent at root scope. */
-  sectionRef?: string;
+  /** Section ref for this page's section (e.g., "domain:default/billing"). */
+  sectionRef: string;
 }
 
 /** Breadcrumb navigation item */

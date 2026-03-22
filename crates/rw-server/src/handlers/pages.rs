@@ -54,9 +54,8 @@ struct PageMeta {
     /// Custom variables (from metadata).
     #[serde(skip_serializing_if = "Option::is_none")]
     vars: Option<serde_json::Value>,
-    /// Section ref for this page's section (null at root scope).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    section_ref: Option<String>,
+    /// Section ref for this page's section.
+    section_ref: String,
 }
 
 /// Breadcrumb item for serialization.
@@ -261,7 +260,7 @@ mod tests {
             description: None,
             page_kind: None,
             vars: None,
-            section_ref: None,
+            section_ref: "section:default/root".to_owned(),
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -270,8 +269,8 @@ mod tests {
         assert_eq!(json["path"], "/guide");
         assert_eq!(json["sourceFile"], "/docs/guide.md");
         assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
-        // sectionRef, description, kind, and vars should be omitted when None
-        assert!(json.get("sectionRef").is_none());
+        assert_eq!(json["sectionRef"], "section:default/root");
+        // description, kind, and vars should be omitted when None
         assert!(json.get("description").is_none());
         assert!(json.get("kind").is_none());
         assert!(json.get("vars").is_none());
@@ -290,7 +289,7 @@ mod tests {
             description: Some("Domain overview".to_owned()),
             page_kind: Some("domain".to_owned()),
             vars: Some(serde_json::to_value(vars).unwrap()),
-            section_ref: Some("domain:default/domain".to_owned()),
+            section_ref: "domain:default/domain".to_owned(),
         };
 
         let json = serde_json::to_value(&meta).unwrap();

@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rw_cache::{CacheBucket, CacheBucketExt};
-use rw_sections::{ROOT_SECTION_KIND, ROOT_SECTION_NAME, Section, Sections};
+use rw_sections::{ROOT_SECTION_KIND, ROOT_SECTION_NAME, ROOT_SECTION_REF, Section, Sections};
 use serde::{Deserialize, Serialize};
 
 use crate::page::{BreadcrumbItem, Page};
@@ -399,29 +399,31 @@ impl SiteState {
     /// Get the section ref string for the section a page belongs to.
     ///
     /// Returns the ref (e.g., `"domain:default/billing"`) for the nearest section
-    /// ancestor, or `None` if the page is at root scope.
+    /// ancestor, falling back to the implicit root section (`section:default/root`)
+    /// when no explicit section is found.
     ///
     /// # Arguments
     ///
     /// * `page_path` - URL path without leading slash.
     #[must_use]
-    pub fn get_section_ref(&self, page_path: &str) -> Option<String> {
-        // If the page itself is a section, return its ref
+    pub fn get_section_ref(&self, page_path: &str) -> String {
         if let Some(section) = self.sections.get(page_path) {
-            return Some(Section::from(section).to_string());
+            return Section::from(section).to_string();
         }
 
-        // Walk up the path to find the nearest section ancestor
         let mut current = page_path;
         while let Some((parent, _)) = current.rsplit_once('/') {
             if let Some(section) = self.sections.get(parent) {
-                return Some(Section::from(section).to_string());
+                return Section::from(section).to_string();
             }
             current = parent;
         }
 
-        // No section ancestor found — root scope
-        None
+        if let Some(section) = self.sections.get("") {
+            return Section::from(section).to_string();
+        }
+
+        ROOT_SECTION_REF.to_owned()
     }
 
     /// Build [`NavItem`] but stop recursion at section boundaries.
@@ -1392,7 +1394,7 @@ mod tests {
 
         let section_ref = site.get_section_ref("billing");
 
-        assert_eq!(section_ref.as_deref(), Some("domain:default/billing"));
+        assert_eq!(section_ref, "domain:default/billing");
     }
 
     #[test]
@@ -1418,7 +1420,7 @@ mod tests {
 
         let section_ref = site.get_section_ref("billing/payments");
 
-        assert_eq!(section_ref.as_deref(), Some("domain:default/billing"));
+        assert_eq!(section_ref, "domain:default/billing");
     }
 
     #[test]
@@ -1452,7 +1454,7 @@ mod tests {
 
         // API page should belong to the payments section (nearest ancestor)
         let section_ref = site.get_section_ref("billing/payments/api");
-        assert_eq!(section_ref.as_deref(), Some("system:default/payments"));
+        assert_eq!(section_ref, "system:default/payments");
     }
 
     #[test]
@@ -1470,7 +1472,8 @@ mod tests {
 
         let section_ref = site.get_section_ref("guide");
 
-        assert!(section_ref.is_none()); // Root scope
+        // Falls back to implicit root section
+        assert_eq!(section_ref, ROOT_SECTION_REF);
     }
 
     #[test]
