@@ -182,7 +182,10 @@ impl Site {
     /// Panics if internal locks are poisoned.
     #[must_use]
     pub fn navigation(&self, scope_path: &str) -> Navigation {
-        self.reload_if_needed().state.navigation(scope_path)
+        let snapshot = self.reload_if_needed();
+        let mut nav = snapshot.state.navigation(scope_path);
+        nav.apply_sections(&snapshot.sections);
+        nav
     }
 
     /// Get navigation scope for a page.
@@ -334,13 +337,8 @@ impl Site {
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
         let breadcrumbs = snapshot.state.get_breadcrumbs(path);
         let meta = Arc::clone(&snapshot) as Arc<dyn MetaIncludeSource>;
-        let mut result = self.renderer.render(path, page, breadcrumbs, Some(meta))?;
-        for crumb in &mut result.breadcrumbs {
-            if let Some(section) = snapshot.sections.get(&crumb.path) {
-                crumb.section = Some(section.clone());
-            }
-        }
-        Ok(result)
+        self.renderer
+            .render(path, page, breadcrumbs, Some(meta), &snapshot.sections)
     }
 
     /// Load site state from storage and build hierarchy.

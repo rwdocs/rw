@@ -11,7 +11,7 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
-use rw_sections::Section;
+use rw_sections::{Section, Sections};
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
@@ -114,6 +114,15 @@ impl From<StorageError> for RenderError {
     }
 }
 
+/// Apply section references to breadcrumb items.
+pub(crate) fn apply_breadcrumb_sections(breadcrumbs: &mut [BreadcrumbItem], sections: &Sections) {
+    for crumb in breadcrumbs.iter_mut() {
+        if let Some(sr) = sections.get(&crumb.path) {
+            crumb.section = Some(sr.clone());
+        }
+    }
+}
+
 /// Page rendering pipeline.
 ///
 /// Handles markdown-to-HTML conversion with caching, diagram processing,
@@ -159,12 +168,17 @@ impl PageRenderer {
         page: &Page,
         breadcrumbs: Vec<BreadcrumbItem>,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+        sections: &Arc<Sections>,
     ) -> Result<PageRenderResult, RenderError> {
-        if page.has_content {
-            self.render_content(path, page, breadcrumbs, meta_include_source)
+        let mut result = if !page.has_content {
+            self.render_virtual(path, page, breadcrumbs)
         } else {
-            Ok(self.render_virtual(path, page, breadcrumbs))
-        }
+            self.render_content(path, page, breadcrumbs, meta_include_source, sections)?
+        };
+
+        apply_breadcrumb_sections(&mut result.breadcrumbs, sections);
+
+        Ok(result)
     }
 
     fn render_content(
@@ -173,6 +187,7 @@ impl PageRenderer {
         page: &Page,
         breadcrumbs: Vec<BreadcrumbItem>,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+        sections: &Arc<Sections>,
     ) -> Result<PageRenderResult, RenderError> {
         let source_mtime = self
             .storage
@@ -199,7 +214,7 @@ impl PageRenderer {
 
         let markdown_text = self.storage.read(path)?;
         let result = self
-            .create_renderer(path, meta_include_source)
+            .create_renderer(path, meta_include_source, sections)
             .render_markdown(&markdown_text);
 
         self.page_bucket.set_json(
@@ -251,6 +266,7 @@ impl PageRenderer {
         &self,
         base_path: &str,
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+        sections: &Arc<Sections>,
     ) -> MarkdownRenderer<HtmlBackend> {
         let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
 
@@ -264,8 +280,10 @@ impl PageRenderer {
         }
 
         if let Some(processor) = self.create_diagram_processor(meta_include_source) {
-            renderer = renderer.with_processor(processor);
+            renderer = renderer.with_processor(processor.with_sections(Arc::clone(sections)));
         }
+
+        renderer = renderer.with_sections(Arc::clone(sections));
 
         renderer
     }
@@ -345,7 +363,9 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("Hello", "test", true);
-        let result = renderer.render("test", &page, vec![], None).unwrap();
+        let result = renderer
+            .render("test", &page, vec![], None, &Arc::new(Sections::default()))
+            .unwrap();
 
         assert!(result.html.contains("<p>World</p>"));
         assert_eq!(result.title, Some("Hello".to_owned()));
@@ -359,7 +379,13 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("Missing", "missing", true);
-        let result = renderer.render("missing", &page, vec![], None);
+        let result = renderer.render(
+            "missing",
+            &page,
+            vec![],
+            None,
+            &Arc::new(Sections::default()),
+        );
 
         assert!(matches!(result, Err(RenderError::FileNotFound(_))));
     }
@@ -370,7 +396,15 @@ mod tests {
         let renderer = create_renderer(storage);
 
         let page = make_page("My Domain", "my-domain", false);
-        let result = renderer.render("my-domain", &page, vec![], None).unwrap();
+        let result = renderer
+            .render(
+                "my-domain",
+                &page,
+                vec![],
+                None,
+                &Arc::new(Sections::default()),
+            )
+            .unwrap();
 
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
         assert_eq!(result.title, Some("My Domain".to_owned()));
@@ -394,10 +428,15 @@ mod tests {
         let renderer = PageRenderer::new(Arc::new(storage), cache, config);
         let page = make_page("Cached", "test", true);
 
-        let result1 = renderer.render("test", &page, vec![], None).unwrap();
+        let empty_refs = Arc::new(Sections::default());
+        let result1 = renderer
+            .render("test", &page, vec![], None, &empty_refs)
+            .unwrap();
         assert!(!result1.from_cache);
 
-        let result2 = renderer.render("test", &page, vec![], None).unwrap();
+        let result2 = renderer
+            .render("test", &page, vec![], None, &empty_refs)
+            .unwrap();
         assert!(result2.from_cache);
         assert_eq!(result1.html, result2.html);
     }
@@ -416,7 +455,9 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Test", "test", true);
-        let result = renderer.render("test", &page, vec![], None).unwrap();
+        let result = renderer
+            .render("test", &page, vec![], None, &Arc::new(Sections::default()))
+            .unwrap();
 
         let meta = result.metadata.unwrap();
         assert_eq!(meta.title, Some("Meta Title".to_owned()));
@@ -431,7 +472,9 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Test", "test", true);
-        let result = renderer.render("test", &page, vec![], None).unwrap();
+        let result = renderer
+            .render("test", &page, vec![], None, &Arc::new(Sections::default()))
+            .unwrap();
 
         assert!(result.metadata.is_none());
     }
@@ -444,7 +487,9 @@ mod tests {
 
         let renderer = create_renderer(storage);
         let page = make_page("Title", "test", true);
-        let result = renderer.render("test", &page, vec![], None).unwrap();
+        let result = renderer
+            .render("test", &page, vec![], None, &Arc::new(Sections::default()))
+            .unwrap();
 
         assert_eq!(result.toc.len(), 2);
         assert_eq!(result.toc[0].title, "Section 1");

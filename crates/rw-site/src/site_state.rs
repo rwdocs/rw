@@ -483,6 +483,31 @@ impl SiteState {
     }
 }
 
+impl Navigation {
+    /// Apply sections to navigation items.
+    pub fn apply_sections(&mut self, sections: &Sections) {
+        if sections.is_empty() {
+            return;
+        }
+        for item in &mut self.items {
+            item.apply_sections(sections);
+        }
+    }
+}
+
+impl NavItem {
+    fn apply_sections(&mut self, sections: &Sections) {
+        if self.section.is_none()
+            && let Some(sr) = sections.get(&self.path)
+        {
+            self.section = Some(sr.clone());
+        }
+        for child in &mut self.children {
+            child.apply_sections(sections);
+        }
+    }
+}
+
 /// Builder for constructing [`SiteState`] instances.
 pub(crate) struct SiteStateBuilder {
     pages: Vec<Page>,

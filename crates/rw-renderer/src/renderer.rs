@@ -3,8 +3,10 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use rw_sections::Sections;
 
 use crate::backend::{AlertKind, RenderBackend};
 use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
@@ -58,6 +60,9 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     alert_stack: Vec<Option<AlertKind>>,
     /// Optional directive processor for `CommonMark` directives.
     directives: Option<DirectiveProcessor>,
+    /// Sections for annotating internal links.
+    /// Shared via Arc because the map can be large (~500 entries) and is reused across renders.
+    sections: Option<Arc<Sections>>,
     _backend: PhantomData<B>,
 }
 
@@ -80,6 +85,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             gfm: true,
             alert_stack: Vec::new(),
             directives: None,
+            sections: None,
             _backend: PhantomData,
         }
     }
@@ -147,6 +153,20 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn with_directives(mut self, processor: DirectiveProcessor) -> Self {
         self.directives = Some(processor);
+        self
+    }
+
+    /// Set sections for cross-section link annotation.
+    ///
+    /// When set, resolved internal links get `data-section-ref` and
+    /// `data-section-path` attributes on the anchor element.
+    #[must_use]
+    pub fn with_sections(mut self, sections: Arc<Sections>) -> Self {
+        if sections.is_empty() {
+            self.sections = None;
+        } else {
+            self.sections = Some(sections);
+        }
         self
     }
 
@@ -252,6 +272,17 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         } else {
             self.output.push_str(content);
         }
+    }
+
+    /// Build section ref data attributes for a resolved href, if applicable.
+    ///
+    /// Returns `None` for:
+    /// - External links (not starting with `/`)
+    /// - Links not matching any section
+    ///
+    /// Returns `Some((section_ref_string, section_path))` for internal links matching a section.
+    fn section_ref_attrs(&self, href: &str) -> Option<(String, String)> {
+        self.sections.as_ref()?.resolve_ref(href)
     }
 
     /// Render markdown events and return the result.
@@ -373,7 +404,25 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Strikethrough => self.push_inline("<s>"),
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
-                let link_tag = format!(r#"<a href="{}">"#, escape_html(&href));
+                let section_ref = self.section_ref_attrs(&href);
+                let mut link_tag = format!(r#"<a href="{}""#, escape_html(&href));
+                if let Some((ref_string, section_path)) = section_ref {
+                    write!(
+                        link_tag,
+                        r#" data-section-ref="{}""#,
+                        escape_html(&ref_string)
+                    )
+                    .unwrap();
+                    if !section_path.is_empty() {
+                        write!(
+                            link_tag,
+                            r#" data-section-path="{}""#,
+                            escape_html(&section_path)
+                        )
+                        .unwrap();
+                    }
+                }
+                link_tag.push('>');
                 self.push_inline(&link_tag);
             }
             Tag::Image {
@@ -559,10 +608,13 @@ impl<B: RenderBackend> Default for MarkdownRenderer<B> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::HtmlBackend;
     use crate::code_block::ExtractedCodeBlock;
     use pulldown_cmark::{Options, Parser};
+    use rw_sections::Section;
 
     fn render_html(markdown: &str) -> RenderResult {
         let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
@@ -1094,5 +1146,142 @@ Install with apt.
         let result = renderer.render_markdown(":::tab[Test]\nContent");
 
         assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
+    }
+
+    // section_ref integration tests
+
+    #[test]
+    fn section_ref_emits_data_attributes_on_cross_section_link() {
+        let sections = Arc::new(Sections::new(HashMap::from([
+            (
+                "domains/billing".to_owned(),
+                Section {
+                    kind: "domain".to_owned(),
+                    name: "billing".to_owned(),
+                },
+            ),
+            (
+                "domains/billing/systems/pay".to_owned(),
+                Section {
+                    kind: "system".to_owned(),
+                    name: "pay".to_owned(),
+                },
+            ),
+        ])));
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/domains/billing/systems/pay/api".to_owned())
+            .with_sections(Arc::clone(&sections));
+        let result = renderer.render_markdown("[Billing](../../../overview.md)");
+        // Link resolves to /domains/billing/overview, which is in domain:default/billing (different section)
+        assert!(
+            result
+                .html
+                .contains(r#"data-section-ref="domain:default/billing""#)
+        );
+        assert!(result.html.contains(r#"data-section-path="overview""#));
+        // href should still be the original resolved path
+        assert!(result.html.contains(r#"href="/domains/billing/overview""#));
+    }
+
+    #[test]
+    fn section_ref_annotates_same_section_link() {
+        let sections = Arc::new(Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                name: "billing".to_owned(),
+            },
+        )])));
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/domains/billing/overview".to_owned())
+            .with_sections(Arc::clone(&sections));
+        let result = renderer.render_markdown("[Use Cases](./use-cases.md)");
+        // Link resolves within same section — data attributes ARE present
+        assert!(
+            result
+                .html
+                .contains(r#"data-section-ref="domain:default/billing""#)
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"data-section-path="overview/use-cases""#)
+        );
+    }
+
+    #[test]
+    fn section_ref_no_attributes_on_external_link() {
+        let sections = Arc::new(Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                name: "billing".to_owned(),
+            },
+        )])));
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/domains/billing".to_owned())
+            .with_sections(sections);
+        let result = renderer.render_markdown("[Google](https://google.com)");
+        assert!(!result.html.contains("data-section-ref"));
+        assert!(result.html.contains(r#"href="https://google.com""#));
+    }
+
+    #[test]
+    fn section_ref_preserves_fragment() {
+        let sections = Arc::new(Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                name: "billing".to_owned(),
+            },
+        )])));
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/domains/search/overview".to_owned())
+            .with_sections(Arc::clone(&sections));
+        let result = renderer.render_markdown("[Billing API](../../billing/api.md#endpoints)");
+        assert!(
+            result
+                .html
+                .contains(r#"href="/domains/billing/api#endpoints""#)
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"data-section-ref="domain:default/billing""#)
+        );
+        assert!(result.html.contains(r#"data-section-path="api""#));
+    }
+
+    #[test]
+    fn section_ref_empty_section_path_omits_attribute() {
+        let sections = Arc::new(Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                name: "billing".to_owned(),
+            },
+        )])));
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path("/domains/search".to_owned())
+            .with_sections(Arc::clone(&sections));
+        let result = renderer.render_markdown("[Billing](../billing/index.md)");
+        // Link resolves to /domains/billing (exact section root)
+        assert!(
+            result
+                .html
+                .contains(r#"data-section-ref="domain:default/billing""#)
+        );
+        // No data-section-path when targeting the section root
+        assert!(!result.html.contains("data-section-path"));
+    }
+
+    #[test]
+    fn section_ref_no_attributes_without_sections_configured() {
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_base_path("/domains/billing".to_owned());
+        let result = renderer.render_markdown("[Use Cases](./use-cases.md)");
+        // No sections configured — no data attributes
+        assert!(!result.html.contains("data-section-ref"));
+        assert!(result.html.contains(r#"href="/domains/billing/use-cases""#));
     }
 }

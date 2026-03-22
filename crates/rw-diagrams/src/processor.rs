@@ -13,7 +13,7 @@ use ureq::Agent;
 
 use crate::cache::DiagramKey;
 use crate::consts::{DEFAULT_DPI, DEFAULT_TIMEOUT};
-use crate::html_embed::{scale_svg_dimensions, strip_google_fonts_import};
+use crate::html_embed::{annotate_svg_links, scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
     DiagramRequest, create_agent, render_all, render_all_png_data_uri_partial,
     render_all_svg_partial,
@@ -23,6 +23,7 @@ use crate::meta_includes::MetaIncludeSource;
 use crate::output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
 use crate::plantuml::{PrepareResult, prepare_diagram_source, resolve_includes};
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
+use rw_sections::Sections;
 
 /// Configuration for diagram processing (immutable after setup).
 ///
@@ -45,6 +46,8 @@ struct ProcessorConfig {
     agent: Agent,
     /// Optional metadata source for resolving virtual `PlantUML` includes.
     meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    /// Sections for annotating SVG links with section ref data attributes.
+    sections: Option<Arc<Sections>>,
 }
 
 /// Code block processor for diagram languages.
@@ -110,6 +113,7 @@ impl DiagramProcessor {
                 output: DiagramOutput::default(),
                 agent: create_agent(DEFAULT_TIMEOUT),
                 meta_include_source: None,
+                sections: None,
             },
             extracted: Vec::new(),
             warnings: Vec::new(),
@@ -218,6 +222,25 @@ impl DiagramProcessor {
     pub fn with_meta_include_source(mut self, source: Arc<dyn MetaIncludeSource>) -> Self {
         self.config.meta_include_source = Some(source);
         self
+    }
+
+    /// Set sections for annotating SVG links with `data-section-ref` attributes.
+    #[must_use]
+    pub fn with_sections(mut self, sections: Arc<Sections>) -> Self {
+        if sections.is_empty() {
+            self.config.sections = None;
+        } else {
+            self.config.sections = Some(sections);
+        }
+        self
+    }
+
+    /// Annotate SVG links if sections are configured.
+    fn annotate_links(config: &ProcessorConfig, svg: &str) -> String {
+        match &config.sections {
+            Some(sections) => annotate_svg_links(svg, sections),
+            None => svg.to_owned(),
+        }
     }
 
     /// Prepare diagram source for rendering.
@@ -413,7 +436,8 @@ impl DiagramProcessor {
                 // Cache hit: add replacement directly
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
-                        format!(r#"<figure class="diagram">{cached_content}</figure>"#)
+                        let annotated = Self::annotate_links(config, &cached_content);
+                        format!(r#"<figure class="diagram">{annotated}</figure>"#)
                     }
                     DiagramFormat::Png => {
                         format!(
@@ -469,7 +493,8 @@ impl DiagramProcessor {
                 config.cache.set_string(&hash, "", &scaled_svg);
             }
 
-            let figure = format!(r#"<figure class="diagram">{scaled_svg}</figure>"#);
+            let annotated = Self::annotate_links(config, &scaled_svg);
+            let figure = format!(r#"<figure class="diagram">{annotated}</figure>"#);
             replacements.add(r.index, figure);
         }
         for e in result.errors {
