@@ -13,6 +13,7 @@ export interface RwContext {
   navigation: Navigation;
   liveReload: LiveReload;
   ui: Ui;
+  resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
 }
 
 const RW_KEY = Symbol("rw");

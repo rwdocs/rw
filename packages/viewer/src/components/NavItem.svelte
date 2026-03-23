@@ -58,7 +58,7 @@
     {/if}
 
     <a
-      href={router.prefixPath(item.path)}
+      href={item.href ?? router.prefixPath(item.path)}
       class="
         flex-1 rounded-sm p-1.5 text-sm transition-colors
         {isActive

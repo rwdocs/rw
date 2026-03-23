@@ -291,6 +291,56 @@ describe("page store", () => {
       expect(page.data).toEqual(updatedResponse);
       expect(page.loading).toBe(false);
     });
+
+    it("does not crash when concurrent load nullifies abortController before abort check", async () => {
+      const page = new Page(mockApiClient);
+
+      const responseWithBreadcrumbs: PageResponse = {
+        ...mockPageResponse,
+        breadcrumbs: [{ title: "API", path: "/", section: { kind: "component", name: "api" } }],
+      };
+
+      // The bug: load1 fetches page, then awaits resolveBreadcrumbs. While
+      // load1 is suspended, load2 starts, completes, and its finally block
+      // sets this.abortController = null. Load1 resumes and reads
+      // this.abortController.signal.aborted → TypeError: null.
+
+      // We use the resolver to suspend load1 after fetchPage succeeds.
+      // While load1 is suspended in resolveBreadcrumbs, we start and
+      // complete load2, which nullifies abortController.
+
+      let resolveResolver!: (v: Record<string, string>) => void;
+      const resolver = vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise<Record<string, string>>((r) => {
+              resolveResolver = r;
+            }),
+        )
+        .mockResolvedValue({ "component:default/api": "/docs/api" });
+      page.setSectionRefResolver(resolver);
+
+      // load1: fetchPage resolves immediately, then hangs on resolveBreadcrumbs
+      mockFetchPage.mockResolvedValueOnce(responseWithBreadcrumbs);
+      const load1 = page.load("");
+
+      // Yield to let load1 reach resolveBreadcrumbs (fetchPage resolved)
+      await vi.waitFor(() => expect(resolver).toHaveBeenCalledTimes(1));
+
+      // load2: starts, aborts load1's controller, creates new one
+      mockFetchPage.mockResolvedValueOnce(responseWithBreadcrumbs);
+      const load2 = page.load("domains/billing");
+      await load2; // completes → finally sets this.abortController = null
+
+      // Now resume load1's resolveBreadcrumbs — it will hit
+      // this.abortController.signal.aborted where this.abortController is null.
+      // The TypeError gets caught by the generic catch block and sets page.error,
+      // so we assert error stays null (load1 should bail out, not crash).
+      resolveResolver({ "component:default/api": "/docs/api" });
+      await load1;
+      expect(page.error).toBeNull();
+    });
   });
 
   describe("clear", () => {

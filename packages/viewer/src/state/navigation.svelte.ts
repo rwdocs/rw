@@ -1,5 +1,7 @@
 import type { NavigationTree, NavItem } from "../types";
 import type { ApiClient } from "../api/client";
+import type { SectionRefResolver } from "../lib/sectionRefs";
+import { resolveNavTree } from "../lib/sectionRefs";
 
 /** Collect all paths with children from the navigation tree */
 export function collectParentPaths(items: NavItem[]): string[] {
@@ -36,13 +38,19 @@ export class Navigation {
   private apiClient: ApiClient;
   private currentController: AbortController | null = null;
   private activePath: string | null = null;
+  private sectionRefResolver?: SectionRefResolver;
 
   constructor(apiClient: ApiClient) {
     this.apiClient = apiClient;
   }
 
-  load = async (options?: { bypassCache?: boolean }): Promise<void> => {
-    return this.loadSection(undefined, options);
+  /** Configure section ref resolution for nav item path rewriting. */
+  setSectionRefResolver(resolver: SectionRefResolver) {
+    this.sectionRefResolver = resolver;
+  }
+
+  load = async (options?: { bypassCache?: boolean; sectionRef?: string }): Promise<void> => {
+    return this.loadSection(options?.sectionRef, options);
   };
 
   loadSection = async (
@@ -64,8 +72,13 @@ export class Navigation {
       });
       if (controller.signal.aborted) return;
 
-      const allParentPaths = collectParentPaths(tree.items);
-      this.tree = tree;
+      const resolvedTree = this.sectionRefResolver
+        ? await resolveNavTree(tree, this.sectionRefResolver)
+        : tree;
+      if (controller.signal.aborted) return;
+
+      const allParentPaths = collectParentPaths(resolvedTree.items);
+      this.tree = resolvedTree;
       this.loading = false;
       this.collapsed = new Set(allParentPaths);
       this.currentSectionRef = sectionRef;

@@ -7,7 +7,7 @@
   let backLink = $derived.by(() => {
     const tree = navigation.tree;
     if (!tree?.scope) return null;
-    return tree.parentScope ?? { path: "/", title: "Home" };
+    return tree.parentScope ?? { path: "/", title: "Home", href: undefined };
   });
 </script>
 
@@ -20,7 +20,7 @@
     {#if navigation.tree.scope && backLink}
       <div class="mb-5">
         <a
-          href={router.prefixPath(backLink.path)}
+          href={backLink.href ?? router.prefixPath(backLink.path)}
           class="
             mb-2 flex items-center text-sm text-gray-500
             hover:text-blue-600

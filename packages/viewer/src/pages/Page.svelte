@@ -6,8 +6,12 @@
 
   const { router, page, navigation, liveReload } = getRwContext();
 
-  // Load page when path changes
+  // Load page when path changes.
+  // In embedded mode, wait for scope/basePath resolution — the initial path
+  // may not yet include the section prefix, so loading now would fetch the
+  // wrong page.
   $effect(() => {
+    if (router.embedded && !router.resolved) return;
     const currentPath = router.path;
     const apiPath = extractDocPath(currentPath);
     page.load(apiPath);

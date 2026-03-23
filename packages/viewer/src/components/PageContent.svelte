@@ -1,10 +1,12 @@
 <script lang="ts">
   import { getRwContext } from "../lib/context";
   import { initializeTabs } from "../lib/tabs";
+  import { rewriteSectionRefLinks } from "../lib/sectionRefs";
   import { LOADING_SHOW_DELAY } from "../lib/constants";
   import LoadingSkeleton from "./LoadingSkeleton.svelte";
 
-  const { page, router } = getRwContext();
+  const ctx = getRwContext();
+  const { page, router } = ctx;
 
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
@@ -26,6 +28,20 @@
     if (page.data && articleRef) {
       return initializeTabs(articleRef);
     }
+  });
+
+  // Rewrite section ref links when content changes (embedded mode with resolver).
+  // If the user navigates away during the async resolver call, Svelte replaces
+  // the DOM element, so stale writes land on a detached node and are harmless.
+  $effect(() => {
+    if (!page.data || !articleRef || !ctx.resolveSectionRefs) return;
+    rewriteSectionRefLinks(articleRef, ctx.resolveSectionRefs, () => router.getBasePath()).catch(
+      (e) => {
+        if (import.meta.env.DEV) {
+          console.warn("[PageContent] Failed to rewrite section ref links:", e);
+        }
+      },
+    );
   });
 
   // Scroll to hash target when content loads or hash changes (skip in embedded mode

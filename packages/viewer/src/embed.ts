@@ -9,15 +9,23 @@ export interface MountOptions {
   embedded?: boolean;
   /** Initial path to navigate to. */
   initialPath?: string;
-  /** Path prefix for link hrefs (e.g. "/rw-docs"). Links will use this prefix so that
-   *  Cmd+Click, right-click → Open in new tab, and hover previews show correct URLs. */
-  basePath?: string;
+  /** Section ref for this entity (e.g. "system:default/payment-gateway").
+   *  Used to load scoped navigation and to resolve the viewer's own base URL via `resolveSectionRefs`. */
+  sectionRef: string;
   /** Custom fetch function (e.g. Backstage authenticated fetch). */
   fetchFn?: typeof fetch;
-  /** Called when the user navigates to a new path (embedded mode only). */
-  onNavigate?: (path: string) => void;
+  /** Called when the user navigates (embedded mode only).
+   *  Receives the full href — for same-section navigation this is basePath + internal path,
+   *  for cross-section navigation this is the resolved catalog URL.
+   *  Use this to drive React Router or equivalent in the host application. */
+  onNavigate?: (href: string) => void;
   /** Color scheme: 'light', 'dark', or 'auto' (OS preference). Defaults to 'auto'. */
   colorScheme?: "light" | "dark" | "auto";
+  /** Resolve section refs to base URLs for cross-entity navigation.
+   *  Called at startup with the viewer's own `sectionRef` to set the base URL, and after
+   *  each page render with unique ref strings (e.g., "system:default/payment-gateway").
+   *  Returns a map of ref → base URL. */
+  resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
 }
 
 export interface RwInstance {
@@ -73,9 +81,10 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       apiBaseUrl: options.apiBaseUrl,
       embedded: options.embedded ?? true,
       initialPath: options.initialPath,
-      basePath: options.basePath,
+      sectionRef: options.sectionRef,
       fetchFn: options.fetchFn,
       onNavigate: options.onNavigate,
+      resolveSectionRefs: options.resolveSectionRefs,
       exposeGoto: (goto: (path: string) => void) => {
         gotoFn = goto;
       },

@@ -159,7 +159,7 @@
               : ""}
           >
             <a
-              href={router.prefixPath(firstCrumb.path)}
+              href={firstCrumb.href ?? router.prefixPath(firstCrumb.path)}
               class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
             >
               {firstCrumb.title}
@@ -191,7 +191,7 @@
             class="after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500"
           >
             <a
-              href={router.prefixPath(crumb.path)}
+              href={crumb.href ?? router.prefixPath(crumb.path)}
               class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
             >
               {crumb.title}
@@ -202,7 +202,7 @@
         {#if lastCrumb}
           <li>
             <a
-              href={router.prefixPath(lastCrumb.path)}
+              href={lastCrumb.href ?? router.prefixPath(lastCrumb.path)}
               class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
             >
               {lastCrumb.title}
@@ -228,7 +228,7 @@
       {#each hiddenCrumbs as crumb (crumb.path)}
         <li role="none">
           <a
-            href={router.prefixPath(crumb.path)}
+            href={crumb.href ?? router.prefixPath(crumb.path)}
             role="menuitem"
             class="
               block px-3 py-1.5 text-sm text-gray-600
