@@ -44,11 +44,10 @@
     );
   });
 
-  // Scroll to hash target when content loads or hash changes (skip in embedded mode
-  // to avoid scrolling the host page)
+  // Scroll to hash target when content loads or hash changes
   $effect(() => {
     const currentHash = router.hash;
-    if (!router.embedded && page.data && articleRef && currentHash) {
+    if (page.data && articleRef && currentHash) {
       const target = document.getElementById(currentHash);
       if (target) {
         // Use requestAnimationFrame to ensure DOM is fully rendered
