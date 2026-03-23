@@ -76,11 +76,13 @@ export async function resolveNavTree(
   tree: NavigationTree,
   resolver: SectionRefResolver,
 ): Promise<NavigationTree> {
-  // For top-level sections (scope exists but no parentScope), synthesize a
-  // root parentScope so the resolver can map it to the source entity URL.
+  // The backend provides parentScope for all non-root sections. This fallback
+  // handles older backends that may omit it for top-level sections. The root
+  // scope itself (path "/") has no parent to navigate back to.
+  const isRootScope = tree.scope?.path === "/";
   const effectiveParentScope: ScopeInfo | undefined =
     tree.parentScope ??
-    (tree.scope
+    (tree.scope && !isRootScope
       ? { path: "/", title: "Home", section: { kind: "section", name: "root" } }
       : undefined);
 

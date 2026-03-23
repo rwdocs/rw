@@ -26,10 +26,10 @@ pub(crate) struct NavigationQuery {
 pub(crate) struct NavigationResponse {
     /// Navigation tree items.
     items: Vec<NavItemResponse>,
-    /// Current scope info (null at root).
+    /// Current scope info (implicit root section at root, explicit section otherwise).
     #[serde(skip_serializing_if = "Option::is_none")]
     scope: Option<ScopeInfoResponse>,
-    /// Parent scope for back navigation (null at root or if no parent section).
+    /// Parent scope for back navigation (null only at root).
     #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
     parent_scope: Option<ScopeInfoResponse>,
 }
