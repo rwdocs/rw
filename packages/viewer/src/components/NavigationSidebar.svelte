@@ -4,11 +4,7 @@
 
   const { navigation, router } = getRwContext();
 
-  let backLink = $derived.by(() => {
-    const tree = navigation.tree;
-    if (!tree?.scope) return null;
-    return tree.parentScope ?? { path: "/", title: "Home", href: undefined };
-  });
+  let backLink = $derived(navigation.tree?.parentScope ?? null);
 </script>
 
 {#if navigation.loading}

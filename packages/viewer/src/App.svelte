@@ -115,8 +115,9 @@
       // Load navigation — pass sectionRef for scoped loading in embedded mode
       await navigation.load(currentSectionRef ? { sectionRef: currentSectionRef } : undefined);
 
-      // Extract scopePath from navigation response (embedded mode with sectionRef)
-      if (navigation.tree?.scope?.path) {
+      // Extract scopePath from navigation response (embedded mode with sectionRef).
+      // Skip root scope ("/") — it has no path prefix to strip/add.
+      if (navigation.tree?.scope?.path && navigation.tree.scope.path !== "/") {
         router.setScopePath(navigation.tree.scope.path);
       }
 

@@ -87,10 +87,10 @@ pub struct ScopeInfo {
 pub struct Navigation {
     /// Navigation items for this scope.
     pub items: Vec<NavItem>,
-    /// Current scope info (None at root).
+    /// Current scope info (implicit root section at root, explicit section otherwise).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<ScopeInfo>,
-    /// Parent scope for back navigation (None at root or if no parent section).
+    /// Parent scope for back navigation (None only at root).
     #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
     pub parent_scope: Option<ScopeInfo>,
 }
@@ -343,7 +343,8 @@ impl SiteState {
 
     /// Build navigation scoped to a section.
     ///
-    /// If `scope_path` is empty, returns root navigation with sections as leaves.
+    /// If `scope_path` is empty, returns root navigation with an implicit root
+    /// section scope and sections as leaves.
     /// If `scope_path` points to a section, returns that section's children.
     ///
     /// # Arguments
@@ -361,7 +362,7 @@ impl SiteState {
 
             Navigation {
                 items,
-                scope: None,
+                scope: Some(self.root_scope_info()),
                 parent_scope: None,
             }
         } else {
@@ -460,10 +461,14 @@ impl SiteState {
     ///
     /// # Returns
     ///
-    /// `ScopeInfo` for the parent section, or `None` if at root level
-    /// (including pages in the implicit root section, which have no parent
-    /// to navigate back to).
+    /// `ScopeInfo` for the parent section. Falls back to the implicit root
+    /// section for top-level sections. Returns `None` only for the root scope
+    /// itself (which has no parent).
     fn find_parent_section(&self, path: &str) -> Option<ScopeInfo> {
+        if path.is_empty() {
+            return None;
+        }
+
         let mut current = path;
         while let Some((parent, _)) = current.rsplit_once('/') {
             if let Some(section) = self.sections.get(parent) {
@@ -475,7 +480,25 @@ impl SiteState {
             }
             current = parent;
         }
-        None
+
+        Some(self.root_scope_info())
+    }
+
+    /// Build a `ScopeInfo` for the implicit root section.
+    fn root_scope_info(&self) -> ScopeInfo {
+        let title = self
+            .get_page("")
+            .map(|p| p.title.clone())
+            .unwrap_or_else(|| "Home".to_owned());
+
+        ScopeInfo {
+            path: "/".to_owned(),
+            title,
+            section: Section {
+                kind: ROOT_SECTION_KIND.to_owned(),
+                name: ROOT_SECTION_NAME.to_owned(),
+            },
+        }
     }
 
     /// Build a sections map for cross-section link annotation.
@@ -1234,8 +1257,12 @@ mod tests {
 
         let nav = site.navigation("");
 
-        // Root scope should have no scope info
-        assert!(nav.scope.is_none());
+        // Root scope should have implicit root section scope
+        let scope = nav.scope.as_ref().unwrap();
+        assert_eq!(scope.path, "/");
+        assert_eq!(scope.title, "Home");
+        assert_eq!(scope.section.kind, ROOT_SECTION_KIND);
+        assert_eq!(scope.section.name, ROOT_SECTION_NAME);
         assert!(nav.parent_scope.is_none());
 
         // Should show both items
@@ -1317,8 +1344,12 @@ mod tests {
         assert_eq!(scope.section.kind, "domain");
         assert_eq!(scope.section.name, "billing");
 
-        // No parent section
-        assert!(nav.parent_scope.is_none());
+        // Parent is implicit root section
+        let parent = nav.parent_scope.unwrap();
+        assert_eq!(parent.path, "/");
+        assert_eq!(parent.title, "Home");
+        assert_eq!(parent.section.kind, ROOT_SECTION_KIND);
+        assert_eq!(parent.section.name, ROOT_SECTION_NAME);
 
         // Should show billing's children
         assert_eq!(nav.items.len(), 2);
