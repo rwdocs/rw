@@ -1,6 +1,8 @@
 import type { PageResponse } from "../types";
 import type { ApiClient } from "../api/client";
 import { NotFoundError } from "../api/client";
+import type { SectionRefResolver } from "../lib/sectionRefs";
+import { resolveBreadcrumbs } from "../lib/sectionRefs";
 
 export class Page {
   data = $state.raw<PageResponse | null>(null);
@@ -11,10 +13,16 @@ export class Page {
   private apiClient: ApiClient;
   private embedded: boolean;
   private abortController: AbortController | null = null;
+  private sectionRefResolver?: SectionRefResolver;
 
   constructor(apiClient: ApiClient, options?: { embedded?: boolean }) {
     this.apiClient = apiClient;
     this.embedded = options?.embedded ?? false;
+  }
+
+  /** Configure section ref resolution for breadcrumb path rewriting. */
+  setSectionRefResolver(resolver: SectionRefResolver) {
+    this.sectionRefResolver = resolver;
   }
 
   load = async (path: string, options?: { bypassCache?: boolean; silent?: boolean }) => {
@@ -22,6 +30,7 @@ export class Page {
       this.abortController.abort();
     }
     this.abortController = new AbortController();
+    const signal = this.abortController.signal;
 
     if (!options?.silent) {
       this.loading = true;
@@ -30,10 +39,18 @@ export class Page {
     }
 
     try {
-      const data = await this.apiClient.fetchPage(path, {
+      let data = await this.apiClient.fetchPage(path, {
         bypassCache: options?.bypassCache,
-        signal: this.abortController.signal,
+        signal,
       });
+      if (signal.aborted) return;
+      if (this.sectionRefResolver) {
+        data = {
+          ...data,
+          breadcrumbs: await resolveBreadcrumbs(data.breadcrumbs, this.sectionRefResolver),
+        };
+        if (signal.aborted) return;
+      }
       this.data = data;
       this.loading = false;
       this.error = null;
@@ -58,7 +75,9 @@ export class Page {
         this.notFound = false;
       }
     } finally {
-      this.abortController = null;
+      if (this.abortController?.signal === signal) {
+        this.abortController = null;
+      }
     }
   };
 

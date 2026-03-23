@@ -189,6 +189,13 @@ impl Site {
         nav
     }
 
+    /// Get the current sections map.
+    #[must_use]
+    pub fn sections(&self) -> Arc<Sections> {
+        let snapshot = self.reload_if_needed();
+        Arc::clone(&snapshot.sections)
+    }
+
     /// Get the section ref string for the section a page belongs to.
     ///
     /// Reloads site if needed and returns the ref (e.g., `"domain:default/billing"`)

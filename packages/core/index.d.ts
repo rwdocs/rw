@@ -40,7 +40,7 @@ export interface PageMetaResponse {
   description?: string
   kind?: string
   vars?: any
-  sectionRef?: string
+  sectionRef: string
 }
 
 export interface PageResponse {

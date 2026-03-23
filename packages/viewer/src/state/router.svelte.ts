@@ -33,22 +33,25 @@ function decodeHash(encoded: string): string {
 export class Router {
   path = $state("/");
   hash = $state("");
+  resolved = $state(false);
   readonly embedded: boolean;
-  private readonly basePath: string;
+  private basePath = $state("");
+  private scopePath = $state("");
   private readonly onNavigate?: (path: string) => void;
+  private pendingGotos: string[] = [];
+  private scopeApplied = false;
 
   constructor(options?: {
     embedded?: boolean;
     initialPath?: string;
-    basePath?: string;
     onNavigate?: (path: string) => void;
   }) {
     this.embedded = options?.embedded ?? false;
-    this.basePath = options?.basePath ?? "";
     this.onNavigate = options?.onNavigate;
 
     if (this.embedded) {
-      this.path = options?.initialPath?.split("#")[0] ?? "/";
+      const raw = options?.initialPath?.split("#")[0] ?? "/";
+      this.path = raw;
       this.hash = decodeHash(options?.initialPath?.split("#")[1] ?? "");
     } else {
       this.path = window.location.pathname;
@@ -56,20 +59,70 @@ export class Router {
     }
   }
 
+  getBasePath(): string {
+    return this.basePath;
+  }
+
+  setBasePath(value: string): void {
+    this.basePath = value;
+    this.resolved = true;
+
+    // Replay pending gotos
+    const pending = this.pendingGotos.splice(0);
+    for (const path of pending) {
+      this.goto(path);
+    }
+  }
+
+  getScopePath(): string {
+    return this.scopePath;
+  }
+
+  setScopePath(value: string): void {
+    this.scopePath = value;
+
+    // Apply scope to current path once (embedded mode only)
+    if (this.embedded && !this.scopeApplied) {
+      this.scopeApplied = true;
+      this.path = this.addScope(this.path);
+    }
+  }
+
+  /** Strip scopePath prefix from an internal path for URL construction. */
+  private stripScope(path: string): string {
+    if (!this.scopePath) return path;
+    if (path === this.scopePath) return "/";
+    if (path.startsWith(this.scopePath + "/")) return path.slice(this.scopePath.length);
+    return path;
+  }
+
+  /** Add scopePath prefix to a URL path for internal/API use. */
+  private addScope(path: string): string {
+    if (!this.scopePath) return path;
+    if (path === "/") return this.scopePath;
+    return this.scopePath + path;
+  }
+
   /** Prefix an internal path with basePath for use in href attributes. */
   prefixPath = (path: string): string => {
-    return this.basePath + path;
+    return this.basePath + this.stripScope(path);
   };
 
   /** Navigate to a path programmatically */
   goto = (newPath: string) => {
+    // Queue navigation until basePath is resolved in embedded mode
+    if (!this.resolved && this.embedded) {
+      this.pendingGotos.push(newPath);
+      return;
+    }
+
     const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
     const url = new URL(newPath, origin);
 
     if (!this.embedded) {
       window.history.pushState({}, "", newPath);
     } else if (this.onNavigate) {
-      this.onNavigate(newPath);
+      this.onNavigate(this.basePath + this.stripScope(newPath));
     }
 
     this.path = url.pathname;
@@ -100,10 +153,20 @@ export class Router {
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if (isExternalLink(href, anchor)) return;
 
-      const internalPath =
-        this.basePath && href.startsWith(this.basePath)
-          ? href.slice(this.basePath.length) || "/"
-          : href;
+      // Not yet resolved in embedded mode — ignore clicks
+      if (this.embedded && !this.resolved) return;
+
+      // Cross-section link — let host handle routing via onNavigate
+      if (this.basePath && !href.startsWith(this.basePath)) {
+        if (this.onNavigate) {
+          e.preventDefault();
+          this.onNavigate(href);
+        }
+        return;
+      }
+
+      const urlPath = this.basePath ? href.slice(this.basePath.length) || "/" : href;
+      const internalPath = this.addScope(urlPath);
 
       e.preventDefault();
       this.goto(internalPath);

@@ -145,6 +145,18 @@ describe("navigation store", () => {
       );
     });
 
+    it("forwards sectionRef to fetchNavigation", async () => {
+      mockFetchNavigation.mockResolvedValue(mockTree);
+      const navigation = new Navigation(mockApiClient);
+
+      await navigation.load({ sectionRef: "domain:default/billing" });
+
+      expect(mockFetchNavigation).toHaveBeenCalledWith(
+        expect.objectContaining({ sectionRef: "domain:default/billing" }),
+      );
+      expect(navigation.currentSectionRef).toBe("domain:default/billing");
+    });
+
     it("aborts previous request when new load starts", async () => {
       let firstResolve: (value: NavigationTree) => void;
       const firstPromise = new Promise<NavigationTree>((resolve) => {
