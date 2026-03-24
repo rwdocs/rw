@@ -98,6 +98,9 @@ pub enum RenderError {
     /// I/O error reading source file.
     #[error("I/O error: {0}")]
     Io(#[source] std::io::Error),
+    /// Storage backend error (e.g., S3 unavailable).
+    #[error("Storage error: {0}")]
+    Storage(#[source] StorageError),
 }
 
 impl From<StorageError> for RenderError {
@@ -109,7 +112,7 @@ impl From<StorageError> for RenderError {
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default(),
             ),
-            _ => Self::Io(std::io::Error::other(e.to_string())),
+            _ => Self::Storage(e),
         }
     }
 }
@@ -189,10 +192,7 @@ impl PageRenderer {
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
         sections: &Arc<Sections>,
     ) -> Result<PageRenderResult, RenderError> {
-        let source_mtime = self
-            .storage
-            .mtime(path)
-            .map_err(|_| RenderError::FileNotFound(path.to_owned()))?;
+        let source_mtime = self.storage.mtime(path).map_err(RenderError::from)?;
 
         let metadata = self.load_metadata(path);
 

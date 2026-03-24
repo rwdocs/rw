@@ -126,10 +126,11 @@ fn get_page_impl(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, HandlerError> {
     // Render the page using unified Site API (path is already without leading slash)
-    let result = state
-        .site
-        .render(&path)
-        .map_err(|_| HandlerError::PageNotFound(path.clone()))?;
+    let result = state.site.render(&path).map_err(|e| match e {
+        rw_site::RenderError::PageNotFound(p) => HandlerError::PageNotFound(p),
+        rw_site::RenderError::Storage(se) => HandlerError::Storage(se),
+        other => HandlerError::Render(other),
+    })?;
 
     // Log warnings in verbose mode
     if state.verbose && !result.warnings.is_empty() {
@@ -169,7 +170,7 @@ fn get_page_impl(
     };
 
     // Get section ref for this page's section
-    let section_ref = state.site.get_section_ref(&path);
+    let section_ref = state.site.get_section_ref(&path)?;
 
     let response = PageResponse {
         meta: PageMeta {

@@ -20,7 +20,7 @@
 //! let site = Arc::new(Site::new(storage, cache, config));
 //!
 //! // Get navigation (root)
-//! let nav = site.navigation(None);
+//! let nav = site.navigation(None)?;
 //!
 //! // Render a page
 //! let result = site.render("guide")?;

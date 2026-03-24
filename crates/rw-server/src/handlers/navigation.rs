@@ -9,6 +9,7 @@ use axum::extract::{Query, State};
 use rw_site::{NavItem, ScopeInfo, Section};
 use serde::{Deserialize, Serialize};
 
+use crate::error::HandlerError;
 use crate::handlers::to_url_path;
 use crate::state::AppState;
 
@@ -89,10 +90,10 @@ impl From<NavItem> for NavItemResponse {
 pub(crate) async fn get_navigation(
     Query(query): Query<NavigationQuery>,
     State(state): State<Arc<AppState>>,
-) -> Json<NavigationResponse> {
-    let scoped_nav = state.site.navigation(query.section_ref.as_deref());
+) -> Result<Json<NavigationResponse>, HandlerError> {
+    let scoped_nav = state.site.navigation(query.section_ref.as_deref())?;
 
-    Json(NavigationResponse {
+    Ok(Json(NavigationResponse {
         items: scoped_nav
             .items
             .into_iter()
@@ -100,7 +101,7 @@ pub(crate) async fn get_navigation(
             .collect(),
         scope: scoped_nav.scope.map(ScopeInfoResponse::from),
         parent_scope: scoped_nav.parent_scope.map(ScopeInfoResponse::from),
-    })
+    }))
 }
 
 #[cfg(test)]
