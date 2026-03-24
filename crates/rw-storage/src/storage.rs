@@ -146,10 +146,7 @@ impl StorageError {
     pub fn display_chain(&self) -> String {
         let mut msg = self.to_string();
         // Display already includes the immediate source, so start one level deeper.
-        let mut next = self
-            .source
-            .as_deref()
-            .and_then(std::error::Error::source);
+        let mut next = self.source.as_deref().and_then(std::error::Error::source);
         while let Some(cause) = next {
             msg.push_str(": ");
             msg.push_str(&cause.to_string());
