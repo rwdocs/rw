@@ -137,6 +137,27 @@ impl StorageError {
         self
     }
 
+    /// Format the error with its full source chain.
+    ///
+    /// Unlike `Display` (which shows only the immediate source), this walks
+    /// the entire `.source()` chain so wrapped errors like the AWS SDK's
+    /// "dispatch failure" reveal the root cause.
+    #[must_use]
+    pub fn display_chain(&self) -> String {
+        let mut msg = self.to_string();
+        // Display already includes the immediate source, so start one level deeper.
+        let mut next = self
+            .source
+            .as_deref()
+            .and_then(std::error::Error::source);
+        while let Some(cause) = next {
+            msg.push_str(": ");
+            msg.push_str(&cause.to_string());
+            next = cause.source();
+        }
+        msg
+    }
+
     /// Downcast the source error to a concrete type.
     #[must_use]
     pub fn downcast_source<E: std::error::Error + 'static>(&self) -> Option<&E> {

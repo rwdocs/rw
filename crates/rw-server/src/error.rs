@@ -60,7 +60,7 @@ impl IntoResponse for HandlerError {
             ),
             Self::Storage(e) => (
                 StatusCode::SERVICE_UNAVAILABLE,
-                json!({"error": "Storage unavailable", "detail": e.to_string()}),
+                json!({"error": "Storage unavailable", "detail": e.display_chain()}),
             ),
         };
 

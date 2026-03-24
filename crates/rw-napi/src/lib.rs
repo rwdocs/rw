@@ -21,6 +21,18 @@ use crate::types::{
     PageResponse, ScopeInfoResponse, SectionResponse, SiteConfig, TocEntryResponse,
 };
 
+/// Format an error with its full source chain.
+fn error_chain(err: &dyn std::error::Error) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        msg.push_str(": ");
+        msg.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    msg
+}
+
 fn apply_diagrams_config(
     renderer_config: &mut PageRendererConfig,
     diagrams: Option<&DiagramsConfig>,
@@ -103,7 +115,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             secret_access_key: s3.secret_access_key,
         };
         let storage = S3Storage::new(s3_config).map_err(|e| {
-            napi::Error::from_reason(format!("Failed to create S3 storage: {e}"))
+            napi::Error::from_reason(format!("Failed to create S3 storage: {}", error_chain(&e)))
         })?;
 
         let cache: Arc<dyn Cache> = Arc::new(S3Cache::new(
@@ -162,7 +174,7 @@ impl RwSite {
         let nav = self
             .site
             .navigation(section_ref.as_deref())
-            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
         Ok(NavigationResponse {
             items: nav.items.into_iter().map(convert_nav_item).collect(),
             scope: nav.scope.map(convert_scope_info),
@@ -187,14 +199,14 @@ impl RwSite {
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let result = site
         .render(path)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        .map_err(|e| napi::Error::from_reason(error_chain(&e)))?;
 
     let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
     let last_modified: DateTime<Utc> = source_mtime.into();
     let last_modified = last_modified.to_rfc3339();
     let section_ref = site
         .get_section_ref(path)
-        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
 
     let (description, page_kind, vars) = if let Some(ref meta) = result.metadata {
         (
