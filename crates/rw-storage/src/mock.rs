@@ -39,6 +39,8 @@ pub struct MockStorage {
     mtimes: RwLock<HashMap<String, f64>>,
     /// Metadata keyed by URL path.
     metadata: RwLock<HashMap<String, Metadata>>,
+    /// If set, `scan()` returns this error kind.
+    scan_error: RwLock<Option<StorageErrorKind>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
 }
 
@@ -49,6 +51,7 @@ impl Default for MockStorage {
             contents: RwLock::new(HashMap::new()),
             mtimes: RwLock::new(HashMap::new()),
             metadata: RwLock::new(HashMap::new()),
+            scan_error: RwLock::new(None),
             event_sender: RwLock::new(None),
         }
     }
@@ -215,6 +218,26 @@ impl MockStorage {
         self
     }
 
+    /// Configure `scan()` to return an error with the given kind.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    #[must_use]
+    pub fn with_scan_error(self, kind: StorageErrorKind) -> Self {
+        *self.scan_error.write().unwrap() = Some(kind);
+        self
+    }
+
+    /// Set or clear the scan error at runtime (for testing reload-with-error scenarios).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    pub fn set_scan_error(&self, kind: Option<StorageErrorKind>) {
+        *self.scan_error.write().unwrap() = kind;
+    }
+
     /// Emit a storage event.
     ///
     /// Only works if `watch()` has been called first.
@@ -269,6 +292,9 @@ impl MockStorage {
 
 impl Storage for MockStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
+        if let Some(kind) = self.scan_error.read().unwrap().as_ref() {
+            return Err(StorageError::new(*kind).with_backend("Mock"));
+        }
         let guard = self.documents.read().unwrap();
         Ok(guard
             .iter()
@@ -598,5 +624,17 @@ mod tests {
 
         // Emit before watch() is called should not panic
         storage.emit_created("test");
+    }
+
+    #[test]
+    fn test_scan_error() {
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+
+        let result = storage.scan();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind, StorageErrorKind::Unavailable);
+        assert_eq!(err.backend, Some("Mock"));
     }
 }

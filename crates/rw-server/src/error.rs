@@ -37,6 +37,10 @@ pub(crate) enum HandlerError {
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Storage backend unavailable.
+    #[error("Storage error: {0}")]
+    Storage(#[from] rw_storage::StorageError),
 }
 
 impl IntoResponse for HandlerError {
@@ -54,8 +58,28 @@ impl IntoResponse for HandlerError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 json!({"error": e.to_string()}),
             ),
+            Self::Storage(e) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                json!({"error": "Storage unavailable", "detail": e.to_string()}),
+            ),
         };
 
         (status, axum::Json(body)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn test_storage_error_returns_503() {
+        let err = HandlerError::Storage(
+            rw_storage::StorageError::new(rw_storage::StorageErrorKind::Unavailable)
+                .with_backend("S3"),
+        );
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

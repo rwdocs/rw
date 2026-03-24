@@ -116,7 +116,7 @@ impl LiveReloadManager {
             }
             StorageEventKind::Created => {
                 site.invalidate();
-                if site.has_page(&event.path) {
+                if site.has_page(&event.path).unwrap_or(false) {
                     let _ = broadcaster.send(ReloadEvent {
                         event_type: ReloadEventType::Structure,
                         path: url_path,
@@ -124,7 +124,7 @@ impl LiveReloadManager {
                 }
             }
             StorageEventKind::Removed => {
-                let known = site.has_page(&event.path);
+                let known = site.has_page(&event.path).unwrap_or(false);
                 site.invalidate();
                 if known {
                     let _ = broadcaster.send(ReloadEvent {

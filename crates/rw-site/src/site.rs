@@ -33,7 +33,7 @@
 //! let site = Arc::new(Site::new(storage, cache, config));
 //!
 //! // Load site structure
-//! let nav = site.navigation(None);
+//! let nav = site.navigation(None)?;
 //!
 //! // Render a page
 //! let result = site.render("guide")?;
@@ -52,7 +52,7 @@ use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
 use rw_diagrams::{EntityInfo, MetaIncludeSource};
 use rw_sections::Sections;
-use rw_storage::Storage;
+use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
 ///
@@ -128,6 +128,8 @@ pub struct Site {
     current_snapshot: RwLock<Arc<SiteSnapshot>>,
     /// Cache validity flag.
     cache_valid: AtomicBool,
+    /// Whether the site has successfully loaded at least once.
+    has_loaded: AtomicBool,
     /// Page rendering pipeline.
     renderer: PageRenderer,
 }
@@ -161,6 +163,7 @@ impl Site {
             reload_lock: Mutex::new(()),
             current_snapshot: RwLock::new(initial_snapshot),
             cache_valid: AtomicBool::new(false),
+            has_loaded: AtomicBool::new(false),
             renderer,
         }
     }
@@ -175,25 +178,27 @@ impl Site {
     /// Pass `None` for root navigation, or a section ref string
     /// (e.g., `"domain:default/billing"`) to scope to that section.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if internal locks are poisoned.
-    #[must_use]
-    pub fn navigation(&self, section_ref: Option<&str>) -> Navigation {
-        let snapshot = self.reload_if_needed();
+    /// Returns `StorageError` if initial site load fails.
+    pub fn navigation(&self, section_ref: Option<&str>) -> Result<Navigation, StorageError> {
+        let snapshot = self.reload_if_needed()?;
         let scope_path = section_ref
             .and_then(|r| snapshot.sections.find_by_ref(r).map(str::to_owned))
             .unwrap_or_default();
         let mut nav = snapshot.state.navigation(&scope_path);
         nav.apply_sections(&snapshot.sections);
-        nav
+        Ok(nav)
     }
 
     /// Get the current sections map.
-    #[must_use]
-    pub fn sections(&self) -> Arc<Sections> {
-        let snapshot = self.reload_if_needed();
-        Arc::clone(&snapshot.sections)
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError` if initial site load fails.
+    pub fn sections(&self) -> Result<Arc<Sections>, StorageError> {
+        let snapshot = self.reload_if_needed()?;
+        Ok(Arc::clone(&snapshot.sections))
     }
 
     /// Get the section ref string for the section a page belongs to.
@@ -206,12 +211,11 @@ impl Site {
     ///
     /// * `page_path` - URL path without leading slash.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if internal locks are poisoned.
-    #[must_use]
-    pub fn get_section_ref(&self, page_path: &str) -> String {
-        self.reload_if_needed().state.get_section_ref(page_path)
+    /// Returns `StorageError` if initial site load fails.
+    pub fn get_section_ref(&self, page_path: &str) -> Result<String, StorageError> {
+        Ok(self.reload_if_needed()?.state.get_section_ref(page_path))
     }
 
     /// Check if a page exists at the given URL path.
@@ -222,12 +226,11 @@ impl Site {
     ///
     /// * `path` - URL path without leading slash (e.g., "guide", "domain/page", "" for root)
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if internal locks are poisoned.
-    #[must_use]
-    pub fn has_page(&self, path: &str) -> bool {
-        self.reload_if_needed().state.get_page(path).is_some()
+    /// Returns `StorageError` if initial site load fails.
+    pub fn has_page(&self, path: &str) -> Result<bool, StorageError> {
+        Ok(self.reload_if_needed()?.state.get_page(path).is_some())
     }
 
     /// Get the title of a page from the current cached snapshot.
@@ -255,12 +258,11 @@ impl Site {
     ///
     /// * `path` - URL path without leading slash (e.g., "guide/setup", "" for root)
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if internal locks are poisoned.
-    #[must_use]
-    pub fn get_breadcrumbs(&self, path: &str) -> Vec<BreadcrumbItem> {
-        self.reload_if_needed().state.get_breadcrumbs(path)
+    /// Returns `StorageError` if initial site load fails.
+    pub fn get_breadcrumbs(&self, path: &str) -> Result<Vec<BreadcrumbItem>, StorageError> {
+        Ok(self.reload_if_needed()?.state.get_breadcrumbs(path))
     }
 
     /// Reload site from storage if cache is invalid.
@@ -269,17 +271,24 @@ impl Site {
     /// 1. Fast path: return current snapshot if cache valid
     /// 2. Slow path: acquire `reload_lock`, recheck, then reload
     ///
+    /// On initial load, storage errors are propagated to the caller.
+    /// On subsequent reloads, storage errors are logged and stale data is kept.
+    ///
     /// # Returns
     ///
     /// `Arc<SiteSnapshot>` containing the current site snapshot.
     ///
+    /// # Errors
+    ///
+    /// Returns `StorageError` if the initial site load fails.
+    ///
     /// # Panics
     ///
     /// Panics if internal locks are poisoned.
-    pub(crate) fn reload_if_needed(&self) -> Arc<SiteSnapshot> {
+    pub(crate) fn reload_if_needed(&self) -> Result<Arc<SiteSnapshot>, StorageError> {
         // Fast path: cache valid
         if self.cache_valid.load(Ordering::Acquire) {
-            return self.snapshot();
+            return Ok(self.snapshot());
         }
 
         // Slow path: acquire reload lock
@@ -287,16 +296,30 @@ impl Site {
 
         // Double-check after acquiring lock
         if self.cache_valid.load(Ordering::Acquire) {
-            return self.snapshot();
+            return Ok(self.snapshot());
         }
 
+        let has_loaded = self.has_loaded.load(Ordering::Acquire);
         let etag = self.generation.load(Ordering::Acquire).to_string();
 
-        // Load state from bucket cache or storage
-        let state = if let Some(cached) = SiteState::from_cache(self.site_bucket.as_ref(), &etag) {
-            cached
+        // Load state: skip bucket cache on initial load to verify storage connectivity
+        let state = if has_loaded {
+            if let Some(cached) = SiteState::from_cache(self.site_bucket.as_ref(), &etag) {
+                cached
+            } else {
+                match self.load_from_storage() {
+                    Ok(state) => {
+                        state.to_cache(self.site_bucket.as_ref(), &etag);
+                        state
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to reload site from storage, keeping stale data");
+                        return Ok(self.snapshot());
+                    }
+                }
+            }
         } else {
-            let state = self.load_from_storage();
+            let state = self.load_from_storage()?;
             state.to_cache(self.site_bucket.as_ref(), &etag);
             state
         };
@@ -306,8 +329,9 @@ impl Site {
 
         *self.current_snapshot.write().unwrap() = Arc::clone(&snapshot);
         self.cache_valid.store(true, Ordering::Release);
+        self.has_loaded.store(true, Ordering::Release);
 
-        snapshot
+        Ok(snapshot)
     }
 
     /// Invalidate cached site state.
@@ -338,7 +362,7 @@ impl Site {
     /// Returns `RenderError::FileNotFound` if source file doesn't exist.
     /// Returns `RenderError::Io` if file cannot be read.
     pub fn render(&self, path: &str) -> Result<PageRenderResult, RenderError> {
-        let snapshot = self.reload_if_needed();
+        let snapshot = self.reload_if_needed().map_err(RenderError::Storage)?;
         let page = snapshot
             .state
             .get_page(path)
@@ -358,17 +382,9 @@ impl Site {
     /// Page titles are determined by:
     /// 1. Metadata title from storage (if page has `page_kind`)
     /// 2. Document title from storage (extracted from H1 or filename)
-    fn load_from_storage(&self) -> SiteState {
+    fn load_from_storage(&self) -> Result<SiteState, StorageError> {
         let mut builder = SiteStateBuilder::new();
-
-        // Scan storage for documents (including virtual pages)
-        let mut documents = match self.storage.scan() {
-            Ok(docs) => docs,
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to scan storage");
-                return builder.build();
-            }
-        };
+        let mut documents = self.storage.scan()?;
 
         // Sort documents: parents before children, real pages before virtual, by path
         documents.sort_by(|a, b| {
@@ -379,7 +395,7 @@ impl Site {
         });
 
         if documents.is_empty() {
-            return builder.build();
+            return Ok(builder.build());
         }
 
         // Track URL paths to page indices for parent lookup
@@ -400,7 +416,7 @@ impl Site {
             url_to_idx.insert(doc.path.clone(), idx);
         }
 
-        builder.build()
+        Ok(builder.build())
     }
 
     /// Find parent page index from URL path.
@@ -426,9 +442,10 @@ mod tests {
 
     use std::sync::Arc;
 
-    use rw_storage::MockStorage;
+    use rw_storage::{MockStorage, StorageErrorKind};
 
     use super::*;
+    use crate::page::RenderError;
 
     fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = PageRendererConfig::default();
@@ -444,7 +461,7 @@ mod tests {
         let storage = MockStorage::new();
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         assert!(snapshot.state.get_root_pages().is_empty());
     }
@@ -457,7 +474,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         assert_eq!(snapshot.state.get_root_pages().len(), 2);
         assert!(snapshot.state.get_page("guide").is_some());
@@ -471,7 +488,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         let page = snapshot.state.get_page("");
         assert!(page.is_some());
@@ -489,7 +506,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         let domain = snapshot.state.get_page("domain-a");
         assert!(domain.is_some());
@@ -515,7 +532,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         let page = snapshot.state.get_page("guide");
         assert!(page.is_some());
@@ -528,7 +545,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         let page = snapshot.state.get_page("руководство");
         assert!(page.is_some());
@@ -545,7 +562,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         // Child should be at root level (promoted)
         let roots = snapshot.state.get_root_pages();
@@ -561,7 +578,7 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         // First reload to populate
-        let _ = site.reload_if_needed();
+        let _ = site.reload_if_needed().unwrap();
 
         // snapshot() should return the same Arc
         let snapshot1 = site.snapshot();
@@ -576,8 +593,8 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let state1 = site.reload_if_needed();
-        let state2 = site.reload_if_needed();
+        let state1 = site.reload_if_needed().unwrap();
+        let state2 = site.reload_if_needed().unwrap();
 
         // Should return the same Arc (cached)
         assert!(Arc::ptr_eq(&state1, &state2));
@@ -590,14 +607,14 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         // First reload
-        let snapshot1 = site.reload_if_needed();
+        let snapshot1 = site.reload_if_needed().unwrap();
         assert!(snapshot1.state.get_page("guide").is_some());
 
         // Invalidate cache
         site.invalidate();
 
         // Second reload - should be a different Arc
-        let snapshot2 = site.reload_if_needed();
+        let snapshot2 = site.reload_if_needed().unwrap();
         assert!(!Arc::ptr_eq(&snapshot1, &snapshot2));
     }
 
@@ -614,7 +631,7 @@ mod tests {
             .map(|_| {
                 let site = Arc::clone(&site);
                 thread::spawn(move || {
-                    let snapshot = site.reload_if_needed();
+                    let snapshot = site.reload_if_needed().unwrap();
                     assert!(snapshot.state.get_page("guide").is_some());
                 })
             })
@@ -634,7 +651,7 @@ mod tests {
         let site = Arc::new(create_site_with_storage(storage));
 
         // Initial load
-        let _ = site.reload_if_needed();
+        let _ = site.reload_if_needed().unwrap();
 
         // Spawn threads that invalidate and reload concurrently
         let handles: Vec<_> = (0..10)
@@ -644,7 +661,7 @@ mod tests {
                     if i % 2 == 0 {
                         site.invalidate();
                     } else {
-                        let snapshot = site.reload_if_needed();
+                        let snapshot = site.reload_if_needed().unwrap();
                         // Site should always be valid
                         assert!(snapshot.state.get_page("guide").is_some());
                     }
@@ -657,7 +674,7 @@ mod tests {
         }
 
         // Final state should be valid
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
         assert!(snapshot.state.get_page("guide").is_some());
     }
 
@@ -671,7 +688,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         // Check root
         let root = snapshot.state.get_page("").unwrap();
@@ -811,7 +828,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         let page = snapshot.state.get_page("my-domain");
         assert!(page.is_some());
@@ -833,7 +850,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         let page = snapshot.state.get_page("real-domain");
         assert!(page.is_some());
@@ -871,7 +888,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let nav = site.navigation(None);
+        let nav = site.navigation(None).unwrap();
 
         assert_eq!(nav.items.len(), 1);
         assert_eq!(nav.items[0].title, "My Domain");
@@ -893,7 +910,7 @@ mod tests {
 
         let site = create_site_with_storage(storage);
 
-        let snapshot = site.reload_if_needed();
+        let snapshot = site.reload_if_needed().unwrap();
 
         // Check parent virtual
         let domains = snapshot.state.get_page("domains");
@@ -912,21 +929,21 @@ mod tests {
 
         // Check navigation structure via scoped navigation
         // Domains section in root scope
-        let root_nav = site.navigation(None);
+        let root_nav = site.navigation(None).unwrap();
         assert_eq!(root_nav.items.len(), 1);
         assert_eq!(root_nav.items[0].title, "Domains");
         // Sections are leaves in root scope
         assert!(root_nav.items[0].children.is_empty());
 
         // Navigate into Domains section
-        let domains_nav = site.navigation(Some("section:default/domains"));
+        let domains_nav = site.navigation(Some("section:default/domains")).unwrap();
         assert_eq!(domains_nav.items.len(), 1);
         assert_eq!(domains_nav.items[0].title, "Billing");
         // Billing is also a section, so it's a leaf in domains scope
         assert!(domains_nav.items[0].children.is_empty());
 
         // Navigate into Billing section
-        let billing_nav = site.navigation(Some("domain:default/billing"));
+        let billing_nav = site.navigation(Some("domain:default/billing")).unwrap();
         assert_eq!(billing_nav.items.len(), 1);
         assert_eq!(billing_nav.items[0].title, "Overview");
     }
@@ -997,7 +1014,7 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         // Trigger initial load
-        let _ = site.reload_if_needed();
+        let _ = site.reload_if_needed().unwrap();
 
         assert_eq!(site.page_title("guide"), Some("User Guide".to_owned()));
     }
@@ -1007,7 +1024,7 @@ mod tests {
         let storage = MockStorage::new().with_document("guide", "Guide");
         let site = create_site_with_storage(storage);
 
-        let _ = site.reload_if_needed();
+        let _ = site.reload_if_needed().unwrap();
 
         assert_eq!(site.page_title("nonexistent"), None);
     }
@@ -1018,9 +1035,76 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         // Load initial state
-        let _ = site.reload_if_needed();
+        let _ = site.reload_if_needed().unwrap();
 
         // page_title reads cached snapshot, not triggering reload
         assert_eq!(site.page_title("guide"), Some("Old Title".to_owned()));
+    }
+
+    // ========================================================================
+    // Storage error propagation tests
+    // ========================================================================
+
+    #[test]
+    fn test_reload_if_needed_scan_error_on_initial_load() {
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+        let site = create_site_with_storage(storage);
+
+        let result = site.reload_if_needed();
+
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap().kind, StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn test_reload_keeps_stale_data_on_subsequent_scan_error() {
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let config = PageRendererConfig::default();
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            config,
+        );
+
+        // Initial load succeeds
+        let snapshot = site.reload_if_needed().unwrap();
+        assert!(snapshot.state.get_page("guide").is_some());
+
+        // Make storage fail
+        storage.set_scan_error(Some(StorageErrorKind::Unavailable));
+        site.invalidate();
+
+        // Reload should succeed with stale data
+        let snapshot2 = site.reload_if_needed().unwrap();
+        assert!(snapshot2.state.get_page("guide").is_some());
+    }
+
+    #[test]
+    fn test_navigation_propagates_storage_error_on_initial_failure() {
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+        let site = create_site_with_storage(storage);
+
+        let result = site.navigation(None);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn test_render_propagates_storage_error_on_initial_failure() {
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+        let site = create_site_with_storage(storage);
+
+        let result = site.render("test");
+        assert!(matches!(result, Err(RenderError::Storage(_))));
+    }
+
+    #[test]
+    fn test_has_page_propagates_storage_error_on_initial_failure() {
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+        let site = create_site_with_storage(storage);
+
+        let result = site.has_page("test");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
     }
 }
