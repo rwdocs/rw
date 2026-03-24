@@ -488,8 +488,7 @@ impl SiteState {
     fn root_scope_info(&self) -> ScopeInfo {
         let title = self
             .get_page("")
-            .map(|p| p.title.clone())
-            .unwrap_or_else(|| "Home".to_owned());
+            .map_or_else(|| "Home".to_owned(), |p| p.title.clone());
 
         ScopeInfo {
             path: "/".to_owned(),

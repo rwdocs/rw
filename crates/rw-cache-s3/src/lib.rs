@@ -93,8 +93,7 @@ impl CacheBucket for S3CacheBucket {
                 let stored_etag = resp
                     .metadata()
                     .and_then(|m| m.get(ETAG_METADATA_KEY))
-                    .map(String::as_str)
-                    .unwrap_or("");
+                    .map_or("", String::as_str);
                 if stored_etag != etag {
                     return None;
                 }

@@ -173,10 +173,10 @@ impl PageRenderer {
         meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
         sections: &Arc<Sections>,
     ) -> Result<PageRenderResult, RenderError> {
-        let mut result = if !page.has_content {
-            self.render_virtual(path, page, breadcrumbs)
-        } else {
+        let mut result = if page.has_content {
             self.render_content(path, page, breadcrumbs, meta_include_source, sections)?
+        } else {
+            self.render_virtual(path, page, breadcrumbs)
         };
 
         apply_breadcrumb_sections(&mut result.breadcrumbs, sections);
