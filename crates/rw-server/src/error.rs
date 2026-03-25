@@ -31,15 +31,15 @@ pub(crate) enum HandlerError {
     PageNotFound(String),
 
     /// Render error from rw-site.
-    #[error("Render error: {0}")]
+    #[error("Render error")]
     Render(#[from] rw_site::RenderError),
 
     /// I/O error.
-    #[error("I/O error: {0}")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
 
     /// Storage backend unavailable.
-    #[error("Storage error: {0}")]
+    #[error("Storage error")]
     Storage(#[from] rw_storage::StorageError),
 }
 
