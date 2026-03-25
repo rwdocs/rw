@@ -7,22 +7,22 @@ use rw_server::ServerError;
 /// CLI error type.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CliError {
-    #[error("{0}")]
+    #[error(transparent)]
     Config(#[from] ConfigError),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Confluence(#[from] ConfluenceError),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Update(#[from] UpdateError),
 
-    #[error("{0}")]
+    #[error(transparent)]
     BundlePublish(#[from] rw_storage_s3::BundlePublishError),
 
-    #[error("{0}")]
+    #[error(transparent)]
     Server(#[from] ServerError),
 
     #[error("{0}")]

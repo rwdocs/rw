@@ -15,6 +15,7 @@ use tracing_subscriber::EnvFilter;
 
 use commands::{BackstageCommand, ConfluenceCommand, ServeArgs};
 use output::Output;
+use rw_storage::format_error_chain;
 
 /// Application version from Cargo.toml.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -65,7 +66,7 @@ fn main() {
     };
 
     if let Err(err) = result {
-        output.error(&format!("Error: {err}"));
+        output.error(&format!("Error: {}", format_error_chain(&err)));
         std::process::exit(1);
     }
 }

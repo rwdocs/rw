@@ -11,7 +11,7 @@ use serde_json::json;
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
     /// Failed to start file watching for live reload.
-    #[error("failed to start file watcher: {0}")]
+    #[error("failed to start file watcher")]
     Watch(#[from] StorageError),
 
     /// Invalid bind address.
