@@ -137,24 +137,6 @@ impl StorageError {
         self
     }
 
-    /// Format the error with its full source chain.
-    ///
-    /// Unlike `Display` (which shows only the immediate source), this walks
-    /// the entire `.source()` chain so wrapped errors like the AWS SDK's
-    /// "dispatch failure" reveal the root cause.
-    #[must_use]
-    pub fn display_chain(&self) -> String {
-        let mut msg = self.to_string();
-        // Display already includes the immediate source, so start one level deeper.
-        let mut next = self.source.as_deref().and_then(std::error::Error::source);
-        while let Some(cause) = next {
-            msg.push_str(": ");
-            msg.push_str(&cause.to_string());
-            next = cause.source();
-        }
-        msg
-    }
-
     /// Downcast the source error to a concrete type.
     #[must_use]
     pub fn downcast_source<E: std::error::Error + 'static>(&self) -> Option<&E> {
@@ -209,10 +191,6 @@ impl std::fmt::Display for StorageError {
 
         write!(f, "{kind_str}")?;
 
-        if let Some(source) = &self.source {
-            write!(f, ": {source}")?;
-        }
-
         if let Some(path) = &self.path {
             write!(f, " (path: {})", path.display())?;
         }
@@ -227,6 +205,21 @@ impl std::error::Error for StorageError {
             .as_ref()
             .map(|s| s.as_ref() as &(dyn std::error::Error + 'static))
     }
+}
+
+/// Format an error with its full source chain.
+///
+/// Produces a colon-separated chain like
+/// `"Unavailable: dispatch failure: TLS error"`.
+pub fn format_error_chain(err: &dyn std::error::Error) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        msg.push_str(": ");
+        msg.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    msg
 }
 
 /// Storage abstraction for document scanning and retrieval.
@@ -503,9 +496,19 @@ mod tests {
             .with_path("/foo/bar")
             .with_source(io_err);
 
+        assert_eq!(err.to_string(), "[Fs] Not found (path: /foo/bar)");
+    }
+
+    #[test]
+    fn test_format_error_chain() {
+        let inner = std::io::Error::new(std::io::ErrorKind::Other, "connection reset");
+        let err = StorageError::new(StorageErrorKind::Unavailable)
+            .with_backend("S3")
+            .with_source(inner);
+
         assert_eq!(
-            err.to_string(),
-            "[Fs] Not found: file not found (path: /foo/bar)"
+            format_error_chain(&err),
+            "[S3] Unavailable: connection reset"
         );
     }
 
