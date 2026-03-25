@@ -110,18 +110,8 @@ pub async fn upload(
         .content_type(content_type)
         .send()
         .await
-        .map_err(|e| error_chain(&e))?;
+        .map_err(|e| rw_storage::format_error_chain(&e))?;
     tracing::debug!(key = %key, "Uploaded");
     Ok(())
 }
 
-/// Format an error and its full source chain into a single string.
-pub(crate) fn error_chain(err: &dyn std::error::Error) -> String {
-    let mut msgs = vec![err.to_string()];
-    let mut source = err.source();
-    while let Some(s) = source {
-        msgs.push(s.to_string());
-        source = s.source();
-    }
-    msgs.join(": ")
-}
