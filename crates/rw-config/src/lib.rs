@@ -236,10 +236,10 @@ pub enum ConfigError {
     #[error("Configuration file not found: {}", .0.display())]
     NotFound(PathBuf),
     /// I/O error.
-    #[error("I/O error: {0}")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
     /// TOML parsing error.
-    #[error("TOML parse error: {0}")]
+    #[error("TOML parse error")]
     Parse(#[from] toml::de::Error),
     /// Validation error.
     #[error("Configuration error: {0}")]

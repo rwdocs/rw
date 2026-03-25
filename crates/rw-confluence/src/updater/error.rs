@@ -10,10 +10,10 @@ pub enum UpdateError {
     Config(String),
 
     /// Confluence API error.
-    #[error("Confluence API error: {0}")]
+    #[error("Confluence API error")]
     Confluence(#[from] ConfluenceError),
 
     /// IO error (file operations, temp directory).
-    #[error("IO error: {0}")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
 }

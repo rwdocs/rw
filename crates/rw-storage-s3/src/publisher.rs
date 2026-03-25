@@ -16,13 +16,13 @@ use crate::s3::{self, S3Config};
 /// Errors that can occur during publishing.
 #[derive(Debug, thiserror::Error)]
 pub enum BundlePublishError {
-    #[error("Storage error: {0}")]
+    #[error("storage error")]
     Storage(#[from] rw_storage::StorageError),
-    #[error("JSON error: {0}")]
+    #[error("JSON serialization error")]
     Json(#[from] serde_json::Error),
     #[error("S3 error: {0}")]
     S3(String),
-    #[error("I/O error: {0}")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
 }
 

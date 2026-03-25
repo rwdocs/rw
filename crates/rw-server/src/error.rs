@@ -11,15 +11,15 @@ use serde_json::json;
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
     /// Failed to start file watching for live reload.
-    #[error("failed to start file watcher: {0}")]
+    #[error("failed to start file watcher")]
     Watch(#[from] StorageError),
 
     /// Invalid bind address.
-    #[error("invalid bind address: {0}")]
+    #[error("invalid bind address")]
     InvalidAddress(#[from] AddrParseError),
 
     /// I/O error (bind or serve failure).
-    #[error("{0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 
@@ -31,15 +31,15 @@ pub(crate) enum HandlerError {
     PageNotFound(String),
 
     /// Render error from rw-site.
-    #[error("Render error: {0}")]
+    #[error("render error")]
     Render(#[from] rw_site::RenderError),
 
     /// I/O error.
-    #[error("I/O error: {0}")]
+    #[error("I/O error")]
     Io(#[from] std::io::Error),
 
     /// Storage backend unavailable.
-    #[error("Storage error: {0}")]
+    #[error("storage unavailable")]
     Storage(#[from] rw_storage::StorageError),
 }
 
