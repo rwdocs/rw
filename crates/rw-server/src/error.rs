@@ -4,7 +4,7 @@ use std::net::AddrParseError;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use rw_storage::StorageError;
+use rw_storage::{StorageError, format_error_chain};
 use serde_json::json;
 
 /// Error returned when the server fails to start.
@@ -52,15 +52,15 @@ impl IntoResponse for HandlerError {
             ),
             Self::Render(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                json!({"error": e.to_string()}),
+                json!({"error": format_error_chain(e)}),
             ),
             Self::Io(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                json!({"error": e.to_string()}),
+                json!({"error": format_error_chain(e)}),
             ),
             Self::Storage(e) => (
                 StatusCode::SERVICE_UNAVAILABLE,
-                json!({"error": "Storage unavailable", "detail": e.display_chain()}),
+                json!({"error": "Storage unavailable", "detail": format_error_chain(e)}),
             ),
         };
 

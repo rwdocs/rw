@@ -96,10 +96,10 @@ pub enum RenderError {
     #[error("Page not found: {0}")]
     PageNotFound(String),
     /// I/O error reading source file.
-    #[error("I/O error: {0}")]
+    #[error("I/O error")]
     Io(#[source] std::io::Error),
     /// Storage backend error (e.g., S3 unavailable).
-    #[error("Storage error: {0}")]
+    #[error("Storage error")]
     Storage(#[source] StorageError),
 }
 
