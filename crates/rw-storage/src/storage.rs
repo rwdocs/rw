@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn test_format_error_chain() {
-        let inner = std::io::Error::new(std::io::ErrorKind::Other, "connection reset");
+        let inner = std::io::Error::other("connection reset");
         let err = StorageError::new(StorageErrorKind::Unavailable)
             .with_backend("S3")
             .with_source(inner);
