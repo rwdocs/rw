@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Page metadata no longer extracts `#` comments inside fenced code blocks as H1 titles
 - Page metadata now correctly extracts plain text from H1 titles with inline formatting (bold, italic, code, links)
+- Editing a page title inside a section no longer resets the sidebar to root navigation
 
 ## [0.1.20] - 2026-03-24
 

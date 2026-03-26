@@ -84,7 +84,7 @@
   const unsubStructureReload = liveReload.onStructureReload(async () => {
     await navigation.load({
       bypassCache: true,
-      sectionRef: currentSectionRef,
+      sectionRef: navigation.currentSectionRef ?? currentSectionRef,
     });
     const currentPath = router.path;
     if (currentPath !== "/") {
