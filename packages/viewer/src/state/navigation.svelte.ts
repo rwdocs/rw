@@ -1,3 +1,4 @@
+import { untrack } from "svelte";
 import type { NavigationTree, NavItem } from "../types";
 import type { ApiClient } from "../api/client";
 import type { SectionRefResolver } from "../lib/sectionRefs";
@@ -61,7 +62,13 @@ export class Navigation {
     const controller = new AbortController();
     this.currentController = controller;
 
-    this.loading = true;
+    // Only show loading state on initial load — during live reload, keep
+    // displaying the existing tree while fetching updated data in the background.
+    // Use untrack to avoid creating a reactive dependency on `tree` — this method
+    // is called from an $effect chain, and tracking `tree` would cause an infinite loop.
+    if (!untrack(() => this.tree)) {
+      this.loading = true;
+    }
     this.error = null;
 
     try {
