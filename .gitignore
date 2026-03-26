@@ -3,6 +3,7 @@
 /.worktrees
 /.mcp.json
 /TASKS.md
+/docs/superpowers
 
 # Node
 node_modules/
