@@ -1,8 +1,29 @@
 # Page Metadata
 
-Pages can have metadata defined in YAML sidecar files (default: `meta.yaml` in the same directory as `index.md`).
+Pages can have metadata defined in two ways:
 
-## Example
+1. **Frontmatter** — YAML block at the top of a markdown file, delimited by `---`
+2. **Sidecar file** — `meta.yaml` in the same directory as `index.md`
+
+When both exist, frontmatter values override meta.yaml. Variables (`vars`) are deep-merged at the key level.
+
+## Examples
+
+### Frontmatter
+
+```markdown
+---
+title: "My Domain"
+description: "Domain overview"
+kind: domain
+vars:
+  owner: team-a
+---
+
+# Page content starts here
+```
+
+### Sidecar file
 
 ```yaml
 # docs/domain-a/meta.yaml
@@ -16,10 +37,21 @@ vars:
 
 ## Fields
 
+These fields are available in both frontmatter and meta.yaml:
+
 - `title` -- custom page title (overrides H1 extraction)
 - `description` -- page description for display
-- `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections
+- `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections. Also accepts `type` as an alias.
 - `vars` -- custom variables (key-value pairs)
+
+## Title resolution
+
+The page title is resolved in this order:
+
+1. `title` from frontmatter
+2. `title` from meta.yaml
+3. First H1 heading in the markdown content
+4. Title-cased filename (e.g., `setup-guide.md` becomes "Setup Guide")
 
 ## Inheritance
 

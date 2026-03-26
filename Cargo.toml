@@ -18,6 +18,7 @@ rw-config = { path = "crates/rw-config" }
 rw-confluence = { path = "crates/rw-confluence" }
 rw-diagrams = { path = "crates/rw-diagrams" }
 rw-embedded-preview = { path = "crates/rw-embedded-preview" }
+rw-meta = { path = "crates/rw-meta" }
 rw-renderer = { path = "crates/rw-renderer" }
 rw-sections = { path = "crates/rw-sections" }
 rw-server = { path = "crates/rw-server" }

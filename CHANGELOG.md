@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Frontmatter support — page metadata can now be defined in YAML frontmatter (`---` delimited) at the top of markdown files, in addition to meta.yaml sidecar files. Frontmatter values override meta.yaml when both exist.
+
+### Fixed
+
+- Page metadata no longer extracts `#` comments inside fenced code blocks as H1 titles
+- Page metadata now correctly extracts plain text from H1 titles with inline formatting (bold, italic, code, links)
+
 ## [0.1.20] - 2026-03-24
 
 ### Fixed

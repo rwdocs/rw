@@ -14,8 +14,7 @@ rw-storage = { workspace = true }
 glob = { workspace = true }
 ignore = { workspace = true }
 notify = { workspace = true }
-regex = { workspace = true }
-serde = { workspace = true }
+rw-meta = { workspace = true }
 serde_yaml = { workspace = true }
 rayon = { workspace = true }
 tracing = { workspace = true }
