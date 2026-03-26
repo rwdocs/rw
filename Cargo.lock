@@ -2993,6 +2993,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-meta"
+version = "0.1.20"
+dependencies = [
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "rw-renderer"
 version = "0.1.20"
 dependencies = [
@@ -3077,9 +3087,8 @@ dependencies = [
  "ignore",
  "notify",
  "rayon",
- "regex",
+ "rw-meta",
  "rw-storage",
- "serde",
  "serde_json",
  "serde_yaml",
  "tempfile",

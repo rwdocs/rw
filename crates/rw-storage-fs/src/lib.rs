@@ -4,7 +4,7 @@
 //! [`Storage`](rw_storage::Storage) trait. It handles:
 //!
 //! - Recursive directory scanning for markdown files
-//! - Title extraction from H1 headings with mtime caching
+//! - Metadata extraction (title, description, kind) with mtime caching
 //! - Metadata loading from YAML sidecar files with inheritance
 //! - File watching with event debouncing
 //!
@@ -39,8 +39,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use glob::Pattern;
 use notify::{RecursiveMode, Watcher};
 use rayon::prelude::*;
-use regex::Regex;
-use serde::Deserialize;
+use rw_meta::Meta;
 
 use debouncer::{EventDebouncer, RawEventKind};
 use inheritance::{build_ancestor_chain, merge_metadata};
@@ -50,18 +49,6 @@ use rw_storage::{
 };
 use scanner::{DocumentRef, Scanner};
 use source::file_path_to_url;
-
-/// Parsed fields from a YAML metadata file.
-///
-/// Lightweight struct for the fields needed during scan — avoids full
-/// [`Metadata`] parsing (which includes `vars` deep-merge).
-#[derive(Deserialize)]
-struct YamlFields {
-    pub title: Option<String>,
-    #[serde(rename = "kind", alias = "type")]
-    pub page_kind: Option<String>,
-    pub description: Option<String>,
-}
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -78,39 +65,22 @@ fn storage_event_kind(kind: notify::EventKind) -> Option<RawEventKind> {
     }
 }
 
-/// Convert a slug (kebab-case or `snake_case`) to title case.
-///
-/// Replaces `-` and `_` with spaces, then capitalizes the first letter of each word.
-///
-/// Converts `"setup-guide"` to `"Setup Guide"`, `"my_page"` to `"My Page"`.
-fn titlecase_from_slug(slug: &str) -> String {
-    slug.replace(['-', '_'], " ")
-        .split_whitespace()
-        .map(|word| {
-            let mut chars = word.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().chain(chars).collect(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Cached file metadata for incremental title extraction.
+/// Cached resolved metadata for incremental extraction.
 #[derive(Debug)]
-struct CachedFile {
-    /// File modification time.
-    mtime: SystemTime,
-    /// Extracted title from the file.
-    title: String,
+struct CachedMeta {
+    /// Markdown file modification time.
+    md_mtime: SystemTime,
+    /// Meta YAML file modification time (`None` if no meta.yaml exists).
+    meta_mtime: Option<SystemTime>,
+    /// Resolved metadata.
+    meta: Meta,
 }
 
 /// Filesystem storage implementation.
 ///
 /// Scans a source directory recursively for markdown files and extracts
-/// titles from the first H1 heading. Uses mtime caching to avoid re-reading
-/// unchanged files.
+/// metadata (title, description, kind) using `rw_meta`. Uses mtime caching
+/// to avoid re-reading unchanged files.
 ///
 /// # Example
 ///
@@ -133,10 +103,8 @@ pub struct FsStorage {
     source_dir: PathBuf,
     /// Scanner for document discovery.
     scanner: Scanner,
-    /// Regex for extracting first H1 heading.
-    h1_regex: Regex,
-    /// Mtime cache for incremental title extraction.
-    mtime_cache: RwLock<HashMap<PathBuf, CachedFile>>,
+    /// Mtime cache for incremental metadata extraction.
+    mtime_cache: RwLock<HashMap<PathBuf, CachedMeta>>,
     /// Patterns for file watching (e.g., "**/*.md").
     watch_patterns: Vec<Pattern>,
     /// Metadata file name (e.g., "meta.yaml").
@@ -156,11 +124,6 @@ impl FsStorage {
     /// # Arguments
     ///
     /// * `source_dir` - Root directory containing markdown files
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal regex for H1 heading extraction fails to compile.
-    /// This should never happen as the regex is a compile-time constant.
     #[must_use]
     pub fn new(source_dir: PathBuf) -> Self {
         Self::with_patterns(source_dir, &["**/*.md".to_owned()])
@@ -174,10 +137,6 @@ impl FsStorage {
     ///
     /// * `source_dir` - Root directory containing markdown files
     /// * `meta_filename` - Name of metadata files (e.g., "meta.yaml")
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal regex for H1 heading extraction fails to compile.
     #[must_use]
     pub fn with_meta_filename(source_dir: PathBuf, meta_filename: &str) -> Self {
         Self::with_patterns_and_meta(source_dir, &["**/*.md".to_owned()], meta_filename)
@@ -194,9 +153,7 @@ impl FsStorage {
     ///
     /// # Panics
     ///
-    /// Panics if:
-    /// - The internal regex for H1 heading extraction fails to compile
-    /// - Any of the provided glob patterns are invalid
+    /// Panics if any of the provided glob patterns are invalid.
     #[must_use]
     pub fn with_patterns(source_dir: PathBuf, patterns: &[String]) -> Self {
         Self::with_patterns_and_meta(source_dir, patterns, DEFAULT_META_FILENAME)
@@ -212,9 +169,7 @@ impl FsStorage {
     ///
     /// # Panics
     ///
-    /// Panics if:
-    /// - The internal regex for H1 heading extraction fails to compile
-    /// - Any of the provided glob patterns are invalid
+    /// Panics if any of the provided glob patterns are invalid.
     #[must_use]
     pub fn with_patterns_and_meta(
         source_dir: PathBuf,
@@ -234,7 +189,6 @@ impl FsStorage {
         Self {
             source_dir,
             scanner,
-            h1_regex: Regex::new(r"(?m)^#\s+(.+)$").unwrap(),
             mtime_cache: RwLock::new(HashMap::new()),
             watch_patterns,
             meta_filename: meta_filename.to_owned(),
@@ -322,110 +276,86 @@ impl FsStorage {
     /// Returns `None` if the ref produces no valid document (e.g., empty meta.yaml
     /// for a virtual page).
     fn build_document(&self, doc_ref: &DocumentRef) -> Option<Document> {
-        // Parse metadata fields if present
-        let fields: Option<YamlFields> = doc_ref
-            .meta_path
-            .as_ref()
-            .and_then(|p| fs::read_to_string(p).ok())
-            .and_then(|c| serde_yaml::from_str(&c).ok());
-
-        let meta_title = fields.as_ref().and_then(|f| f.title.clone());
-        let page_kind = fields.as_ref().and_then(|f| f.page_kind.clone());
-        let description = fields.as_ref().and_then(|f| f.description.clone());
-
         if let Some(md_path) = &doc_ref.content_path {
-            // Real page with content
             let name_lower = md_path
                 .file_name()
                 .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
 
-            // Title priority: meta > H1 > filename
-            let title = meta_title.unwrap_or_else(|| self.get_title(md_path, &name_lower));
+            let meta = self.get_meta(md_path, doc_ref.meta_path.as_deref(), &name_lower);
 
             Some(Document {
                 path: doc_ref.url_path.clone(),
-                title,
+                title: meta.title,
                 has_content: true,
-                page_kind,
-                description,
+                page_kind: meta.kind,
+                description: meta.description,
             })
-        } else if doc_ref.meta_path.is_some() {
-            // Virtual page (meta.yaml only) — skip if YAML was empty/invalid
-            fields?;
-            let title = meta_title.unwrap_or_else(|| {
-                Path::new(&doc_ref.url_path).file_name().map_or_else(
-                    || "Untitled".to_owned(),
-                    |n| Self::title_from_dir_name(&n.to_string_lossy()),
-                )
-            });
+        } else if let Some(meta_path) = &doc_ref.meta_path {
+            let meta_yaml = fs::read_to_string(meta_path).ok()?;
+
+            if meta_yaml.trim().is_empty() {
+                return None;
+            }
+
+            let dir_name = Path::new(&doc_ref.url_path)
+                .file_name()
+                .map_or("untitled", |n| n.to_str().unwrap_or("untitled"));
+
+            let meta = Meta::resolve(None, Some(&meta_yaml), dir_name);
 
             Some(Document {
                 path: doc_ref.url_path.clone(),
-                title,
+                title: meta.title,
                 has_content: false,
-                page_kind,
-                description,
+                page_kind: meta.kind,
+                description: meta.description,
             })
         } else {
-            // No sources - shouldn't happen but handle gracefully
             None
         }
     }
 
-    /// Generate title from directory name.
-    fn title_from_dir_name(name: &str) -> String {
-        titlecase_from_slug(name)
-    }
+    /// Get resolved metadata for a file, using mtime cache when possible.
+    ///
+    /// Only reads the markdown file content on cache miss, avoiding unnecessary
+    /// I/O for unchanged files during scans. Invalidates when either the markdown
+    /// file or its associated meta.yaml changes.
+    fn get_meta(&self, file_path: &Path, meta_path: Option<&Path>, filename: &str) -> Meta {
+        let current_md_mtime = fs::metadata(file_path).ok().and_then(|m| m.modified().ok());
+        let current_meta_mtime = meta_path
+            .and_then(|p| fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok());
 
-    /// Get title for a file, using mtime cache when possible.
-    fn get_title(&self, file_path: &Path, name_lower: &str) -> String {
-        // Get current mtime
-        let current_mtime = fs::metadata(file_path).ok().and_then(|m| m.modified().ok());
-
-        // Check cache
+        // Check cache — avoid reading file content if both mtimes unchanged
         {
             let cache = self.mtime_cache.read().unwrap();
-            if let (Some(cached), Some(mtime)) = (cache.get(file_path), current_mtime)
-                && cached.mtime == mtime
+            if let (Some(cached), Some(md_mtime)) = (cache.get(file_path), current_md_mtime)
+                && cached.md_mtime == md_mtime
+                && cached.meta_mtime == current_meta_mtime
             {
-                return cached.title.clone();
+                return cached.meta.clone();
             }
         }
 
-        // Cache miss - extract title
-        let title = self
-            .extract_title_from_content(file_path)
-            .unwrap_or_else(|| Self::title_from_filename(name_lower));
+        // Cache miss — read file content now
+        let markdown = fs::read_to_string(file_path).ok();
+        let meta_yaml = meta_path.and_then(|p| fs::read_to_string(p).ok());
+        let meta = Meta::resolve(markdown.as_deref(), meta_yaml.as_deref(), filename);
 
         // Update cache
-        if let Some(mtime) = current_mtime {
+        if let Some(md_mtime) = current_md_mtime {
             let mut cache = self.mtime_cache.write().unwrap();
             cache.insert(
                 file_path.to_path_buf(),
-                CachedFile {
-                    mtime,
-                    title: title.clone(),
+                CachedMeta {
+                    md_mtime,
+                    meta_mtime: current_meta_mtime,
+                    meta: meta.clone(),
                 },
             );
         }
 
-        title
-    }
-
-    /// Extract title from first H1 heading in markdown file.
-    fn extract_title_from_content(&self, file_path: &Path) -> Option<String> {
-        let content = fs::read_to_string(file_path).ok()?;
-        self.h1_regex
-            .captures(&content)
-            .and_then(|caps| caps.get(1))
-            .map(|m| m.as_str().trim().to_owned())
-    }
-
-    /// Generate title from filename.
-    fn title_from_filename(name_lower: &str) -> String {
-        // Remove .md extension
-        let name = name_lower.strip_suffix(".md").unwrap_or(name_lower);
-        titlecase_from_slug(name)
+        meta
     }
 
     /// Set up a file watcher for README.md (outside `source_dir`).
@@ -470,33 +400,16 @@ impl FsStorage {
 
 /// Resolve title for a URL path from filesystem.
 ///
-/// Checks meta.yaml title first, falls back to H1 extraction, then filename.
+/// Uses `Meta::resolve()` to extract title from markdown and meta.yaml.
 /// Used by the watch drain thread to populate `StorageEventKind::Modified`.
-///
-/// FIXME: duplicates title resolution logic from `FsStorage::build_document` and
-/// reverse-engineers URL-to-path mapping from `source::file_path_to_url`. Extract
-/// a shared function or look up `DocumentRef` paths instead.
-fn resolve_title(
-    source_dir: &Path,
-    url_path: &str,
-    meta_filename: &str,
-    h1_regex: &Regex,
-) -> String {
-    // 1. Check meta.yaml title
+fn resolve_title(source_dir: &Path, url_path: &str, meta_filename: &str) -> String {
     let meta_path = if url_path.is_empty() {
         source_dir.join(meta_filename)
     } else {
         source_dir.join(format!("{url_path}/{meta_filename}"))
     };
+    let meta_yaml = fs::read_to_string(&meta_path).ok();
 
-    if let Ok(content) = fs::read_to_string(&meta_path)
-        && let Ok(fields) = serde_yaml::from_str::<YamlFields>(&content)
-        && let Some(title) = fields.title
-    {
-        return title;
-    }
-
-    // 2. Check H1 in markdown file
     let md_paths = if url_path.is_empty() {
         vec![source_dir.join("index.md")]
     } else {
@@ -506,28 +419,35 @@ fn resolve_title(
         ]
     };
 
-    for md_path in &md_paths {
-        if let Ok(content) = fs::read_to_string(md_path) {
-            if let Some(caps) = h1_regex.captures(&content)
-                && let Some(m) = caps.get(1)
-            {
-                return m.as_str().trim().to_owned();
-            }
-            // No H1 — fall back to filename
-            let name_lower = md_path
-                .file_name()
-                .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
-            return FsStorage::title_from_filename(&name_lower);
-        }
-    }
+    let (markdown, filename) = md_paths
+        .iter()
+        .find_map(|p| {
+            fs::read_to_string(p).ok().map(|content| {
+                let name = p
+                    .file_name()
+                    .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
+                (content, name)
+            })
+        })
+        .unwrap_or_default();
 
-    // 3. Nothing found — use URL slug
-    let slug = url_path.rsplit('/').next().unwrap_or(url_path);
-    if slug.is_empty() {
-        "Home".to_owned()
+    let slug = if filename.is_empty() {
+        url_path.rsplit('/').next().unwrap_or(url_path)
     } else {
-        titlecase_from_slug(slug)
-    }
+        &filename
+    };
+    let fallback = if slug.is_empty() { "home" } else { slug };
+
+    Meta::resolve(
+        if markdown.is_empty() {
+            None
+        } else {
+            Some(&markdown)
+        },
+        meta_yaml.as_deref(),
+        fallback,
+    )
+    .title
 }
 
 impl Storage for FsStorage {
@@ -557,12 +477,11 @@ impl Storage for FsStorage {
             && !documents.iter().any(|d| d.path.is_empty())
             && readme_path.exists()
         {
-            let title = self
-                .extract_title_from_content(readme_path)
-                .unwrap_or_else(|| "Home".to_owned());
+            let markdown = fs::read_to_string(readme_path).ok();
+            let meta = Meta::resolve(markdown.as_deref(), None, "home");
             documents.push(Document {
                 path: String::new(),
-                title,
+                title: meta.title,
                 has_content: true,
                 page_kind: None,
                 description: None,
@@ -669,7 +588,6 @@ impl Storage for FsStorage {
         // Spawn thread to drain debouncer and send to channel
         let source_dir_for_drain = self.source_dir.clone();
         let meta_filename_for_drain = self.meta_filename.clone();
-        let h1_regex_for_drain = self.h1_regex.clone();
         std::thread::spawn(move || {
             // Keep watcher references alive in this thread
             let _watcher_guard = watcher;
@@ -713,7 +631,6 @@ impl Storage for FsStorage {
                                 &source_dir_for_drain,
                                 &url_path,
                                 &meta_filename_for_drain,
-                                &h1_regex_for_drain,
                             );
                             StorageEventKind::Modified { title }
                         }
@@ -1268,7 +1185,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mtime_cache_detects_changes() {
+    fn test_mtime_cache_detects_markdown_changes() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Original Title").unwrap();
 
@@ -1290,17 +1207,30 @@ mod tests {
     }
 
     #[test]
-    fn test_title_from_filename() {
-        assert_eq!(
-            FsStorage::title_from_filename("setup-guide.md"),
-            "Setup Guide"
-        );
-        assert_eq!(FsStorage::title_from_filename("my_page.md"), "My Page");
-        assert_eq!(
-            FsStorage::title_from_filename("complex-name_here.md"),
-            "Complex Name Here"
-        );
-        assert_eq!(FsStorage::title_from_filename("simple.md"), "Simple");
+    fn test_mtime_cache_detects_meta_yaml_changes() {
+        let temp_dir = create_test_dir();
+        let guide_dir = temp_dir.path().join("guide");
+        fs::create_dir(&guide_dir).unwrap();
+        fs::write(guide_dir.join("index.md"), "# H1 Title").unwrap();
+        fs::write(guide_dir.join("meta.yaml"), "title: YAML Title").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+
+        // First scan — meta.yaml title wins over H1
+        let docs1 = storage.scan().unwrap();
+        let guide1 = docs1.iter().find(|d| d.path == "guide").unwrap();
+        assert_eq!(guide1.title, "YAML Title");
+
+        // Small delay to ensure mtime changes
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Modify only meta.yaml, not the markdown file
+        fs::write(guide_dir.join("meta.yaml"), "title: New YAML Title").unwrap();
+
+        // Second scan should see new title from meta.yaml
+        let docs2 = storage.scan().unwrap();
+        let guide2 = docs2.iter().find(|d| d.path == "guide").unwrap();
+        assert_eq!(guide2.title, "New YAML Title");
     }
 
     // Note: file_path_to_url tests are in source.rs

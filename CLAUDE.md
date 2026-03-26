@@ -136,6 +136,12 @@ crates/
 │       ├── meta_includes.rs  # MetaIncludeSource trait, C4 macro generation from metadata
 │       └── html_embed.rs     # SVG scaling, placeholder replacement
 │
+├── rw-meta/               # Metadata extraction and resolution
+│   └── src/
+│       ├── lib.rs            # Public API: Meta::resolve()
+│       ├── head.rs           # Head::parse(): pulldown-cmark frontmatter + H1 extraction
+│       └── fields.rs         # MetaFields::from_yaml(), MetaFields::merge()
+│
 ├── rw-cache/              # Cache abstraction layer
 │   └── src/
 │       ├── lib.rs            # Cache/CacheBucket traits, NullCache

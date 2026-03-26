@@ -63,6 +63,8 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     /// Sections for annotating internal links.
     /// Shared via Arc because the map can be large (~500 entries) and is reused across renders.
     sections: Option<Arc<Sections>>,
+    /// Whether we are currently inside a YAML metadata block (frontmatter).
+    in_metadata_block: bool,
     _backend: PhantomData<B>,
 }
 
@@ -86,6 +88,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             alert_stack: Vec::new(),
             directives: None,
             sections: None,
+            in_metadata_block: false,
             _backend: PhantomData,
         }
     }
@@ -173,14 +176,14 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// Get parser options based on GFM configuration.
     #[must_use]
     pub fn parser_options(&self) -> Options {
+        let mut opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS;
         if self.gfm {
-            Options::ENABLE_TABLES
+            opts |= Options::ENABLE_TABLES
                 | Options::ENABLE_STRIKETHROUGH
                 | Options::ENABLE_TASKLISTS
-                | Options::ENABLE_GFM
-        } else {
-            Options::empty()
+                | Options::ENABLE_GFM;
         }
+        opts
     }
 
     /// Create a configured parser for the given markdown text.
@@ -314,8 +317,16 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         match event {
             Event::Start(tag) => self.start_tag(tag),
             Event::End(tag) => self.end_tag(tag),
-            Event::Text(text) => self.text(&text),
-            Event::Code(code) => self.inline_code(&code),
+            Event::Text(text) => {
+                if !self.in_metadata_block {
+                    self.text(&text);
+                }
+            }
+            Event::Code(code) => {
+                if !self.in_metadata_block {
+                    self.inline_code(&code);
+                }
+            }
             Event::Html(html) | Event::InlineHtml(html) => self.raw_html(&html),
             Event::SoftBreak => self.soft_break(),
             Event::HardBreak => self.hard_break(),
@@ -372,7 +383,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Item => {
                 self.output.push_str("<li>");
             }
-            Tag::FootnoteDefinition(_) | Tag::HtmlBlock | Tag::MetadataBlock(_) => {}
+            Tag::FootnoteDefinition(_) | Tag::HtmlBlock => {}
+            Tag::MetadataBlock(_) => {
+                self.in_metadata_block = true;
+            }
             Tag::DefinitionList => {
                 self.output.push_str("<dl>");
             }
@@ -502,7 +516,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             TagEnd::Item => {
                 self.output.push_str("</li>");
             }
-            TagEnd::FootnoteDefinition | TagEnd::HtmlBlock | TagEnd::MetadataBlock(_) => {}
+            TagEnd::FootnoteDefinition | TagEnd::HtmlBlock => {}
+            TagEnd::MetadataBlock(_) => {
+                self.in_metadata_block = false;
+            }
             TagEnd::Image => {
                 // Render image with collected alt text
                 let alt = self.image.end();
@@ -1283,5 +1300,39 @@ Install with apt.
         // No sections configured — no data attributes
         assert!(!result.html.contains("data-section-ref"));
         assert!(result.html.contains(r#"href="/domains/billing/use-cases""#));
+    }
+
+    #[test]
+    fn frontmatter_does_not_appear_in_rendered_output() {
+        let markdown = "---\ntitle: My Page\nauthor: Alice\n---\n\n# Hello\n\nSome content.";
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown(markdown);
+        // Frontmatter should not appear as an <hr> or paragraph
+        assert!(
+            !result.html.contains("<hr"),
+            "frontmatter rendered as <hr>: {}",
+            result.html
+        );
+        assert!(
+            !result.html.contains("title: My Page"),
+            "frontmatter content leaked into output: {}",
+            result.html
+        );
+        assert!(
+            !result.html.contains("author: Alice"),
+            "frontmatter content leaked into output: {}",
+            result.html
+        );
+        // The actual page content should still render
+        assert!(
+            result.html.contains("<h1"),
+            "h1 heading missing: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains("Some content"),
+            "page content missing: {}",
+            result.html
+        );
     }
 }

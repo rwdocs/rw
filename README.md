@@ -15,7 +15,7 @@ Publish the same markdown to Confluence pages or embed in Backstage with native 
 - **Tabbed content** — group related content with `:::tab` syntax
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
-- **Page metadata** — YAML sidecar files for titles, descriptions, and custom variables
+- **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, and custom variables
 - **Confluence publishing** — update pages via REST API with OAuth authentication
 - **Backstage integration** — embed docs with native Backstage plugins
 
