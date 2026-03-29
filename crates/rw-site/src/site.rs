@@ -46,7 +46,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::page::{
-    BreadcrumbItem, PageRenderResult, PageRenderer, PageRendererConfig, RenderError,
+    BreadcrumbItem, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext, RenderError,
 };
 use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
@@ -368,9 +368,11 @@ impl Site {
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
         let breadcrumbs = snapshot.state.get_breadcrumbs(path);
-        let meta = Arc::clone(&snapshot) as Arc<dyn MetaIncludeSource>;
-        self.renderer
-            .render(path, page, breadcrumbs, Some(meta), &snapshot.sections)
+        let ctx = RenderContext {
+            sections: Arc::clone(&snapshot.sections),
+            meta_include_source: Some(Arc::clone(&snapshot) as Arc<dyn MetaIncludeSource>),
+        };
+        self.renderer.render(path, page, breadcrumbs, &ctx)
     }
 
     /// Load site state from storage and build hierarchy.
