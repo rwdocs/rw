@@ -154,7 +154,7 @@ crates/
 │
 ├── rw-sections/           # Section reference types and utilities
 │   └── src/
-│       └── lib.rs            # Section, SectionRef, find_section_ref, section_name
+│       └── lib.rs            # Section, SectionPath, Sections (prefix-based lookup)
 │
 ├── rw-site/               # Site structure and page rendering
 │   └── src/

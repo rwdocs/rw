@@ -60,7 +60,7 @@ pub struct SectionInfo {
 impl From<&SectionInfo> for Section {
     fn from(info: &SectionInfo) -> Self {
         let name = if info.path.is_empty() {
-            "root"
+            Section::ROOT_NAME
         } else {
             last_segment(&info.path)
         };
