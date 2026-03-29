@@ -5,7 +5,7 @@ use std::fmt::Write;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 use rw_sections::Sections;
 
 use crate::backend::{AlertKind, RenderBackend};
@@ -25,6 +25,31 @@ pub struct RenderResult {
     pub toc: Vec<TocEntry>,
     /// Warnings generated during conversion (e.g., unresolved includes).
     pub warnings: Vec<String>,
+}
+
+/// Resolves page paths to their display titles.
+///
+/// Used by wikilinks to determine display text when no explicit text is provided.
+pub trait TitleResolver {
+    /// Resolve a page path to its display title.
+    ///
+    /// `path` is an absolute path without leading slash (e.g., `"domains/billing/overview"`).
+    fn resolve_title(&self, path: &str) -> Option<String>;
+}
+
+/// Result of resolving a wikilink target.
+enum WikilinkResolution {
+    /// Successfully resolved to a concrete href with section metadata.
+    Resolved {
+        href: String,
+        section_ref: String,
+        section_name: String,
+        subpath: String,
+    },
+    /// Fragment-only link (`#heading`) — same page, no section resolution.
+    Fragment(String),
+    /// Target could not be resolved — render as broken link.
+    Broken { raw_target: String },
 }
 
 /// Generic markdown renderer with pluggable backend.
@@ -65,6 +90,16 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     sections: Option<Arc<Sections>>,
     /// Whether we are currently inside a YAML metadata block (frontmatter).
     in_metadata_block: bool,
+    /// Whether wikilink parsing and resolution is enabled.
+    wikilinks: bool,
+    /// Title resolver for wikilink display text.
+    title_resolver: Option<Box<dyn TitleResolver>>,
+    /// When true, skip the next `Event::Text`.
+    ///
+    /// pulldown-cmark emits a `Text` event containing the raw wikilink target
+    /// after the `WikiLink` tag start. We suppress it because we render our own
+    /// resolved display text in `start_tag` instead.
+    skip_wikilink_text: bool,
     _backend: PhantomData<B>,
 }
 
@@ -89,6 +124,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             directives: None,
             sections: None,
             in_metadata_block: false,
+            wikilinks: false,
+            title_resolver: None,
+            skip_wikilink_text: false,
             _backend: PhantomData,
         }
     }
@@ -173,6 +211,20 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
+    /// Enable wikilink syntax (`[[target]]`).
+    #[must_use]
+    pub fn with_wikilinks(mut self, enabled: bool) -> Self {
+        self.wikilinks = enabled;
+        self
+    }
+
+    /// Set title resolver for wikilink display text.
+    #[must_use]
+    pub fn with_title_resolver(mut self, resolver: impl TitleResolver + 'static) -> Self {
+        self.title_resolver = Some(Box::new(resolver));
+        self
+    }
+
     /// Get parser options based on GFM configuration.
     #[must_use]
     pub fn parser_options(&self) -> Options {
@@ -182,6 +234,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 | Options::ENABLE_STRIKETHROUGH
                 | Options::ENABLE_TASKLISTS
                 | Options::ENABLE_GFM;
+        }
+        if self.wikilinks {
+            opts |= Options::ENABLE_WIKILINKS;
         }
         opts
     }
@@ -277,7 +332,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         }
     }
 
-    /// Build section ref data attributes for a resolved href, if applicable.
+    /// Build ref data attributes for a resolved path, if applicable.
     ///
     /// Returns `None` for:
     /// - External or relative links (not starting with `/`)
@@ -290,6 +345,79 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         }
         let sp = self.sections.as_ref()?.find(href)?;
         Some((sp.section.to_string(), sp.path.to_owned()))
+    }
+
+    /// Resolve a wikilink `dest_url` to a `WikilinkResolution`.
+    fn resolve_wikilink(&self, dest_url: &str) -> WikilinkResolution {
+        if let Some(fragment) = dest_url.strip_prefix('#') {
+            return WikilinkResolution::Fragment(fragment.to_owned());
+        }
+
+        let resolved = self
+            .sections
+            .as_ref()
+            .and_then(|s| s.resolve_refpath(dest_url, self.base_path.as_deref()));
+
+        match resolved {
+            Some((href, sp)) => WikilinkResolution::Resolved {
+                href,
+                section_ref: sp.section.to_string(),
+                section_name: sp.section.name.clone(),
+                subpath: sp.path.to_owned(),
+            },
+            None => WikilinkResolution::Broken {
+                raw_target: dest_url.to_owned(),
+            },
+        }
+    }
+
+    /// Get display text for a resolved wikilink.
+    fn wikilink_display_text(&self, resolution: &WikilinkResolution) -> String {
+        match resolution {
+            WikilinkResolution::Broken { raw_target } => raw_target.clone(),
+            WikilinkResolution::Fragment(fragment) => fragment.replace('-', " "),
+            WikilinkResolution::Resolved {
+                href,
+                subpath,
+                section_name,
+                ..
+            } => {
+                if let Some(resolver) = &self.title_resolver {
+                    let path = href.strip_prefix('/').unwrap_or(href);
+                    let path = match path.find('#') {
+                        Some(pos) => &path[..pos],
+                        None => path,
+                    };
+                    if let Some(title) = resolver.resolve_title(path) {
+                        return title;
+                    }
+                }
+
+                if !subpath.is_empty() {
+                    // unwrap: rsplit always yields at least one element
+                    return subpath.rsplit('/').next().unwrap().to_owned();
+                }
+
+                if !section_name.is_empty() {
+                    return section_name.clone();
+                }
+
+                href.clone()
+            }
+        }
+    }
+
+    /// Build an `<a>` opening tag with optional ref attributes.
+    fn build_link_tag(href: &str, section_ref: Option<(&str, &str)>) -> String {
+        let mut tag = format!(r#"<a href="{}""#, escape_html(href));
+        if let Some((ref_string, section_path)) = section_ref {
+            write!(tag, r#" data-section-ref="{}""#, escape_html(ref_string)).unwrap();
+            if !section_path.is_empty() {
+                write!(tag, r#" data-section-path="{}""#, escape_html(section_path)).unwrap();
+            }
+        }
+        tag.push('>');
+        tag
     }
 
     /// Render markdown events and return the result.
@@ -322,6 +450,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Event::Start(tag) => self.start_tag(tag),
             Event::End(tag) => self.end_tag(tag),
             Event::Text(text) => {
+                if self.skip_wikilink_text {
+                    self.skip_wikilink_text = false;
+                    return;
+                }
                 if !self.in_metadata_block {
                     self.text(&text);
                 }
@@ -420,27 +552,46 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Tag::Emphasis => self.push_inline("<em>"),
             Tag::Strong => self.push_inline("<strong>"),
             Tag::Strikethrough => self.push_inline("<s>"),
+            Tag::Link {
+                link_type: LinkType::WikiLink { has_pothole },
+                dest_url,
+                ..
+            } if self.wikilinks => {
+                let resolution = self.resolve_wikilink(&dest_url);
+                match &resolution {
+                    WikilinkResolution::Resolved {
+                        href,
+                        section_ref,
+                        subpath,
+                        ..
+                    } => {
+                        let section_attrs = if section_ref.is_empty() {
+                            None
+                        } else {
+                            Some((section_ref.as_str(), subpath.as_str()))
+                        };
+                        let link_tag = Self::build_link_tag(href, section_attrs);
+                        self.push_inline(&link_tag);
+                    }
+                    WikilinkResolution::Fragment(fragment) => {
+                        let link_tag = Self::build_link_tag(&format!("#{fragment}"), None);
+                        self.push_inline(&link_tag);
+                    }
+                    WikilinkResolution::Broken { .. } => {
+                        self.push_inline(r##"<a href="#" class="rw-broken-link">"##);
+                    }
+                }
+                if !has_pothole {
+                    let display = self.wikilink_display_text(&resolution);
+                    self.skip_wikilink_text = true;
+                    self.push_inline(&escape_html(&display));
+                }
+            }
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
                 let section_ref = self.section_ref_attrs(&href);
-                let mut link_tag = format!(r#"<a href="{}""#, escape_html(&href));
-                if let Some((ref_string, section_path)) = section_ref {
-                    write!(
-                        link_tag,
-                        r#" data-section-ref="{}""#,
-                        escape_html(&ref_string)
-                    )
-                    .unwrap();
-                    if !section_path.is_empty() {
-                        write!(
-                            link_tag,
-                            r#" data-section-path="{}""#,
-                            escape_html(&section_path)
-                        )
-                        .unwrap();
-                    }
-                }
-                link_tag.push('>');
+                let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
+                let link_tag = Self::build_link_tag(&href, section_attrs);
                 self.push_inline(&link_tag);
             }
             Tag::Image {
@@ -1304,6 +1455,240 @@ Install with apt.
         // No sections configured — no data attributes
         assert!(!result.html.contains("data-section-ref"));
         assert!(result.html.contains(r#"href="/domains/billing/use-cases""#));
+    }
+
+    // Wikilink tests
+
+    struct StaticTitleResolver;
+
+    impl TitleResolver for StaticTitleResolver {
+        fn resolve_title(&self, path: &str) -> Option<String> {
+            match path {
+                "domains/billing" => Some("Billing Domain".to_owned()),
+                "domains/billing/overview" => Some("Overview".to_owned()),
+                "domains/billing/api/auth" => Some("Authentication API".to_owned()),
+                _ => None,
+            }
+        }
+    }
+
+    fn wikilink_sections() -> Arc<Sections> {
+        use rw_sections::Section;
+        Arc::new(Sections::new(HashMap::from([
+            (
+                String::new(),
+                Section {
+                    kind: "section".to_owned(),
+                    name: "root".to_owned(),
+                },
+            ),
+            (
+                "domains/billing".to_owned(),
+                Section {
+                    kind: "domain".to_owned(),
+                    name: "billing".to_owned(),
+                },
+            ),
+        ])))
+    }
+
+    fn render_wikilink(markdown: &str) -> RenderResult {
+        let options = Options::ENABLE_WIKILINKS | Options::ENABLE_TABLES;
+        let parser = Parser::new_ext(markdown, options);
+        MarkdownRenderer::<HtmlBackend>::new()
+            .with_wikilinks(true)
+            .with_sections(wikilink_sections())
+            .with_title_resolver(StaticTitleResolver)
+            .render(parser)
+    }
+
+    fn render_wikilink_with_base(markdown: &str, base: &str) -> RenderResult {
+        let options = Options::ENABLE_WIKILINKS | Options::ENABLE_TABLES;
+        let parser = Parser::new_ext(markdown, options);
+        MarkdownRenderer::<HtmlBackend>::new()
+            .with_wikilinks(true)
+            .with_sections(wikilink_sections())
+            .with_base_path(base)
+            .with_title_resolver(StaticTitleResolver)
+            .render(parser)
+    }
+
+    #[test]
+    fn wikilink_resolved_with_section_ref() {
+        let result = render_wikilink("[[domain:billing::overview]]");
+        assert!(
+            result
+                .html
+                .contains(r#"<a href="/domains/billing/overview""#),
+            "html: {}",
+            result.html
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"data-section-ref="domain:default/billing""#),
+            "html: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains(r#"data-section-path="overview""#),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_display_text_from_title_resolver() {
+        let result = render_wikilink("[[domain:billing::overview]]");
+        assert!(
+            result.html.contains(">Overview</a>"),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_explicit_display_text() {
+        let result = render_wikilink("[[domain:billing::overview|Check this out]]");
+        assert!(
+            result.html.contains(">Check this out</a>"),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_section_root() {
+        let result = render_wikilink("[[domain:billing]]");
+        assert!(
+            result.html.contains(r#"<a href="/domains/billing""#),
+            "html: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains(">Billing Domain</a>"),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_section_root_no_section_path_attr() {
+        let result = render_wikilink("[[domain:billing]]");
+        assert!(
+            !result.html.contains("data-section-path"),
+            "section root should not have data-section-path: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_with_fragment() {
+        let result = render_wikilink("[[domain:billing::overview#pricing]]");
+        assert!(
+            result
+                .html
+                .contains(r##"href="/domains/billing/overview#pricing""##),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_fragment_only() {
+        let result = render_wikilink("[[#heading]]");
+        assert!(
+            result.html.contains(r##"href="#heading""##),
+            "html: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains(">heading</a>"),
+            "fragment display text should strip # prefix: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_fragment_only_with_hyphens() {
+        let result = render_wikilink("[[#some-long-heading]]");
+        assert!(
+            result.html.contains(">some long heading</a>"),
+            "fragment display text should convert hyphens to spaces: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_current_section() {
+        let result = render_wikilink_with_base("[[::overview]]", "/domains/billing");
+        assert!(
+            result.html.contains(r#"href="/domains/billing/overview""#),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_current_section_root() {
+        let result = render_wikilink_with_base("[[::]]", "/domains/billing");
+        assert!(
+            result.html.contains(r#"href="/domains/billing""#),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_broken_link() {
+        let result = render_wikilink("[[nonexistent:unknown::page]]");
+        assert!(
+            result.html.contains(r#"class="rw-broken-link""#),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_broken_link_display_text() {
+        let result = render_wikilink("[[nonexistent:unknown::page]]");
+        assert!(
+            result.html.contains(">nonexistent:unknown::page</a>"),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_name_only_defaults_to_section_kind() {
+        let result = render_wikilink("[[root]]");
+        assert!(
+            result
+                .html
+                .contains(r#"data-section-ref="section:default/root""#),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_title_fallback_to_subpath() {
+        let result = render_wikilink("[[domain:billing::unknown-page]]");
+        assert!(
+            result.html.contains(">unknown-page</a>"),
+            "html: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn wikilink_title_fallback_deep_subpath() {
+        let result = render_wikilink("[[domain:billing::api/auth]]");
+        assert!(
+            result.html.contains(">Authentication API</a>"),
+            "html: {}",
+            result.html
+        );
     }
 
     #[test]
