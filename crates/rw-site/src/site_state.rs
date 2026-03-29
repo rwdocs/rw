@@ -1,16 +1,12 @@
-//! Site state for document hierarchy.
+//! Immutable site state and navigation tree building.
 //!
-//! Provides the core document site state with efficient path lookups
-//! and traversal operations. This is the pure data representation of
-//! the site structure, separate from the active [`SiteState`](crate::SiteState) type
-//! which handles loading and rendering.
+//! [`SiteState`] is the pure data representation of the document hierarchy —
+//! a flat `Vec<Page>` with parent/child relationships tracked by indices.
+//! It provides O(1) page lookups by URL path and O(d) breadcrumb building
+//! (where d is the page depth).
 //!
-//! # Architecture
-//!
-//! Pages are stored in a flat `Vec<Page>` with parent/children relationships
-//! tracked by indices. This provides:
-//! - O(1) URL path lookups via `path_index` `HashMap`
-//! - O(d) breadcrumb building where d is the page depth
+//! This module also defines the navigation types ([`NavItem`], [`Navigation`],
+//! [`ScopeInfo`]) that the frontend consumes.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -26,33 +22,43 @@ fn last_segment(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-/// Navigation item with children for UI tree.
+/// A node in the navigation tree sent to the frontend.
+///
+/// Each `NavItem` maps to a page. Items that are
+/// [section](crate#sections-and-scoped-navigation) roots have a populated
+/// [`section`](Self::section) field and no children (sections are leaf
+/// nodes in their parent's navigation — the section's own children appear
+/// when navigating into that section).
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct NavItem {
-    /// Display title.
+    /// Display title for this navigation entry.
     pub title: String,
-    /// Link target path.
+    /// URL path without leading slash (e.g., `"guide"`, `"domain/billing"`).
     pub path: String,
-    /// Section identity if this item's path matches a section.
+    /// Present when this item is a section root. Contains the section kind
+    /// and name (e.g., `kind: "domain"`, `name: "billing"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub section: Option<Section>,
-    /// Child navigation items.
+    /// Child navigation items. Empty for section roots and leaf pages.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<NavItem>,
 }
 
-/// Section information for sub-sites or categorized content.
+/// Metadata for a [section](crate#sections-and-scoped-navigation) root page.
 ///
-/// A section is created when a page has a `kind` set in its metadata.
+/// Created when a page's metadata includes a `kind` field. Stored internally
+/// by [`SiteState`] and used to build [`Section`] refs and scoped navigation.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SectionInfo {
-    /// Section title (from page title).
+    /// Display title of the section (taken from the page title).
     pub title: String,
-    /// URL path to the section root (without leading slash).
+    /// URL path to the section root, without leading slash
+    /// (e.g., `"domains/billing"`).
     pub path: String,
-    /// Section kind (from metadata `kind` field).
+    /// Freeform kind string from the page's metadata `kind` field
+    /// (e.g., `"domain"`, `"system"`, `"component"`).
     pub section_kind: String,
-    /// Section description (from metadata `description` field).
+    /// Optional description from the page's metadata `description` field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -71,38 +77,59 @@ impl From<&SectionInfo> for Section {
     }
 }
 
-/// Information about a navigation scope for the frontend.
+/// Describes which [section](crate#sections-and-scoped-navigation) the
+/// navigation sidebar is currently showing.
+///
+/// Returned as part of [`Navigation`] to tell the frontend which section
+/// is active and where "back" navigation should go.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct ScopeInfo {
-    /// URL path to the scope (with leading slash for frontend).
+    /// URL path **with** leading slash (e.g., `"/domains/billing"`, `"/"`
+    /// for root).
+    ///
+    /// **Note:** This is the only path field in the crate that includes a
+    /// leading slash — all other path fields (on [`NavItem`], [`BreadcrumbItem`],
+    /// etc.) omit it. The slash is included here for direct use in frontend
+    /// routing URLs.
     pub path: String,
-    /// Display title.
+    /// Display title for the scope header.
     pub title: String,
-    /// Section identity.
+    /// Section identity (kind + name) for this scope.
     pub section: Section,
 }
 
-/// Result of scoped navigation query.
+/// The navigation tree for a single [section](crate#sections-and-scoped-navigation) scope.
+///
+/// Returned by [`Site::navigation`](crate::Site::navigation). Contains the
+/// tree of [`NavItem`]s for the sidebar, the current scope, and the parent
+/// scope for "back" navigation.
+///
+/// At the root scope, `parent_scope` is `None`. At any other scope,
+/// `parent_scope` points to the nearest ancestor section (or root).
 #[derive(Debug, Default, Serialize)]
 pub struct Navigation {
-    /// Navigation items for this scope.
+    /// Top-level navigation items within this scope.
     pub items: Vec<NavItem>,
-    /// Current scope info (implicit root section at root, explicit section otherwise).
+    /// The section this navigation belongs to. `None` only in the
+    /// `Default` value (empty navigation); always `Some` when returned by
+    /// [`Site::navigation`](crate::Site::navigation).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<ScopeInfo>,
-    /// Parent scope for back navigation (None only at root).
+    /// The parent section for "back" navigation. `None` only at the root scope.
     #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
     pub parent_scope: Option<ScopeInfo>,
 }
 
-/// Document site state with efficient path lookups.
+/// Immutable snapshot of the document hierarchy.
 ///
-/// Pure data structure storing pages in a flat list with parent/children
-/// relationships tracked by indices. Provides O(1) URL path and source path
-/// lookups, and O(d) breadcrumb building where d is the page depth.
+/// Stores pages in a flat `Vec` with parent/child relationships tracked by
+/// indices. Provides O(1) page lookup by URL path and O(d) breadcrumb
+/// building (d = page depth). Also indexes sections for scoped navigation
+/// and section ref lookups.
 ///
-/// This is the immutable state representation. For loading and rendering
-/// functionality, see [`Site`](crate::Site).
+/// `SiteState` is the pure data layer — it does not own storage or trigger
+/// reloads. See [`Site`](crate::Site) for the higher-level API that manages
+/// loading and rendering.
 pub struct SiteState {
     pages: Vec<Page>,
     children: Vec<Vec<usize>>,
@@ -185,32 +212,20 @@ impl SiteState {
         }
     }
 
-    /// Get page by URL path.
+    /// Returns the page at `path`, or `None` if no page exists there.
     ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash (e.g., "guide", "domain/page", "" for root)
-    ///
-    /// # Returns
-    ///
-    /// Page reference if found, `None` otherwise.
+    /// `path` is a URL path without leading slash (e.g., `"guide"`,
+    /// `"domain/billing"`, `""` for root).
     #[must_use]
     pub fn get_page(&self, path: &str) -> Option<&Page> {
         self.path_index.get(path).map(|&i| &self.pages[i])
     }
 
-    /// Get children of a page that have markdown content in their subtree.
+    /// Returns children of `path` whose subtree contains at least one page
+    /// with markdown content.
     ///
-    /// When `path` is empty and no root page exists, returns root-level pages
-    /// with content as a fallback. This handles sites without an `index.md`.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash (e.g., "guide", "" for root)
-    ///
-    /// # Returns
-    ///
-    /// Vector of child page references that have content, empty if page not found or has no children with content.
+    /// When `path` is empty and no root `index.md` exists, returns top-level
+    /// pages as a fallback.
     #[must_use]
     fn get_children_with_content(&self, path: &str) -> Vec<&Page> {
         if let Some(&idx) = self.path_index.get(path) {
@@ -231,24 +246,12 @@ impl SiteState {
         }
     }
 
-    /// Build breadcrumbs for a given path.
+    /// Returns the breadcrumb trail for `path`.
     ///
-    /// Returns breadcrumbs starting with "Home" for non-root pages,
-    /// followed by ancestor pages. The current page is not included.
-    ///
-    /// # Note
-    ///
-    /// For unknown paths, returns `[Home]` to provide minimal navigation
-    /// in UI even when the page doesn't exist in the site structure.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash (e.g., "guide/setup", "" for root)
-    ///
-    /// # Returns
-    ///
-    /// Vector of breadcrumb items for ancestor navigation.
-    /// Paths in breadcrumbs are also without leading slash (empty string for root).
+    /// The trail starts with "Home" (path `""`) and includes each ancestor
+    /// up to but not including the page itself. Returns an empty `Vec` for
+    /// the root path (`""`). For unknown paths, returns `[Home]` so the
+    /// frontend always has at least minimal navigation.
     #[must_use]
     pub fn get_breadcrumbs(&self, path: &str) -> Vec<BreadcrumbItem> {
         if path.is_empty() {
@@ -305,11 +308,11 @@ impl SiteState {
         self.roots.iter().map(|&i| &self.pages[i]).collect()
     }
 
-    /// Find sections by raw directory name (last path segment).
+    /// Finds sections whose last path segment matches `name`.
     ///
-    /// Returns section info for pages whose directory name matches.
-    /// For example, `find_sections_by_name("payment-gateway")` finds
-    /// sections at paths like `"domains/billing/systems/payment-gateway"`.
+    /// For example, `find_sections_by_name("payment-gateway")` matches a
+    /// section at `"domains/billing/systems/payment-gateway"`. Returns an
+    /// empty `Vec` if no section has that directory name.
     #[must_use]
     pub fn find_sections_by_name(&self, name: &str) -> Vec<&SectionInfo> {
         self.sections_by_name
@@ -341,15 +344,11 @@ impl SiteState {
         bucket.set_json("structure", etag, &CachedSiteStateRef::from(self));
     }
 
-    /// Build navigation scoped to a section.
+    /// Builds a navigation tree scoped to `scope_path`.
     ///
-    /// If `scope_path` is empty, returns root navigation with an implicit root
-    /// section scope and sections as leaves.
-    /// If `scope_path` points to a section, returns that section's children.
-    ///
-    /// # Arguments
-    ///
-    /// * `scope_path` - Path to scope (without leading slash), empty for root scope.
+    /// Pass `""` for root navigation, or a section root path (e.g.,
+    /// `"domains/billing"`) to get that section's children. Section roots
+    /// appear as leaf nodes — they do not expand their children inline.
     #[must_use]
     pub fn navigation(&self, scope_path: &str) -> Navigation {
         if scope_path.is_empty() {
@@ -397,15 +396,12 @@ impl SiteState {
         }
     }
 
-    /// Get the section ref string for the section a page belongs to.
+    /// Returns the [section ref](crate#sections-and-scoped-navigation) for
+    /// the section containing `page_path`.
     ///
-    /// Returns the ref (e.g., `"domain:default/billing"`) for the nearest section
-    /// ancestor, falling back to the implicit root section (`section:default/root`)
-    /// when no explicit section is found.
-    ///
-    /// # Arguments
-    ///
-    /// * `page_path` - URL path without leading slash.
+    /// Walks up the path hierarchy to find the nearest ancestor that is a
+    /// section root. Falls back to `"section:default/root"` when no explicit
+    /// section is found.
     #[must_use]
     pub fn get_section_ref(&self, page_path: &str) -> String {
         if let Some(section) = self.sections.get(page_path) {
@@ -497,13 +493,11 @@ impl SiteState {
         }
     }
 
-    /// Build a sections map for cross-section link annotation.
+    /// Builds a [`Sections`] map from this state's section index.
     ///
-    /// Always contains at least a root entry (`section:default/root`) so
-    /// embedded consumers always have a `sectionRef` to resolve.
-    ///
-    /// Maps section root paths to `Section` structs containing the section
-    /// kind and name (last path segment).
+    /// The resulting map always contains at least a root entry so that
+    /// embedded consumers always have a section ref to resolve. Maps
+    /// section root URL paths to [`Section`] structs.
     #[must_use]
     pub fn build_sections(&self) -> Arc<Sections> {
         let mut map: HashMap<String, Section> = self
