@@ -49,24 +49,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
-/// Default kind for the implicit root section.
-///
-/// Used when a documentation site has pages at the root level that don't belong
-/// to any explicitly defined section.
-pub const ROOT_SECTION_KIND: &str = "section";
-
-/// Name used for sections rooted at the empty scope path.
-///
-/// Both the implicit root section and any explicit section mapped to `""` use
-/// this name.
-pub const ROOT_SECTION_NAME: &str = "root";
-
-/// Ref string for the implicit root section (`"section:default/root"`).
-///
-/// Pages at the root of a documentation site that aren't covered by any
-/// explicit section are associated with this ref.
-pub const ROOT_SECTION_REF: &str = "section:default/root";
-
 /// A named documentation section with a kind and name.
 ///
 /// Represents one node in the section hierarchy. The [`kind`](Self::kind) is a
@@ -100,6 +82,31 @@ pub struct Section {
     pub kind: String,
     /// Section name, currently the last segment of the scope path (e.g., `"billing"`).
     pub name: String,
+}
+
+impl Section {
+    /// Returns the implicit root section (`section:default/root`).
+    ///
+    /// Used when a documentation site has pages at the root level that don't
+    /// belong to any explicitly defined section.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rw_sections::Section;
+    ///
+    /// let root = Section::root();
+    /// assert_eq!(root.kind, "section");
+    /// assert_eq!(root.name, "root");
+    /// assert_eq!(root.to_string(), "section:default/root");
+    /// ```
+    #[must_use]
+    pub fn root() -> Self {
+        Self {
+            kind: "section".to_owned(),
+            name: "root".to_owned(),
+        }
+    }
 }
 
 impl fmt::Display for Section {

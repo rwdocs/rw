@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use rw_cache::{CacheBucket, CacheBucketExt};
-use rw_sections::{ROOT_SECTION_KIND, ROOT_SECTION_NAME, ROOT_SECTION_REF, Section, Sections};
+use rw_sections::{Section, Sections};
 use serde::{Deserialize, Serialize};
 
 use crate::page::{BreadcrumbItem, Page};
@@ -60,7 +60,7 @@ pub struct SectionInfo {
 impl From<&SectionInfo> for Section {
     fn from(info: &SectionInfo) -> Self {
         let name = if info.path.is_empty() {
-            ROOT_SECTION_NAME
+            "root"
         } else {
             last_segment(&info.path)
         };
@@ -424,7 +424,7 @@ impl SiteState {
             return Section::from(section).to_string();
         }
 
-        ROOT_SECTION_REF.to_owned()
+        Section::root().to_string()
     }
 
     /// Build [`NavItem`] but stop recursion at section boundaries.
@@ -493,10 +493,7 @@ impl SiteState {
         ScopeInfo {
             path: "/".to_owned(),
             title,
-            section: Section {
-                kind: ROOT_SECTION_KIND.to_owned(),
-                name: ROOT_SECTION_NAME.to_owned(),
-            },
+            section: Section::root(),
         }
     }
 
@@ -516,10 +513,7 @@ impl SiteState {
             .collect();
 
         // Insert implicit root section if no explicit section exists at root
-        map.entry(String::new()).or_insert_with(|| Section {
-            kind: ROOT_SECTION_KIND.to_owned(),
-            name: ROOT_SECTION_NAME.to_owned(),
-        });
+        map.entry(String::new()).or_insert_with(Section::root);
 
         Arc::new(Sections::new(map))
     }
@@ -1260,8 +1254,7 @@ mod tests {
         let scope = nav.scope.as_ref().unwrap();
         assert_eq!(scope.path, "/");
         assert_eq!(scope.title, "Home");
-        assert_eq!(scope.section.kind, ROOT_SECTION_KIND);
-        assert_eq!(scope.section.name, ROOT_SECTION_NAME);
+        assert_eq!(scope.section, Section::root());
         assert!(nav.parent_scope.is_none());
 
         // Should show both items
@@ -1347,8 +1340,7 @@ mod tests {
         let parent = nav.parent_scope.unwrap();
         assert_eq!(parent.path, "/");
         assert_eq!(parent.title, "Home");
-        assert_eq!(parent.section.kind, ROOT_SECTION_KIND);
-        assert_eq!(parent.section.name, ROOT_SECTION_NAME);
+        assert_eq!(parent.section, Section::root());
 
         // Should show billing's children
         assert_eq!(nav.items.len(), 2);
@@ -1503,7 +1495,7 @@ mod tests {
         let section_ref = site.get_section_ref("guide");
 
         // Falls back to implicit root section
-        assert_eq!(section_ref, ROOT_SECTION_REF);
+        assert_eq!(section_ref, Section::root().to_string());
     }
 
     #[test]
@@ -1697,8 +1689,7 @@ mod tests {
         let root = sections
             .get("")
             .expect("implicit root section should exist");
-        assert_eq!(root.kind, ROOT_SECTION_KIND);
-        assert_eq!(root.name, ROOT_SECTION_NAME);
+        assert_eq!(*root, Section::root());
     }
 
     #[test]
@@ -1720,7 +1711,7 @@ mod tests {
             .get("")
             .expect("explicit root section should exist");
         assert_eq!(root.kind, "component");
-        assert_eq!(root.name, ROOT_SECTION_NAME);
+        assert_eq!(root.name, "root");
     }
 
     #[test]
@@ -1743,8 +1734,7 @@ mod tests {
         let root = sections
             .get("")
             .expect("implicit root section should exist");
-        assert_eq!(root.kind, ROOT_SECTION_KIND);
-        assert_eq!(root.name, ROOT_SECTION_NAME);
+        assert_eq!(*root, Section::root());
 
         let billing = sections
             .get("billing")
@@ -1761,7 +1751,7 @@ mod tests {
 
         let sections = site.build_sections();
 
-        let root_ref = format!("{ROOT_SECTION_KIND}:default/{ROOT_SECTION_NAME}");
+        let root_ref = Section::root().to_string();
         assert_eq!(sections.find_by_ref(&root_ref), Some(""));
     }
 
@@ -1777,6 +1767,6 @@ mod tests {
         let section = Section::from(&info);
 
         assert_eq!(section.kind, "component");
-        assert_eq!(section.name, ROOT_SECTION_NAME);
+        assert_eq!(section.name, "root");
     }
 }
