@@ -29,6 +29,39 @@
 //! [pulldown-cmark]: https://docs.rs/pulldown-cmark
 //! [CommonMark generic directives]: https://talk.commonmark.org/t/generic-directives-plugins-syntax/444
 //!
+//! ## Wikilinks
+//!
+//! When enabled via [`MarkdownRenderer::with_wikilinks`], the renderer supports
+//! `[[target]]` syntax for section-stable internal links that survive directory
+//! reorganization. Wikilinks are resolved through [`Sections`] (set via
+//! [`MarkdownRenderer::with_sections`]) and display text is looked up via a
+//! [`TitleResolver`] (set via [`MarkdownRenderer::with_title_resolver`]).
+//! Each piece degrades gracefully when omitted:
+//!
+//! - Without [`Sections`], all wikilinks render as broken links
+//!   (`class="rw-broken-link"`)
+//! - Without a [`TitleResolver`], display text falls back to the last path
+//!   segment (e.g., `[[domain:billing::overview]]` displays as "overview")
+//! - Without [`MarkdownRenderer::with_wikilinks`], `[[...]]` syntax is not
+//!   parsed — pulldown-cmark treats it as plain text
+//!
+//! Supported syntax forms:
+//!
+//! | Syntax | Description |
+//! |--------|-------------|
+//! | `[[kind:name::path]]` | Cross-section link (e.g., `[[domain:billing::overview]]`) |
+//! | `[[kind:name]]` | Link to a section root (e.g., `[[domain:billing]]`) |
+//! | `[[name]]` | Short form — section kind defaults to `"section"` |
+//! | `[[::path]]` | Current-section link — resolved relative to `base_path` |
+//! | `[[::]]` | Current-section root |
+//! | `[[#fragment]]` | Same-page fragment link |
+//! | `[[target\|display text]]` | Any form above with explicit display text |
+//!
+//! Unresolved wikilinks render with a `class="rw-broken-link"` indicator.
+//! When no explicit display text is given, the renderer tries (in order):
+//! the [`TitleResolver`], the last path segment, the section name, or the
+//! raw href.
+//!
 //! # Examples
 //!
 //! Render markdown to HTML:
@@ -98,6 +131,13 @@ pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use html::HtmlBackend;
 pub use renderer::{MarkdownRenderer, RenderResult, TitleResolver};
+/// Re-exported from [`rw_sections`] for use with
+/// [`MarkdownRenderer::with_sections`].
+///
+/// Holds a map of section refs (e.g., `"domain:default/billing"`) to
+/// filesystem paths, enabling wikilink resolution and cross-section link
+/// annotation. Built by higher-level crates like `rw-site` from the site
+/// configuration.
 pub use rw_sections::Sections;
 pub use state::{TocEntry, escape_html};
 pub use tabs::TabsDirective;

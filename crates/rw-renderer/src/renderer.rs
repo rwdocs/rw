@@ -37,8 +37,11 @@ use crate::util::heading_level_to_num;
 /// ```
 #[derive(Debug)]
 pub struct RenderResult {
-    /// Rendered markup. The format depends on the [`RenderBackend`]
-    /// (e.g., HTML from [`HtmlBackend`](crate::HtmlBackend)).
+    /// Rendered markup produced by the [`RenderBackend`].
+    ///
+    /// Named `html` because [`HtmlBackend`](crate::HtmlBackend) is the primary
+    /// backend, but the actual format depends on `B`: [`HtmlBackend`](crate::HtmlBackend)
+    /// produces HTML5, while the downstream Confluence backend produces XHTML.
     pub html: String,
     /// Title extracted from the first H1 heading when
     /// [`with_title_extraction`](MarkdownRenderer::with_title_extraction) is enabled.
@@ -272,10 +275,18 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Set sections for cross-section link annotation.
+    /// Set the section registry for wikilink resolution and link annotation.
     ///
-    /// When set, resolved internal links get `data-section-ref` and
-    /// `data-section-path` attributes on the anchor element.
+    /// [`Sections`] maps section refs (e.g., `"domain:default/billing"`) to
+    /// filesystem paths, allowing the renderer to resolve `[[domain:billing::overview]]`
+    /// to a concrete URL. When set, resolved internal links also get
+    /// `data-section-ref` and `data-section-path` attributes on the anchor
+    /// element so host applications can build cross-entity navigation.
+    ///
+    /// Without this, wikilinks cannot resolve to URLs and render as broken
+    /// links (`class="rw-broken-link"`). See the
+    /// [crate-level wikilink documentation](crate#wikilinks) for the full
+    /// degradation behavior.
     #[must_use]
     pub fn with_sections(mut self, sections: Arc<Sections>) -> Self {
         if sections.is_empty() {
@@ -286,21 +297,43 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Enable wikilink syntax (`[[target]]`).
+    /// Enable `[[wikilink]]` syntax for section-stable internal links.
+    ///
+    /// When enabled, the pulldown-cmark parser recognizes `[[target]]` and
+    /// `[[target|display text]]` syntax. Links are resolved through
+    /// [`Sections`] (see [`with_sections`](Self::with_sections)) and display
+    /// text is looked up via [`with_title_resolver`](Self::with_title_resolver).
+    /// Each piece degrades gracefully when omitted — see the
+    /// [crate-level wikilink documentation](crate#wikilinks) for details.
+    /// Without [`Sections`], all wikilinks render as broken links.
+    /// Without a [`TitleResolver`], display text falls back to the last path
+    /// segment. Without this method, `[[...]]` is not parsed at all.
     #[must_use]
     pub fn with_wikilinks(mut self, enabled: bool) -> Self {
         self.wikilinks = enabled;
         self
     }
 
-    /// Set title resolver for wikilink display text.
+    /// Set a title resolver for wikilink display text.
+    ///
+    /// When a wikilink has no explicit display text (`[[target]]` vs.
+    /// `[[target|text]]`), the renderer calls the resolver to look up a
+    /// human-readable page title. If the resolver returns `None`, the
+    /// renderer falls back to the last path segment of the resolved URL.
+    ///
+    /// Optional — without this, display text falls back to the last path
+    /// segment (e.g., `[[domain:billing::overview]]` displays as "overview")
+    /// or the section name for root links.
     #[must_use]
     pub fn with_title_resolver(mut self, resolver: impl TitleResolver + 'static) -> Self {
         self.title_resolver = Some(Box::new(resolver));
         self
     }
 
-    /// Get parser options based on GFM configuration.
+    /// Returns pulldown-cmark [`Options`] reflecting the current GFM and
+    /// wikilink configuration.
+    ///
+    /// Useful when constructing a parser manually for [`render`](Self::render).
     #[must_use]
     pub fn parser_options(&self) -> Options {
         let mut opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS;
@@ -316,7 +349,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         opts
     }
 
-    /// Create a configured parser for the given markdown text.
+    /// Creates a pulldown-cmark [`Parser`] with the renderer's current options.
+    ///
+    /// Use this with [`render`](Self::render) when you need a pre-built event
+    /// iterator (e.g., to inspect or filter events before rendering).
     #[must_use]
     pub fn create_parser<'a>(&self, markdown: &'a str) -> Parser<'a> {
         Parser::new_ext(markdown, self.parser_options())
