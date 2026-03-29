@@ -1,24 +1,32 @@
-//! Pluggable directives API for `CommonMark` directive syntax.
+//! Pluggable directives API for [CommonMark generic directive syntax][spec].
 //!
-//! This module provides a trait-based extensibility system for handling `CommonMark`
-//! directives (inline `:name`, leaf `::name`, and container `:::name`).
+//! Directives extend markdown with custom inline, block, and wrapping
+//! elements using a colon-based syntax that does not conflict with standard
+//! CommonMark:
+//!
+//! | Type | Syntax | Trait |
+//! |------|--------|-------|
+//! | Inline | `:name[content]{attrs}` | [`InlineDirective`] |
+//! | Leaf (self-contained block) | `::name[content]{attrs}` | [`LeafDirective`] |
+//! | Container (wrapping block) | `:::name` … `:::` | [`ContainerDirective`] |
+//!
+//! [spec]: https://talk.commonmark.org/t/generic-directives-plugins-syntax/444
 //!
 //! # Architecture
 //!
-//! The directive system uses a two-phase processing model:
+//! Processing is split into two phases because pulldown-cmark does not
+//! understand directive syntax natively:
 //!
-//! 1. **Preprocessing** ([`DirectiveProcessor::process`]): Converts directive syntax
-//!    to intermediate HTML elements that pass through pulldown-cmark unchanged.
+//! 1. **Preprocessing** ([`DirectiveProcessor::process`]) — runs before
+//!    pulldown-cmark parsing. Converts directives to intermediate HTML
+//!    elements (e.g., `<rw-tabs>`) that pass through the parser unchanged,
+//!    or expands `::include` directives into raw markdown for recursive
+//!    processing.
 //!
-//! 2. **Post-processing** ([`DirectiveProcessor::post_process`]): Transforms
-//!    intermediate elements to final HTML using the [`Replacements`] collector
-//!    for single-pass string replacement.
-//!
-//! # Directive Types
-//!
-//! - **Inline** ([`InlineDirective`]): `:name[content]{attrs}` - inline elements
-//! - **Leaf** ([`LeafDirective`]): `::name[content]{attrs}` - self-contained blocks
-//! - **Container** ([`ContainerDirective`]): `:::name` ... `:::` - wrapping blocks
+//! 2. **Post-processing** ([`DirectiveProcessor::post_process`]) — runs
+//!    after rendering. Transforms intermediate elements to final accessible
+//!    HTML using the [`Replacements`] collector for efficient single-pass
+//!    string replacement.
 //!
 //! # Example
 //!

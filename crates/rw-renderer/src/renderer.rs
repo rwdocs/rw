@@ -1,4 +1,6 @@
 //! Generic markdown renderer with pluggable backend.
+//!
+//! See the [crate-level documentation](crate) for an overview and examples.
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -14,26 +16,75 @@ use crate::directive::DirectiveProcessor;
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
 use crate::util::heading_level_to_num;
 
-/// Result of rendering markdown.
+/// Output produced by [`MarkdownRenderer::render`] or [`MarkdownRenderer::render_markdown`].
+///
+/// Contains the rendered markup, an optional page title extracted from the
+/// first H1 heading, table-of-contents entries for heading navigation, and
+/// any warnings emitted by code block processors or directives.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+///
+/// let result = MarkdownRenderer::<HtmlBackend>::new()
+///     .with_title_extraction()
+///     .render_markdown("# Welcome\n\nHello **world**.");
+///
+/// assert_eq!(result.title.as_deref(), Some("Welcome"));
+/// assert!(result.html.contains("<strong>world</strong>"));
+/// assert!(result.warnings.is_empty());
+/// ```
 #[derive(Debug)]
 pub struct RenderResult {
-    /// Rendered HTML/XHTML content.
+    /// Rendered markup. The format depends on the [`RenderBackend`]
+    /// (e.g., HTML from [`HtmlBackend`](crate::HtmlBackend)).
     pub html: String,
-    /// Title extracted from first H1 heading (if `extract_title` was enabled).
+    /// Title extracted from the first H1 heading when
+    /// [`with_title_extraction`](MarkdownRenderer::with_title_extraction) is enabled.
     pub title: Option<String>,
-    /// Table of contents entries.
+    /// Table-of-contents entries, one per heading (excluding the title heading).
     pub toc: Vec<TocEntry>,
-    /// Warnings generated during conversion (e.g., unresolved includes).
+    /// Warnings generated during conversion (e.g., unresolved includes,
+    /// unclosed container directives).
     pub warnings: Vec<String>,
 }
 
-/// Resolves page paths to their display titles.
+/// Resolves page paths to their display titles for wikilink rendering.
 ///
-/// Used by wikilinks to determine display text when no explicit text is provided.
+/// When a wikilink like `[[domain:billing::overview]]` has no explicit display
+/// text, the renderer calls this trait to look up a human-readable title.
+/// If the resolver returns `None`, the renderer falls back to the last path
+/// segment.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::TitleResolver;
+///
+/// struct MapResolver(std::collections::HashMap<String, String>);
+///
+/// impl TitleResolver for MapResolver {
+///     fn resolve_title(&self, path: &str) -> Option<String> {
+///         self.0.get(path).cloned()
+///     }
+/// }
+///
+/// let mut titles = std::collections::HashMap::new();
+/// titles.insert("domains/billing/overview".into(), "Billing Overview".into());
+/// let resolver = MapResolver(titles);
+///
+/// assert_eq!(
+///     resolver.resolve_title("domains/billing/overview"),
+///     Some("Billing Overview".into()),
+/// );
+/// assert_eq!(resolver.resolve_title("unknown/page"), None);
+/// ```
 pub trait TitleResolver {
-    /// Resolve a page path to its display title.
+    /// Returns the display title for a page at `path`, or `None` if unknown.
     ///
-    /// `path` is an absolute path without leading slash (e.g., `"domains/billing/overview"`).
+    /// `path` is an absolute path without leading slash
+    /// (e.g., `"domains/billing/overview"`).
     fn resolve_title(&self, path: &str) -> Option<String>;
 }
 
@@ -54,20 +105,44 @@ enum WikilinkResolution {
 
 /// Generic markdown renderer with pluggable backend.
 ///
-/// Uses the [`RenderBackend`] trait to delegate format-specific rendering
-/// while handling common elements (tables, lists, inline formatting) generically.
+/// Walks pulldown-cmark events and produces HTML or XHTML depending on the
+/// [`RenderBackend`] implementation (`B`). Common elements (tables, lists,
+/// inline formatting) are handled generically; format-specific elements are
+/// delegated to `B`.
 ///
-/// # Code Block Processors
+/// The two main entry points are:
 ///
-/// Custom code block processing can be added via [`with_processor`](Self::with_processor).
-/// Processors are checked in order; the first returning a non-`PassThrough` result wins.
+/// - [`render_markdown`](Self::render_markdown) — accepts raw markdown,
+///   handles directive pre/post-processing automatically.
+/// - [`render`](Self::render) — accepts a pre-built pulldown-cmark event
+///   iterator (skips directive processing).
 ///
-/// # Directive Processing
+/// # Code block processors
 ///
-/// The renderer supports `CommonMark` directives via [`with_directives`](Self::with_directives).
-/// When a directive processor is configured, [`render_markdown`](Self::render_markdown)
-/// will preprocess the input to expand directives before pulldown-cmark parsing,
-/// and post-process the output to transform intermediate elements.
+/// Register processors via [`with_processor`](Self::with_processor).
+/// Processors are checked in registration order; the first returning a
+/// non-[`PassThrough`](ProcessResult::PassThrough) result wins.
+///
+/// # Directive processing
+///
+/// Configure via [`with_directives`](Self::with_directives). When set,
+/// [`render_markdown`](Self::render_markdown) runs a three-phase pipeline:
+/// preprocess directives → parse and render with pulldown-cmark → post-process
+/// intermediate elements.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+///
+/// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+///     .with_title_extraction()
+///     .with_base_path("/docs/guide");
+///
+/// let result = renderer.render_markdown("# Guide\n\nSee [setup](setup.md).");
+/// assert_eq!(result.title.as_deref(), Some("Guide"));
+/// assert!(result.html.contains(r#"href="/docs/guide/setup""#));
+/// ```
 pub struct MarkdownRenderer<B: RenderBackend> {
     output: String,
     list_stack: Vec<bool>,
@@ -247,13 +322,19 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         Parser::new_ext(markdown, self.parser_options())
     }
 
-    /// Render markdown text directly using configured parser options.
+    /// Renders raw markdown to HTML, handling directives automatically.
     ///
-    /// If a directive processor is configured via [`with_directives`](Self::with_directives),
-    /// this method will:
-    /// 1. Preprocess the input to expand directives
-    /// 2. Parse and render the preprocessed markdown
-    /// 3. Post-process the output to transform intermediate elements
+    /// This is the primary entry point. It runs the full pipeline:
+    ///
+    /// 1. **Preprocess** — expands directives (if configured via
+    ///    [`with_directives`](Self::with_directives))
+    /// 2. **Parse & render** — feeds the markdown through pulldown-cmark and
+    ///    the backend
+    /// 3. **Post-process** — transforms intermediate directive elements and
+    ///    replaces code block placeholders
+    ///
+    /// Use [`render`](Self::render) instead when you already have a
+    /// pulldown-cmark event iterator or need to skip directive processing.
     pub fn render_markdown(&mut self, markdown: &str) -> RenderResult {
         // Phase 1: Preprocess directives (if configured)
         let preprocessed = if let Some(ref mut processor) = self.directives {
@@ -420,10 +501,14 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         tag
     }
 
-    /// Render markdown events and return the result.
+    /// Renders pre-parsed pulldown-cmark events to the configured backend.
     ///
-    /// Automatically calls `post_process` on all registered processors
-    /// to replace placeholders with rendered content.
+    /// Prefer [`render_markdown`](Self::render_markdown) for most use cases.
+    /// This method is useful when you need to construct the parser yourself
+    /// (e.g., with custom options) or when directive preprocessing is not needed.
+    ///
+    /// Automatically calls [`CodeBlockProcessor::post_process`] on all
+    /// registered processors to replace placeholders with rendered content.
     pub fn render<'a, I>(&mut self, events: I) -> RenderResult
     where
         I: Iterator<Item = Event<'a>>,

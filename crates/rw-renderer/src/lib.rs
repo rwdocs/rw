@@ -1,31 +1,87 @@
-//! Trait-based markdown renderer with pluggable backends.
-//!
-//! This crate provides a generic [`MarkdownRenderer`] that can produce
-//! HTML output using the [`RenderBackend`] trait.
+//! Trait-based markdown renderer with pluggable backends, extensible code block
+//! processing, and directive syntax support.
 //!
 //! # Architecture
 //!
-//! The renderer uses a trait-based abstraction to handle format-specific differences:
-//! - [`HtmlBackend`]: Produces semantic HTML5 with relative link resolution
+//! [`MarkdownRenderer`] walks [pulldown-cmark] events and delegates
+//! format-specific rendering to a [`RenderBackend`] implementation.
+//! This crate ships [`HtmlBackend`] for semantic HTML5 output with relative
+//! link resolution; other backends (e.g., Confluence XHTML) can be
+//! implemented downstream.
 //!
-//! For Confluence XHTML storage format, use the `rw-confluence` crate.
-//!
-//! Shared functionality (tables, lists, inline formatting) is handled by the
-//! generic renderer, while format-specific elements (code blocks, blockquotes,
+//! Common elements (tables, lists, inline formatting) are handled by the
+//! generic renderer; format-specific elements (code blocks, blockquotes,
 //! images) are delegated to the backend.
 //!
-//! # Example
+//! ## Extension points
+//!
+//! - **Code block processors** ([`CodeBlockProcessor`]) — intercept fenced
+//!   code blocks by language (e.g., diagram rendering via Kroki). Processors
+//!   return a [`ProcessResult`]: a placeholder for deferred work, inline HTML,
+//!   or pass-through for normal syntax highlighting.
+//!
+//! - **Directives** ([`directive`] module) — [CommonMark generic directives]
+//!   syntax (`:inline`, `::leaf`, `:::container`). Directives are preprocessed
+//!   before pulldown-cmark parsing because pulldown-cmark does not understand
+//!   directive syntax natively; a post-processing pass then transforms
+//!   intermediate elements into final HTML.
+//!
+//! [pulldown-cmark]: https://docs.rs/pulldown-cmark
+//! [CommonMark generic directives]: https://talk.commonmark.org/t/generic-directives-plugins-syntax/444
+//!
+//! # Examples
+//!
+//! Render markdown to HTML:
 //!
 //! ```
-//! use pulldown_cmark::Parser;
 //! use rw_renderer::{MarkdownRenderer, HtmlBackend};
 //!
-//! let markdown = "# Hello\n\n**Bold** text";
-//! let parser = Parser::new(markdown);
+//! let markdown = "# Hello\n\n**Bold** text with a [link](other.md).";
 //! let result = MarkdownRenderer::<HtmlBackend>::new()
 //!     .with_title_extraction()
-//!     .render(parser);
+//!     .with_base_path("/docs/guide")
+//!     .render_markdown(markdown);
+//!
+//! assert_eq!(result.title.as_deref(), Some("Hello"));
+//! assert!(result.html.contains("<strong>Bold</strong>"));
+//! assert!(result.html.contains(r#"<a href="/docs/guide/other">"#));
 //! ```
+//!
+//! Add a custom code block processor:
+//!
+//! ```
+//! use std::collections::HashMap;
+//! use rw_renderer::{CodeBlockProcessor, HtmlBackend, MarkdownRenderer, ProcessResult};
+//!
+//! struct MathProcessor;
+//!
+//! impl CodeBlockProcessor for MathProcessor {
+//!     fn process(
+//!         &mut self,
+//!         language: &str,
+//!         _attrs: &HashMap<String, String>,
+//!         source: &str,
+//!         _index: usize,
+//!     ) -> ProcessResult {
+//!         if language == "math" {
+//!             ProcessResult::Inline(format!(r#"<div class="math">{source}</div>"#))
+//!         } else {
+//!             ProcessResult::PassThrough
+//!         }
+//!     }
+//! }
+//!
+//! let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+//!     .with_processor(MathProcessor);
+//!
+//! let result = renderer.render_markdown("```math\nx^2 + y^2 = z^2\n```");
+//! assert!(result.html.contains(r#"class="math"#));
+//! ```
+//!
+//! # Feature flags
+//!
+//! - **`serde`** — enables `Serialize`/`Deserialize` on [`TocEntry`] for
+//!   JSON serialization in HTTP API responses.
 
 mod backend;
 mod bundle;

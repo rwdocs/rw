@@ -106,31 +106,29 @@ impl ExtractedCodeBlock {
     }
 }
 
-/// Trait for processing special code blocks.
+/// Intercepts fenced code blocks during rendering.
 ///
-/// Implementations can handle one or more code block languages, transforming
-/// them into placeholders (for deferred processing) or inline HTML.
+/// Implementations handle one or more code block languages, transforming
+/// them into placeholders (for deferred processing like Kroki HTTP calls)
+/// or inline HTML (for fast, self-contained transforms like YAML tables).
 ///
-/// # Post-Processing
+/// Register processors with
+/// [`MarkdownRenderer::with_processor`](crate::MarkdownRenderer::with_processor).
+/// They are checked in registration order; the first returning a
+/// non-[`PassThrough`](ProcessResult::PassThrough) result wins.
 ///
-/// Processors that use placeholders can implement [`post_process`](Self::post_process)
-/// to replace them after rendering. Call [`MarkdownRenderer::finalize`] to trigger
-/// post-processing on all registered processors.
+/// Processors that use placeholders can implement
+/// [`post_process`](Self::post_process) to replace them after rendering
+/// completes.
+/// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render) calls
+/// `post_process` automatically.
 pub trait CodeBlockProcessor {
-    /// Process a code block and return the result.
+    /// Inspects a code block and decides how to handle it.
     ///
-    /// # Arguments
-    ///
-    /// * `language` - Language identifier from fence info string
-    /// * `attrs` - Attributes parsed from fence (key=value pairs)
-    /// * `source` - Raw content of the code block
-    /// * `index` - Zero-based index for placeholder generation
-    ///
-    /// # Returns
-    ///
-    /// - `ProcessResult::Placeholder` - Replace with placeholder string
-    /// - `ProcessResult::Inline` - Replace with HTML string
-    /// - `ProcessResult::PassThrough` - Render as normal code block
+    /// `language` is the identifier from the fence info string (e.g.,
+    /// `"plantuml"`). `attrs` contains key-value pairs parsed from the
+    /// remainder of the info string (e.g., `format=png`). `index` is a
+    /// zero-based counter useful for generating unique placeholder tokens.
     fn process(
         &mut self,
         language: &str,
@@ -141,7 +139,8 @@ pub trait CodeBlockProcessor {
 
     /// Post-process rendered HTML to replace placeholders.
     ///
-    /// Called by [`MarkdownRenderer::finalize`] after rendering completes.
+    /// Called by [`MarkdownRenderer::render`](crate::MarkdownRenderer::render)
+    /// after rendering completes.
     /// Use this to replace placeholders with actual content (e.g., rendered diagrams).
     ///
     /// Default implementation is a no-op.
