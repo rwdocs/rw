@@ -240,4 +240,9 @@
   .prose .tabs--static > input:nth-child(10):checked ~ .tabs-buttons > label:nth-child(10) {
     @apply text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400;
   }
+
+  /* Broken wikilinks — unresolved section references */
+  .prose a.rw-broken-link {
+    @apply text-red-600 underline decoration-wavy cursor-not-allowed dark:text-red-400;
+  }
 }

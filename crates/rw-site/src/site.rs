@@ -51,6 +51,7 @@ use crate::page::{
 use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
 use rw_diagrams::{EntityInfo, MetaIncludeSource};
+use rw_renderer::TitleResolver;
 use rw_sections::Sections;
 use rw_storage::{Storage, StorageError};
 
@@ -100,6 +101,21 @@ impl MetaIncludeSource for SiteSnapshot {
             description: section.description.clone(),
             url_path: has_content.then(|| format!("/{}", section.path)),
         })
+    }
+}
+
+/// Resolves page paths to titles using the site snapshot.
+///
+/// Owns an `Arc<SiteSnapshot>` so it satisfies the `'static` bound
+/// required by `Box<dyn TitleResolver>`.
+pub(crate) struct SiteTitleResolver {
+    pub(crate) snapshot: Arc<SiteSnapshot>,
+}
+
+impl TitleResolver for SiteTitleResolver {
+    fn resolve_title(&self, path: &str) -> Option<String> {
+        let page = self.snapshot.state.get_page(path)?;
+        Some(page.title.clone())
     }
 }
 
@@ -371,6 +387,7 @@ impl Site {
         let ctx = RenderContext {
             sections: Arc::clone(&snapshot.sections),
             meta_include_source: Some(Arc::clone(&snapshot) as Arc<dyn MetaIncludeSource>),
+            snapshot: Some(Arc::clone(&snapshot)),
         };
         self.renderer.render(path, page, breadcrumbs, &ctx)
     }

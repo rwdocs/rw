@@ -15,6 +15,14 @@
 //! The main entry point is [`Sections`], a map from scope paths to
 //! [`Section`] values that supports prefix-based lookup.
 //!
+//! # Vocabulary
+//!
+//! | Term | Example | Description |
+//! |------|---------|-------------|
+//! | **ref** | `domain:default/billing` | Canonical section identity — `kind:namespace/name`. Serialized by [`Section`]'s `Display`, parsed by its `FromStr`. |
+//! | **path** | `domains/billing/api` | Location of a section root or page. No leading slash. |
+//! | **refpath** | `domain:billing::api#pricing` | Path expressed in ref terms — `[kind:]name::subpath#fragment`. Parsed by [`Sections::resolve_refpath`]. |
+//!
 //! # Examples
 //!
 //! ```
@@ -411,6 +419,186 @@ impl Sections {
             .find(|(_, section)| **section == target)
             .map(|(path, _)| path.as_str())
     }
+
+    /// Parse and resolve a refpath to a concrete href and section path.
+    ///
+    /// `input` is a refpath (e.g., `"domain:billing::overview#tokens"`).
+    /// `base_path` is used to determine the current section for targets that
+    /// start with `::` (current-section links).
+    ///
+    /// Returns the constructed href and a [`SectionPath`] borrowing from
+    /// `self` (section) and `input` (subpath, fragment).
+    ///
+    /// Returns `None` if the target is fragment-only (`#heading`), cannot be
+    /// resolved (unknown section), or `base_path` is missing for
+    /// current-section links.
+    #[must_use]
+    pub fn resolve_refpath<'h>(
+        &self,
+        input: &'h str,
+        base_path: Option<&str>,
+    ) -> Option<(String, SectionPath<'_, 'h>)> {
+        let target = ParsedRefpath::parse(input);
+
+        if target.fragment_only().is_some() {
+            return None;
+        }
+
+        let section_ref_string = if let Some(ref_str) = target.to_section_ref() {
+            ref_str
+        } else {
+            let sp = self.find(base_path?)?;
+            sp.section.to_string()
+        };
+
+        let scope_path = self.find_by_ref(&section_ref_string)?;
+        let section = self.map.get(scope_path)?;
+
+        let mut href = if scope_path.is_empty() {
+            String::from("/")
+        } else {
+            format!("/{scope_path}")
+        };
+
+        if let Some(subpath) = target.subpath {
+            if href.ends_with('/') {
+                href.push_str(subpath);
+            } else {
+                href.push('/');
+                href.push_str(subpath);
+            }
+        }
+
+        if let Some(fragment) = target.fragment {
+            href.push('#');
+            href.push_str(fragment);
+        }
+
+        Some((
+            href,
+            SectionPath {
+                section,
+                path: target.subpath.unwrap_or(""),
+                fragment: target.fragment,
+            },
+        ))
+    }
+}
+
+/// Default section kind used when a refpath omits the kind prefix.
+const ROOT_SECTION_KIND: &str = "section";
+
+/// A parsed refpath broken into components.
+///
+/// See the [module-level vocabulary](crate) for what "refpath" means.
+///
+/// Format: `[kind:][[namespace/]name][::subpath[#fragment]]`
+///
+/// # Examples
+///
+/// - `domain:billing::overview#tokens` → kind="domain", name="billing", subpath="overview", fragment="tokens"
+/// - `billing::deep/page` → name="billing", subpath="deep/page"
+/// - `::overview` → current section, subpath="overview"
+/// - `#heading` → same page, fragment="heading"
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedRefpath<'a> {
+    /// Section kind (e.g., `"domain"`). `None` defaults to `"section"`.
+    kind: Option<&'a str>,
+    /// Section namespace. `None` defaults to `"default"`.
+    namespace: Option<&'a str>,
+    /// Section name. `None` means current section (target started with `::`).
+    name: Option<&'a str>,
+    /// Page subpath within the section. `None` means section root.
+    subpath: Option<&'a str>,
+    /// Fragment identifier (heading anchor). `None` means no fragment.
+    fragment: Option<&'a str>,
+}
+
+impl<'a> ParsedRefpath<'a> {
+    /// Parse a section target string.
+    ///
+    /// Parsing rules:
+    /// 1. Split off `#fragment` from the end
+    /// 2. Split on first `::` → left is ref, right is subpath
+    /// 3. If target starts with `::` → current section (`name` is `None`)
+    /// 4. Parse ref: split on `:` → kind and name-with-namespace
+    /// 5. If no `:` → entire string is the name, kind is `None`
+    /// 6. Parse name-with-namespace: split on `/` → namespace/name or just name
+    #[must_use]
+    pub fn parse(input: &'a str) -> Self {
+        let (input, fragment) = match input.find('#') {
+            Some(pos) => {
+                let frag = &input[pos + 1..];
+                (
+                    &input[..pos],
+                    if frag.is_empty() { None } else { Some(frag) },
+                )
+            }
+            None => (input, None),
+        };
+
+        let (section_ref, subpath) = match input.find("::") {
+            Some(pos) => {
+                let sub = &input[pos + 2..];
+                (&input[..pos], if sub.is_empty() { None } else { Some(sub) })
+            }
+            None => (input, None),
+        };
+
+        if section_ref.is_empty() {
+            return Self {
+                kind: None,
+                namespace: None,
+                name: None,
+                subpath,
+                fragment,
+            };
+        }
+
+        let (kind, name_part) = match section_ref.find(':') {
+            Some(pos) => (Some(&section_ref[..pos]), &section_ref[pos + 1..]),
+            None => (None, section_ref),
+        };
+
+        let (namespace, name) = match name_part.find('/') {
+            Some(pos) => (Some(&name_part[..pos]), &name_part[pos + 1..]),
+            None => (None, name_part),
+        };
+
+        Self {
+            kind,
+            namespace,
+            name: if name.is_empty() { None } else { Some(name) },
+            subpath,
+            fragment,
+        }
+    }
+
+    /// Returns the fragment if this target refers only to a heading on the current page
+    /// (no section, no subpath — just `#fragment`).
+    #[must_use]
+    pub fn fragment_only(&self) -> Option<&'a str> {
+        if self.name.is_none() && self.subpath.is_none() {
+            self.fragment
+        } else {
+            None
+        }
+    }
+
+    /// Build a full ref string (e.g., `"domain:default/billing"`).
+    ///
+    /// Applies defaults: kind defaults to `"section"`,
+    /// namespace defaults to `"default"`.
+    ///
+    /// Returns `None` if `name` is `None` (current-section target — caller
+    /// must resolve the current section externally).
+    #[must_use]
+    pub fn to_section_ref(&self) -> Option<String> {
+        let name = self.name?;
+        let kind = self.kind.unwrap_or(ROOT_SECTION_KIND);
+        let namespace = self.namespace.unwrap_or("default");
+        Some(format!("{kind}:{namespace}/{name}"))
+    }
 }
 
 #[cfg(test)]
@@ -539,5 +727,106 @@ mod tests {
     fn find_by_ref_no_match() {
         let sections = billing();
         assert!(sections.find_by_ref("system:default/unknown").is_none());
+    }
+
+    #[test]
+    fn section_target_full() {
+        let t = ParsedRefpath::parse("domain:billing::overview#tokens");
+        assert_eq!(t.kind, Some("domain"));
+        assert_eq!(t.namespace, None);
+        assert_eq!(t.name, Some("billing"));
+        assert_eq!(t.subpath, Some("overview"));
+        assert_eq!(t.fragment, Some("tokens"));
+    }
+
+    #[test]
+    fn section_target_with_namespace() {
+        let t = ParsedRefpath::parse("domain:production/billing::overview");
+        assert_eq!(t.kind, Some("domain"));
+        assert_eq!(t.namespace, Some("production"));
+        assert_eq!(t.name, Some("billing"));
+        assert_eq!(t.subpath, Some("overview"));
+        assert_eq!(t.fragment, None);
+    }
+
+    #[test]
+    fn section_target_name_only() {
+        let t = ParsedRefpath::parse("billing");
+        assert_eq!(t.kind, None);
+        assert_eq!(t.namespace, None);
+        assert_eq!(t.name, Some("billing"));
+        assert_eq!(t.subpath, None);
+        assert_eq!(t.fragment, None);
+    }
+
+    #[test]
+    fn section_target_name_with_subpath() {
+        let t = ParsedRefpath::parse("billing::deep/page");
+        assert_eq!(t.kind, None);
+        assert_eq!(t.name, Some("billing"));
+        assert_eq!(t.subpath, Some("deep/page"));
+    }
+
+    #[test]
+    fn section_target_current_section() {
+        let t = ParsedRefpath::parse("::overview");
+        assert_eq!(t.kind, None);
+        assert_eq!(t.name, None);
+        assert_eq!(t.subpath, Some("overview"));
+    }
+
+    #[test]
+    fn section_target_current_section_root() {
+        let t = ParsedRefpath::parse("::");
+        assert_eq!(t.name, None);
+        assert_eq!(t.subpath, None);
+    }
+
+    #[test]
+    fn section_target_fragment_only() {
+        let t = ParsedRefpath::parse("#heading");
+        assert_eq!(t.kind, None);
+        assert_eq!(t.name, None);
+        assert_eq!(t.subpath, None);
+        assert_eq!(t.fragment, Some("heading"));
+    }
+
+    #[test]
+    fn section_target_section_root_with_fragment() {
+        let t = ParsedRefpath::parse("domain:billing#intro");
+        assert_eq!(t.kind, Some("domain"));
+        assert_eq!(t.name, Some("billing"));
+        assert_eq!(t.subpath, None);
+        assert_eq!(t.fragment, Some("intro"));
+    }
+
+    #[test]
+    fn section_target_deep_subpath() {
+        let t = ParsedRefpath::parse("domain:billing::api/auth/v2");
+        assert_eq!(t.subpath, Some("api/auth/v2"));
+    }
+
+    #[test]
+    fn section_target_to_ref_full() {
+        let t = ParsedRefpath::parse("domain:billing::overview");
+        assert_eq!(t.to_section_ref().unwrap(), "domain:default/billing");
+    }
+
+    #[test]
+    fn section_target_to_ref_with_namespace() {
+        let t = ParsedRefpath::parse("domain:production/billing::overview");
+        assert_eq!(t.to_section_ref().unwrap(), "domain:production/billing");
+    }
+
+    #[test]
+    fn section_target_to_ref_name_only() {
+        let t = ParsedRefpath::parse("billing");
+        assert_eq!(t.to_section_ref().unwrap(), "section:default/billing");
+    }
+
+    #[test]
+    fn section_target_to_ref_current_section() {
+        let t = ParsedRefpath::parse("::overview");
+        assert!(t.to_section_ref().is_none());
     }
 }

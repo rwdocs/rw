@@ -12,6 +12,8 @@ use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
 use rw_sections::{Section, Sections};
+
+use crate::site::{SiteSnapshot, SiteTitleResolver};
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +25,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct RenderContext {
     pub(crate) sections: Arc<Sections>,
     pub(crate) meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    pub(crate) snapshot: Option<Arc<SiteSnapshot>>,
 }
 
 /// Configuration for [`PageRenderer`].
@@ -291,6 +294,14 @@ impl PageRenderer {
         }
 
         renderer = renderer.with_sections(Arc::clone(&ctx.sections));
+
+        if let Some(snapshot) = &ctx.snapshot {
+            renderer = renderer
+                .with_wikilinks(true)
+                .with_title_resolver(SiteTitleResolver {
+                    snapshot: Arc::clone(snapshot),
+                });
+        }
 
         renderer
     }

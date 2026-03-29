@@ -41,7 +41,7 @@ pub use backend::{AlertKind, RenderBackend};
 pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use html::HtmlBackend;
-pub use renderer::{MarkdownRenderer, RenderResult};
+pub use renderer::{MarkdownRenderer, RenderResult, TitleResolver};
 pub use rw_sections::Sections;
 pub use state::{TocEntry, escape_html};
 pub use tabs::TabsDirective;
