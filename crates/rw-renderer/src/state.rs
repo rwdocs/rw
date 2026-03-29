@@ -137,15 +137,41 @@ impl ImageState {
     }
 }
 
-/// Table of contents entry.
+/// A single heading in the table of contents.
+///
+/// Produced by [`MarkdownRenderer`](crate::MarkdownRenderer) for every heading
+/// in the document (excluding the page title when
+/// [`with_title_extraction`](crate::MarkdownRenderer::with_title_extraction) is enabled).
+/// Collected in [`RenderResult::toc`](crate::RenderResult::toc).
+///
+/// The `id` field matches the `id` attribute on the rendered `<h*>` element,
+/// so frontends can build clickable heading links with `#{id}` fragments.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+///
+/// let result = MarkdownRenderer::<HtmlBackend>::new()
+///     .with_title_extraction()
+///     .render_markdown("# Page Title\n\n## Introduction\n\n## Setup");
+///
+/// assert_eq!(result.toc.len(), 2);
+/// assert_eq!(result.toc[0].title, "Introduction");
+/// assert_eq!(result.toc[0].id, "introduction");
+/// assert_eq!(result.toc[0].level, 2);
+/// ```
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TocEntry {
-    /// Heading level (1-6).
+    /// Heading level (1–6), adjusted for the backend when
+    /// [`TITLE_AS_METADATA`](crate::RenderBackend::TITLE_AS_METADATA) is `true`
+    /// (headings shift up by one after the title H1).
     pub level: u8,
-    /// Heading text.
+    /// Plain-text heading content (inline formatting stripped).
     pub title: String,
-    /// Anchor ID for linking.
+    /// Slug-based anchor ID, matching the `id` attribute on the rendered heading.
+    /// Duplicate headings get a numeric suffix (e.g., `setup`, `setup-1`).
     pub id: String,
 }
 
@@ -344,7 +370,16 @@ fn slugify(text: &str) -> String {
     result
 }
 
-/// Escape HTML special characters.
+/// Escapes the five HTML special characters (`&`, `<`, `>`, `"`, `'`).
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::escape_html;
+///
+/// assert_eq!(escape_html("<script>"), "&lt;script&gt;");
+/// assert_eq!(escape_html(r#"a "b" & 'c'"#), "a &quot;b&quot; &amp; &#x27;c&#x27;");
+/// ```
 #[must_use]
 pub fn escape_html(s: &str) -> String {
     let mut result = String::with_capacity(s.len());

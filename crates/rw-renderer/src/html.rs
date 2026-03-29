@@ -1,6 +1,10 @@
 //! HTML backend for markdown rendering.
 //!
-//! Produces semantic HTML5 output suitable for web display.
+//! [`HtmlBackend`] produces semantic HTML5 suitable for the RW web viewer.
+//! It resolves relative `.md` links to clean URL paths and renders
+//! GitHub-style alerts with SVG icons from the [Octicons] set.
+//!
+//! [Octicons]: https://primer.style/octicons/
 
 use std::borrow::Cow;
 use std::fmt::Write;
@@ -15,13 +19,23 @@ const SVG_REPORT: &str = r#"<svg class="alert-icon" viewBox="0 0 16 16" width="1
 const SVG_ALERT: &str = r#"<svg class="alert-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>"#;
 const SVG_STOP: &str = r#"<svg class="alert-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>"#;
 
-/// HTML render backend.
+/// [`RenderBackend`] implementation that produces semantic HTML5.
 ///
-/// Produces semantic HTML5 with:
-/// - `<pre><code>` for code blocks
-/// - `<blockquote>` for blockquotes
-/// - `<img>` for images
-/// - Relative `.md` link resolution
+/// Code blocks use `<pre><code>` with a `language-*` class for syntax
+/// highlighting, images use `<img>`, and relative `.md` links are resolved
+/// to clean URL paths (e.g., `./sibling.md` → `/base/path/sibling`).
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+///
+/// let result = MarkdownRenderer::<HtmlBackend>::new()
+///     .with_base_path("/docs/guide")
+///     .render_markdown("[Setup](./setup.md#install)");
+///
+/// assert!(result.html.contains(r#"href="/docs/guide/setup#install""#));
+/// ```
 pub struct HtmlBackend;
 
 impl RenderBackend for HtmlBackend {
