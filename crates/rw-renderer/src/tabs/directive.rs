@@ -11,22 +11,22 @@ use crate::state::escape_html;
 
 /// Metadata for a single tab within a tab group.
 #[derive(Debug, PartialEq, Eq)]
-pub struct TabMetadata {
+pub(crate) struct TabMetadata {
     /// Unique ID for this tab within the document.
-    pub id: usize,
+    pub(crate) id: usize,
     /// Display label for the tab button.
-    pub label: String,
+    pub(crate) label: String,
     /// Line number where the tab was defined (1-indexed).
-    pub line: usize,
+    pub(crate) line: usize,
 }
 
 /// Metadata for a tab group.
 #[derive(Debug, PartialEq, Eq)]
-pub struct TabsGroup {
+pub(crate) struct TabsGroup {
     /// Unique ID for this tab group.
-    pub id: usize,
+    pub(crate) id: usize,
     /// Tabs within this group.
-    pub tabs: Vec<TabMetadata>,
+    pub(crate) tabs: Vec<TabMetadata>,
 }
 
 /// Container directive for tabbed content blocks.
@@ -77,12 +77,6 @@ impl TabsDirective {
             stack: Vec::new(),
             warnings: Vec::new(),
         }
-    }
-
-    /// Consume the directive and return collected tab groups.
-    #[must_use]
-    pub fn into_groups(self) -> Vec<TabsGroup> {
-        self.groups
     }
 }
 

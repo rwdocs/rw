@@ -11,15 +11,22 @@ use pulldown_cmark::BlockQuoteKind;
 /// Alert variant for GitHub-style blockquotes (`> [!NOTE]`, `> [!TIP]`, etc.).
 ///
 /// Converted from [`pulldown_cmark::BlockQuoteKind`] when the parser
-/// encounters a blockquote with an alert marker.
+/// encounters a blockquote with an alert marker. Passed to
+/// [`RenderBackend::alert_start`] and [`RenderBackend::alert_end`] so
+/// backends can render format-appropriate alert markup.
 ///
 /// # Examples
 ///
-/// ```
-/// use rw_renderer::AlertKind;
+/// Markdown alerts render as styled callout boxes:
 ///
-/// let kind = AlertKind::Warning;
-/// assert_eq!(kind, AlertKind::Warning);
+/// ```
+/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+///
+/// let result = MarkdownRenderer::<HtmlBackend>::new()
+///     .render_markdown("> [!WARNING]\n> Do not delete this file.");
+///
+/// assert!(result.html.contains(r#"class="alert alert-warning""#));
+/// assert!(result.html.contains("Do not delete this file."));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AlertKind {
