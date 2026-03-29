@@ -280,12 +280,16 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// Build section ref data attributes for a resolved href, if applicable.
     ///
     /// Returns `None` for:
-    /// - External links (not starting with `/`)
+    /// - External or relative links (not starting with `/`)
     /// - Links not matching any section
     ///
     /// Returns `Some((section_ref_string, section_path))` for internal links matching a section.
     fn section_ref_attrs(&self, href: &str) -> Option<(String, String)> {
-        self.sections.as_ref()?.resolve_ref(href)
+        if !href.starts_with('/') {
+            return None;
+        }
+        let sp = self.sections.as_ref()?.find(href)?;
+        Some((sp.section.to_string(), sp.path.to_owned()))
     }
 
     /// Render markdown events and return the result.

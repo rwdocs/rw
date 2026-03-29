@@ -30,14 +30,9 @@
 //! ]));
 //!
 //! // Find which section owns a given page path
-//! let (section, remainder) = sections.find("/domains/billing/api").unwrap();
-//! assert_eq!(section.to_string(), "domain:default/billing");
-//! assert_eq!(remainder, "api");
-//!
-//! // Resolve an internal link to section ref attributes
-//! let (ref_string, path) = sections.resolve_ref("/domains/billing/api#endpoints").unwrap();
-//! assert_eq!(ref_string, "domain:default/billing");
-//! assert_eq!(path, "api");
+//! let sp = sections.find("/domains/billing/api").unwrap();
+//! assert_eq!(sp.section.to_string(), "domain:default/billing");
+//! assert_eq!(sp.path, "api");
 //! ```
 //!
 //! # Feature flags
@@ -85,6 +80,9 @@ pub struct Section {
 }
 
 impl Section {
+    /// Name used for sections rooted at the empty scope path.
+    pub const ROOT_NAME: &str = "root";
+
     /// Returns the implicit root section (`section:default/root`).
     ///
     /// Used when a documentation site has pages at the root level that don't
@@ -104,7 +102,7 @@ impl Section {
     pub fn root() -> Self {
         Self {
             kind: "section".to_owned(),
-            name: "root".to_owned(),
+            name: Self::ROOT_NAME.to_owned(),
         }
     }
 }
@@ -172,6 +170,37 @@ impl FromStr for Section {
     }
 }
 
+/// Result of [`Sections::find`] — a section match with the remaining path and
+/// optional fragment.
+///
+/// # Examples
+///
+/// ```
+/// use std::collections::HashMap;
+/// use rw_sections::{Section, Sections};
+///
+/// let sections = Sections::new(HashMap::from([
+///     ("domains/billing".to_owned(), Section {
+///         kind: "domain".to_owned(),
+///         name: "billing".to_owned(),
+///     }),
+/// ]));
+///
+/// let sp = sections.find("/domains/billing/api#endpoints").unwrap();
+/// assert_eq!(sp.section.to_string(), "domain:default/billing");
+/// assert_eq!(sp.path, "api");
+/// assert_eq!(sp.fragment, Some("endpoints"));
+/// ```
+#[derive(Debug)]
+pub struct SectionPath<'s, 'h> {
+    /// The matched section.
+    pub section: &'s Section,
+    /// Path within the section (empty string for exact matches).
+    pub path: &'h str,
+    /// Fragment identifier, if present in the input href.
+    pub fragment: Option<&'h str>,
+}
+
 /// Map from scope paths to [`Section`] values with prefix-based lookup.
 ///
 /// Scope paths are stored without leading slashes (e.g., `"domains/billing"`).
@@ -202,9 +231,9 @@ impl FromStr for Section {
 /// ]));
 ///
 /// // Deepest match wins
-/// let (section, remainder) = sections.find("/domains/billing/systems/pay/api").unwrap();
-/// assert_eq!(section.to_string(), "system:default/pay");
-/// assert_eq!(remainder, "api");
+/// let sp = sections.find("/domains/billing/systems/pay/api").unwrap();
+/// assert_eq!(sp.section.to_string(), "system:default/pay");
+/// assert_eq!(sp.path, "api");
 ///
 /// // Reverse lookup: ref string → scope path
 /// let path = sections.find_by_ref("domain:default/billing");
@@ -274,13 +303,14 @@ impl Sections {
 
     /// Finds the deepest section whose scope path is a prefix of `href`.
     ///
-    /// Returns the matching [`Section`] and the remainder path within that
-    /// section (empty string for exact matches), or `None` if no section
+    /// Returns a [`SectionPath`] with the matching section, the path within
+    /// that section, and an optional fragment. Returns `None` if no section
     /// matches.
     ///
-    /// The `href` may have a leading slash (it is stripped before matching).
-    /// Matching is segment-aware: scope path `"domains/bill"` does **not**
-    /// match href `"/domains/billing"`.
+    /// The `href` may have a leading slash (it is stripped before matching)
+    /// and an optional `#fragment` (it is extracted into
+    /// [`SectionPath::fragment`]). Matching is segment-aware: scope path
+    /// `"domains/bill"` does **not** match href `"/domains/billing"`.
     ///
     /// # Examples
     ///
@@ -295,20 +325,27 @@ impl Sections {
     ///     }),
     /// ]));
     ///
-    /// // Exact match — remainder is empty
-    /// let (section, remainder) = sections.find("/domains/billing").unwrap();
-    /// assert_eq!(remainder, "");
+    /// // Exact match — path is empty
+    /// let sp = sections.find("/domains/billing").unwrap();
+    /// assert_eq!(sp.path, "");
+    /// assert!(sp.fragment.is_none());
     ///
-    /// // Prefix match — remainder is the path within the section
-    /// let (_, remainder) = sections.find("/domains/billing/use-cases").unwrap();
-    /// assert_eq!(remainder, "use-cases");
+    /// // Prefix match with fragment
+    /// let sp = sections.find("/domains/billing/api#endpoints").unwrap();
+    /// assert_eq!(sp.path, "api");
+    /// assert_eq!(sp.fragment, Some("endpoints"));
     ///
     /// // No partial-segment match
     /// assert!(sections.find("/domains/bill").is_none());
     /// ```
     #[must_use]
-    pub fn find(&self, href: &str) -> Option<(&Section, String)> {
-        let path = href.strip_prefix('/').unwrap_or(href);
+    pub fn find<'h>(&self, href: &'h str) -> Option<SectionPath<'_, 'h>> {
+        let without_slash = href.strip_prefix('/').unwrap_or(href);
+
+        let (path, fragment) = match without_slash.find('#') {
+            Some(pos) => (&without_slash[..pos], Some(&without_slash[pos + 1..])),
+            None => (without_slash, None),
+        };
 
         let mut best: Option<(&str, &Section)> = None;
 
@@ -328,14 +365,18 @@ impl Sections {
 
         let (prefix, section) = best?;
         let remainder = if prefix.is_empty() {
-            path.to_owned()
+            path
         } else if path.len() > prefix.len() {
-            path[prefix.len() + 1..].to_owned()
+            &path[prefix.len() + 1..]
         } else {
-            String::new()
+            ""
         };
 
-        Some((section, remainder))
+        Some(SectionPath {
+            section,
+            path: remainder,
+            fragment,
+        })
     }
 
     /// Finds the scope path for a given ref string.
@@ -370,53 +411,6 @@ impl Sections {
             .find(|(_, section)| **section == target)
             .map(|(path, _)| path.as_str())
     }
-
-    /// Resolves an internal href to section ref attributes for link annotation.
-    ///
-    /// Given an absolute href like `"/domains/billing/api#endpoints"`, finds the
-    /// owning section and returns `(ref_string, section_path)` suitable for
-    /// `data-section-ref` and `data-section-path` HTML attributes. Fragments
-    /// are stripped before matching.
-    ///
-    /// Returns `None` for relative or external links (those not starting with
-    /// `/`), and for paths that don't match any section.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::HashMap;
-    /// use rw_sections::{Section, Sections};
-    ///
-    /// let sections = Sections::new(HashMap::from([
-    ///     ("domains/billing".to_owned(), Section {
-    ///         kind: "domain".to_owned(),
-    ///         name: "billing".to_owned(),
-    ///     }),
-    /// ]));
-    ///
-    /// // Fragment is stripped, remainder path returned
-    /// let (ref_string, path) = sections.resolve_ref("/domains/billing/api#endpoints").unwrap();
-    /// assert_eq!(ref_string, "domain:default/billing");
-    /// assert_eq!(path, "api");
-    ///
-    /// // External links are ignored
-    /// assert!(sections.resolve_ref("https://example.com").is_none());
-    /// ```
-    #[must_use]
-    pub fn resolve_ref(&self, href: &str) -> Option<(String, String)> {
-        if !href.starts_with('/') {
-            return None;
-        }
-
-        let path = match href.find('#') {
-            Some(pos) => &href[..pos],
-            None => href,
-        };
-
-        let (section, remainder) = self.find(path)?;
-
-        Some((section.to_string(), remainder))
-    }
 }
 
 #[cfg(test)]
@@ -441,17 +435,19 @@ mod tests {
     #[test]
     fn find_exact_match() {
         let sections = billing();
-        let (section, path) = sections.find("/domains/billing").unwrap();
-        assert_eq!(section.to_string(), "domain:default/billing");
-        assert_eq!(path, "");
+        let sp = sections.find("/domains/billing").unwrap();
+        assert_eq!(sp.section.to_string(), "domain:default/billing");
+        assert_eq!(sp.path, "");
+        assert!(sp.fragment.is_none());
     }
 
     #[test]
     fn find_prefix_match_with_remainder() {
         let sections = billing();
-        let (section, path) = sections.find("/domains/billing/use-cases").unwrap();
-        assert_eq!(section.to_string(), "domain:default/billing");
-        assert_eq!(path, "use-cases");
+        let sp = sections.find("/domains/billing/use-cases").unwrap();
+        assert_eq!(sp.section.to_string(), "domain:default/billing");
+        assert_eq!(sp.path, "use-cases");
+        assert!(sp.fragment.is_none());
     }
 
     #[test]
@@ -472,9 +468,9 @@ mod tests {
                 },
             ),
         ]));
-        let (section, path) = sections.find("/domains/billing/systems/pay/api").unwrap();
-        assert_eq!(section.to_string(), "system:default/pay");
-        assert_eq!(path, "api");
+        let sp = sections.find("/domains/billing/systems/pay/api").unwrap();
+        assert_eq!(sp.section.to_string(), "system:default/pay");
+        assert_eq!(sp.path, "api");
     }
 
     #[test]
@@ -490,27 +486,20 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_skips_external_links() {
-        assert!(billing().resolve_ref("https://example.com").is_none());
+    fn find_with_fragment() {
+        let sections = billing();
+        let sp = sections.find("/domains/billing/api#endpoints").unwrap();
+        assert_eq!(sp.section.to_string(), "domain:default/billing");
+        assert_eq!(sp.path, "api");
+        assert_eq!(sp.fragment, Some("endpoints"));
     }
 
     #[test]
-    fn resolve_ref_skips_fragment_only() {
-        assert!(billing().resolve_ref("#section").is_none());
-    }
-
-    #[test]
-    fn resolve_ref_strips_fragment() {
-        let (ref_str, path) = billing()
-            .resolve_ref("/domains/billing/api#endpoints")
-            .unwrap();
-        assert_eq!(ref_str, "domain:default/billing");
-        assert_eq!(path, "api");
-    }
-
-    #[test]
-    fn resolve_ref_no_match() {
-        assert!(billing().resolve_ref("/other/path").is_none());
+    fn find_fragment_only_path() {
+        let sections = billing();
+        let sp = sections.find("/domains/billing#overview").unwrap();
+        assert_eq!(sp.path, "");
+        assert_eq!(sp.fragment, Some("overview"));
     }
 
     #[test]

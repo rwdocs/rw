@@ -128,7 +128,13 @@ pub fn annotate_svg_links(svg: &str, sections: &Sections) -> String {
             continue;
         };
 
-        let Some((ref_string, section_path)) = sections.resolve_ref(href) else {
+        if !href.starts_with('/') {
+            result.push_str(&remaining[..=tag_start + tag_end]);
+            remaining = &remaining[tag_start + tag_end + 1..];
+            continue;
+        }
+
+        let Some(sp) = sections.find(href) else {
             result.push_str(&remaining[..=tag_start + tag_end]);
             remaining = &remaining[tag_start + tag_end + 1..];
             continue;
@@ -140,16 +146,11 @@ pub fn annotate_svg_links(svg: &str, sections: &Sections) -> String {
         write!(
             result,
             r#" data-section-ref="{}""#,
-            escape_html(&ref_string)
+            escape_html(&sp.section.to_string())
         )
         .unwrap();
-        if !section_path.is_empty() {
-            write!(
-                result,
-                r#" data-section-path="{}""#,
-                escape_html(&section_path)
-            )
-            .unwrap();
+        if !sp.path.is_empty() {
+            write!(result, r#" data-section-path="{}""#, escape_html(&sp.path)).unwrap();
         }
         result.push('>');
 
