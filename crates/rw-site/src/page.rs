@@ -1,8 +1,9 @@
 //! Page rendering pipeline.
 //!
-//! [`PageRenderer`] handles markdown-to-HTML conversion, page caching,
-//! diagram processing, and metadata loading. Extracted from [`Site`](crate::Site)
-//! to enable independent testing of the rendering pipeline.
+//! Contains the internal [`PageRenderer`] that handles markdown-to-HTML
+//! conversion, page caching, diagram processing, and metadata loading.
+//! Also defines the public result and configuration types used by
+//! [`Site`](crate::Site).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,18 +29,43 @@ pub(crate) struct RenderContext {
     pub(crate) snapshot: Option<Arc<SiteSnapshot>>,
 }
 
-/// Configuration for [`PageRenderer`].
+/// Controls how [`Site`](crate::Site) renders markdown pages.
+///
+/// # Examples
+///
+/// ```
+/// use rw_site::PageRendererConfig;
+///
+/// // Default: title extraction on, no diagram rendering
+/// let config = PageRendererConfig::default();
+/// assert!(config.extract_title);
+/// assert!(config.kroki_url.is_none());
+/// ```
+///
+/// ```
+/// use rw_site::PageRendererConfig;
+///
+/// // Enable diagram rendering via a Kroki instance
+/// let config = PageRendererConfig {
+///     kroki_url: Some("https://kroki.io".to_owned()),
+///     dpi: 144,
+///     ..Default::default()
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct PageRendererConfig {
-    /// Extract title from first H1 heading.
+    /// When `true`, the first `# H1` heading is extracted from the rendered
+    /// HTML and returned separately in [`PageRenderResult::title`].
     pub extract_title: bool,
-    /// Kroki URL for diagram rendering.
+    /// Base URL of a [Kroki](https://kroki.io) instance for rendering diagrams.
     ///
-    /// If `None`, diagrams are rendered as syntax-highlighted code blocks.
+    /// When `None`, fenced code blocks for diagram languages (PlantUML,
+    /// Mermaid, etc.) are rendered as syntax-highlighted code instead of images.
     pub kroki_url: Option<String>,
-    /// Directories to search for `PlantUML` includes.
+    /// Directories to search when resolving PlantUML `!include` directives.
+    /// Defaults to empty (no include resolution).
     pub include_dirs: Vec<PathBuf>,
-    /// DPI for diagram rendering (default: 192 for retina).
+    /// DPI for rendered diagram images. Defaults to `192` (retina).
     pub dpi: u32,
 }
 
@@ -54,64 +80,100 @@ impl Default for PageRendererConfig {
     }
 }
 
-/// Document page data.
+/// A single document in the site hierarchy.
+///
+/// Every entry in the navigation tree corresponds to a `Page`. Pages with
+/// markdown content have [`has_content`](Self::has_content) set to `true`;
+/// [virtual pages](crate#virtual-pages) (directories without `index.md`)
+/// have it set to `false`.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
-    /// Page title (from H1 heading, filename, or metadata override).
+    /// Display title, resolved from (in priority order): metadata `title`
+    /// field, first `# H1` heading, or filename.
     pub title: String,
-    /// URL path without leading slash (e.g., "guide", "domain/page", "" for root).
+    /// URL path without leading slash (e.g., `"guide"`, `"domain/billing"`,
+    /// `""` for the site root).
     pub path: String,
-    /// True if page has content (real page). False for virtual pages (metadata only).
+    /// Whether this page has markdown content. `false` for virtual pages
+    /// that exist only as navigation containers.
     pub has_content: bool,
 }
 
-/// Breadcrumb navigation item.
+/// One segment of the breadcrumb trail leading to a page.
+///
+/// Breadcrumbs always start with a "Home" entry (path `""`) and include
+/// each ancestor page up to (but not including) the current page.
+///
+/// # Examples
+///
+/// A page at `"domain/billing/overview"` produces breadcrumbs:
+///
+/// ```text
+/// Home → Domain → Billing
+/// ```
+///
+/// where "Home" has `path ""`, "Domain" has `path "domain"`, and
+/// "Billing" has `path "domain/billing"`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct BreadcrumbItem {
-    /// Display title.
+    /// Display title for this breadcrumb segment.
     pub title: String,
-    /// Link target path.
+    /// URL path without leading slash. Empty string for the site root.
     pub path: String,
-    /// Section identity if this breadcrumb's path matches a section.
+    /// Present when this breadcrumb's path is a [section](crate#sections-and-scoped-navigation) root.
     pub section: Option<Section>,
 }
 
-/// Result of rendering a markdown page.
+/// Output of rendering a single page via [`Site::render`](crate::Site::render).
+///
+/// Contains everything the frontend needs to display a page: rendered HTML,
+/// extracted title, table of contents for the sidebar, breadcrumb trail,
+/// and optional YAML metadata.
 #[derive(Debug)]
 pub struct PageRenderResult {
-    /// Rendered HTML content.
+    /// Rendered HTML body content.
     pub html: String,
-    /// Title extracted from first H1 heading (if enabled).
+    /// Title extracted from the first `# H1` heading, or `None` if title
+    /// extraction is disabled or the page has no H1.
     pub title: Option<String>,
-    /// Table of contents entries.
+    /// Headings found in the page, used to build a "table of contents" sidebar.
     pub toc: Vec<TocEntry>,
-    /// Warnings generated during conversion (e.g., unresolved includes).
+    /// Non-fatal issues encountered during rendering (e.g., unresolved
+    /// `!include` directives). Intended for logging or developer tooling,
+    /// not for display to end users.
     pub warnings: Vec<String>,
-    /// Whether result was served from cache.
+    /// `true` when the HTML was served from cache rather than re-rendered.
     pub from_cache: bool,
-    /// Whether the page has content (real page vs virtual page).
+    /// `false` for [virtual pages](crate#virtual-pages) that have no markdown source.
     pub has_content: bool,
-    /// Source file modification time (Unix timestamp).
+    /// Source file modification time as a Unix timestamp (seconds since
+    /// epoch). Stored as `f64` for sub-second precision and JavaScript
+    /// interoperability.
     pub source_mtime: f64,
-    /// Breadcrumb navigation items.
+    /// Ancestor trail from "Home" to the parent of this page.
+    /// See [`BreadcrumbItem`] for the structure.
     pub breadcrumbs: Vec<BreadcrumbItem>,
-    /// Page metadata from YAML sidecar file.
+    /// Page metadata from YAML frontmatter or sidecar `meta.yaml` file,
+    /// if present.
     pub metadata: Option<Metadata>,
 }
 
-/// Error returned when page rendering fails.
+/// Reasons why [`Site::render`](crate::Site::render) can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
-    /// Content not found for page.
+    /// The page exists in the site structure but its markdown source file
+    /// is missing from storage.
     #[error("Content not found: {0}")]
     FileNotFound(String),
-    /// Page not found in site structure.
+    /// No page with this URL path exists in the site structure. The path
+    /// may be misspelled or the site may need a reload.
     #[error("Page not found: {0}")]
     PageNotFound(String),
-    /// I/O error reading source file.
+    /// I/O error while reading the markdown source file.
     #[error("I/O error: {0}")]
     Io(#[source] std::io::Error),
-    /// Storage backend error (e.g., S3 unavailable).
+    /// The storage backend itself failed (e.g., S3 connectivity issues,
+    /// permission errors).
     #[error("Storage error: {0}")]
     Storage(#[source] StorageError),
 }

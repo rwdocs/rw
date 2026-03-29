@@ -1,45 +1,8 @@
-//! Unified site loading and rendering.
+//! Site loading, caching, and rendering orchestration.
 //!
-//! Provides [`Site`] for building [`SiteState`] structures from a [`Storage`]
-//! backend, with integrated page rendering. Includes optional file-based caching.
-//!
-//! # Architecture
-//!
-//! The [`Site`] combines site structure loading and page rendering:
-//! - `index.md` files become section landing pages
-//! - Other `.md` files become standalone pages
-//! - Directories without `index.md` have their children promoted to parent level
-//!
-//! # Thread Safety
-//!
-//! `Site` is designed for concurrent access:
-//! - `snapshot()` returns `Arc<SiteSnapshot>` with minimal locking (just Arc clone)
-//! - `reload_if_needed()` uses double-checked locking for efficient cache validation
-//! - `invalidate()` is lock-free (atomic flag)
-//!
-//! # Example
-//!
-//! ```no_run
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use std::path::PathBuf;
-//! use std::sync::Arc;
-//! use rw_site::{Site, PageRendererConfig};
-//! use rw_cache::NullCache;
-//! use rw_storage_fs::FsStorage;
-//!
-//! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
-//! let config = PageRendererConfig::default();
-//! let cache = Arc::new(NullCache);
-//! let site = Arc::new(Site::new(storage, cache, config));
-//!
-//! // Load site structure
-//! let nav = site.navigation(None)?;
-//!
-//! // Render a page
-//! let result = site.render("guide")?;
-//! # Ok(())
-//! # }
-//! ```
+//! This module provides [`Site`], the main entry point for the crate. See
+//! the [crate-level docs](crate) for an overview of sections, virtual pages,
+//! and the lazy reload pattern.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -119,18 +82,52 @@ impl TitleResolver for SiteTitleResolver {
     }
 }
 
-/// Unified site structure and page rendering.
+/// Manages the document hierarchy and renders pages on demand.
 ///
-/// Combines site structure loading from a [`Storage`] implementation with
-/// page rendering functionality. Uses `index.md` files as section landing pages.
-/// Titles are provided by the storage (extracted or stored depending on backend).
+/// `Site` scans documents from a [`Storage`] backend, builds a tree of
+/// parent/child page relationships, and renders markdown to HTML through
+/// an internal page renderer. Results are cached so repeated requests
+/// for the same page are fast.
 ///
-/// # Thread Safety
+/// Callers typically wrap `Site` in `Arc` and share it across threads.
+/// All public methods use internal synchronization — no external locking
+/// is required.
 ///
-/// This struct is designed for concurrent access without external locking:
-/// - Uses internal `RwLock<Arc<SiteSnapshot>>` for the current site snapshot
-/// - Uses `Mutex<()>` for serializing reload operations
-/// - Uses `AtomicBool` for cache validity tracking
+/// # Lazy reload
+///
+/// `Site` does not re-scan storage on every request. Call
+/// [`invalidate`](Self::invalidate) to mark the cached site structure as
+/// stale; the next read method ([`navigation`](Self::navigation),
+/// [`render`](Self::render), etc.) will reload from storage before
+/// returning. Concurrent readers see the previous snapshot until the
+/// reload completes.
+///
+/// # Examples
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use std::sync::Arc;
+/// use std::path::PathBuf;
+/// use rw_site::{Site, PageRendererConfig};
+/// use rw_cache::NullCache;
+/// use rw_storage_fs::FsStorage;
+///
+/// let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
+/// let site = Arc::new(Site::new(
+///     storage,
+///     Arc::new(NullCache),
+///     PageRendererConfig::default(),
+/// ));
+///
+/// // First call triggers a scan of the storage backend
+/// let nav = site.navigation(None)?;
+///
+/// // Render a page — cached on second call if the source file hasn't changed
+/// let result = site.render("guide")?;
+/// assert!(result.has_content);
+/// # Ok(())
+/// # }
+/// ```
 pub struct Site {
     storage: Arc<dyn Storage>,
     // Buckets
@@ -151,13 +148,11 @@ pub struct Site {
 }
 
 impl Site {
-    /// Create a new site with storage, configuration, and cache.
+    /// Creates a new site backed by the given storage and cache.
     ///
-    /// # Arguments
-    ///
-    /// * `storage` - Storage implementation for document scanning and reading
-    /// * `cache` - Cache implementation for site structure, pages, and diagrams
-    /// * `config` - Page renderer configuration
+    /// The site starts empty — no storage scan happens until the first read
+    /// method is called. Pass [`NullCache`](rw_cache::NullCache) to disable
+    /// caching entirely.
     #[must_use]
     pub fn new(
         storage: Arc<dyn Storage>,
@@ -188,15 +183,18 @@ impl Site {
         Arc::clone(&self.current_snapshot.read().unwrap())
     }
 
-    /// Get scoped navigation tree.
+    /// Returns the navigation tree scoped to a section.
     ///
-    /// Reloads site if needed and returns navigation for the given section.
-    /// Pass `None` for root navigation, or a section ref string
-    /// (e.g., `"domain:default/billing"`) to scope to that section.
+    /// Pass `None` for root navigation, or a
+    /// [section ref](crate#sections-and-scoped-navigation) (e.g.,
+    /// `"domain:default/billing"`) to get that section's children.
+    /// Triggers a reload on first call or after [`invalidate`](Self::invalidate).
     ///
     /// # Errors
     ///
-    /// Returns `StorageError` if initial site load fails.
+    /// Returns [`StorageError`] if the initial site load fails (storage
+    /// unreachable). Subsequent reload failures are logged and stale data
+    /// is returned instead.
     pub fn navigation(&self, section_ref: Option<&str>) -> Result<Navigation, StorageError> {
         let snapshot = self.reload_if_needed()?;
         let scope_path = section_ref
@@ -207,56 +205,46 @@ impl Site {
         Ok(nav)
     }
 
-    /// Get the current sections map.
+    /// Returns the current [`Sections`] map for cross-section link resolution.
     ///
     /// # Errors
     ///
-    /// Returns `StorageError` if initial site load fails.
+    /// Returns [`StorageError`] if the initial site load fails.
     pub fn sections(&self) -> Result<Arc<Sections>, StorageError> {
         let snapshot = self.reload_if_needed()?;
         Ok(Arc::clone(&snapshot.sections))
     }
 
-    /// Get the section ref string for the section a page belongs to.
+    /// Returns the [section ref](crate#sections-and-scoped-navigation) for
+    /// the section that contains `page_path`.
     ///
-    /// Reloads site if needed and returns the ref (e.g., `"domain:default/billing"`)
-    /// for the nearest section ancestor, falling back to the implicit root
-    /// section (`section:default/root`) when no explicit section is found.
-    ///
-    /// # Arguments
-    ///
-    /// * `page_path` - URL path without leading slash.
+    /// Walks up the path hierarchy to find the nearest section ancestor.
+    /// Falls back to the implicit root section (`"section:default/root"`)
+    /// when no explicit section is found.
     ///
     /// # Errors
     ///
-    /// Returns `StorageError` if initial site load fails.
+    /// Returns [`StorageError`] if the initial site load fails.
     pub fn get_section_ref(&self, page_path: &str) -> Result<String, StorageError> {
         Ok(self.reload_if_needed()?.state.get_section_ref(page_path))
     }
 
-    /// Check if a page exists at the given URL path.
-    ///
-    /// Reloads site if needed and returns whether the page exists.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash (e.g., "guide", "domain/page", "" for root)
+    /// Returns `true` if a page exists at `path` in the site structure.
     ///
     /// # Errors
     ///
-    /// Returns `StorageError` if initial site load fails.
+    /// Returns [`StorageError`] if the initial site load fails.
     pub fn has_page(&self, path: &str) -> Result<bool, StorageError> {
         Ok(self.reload_if_needed()?.state.get_page(path).is_some())
     }
 
-    /// Get the title of a page from the current cached snapshot.
+    /// Returns the title of a page from the current cached snapshot, or
+    /// `None` if the page does not exist.
     ///
-    /// Reads from the current snapshot without triggering a reload.
-    /// Returns `None` if the page doesn't exist in the cached state.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash (e.g., "guide", "" for root)
+    /// Unlike other methods, this does **not** trigger a reload — it reads
+    /// whatever snapshot is currently in memory. This makes it suitable for
+    /// use in tight loops (e.g., resolving wikilink display text) where
+    /// staleness is acceptable.
     #[must_use]
     pub fn page_title(&self, path: &str) -> Option<String> {
         self.snapshot()
@@ -265,38 +253,32 @@ impl Site {
             .map(|p| p.title.clone())
     }
 
-    /// Get breadcrumbs for a page.
+    /// Returns the [`BreadcrumbItem`] trail for a page.
     ///
-    /// Reloads site if needed and returns breadcrumb navigation items
-    /// for a given URL path.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash (e.g., "guide/setup", "" for root)
+    /// The trail starts with "Home" (path `""`) and includes each ancestor
+    /// up to but not including the page itself. Returns an empty `Vec` for
+    /// the root page.
     ///
     /// # Errors
     ///
-    /// Returns `StorageError` if initial site load fails.
+    /// Returns [`StorageError`] if the initial site load fails.
     pub fn get_breadcrumbs(&self, path: &str) -> Result<Vec<BreadcrumbItem>, StorageError> {
         Ok(self.reload_if_needed()?.state.get_breadcrumbs(path))
     }
 
-    /// Reload site from storage if cache is invalid.
+    /// Returns the current snapshot, reloading from storage if stale.
     ///
-    /// Uses double-checked locking pattern:
-    /// 1. Fast path: return current snapshot if cache valid
-    /// 2. Slow path: acquire `reload_lock`, recheck, then reload
+    /// Uses a double-checked locking pattern: the fast path (cache valid)
+    /// requires only an atomic load and an `RwLock` read; the slow path
+    /// acquires a `Mutex` to serialize reloads.
     ///
-    /// On initial load, storage errors are propagated to the caller.
-    /// On subsequent reloads, storage errors are logged and stale data is kept.
-    ///
-    /// # Returns
-    ///
-    /// `Arc<SiteSnapshot>` containing the current site snapshot.
+    /// On the **initial** load, storage errors propagate to the caller so
+    /// that misconfigured storage is surfaced immediately. On subsequent
+    /// reloads, errors are logged and the previous snapshot is kept.
     ///
     /// # Errors
     ///
-    /// Returns `StorageError` if the initial site load fails.
+    /// Returns [`StorageError`] if the initial site load fails.
     ///
     /// # Panics
     ///
@@ -350,33 +332,33 @@ impl Site {
         Ok(snapshot)
     }
 
-    /// Invalidate cached site state.
+    /// Marks the cached site structure as stale.
     ///
-    /// Marks cache as invalid and bumps the generation counter so the
-    /// old site bucket entry won't match. Next `reload_if_needed()` will reload.
-    /// Current readers continue using their existing `Arc<SiteSnapshot>`.
+    /// The next call to any read method ([`navigation`](Self::navigation),
+    /// [`render`](Self::render), etc.) will re-scan storage before returning.
+    /// Readers that already hold a snapshot are unaffected — they continue
+    /// using the previous data. This method is lock-free.
     pub fn invalidate(&self) {
         self.cache_valid.store(false, Ordering::Release);
         self.generation.fetch_add(1, Ordering::Release);
     }
 
-    /// Render a page by URL path.
+    /// Renders a page to HTML by its URL path.
     ///
-    /// Reloads site if needed, looks up the page, and renders it.
+    /// Looks up the page in the site structure, computes breadcrumbs, and
+    /// runs the markdown rendering pipeline (or returns a cached result if
+    /// the source file has not changed).
     ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path without leading slash (e.g., "guide", "domain/page", "" for root)
-    ///
-    /// # Returns
-    ///
-    /// `PageRenderResult` with HTML, title, table of contents, and metadata.
+    /// `path` is a URL path without leading slash (e.g., `"guide"`,
+    /// `"domain/billing"`, `""` for root).
     ///
     /// # Errors
     ///
-    /// Returns `RenderError::PageNotFound` if page doesn't exist in site.
-    /// Returns `RenderError::FileNotFound` if source file doesn't exist.
-    /// Returns `RenderError::Io` if file cannot be read.
+    /// Returns [`RenderError::PageNotFound`] if no page with this path
+    /// exists in the site structure.
+    /// Returns [`RenderError::FileNotFound`] if the page exists but its
+    /// markdown source is missing from storage.
+    /// Returns [`RenderError::Storage`] if the storage backend itself fails.
     pub fn render(&self, path: &str) -> Result<PageRenderResult, RenderError> {
         let snapshot = self.reload_if_needed().map_err(RenderError::Storage)?;
         let page = snapshot
