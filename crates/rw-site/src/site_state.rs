@@ -44,39 +44,6 @@ pub struct NavItem {
     pub children: Vec<NavItem>,
 }
 
-/// Metadata for a [section](crate#sections-and-scoped-navigation) root page.
-///
-/// Created when a page's metadata includes a `kind` field. Stored internally
-/// by [`SiteState`] and used to build [`Section`] refs and scoped navigation.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SectionInfo {
-    /// Display title of the section (taken from the page title).
-    pub title: String,
-    /// URL path to the section root, without leading slash
-    /// (e.g., `"domains/billing"`).
-    pub path: String,
-    /// Freeform kind string from the page's metadata `kind` field
-    /// (e.g., `"domain"`, `"system"`, `"component"`).
-    pub section_kind: String,
-    /// Optional description from the page's metadata `description` field.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-impl From<&SectionInfo> for Section {
-    fn from(info: &SectionInfo) -> Self {
-        let name = if info.path.is_empty() {
-            Section::ROOT_NAME
-        } else {
-            last_segment(&info.path)
-        };
-        Self {
-            kind: info.section_kind.clone(),
-            name: name.to_owned(),
-        }
-    }
-}
-
 /// Describes which [section](crate#sections-and-scoped-navigation) the
 /// navigation sidebar is currently showing.
 ///
@@ -136,7 +103,7 @@ pub struct SiteState {
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
     path_index: HashMap<String, usize>,
-    sections: HashMap<String, SectionInfo>,
+    sections: HashMap<String, Section>,
     sections_by_name: HashMap<String, Vec<usize>>,
     subtree_has_content: Vec<bool>,
 }
@@ -179,7 +146,7 @@ impl SiteState {
         children: Vec<Vec<usize>>,
         parents: Vec<Option<usize>>,
         roots: Vec<usize>,
-        sections: HashMap<String, SectionInfo>,
+        sections: HashMap<String, Section>,
     ) -> Self {
         let path_index: HashMap<String, usize> = pages
             .iter()
@@ -219,6 +186,14 @@ impl SiteState {
     #[must_use]
     pub fn get_page(&self, path: &str) -> Option<&Page> {
         self.path_index.get(path).map(|&i| &self.pages[i])
+    }
+
+    /// Returns the page title at `path`, falling back to `default` if the page
+    /// doesn't exist.
+    #[must_use]
+    pub fn page_title_or(&self, path: &str, default: impl Into<String>) -> String {
+        self.get_page(path)
+            .map_or_else(|| default.into(), |p| p.title.clone())
     }
 
     /// Returns children of `path` whose subtree contains at least one page
@@ -314,7 +289,7 @@ impl SiteState {
     /// section at `"domains/billing/systems/payment-gateway"`. Returns an
     /// empty `Vec` if no section has that directory name.
     #[must_use]
-    pub fn find_sections_by_name(&self, name: &str) -> Vec<&SectionInfo> {
+    pub fn find_sections_by_name(&self, name: &str) -> Vec<(&str, &Section)> {
         self.sections_by_name
             .get(name)
             .map(|indices| {
@@ -322,7 +297,7 @@ impl SiteState {
                     .iter()
                     .filter_map(|&idx| {
                         let path = &self.pages[idx].path;
-                        self.sections.get(path)
+                        self.sections.get(path).map(|info| (path.as_str(), info))
                     })
                     .collect()
             })
@@ -381,8 +356,8 @@ impl SiteState {
             // Build scope info
             let scope = Some(ScopeInfo {
                 path: format!("/{scope_path}"),
-                title: section.title.clone(),
-                section: section.into(),
+                title: self.page_title_or(scope_path, scope_path),
+                section: section.clone(),
             });
 
             // Find parent section for back navigation
@@ -405,19 +380,19 @@ impl SiteState {
     #[must_use]
     pub fn get_section_ref(&self, page_path: &str) -> String {
         if let Some(section) = self.sections.get(page_path) {
-            return Section::from(section).to_string();
+            return section.to_string();
         }
 
         let mut current = page_path;
         while let Some((parent, _)) = current.rsplit_once('/') {
             if let Some(section) = self.sections.get(parent) {
-                return Section::from(section).to_string();
+                return section.to_string();
             }
             current = parent;
         }
 
         if let Some(section) = self.sections.get("") {
-            return Section::from(section).to_string();
+            return section.to_string();
         }
 
         Section::root().to_string()
@@ -428,11 +403,10 @@ impl SiteState {
     /// Sections become leaf nodes - they don't include their children.
     /// Only includes children that have markdown content in their subtree.
     fn build_nav_item_with_section_cutoff(&self, page: &Page) -> NavItem {
-        let section_info = self.sections.get(&page.path);
-        let section = section_info.map(Section::from);
+        let section = self.sections.get(&page.path);
 
         // Sections become leaf nodes - don't include children
-        let children = if section_info.is_some() {
+        let children = if section.is_some() {
             Vec::new()
         } else {
             self.get_children_with_content(&page.path)
@@ -444,7 +418,7 @@ impl SiteState {
         NavItem {
             title: page.title.clone(),
             path: page.path.clone(),
-            section,
+            section: section.cloned(),
             children,
         }
     }
@@ -470,8 +444,8 @@ impl SiteState {
             if let Some(section) = self.sections.get(parent) {
                 return Some(ScopeInfo {
                     path: format!("/{parent}"),
-                    title: section.title.clone(),
-                    section: section.into(),
+                    title: self.page_title_or(parent, parent),
+                    section: section.clone(),
                 });
             }
             current = parent;
@@ -482,13 +456,9 @@ impl SiteState {
 
     /// Build a `ScopeInfo` for the implicit root section.
     fn root_scope_info(&self) -> ScopeInfo {
-        let title = self
-            .get_page("")
-            .map_or_else(|| "Home".to_owned(), |p| p.title.clone());
-
         ScopeInfo {
             path: "/".to_owned(),
-            title,
+            title: self.page_title_or("", "Home"),
             section: Section::root(),
         }
     }
@@ -503,7 +473,7 @@ impl SiteState {
         let mut map: HashMap<String, Section> = self
             .sections
             .iter()
-            .map(|(path, info)| (path.clone(), Section::from(info)))
+            .map(|(path, section)| (path.clone(), section.clone()))
             .collect();
 
         // Insert implicit root section if no explicit section exists at root
@@ -544,7 +514,7 @@ pub(crate) struct SiteStateBuilder {
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
-    sections: HashMap<String, SectionInfo>,
+    sections: HashMap<String, Section>,
 }
 
 impl SiteStateBuilder {
@@ -586,13 +556,16 @@ impl SiteStateBuilder {
 
         // Register section if page has a kind
         if let Some(section_kind) = page_kind {
+            let name = if path.is_empty() {
+                Section::ROOT_NAME.to_owned()
+            } else {
+                last_segment(&path).to_owned()
+            };
             self.sections.insert(
                 path.clone(),
-                SectionInfo {
-                    title: title.clone(),
-                    path: path.clone(),
-                    section_kind: section_kind.to_owned(),
-                    description: description.map(ToOwned::to_owned),
+                Section {
+                    name,
+                    kind: section_kind.to_owned(),
                 },
             );
         }
@@ -601,6 +574,7 @@ impl SiteStateBuilder {
             title,
             path,
             has_content,
+            description: description.map(ToOwned::to_owned),
         });
         self.children.push(Vec::new());
         self.parents.push(parent_idx);
@@ -634,7 +608,7 @@ struct CachedSiteStateRef<'a> {
     children: &'a [Vec<usize>],
     parents: &'a [Option<usize>],
     roots: &'a [usize],
-    sections: &'a HashMap<String, SectionInfo>,
+    sections: &'a HashMap<String, Section>,
 }
 
 impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
@@ -657,7 +631,7 @@ struct CachedSiteState {
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
     #[serde(default)]
-    sections: HashMap<String, SectionInfo>,
+    sections: HashMap<String, Section>,
 }
 
 impl From<CachedSiteState> for SiteState {
@@ -904,6 +878,7 @@ mod tests {
             title: "Guide".to_owned(),
             path: "guide".to_owned(),
             has_content: true,
+            description: None,
         };
 
         assert_eq!(page.title, "Guide");
@@ -1750,15 +1725,11 @@ mod tests {
     }
 
     #[test]
-    fn test_section_from_root_section_info_uses_root_name() {
-        let info = SectionInfo {
-            title: "Home".to_owned(),
-            path: String::new(),
-            section_kind: "component".to_owned(),
-            description: None,
+    fn test_root_section_uses_root_name() {
+        let section = Section {
+            name: Section::ROOT_NAME.to_owned(),
+            kind: "component".to_owned(),
         };
-
-        let section = Section::from(&info);
 
         assert_eq!(section.kind, "component");
         assert_eq!(section.name, "root");

@@ -97,6 +97,9 @@ pub struct Page {
     /// Whether this page has markdown content. `false` for virtual pages
     /// that exist only as navigation containers.
     pub has_content: bool,
+    /// Optional description from the page's metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// One segment of the breadcrumb trail leading to a page.
@@ -432,6 +435,7 @@ mod tests {
             title: title.to_owned(),
             path: path.to_owned(),
             has_content,
+            description: None,
         }
     }
 

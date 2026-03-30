@@ -44,25 +44,25 @@ pub(crate) struct SiteSnapshot {
 impl MetaIncludeSource for SiteSnapshot {
     fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
         let raw_name = name.replace('_', "-");
-        let section = self
+        let (section_path, _section) = self
             .state
             .find_sections_by_name(&raw_name)
             .into_iter()
-            .find(|s| s.section_kind == entity_type)?;
+            .find(|(_, s)| s.kind == entity_type)?;
 
-        let has_content = self
-            .state
-            .get_page(&section.path)
-            .is_some_and(|p| p.has_content);
+        let page = self.state.get_page(section_path);
+        let has_content = page.is_some_and(|p| p.has_content);
+
+        let title = if entity_type == "service" {
+            raw_name
+        } else {
+            page.map_or_else(|| section_path.to_owned(), |p| p.title.clone())
+        };
 
         Some(EntityInfo {
-            title: if entity_type == "service" {
-                raw_name
-            } else {
-                section.title.clone()
-            },
-            description: section.description.clone(),
-            url_path: has_content.then(|| format!("/{}", section.path)),
+            title,
+            description: page.and_then(|p| p.description.clone()),
+            url_path: has_content.then(|| format!("/{section_path}")),
         })
     }
 }
@@ -840,7 +840,7 @@ mod tests {
         // page_kind is tracked via sections index
         let sections = snapshot.state.find_sections_by_name("my-domain");
         assert_eq!(sections.len(), 1);
-        assert_eq!(sections[0].section_kind, "domain");
+        assert_eq!(sections[0].1.kind, "domain");
     }
 
     #[test]

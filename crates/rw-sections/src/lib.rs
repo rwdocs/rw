@@ -45,8 +45,8 @@
 //!
 //! # Feature flags
 //!
-//! - **`serde`** — derives `serde::Serialize` on [`Section`] for JSON API
-//!   responses.
+//! - **`serde`** — derives `serde::Serialize` and `serde::Deserialize` on
+//!   [`Section`] for JSON API responses and cache storage.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -79,7 +79,7 @@ use std::str::FromStr;
 /// # Ok::<(), rw_sections::ParseSectionError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Section {
     /// Freeform label classifying this section (e.g., `"domain"`, `"system"`).
     pub kind: String,
