@@ -194,7 +194,7 @@ impl RwSite {
     pub fn reload(&self, force: Option<bool>) -> Result<bool> {
         self.site
             .reload(force.unwrap_or(false))
-            .map_err(|e| napi::Error::from_reason(error_chain(&e)))
+            .map_err(|e| napi::Error::from_reason(e.display_chain()))
     }
 }
 
