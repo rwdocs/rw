@@ -320,7 +320,7 @@ pub trait Storage: Send + Sync {
     ///
     /// Returns `true` if content may have changed, `false` if definitely unchanged.
     /// Default returns `true` — safe for backends without change detection.
-    /// Backends with efficient change detection (e.g., S3 ETags) override this.
+    /// Backends with efficient change detection (e.g., S3 `ETag`s) override this.
     ///
     /// # Errors
     ///
