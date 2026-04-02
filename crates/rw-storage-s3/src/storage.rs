@@ -3,6 +3,8 @@
 //! Reads documentation bundles from S3 using the format defined in [`crate::format`].
 //! Every call fetches fresh data from S3 — no caching.
 
+use std::sync::Mutex;
+
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use rw_storage::{Document, Metadata, Storage, StorageError, StorageErrorKind};
@@ -22,6 +24,7 @@ pub struct S3Storage {
     client: Client,
     runtime: tokio::runtime::Runtime,
     config: S3Config,
+    last_etag: Mutex<Option<String>>,
 }
 
 impl S3Storage {
@@ -41,6 +44,7 @@ impl S3Storage {
             client,
             runtime,
             config,
+            last_etag: Mutex::new(None),
         })
     }
 
@@ -98,21 +102,79 @@ impl S3Storage {
         })
     }
 
-    /// Fetch and validate the manifest from S3.
-    fn fetch_manifest(&self) -> Result<Manifest, StorageError> {
+    /// HEAD request on manifest.json, returns the ETag header value.
+    fn head_manifest_etag(&self) -> Result<Option<String>, StorageError> {
         let key = s3::build_key(&self.config, MANIFEST_KEY);
-        let manifest: Manifest = self.fetch_json(&key)?;
+        self.runtime.block_on(async {
+            let resp = self
+                .client
+                .head_object()
+                .bucket(&self.config.bucket)
+                .key(&key)
+                .send()
+                .await
+                .map_err(|e| {
+                    StorageError::new(StorageErrorKind::Unavailable)
+                        .with_backend(BACKEND)
+                        .with_path(&key)
+                        .with_source(e)
+                })?;
+            Ok(resp.e_tag().map(String::from))
+        })
+    }
 
-        if manifest.version != FORMAT_VERSION {
-            return Err(StorageError::new(StorageErrorKind::Other)
-                .with_backend(BACKEND)
-                .with_source(std::io::Error::other(format!(
-                    "Unsupported manifest version: {} (expected {FORMAT_VERSION})",
-                    manifest.version
-                ))));
-        }
+    /// Fetch and validate the manifest from S3, returning its ETag.
+    fn fetch_manifest(&self) -> Result<(Manifest, Option<String>), StorageError> {
+        let key = s3::build_key(&self.config, MANIFEST_KEY);
+        self.runtime.block_on(async {
+            let resp = self
+                .client
+                .get_object()
+                .bucket(&self.config.bucket)
+                .key(&key)
+                .send()
+                .await
+                .map_err(|e| {
+                    let kind =
+                        if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_))) {
+                            StorageErrorKind::NotFound
+                        } else {
+                            StorageErrorKind::Unavailable
+                        };
+                    StorageError::new(kind)
+                        .with_backend(BACKEND)
+                        .with_path(&key)
+                        .with_source(e)
+                })?;
 
-        Ok(manifest)
+            let etag = resp.e_tag().map(String::from);
+
+            let bytes = resp.body.collect().await.map_err(|e| {
+                StorageError::new(StorageErrorKind::Other)
+                    .with_backend(BACKEND)
+                    .with_path(&key)
+                    .with_source(e)
+            })?;
+
+            let manifest: Manifest =
+                serde_json::from_slice(&bytes.into_bytes()).map_err(|e| {
+                    StorageError::new(StorageErrorKind::Other)
+                        .with_backend(BACKEND)
+                        .with_path(&key)
+                        .with_source(e)
+                })?;
+
+            if manifest.version != FORMAT_VERSION {
+                return Err(StorageError::new(StorageErrorKind::Other)
+                    .with_backend(BACKEND)
+                    .with_source(std::io::Error::other(format!(
+                        "Unsupported manifest version: {} (expected {FORMAT_VERSION})",
+                        manifest.version
+                    ))));
+            }
+
+            Ok((manifest, etag))
+        })
     }
 
     /// Fetch a page bundle from S3.
@@ -124,7 +186,9 @@ impl S3Storage {
 
 impl Storage for S3Storage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
-        Ok(self.fetch_manifest()?.documents)
+        let (manifest, etag) = self.fetch_manifest()?;
+        *self.last_etag.lock().unwrap() = etag;
+        Ok(manifest.documents)
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
@@ -132,7 +196,7 @@ impl Storage for S3Storage {
     }
 
     fn exists(&self, path: &str) -> bool {
-        let Ok(manifest) = self.fetch_manifest() else {
+        let Ok((manifest, _)) = self.fetch_manifest() else {
             return false;
         };
         manifest
@@ -147,5 +211,14 @@ impl Storage for S3Storage {
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
         Ok(self.fetch_page_bundle(path)?.metadata)
+    }
+
+    fn has_changed(&self) -> Result<bool, StorageError> {
+        let remote_etag = self.head_manifest_etag()?;
+        let last = self.last_etag.lock().unwrap();
+        match (&*last, &remote_etag) {
+            (Some(last), Some(remote)) if last == remote => Ok(false),
+            _ => Ok(true),
+        }
     }
 }
