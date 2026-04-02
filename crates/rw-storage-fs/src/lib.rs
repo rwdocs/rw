@@ -549,7 +549,10 @@ impl Storage for FsStorage {
                             continue;
                         };
 
+                        // Directory events (e.g., renames) signal structural
+                        // changes that must trigger a rescan.
                         let matches_pattern = patterns.is_empty()
+                            || path.is_dir()
                             || patterns
                                 .iter()
                                 .any(|pattern| pattern.matches_path(rel_path));
@@ -1646,6 +1649,37 @@ mod tests {
         assert!(
             home_event.is_some(),
             "Expected event for root path, got: {events:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
+    fn test_watch_detects_directory_rename() {
+        let temp_dir = create_test_dir();
+        // Canonicalize to resolve macOS /var → /private/var symlink,
+        // since notify fires events with canonical paths.
+        let base = fs::canonicalize(temp_dir.path()).unwrap();
+        let old_dir = base.join("old-name");
+        fs::create_dir(&old_dir).unwrap();
+        fs::write(old_dir.join("index.md"), "# Page").unwrap();
+
+        let storage = FsStorage::new(base.clone());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        // Wait for watcher to be ready
+        std::thread::sleep(Duration::from_millis(200));
+
+        // Rename directory
+        let new_dir = base.join("new-name");
+        fs::rename(&old_dir, &new_dir).unwrap();
+
+        // Wait for debounce + processing (generous for rename detection)
+        std::thread::sleep(Duration::from_millis(500));
+
+        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
+        assert!(
+            !events.is_empty(),
+            "Expected at least one event for directory rename"
         );
     }
 }
