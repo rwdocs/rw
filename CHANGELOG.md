@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Directory renames under `docs/` are now detected by live reload — previously, renaming a directory required manually deleting `.rw/cache` and restarting the server
 - Page metadata no longer extracts `#` comments inside fenced code blocks as H1 titles
 - Page metadata now correctly extracts plain text from H1 titles with inline formatting (bold, italic, code, links)
 - Editing a page title inside a section no longer resets the sidebar to root navigation
