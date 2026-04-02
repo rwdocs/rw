@@ -637,4 +637,11 @@ mod tests {
         assert_eq!(err.kind, StorageErrorKind::Unavailable);
         assert_eq!(err.backend, Some("Mock"));
     }
+
+    #[test]
+    fn test_has_changed_default_returns_true() {
+        let storage = MockStorage::new();
+
+        assert!(storage.has_changed().unwrap());
+    }
 }
