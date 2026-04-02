@@ -3,7 +3,7 @@
 export declare class RwSite {
   getNavigation(sectionRef?: string | undefined | null): NavigationResponse
   renderPage(path: string): Promise<PageResponse>
-  reload(): void
+  reload(force?: boolean | undefined | null): Promise<boolean>
 }
 
 export interface BreadcrumbResponse {
