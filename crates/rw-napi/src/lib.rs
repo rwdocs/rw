@@ -191,10 +191,15 @@ impl RwSite {
     }
 
     #[napi]
-    pub fn reload(&self, force: Option<bool>) -> Result<bool> {
-        self.site
-            .reload(force.unwrap_or(false))
-            .map_err(|e| napi::Error::from_reason(e.display_chain()))
+    pub async fn reload(&self, force: Option<bool>) -> Result<bool> {
+        let site = Arc::clone(&self.site);
+        let force = force.unwrap_or(false);
+        tokio::task::spawn_blocking(move || {
+            site.reload(force)
+                .map_err(|e| napi::Error::from_reason(e.display_chain()))
+        })
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 }
 
