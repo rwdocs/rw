@@ -64,8 +64,12 @@ impl S3Storage {
         &self.config
     }
 
-    /// Fetch and parse a JSON file from S3.
-    fn fetch_json<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<T, StorageError> {
+    /// Fetch and parse a JSON file from S3, returning the parsed value and
+    /// the `ETag` header from the response.
+    fn fetch_json_with_etag<T: serde::de::DeserializeOwned>(
+        &self,
+        key: &str,
+    ) -> Result<(T, Option<String>), StorageError> {
         self.runtime.block_on(async {
             let resp = self
                 .client
@@ -87,6 +91,8 @@ impl S3Storage {
                         .with_source(e)
                 })?;
 
+            let etag = resp.e_tag().map(String::from);
+
             let bytes = resp.body.collect().await.map_err(|e| {
                 StorageError::new(StorageErrorKind::Other)
                     .with_backend(BACKEND)
@@ -94,13 +100,20 @@ impl S3Storage {
                     .with_source(e)
             })?;
 
-            serde_json::from_slice(&bytes.into_bytes()).map_err(|e| {
+            let value = serde_json::from_slice(&bytes.into_bytes()).map_err(|e| {
                 StorageError::new(StorageErrorKind::Other)
                     .with_backend(BACKEND)
                     .with_path(key)
                     .with_source(e)
-            })
+            })?;
+
+            Ok((value, etag))
         })
+    }
+
+    /// Fetch and parse a JSON file from S3.
+    fn fetch_json<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<T, StorageError> {
+        self.fetch_json_with_etag(key).map(|(value, _)| value)
     }
 
     /// HEAD request on manifest.json, returns the `ETag` header value.
@@ -127,54 +140,18 @@ impl S3Storage {
     /// Fetch and validate the manifest from S3, returning its `ETag`.
     fn fetch_manifest(&self) -> Result<(Manifest, Option<String>), StorageError> {
         let key = s3::build_key(&self.config, MANIFEST_KEY);
-        self.runtime.block_on(async {
-            let resp = self
-                .client
-                .get_object()
-                .bucket(&self.config.bucket)
-                .key(&key)
-                .send()
-                .await
-                .map_err(|e| {
-                    let kind = if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_)))
-                    {
-                        StorageErrorKind::NotFound
-                    } else {
-                        StorageErrorKind::Unavailable
-                    };
-                    StorageError::new(kind)
-                        .with_backend(BACKEND)
-                        .with_path(&key)
-                        .with_source(e)
-                })?;
+        let (manifest, etag): (Manifest, _) = self.fetch_json_with_etag(&key)?;
 
-            let etag = resp.e_tag().map(String::from);
+        if manifest.version != FORMAT_VERSION {
+            return Err(StorageError::new(StorageErrorKind::Other)
+                .with_backend(BACKEND)
+                .with_source(std::io::Error::other(format!(
+                    "Unsupported manifest version: {} (expected {FORMAT_VERSION})",
+                    manifest.version
+                ))));
+        }
 
-            let bytes = resp.body.collect().await.map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_path(&key)
-                    .with_source(e)
-            })?;
-
-            let manifest: Manifest = serde_json::from_slice(&bytes.into_bytes()).map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_path(&key)
-                    .with_source(e)
-            })?;
-
-            if manifest.version != FORMAT_VERSION {
-                return Err(StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(std::io::Error::other(format!(
-                        "Unsupported manifest version: {} (expected {FORMAT_VERSION})",
-                        manifest.version
-                    ))));
-            }
-
-            Ok((manifest, etag))
-        })
+        Ok((manifest, etag))
     }
 
     /// Fetch a page bundle from S3.

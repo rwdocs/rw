@@ -1194,6 +1194,20 @@ mod tests {
     }
 
     #[test]
+    fn test_reload_false_reloads_before_first_scan() {
+        // Before any scan(), has_changed() defaults to true, so
+        // reload(false) should perform the initial load.
+        let storage = MockStorage::new().with_document("guide", "Guide");
+        let site = create_site_with_storage(storage);
+
+        let result = site.reload(false).unwrap();
+        assert!(result);
+
+        // Verify data was actually loaded
+        assert!(site.has_page("guide").unwrap());
+    }
+
+    #[test]
     fn test_reload_false_propagates_has_changed_error() {
         let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
         let site = Site::new(
