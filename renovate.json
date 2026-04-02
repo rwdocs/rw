@@ -6,6 +6,7 @@
   "ignorePaths": [
     ".github/workflows/release.yml"
   ],
+  "minimumReleaseAge": "14 days",
   "postUpdateOptions": [
     "npmDedupe"
   ]
