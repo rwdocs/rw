@@ -332,6 +332,31 @@ impl Site {
         Ok(snapshot)
     }
 
+    /// Reloads the site, optionally checking for changes first.
+    ///
+    /// - `reload(true)` — unconditional reload. Always returns `Ok(true)`.
+    /// - `reload(false)` — checks [`Storage::has_changed()`] first.
+    ///   Returns `Ok(false)` if the backend reports no changes.
+    ///   Returns `Ok(true)` if a reload was attempted.
+    ///
+    /// `Ok(true)` means "reload was attempted," not "new content was loaded."
+    /// If the storage scan fails after `has_changed()` returns `true`,
+    /// the site keeps stale data (existing behavior of
+    /// [`reload_if_needed`](Self::reload_if_needed)).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if `has_changed()` fails (e.g., S3 connectivity)
+    /// or if this is the first load and storage is unreachable.
+    pub fn reload(&self, force: bool) -> Result<bool, StorageError> {
+        if !force && !self.storage.has_changed()? {
+            return Ok(false);
+        }
+        self.invalidate();
+        self.reload_if_needed()?;
+        Ok(true)
+    }
+
     /// Marks the cached site structure as stale.
     ///
     /// The next call to any read method ([`navigation`](Self::navigation),
@@ -1105,6 +1130,46 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         let result = site.has_page("test");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
+    }
+
+    // ========================================================================
+    // reload() tests
+    // ========================================================================
+
+    #[test]
+    fn test_reload_false_reloads_when_has_changed_returns_true() {
+        let storage = MockStorage::new().with_document("guide", "Guide");
+        let site = create_site_with_storage(storage);
+
+        // Initial load
+        site.reload_if_needed().unwrap();
+
+        // MockStorage inherits default has_changed() -> true,
+        // so reload(false) should still trigger a reload.
+        let result = site.reload(false).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_reload_true_always_reloads() {
+        let storage = MockStorage::new().with_document("guide", "Guide");
+        let site = create_site_with_storage(storage);
+
+        // Initial load
+        site.reload_if_needed().unwrap();
+
+        let result = site.reload(true).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_reload_propagates_storage_errors_on_initial_load() {
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+        let site = create_site_with_storage(storage);
+
+        let result = site.reload(true);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
     }
