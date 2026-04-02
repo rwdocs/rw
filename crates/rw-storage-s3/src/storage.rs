@@ -102,7 +102,7 @@ impl S3Storage {
         })
     }
 
-    /// HEAD request on manifest.json, returns the ETag header value.
+    /// HEAD request on manifest.json, returns the `ETag` header value.
     fn head_manifest_etag(&self) -> Result<Option<String>, StorageError> {
         let key = s3::build_key(&self.config, MANIFEST_KEY);
         self.runtime.block_on(async {
@@ -123,7 +123,7 @@ impl S3Storage {
         })
     }
 
-    /// Fetch and validate the manifest from S3, returning its ETag.
+    /// Fetch and validate the manifest from S3, returning its `ETag`.
     fn fetch_manifest(&self) -> Result<(Manifest, Option<String>), StorageError> {
         let key = s3::build_key(&self.config, MANIFEST_KEY);
         self.runtime.block_on(async {
@@ -135,12 +135,12 @@ impl S3Storage {
                 .send()
                 .await
                 .map_err(|e| {
-                    let kind =
-                        if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_))) {
-                            StorageErrorKind::NotFound
-                        } else {
-                            StorageErrorKind::Unavailable
-                        };
+                    let kind = if matches!(e.as_service_error(), Some(GetObjectError::NoSuchKey(_)))
+                    {
+                        StorageErrorKind::NotFound
+                    } else {
+                        StorageErrorKind::Unavailable
+                    };
                     StorageError::new(kind)
                         .with_backend(BACKEND)
                         .with_path(&key)
@@ -156,13 +156,12 @@ impl S3Storage {
                     .with_source(e)
             })?;
 
-            let manifest: Manifest =
-                serde_json::from_slice(&bytes.into_bytes()).map_err(|e| {
-                    StorageError::new(StorageErrorKind::Other)
-                        .with_backend(BACKEND)
-                        .with_path(&key)
-                        .with_source(e)
-                })?;
+            let manifest: Manifest = serde_json::from_slice(&bytes.into_bytes()).map_err(|e| {
+                StorageError::new(StorageErrorKind::Other)
+                    .with_backend(BACKEND)
+                    .with_path(&key)
+                    .with_source(e)
+            })?;
 
             if manifest.version != FORMAT_VERSION {
                 return Err(StorageError::new(StorageErrorKind::Other)
