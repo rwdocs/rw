@@ -315,6 +315,19 @@ pub trait Storage: Send + Sync {
     ///
     /// Returns [`StorageError`] on I/O error or metadata parse error.
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError>;
+
+    /// Check whether content has changed since the last successful scan.
+    ///
+    /// Returns `true` if content may have changed, `false` if definitely unchanged.
+    /// Default returns `true` — safe for backends without change detection.
+    /// Backends with efficient change detection (e.g., S3 ETags) override this.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the check itself fails (e.g., network error).
+    fn has_changed(&self) -> Result<bool, StorageError> {
+        Ok(true)
+    }
 }
 
 #[cfg(test)]
