@@ -1,7 +1,7 @@
 //! S3-backed storage implementation.
 //!
 //! Reads documentation bundles from S3 using the format defined in [`crate::format`].
-//! Every call fetches fresh data from S3 — no caching.
+//! Tracks the manifest `ETag` to support change detection via [`Storage::has_changed`].
 
 use std::sync::Mutex;
 
@@ -19,7 +19,8 @@ const BACKEND: &str = "S3";
 /// Uses a dedicated tokio runtime for async S3 operations within
 /// the synchronous `Storage` trait interface.
 ///
-/// Every method call fetches fresh data from S3 with no caching.
+/// Read methods fetch fresh data from S3 on each call. The manifest
+/// `ETag` is tracked across calls to support [`Storage::has_changed`].
 pub struct S3Storage {
     client: Client,
     runtime: tokio::runtime::Runtime,

@@ -41,6 +41,8 @@ pub struct MockStorage {
     metadata: RwLock<HashMap<String, Metadata>>,
     /// If set, `scan()` returns this error kind.
     scan_error: RwLock<Option<StorageErrorKind>>,
+    /// If set, overrides the default `has_changed()` return value.
+    has_changed: RwLock<Option<Result<bool, StorageErrorKind>>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
 }
 
@@ -52,6 +54,7 @@ impl Default for MockStorage {
             mtimes: RwLock::new(HashMap::new()),
             metadata: RwLock::new(HashMap::new()),
             scan_error: RwLock::new(None),
+            has_changed: RwLock::new(None),
             event_sender: RwLock::new(None),
         }
     }
@@ -238,6 +241,20 @@ impl MockStorage {
         *self.scan_error.write().unwrap() = kind;
     }
 
+    /// Override `has_changed()` to return a fixed value or error.
+    ///
+    /// - `Some(Ok(true))` — report changed
+    /// - `Some(Ok(false))` — report unchanged
+    /// - `Some(Err(kind))` — return an error
+    /// - `None` — use the default (always `true`)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    pub fn set_has_changed(&self, value: Option<Result<bool, StorageErrorKind>>) {
+        *self.has_changed.write().unwrap() = value;
+    }
+
     /// Emit a storage event.
     ///
     /// Only works if `watch()` has been called first.
@@ -357,6 +374,14 @@ impl Storage for MockStorage {
             page_kind: m.page_kind.clone(),
             vars: m.vars.clone(),
         }))
+    }
+
+    fn has_changed(&self) -> Result<bool, StorageError> {
+        match *self.has_changed.read().unwrap() {
+            Some(Ok(value)) => Ok(value),
+            Some(Err(kind)) => Err(StorageError::new(kind).with_backend("Mock")),
+            None => Ok(true),
+        }
     }
 }
 

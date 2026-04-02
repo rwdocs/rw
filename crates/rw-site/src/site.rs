@@ -1173,4 +1173,43 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
     }
+
+    #[test]
+    fn test_reload_false_skips_when_has_changed_returns_false() {
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+
+        // Initial load
+        site.reload_if_needed().unwrap();
+
+        // Simulate no changes
+        storage.set_has_changed(Some(Ok(false)));
+
+        let result = site.reload(false).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_reload_false_propagates_has_changed_error() {
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+
+        // Initial load
+        site.reload_if_needed().unwrap();
+
+        // Simulate has_changed error
+        storage.set_has_changed(Some(Err(StorageErrorKind::Unavailable)));
+
+        let result = site.reload(false);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
+    }
 }
