@@ -122,6 +122,7 @@ mod code_block;
 pub mod directive;
 mod html;
 mod renderer;
+mod search_document;
 mod state;
 pub(crate) mod tabs;
 mod util;
@@ -141,5 +142,6 @@ pub use renderer::{MarkdownRenderer, RenderResult, TitleResolver};
 /// annotation. Built by higher-level crates like `rw-site` from the site
 /// configuration.
 pub use rw_sections::Sections;
+pub use search_document::SearchDocumentBackend;
 pub use state::{TocEntry, escape_html};
 pub use tabs::TabsDirective;

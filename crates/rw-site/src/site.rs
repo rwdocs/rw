@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::page::{
     BreadcrumbItem, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext, RenderError,
+    SearchDocument,
 };
 use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
@@ -391,12 +392,37 @@ impl Site {
             .get_page(path)
             .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
         let breadcrumbs = snapshot.state.get_breadcrumbs(path);
-        let ctx = RenderContext {
-            sections: Arc::clone(&snapshot.sections),
-            meta_include_source: Some(Arc::clone(&snapshot) as Arc<dyn MetaIncludeSource>),
-            snapshot: Some(Arc::clone(&snapshot)),
-        };
+        let ctx = Self::render_context(&snapshot);
         self.renderer.render(path, page, breadcrumbs, &ctx)
+    }
+
+    /// Render a page as plain text for search indexing.
+    ///
+    /// Returns `None` for virtual pages (directories without content).
+    /// Does not cache results or make network calls (no Kroki, no syntax highlighting).
+    ///
+    /// # Errors
+    ///
+    /// Same error conditions as [`render()`](Self::render).
+    pub fn render_search_document(
+        &self,
+        path: &str,
+    ) -> Result<Option<SearchDocument>, RenderError> {
+        let snapshot = self.reload_if_needed().map_err(RenderError::Storage)?;
+        let page = snapshot
+            .state
+            .get_page(path)
+            .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
+        let ctx = Self::render_context(&snapshot);
+        self.renderer.render_search_document(path, page, &ctx)
+    }
+
+    fn render_context(snapshot: &Arc<SiteSnapshot>) -> RenderContext {
+        RenderContext {
+            sections: Arc::clone(&snapshot.sections),
+            meta_include_source: Some(Arc::clone(snapshot) as Arc<dyn MetaIncludeSource>),
+            snapshot: Some(Arc::clone(snapshot)),
+        }
     }
 
     /// Load site state from storage and build hierarchy.

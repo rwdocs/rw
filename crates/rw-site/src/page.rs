@@ -9,9 +9,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramProcessor, MetaIncludeSource};
+use rw_diagrams::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
 use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{HtmlBackend, MarkdownRenderer, TabsDirective, TocEntry, escape_html};
+use rw_renderer::{
+    HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, TabsDirective, TocEntry,
+    escape_html,
+};
 use rw_sections::{Section, Sections};
 
 use crate::site::{SiteSnapshot, SiteTitleResolver};
@@ -159,6 +162,18 @@ pub struct PageRenderResult {
     /// Page metadata from YAML frontmatter or sidecar `meta.yaml` file,
     /// if present.
     pub metadata: Option<Metadata>,
+}
+
+/// Plain text representation of a page for search indexing.
+///
+/// Produced by [`Site::render_search_document()`](crate::Site::render_search_document).
+/// Contains whitespace-separated tokens suitable for full-text search engines.
+#[derive(Debug, Clone)]
+pub struct SearchDocument {
+    /// Page title (from metadata or first H1 heading).
+    pub title: String,
+    /// Plain text content with whitespace-separated tokens.
+    pub text: String,
 }
 
 /// Reasons why [`Site::render`](crate::Site::render) can fail.
@@ -338,27 +353,76 @@ impl PageRenderer {
         }
     }
 
+    pub(crate) fn render_search_document(
+        &self,
+        path: &str,
+        page: &Page,
+        ctx: &RenderContext,
+    ) -> Result<Option<SearchDocument>, RenderError> {
+        if !page.has_content {
+            return Ok(None);
+        }
+
+        let markdown_text = self.storage.read(path)?;
+        let metadata = self.load_metadata(path);
+
+        let mut search_processor = SearchDiagramProcessor::new(self.include_dirs.clone());
+        if let Some(source) = &ctx.meta_include_source {
+            search_processor = search_processor.with_meta_include_source(Arc::clone(source));
+        }
+
+        let mut renderer = Self::configure_renderer(
+            MarkdownRenderer::<SearchDocumentBackend>::new().with_title_extraction(),
+            ctx,
+        )
+        .with_processor(search_processor);
+
+        let result = renderer.render_markdown(&markdown_text);
+
+        let title = metadata
+            .as_ref()
+            .and_then(|m| m.title.clone())
+            .or(result.title)
+            .unwrap_or_else(|| page.title.clone());
+
+        Ok(Some(SearchDocument {
+            title,
+            text: result.html,
+        }))
+    }
+
     fn create_renderer(
         &self,
         base_path: &str,
         ctx: &RenderContext,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-            .with_gfm(true)
-            .with_base_path(format!("/{base_path}"))
-            .with_directives(directives);
+        let mut renderer =
+            MarkdownRenderer::<HtmlBackend>::new().with_base_path(format!("/{base_path}"));
 
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
 
-        if let Some(processor) = self.create_diagram_processor(ctx.meta_include_source.clone()) {
-            renderer = renderer.with_processor(processor.with_sections(Arc::clone(&ctx.sections)));
-        }
+        let renderer = Self::configure_renderer(renderer, ctx);
 
-        renderer = renderer.with_sections(Arc::clone(&ctx.sections));
+        if let Some(processor) = self.create_diagram_processor(ctx.meta_include_source.clone()) {
+            renderer.with_processor(processor.with_sections(Arc::clone(&ctx.sections)))
+        } else {
+            renderer
+        }
+    }
+
+    /// Apply common renderer configuration: GFM, directives, sections, wikilinks.
+    fn configure_renderer<B: RenderBackend>(
+        renderer: MarkdownRenderer<B>,
+        ctx: &RenderContext,
+    ) -> MarkdownRenderer<B> {
+        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+
+        let mut renderer = renderer
+            .with_gfm(true)
+            .with_directives(directives)
+            .with_sections(Arc::clone(&ctx.sections));
 
         if let Some(snapshot) = &ctx.snapshot {
             renderer = renderer
@@ -565,5 +629,86 @@ mod tests {
         assert_eq!(result.toc.len(), 2);
         assert_eq!(result.toc[0].title, "Section 1");
         assert_eq!(result.toc[1].title, "Section 2");
+    }
+
+    #[test]
+    fn test_render_search_document() {
+        let storage = MockStorage::new()
+            .with_file("test", "Hello", "# Hello\n\nWorld **bold** and `code`.")
+            .with_mtime("test", 1000.0);
+        let renderer = create_renderer(storage);
+
+        let page = make_page("Hello", "test", true);
+        let result = renderer
+            .render_search_document("test", &page, &RenderContext::default())
+            .unwrap();
+
+        let doc = result.unwrap();
+        assert_eq!(doc.title, "Hello");
+        assert!(doc.text.contains("World"));
+        assert!(doc.text.contains("bold"));
+        assert!(doc.text.contains("code"));
+        assert!(!doc.text.contains('<'));
+    }
+
+    #[test]
+    fn test_render_search_document_virtual_page_returns_none() {
+        let storage = MockStorage::new().with_mtime("virtual", 1000.0);
+        let renderer = create_renderer(storage);
+
+        let page = make_page("Virtual", "virtual", false);
+        let result = renderer
+            .render_search_document("virtual", &page, &RenderContext::default())
+            .unwrap();
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_render_search_document_uses_metadata_title() {
+        let metadata = Metadata {
+            title: Some("Meta Title".to_owned()),
+            ..Default::default()
+        };
+        let storage = MockStorage::new()
+            .with_file("test", "H1 Title", "# H1 Title\n\nContent")
+            .with_mtime("test", 1000.0)
+            .with_metadata("test", metadata);
+
+        let renderer = create_renderer(storage);
+        let page = make_page("H1 Title", "test", true);
+        let result = renderer
+            .render_search_document("test", &page, &RenderContext::default())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.title, "Meta Title");
+    }
+
+    #[test]
+    fn test_render_search_document_file_not_found() {
+        let storage = MockStorage::new();
+        let renderer = create_renderer(storage);
+
+        let page = make_page("Missing", "missing", true);
+        let result = renderer.render_search_document("missing", &page, &RenderContext::default());
+
+        assert!(matches!(result, Err(RenderError::FileNotFound(_))));
+    }
+
+    #[test]
+    fn test_render_search_document_falls_back_to_page_title() {
+        let storage = MockStorage::new()
+            .with_file("test", "Test", "Some text without a heading")
+            .with_mtime("test", 1000.0);
+        let renderer = create_renderer(storage);
+
+        let page = make_page("Fallback Title", "test", true);
+        let result = renderer
+            .render_search_document("test", &page, &RenderContext::default())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.title, "Fallback Title");
     }
 }
