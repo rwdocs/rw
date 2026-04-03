@@ -18,7 +18,8 @@ use rw_storage_s3::{S3Config, S3Storage};
 
 use crate::types::{
     BreadcrumbResponse, DiagramsConfig, NavItemResponse, NavigationResponse, PageMetaResponse,
-    PageResponse, ScopeInfoResponse, SectionResponse, SiteConfig, TocEntryResponse,
+    PageResponse, ScopeInfoResponse, SearchDocumentResponse, SectionResponse, SiteConfig,
+    TocEntryResponse,
 };
 
 /// Format an error with its full source chain.
@@ -188,6 +189,26 @@ impl RwSite {
         tokio::task::spawn_blocking(move || build_page_response(&site, &path))
             .await
             .map_err(|e| napi::Error::from_reason(e.to_string()))?
+    }
+
+    #[napi]
+    pub async fn render_search_document(
+        &self,
+        path: String,
+    ) -> Result<Option<SearchDocumentResponse>> {
+        let site = Arc::clone(&self.site);
+        tokio::task::spawn_blocking(move || {
+            match site.render_search_document(&path) {
+                Ok(Some(doc)) => Ok(Some(SearchDocumentResponse {
+                    title: doc.title,
+                    text: doc.text,
+                })),
+                Ok(None) => Ok(None),
+                Err(e) => Err(napi::Error::from_reason(error_chain(&e))),
+            }
+        })
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     #[napi]

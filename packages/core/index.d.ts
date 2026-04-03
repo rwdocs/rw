@@ -3,6 +3,7 @@
 export declare class RwSite {
   getNavigation(sectionRef?: string | undefined | null): NavigationResponse
   renderPage(path: string): Promise<PageResponse>
+  renderSearchDocument(path: string): Promise<SearchDocumentResponse | null>
   reload(force?: boolean | undefined | null): Promise<boolean>
 }
 
@@ -64,6 +65,11 @@ export interface ScopeInfoResponse {
   path: string
   title: string
   section: SectionResponse
+}
+
+export interface SearchDocumentResponse {
+  title: string
+  text: string
 }
 
 export interface SectionResponse {

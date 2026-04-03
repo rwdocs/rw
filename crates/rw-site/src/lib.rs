@@ -98,7 +98,7 @@ pub(crate) mod page;
 pub(crate) mod site;
 pub(crate) mod site_state;
 
-pub use page::{BreadcrumbItem, PageRenderResult, PageRendererConfig, RenderError};
+pub use page::{BreadcrumbItem, PageRenderResult, PageRendererConfig, RenderError, SearchDocument};
 
 /// A section identity consisting of a freeform `kind` and a `name`
 /// (the last path segment of the section root). Parsed from and

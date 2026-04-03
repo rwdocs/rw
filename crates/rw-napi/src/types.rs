@@ -106,3 +106,9 @@ pub struct PageResponse {
     pub toc: Vec<TocEntryResponse>,
     pub content: String,
 }
+
+#[napi(object)]
+pub struct SearchDocumentResponse {
+    pub title: String,
+    pub text: String,
+}
