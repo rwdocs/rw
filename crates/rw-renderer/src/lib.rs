@@ -9,9 +9,9 @@
 //! link resolution; other backends (e.g., Confluence XHTML) can be
 //! implemented downstream.
 //!
-//! Common elements (tables, lists, inline formatting) are handled by the
-//! generic renderer; format-specific elements (code blocks, blockquotes,
-//! images) are delegated to the backend.
+//! All output is delegated to the backend — the renderer handles event
+//! walking and state management only. Backends override whichever
+//! methods differ from the HTML5 defaults.
 //!
 //! ## Extension points
 //!
@@ -130,6 +130,8 @@ pub use backend::{AlertKind, RenderBackend};
 pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use html::HtmlBackend;
+/// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.
+pub use pulldown_cmark::Alignment;
 pub use renderer::{MarkdownRenderer, RenderResult, TitleResolver};
 /// Re-exported from [`rw_sections`] for use with
 /// [`MarkdownRenderer::with_sections`].
