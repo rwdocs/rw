@@ -3,7 +3,6 @@
 //! See the [crate-level documentation](crate) for an overview and examples.
 
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -13,7 +12,7 @@ use rw_sections::Sections;
 use crate::backend::{AlertKind, RenderBackend};
 use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
 use crate::directive::DirectiveProcessor;
-use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry, escape_html};
+use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry};
 use crate::util::heading_level_to_num;
 
 /// Output produced by [`MarkdownRenderer::render`] or [`MarkdownRenderer::render_markdown`].
@@ -440,12 +439,16 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self.processors.iter().flat_map(|p| p.warnings()).cloned()
     }
 
-    /// Push content to output or heading buffer based on context.
-    fn push_inline(&mut self, content: &str) {
+    /// Get the appropriate output buffer for inline content.
+    ///
+    /// Returns the heading HTML buffer when inside a heading, otherwise the
+    /// main output buffer. Use this when calling backend methods that need
+    /// a `&mut String` target.
+    fn inline_out(&mut self) -> &mut String {
         if self.heading.is_active() {
-            self.heading.push_html(content);
+            self.heading.html_buffer()
         } else {
-            self.output.push_str(content);
+            &mut self.output
         }
     }
 
@@ -524,19 +527,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         }
     }
 
-    /// Build an `<a>` opening tag with optional ref attributes.
-    fn build_link_tag(href: &str, section_ref: Option<(&str, &str)>) -> String {
-        let mut tag = format!(r#"<a href="{}""#, escape_html(href));
-        if let Some((ref_string, section_path)) = section_ref {
-            write!(tag, r#" data-section-ref="{}""#, escape_html(ref_string)).unwrap();
-            if !section_path.is_empty() {
-                write!(tag, r#" data-section-path="{}""#, escape_html(section_path)).unwrap();
-            }
-        }
-        tag.push('>');
-        tag
-    }
-
     /// Renders pre-parsed pulldown-cmark events to the configured backend.
     ///
     /// Prefer [`render_markdown`](Self::render_markdown) for most use cases.
@@ -600,7 +590,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         match tag {
             Tag::Paragraph => {
                 if !self.code.is_active() {
-                    self.output.push_str("<p>");
+                    B::paragraph_start(&mut self.output);
                 }
             }
             Tag::Heading { level, .. } => {
@@ -631,48 +621,53 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             }
             Tag::List(start) => {
                 self.list_stack.push(start.is_some());
-                match start {
-                    Some(1) => self.output.push_str("<ol>"),
-                    Some(n) => write!(self.output, r#"<ol start="{n}">"#).unwrap(),
-                    None => self.output.push_str("<ul>"),
-                }
+                B::list_start(start.is_some(), start, &mut self.output);
             }
             Tag::Item => {
-                self.output.push_str("<li>");
+                B::list_item_start(&mut self.output);
             }
             Tag::FootnoteDefinition(_) | Tag::HtmlBlock => {}
             Tag::MetadataBlock(_) => {
                 self.in_metadata_block = true;
             }
             Tag::DefinitionList => {
-                self.output.push_str("<dl>");
+                B::definition_list_start(&mut self.output);
             }
             Tag::DefinitionListTitle => {
-                self.output.push_str("<dt>");
+                B::definition_title_start(&mut self.output);
             }
             Tag::DefinitionListDefinition => {
-                self.output.push_str("<dd>");
+                B::definition_detail_start(&mut self.output);
             }
             Tag::Table(alignments) => {
                 self.table.start(alignments);
-                self.output.push_str("<table>");
+                B::table_start(&mut self.output);
             }
             Tag::TableHead => {
                 self.table.start_head();
-                self.output.push_str("<thead><tr>");
+                B::table_head_start(&mut self.output);
             }
             Tag::TableRow => {
                 self.table.start_row();
-                self.output.push_str("<tr>");
+                B::table_row_start(&mut self.output);
             }
             Tag::TableCell => {
-                let align = self.table.current_alignment_style();
-                let tag = if self.table.is_in_head() { "th" } else { "td" };
-                write!(self.output, "<{tag}{align}>").unwrap();
+                let alignment = self.table.current_alignment();
+                let is_head = self.table.is_in_head();
+                B::table_cell_start(is_head, alignment, &mut self.output);
             }
-            Tag::Emphasis => self.push_inline("<em>"),
-            Tag::Strong => self.push_inline("<strong>"),
-            Tag::Strikethrough => self.push_inline("<s>"),
+            Tag::Emphasis => {
+                let out = self.inline_out();
+                B::emphasis_start(out);
+            }
+            Tag::Strong => {
+                let out = self.inline_out();
+                B::strong_start(out);
+            }
+            Tag::Strikethrough => {
+                let out = self.inline_out();
+                B::strikethrough_start(out);
+            }
             Tag::Link {
                 link_type: LinkType::WikiLink { has_pothole },
                 dest_url,
@@ -691,29 +686,32 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                         } else {
                             Some((section_ref.as_str(), subpath.as_str()))
                         };
-                        let link_tag = Self::build_link_tag(href, section_attrs);
-                        self.push_inline(&link_tag);
+                        let out = self.inline_out();
+                        B::link_start(href, section_attrs, out);
                     }
                     WikilinkResolution::Fragment(fragment) => {
-                        let link_tag = Self::build_link_tag(&format!("#{fragment}"), None);
-                        self.push_inline(&link_tag);
+                        let href = format!("#{fragment}");
+                        let out = self.inline_out();
+                        B::link_start(&href, None, out);
                     }
                     WikilinkResolution::Broken { .. } => {
-                        self.push_inline(r##"<a href="#" class="rw-broken-link">"##);
+                        let out = self.inline_out();
+                        B::broken_link_start(out);
                     }
                 }
                 if !has_pothole {
                     let display = self.wikilink_display_text(&resolution);
                     self.skip_wikilink_text = true;
-                    self.push_inline(&escape_html(&display));
+                    let out = self.inline_out();
+                    B::text(&display, out);
                 }
             }
             Tag::Link { dest_url, .. } => {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
                 let section_ref = self.section_ref_attrs(&href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
-                let link_tag = Self::build_link_tag(&href, section_attrs);
-                self.push_inline(&link_tag);
+                let out = self.inline_out();
+                B::link_start(&href, section_attrs, out);
             }
             Tag::Image {
                 dest_url, title, ..
@@ -722,8 +720,14 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 self.image.start();
                 self.pending_image = Some((dest_url.to_string(), title.to_string()));
             }
-            Tag::Superscript => self.push_inline("<sup>"),
-            Tag::Subscript => self.push_inline("<sub>"),
+            Tag::Superscript => {
+                let out = self.inline_out();
+                B::superscript_start(out);
+            }
+            Tag::Subscript => {
+                let out = self.inline_out();
+                B::subscript_start(out);
+            }
         }
     }
 
@@ -732,21 +736,16 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         match tag {
             TagEnd::Paragraph => {
                 if !self.code.is_active() {
-                    self.output.push_str("</p>");
+                    B::paragraph_end(&mut self.output);
                 }
             }
             TagEnd::Heading(_level) => {
                 if self.heading.is_in_first_h1() {
-                    // Complete first H1 capture for Confluence mode
                     self.heading.complete_first_h1();
                 } else if let Some((level, id, _text, html)) = self.heading.complete_heading() {
-                    // Write heading with ID
-                    write!(
-                        self.output,
-                        r#"<h{level} id="{id}">{}</h{level}>"#,
-                        html.trim()
-                    )
-                    .unwrap();
+                    B::heading_start(level, &id, &mut self.output);
+                    self.output.push_str(html.trim());
+                    B::heading_end(level, &mut self.output);
                 }
             }
             TagEnd::BlockQuote(_) => match self.alert_stack.pop() {
@@ -786,11 +785,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             }
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
-                self.output
-                    .push_str(if ordered { "</ol>" } else { "</ul>" });
+                B::list_end(ordered, &mut self.output);
             }
             TagEnd::Item => {
-                self.output.push_str("</li>");
+                B::list_item_end(&mut self.output);
             }
             TagEnd::FootnoteDefinition | TagEnd::HtmlBlock => {}
             TagEnd::MetadataBlock(_) => {
@@ -804,38 +802,52 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 }
             }
             TagEnd::DefinitionList => {
-                self.output.push_str("</dl>");
+                B::definition_list_end(&mut self.output);
             }
             TagEnd::DefinitionListTitle => {
-                self.output.push_str("</dt>");
+                B::definition_title_end(&mut self.output);
             }
             TagEnd::DefinitionListDefinition => {
-                self.output.push_str("</dd>");
+                B::definition_detail_end(&mut self.output);
             }
             TagEnd::Table => {
-                self.output.push_str("</tbody></table>");
+                B::table_end(&mut self.output);
             }
             TagEnd::TableHead => {
-                self.output.push_str("</tr></thead><tbody>");
+                B::table_head_end(&mut self.output);
                 self.table.end_head();
             }
             TagEnd::TableRow => {
-                self.output.push_str("</tr>");
+                B::table_row_end(&mut self.output);
             }
             TagEnd::TableCell => {
-                self.output.push_str(if self.table.is_in_head() {
-                    "</th>"
-                } else {
-                    "</td>"
-                });
+                B::table_cell_end(self.table.is_in_head(), &mut self.output);
                 self.table.next_cell();
             }
-            TagEnd::Emphasis => self.push_inline("</em>"),
-            TagEnd::Strong => self.push_inline("</strong>"),
-            TagEnd::Strikethrough => self.push_inline("</s>"),
-            TagEnd::Link => self.push_inline("</a>"),
-            TagEnd::Superscript => self.push_inline("</sup>"),
-            TagEnd::Subscript => self.push_inline("</sub>"),
+            TagEnd::Emphasis => {
+                let out = self.inline_out();
+                B::emphasis_end(out);
+            }
+            TagEnd::Strong => {
+                let out = self.inline_out();
+                B::strong_end(out);
+            }
+            TagEnd::Strikethrough => {
+                let out = self.inline_out();
+                B::strikethrough_end(out);
+            }
+            TagEnd::Link => {
+                let out = self.inline_out();
+                B::link_end(out);
+            }
+            TagEnd::Superscript => {
+                let out = self.inline_out();
+                B::superscript_end(out);
+            }
+            TagEnd::Subscript => {
+                let out = self.inline_out();
+                B::subscript_end(out);
+            }
         }
     }
 
@@ -848,35 +860,36 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             self.heading.push_text(text);
         } else if self.heading.is_active() {
             self.heading.push_text(text);
-            self.heading.push_html(&escape_html(text));
+            B::text(text, self.heading.html_buffer());
         } else {
-            self.output.push_str(&escape_html(text));
+            B::text(text, &mut self.output);
         }
     }
 
     fn inline_code(&mut self, code: &str) {
         if self.heading.is_active() {
             self.heading.push_text(code);
-            write!(
-                self.heading.html_buffer(),
-                "<code>{}</code>",
-                escape_html(code)
-            )
-            .unwrap();
+            B::inline_code(code, self.heading.html_buffer());
         } else {
-            write!(self.output, "<code>{}</code>", escape_html(code)).unwrap();
+            B::inline_code(code, &mut self.output);
         }
     }
 
     fn raw_html(&mut self, html: &str) {
-        self.output.push_str(html);
+        if self.heading.is_active() {
+            B::raw_html(html, self.heading.html_buffer());
+        } else {
+            B::raw_html(html, &mut self.output);
+        }
     }
 
     fn soft_break(&mut self) {
         if self.code.is_active() {
             self.code.push_newline();
+        } else if self.heading.is_active() {
+            B::soft_break(self.heading.html_buffer());
         } else {
-            self.output.push('\n');
+            B::soft_break(&mut self.output);
         }
     }
 

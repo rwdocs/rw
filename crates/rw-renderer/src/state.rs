@@ -93,14 +93,9 @@ impl TableState {
         self.in_head
     }
 
-    /// Get the alignment style for the current cell.
-    pub fn current_alignment_style(&self) -> &'static str {
-        match self.alignments.get(self.cell_index) {
-            Some(Alignment::Left) => r#" style="text-align:left""#,
-            Some(Alignment::Center) => r#" style="text-align:center""#,
-            Some(Alignment::Right) => r#" style="text-align:right""#,
-            Some(Alignment::None) | None => "",
-        }
+    /// Get the alignment for the current cell.
+    pub fn current_alignment(&self) -> Option<Alignment> {
+        self.alignments.get(self.cell_index).copied()
     }
 }
 
@@ -319,11 +314,6 @@ impl HeadingState {
         self.text.push_str(text);
     }
 
-    /// Append HTML to heading html buffer.
-    pub fn push_html(&mut self, html: &str) {
-        self.html.push_str(html);
-    }
-
     /// Get the heading HTML buffer reference.
     pub fn html_buffer(&mut self) -> &mut String {
         &mut self.html
@@ -456,22 +446,13 @@ mod tests {
 
         state.start_head();
         assert!(state.is_in_head());
-        assert_eq!(
-            state.current_alignment_style(),
-            r#" style="text-align:left""#
-        );
+        assert_eq!(state.current_alignment(), Some(Alignment::Left));
 
         state.next_cell();
-        assert_eq!(
-            state.current_alignment_style(),
-            r#" style="text-align:center""#
-        );
+        assert_eq!(state.current_alignment(), Some(Alignment::Center));
 
         state.next_cell();
-        assert_eq!(
-            state.current_alignment_style(),
-            r#" style="text-align:right""#
-        );
+        assert_eq!(state.current_alignment(), Some(Alignment::Right));
 
         state.end_head();
         assert!(!state.is_in_head());
