@@ -154,10 +154,10 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     image: ImageState,
     heading: HeadingState,
     base_path: Option<String>,
-    /// Source directory name for files outside `source_dir` (e.g., README.md).
+    /// Origin prefix (with trailing slash) for files outside `source_dir` (e.g., `"docs/"`).
     /// When set, relative links starting with this prefix have it stripped
     /// before resolution, so `docs/guide.md` resolves to `/guide` instead of `/docs/guide`.
-    origin: Option<String>,
+    origin_prefix: Option<String>,
     pending_image: Option<(String, String)>,
     processors: Vec<Box<dyn CodeBlockProcessor>>,
     code_block_index: usize,
@@ -197,7 +197,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             image: ImageState::default(),
             heading: HeadingState::new(false, B::TITLE_AS_METADATA),
             base_path: None,
-            origin: None,
+            origin_prefix: None,
             pending_image: None,
             processors: Vec::new(),
             code_block_index: 0,
@@ -241,7 +241,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// within URL space where `source_dir` is the root.
     #[must_use]
     pub fn with_origin(mut self, origin: impl Into<String>) -> Self {
-        self.origin = Some(origin.into());
+        let mut prefix = origin.into();
+        prefix.push('/');
+        self.origin_prefix = Some(prefix);
         self
     }
 
@@ -490,9 +492,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// relative links like `docs/guide.md` include the source directory name.
     /// This strips that prefix so the link resolves correctly in URL space.
     fn strip_origin<'a>(&self, url: &'a str) -> Cow<'a, str> {
-        if let Some(origin) = &self.origin {
-            let prefix = format!("{origin}/");
-            if let Some(stripped) = url.strip_prefix(&prefix) {
+        if let Some(prefix) = &self.origin_prefix {
+            if let Some(stripped) = url.strip_prefix(prefix.as_str()) {
                 return Cow::Owned(stripped.to_owned());
             }
         }
