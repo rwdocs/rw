@@ -82,6 +82,7 @@ impl MockStorage {
             has_content: true,
             page_kind: None,
             description: None,
+            origin: None,
         });
         self
     }
@@ -106,6 +107,7 @@ impl MockStorage {
             has_content: true,
             page_kind: Some(page_kind.into()),
             description: None,
+            origin: None,
         });
         self
     }
@@ -125,6 +127,7 @@ impl MockStorage {
             has_content: false,
             page_kind: None,
             description: None,
+            origin: None,
         });
         self
     }
@@ -147,6 +150,7 @@ impl MockStorage {
             has_content: false,
             page_kind: Some(page_kind.into()),
             description: None,
+            origin: None,
         });
         self
     }
@@ -186,6 +190,7 @@ impl MockStorage {
             has_content: true,
             page_kind: None,
             description: None,
+            origin: None,
         });
         self.contents.write().unwrap().insert(path, content.into());
         self
@@ -321,6 +326,7 @@ impl Storage for MockStorage {
                 has_content: d.has_content,
                 page_kind: d.page_kind.clone(),
                 description: d.description.clone(),
+                origin: d.origin.clone(),
             })
             .collect())
     }

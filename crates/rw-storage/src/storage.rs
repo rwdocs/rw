@@ -46,6 +46,11 @@ pub struct Document {
     /// Not inherited.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Source directory name for content originating outside `source_dir`.
+    /// When set (e.g., `"docs"`), the renderer strips this prefix from
+    /// relative links so they resolve correctly in URL space.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
@@ -344,6 +349,7 @@ mod tests {
             has_content: true,
             page_kind: None,
             description: None,
+            origin: None,
         };
 
         assert_eq!(doc.path, "");
@@ -360,6 +366,7 @@ mod tests {
             has_content: true,
             page_kind: None,
             description: None,
+            origin: None,
         };
 
         assert_eq!(doc.path, "guide");
@@ -376,6 +383,7 @@ mod tests {
             has_content: true,
             page_kind: Some("domain".to_owned()),
             description: None,
+            origin: None,
         };
 
         assert_eq!(doc.path, "domain/billing");
@@ -391,6 +399,7 @@ mod tests {
             has_content: false,
             page_kind: Some("section".to_owned()),
             description: None,
+            origin: None,
         };
 
         assert_eq!(doc.path, "domains");

@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** `getNavigation()` on `RwSite` is now async (returns a Promise) — previously it blocked the Node.js event loop during S3 operations on cold cache or reload
 - S3-backed `RwSite` instances now share a single tokio runtime instead of each creating its own thread pool, reducing resource usage when serving multiple documentation entities
 
+### Fixed
+
+- Relative links from README.md homepage (e.g., `[Guide](docs/guide.md)`) now resolve correctly to `/guide` instead of the non-existent `/docs/guide`
+
 ## [0.1.22] - 2026-04-03
 
 ### Added

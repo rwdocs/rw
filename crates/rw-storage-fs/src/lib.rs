@@ -289,6 +289,7 @@ impl FsStorage {
                 has_content: true,
                 page_kind: meta.kind,
                 description: meta.description,
+                origin: None,
             })
         } else if let Some(meta_path) = &doc_ref.meta_path {
             let meta_yaml = fs::read_to_string(meta_path).ok()?;
@@ -309,6 +310,7 @@ impl FsStorage {
                 has_content: false,
                 page_kind: meta.kind,
                 description: meta.description,
+                origin: None,
             })
         } else {
             None
@@ -479,12 +481,18 @@ impl Storage for FsStorage {
         {
             let markdown = fs::read_to_string(readme_path).ok();
             let meta = Meta::resolve(markdown.as_deref(), None, "home");
+            let origin = self
+                .source_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(ToOwned::to_owned);
             documents.push(Document {
                 path: String::new(),
                 title: meta.title,
                 has_content: true,
                 page_kind: None,
                 description: None,
+                origin,
             });
         }
 
@@ -1601,6 +1609,19 @@ mod tests {
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
         assert_eq!(home.title, "My Project");
         assert!(home.has_content);
+    }
+
+    #[test]
+    fn test_scan_sets_origin_on_readme_homepage() {
+        let (dir, _, storage) = create_readme_test_dir("# My Project");
+        fs::write(dir.path().join("docs/guide.md"), "# Guide").unwrap();
+        let docs = storage.scan().unwrap();
+
+        let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
+        assert_eq!(home.origin, Some("docs".to_owned()));
+
+        let guide = docs.iter().find(|d| d.path == "guide").unwrap();
+        assert_eq!(guide.origin, None);
     }
 
     #[test]

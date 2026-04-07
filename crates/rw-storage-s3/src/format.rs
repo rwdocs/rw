@@ -75,6 +75,7 @@ mod tests {
                 has_content: true,
                 page_kind: None,
                 description: None,
+                origin: None,
             },
             Document {
                 path: "guide".to_owned(),
@@ -82,6 +83,7 @@ mod tests {
                 has_content: true,
                 page_kind: Some("guide".to_owned()),
                 description: Some("Getting started".to_owned()),
+                origin: None,
             },
         ]);
 
@@ -135,6 +137,7 @@ mod tests {
             has_content: true,
             page_kind: None,
             description: None,
+            origin: None,
         };
 
         let json = serde_json::to_string(&doc).unwrap();
