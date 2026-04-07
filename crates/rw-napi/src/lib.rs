@@ -26,15 +26,14 @@ use crate::types::{
 ///
 /// Created on first use and lives for the process lifetime.
 /// Avoids spawning a separate thread pool per `RwSite`.
-fn shared_runtime() -> napi::Result<Arc<tokio::runtime::Runtime>> {
+fn shared_runtime() -> Arc<tokio::runtime::Runtime> {
     static RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
-    let runtime = RUNTIME.get_or_init(|| {
+    Arc::clone(RUNTIME.get_or_init(|| {
         Arc::new(
             tokio::runtime::Runtime::new()
                 .expect("Failed to create tokio runtime for S3 storage"),
         )
-    });
-    Ok(Arc::clone(runtime))
+    }))
 }
 
 /// Format an error with its full source chain.
@@ -130,7 +129,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             access_key_id: s3.access_key_id,
             secret_access_key: s3.secret_access_key,
         };
-        let storage = S3Storage::new(s3_config, shared_runtime()?).map_err(|e| {
+        let storage = S3Storage::new(s3_config, shared_runtime()).map_err(|e| {
             napi::Error::from_reason(format!("Failed to create S3 storage: {}", error_chain(&e)))
         })?;
 
