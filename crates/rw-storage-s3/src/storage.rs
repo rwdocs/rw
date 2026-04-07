@@ -3,11 +3,12 @@
 //! Reads documentation bundles from S3 using the format defined in [`crate::format`].
 //! Tracks the manifest `ETag` to support change detection via [`Storage::has_changed`].
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::GetObjectError;
 use rw_storage::{Document, Metadata, Storage, StorageError, StorageErrorKind};
+use tokio::runtime::{Handle, Runtime};
 
 use crate::format::{self, FORMAT_VERSION, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
@@ -16,14 +17,14 @@ const BACKEND: &str = "S3";
 
 /// S3-backed storage that reads pre-built documentation bundles.
 ///
-/// Uses a dedicated tokio runtime for async S3 operations within
-/// the synchronous `Storage` trait interface.
+/// Shares a caller-provided tokio runtime for async S3 operations
+/// within the synchronous `Storage` trait interface.
 ///
 /// Read methods fetch fresh data from S3 on each call. The manifest
 /// `ETag` is tracked across calls to support [`Storage::has_changed`].
 pub struct S3Storage {
     client: Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: Arc<Runtime>,
     config: S3Config,
     last_etag: Mutex<Option<String>>,
 }
@@ -31,14 +32,8 @@ pub struct S3Storage {
 impl S3Storage {
     /// Create a new `S3Storage`.
     ///
-    /// Initializes an S3 client and a dedicated tokio runtime.
-    pub fn new(config: S3Config) -> Result<Self, StorageError> {
-        let runtime = tokio::runtime::Runtime::new().map_err(|e| {
-            StorageError::new(StorageErrorKind::Other)
-                .with_backend(BACKEND)
-                .with_source(e)
-        })?;
-
+    /// Uses the provided tokio runtime for async S3 operations.
+    pub fn new(config: S3Config, runtime: Arc<Runtime>) -> Result<Self, StorageError> {
         let client = runtime.block_on(s3::build_client(&config));
 
         Ok(Self {
@@ -55,7 +50,7 @@ impl S3Storage {
     }
 
     /// Returns a handle to the tokio runtime.
-    pub fn runtime_handle(&self) -> tokio::runtime::Handle {
+    pub fn runtime_handle(&self) -> Handle {
         self.runtime.handle().clone()
     }
 
