@@ -1,7 +1,7 @@
 mod types;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
@@ -21,6 +21,21 @@ use crate::types::{
     PageResponse, ScopeInfoResponse, SearchDocumentResponse, SectionResponse, SiteConfig,
     TocEntryResponse,
 };
+
+/// Shared tokio runtime for all S3-backed storage instances.
+///
+/// Created on first use and lives for the process lifetime.
+/// Avoids spawning a separate thread pool per `RwSite`.
+fn shared_runtime() -> napi::Result<Arc<tokio::runtime::Runtime>> {
+    static RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
+    let runtime = RUNTIME.get_or_init(|| {
+        Arc::new(
+            tokio::runtime::Runtime::new()
+                .expect("Failed to create tokio runtime for S3 storage"),
+        )
+    });
+    Ok(Arc::clone(runtime))
+}
 
 /// Format an error with its full source chain.
 fn error_chain(err: &dyn std::error::Error) -> String {
@@ -115,7 +130,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             access_key_id: s3.access_key_id,
             secret_access_key: s3.secret_access_key,
         };
-        let storage = S3Storage::new(s3_config).map_err(|e| {
+        let storage = S3Storage::new(s3_config, shared_runtime()?).map_err(|e| {
             napi::Error::from_reason(format!("Failed to create S3 storage: {}", error_chain(&e)))
         })?;
 
