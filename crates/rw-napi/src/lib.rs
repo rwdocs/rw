@@ -185,16 +185,23 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
 #[allow(clippy::needless_pass_by_value)]
 impl RwSite {
     #[napi(js_name = "getNavigation")]
-    pub fn get_navigation(&self, section_ref: Option<String>) -> Result<NavigationResponse> {
-        let nav = self
-            .site
-            .navigation(section_ref.as_deref())
-            .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
-        Ok(NavigationResponse {
-            items: nav.items.into_iter().map(convert_nav_item).collect(),
-            scope: nav.scope.map(convert_scope_info),
-            parent_scope: nav.parent_scope.map(convert_scope_info),
+    pub async fn get_navigation(
+        &self,
+        section_ref: Option<String>,
+    ) -> Result<NavigationResponse> {
+        let site = Arc::clone(&self.site);
+        tokio::task::spawn_blocking(move || {
+            let nav = site
+                .navigation(section_ref.as_deref())
+                .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
+            Ok(NavigationResponse {
+                items: nav.items.into_iter().map(convert_nav_item).collect(),
+                scope: nav.scope.map(convert_scope_info),
+                parent_scope: nav.parent_scope.map(convert_scope_info),
+            })
         })
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
     #[napi]
