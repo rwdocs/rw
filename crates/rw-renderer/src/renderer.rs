@@ -2,6 +2,7 @@
 //!
 //! See the [crate-level documentation](crate) for an overview and examples.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -153,6 +154,10 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     image: ImageState,
     heading: HeadingState,
     base_path: Option<String>,
+    /// Source directory name for files outside `source_dir` (e.g., README.md).
+    /// When set, relative links starting with this prefix have it stripped
+    /// before resolution, so `docs/guide.md` resolves to `/guide` instead of `/docs/guide`.
+    origin: Option<String>,
     pending_image: Option<(String, String)>,
     processors: Vec<Box<dyn CodeBlockProcessor>>,
     code_block_index: usize,
@@ -192,6 +197,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             image: ImageState::default(),
             heading: HeadingState::new(false, B::TITLE_AS_METADATA),
             base_path: None,
+            origin: None,
             pending_image: None,
             processors: Vec::new(),
             code_block_index: 0,
@@ -225,6 +231,17 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     #[must_use]
     pub fn with_base_path(mut self, path: impl Into<String>) -> Self {
         self.base_path = Some(path.into());
+        self
+    }
+
+    /// Set the origin (source directory name) for files outside `source_dir`.
+    ///
+    /// When set, relative links starting with this prefix (e.g., `docs/guide.md`)
+    /// have the prefix stripped before resolution, so the link resolves correctly
+    /// within URL space where `source_dir` is the root.
+    #[must_use]
+    pub fn with_origin(mut self, origin: impl Into<String>) -> Self {
+        self.origin = Some(origin.into());
         self
     }
 
@@ -467,6 +484,21 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         Some((sp.section.to_string(), sp.path.to_owned()))
     }
 
+    /// Strip the origin prefix from a URL if it matches.
+    ///
+    /// For files outside `source_dir` (e.g., README.md at the project root),
+    /// relative links like `docs/guide.md` include the source directory name.
+    /// This strips that prefix so the link resolves correctly in URL space.
+    fn strip_origin<'a>(&self, url: &'a str) -> Cow<'a, str> {
+        if let Some(origin) = &self.origin {
+            let prefix = format!("{origin}/");
+            if let Some(stripped) = url.strip_prefix(&prefix) {
+                return Cow::Owned(stripped.to_owned());
+            }
+        }
+        Cow::Borrowed(url)
+    }
+
     /// Resolve a wikilink `dest_url` to a `WikilinkResolution`.
     fn resolve_wikilink(&self, dest_url: &str) -> WikilinkResolution {
         if let Some(fragment) = dest_url.strip_prefix('#') {
@@ -707,6 +739,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 }
             }
             Tag::Link { dest_url, .. } => {
+                let dest_url = self.strip_origin(&dest_url);
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
                 let section_ref = self.section_ref_attrs(&href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
@@ -718,7 +751,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             } => {
                 // Start collecting alt text; image will be rendered in end_tag
                 self.image.start();
-                self.pending_image = Some((dest_url.to_string(), title.to_string()));
+                let dest_url = self.strip_origin(&dest_url);
+                self.pending_image = Some((dest_url.into_owned(), title.to_string()));
             }
             Tag::Superscript => {
                 let out = self.inline_out();
@@ -944,6 +978,15 @@ mod tests {
             .render(parser)
     }
 
+    fn render_with_origin(markdown: &str, base_path: &str, origin: &str) -> RenderResult {
+        let options = Options::ENABLE_TABLES;
+        let parser = Parser::new_ext(markdown, options);
+        MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path(base_path)
+            .with_origin(origin)
+            .render(parser)
+    }
+
     fn render_with_tasklists(markdown: &str) -> RenderResult {
         let options = Options::ENABLE_TASKLISTS;
         let parser = Parser::new_ext(markdown, options);
@@ -1075,6 +1118,42 @@ mod tests {
     fn test_html_link_with_base_path() {
         let result = render_with_base_path("[Link](./page.md)", "/base/path");
         assert!(result.html.contains(r#"href="/base/path/page""#));
+    }
+
+    #[test]
+    fn test_origin_strips_source_dir_from_links() {
+        let result = render_with_origin("[Guide](docs/guide.md)", "/", "docs");
+        assert!(
+            result.html.contains(r#"href="/guide""#),
+            "Expected href=\"/guide\", got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_origin_strips_source_dir_from_nested_links() {
+        let result = render_with_origin("[Config](docs/sub/config.md)", "/", "docs");
+        assert!(
+            result.html.contains(r#"href="/sub/config""#),
+            "Expected href=\"/sub/config\", got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_origin_preserves_links_without_prefix() {
+        let result = render_with_origin("[Other](other/page.md)", "/", "docs");
+        assert!(
+            result.html.contains(r#"href="/other/page""#),
+            "Expected href=\"/other/page\", got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_origin_preserves_external_links() {
+        let result = render_with_origin("[Ext](https://example.com)", "/", "docs");
+        assert!(result.html.contains(r#"href="https://example.com""#));
     }
 
     #[test]

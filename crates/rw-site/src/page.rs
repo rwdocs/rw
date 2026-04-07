@@ -103,6 +103,9 @@ pub struct Page {
     /// Optional description from the page's metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Source directory name for content originating outside `source_dir`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 /// One segment of the breadcrumb trail leading to a page.
@@ -305,7 +308,7 @@ impl PageRenderer {
 
         let markdown_text = self.storage.read(path)?;
         let result = self
-            .create_renderer(path, ctx)
+            .create_renderer(path, page.origin.as_deref(), ctx)
             .render_markdown(&markdown_text);
 
         self.page_bucket.set_json(
@@ -394,10 +397,15 @@ impl PageRenderer {
     fn create_renderer(
         &self,
         base_path: &str,
+        origin: Option<&str>,
         ctx: &RenderContext,
     ) -> MarkdownRenderer<HtmlBackend> {
         let mut renderer =
             MarkdownRenderer::<HtmlBackend>::new().with_base_path(format!("/{base_path}"));
+
+        if let Some(origin) = origin {
+            renderer = renderer.with_origin(origin);
+        }
 
         if self.extract_title {
             renderer = renderer.with_title_extraction();
@@ -500,6 +508,7 @@ mod tests {
             path: path.to_owned(),
             has_content,
             description: None,
+            origin: None,
         }
     }
 
@@ -519,6 +528,26 @@ mod tests {
         assert_eq!(result.title, Some("Hello".to_owned()));
         assert!(!result.from_cache);
         assert!(result.has_content);
+    }
+
+    #[test]
+    fn test_render_readme_with_origin_resolves_links_correctly() {
+        let storage = MockStorage::new()
+            .with_file("", "Home", "# Home\n\n[Guide](docs/guide.md)")
+            .with_mtime("", 1000.0);
+        let renderer = create_renderer(storage);
+
+        let mut page = make_page("Home", "", true);
+        page.origin = Some("docs".to_owned());
+        let result = renderer
+            .render("", &page, vec![], &RenderContext::default())
+            .unwrap();
+
+        assert!(
+            result.html.contains(r#"href="/guide""#),
+            "Expected href=\"/guide\", got: {}",
+            result.html
+        );
     }
 
     #[test]

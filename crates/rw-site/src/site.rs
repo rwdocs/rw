@@ -464,6 +464,7 @@ impl Site {
                 parent_idx,
                 doc.page_kind.as_deref(),
                 doc.description.as_deref(),
+                doc.origin.clone(),
             );
             url_to_idx.insert(doc.path.clone(), idx);
         }
