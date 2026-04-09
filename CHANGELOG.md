@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.23] - 2026-04-09
+
 ### Added
 
 - `pages` field in directory-level `meta.yaml` or `index.md` frontmatter to control navigation sidebar order — listed pages appear first in declared order, unlisted pages follow alphabetically
