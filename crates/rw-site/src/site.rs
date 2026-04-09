@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::page::{
-    BreadcrumbItem, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext, RenderError,
-    SearchDocument,
+    BreadcrumbItem, Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext,
+    RenderError, SearchDocument,
 };
 use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
@@ -254,6 +254,18 @@ impl Site {
             .map(|p| p.title.clone())
     }
 
+    /// Returns the `pages` ordering for a page from the current cached snapshot,
+    /// or `None` if the page does not exist or has no ordering.
+    ///
+    /// Like [`page_title`](Self::page_title), does **not** trigger a reload.
+    #[must_use]
+    pub fn page_pages(&self, path: &str) -> Option<Vec<String>> {
+        self.snapshot()
+            .state
+            .get_page(path)
+            .and_then(|p| p.pages.clone())
+    }
+
     /// Returns the [`BreadcrumbItem`] trail for a page.
     ///
     /// The trail starts with "Home" (path `""`) and includes each ancestor
@@ -458,15 +470,27 @@ impl Site {
             let parent_idx = Self::find_parent_from_url(&doc.path, &url_to_idx);
 
             let idx = builder.add_page(
-                doc.title.clone(),
-                doc.path.clone(),
-                doc.has_content,
+                Page {
+                    title: doc.title.clone(),
+                    path: doc.path.clone(),
+                    has_content: doc.has_content,
+                    description: doc.description.clone(),
+                    origin: doc.origin.clone(),
+                    pages: doc.pages.clone(),
+                },
                 parent_idx,
                 doc.page_kind.as_deref(),
-                doc.description.as_deref(),
-                doc.origin.clone(),
             );
             url_to_idx.insert(doc.path.clone(), idx);
+        }
+
+        // Apply custom page ordering from `pages` metadata
+        for doc in &documents {
+            if let Some(pages) = &doc.pages {
+                if let Some(&idx) = url_to_idx.get(&doc.path) {
+                    builder.reorder_children(idx, pages);
+                }
+            }
         }
 
         Ok(builder.build())
@@ -1252,5 +1276,58 @@ mod tests {
         let result = site.reload(false);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn test_navigation_ordered_by_pages_field() {
+        let storage = MockStorage::new()
+            .with_document_and_pages(
+                "",
+                "Home",
+                vec!["getting-started".to_owned(), "config".to_owned()],
+            )
+            .with_document("advanced", "Advanced Topics")
+            .with_document("config", "Configuration")
+            .with_document("getting-started", "Getting Started");
+
+        let site = create_site_with_storage(storage);
+        let snapshot = site.reload_if_needed().unwrap();
+        let nav = snapshot.state.navigation("");
+
+        assert_eq!(nav.items[0].path, "getting-started");
+        assert_eq!(nav.items[1].path, "config");
+        assert_eq!(nav.items[2].path, "advanced"); // unlisted
+    }
+
+    #[test]
+    fn test_page_ordering_end_to_end_with_fs() {
+        use std::fs;
+
+        use rw_storage_fs::FsStorage;
+
+        let dir = tempfile::tempdir().unwrap();
+        let docs = dir.path().join("docs");
+        fs::create_dir_all(&docs).unwrap();
+
+        fs::write(docs.join("index.md"), "# Home").unwrap();
+        fs::write(docs.join("advanced.md"), "# Advanced").unwrap();
+        fs::write(docs.join("getting-started.md"), "# Getting Started").unwrap();
+        fs::write(docs.join("configuration.md"), "# Configuration").unwrap();
+        fs::write(
+            docs.join("meta.yaml"),
+            "pages:\n  - getting-started\n  - configuration",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(docs);
+        let config = PageRendererConfig::default();
+        let site = Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config);
+        let snapshot = site.reload_if_needed().unwrap();
+        let nav = snapshot.state.navigation("");
+
+        assert_eq!(nav.items.len(), 3);
+        assert_eq!(nav.items[0].path, "getting-started");
+        assert_eq!(nav.items[1].path, "configuration");
+        assert_eq!(nav.items[2].path, "advanced"); // unlisted, alphabetical
     }
 }

@@ -89,7 +89,7 @@ impl Default for PageRendererConfig {
 /// markdown content have [`has_content`](Self::has_content) set to `true`;
 /// [virtual pages](crate#virtual-pages) (directories without `index.md`)
 /// have it set to `false`.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
     /// Display title, resolved from (in priority order): metadata `title`
     /// field, first `# H1` heading, or filename.
@@ -106,6 +106,9 @@ pub struct Page {
     /// Source directory name for content originating outside `source_dir`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+    /// Ordered list of child page slugs for navigation ordering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<Vec<String>>,
 }
 
 /// One segment of the breadcrumb trail leading to a page.
@@ -509,6 +512,7 @@ mod tests {
             has_content,
             description: None,
             origin: None,
+            pages: None,
         }
     }
 

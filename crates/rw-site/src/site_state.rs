@@ -8,7 +8,7 @@
 //! This module also defines the navigation types ([`NavItem`], [`Navigation`],
 //! [`ScopeInfo`]) that the frontend consumes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use rw_cache::{CacheBucket, CacheBucketExt};
@@ -532,38 +532,24 @@ impl SiteStateBuilder {
 
     /// Add a page to the site.
     ///
-    /// # Arguments
-    ///
-    /// * `title` - Page title
-    /// * `path` - URL path (e.g., "/guide")
-    /// * `has_content` - True if page has content (real page), false for virtual pages
-    /// * `parent_idx` - Index of parent page, `None` for root
-    /// * `page_kind` - Optional page kind from metadata (creates section if present)
-    ///
-    /// # Returns
-    ///
-    /// Index of the added page.
+    /// Returns the index of the added page.
     pub(crate) fn add_page(
         &mut self,
-        title: String,
-        path: String,
-        has_content: bool,
+        page: Page,
         parent_idx: Option<usize>,
         page_kind: Option<&str>,
-        description: Option<&str>,
-        origin: Option<String>,
     ) -> usize {
         let idx = self.pages.len();
 
         // Register section if page has a kind
         if let Some(section_kind) = page_kind {
-            let name = if path.is_empty() {
+            let name = if page.path.is_empty() {
                 Section::ROOT_NAME.to_owned()
             } else {
-                last_segment(&path).to_owned()
+                last_segment(&page.path).to_owned()
             };
             self.sections.insert(
-                path.clone(),
+                page.path.clone(),
                 Section {
                     name,
                     kind: section_kind.to_owned(),
@@ -571,13 +557,7 @@ impl SiteStateBuilder {
             );
         }
 
-        self.pages.push(Page {
-            title,
-            path,
-            has_content,
-            description: description.map(ToOwned::to_owned),
-            origin,
-        });
+        self.pages.push(page);
         self.children.push(Vec::new());
         self.parents.push(parent_idx);
 
@@ -588,6 +568,76 @@ impl SiteStateBuilder {
         }
 
         idx
+    }
+
+    /// Reorder children of `parent_idx` according to `slugs`.
+    ///
+    /// Listed slugs appear first in declared order, unlisted children
+    /// appear after sorted alphabetically by path. Section directories,
+    /// missing slugs, and duplicates are warned and skipped.
+    pub(crate) fn reorder_children(&mut self, parent_idx: usize, slugs: &[String]) {
+        let children = &self.children[parent_idx];
+        if children.is_empty() || slugs.is_empty() {
+            return;
+        }
+
+        let parent_path = self.pages[parent_idx].path.as_str();
+
+        let child_by_path: HashMap<&str, usize> = children
+            .iter()
+            .map(|&idx| (self.pages[idx].path.as_str(), idx))
+            .collect();
+
+        let mut listed = Vec::new();
+        let mut seen = HashSet::new();
+
+        for slug in slugs {
+            if !seen.insert(slug) {
+                tracing::warn!(
+                    parent = parent_path,
+                    slug = slug.as_str(),
+                    "duplicate slug in pages, ignoring"
+                );
+                continue;
+            }
+
+            let child_path = if parent_path.is_empty() {
+                slug.to_owned()
+            } else {
+                format!("{parent_path}/{slug}")
+            };
+
+            let Some(&idx) = child_by_path.get(child_path.as_str()) else {
+                tracing::warn!(
+                    parent = parent_path,
+                    slug = slug.as_str(),
+                    "slug in pages has no matching child, skipping"
+                );
+                continue;
+            };
+
+            if self.sections.contains_key(child_path.as_str()) {
+                tracing::warn!(
+                    parent = parent_path,
+                    slug = slug.as_str(),
+                    "slug in pages matches a section directory, skipping"
+                );
+                continue;
+            }
+
+            listed.push(idx);
+        }
+
+        let mut unlisted: Vec<usize> = children
+            .iter()
+            .filter(|idx| !listed.contains(idx))
+            .copied()
+            .collect();
+        unlisted.sort_by(|&a, &b| self.pages[a].path.cmp(&self.pages[b].path));
+
+        let mut reordered = listed;
+        reordered.extend(unlisted);
+        self.children[parent_idx] = reordered;
     }
 
     /// Build the [`SiteState`] instance.
@@ -658,11 +708,12 @@ mod tests {
     fn test_get_page_returns_page() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -699,11 +750,12 @@ mod tests {
     fn test_get_breadcrumbs_root_page_returns_home() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -720,21 +772,23 @@ mod tests {
     fn test_get_breadcrumbs_nested_page_returns_ancestors() {
         let mut builder = SiteStateBuilder::new();
         let parent_idx = builder.add_page(
-            "Parent".to_owned(),
-            "parent".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Parent".to_owned(),
+                path: "parent".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         builder.add_page(
-            "Child".to_owned(),
-            "parent/child".to_owned(),
-            true,
+            Page {
+                title: "Child".to_owned(),
+                path: "parent/child".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(parent_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -761,30 +815,33 @@ mod tests {
     fn test_get_breadcrumbs_with_root_index_excludes_root() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Welcome".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Welcome".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         let domain_idx = builder.add_page(
-            "Domain".to_owned(),
-            "domain".to_owned(),
-            true,
+            Page {
+                title: "Domain".to_owned(),
+                path: "domain".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
-            None,
-            None,
             None,
         );
         builder.add_page(
-            "Page".to_owned(),
-            "domain/page".to_owned(),
-            true,
+            Page {
+                title: "Page".to_owned(),
+                path: "domain/page".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(domain_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -801,8 +858,26 @@ mod tests {
     #[test]
     fn test_get_root_pages_returns_roots() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page("A".to_owned(), "a".to_owned(), true, None, None, None, None);
-        builder.add_page("B".to_owned(), "b".to_owned(), true, None, None, None, None);
+        builder.add_page(
+            Page {
+                title: "A".to_owned(),
+                path: "a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "B".to_owned(),
+                path: "b".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
         let site = builder.build();
 
         let roots = site.get_root_pages();
@@ -819,11 +894,12 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
 
         let idx = builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -835,8 +911,26 @@ mod tests {
     fn test_add_page_increments_index() {
         let mut builder = SiteStateBuilder::new();
 
-        let idx1 = builder.add_page("A".to_owned(), "a".to_owned(), true, None, None, None, None);
-        let idx2 = builder.add_page("B".to_owned(), "b".to_owned(), true, None, None, None, None);
+        let idx1 = builder.add_page(
+            Page {
+                title: "A".to_owned(),
+                path: "a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        let idx2 = builder.add_page(
+            Page {
+                title: "B".to_owned(),
+                path: "b".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
 
         assert_eq!(idx1, 0);
         assert_eq!(idx2, 1);
@@ -846,21 +940,23 @@ mod tests {
     fn test_add_page_with_parent_links_child() {
         let mut builder = SiteStateBuilder::new();
         let parent_idx = builder.add_page(
-            "Parent".to_owned(),
-            "parent".to_owned(),
-            true,
+            Page {
+                title: "Parent".to_owned(),
+                path: "parent".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             Some("section"),
-            None,
-            None,
         );
         builder.add_page(
-            "Child".to_owned(),
-            "parent/child".to_owned(),
-            true,
+            Page {
+                title: "Child".to_owned(),
+                path: "parent/child".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(parent_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -875,11 +971,12 @@ mod tests {
     fn test_build_creates_site() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -899,6 +996,7 @@ mod tests {
             has_content: true,
             description: None,
             origin: None,
+            pages: None,
         };
 
         assert_eq!(page.title, "Guide");
@@ -935,20 +1033,22 @@ mod tests {
     fn test_navigation_flat_site() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         builder.add_page(
-            "API".to_owned(),
-            "api".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "API".to_owned(),
+                path: "api".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -966,21 +1066,23 @@ mod tests {
     fn test_navigation_nested_site() {
         let mut builder = SiteStateBuilder::new();
         let parent_idx = builder.add_page(
-            "Domain A".to_owned(),
-            "domain-a".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Domain A".to_owned(),
+                path: "domain-a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         builder.add_page(
-            "Setup Guide".to_owned(),
-            "domain-a/guide".to_owned(),
-            true,
+            Page {
+                title: "Setup Guide".to_owned(),
+                path: "domain-a/guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(parent_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1000,23 +1102,34 @@ mod tests {
     #[test]
     fn test_navigation_deeply_nested() {
         let mut builder = SiteStateBuilder::new();
-        let idx_a = builder.add_page("A".to_owned(), "a".to_owned(), true, None, None, None, None);
-        let idx_b = builder.add_page(
-            "B".to_owned(),
-            "a/b".to_owned(),
-            true,
-            Some(idx_a),
-            None,
+        let idx_a = builder.add_page(
+            Page {
+                title: "A".to_owned(),
+                path: "a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
+        let idx_b = builder.add_page(
+            Page {
+                title: "B".to_owned(),
+                path: "a/b".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(idx_a),
+            None,
+        );
         builder.add_page(
-            "C".to_owned(),
-            "a/b/c".to_owned(),
-            true,
+            Page {
+                title: "C".to_owned(),
+                path: "a/b/c".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(idx_b),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1033,30 +1146,33 @@ mod tests {
     fn test_navigation_root_page_excluded() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
-            None,
-            None,
-        );
-        builder.add_page(
-            "Domains".to_owned(),
-            "domains".to_owned(),
-            true,
-            Some(root_idx),
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         builder.add_page(
-            "Usage".to_owned(),
-            "usage".to_owned(),
-            true,
+            Page {
+                title: "Domains".to_owned(),
+                path: "domains".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             None,
-            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Usage".to_owned(),
+                path: "usage".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root_idx),
             None,
         );
         let site = builder.build();
@@ -1075,39 +1191,43 @@ mod tests {
     fn test_navigation_includes_section() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             Some("domain"),
-            None,
-            None,
         );
         builder.add_page(
-            "Payments".to_owned(),
-            "payments".to_owned(),
-            true,
+            Page {
+                title: "Payments".to_owned(),
+                path: "payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             Some("system"),
-            None,
-            None,
         );
         builder.add_page(
-            "Getting Started".to_owned(),
-            "getting-started".to_owned(),
-            true,
+            Page {
+                title: "Getting Started".to_owned(),
+                path: "getting-started".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1253,30 +1373,33 @@ mod tests {
     fn test_navigation_root_scope() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             Some("domain"),
-            None,
-            None,
         );
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1303,31 +1426,34 @@ mod tests {
     fn test_navigation_sections_are_leaves_in_root() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         let billing_idx = builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             Some("domain"),
-            None,
-            None,
         );
         // Add child under section
         builder.add_page(
-            "Payments".to_owned(),
-            "billing/payments".to_owned(),
-            true,
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(billing_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1343,39 +1469,43 @@ mod tests {
     fn test_navigation_section_scope() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         let billing_idx = builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             Some("domain"),
-            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(billing_idx),
             None,
         );
         builder.add_page(
-            "Payments".to_owned(),
-            "billing/payments".to_owned(),
-            true,
+            Page {
+                title: "Invoicing".to_owned(),
+                path: "billing/invoicing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(billing_idx),
-            None,
-            None,
-            None,
-        );
-        builder.add_page(
-            "Invoicing".to_owned(),
-            "billing/invoicing".to_owned(),
-            true,
-            Some(billing_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1407,39 +1537,43 @@ mod tests {
     fn test_navigation_nested_sections() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         let billing_idx = builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             Some("domain"),
-            None,
-            None,
         );
         let payments_idx = builder.add_page(
-            "Payments".to_owned(),
-            "billing/payments".to_owned(),
-            true,
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(billing_idx),
             Some("system"),
-            None,
-            None,
         );
         builder.add_page(
-            "API".to_owned(),
-            "billing/payments/api".to_owned(),
-            true,
+            Page {
+                title: "API".to_owned(),
+                path: "billing/payments/api".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(payments_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1470,13 +1604,14 @@ mod tests {
     fn test_get_section_ref_page_is_section() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             Some("domain"),
-            None,
-            None,
         );
         let site = builder.build();
 
@@ -1489,21 +1624,23 @@ mod tests {
     fn test_get_section_ref_page_inside_section() {
         let mut builder = SiteStateBuilder::new();
         let billing_idx = builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             Some("domain"),
-            None,
-            None,
         );
         builder.add_page(
-            "Payments".to_owned(),
-            "billing/payments".to_owned(),
-            true,
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(billing_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1517,30 +1654,33 @@ mod tests {
     fn test_get_section_ref_page_deeply_nested() {
         let mut builder = SiteStateBuilder::new();
         let billing_idx = builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             Some("domain"),
-            None,
-            None,
         );
         let payments_idx = builder.add_page(
-            "Payments".to_owned(),
-            "billing/payments".to_owned(),
-            true,
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(billing_idx),
             Some("system"),
-            None,
-            None,
         );
         builder.add_page(
-            "API".to_owned(),
-            "billing/payments/api".to_owned(),
-            true,
+            Page {
+                title: "API".to_owned(),
+                path: "billing/payments/api".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(payments_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1554,11 +1694,12 @@ mod tests {
     fn test_get_section_ref_page_not_in_section() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -1574,11 +1715,12 @@ mod tests {
     fn test_navigation_invalid_scope_returns_empty() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -1598,32 +1740,34 @@ mod tests {
     fn test_navigation_excludes_virtual_pages_without_content() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         // Virtual page (no content) with no children
         builder.add_page(
-            "Empty Section".to_owned(),
-            "empty".to_owned(),
-            false, // Virtual page
+            Page {
+                title: "Empty Section".to_owned(),
+                path: "empty".to_owned(),
+                ..Default::default()
+            },
             Some(root_idx),
-            None,
-            None,
             None,
         );
         // Real page
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1639,32 +1783,34 @@ mod tests {
     fn test_navigation_includes_virtual_pages_with_content_in_subtree() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         // Virtual page (no content) but has a child with content
         let section_idx = builder.add_page(
-            "Section".to_owned(),
-            "section".to_owned(),
-            false, // Virtual page
+            Page {
+                title: "Section".to_owned(),
+                path: "section".to_owned(),
+                ..Default::default()
+            },
             Some(root_idx),
-            None,
-            None,
             None,
         );
         // Real child page
         builder.add_page(
-            "Child".to_owned(),
-            "section/child".to_owned(),
-            true,
+            Page {
+                title: "Child".to_owned(),
+                path: "section/child".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(section_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1682,42 +1828,44 @@ mod tests {
     fn test_navigation_filters_nested_virtual_pages_without_content() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         // Virtual page with content
         let section_idx = builder.add_page(
-            "Section".to_owned(),
-            "section".to_owned(),
-            false, // virtual page
+            Page {
+                title: "Section".to_owned(),
+                path: "section".to_owned(),
+                ..Default::default()
+            },
             Some(root_idx),
-            None,
-            None,
             None,
         );
         // Empty virtual child (should be filtered)
         builder.add_page(
-            "Empty Child".to_owned(),
-            "section/empty".to_owned(),
-            false, // virtual page
+            Page {
+                title: "Empty Child".to_owned(),
+                path: "section/empty".to_owned(),
+                ..Default::default()
+            },
             Some(section_idx),
-            None,
-            None,
             None,
         );
         // Real child page
         builder.add_page(
-            "Real Child".to_owned(),
-            "section/real".to_owned(),
-            true,
+            Page {
+                title: "Real Child".to_owned(),
+                path: "section/real".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(section_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1735,42 +1883,45 @@ mod tests {
     fn test_navigation_filters_content() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         // Section with type
         let billing_idx = builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             Some("domain"),
-            None,
-            None,
         );
         // Empty virtual child (should be filtered)
         builder.add_page(
-            "Empty".to_owned(),
-            "billing/empty".to_owned(),
-            false, // virtual page
+            Page {
+                title: "Empty".to_owned(),
+                path: "billing/empty".to_owned(),
+                ..Default::default()
+            },
             Some(billing_idx),
-            None,
-            None,
             None,
         );
         // Real child
         builder.add_page(
-            "Payments".to_owned(),
-            "billing/payments".to_owned(),
-            true,
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(billing_idx),
-            None,
-            None,
             None,
         );
         let site = builder.build();
@@ -1788,20 +1939,22 @@ mod tests {
     fn test_build_sections_implicit_root_when_no_sections() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         builder.add_page(
-            "Guide".to_owned(),
-            "guide".to_owned(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -1820,13 +1973,14 @@ mod tests {
     fn test_build_sections_no_implicit_root_when_explicit_root_exists() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             Some("component"),
-            None,
-            None,
         );
         let site = builder.build();
 
@@ -1843,22 +1997,24 @@ mod tests {
     fn test_build_sections_implicit_root_with_nested_sections() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
         builder.add_page(
-            "Billing".to_owned(),
-            "billing".to_owned(),
-            true,
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
             Some(root_idx),
             Some("domain"),
-            None,
-            None,
         );
         let site = builder.build();
 
@@ -1881,11 +2037,12 @@ mod tests {
     fn test_build_sections_find_by_ref_implicit_root() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
-            "Home".to_owned(),
-            String::new(),
-            true,
-            None,
-            None,
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
             None,
             None,
         );
@@ -1906,5 +2063,377 @@ mod tests {
 
         assert_eq!(section.kind, "component");
         assert_eq!(section.name, "root");
+    }
+
+    #[test]
+    fn test_navigation_respects_page_order() {
+        let mut builder = SiteStateBuilder::new();
+        let root = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Advanced".to_owned(),
+                path: "advanced".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Config".to_owned(),
+                path: "config".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Getting Started".to_owned(),
+                path: "getting-started".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+
+        // Reorder: getting-started first, then config; advanced is unlisted
+        let order = vec!["getting-started".to_owned(), "config".to_owned()];
+        builder.reorder_children(root, &order);
+
+        let site = builder.build();
+        let nav = site.navigation("");
+
+        assert_eq!(nav.items.len(), 3);
+        assert_eq!(nav.items[0].path, "getting-started");
+        assert_eq!(nav.items[1].path, "config");
+        assert_eq!(nav.items[2].path, "advanced"); // unlisted, alphabetical
+    }
+
+    #[test]
+    fn test_reorder_unlisted_pages_sorted_alphabetically() {
+        let mut builder = SiteStateBuilder::new();
+        let root = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "C".to_owned(),
+                path: "c".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "A".to_owned(),
+                path: "a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "B".to_owned(),
+                path: "b".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+
+        // Only list "b" — "a" and "c" sorted alphabetically after
+        builder.reorder_children(root, &["b".to_owned()]);
+
+        let site = builder.build();
+        let nav = site.navigation("");
+        assert_eq!(nav.items[0].path, "b");
+        assert_eq!(nav.items[1].path, "a"); // alphabetical
+        assert_eq!(nav.items[2].path, "c"); // alphabetical
+    }
+
+    #[test]
+    fn test_reorder_all_children_listed() {
+        let mut builder = SiteStateBuilder::new();
+        let root = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "B".to_owned(),
+                path: "b".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "A".to_owned(),
+                path: "a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+
+        // All children listed — no unlisted remainder
+        builder.reorder_children(root, &["a".to_owned(), "b".to_owned()]);
+
+        let site = builder.build();
+        let nav = site.navigation("");
+        assert_eq!(nav.items[0].path, "a");
+        assert_eq!(nav.items[1].path, "b");
+    }
+
+    #[test]
+    fn test_reorder_skips_section_slugs() {
+        let mut builder = SiteStateBuilder::new();
+        let root = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Domain".to_owned(),
+                path: "domain".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            Some("domain"),
+        );
+
+        // "domain" is a section — should be skipped, order unchanged
+        builder.reorder_children(root, &["domain".to_owned(), "guide".to_owned()]);
+
+        let site = builder.build();
+        let nav = site.navigation("");
+        // guide is listed (non-section), domain stays in unlisted position
+        assert_eq!(nav.items[0].path, "guide");
+        assert_eq!(nav.items[1].path, "domain");
+    }
+
+    #[test]
+    fn test_reorder_skips_missing_slugs() {
+        let mut builder = SiteStateBuilder::new();
+        let root = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "A".to_owned(),
+                path: "a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+
+        // "nonexistent" is not a child — should be skipped
+        builder.reorder_children(root, &["nonexistent".to_owned(), "a".to_owned()]);
+
+        let site = builder.build();
+        let nav = site.navigation("");
+        assert_eq!(nav.items.len(), 1);
+        assert_eq!(nav.items[0].path, "a");
+    }
+
+    #[test]
+    fn test_reorder_skips_duplicate_slugs() {
+        let mut builder = SiteStateBuilder::new();
+        let root = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "A".to_owned(),
+                path: "a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "B".to_owned(),
+                path: "b".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+
+        // "a" listed twice — second occurrence ignored
+        builder.reorder_children(root, &["a".to_owned(), "b".to_owned(), "a".to_owned()]);
+
+        let site = builder.build();
+        let nav = site.navigation("");
+        assert_eq!(nav.items.len(), 2);
+        assert_eq!(nav.items[0].path, "a");
+        assert_eq!(nav.items[1].path, "b");
+    }
+
+    #[test]
+    fn test_reorder_no_pages_field_keeps_original_order() {
+        let mut builder = SiteStateBuilder::new();
+        let root = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "B".to_owned(),
+                path: "b".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "A".to_owned(),
+                path: "a".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+
+        // Empty slugs = no reorder
+        builder.reorder_children(root, &[]);
+
+        let site = builder.build();
+        let nav = site.navigation("");
+        assert_eq!(nav.items[0].path, "b"); // original insertion order
+        assert_eq!(nav.items[1].path, "a");
+    }
+
+    #[test]
+    fn test_reorder_nested_directory() {
+        let mut builder = SiteStateBuilder::new();
+        let root = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+        );
+        let guides = builder.add_page(
+            Page {
+                title: "Guides".to_owned(),
+                path: "guides".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Advanced".to_owned(),
+                path: "guides/advanced".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(guides),
+            None,
+        );
+        builder.add_page(
+            Page {
+                title: "Getting Started".to_owned(),
+                path: "guides/getting-started".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(guides),
+            None,
+        );
+
+        let order = vec!["getting-started".to_owned(), "advanced".to_owned()];
+        builder.reorder_children(guides, &order);
+
+        let site = builder.build();
+        let nav = site.navigation("");
+        let guides_nav = &nav.items[0];
+        assert_eq!(guides_nav.children[0].path, "guides/getting-started");
+        assert_eq!(guides_nav.children[1].path, "guides/advanced");
     }
 }

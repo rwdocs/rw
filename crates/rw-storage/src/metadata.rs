@@ -45,6 +45,10 @@ pub struct Metadata {
     /// Custom variables for templating or frontend use.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub vars: HashMap<String, serde_json::Value>,
+
+    /// Ordered list of child page slugs for navigation ordering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<Vec<String>>,
 }
 
 impl Metadata {
@@ -55,6 +59,7 @@ impl Metadata {
             && self.description.is_none()
             && self.page_kind.is_none()
             && self.vars.is_empty()
+            && self.pages.is_none()
     }
 }
 
@@ -118,6 +123,15 @@ mod tests {
         vars.insert("key".to_owned(), serde_json::json!("value"));
         let meta = Metadata {
             vars,
+            ..Default::default()
+        };
+        assert!(!meta.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_with_pages() {
+        let meta = Metadata {
+            pages: Some(vec!["a".to_owned()]),
             ..Default::default()
         };
         assert!(!meta.is_empty());

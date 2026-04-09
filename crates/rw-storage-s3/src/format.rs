@@ -76,6 +76,7 @@ mod tests {
                 page_kind: None,
                 description: None,
                 origin: None,
+                pages: None,
             },
             Document {
                 path: "guide".to_owned(),
@@ -84,6 +85,7 @@ mod tests {
                 page_kind: Some("guide".to_owned()),
                 description: Some("Getting started".to_owned()),
                 origin: None,
+                pages: None,
             },
         ]);
 
@@ -106,6 +108,7 @@ mod tests {
                 vars: [("team".to_owned(), serde_json::json!("platform"))]
                     .into_iter()
                     .collect(),
+                pages: None,
             }),
         };
 
@@ -138,6 +141,7 @@ mod tests {
             page_kind: None,
             description: None,
             origin: None,
+            pages: None,
         };
 
         let json = serde_json::to_string(&doc).unwrap();
@@ -160,6 +164,42 @@ mod tests {
         assert_eq!(
             page_bundle_key("domain/billing"),
             "pages/domain/billing.json"
+        );
+    }
+
+    #[test]
+    fn test_manifest_without_pages_deserializes() {
+        // Existing manifests in S3 won't have the `pages` field
+        let json =
+            r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true}]}"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert!(manifest.documents[0].pages.is_none());
+    }
+
+    #[test]
+    fn test_manifest_with_pages_roundtrips() {
+        let manifest = Manifest::new(vec![Document {
+            path: "guides".to_owned(),
+            title: "Guides".to_owned(),
+            has_content: true,
+            page_kind: None,
+            description: None,
+            origin: None,
+            pages: Some(vec![
+                "getting-started".to_owned(),
+                "configuration".to_owned(),
+            ]),
+        }]);
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        let deserialized: Manifest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            deserialized.documents[0].pages,
+            Some(vec![
+                "getting-started".to_owned(),
+                "configuration".to_owned()
+            ])
         );
     }
 }

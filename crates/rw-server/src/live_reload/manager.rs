@@ -93,9 +93,12 @@ impl LiveReloadManager {
         let url_path = to_url_path(&event.path);
 
         match &event.kind {
-            StorageEventKind::Modified { title: new_title } => {
-                // Get old title from cached snapshot (no reload)
+            StorageEventKind::Modified {
+                title: new_title,
+                pages: new_pages,
+            } => {
                 let old_title = site.page_title(&event.path);
+                let old_pages = site.page_pages(&event.path);
 
                 // If page is known, always send content event
                 if old_title.is_some() {
@@ -105,8 +108,9 @@ impl LiveReloadManager {
                     });
                 }
 
-                // If title changed, invalidate site and send structure event
-                if old_title.as_deref() != Some(new_title) {
+                let title_changed = old_title.as_deref() != Some(new_title);
+                let pages_changed = old_pages.as_ref() != new_pages.as_ref();
+                if title_changed || pages_changed {
                     site.invalidate();
                     let _ = broadcaster.send(ReloadEvent {
                         event_type: ReloadEventType::Structure,

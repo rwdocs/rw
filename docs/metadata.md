@@ -43,6 +43,28 @@ These fields are available in both frontmatter and meta.yaml:
 - `description` -- page description for display
 - `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections. Also accepts `type` as an alias.
 - `vars` -- custom variables (key-value pairs)
+- `pages` -- ordered list of child page slugs for navigation sidebar ordering (directory-level only)
+
+## Navigation ordering
+
+By default, pages in the navigation sidebar are sorted alphabetically. Use `pages` to control the order:
+
+```yaml
+# docs/guides/meta.yaml
+title: Guides
+pages:
+  - getting-started
+  - configuration
+  - advanced-topics
+```
+
+Entries are bare slugs matching a child file (`getting-started.md`) or subdirectory (`getting-started/`). Listed pages appear first in declared order, unlisted pages appear after sorted alphabetically. Every page always appears in navigation — `pages` controls order, not visibility.
+
+Rules:
+- Slug with no matching child: warned and skipped
+- Slug matching a section directory (has `kind`): warned and skipped
+- Duplicate slugs: warned, first occurrence used
+- `pages` in frontmatter overrides `pages` in meta.yaml
 
 ## Title resolution
 
@@ -60,6 +82,7 @@ Metadata is inherited from parent directories:
 - `title` -- never inherited
 - `description` -- never inherited
 - `kind` -- never inherited
+- `pages` -- never inherited
 - `vars` -- deep merged (child values override parent keys)
 
 ## Virtual Pages
