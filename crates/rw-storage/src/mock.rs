@@ -83,6 +83,33 @@ impl MockStorage {
             page_kind: None,
             description: None,
             origin: None,
+            pages: None,
+        });
+        self
+    }
+
+    /// Add a document with an ordered `pages` list.
+    ///
+    /// The document has `has_content=true` and the specified `pages` ordering.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    #[must_use]
+    pub fn with_document_and_pages(
+        self,
+        path: impl Into<String>,
+        title: impl Into<String>,
+        pages: Vec<String>,
+    ) -> Self {
+        self.documents.write().unwrap().push(Document {
+            path: path.into(),
+            title: title.into(),
+            has_content: true,
+            page_kind: None,
+            description: None,
+            origin: None,
+            pages: Some(pages),
         });
         self
     }
@@ -108,6 +135,7 @@ impl MockStorage {
             page_kind: Some(page_kind.into()),
             description: None,
             origin: None,
+            pages: None,
         });
         self
     }
@@ -128,6 +156,7 @@ impl MockStorage {
             page_kind: None,
             description: None,
             origin: None,
+            pages: None,
         });
         self
     }
@@ -151,6 +180,7 @@ impl MockStorage {
             page_kind: Some(page_kind.into()),
             description: None,
             origin: None,
+            pages: None,
         });
         self
     }
@@ -191,6 +221,7 @@ impl MockStorage {
             page_kind: None,
             description: None,
             origin: None,
+            pages: None,
         });
         self.contents.write().unwrap().insert(path, content.into());
         self
@@ -295,6 +326,7 @@ impl MockStorage {
             path: path.into(),
             kind: StorageEventKind::Modified {
                 title: title.into(),
+                pages: None,
             },
         });
     }
@@ -327,6 +359,7 @@ impl Storage for MockStorage {
                 page_kind: d.page_kind.clone(),
                 description: d.description.clone(),
                 origin: d.origin.clone(),
+                pages: d.pages.clone(),
             })
             .collect())
     }
@@ -379,6 +412,7 @@ impl Storage for MockStorage {
             description: m.description.clone(),
             page_kind: m.page_kind.clone(),
             vars: m.vars.clone(),
+            pages: m.pages.clone(),
         }))
     }
 

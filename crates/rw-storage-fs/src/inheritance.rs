@@ -36,6 +36,7 @@ pub(crate) fn build_ancestor_chain(path: &str) -> Vec<String> {
 /// - `title`: Never inherited (child's value or `None`)
 /// - `description`: Never inherited (child's value or `None`)
 /// - `page_kind`: Never inherited (child's value or `None`)
+/// - `pages`: Never inherited (child's value or `None`)
 /// - `vars`: Deep merged (child values override parent keys)
 #[must_use]
 pub(crate) fn merge_metadata(parent: &Metadata, child: &Metadata) -> Metadata {
@@ -44,6 +45,7 @@ pub(crate) fn merge_metadata(parent: &Metadata, child: &Metadata) -> Metadata {
         title: child.title.clone(),             // Never inherited
         description: child.description.clone(), // Never inherited
         page_kind: child.page_kind.clone(),     // Never inherited
+        pages: child.pages.clone(),             // Never inherited
         ..Default::default()
     };
 
@@ -168,5 +170,16 @@ mod tests {
         assert_eq!(merged.vars.get("key1"), Some(&serde_json::json!("parent1")));
         assert_eq!(merged.vars.get("key2"), Some(&serde_json::json!("child2")));
         assert_eq!(merged.vars.get("key3"), Some(&serde_json::json!("child3")));
+    }
+
+    #[test]
+    fn test_merge_pages_not_inherited() {
+        let parent = Metadata {
+            pages: Some(vec!["a".to_owned()]),
+            ..Default::default()
+        };
+        let child = Metadata::default();
+        let merged = merge_metadata(&parent, &child);
+        assert!(merged.pages.is_none(), "pages should not be inherited");
     }
 }

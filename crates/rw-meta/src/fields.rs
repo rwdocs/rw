@@ -10,6 +10,7 @@ pub(crate) struct MetaFields {
     pub description: Option<String>,
     #[serde(default)]
     pub vars: HashMap<String, serde_json::Value>,
+    pub pages: Option<Vec<String>>,
 }
 
 impl MetaFields {
@@ -23,6 +24,7 @@ impl MetaFields {
         self.kind = other.kind.or(self.kind);
         self.title = other.title.or(self.title);
         self.description = other.description.or(self.description);
+        self.pages = other.pages.or(self.pages);
         for (key, value) in other.vars {
             self.vars.insert(key, value);
         }
@@ -157,6 +159,51 @@ mod tests {
             Some("overlay-c"),
             "overlay-only key present"
         );
+    }
+
+    #[test]
+    fn parse_pages() {
+        let yaml = "pages:\n  - getting-started\n  - configuration";
+        let fields = MetaFields::from_yaml(yaml);
+        assert_eq!(
+            fields.pages,
+            Some(vec![
+                "getting-started".to_owned(),
+                "configuration".to_owned()
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_no_pages_returns_none() {
+        let yaml = "title: My Page";
+        let fields = MetaFields::from_yaml(yaml);
+        assert!(fields.pages.is_none());
+    }
+
+    #[test]
+    fn merge_overlay_pages_wins() {
+        let base = MetaFields {
+            pages: Some(vec!["a".to_owned(), "b".to_owned()]),
+            ..Default::default()
+        };
+        let overlay = MetaFields {
+            pages: Some(vec!["x".to_owned()]),
+            ..Default::default()
+        };
+        let merged = base.merge(overlay);
+        assert_eq!(merged.pages, Some(vec!["x".to_owned()]));
+    }
+
+    #[test]
+    fn merge_base_pages_when_overlay_none() {
+        let base = MetaFields {
+            pages: Some(vec!["a".to_owned()]),
+            ..Default::default()
+        };
+        let overlay = MetaFields::default();
+        let merged = base.merge(overlay);
+        assert_eq!(merged.pages, Some(vec!["a".to_owned()]));
     }
 
     #[test]

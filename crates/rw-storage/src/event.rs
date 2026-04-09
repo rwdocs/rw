@@ -20,6 +20,8 @@ pub enum StorageEventKind {
     Modified {
         /// Resolved page title (meta.yaml > H1 > filename fallback).
         title: String,
+        /// Ordered list of child page slugs (from `pages` metadata).
+        pages: Option<Vec<String>>,
     },
     /// Document was removed.
     Removed,
@@ -133,12 +135,14 @@ mod tests {
         assert_ne!(
             StorageEventKind::Created,
             StorageEventKind::Modified {
-                title: "test".to_owned()
+                title: "test".to_owned(),
+                pages: None,
             }
         );
         assert_ne!(
             StorageEventKind::Modified {
-                title: "test".to_owned()
+                title: "test".to_owned(),
+                pages: None,
             },
             StorageEventKind::Removed
         );
@@ -151,6 +155,7 @@ mod tests {
             path: "guide".to_owned(),
             kind: StorageEventKind::Modified {
                 title: "Guide".to_owned(),
+                pages: None,
             },
         };
 
@@ -158,7 +163,8 @@ mod tests {
         assert_eq!(
             event.kind,
             StorageEventKind::Modified {
-                title: "Guide".to_owned()
+                title: "Guide".to_owned(),
+                pages: None,
             }
         );
     }
@@ -208,6 +214,7 @@ mod tests {
             path: "test".to_owned(),
             kind: StorageEventKind::Modified {
                 title: "Test".to_owned(),
+                pages: None,
             },
         })
         .unwrap();
@@ -217,7 +224,8 @@ mod tests {
         assert_eq!(
             event.kind,
             StorageEventKind::Modified {
-                title: "Test".to_owned()
+                title: "Test".to_owned(),
+                pages: None,
             }
         );
     }
@@ -236,6 +244,7 @@ mod tests {
             path: "b".to_owned(),
             kind: StorageEventKind::Modified {
                 title: "B".to_owned(),
+                pages: None,
             },
         })
         .unwrap();
@@ -249,7 +258,8 @@ mod tests {
         assert_eq!(
             result[1].kind,
             StorageEventKind::Modified {
-                title: "B".to_owned()
+                title: "B".to_owned(),
+                pages: None,
             }
         );
     }

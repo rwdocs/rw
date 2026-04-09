@@ -51,6 +51,9 @@ pub struct Document {
     /// relative links so they resolve correctly in URL space.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
+    /// Ordered list of child page slugs for navigation ordering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<Vec<String>>,
 }
 
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
@@ -350,6 +353,7 @@ mod tests {
             page_kind: None,
             description: None,
             origin: None,
+            pages: None,
         };
 
         assert_eq!(doc.path, "");
@@ -367,6 +371,7 @@ mod tests {
             page_kind: None,
             description: None,
             origin: None,
+            pages: None,
         };
 
         assert_eq!(doc.path, "guide");
@@ -384,6 +389,7 @@ mod tests {
             page_kind: Some("domain".to_owned()),
             description: None,
             origin: None,
+            pages: None,
         };
 
         assert_eq!(doc.path, "domain/billing");
@@ -400,6 +406,7 @@ mod tests {
             page_kind: Some("section".to_owned()),
             description: None,
             origin: None,
+            pages: None,
         };
 
         assert_eq!(doc.path, "domains");

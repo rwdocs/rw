@@ -41,7 +41,7 @@ use notify::{RecursiveMode, Watcher};
 use rayon::prelude::*;
 use rw_meta::Meta;
 
-use debouncer::{EventDebouncer, RawEventKind};
+use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 use inheritance::{build_ancestor_chain, merge_metadata};
 use rw_storage::{
     Document, Metadata, MetadataError, Storage, StorageError, StorageErrorKind, StorageEvent,
@@ -290,6 +290,7 @@ impl FsStorage {
                 page_kind: meta.kind,
                 description: meta.description,
                 origin: None,
+                pages: meta.pages,
             })
         } else if let Some(meta_path) = &doc_ref.meta_path {
             let meta_yaml = fs::read_to_string(meta_path).ok()?;
@@ -311,6 +312,7 @@ impl FsStorage {
                 page_kind: meta.kind,
                 description: meta.description,
                 origin: None,
+                pages: meta.pages,
             })
         } else {
             None
@@ -400,11 +402,11 @@ impl FsStorage {
     }
 }
 
-/// Resolve title for a URL path from filesystem.
+/// Resolve metadata for a URL path from filesystem.
 ///
-/// Uses `Meta::resolve()` to extract title from markdown and meta.yaml.
+/// Uses `Meta::resolve()` to extract title and pages from markdown and meta.yaml.
 /// Used by the watch drain thread to populate `StorageEventKind::Modified`.
-fn resolve_title(source_dir: &Path, url_path: &str, meta_filename: &str) -> String {
+fn resolve_meta(source_dir: &Path, url_path: &str, meta_filename: &str) -> Meta {
     let meta_path = if url_path.is_empty() {
         source_dir.join(meta_filename)
     } else {
@@ -449,7 +451,52 @@ fn resolve_title(source_dir: &Path, url_path: &str, meta_filename: &str) -> Stri
         meta_yaml.as_deref(),
         fallback,
     )
-    .title
+}
+
+/// Convert a debounced file-system event into a [`StorageEvent`].
+///
+/// Resolves the file path to a URL path and populates the event kind with
+/// resolved metadata (title, pages) for `Modified` events.
+fn to_storage_event(
+    event: &DebouncedEvent,
+    source_dir: &Path,
+    meta_filename: &str,
+) -> StorageEvent {
+    let url_path = if let Ok(rel_path) = event.path.strip_prefix(source_dir) {
+        let filename = rel_path
+            .file_name()
+            .map(|f| f.to_string_lossy())
+            .unwrap_or_default();
+        if *filename == *meta_filename {
+            // meta.yaml -> parent directory URL path
+            rel_path
+                .parent()
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default()
+        } else {
+            file_path_to_url(rel_path)
+        }
+    } else {
+        // Outside source_dir (e.g., README.md) -> root
+        String::new()
+    };
+
+    let kind = match event.kind {
+        RawEventKind::Created => StorageEventKind::Created,
+        RawEventKind::Modified => {
+            let meta = resolve_meta(source_dir, &url_path, meta_filename);
+            StorageEventKind::Modified {
+                title: meta.title,
+                pages: meta.pages,
+            }
+        }
+        RawEventKind::Removed => StorageEventKind::Removed,
+    };
+
+    StorageEvent {
+        path: url_path,
+        kind,
+    }
 }
 
 impl Storage for FsStorage {
@@ -493,6 +540,7 @@ impl Storage for FsStorage {
                 page_kind: None,
                 description: None,
                 origin,
+                pages: None,
             });
         }
 
@@ -613,45 +661,8 @@ impl Storage for FsStorage {
                 }
 
                 for event in debouncer.drain_ready() {
-                    // Convert file path to URL path
-                    let url_path =
-                        if let Ok(rel_path) = event.path.strip_prefix(&source_dir_for_drain) {
-                            let filename = rel_path
-                                .file_name()
-                                .map(|f| f.to_string_lossy())
-                                .unwrap_or_default();
-                            if *filename == *meta_filename_for_drain {
-                                // meta.yaml -> parent directory URL path
-                                rel_path
-                                    .parent()
-                                    .map(|p| p.to_string_lossy().replace('\\', "/"))
-                                    .unwrap_or_default()
-                            } else {
-                                file_path_to_url(rel_path)
-                            }
-                        } else {
-                            // Outside source_dir (e.g., README.md) -> root
-                            String::new()
-                        };
-
-                    // Convert RawEventKind to StorageEventKind
-                    let kind = match event.kind {
-                        RawEventKind::Created => StorageEventKind::Created,
-                        RawEventKind::Modified => {
-                            let title = resolve_title(
-                                &source_dir_for_drain,
-                                &url_path,
-                                &meta_filename_for_drain,
-                            );
-                            StorageEventKind::Modified { title }
-                        }
-                        RawEventKind::Removed => StorageEventKind::Removed,
-                    };
-
-                    let storage_event = StorageEvent {
-                        path: url_path,
-                        kind,
-                    };
+                    let storage_event =
+                        to_storage_event(&event, &source_dir_for_drain, &meta_filename_for_drain);
 
                     if event_tx.send(storage_event).is_err() {
                         // Receiver dropped, exit thread
@@ -1702,5 +1713,69 @@ mod tests {
             !events.is_empty(),
             "Expected at least one event for directory rename"
         );
+    }
+
+    #[test]
+    fn scan_pages_from_meta_yaml() {
+        let dir = create_test_dir();
+        let docs_dir = dir.path().join("docs");
+        fs::create_dir_all(docs_dir.join("guides")).unwrap();
+        fs::write(docs_dir.join("guides/index.md"), "# Guides").unwrap();
+        fs::write(
+            docs_dir.join("guides/getting-started.md"),
+            "# Getting Started",
+        )
+        .unwrap();
+        fs::write(docs_dir.join("guides/configuration.md"), "# Configuration").unwrap();
+        fs::write(
+            docs_dir.join("guides/meta.yaml"),
+            "pages:\n  - getting-started\n  - configuration",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(docs_dir);
+        let docs = storage.scan().unwrap();
+
+        let guides = docs.iter().find(|d| d.path == "guides").unwrap();
+        assert_eq!(
+            guides.pages,
+            Some(vec![
+                "getting-started".to_owned(),
+                "configuration".to_owned()
+            ])
+        );
+    }
+
+    #[test]
+    fn scan_pages_from_frontmatter() {
+        let dir = create_test_dir();
+        let docs_dir = dir.path().join("docs");
+        fs::create_dir_all(docs_dir.join("guides")).unwrap();
+        fs::write(
+            docs_dir.join("guides/index.md"),
+            "---\npages:\n  - alpha\n---\n# Guides",
+        )
+        .unwrap();
+        fs::write(docs_dir.join("guides/alpha.md"), "# Alpha").unwrap();
+
+        let storage = FsStorage::new(docs_dir);
+        let docs = storage.scan().unwrap();
+
+        let guides = docs.iter().find(|d| d.path == "guides").unwrap();
+        assert_eq!(guides.pages, Some(vec!["alpha".to_owned()]));
+    }
+
+    #[test]
+    fn scan_no_pages_returns_none() {
+        let dir = create_test_dir();
+        let docs_dir = dir.path().join("docs");
+        fs::create_dir_all(&docs_dir).unwrap();
+        fs::write(docs_dir.join("guide.md"), "# Guide").unwrap();
+
+        let storage = FsStorage::new(docs_dir);
+        let docs = storage.scan().unwrap();
+
+        let guide = docs.iter().find(|d| d.path == "guide").unwrap();
+        assert!(guide.pages.is_none());
     }
 }

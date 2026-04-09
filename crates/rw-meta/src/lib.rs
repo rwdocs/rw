@@ -17,6 +17,8 @@ pub struct Meta {
     pub description: Option<String>,
     /// Custom variables (key-level merge from meta.yaml and frontmatter).
     pub vars: HashMap<String, serde_json::Value>,
+    /// Ordered list of child page slugs for navigation ordering.
+    pub pages: Option<Vec<String>>,
 }
 
 impl Meta {
@@ -55,6 +57,7 @@ impl Meta {
             title,
             description: merged.description,
             vars: merged.vars,
+            pages: merged.pages,
         }
     }
 }
@@ -239,5 +242,35 @@ mod tests {
         assert!(meta.description.is_none());
         assert!(meta.kind.is_none());
         assert!(meta.vars.is_empty());
+    }
+
+    #[test]
+    fn resolve_pages_from_meta_yaml() {
+        let meta = Meta::resolve(
+            None,
+            Some("pages:\n  - getting-started\n  - configuration"),
+            "index.md",
+        );
+        assert_eq!(
+            meta.pages,
+            Some(vec![
+                "getting-started".to_owned(),
+                "configuration".to_owned()
+            ])
+        );
+    }
+
+    #[test]
+    fn resolve_pages_frontmatter_overrides_meta_yaml() {
+        let markdown = "---\npages:\n  - alpha\n---\n# Title\n";
+        let meta_yaml = "pages:\n  - beta\n  - gamma";
+        let meta = Meta::resolve(Some(markdown), Some(meta_yaml), "index.md");
+        assert_eq!(meta.pages, Some(vec!["alpha".to_owned()]));
+    }
+
+    #[test]
+    fn resolve_no_pages() {
+        let meta = Meta::resolve(Some("# Hello"), None, "page.md");
+        assert!(meta.pages.is_none());
     }
 }
