@@ -109,7 +109,7 @@ pub struct FsStorage {
     watch_patterns: Vec<Pattern>,
     /// Metadata file name (e.g., "meta.yaml").
     meta_filename: String,
-    /// Optional path to README.md used as homepage fallback.
+    /// Path to README.md used as homepage fallback (parent of `source_dir`).
     readme_path: Option<PathBuf>,
 }
 
@@ -186,21 +186,17 @@ impl FsStorage {
 
         let scanner = Scanner::new(&source_dir, meta_filename);
 
+        // Auto-detect README.md in parent directory as homepage fallback
+        let readme_path = source_dir.parent().map(|p| p.join("README.md"));
+
         Self {
             source_dir,
             scanner,
             mtime_cache: RwLock::new(HashMap::new()),
             watch_patterns,
             meta_filename: meta_filename.to_owned(),
-            readme_path: None,
+            readme_path,
         }
-    }
-
-    /// Set a README.md path to use as homepage fallback when `docs/index.md` doesn't exist.
-    #[must_use]
-    pub fn with_readme(mut self, readme_path: PathBuf) -> Self {
-        self.readme_path = Some(readme_path);
-        self
     }
 
     /// Validate that a URL path doesn't contain path traversal attempts.
@@ -219,7 +215,7 @@ impl FsStorage {
     ///
     /// For root path (`""`):
     /// 1. `source_dir/index.md`
-    /// 2. `readme_path` (if configured via [`with_readme`](Self::with_readme))
+    /// 2. `readme_path` (README.md in parent directory)
     ///
     /// For other paths:
     /// 1. `{path}/index.md` (directory structure preferred)
@@ -636,7 +632,7 @@ impl Storage for FsStorage {
         // Keep watcher alive in Arc
         let watcher = std::sync::Arc::new(std::sync::Mutex::new(watcher));
 
-        // Optionally set up a second watcher for README.md (outside source_dir)
+        // Set up a second watcher for README.md (outside source_dir)
         let readme_watcher = self
             .readme_path
             .as_deref()
@@ -1580,7 +1576,9 @@ mod tests {
     }
 
     /// Create a test directory with `docs/` subdirectory and README.md,
-    /// returning `(temp_dir, FsStorage with readme)`.
+    /// returning `(temp_dir, project_root, FsStorage)`.
+    ///
+    /// FsStorage auto-detects README.md in `source_dir`'s parent directory.
     fn create_readme_test_dir(readme_content: &str) -> (tempfile::TempDir, PathBuf, FsStorage) {
         let temp_dir = create_test_dir();
         let project_root = temp_dir.path().to_path_buf();
@@ -1588,8 +1586,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(project_root.join("README.md"), readme_content).unwrap();
 
-        let readme_path = project_root.join("README.md");
-        let storage = FsStorage::new(source_dir).with_readme(readme_path);
+        let storage = FsStorage::new(source_dir);
         (temp_dir, project_root, storage)
     }
 
