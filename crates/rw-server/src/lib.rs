@@ -63,7 +63,7 @@ mod static_files;
 pub use error::ServerError;
 
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -97,8 +97,6 @@ pub struct ServerConfig {
     pub version: String,
     /// Metadata file name (default: "meta.yaml").
     pub meta_filename: String,
-    /// README.md path to use as homepage fallback.
-    pub readme_path: PathBuf,
     /// Enable embedded preview mode (serves Backstage-like shell at /).
     /// Only available when the `embedded-preview` feature is enabled.
     #[cfg(feature = "embedded-preview")]
@@ -119,7 +117,6 @@ impl Default for ServerConfig {
             verbose: false,
             version: String::new(),
             meta_filename: "meta.yaml".to_owned(),
-            readme_path: PathBuf::from("README.md"),
             #[cfg(feature = "embedded-preview")]
             embedded_preview: false,
         }
@@ -137,10 +134,10 @@ impl Default for ServerConfig {
 /// Returns an error if the server fails to start.
 pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
     // Create shared storage backend
-    let storage: Arc<dyn rw_storage::Storage> = Arc::new(
-        FsStorage::with_meta_filename(config.source_dir.clone(), &config.meta_filename)
-            .with_readme(config.readme_path.clone()),
-    );
+    let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::with_meta_filename(
+        config.source_dir.clone(),
+        &config.meta_filename,
+    ));
 
     // Construct cache
     let cache: Arc<dyn rw_cache::Cache> = match &config.cache_dir {
@@ -213,16 +210,6 @@ pub fn server_config_from_rw_config(
     version: String,
     verbose: bool,
 ) -> ServerConfig {
-    // Auto-detect README.md as homepage fallback (FsStorage checks existence at runtime)
-    let readme_path = config
-        .config_path
-        .as_ref()
-        .and_then(|p| p.parent())
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_default()
-        .join("README.md");
-
     #[allow(clippy::needless_update)]
     ServerConfig {
         host: config.server.host.clone(),
@@ -240,7 +227,6 @@ pub fn server_config_from_rw_config(
         verbose,
         version,
         meta_filename: config.metadata.name.clone(),
-        readme_path,
         ..Default::default()
     }
 }
