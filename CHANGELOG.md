@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-04-10
+
 ### Fixed
 
 - Sites using `README.md` as homepage no longer return 500 errors when published to Backstage via S3 — `FsStorage` now auto-detects `README.md` in the parent of `source_dir`, so all code paths (serve, publish, napi) get it automatically
