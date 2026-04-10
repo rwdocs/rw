@@ -18,21 +18,21 @@ static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()
 });
 
-/// Regex to match SVG width attribute with pixel value.
+/// Regex to match SVG width attribute with pixel value (integer or decimal).
 static SVG_WIDTH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)width="(\d+)(?:px)?""#).unwrap());
+    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)width="(\d+(?:\.\d+)?)(?:px)?""#).unwrap());
 
-/// Regex to match SVG height attribute with pixel value.
+/// Regex to match SVG height attribute with pixel value (integer or decimal).
 static SVG_HEIGHT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)height="(\d+)(?:px)?""#).unwrap());
+    LazyLock::new(|| Regex::new(r#"(<svg[^>]*\s)height="(\d+(?:\.\d+)?)(?:px)?""#).unwrap());
 
 /// Regex to match width in style attribute (e.g., `width:136px`).
 static STYLE_WIDTH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(width:\s*)(\d+)(px)").unwrap());
+    LazyLock::new(|| Regex::new(r"(width:\s*)(\d+(?:\.\d+)?)(px)").unwrap());
 
 /// Regex to match height in style attribute (e.g., `height:210px`).
 static STYLE_HEIGHT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(height:\s*)(\d+)(px)").unwrap());
+    LazyLock::new(|| Regex::new(r"(height:\s*)(\d+(?:\.\d+)?)(px)").unwrap());
 
 /// Scale SVG width and height based on DPI.
 ///
@@ -307,6 +307,17 @@ mod tests {
         assert_eq!(
             result,
             r#"<svg width="68" height="105" style="width:68px;height:105px;background:#FFFFFF;"></svg>"#
+        );
+    }
+
+    #[test]
+    fn test_scale_svg_dimensions_with_decimal_values() {
+        // Mermaid SVGs from Kroki use decimal width/height (e.g., width="1610.5")
+        let svg = r#"<svg width="1610.5" height="633" viewBox="-50 -10 1610.5 633"></svg>"#;
+        let result = scale_svg_dimensions(svg, 192);
+        assert_eq!(
+            result,
+            r#"<svg width="805" height="317" viewBox="-50 -10 1610.5 633"></svg>"#
         );
     }
 
