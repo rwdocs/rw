@@ -11,7 +11,7 @@
 //!   page lookup methods. Designed for shared ownership (`Arc<Site>`) and
 //!   concurrent access.
 //! - [`PageRendererConfig`] — controls title extraction, diagram rendering
-//!   (Kroki URL, DPI), and PlantUML include directories.
+//!   (Kroki URL, DPI), and `PlantUML` include directories.
 //! - [`PageRenderResult`] — the output of rendering a page: HTML, title,
 //!   table of contents, breadcrumbs, and metadata.
 //! - [`Navigation`] — a scoped navigation tree with [`NavItem`] children,

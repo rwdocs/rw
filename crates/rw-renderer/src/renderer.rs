@@ -146,6 +146,7 @@ enum WikilinkResolution {
 /// assert_eq!(result.title.as_deref(), Some("Guide"));
 /// assert!(result.html.contains(r#"href="/docs/guide/setup""#));
 /// ```
+#[allow(clippy::struct_excessive_bools)]
 pub struct MarkdownRenderer<B: RenderBackend> {
     output: String,
     list_stack: Vec<bool>,
@@ -492,10 +493,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// relative links like `docs/guide.md` include the source directory name.
     /// This strips that prefix so the link resolves correctly in URL space.
     fn strip_origin<'a>(&self, url: &'a str) -> Cow<'a, str> {
-        if let Some(prefix) = &self.origin_prefix {
-            if let Some(stripped) = url.strip_prefix(prefix.as_str()) {
-                return Cow::Owned(stripped.to_owned());
-            }
+        if let Some(prefix) = &self.origin_prefix
+            && let Some(stripped) = url.strip_prefix(prefix.as_str())
+        {
+            return Cow::Owned(stripped.to_owned());
         }
         Cow::Borrowed(url)
     }
@@ -1802,7 +1803,7 @@ Install with apt.
         assert!(
             result
                 .html
-                .contains(r##"href="/domains/billing/overview#pricing""##),
+                .contains(r#"href="/domains/billing/overview#pricing""#),
             "html: {}",
             result.html
         );
