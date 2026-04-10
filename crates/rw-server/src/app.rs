@@ -66,7 +66,8 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
             ServiceBuilder::new()
                 .layer(security::csp_layer())
                 .layer(security::content_type_options_layer())
-                .layer(security::frame_options_layer()),
+                .layer(security::frame_options_layer())
+                .layer(security::cache_control_layer()),
         )
         .with_state(state)
 }

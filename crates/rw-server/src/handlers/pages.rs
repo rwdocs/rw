@@ -205,7 +205,7 @@ fn get_page_impl(
                     .format("%a, %d %b %Y %H:%M:%S GMT")
                     .to_string(),
             ),
-            (header::CACHE_CONTROL, "private, max-age=60".to_owned()),
+            (header::CACHE_CONTROL, "no-cache".to_owned()),
         ],
         Json(response),
     )
