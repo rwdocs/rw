@@ -62,10 +62,10 @@ pub struct PageRendererConfig {
     pub extract_title: bool,
     /// Base URL of a [Kroki](https://kroki.io) instance for rendering diagrams.
     ///
-    /// When `None`, fenced code blocks for diagram languages (PlantUML,
+    /// When `None`, fenced code blocks for diagram languages (`PlantUML`,
     /// Mermaid, etc.) are rendered as syntax-highlighted code instead of images.
     pub kroki_url: Option<String>,
-    /// Directories to search when resolving PlantUML `!include` directives.
+    /// Directories to search when resolving `PlantUML` `!include` directives.
     /// Defaults to empty (no include resolution).
     pub include_dirs: Vec<PathBuf>,
     /// DPI for rendered diagram images. Defaults to `192` (retina).

@@ -150,7 +150,7 @@ pub fn annotate_svg_links(svg: &str, sections: &Sections) -> String {
         )
         .unwrap();
         if !sp.path.is_empty() {
-            write!(result, r#" data-section-path="{}""#, escape_html(&sp.path)).unwrap();
+            write!(result, r#" data-section-path="{}""#, escape_html(sp.path)).unwrap();
         }
         result.push('>');
 

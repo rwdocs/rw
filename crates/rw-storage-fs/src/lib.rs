@@ -1578,7 +1578,7 @@ mod tests {
     /// Create a test directory with `docs/` subdirectory and README.md,
     /// returning `(temp_dir, project_root, FsStorage)`.
     ///
-    /// FsStorage auto-detects README.md in `source_dir`'s parent directory.
+    /// `FsStorage` auto-detects README.md in `source_dir`'s parent directory.
     fn create_readme_test_dir(readme_content: &str) -> (tempfile::TempDir, PathBuf, FsStorage) {
         let temp_dir = create_test_dir();
         let project_root = temp_dir.path().to_path_buf();

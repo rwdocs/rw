@@ -486,10 +486,10 @@ impl Site {
 
         // Apply custom page ordering from `pages` metadata
         for doc in &documents {
-            if let Some(pages) = &doc.pages {
-                if let Some(&idx) = url_to_idx.get(&doc.path) {
-                    builder.reorder_children(idx, pages);
-                }
+            if let Some(pages) = &doc.pages
+                && let Some(&idx) = url_to_idx.get(&doc.path)
+            {
+                builder.reorder_children(idx, pages);
             }
         }
 

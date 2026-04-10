@@ -2,7 +2,7 @@
 //!
 //! Directives extend markdown with custom inline, block, and wrapping
 //! elements using a colon-based syntax that does not conflict with standard
-//! CommonMark:
+//! `CommonMark`:
 //!
 //! | Type | Syntax | Trait |
 //! |------|--------|-------|
