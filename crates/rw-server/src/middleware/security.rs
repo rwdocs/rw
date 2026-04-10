@@ -42,6 +42,17 @@ pub(crate) fn frame_options_layer() -> SetResponseHeaderLayer<HeaderValue> {
     )
 }
 
+/// Create layer that adds Cache-Control: no-cache header.
+///
+/// Forces browsers to revalidate every request with the server, preventing
+/// stale content when switching between projects or restarting the server.
+pub(crate) fn cache_control_layer() -> SetResponseHeaderLayer<HeaderValue> {
+    SetResponseHeaderLayer::if_not_present(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
