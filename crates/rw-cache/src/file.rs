@@ -132,9 +132,7 @@ impl CacheBucket for FileCacheBucket {
     }
 
     fn clear(&self) {
-        if self.dir.exists() {
-            let _ = fs::remove_dir_all(&self.dir);
-        }
+        let _ = fs::remove_dir_all(&self.dir);
     }
 }
 

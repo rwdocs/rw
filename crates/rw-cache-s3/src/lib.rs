@@ -50,16 +50,21 @@ impl Cache for S3Cache {
     }
 }
 
-/// Build the full S3 key for a cache entry.
+/// Build the S3 key prefix for a cache bucket.
 ///
-/// Layout: `{prefix}/cache/{bucket_name}/{key}`
+/// Layout: `{prefix}/cache/{bucket_name}/`
 /// Empty prefix omits the leading segment.
-fn build_cache_key(prefix: &str, bucket_name: &str, key: &str) -> String {
+fn build_cache_prefix(prefix: &str, bucket_name: &str) -> String {
     if prefix.is_empty() {
-        format!("cache/{bucket_name}/{key}")
+        format!("cache/{bucket_name}/")
     } else {
-        format!("{prefix}/cache/{bucket_name}/{key}")
+        format!("{prefix}/cache/{bucket_name}/")
     }
+}
+
+/// Build the full S3 key for a cache entry.
+fn build_cache_key(prefix: &str, bucket_name: &str, key: &str) -> String {
+    format!("{}{key}", build_cache_prefix(prefix, bucket_name))
 }
 
 /// S3-backed [`CacheBucket`].
@@ -113,11 +118,7 @@ impl CacheBucket for S3CacheBucket {
     }
 
     fn clear(&self) {
-        let prefix = if self.prefix.is_empty() {
-            format!("cache/{}/", self.bucket_name)
-        } else {
-            format!("{}/cache/{}/", self.prefix, self.bucket_name)
-        };
+        let prefix = build_cache_prefix(&self.prefix, &self.bucket_name);
         let _ = self.runtime.block_on(async {
             let mut continuation_token = None;
             loop {
