@@ -60,6 +60,11 @@ pub trait CacheBucket: Send + Sync {
     /// * `etag` - Etag to associate with this entry
     /// * `value` - Raw bytes to cache
     fn set(&self, key: &str, etag: &str, value: &[u8]);
+
+    /// Remove all entries from this bucket.
+    ///
+    /// Best-effort: errors are silently ignored (same as `set`).
+    fn clear(&self);
 }
 
 /// Factory for named cache [`CacheBucket`]s.
@@ -91,6 +96,7 @@ impl CacheBucket for NullCacheBucket {
     }
 
     fn set(&self, _key: &str, _etag: &str, _value: &[u8]) {}
+    fn clear(&self) {}
 }
 
 /// No-op [`Cache`] that always returns [`NullCacheBucket`]s.

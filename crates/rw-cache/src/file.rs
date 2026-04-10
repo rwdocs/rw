@@ -130,6 +130,12 @@ impl CacheBucket for FileCacheBucket {
 
         let _ = fs::write(&path, &buf);
     }
+
+    fn clear(&self) {
+        if self.dir.exists() {
+            let _ = fs::remove_dir_all(&self.dir);
+        }
+    }
 }
 
 /// Validate the cache version, wiping the directory on mismatch.
@@ -364,6 +370,54 @@ mod tests {
         fs::write(&path, &corrupt).unwrap();
 
         assert_eq!(bucket.get("key", "etag1"), None);
+    }
+
+    #[test]
+    fn test_file_bucket_clear_removes_all_entries() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("pages");
+
+        bucket.set("page-a", "etag1", b"data-a");
+        bucket.set("page-b", "etag2", b"data-b");
+
+        assert!(bucket.get("page-a", "etag1").is_some());
+        assert!(bucket.get("page-b", "etag2").is_some());
+
+        bucket.clear();
+
+        assert_eq!(bucket.get("page-a", "etag1"), None);
+        assert_eq!(bucket.get("page-b", "etag2"), None);
+    }
+
+    #[test]
+    fn test_file_bucket_clear_allows_new_entries() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+        let bucket = cache.bucket("pages");
+
+        bucket.set("key", "etag1", b"old");
+        bucket.clear();
+
+        bucket.set("key", "etag2", b"new");
+        assert_eq!(bucket.get("key", "etag2"), Some(b"new".to_vec()));
+    }
+
+    #[test]
+    fn test_file_bucket_clear_does_not_affect_other_buckets() {
+        let tmp = TempDir::new().unwrap();
+        let cache = FileCache::new(tmp.path().join("cache"), "v1");
+
+        let pages = cache.bucket("pages");
+        let diagrams = cache.bucket("diagrams");
+
+        pages.set("key", "etag1", b"page-data");
+        diagrams.set("key", "etag1", b"diagram-data");
+
+        pages.clear();
+
+        assert_eq!(pages.get("key", "etag1"), None);
+        assert_eq!(diagrams.get("key", "etag1"), Some(b"diagram-data".to_vec()));
     }
 
     #[test]

@@ -6,6 +6,7 @@
 
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::GetObjectError;
+use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use rw_cache::{Cache, CacheBucket};
 use tokio::runtime::Handle;
 
@@ -109,6 +110,72 @@ impl CacheBucket for S3CacheBucket {
                 .ok()?;
             Some(bytes.into_bytes().to_vec())
         })
+    }
+
+    fn clear(&self) {
+        let prefix = if self.prefix.is_empty() {
+            format!("cache/{}/", self.bucket_name)
+        } else {
+            format!("{}/cache/{}/", self.prefix, self.bucket_name)
+        };
+        let _ = self.runtime.block_on(async {
+            let mut continuation_token = None;
+            loop {
+                let mut req = self
+                    .client
+                    .list_objects_v2()
+                    .bucket(&self.s3_bucket)
+                    .prefix(&prefix);
+                if let Some(token) = continuation_token.take() {
+                    req = req.continuation_token(token);
+                }
+                let resp = req.send().await.map_err(|e| {
+                    tracing::debug!(prefix = %prefix, error = %e, "S3 cache clear list failed");
+                })?;
+
+                let keys: Vec<String> = resp
+                    .contents()
+                    .iter()
+                    .filter_map(|obj| obj.key().map(String::from))
+                    .collect();
+
+                if !keys.is_empty() {
+                    let objects: Vec<ObjectIdentifier> = keys
+                        .into_iter()
+                        .filter_map(|k| ObjectIdentifier::builder().key(k).build().ok())
+                        .collect();
+                    let delete = Delete::builder()
+                        .set_objects(Some(objects))
+                        .quiet(true)
+                        .build()
+                        .map_err(|e| {
+                            tracing::debug!(
+                                prefix = %prefix, error = %e,
+                                "S3 cache clear delete build failed"
+                            );
+                        })?;
+                    self.client
+                        .delete_objects()
+                        .bucket(&self.s3_bucket)
+                        .delete(delete)
+                        .send()
+                        .await
+                        .map_err(|e| {
+                            tracing::debug!(
+                                prefix = %prefix, error = %e,
+                                "S3 cache clear delete failed"
+                            );
+                        })?;
+                }
+
+                if resp.is_truncated() == Some(true) {
+                    continuation_token = resp.next_continuation_token().map(String::from);
+                } else {
+                    break;
+                }
+            }
+            Ok::<(), ()>(())
+        });
     }
 
     fn set(&self, key: &str, etag: &str, value: &[u8]) {

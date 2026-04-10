@@ -365,6 +365,7 @@ impl Site {
         if !force && !self.storage.has_changed()? {
             return Ok(false);
         }
+        self.renderer.clear_pages();
         self.invalidate();
         self.reload_if_needed()?;
         Ok(true)
@@ -1329,5 +1330,39 @@ mod tests {
         assert_eq!(nav.items[0].path, "getting-started");
         assert_eq!(nav.items[1].path, "configuration");
         assert_eq!(nav.items[2].path, "advanced"); // unlisted, alphabetical
+    }
+
+    #[test]
+    fn test_reload_clears_page_cache() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_dir = temp_dir.path().join("cache");
+
+        // Use mtime 0.0 to simulate S3 storage (always returns zero)
+        let storage = MockStorage::new()
+            .with_file("", "Home", "# Home\n\nWelcome")
+            .with_mtime("", 0.0);
+        let storage = Arc::new(storage);
+
+        let cache: Arc<dyn rw_cache::Cache> =
+            Arc::new(rw_cache::FileCache::new(cache_dir, "1.0.0"));
+        let config = PageRendererConfig::default();
+        let site = Site::new(Arc::clone(&storage) as Arc<dyn Storage>, cache, config);
+
+        // First render: cache miss
+        let result1 = site.render("").unwrap();
+        assert!(!result1.from_cache);
+
+        // Second render: cache hit (mtime is still 0.0, etag matches)
+        let result2 = site.render("").unwrap();
+        assert!(result2.from_cache);
+
+        // Simulate content change and reload
+        storage.set_content("", "# Home\n\nUpdated");
+        site.reload(true).unwrap();
+
+        // Render after reload: cache miss (clear wiped the page cache)
+        let result3 = site.render("").unwrap();
+        assert!(!result3.from_cache);
+        assert!(result3.html.contains("Updated"));
     }
 }

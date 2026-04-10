@@ -277,6 +277,18 @@ impl MockStorage {
         *self.scan_error.write().unwrap() = kind;
     }
 
+    /// Update content for a URL path at runtime (for testing reload scenarios).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal lock is poisoned.
+    pub fn set_content(&self, path: impl Into<String>, content: impl Into<String>) {
+        self.contents
+            .write()
+            .unwrap()
+            .insert(path.into(), content.into());
+    }
+
     /// Override `has_changed()` to return a fixed value or error.
     ///
     /// - `Some(Ok(true))` — report changed

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Pages served from S3 storage (Backstage) no longer show stale content after a new bundle is published — the page cache is now cleared on reload
+
 ## [0.1.24] - 2026-04-10
 
 ### Fixed

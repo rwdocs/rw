@@ -258,6 +258,14 @@ impl PageRenderer {
         }
     }
 
+    /// Clear all cached rendered pages.
+    ///
+    /// Called on site reload to prevent serving stale content when the
+    /// underlying storage has changed (e.g., new S3 bundle published).
+    pub(crate) fn clear_pages(&self) {
+        self.page_bucket.clear();
+    }
+
     /// Render a page with full pipeline: mtime, metadata, cache check, render, cache write.
     ///
     /// # Errors
