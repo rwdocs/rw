@@ -105,7 +105,7 @@ pub struct FsStorage {
     scanner: Scanner,
     /// Mtime cache for incremental metadata extraction.
     mtime_cache: RwLock<HashMap<PathBuf, CachedMeta>>,
-    /// Patterns for file watching (e.g., "**/*.md").
+    /// Glob patterns for file watching (`**/*.md` and metadata files).
     watch_patterns: Vec<Pattern>,
     /// Metadata file name (e.g., "meta.yaml").
     meta_filename: String,
@@ -117,21 +117,21 @@ pub struct FsStorage {
 const DEFAULT_META_FILENAME: &str = "meta.yaml";
 
 impl FsStorage {
-    /// Create a new filesystem storage with default patterns.
+    /// Create a new filesystem storage.
     ///
-    /// Uses `**/*.md` as the default watch pattern and `meta.yaml` as metadata filename.
+    /// Watches `**/*.md` and `meta.yaml` files for changes.
     ///
     /// # Arguments
     ///
     /// * `source_dir` - Root directory containing markdown files
     #[must_use]
     pub fn new(source_dir: PathBuf) -> Self {
-        Self::with_patterns(source_dir, &["**/*.md".to_owned()])
+        Self::with_meta_filename(source_dir, DEFAULT_META_FILENAME)
     }
 
     /// Create a new filesystem storage with a custom metadata filename.
     ///
-    /// Uses `**/*.md` as the default watch pattern.
+    /// Watches `**/*.md` and `**/{meta_filename}` files for changes.
     ///
     /// # Arguments
     ///
@@ -139,50 +139,10 @@ impl FsStorage {
     /// * `meta_filename` - Name of metadata files (e.g., "meta.yaml")
     #[must_use]
     pub fn with_meta_filename(source_dir: PathBuf, meta_filename: &str) -> Self {
-        Self::with_patterns_and_meta(source_dir, &["**/*.md".to_owned()], meta_filename)
-    }
-
-    /// Create a new filesystem storage with custom watch patterns.
-    ///
-    /// Uses `meta.yaml` as the default metadata filename.
-    ///
-    /// # Arguments
-    ///
-    /// * `source_dir` - Root directory containing markdown files
-    /// * `patterns` - Glob patterns for file watching (e.g., `["**/*.md", "**/*.rst"]`)
-    ///
-    /// # Panics
-    ///
-    /// Panics if any of the provided glob patterns are invalid.
-    #[must_use]
-    pub fn with_patterns(source_dir: PathBuf, patterns: &[String]) -> Self {
-        Self::with_patterns_and_meta(source_dir, patterns, DEFAULT_META_FILENAME)
-    }
-
-    /// Create a new filesystem storage with custom watch patterns and metadata filename.
-    ///
-    /// # Arguments
-    ///
-    /// * `source_dir` - Root directory containing markdown files
-    /// * `patterns` - Glob patterns for file watching (e.g., `["**/*.md", "**/*.rst"]`)
-    /// * `meta_filename` - Name of metadata files (e.g., "meta.yaml")
-    ///
-    /// # Panics
-    ///
-    /// Panics if any of the provided glob patterns are invalid.
-    #[must_use]
-    pub fn with_patterns_and_meta(
-        source_dir: PathBuf,
-        patterns: &[String],
-        meta_filename: &str,
-    ) -> Self {
-        let mut all_patterns: Vec<String> = patterns.to_vec();
-        all_patterns.push(format!("**/{meta_filename}"));
-
-        let watch_patterns = all_patterns
-            .iter()
-            .map(|p| Pattern::new(p).expect("invalid glob pattern"))
-            .collect();
+        let watch_patterns = vec![
+            Pattern::new("**/*.md").expect("invalid glob pattern"),
+            Pattern::new(&format!("**/{meta_filename}")).expect("invalid glob pattern"),
+        ];
 
         let scanner = Scanner::new(&source_dir, meta_filename);
 
@@ -1484,8 +1444,7 @@ mod tests {
     #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_respects_patterns() {
         let temp_dir = create_test_dir();
-        let storage =
-            FsStorage::with_patterns(temp_dir.path().to_path_buf(), &["**/*.md".to_owned()]);
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
 
         let (rx, _handle) = storage.watch().unwrap();
 
