@@ -17,6 +17,7 @@ notify = { workspace = true }
 rw-meta = { workspace = true }
 serde_yaml = { workspace = true }
 rayon = { workspace = true }
+rw-vcs = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

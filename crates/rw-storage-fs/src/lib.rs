@@ -34,12 +34,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::sync::mpsc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 
 use glob::Pattern;
 use notify::{RecursiveMode, Watcher};
 use rayon::prelude::*;
 use rw_meta::Meta;
+use rw_vcs::Vcs;
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 use inheritance::{build_ancestor_chain, merge_metadata};
@@ -111,6 +112,8 @@ pub struct FsStorage {
     meta_filename: String,
     /// Path to README.md used as homepage fallback (parent of `source_dir`).
     readme_path: Option<PathBuf>,
+    /// Git-aware file metadata resolver.
+    vcs: Vcs,
 }
 
 /// Default metadata filename.
@@ -149,6 +152,8 @@ impl FsStorage {
         // Auto-detect README.md in parent directory as homepage fallback
         let readme_path = source_dir.parent().map(|p| p.join("README.md"));
 
+        let vcs = Vcs::new(&source_dir);
+
         Self {
             source_dir,
             scanner,
@@ -156,6 +161,7 @@ impl FsStorage {
             watch_patterns,
             meta_filename: meta_filename.to_owned(),
             readme_path,
+            vcs,
         }
     }
 
@@ -519,19 +525,21 @@ impl Storage for FsStorage {
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Self::validate_path(path)?;
-        // Try content file first, fall back to metadata file (for virtual pages)
-        let full_path = self
-            .resolve_content(path)
-            .or_else(|| self.resolve_meta(path))
-            .ok_or_else(|| StorageError::not_found(path).with_backend(BACKEND))?;
-        let metadata = fs::metadata(&full_path)
-            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))?;
-        let modified = metadata
-            .modified()
-            .map_err(|e| StorageError::io(e, Some(PathBuf::from(path))).with_backend(BACKEND))?;
-        Ok(modified
-            .duration_since(UNIX_EPOCH)
-            .map_or(0.0, |d| d.as_secs_f64()))
+
+        // Collect all file paths that contribute to this page
+        let content_path = self.resolve_content(path);
+        let meta_path = self.resolve_meta(path);
+
+        if content_path.is_none() && meta_path.is_none() {
+            return Err(StorageError::not_found(path).with_backend(BACKEND));
+        }
+
+        let paths: Vec<&Path> = [&content_path, &meta_path]
+            .into_iter()
+            .filter_map(|p| p.as_deref())
+            .collect();
+
+        Ok(self.vcs.mtime(&paths))
     }
 
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {

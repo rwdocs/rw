@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Page modification times (`lastModified` in API responses) now reflect the git commit time instead of the filesystem modification time — timestamps remain stable across `git checkout`, `git pull`, and branch switching
+- S3-published documentation bundles now include page modification times in the manifest — previously `lastModified` was always epoch zero for Backstage-served pages
+
 ## [0.1.24] - 2026-04-10
 
 ### Fixed
