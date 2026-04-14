@@ -26,6 +26,7 @@ rw-site = { path = "crates/rw-site" }
 rw-storage = { path = "crates/rw-storage" }
 rw-storage-fs = { path = "crates/rw-storage-fs" }
 rw-storage-s3 = { path = "crates/rw-storage-s3" }
+rw-vcs = { path = "crates/rw-vcs" }
 # External dependencies
 base64 = "0.22"
 glob = "0.3"

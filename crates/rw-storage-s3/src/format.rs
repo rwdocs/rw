@@ -4,6 +4,8 @@
 //! A bundle consists of a manifest (document index) and per-page bundles
 //! (markdown content + resolved metadata).
 
+use std::collections::HashMap;
+
 use rw_storage::{Document, Metadata};
 use serde::{Deserialize, Serialize};
 
@@ -17,12 +19,16 @@ pub(crate) const MANIFEST_KEY: &str = "manifest.json";
 ///
 /// Stored at `{prefix}/manifest.json` in S3.
 /// Contains everything needed for `Storage::scan()`.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Manifest {
     /// Format version for forward compatibility.
     pub version: u32,
     /// All documents in the site.
     pub documents: Vec<Document>,
+    /// Per-page modification times (seconds since Unix epoch).
+    /// Populated at publish time from git commit timestamps.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub mtimes: HashMap<String, f64>,
 }
 
 /// Per-page bundle containing content and resolved metadata.
@@ -58,6 +64,7 @@ impl Manifest {
         Self {
             version: FORMAT_VERSION,
             documents,
+            mtimes: HashMap::new(),
         }
     }
 }
@@ -165,6 +172,33 @@ mod tests {
             page_bundle_key("domain/billing"),
             "pages/domain/billing.json"
         );
+    }
+
+    #[test]
+    fn test_manifest_without_mtimes_deserializes() {
+        let json =
+            r#"{"version":1,"documents":[{"path":"guide","title":"Guide","has_content":true}]}"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert!(manifest.mtimes.is_empty());
+    }
+
+    #[test]
+    fn test_manifest_with_mtimes_roundtrips() {
+        let mut manifest = Manifest::new(vec![Document {
+            path: "guide".to_owned(),
+            title: "Guide".to_owned(),
+            has_content: true,
+            page_kind: None,
+            description: None,
+            origin: None,
+            pages: None,
+        }]);
+        manifest.mtimes.insert("guide".to_owned(), 1_713_000_000.0);
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        let deserialized: Manifest = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.mtimes.get("guide"), Some(&1_713_000_000.0));
     }
 
     #[test]

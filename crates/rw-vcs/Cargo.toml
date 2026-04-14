@@ -1,0 +1,16 @@
+[package]
+name = "rw-vcs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Git-aware file metadata for RW documentation engine"
+
+[lints]
+workspace = true
+
+[dependencies]
+gix = { version = "0.81", default-features = false, features = ["sha1", "revision", "status", "parallel"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

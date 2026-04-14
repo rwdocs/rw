@@ -58,6 +58,10 @@ crates/
 │       ├── storage.rs        # S3Storage (Storage trait implementation)
 │       └── publisher.rs      # BundlePublisher (feature = "publish")
 │
+├── rw-vcs/                # Git-aware file metadata (mtime, future: authors)
+│   └── src/
+│       └── lib.rs            # Vcs struct, gix integration, fs fallback
+│
 ├── rw-assets/             # Frontend asset serving (embedded + filesystem)
 │   └── src/
 │       └── lib.rs            # get(), iter(), mime_for() API

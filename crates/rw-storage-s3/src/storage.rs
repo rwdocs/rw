@@ -3,6 +3,7 @@
 //! Reads documentation bundles from S3 using the format defined in [`crate::format`].
 //! Tracks the manifest `ETag` to support change detection via [`Storage::has_changed`].
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use aws_sdk_s3::Client;
@@ -22,11 +23,14 @@ const BACKEND: &str = "S3";
 ///
 /// Read methods fetch fresh data from S3 on each call. The manifest
 /// `ETag` is tracked across calls to support [`Storage::has_changed`].
+/// Page modification times from the manifest are cached after each
+/// [`Storage::scan`] call to avoid re-fetching the manifest per page.
 pub struct S3Storage {
     client: Client,
     runtime: Arc<Runtime>,
     config: S3Config,
     last_etag: Mutex<Option<String>>,
+    mtimes: Mutex<HashMap<String, f64>>,
 }
 
 impl S3Storage {
@@ -41,6 +45,7 @@ impl S3Storage {
             runtime,
             config,
             last_etag: Mutex::new(None),
+            mtimes: Mutex::new(HashMap::new()),
         })
     }
 
@@ -160,6 +165,7 @@ impl Storage for S3Storage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let (manifest, etag) = self.fetch_manifest()?;
         *self.last_etag.lock().unwrap() = etag;
+        *self.mtimes.lock().unwrap() = manifest.mtimes;
         Ok(manifest.documents)
     }
 
@@ -177,8 +183,14 @@ impl Storage for S3Storage {
             .any(|d| d.has_content && d.path == path)
     }
 
-    fn mtime(&self, _path: &str) -> Result<f64, StorageError> {
-        Ok(0.0)
+    fn mtime(&self, path: &str) -> Result<f64, StorageError> {
+        Ok(self
+            .mtimes
+            .lock()
+            .unwrap()
+            .get(path)
+            .copied()
+            .unwrap_or(0.0))
     }
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {

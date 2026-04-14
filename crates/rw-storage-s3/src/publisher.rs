@@ -3,6 +3,7 @@
 //! Scans local documentation, resolves `PlantUML` includes, builds bundles,
 //! and uploads them to S3. Only available with the `publish` feature.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -102,9 +103,18 @@ impl BundlePublisher {
                 .map_err(BundlePublishError::S3)?;
         }
 
+        // Resolve modification times for each document.
+        let mut mtimes = HashMap::new();
+        for doc in &documents {
+            if let Ok(mtime) = storage.mtime(&doc.path) {
+                mtimes.insert(doc.path.clone(), mtime);
+            }
+        }
+
         // Upload manifest last so readers don't see a manifest referencing
         // pages that haven't been uploaded yet.
-        let manifest = Manifest::new(documents);
+        let mut manifest = Manifest::new(documents);
+        manifest.mtimes = mtimes;
         let manifest_json = serde_json::to_vec(&manifest)?;
         s3::upload(
             &client,
