@@ -82,6 +82,34 @@ describe("rewriteSectionRefLinks", () => {
     expect(link.getAttribute("href")).toBe("/catalog/default/domain/billing/docs");
   });
 
+  it("blocks javascript: URLs from a malicious resolver", async () => {
+    const container = createContainer(
+      '<a href="/domains/billing" data-section-ref="domain:default/billing" data-section-path="">Billing</a>',
+    );
+    const resolver = vi.fn().mockResolvedValue({
+      "domain:default/billing": "javascript:alert(1)",
+    });
+
+    await rewriteSectionRefLinks(container, resolver, () => "");
+
+    const link = container.querySelector("a")!;
+    expect(link.getAttribute("href")).toBe("#");
+  });
+
+  it("preserves hash fragments in section paths", async () => {
+    const container = createContainer(
+      '<a href="/domains/billing/api" data-section-ref="domain:default/billing" data-section-path="api#install">Install</a>',
+    );
+    const resolver = vi.fn().mockResolvedValue({
+      "domain:default/billing": "/catalog/default/domain/billing/docs",
+    });
+
+    await rewriteSectionRefLinks(container, resolver, () => "");
+
+    const link = container.querySelector("a")!;
+    expect(link.getAttribute("href")).toBe("/catalog/default/domain/billing/docs/api#install");
+  });
+
   it("skips container with no section-ref links", async () => {
     const container = createContainer('<a href="/about">About</a>');
     const resolver = vi.fn();

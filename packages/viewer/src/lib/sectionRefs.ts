@@ -2,6 +2,14 @@ import type { SectionInfo, ScopeInfo, NavItem, Breadcrumb, NavigationTree } from
 
 export type SectionRefResolver = (refs: string[]) => Promise<Record<string, string>>;
 
+// Allowlist matching the Angular/DOMPurify pattern: known safe schemes, or
+// anything that isn't obviously a scheme (relative paths, fragments, queries).
+const SAFE_HREF = /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
+function safeHref(candidate: string): string {
+  return SAFE_HREF.test(candidate) ? candidate : "#";
+}
+
 /**
  * Build a ref string from section info (e.g., "domain:default/billing").
  * Namespace is always "default" — the backend does not expose namespace yet.
@@ -35,7 +43,8 @@ export async function rewriteSectionRefLinks(
     const ref = link.getAttribute("data-section-ref")!;
     const sectionPath = link.getAttribute("data-section-path") ?? "";
     const baseUrl = resolved[ref] ?? getBasePath();
-    link.setAttribute("href", sectionPath ? `${baseUrl}/${sectionPath}` : baseUrl);
+    const href = sectionPath ? `${baseUrl}/${sectionPath}` : baseUrl;
+    link.setAttribute("href", safeHref(href));
   }
 }
 
