@@ -9,6 +9,7 @@
   import MobileDrawer from "./MobileDrawer.svelte";
   import IconButton from "./IconButton.svelte";
   import LoadingBar from "./LoadingBar.svelte";
+  import CommentSidebar from "./comments/CommentSidebar.svelte";
 
   interface Props {
     children: Snippet;
@@ -16,7 +17,7 @@
 
   let { children }: Props = $props();
 
-  const { router, navigation, page, ui } = getRwContext();
+  const { router, navigation, page, ui, comments } = getRwContext();
   const homeHref = router.prefixPath("/");
 
   // Scroll to top when navigating to a new page (without hash)
@@ -28,7 +29,11 @@
   });
 </script>
 
-<div class="layout-container" data-testid="viewer-root">
+<div
+  class="layout-container"
+  data-testid="viewer-root"
+  data-comments-active={comments.activeId || comments.pending ? "" : undefined}
+>
   <LoadingBar loading={page.loading} />
   <!-- Mobile Drawer (before header so the sticky anchor covers it in flow mode) -->
   <MobileDrawer />
@@ -116,17 +121,21 @@
             {@render children()}
           </main>
 
-          <!-- Table of Contents Sidebar -->
-          {#if page.data && page.data.toc.length > 0}
-            <aside aria-label="Page outline" class="layout-toc hidden w-[240px] shrink-0">
-              {#if page.data && page.data.toc.length > 0}
-                <div
-                  class="layout-toc-sticky sticky top-6 overflow-y-auto pl-8"
-                  data-testid="toc-sticky-wrapper"
-                >
-                  <TocSidebar toc={page.data.toc} />
-                </div>
-              {/if}
+          <!-- Right Sidebar: Comments (when active or drafting) or Table of Contents -->
+          {#if comments.activeId || comments.pending}
+            <aside aria-label="Comments" class="layout-comments hidden w-[320px] shrink-0">
+              <div class="pl-8">
+                <CommentSidebar />
+              </div>
+            </aside>
+          {:else if page.data && page.data.toc.length > 0}
+            <aside aria-label="Page outline" class="layout-toc hidden w-[320px] shrink-0">
+              <div
+                class="layout-toc-sticky sticky top-6 overflow-y-auto pl-8"
+                data-testid="toc-sticky-wrapper"
+              >
+                <TocSidebar toc={page.data.toc} />
+              </div>
             </aside>
           {/if}
         </div>
@@ -214,13 +223,34 @@
     }
   }
 
-  /* 1224px = sidebar (280px) + content (~704px) + TOC (240px) */
-  @container (min-width: 1224px) {
+  /* 1304px = sidebar (280px) + content (~704px) + TOC (320px).
+     TOC width matches the comment sidebar so activating a comment
+     doesn't reflow article content. */
+  @container (min-width: 1304px) {
     .layout-toc {
       display: block;
     }
     .layout-toc-popover {
       display: none;
+    }
+  }
+
+  /* When comments are active, prioritize comments over nav sidebar.
+     At medium widths: show comments, hide nav.
+     At wider widths: show both. */
+  @container (min-width: 952px) {
+    :global([data-comments-active]) .layout-sidebar {
+      display: none;
+    }
+    :global([data-comments-active]) .layout-comments {
+      display: block;
+    }
+  }
+
+  /* 1272px = sidebar (280px) + content (~672px) + comments (320px) */
+  @container (min-width: 1272px) {
+    :global([data-comments-active]) .layout-sidebar {
+      display: block;
     }
   }
 </style>

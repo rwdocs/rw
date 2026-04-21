@@ -102,8 +102,8 @@ test.describe("Embedded Layout", () => {
   });
 
   test("table of contents is visible on wide viewport", async ({ page }) => {
-    // The TOC shows at container-width >= 1224px. The embedded preview shell
-    // has a 250px sidebar, so we need viewport >= 1224 + 250 = 1474px.
+    // The TOC shows at container-width >= 1304px. The embedded preview shell
+    // has a 250px sidebar, so we need viewport >= 1304 + 250 = 1554px.
     await page.setViewportSize({ width: 1600, height: 800 });
     await page.goto("/");
 

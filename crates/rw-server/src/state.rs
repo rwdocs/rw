@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use rw_comments::SqliteCommentStore;
 use rw_site::Site;
 
 use crate::live_reload::LiveReloadManager;
@@ -18,6 +19,8 @@ pub(crate) struct AppState {
     pub(crate) verbose: bool,
     /// Application version for cache invalidation.
     pub(crate) version: String,
+    /// Comment store.
+    pub(crate) comment_store: Arc<SqliteCommentStore>,
     /// Enable embedded preview page at /.
     #[cfg(feature = "embedded-preview")]
     pub(crate) embedded_preview: bool,

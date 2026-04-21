@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 // Viewport wide enough for desktop sidebar (>=952px) but narrow enough
-// to hide the TOC sidebar (<1224px), so the popover button appears.
+// to hide the TOC sidebar (<1304px), so the popover button appears.
 test.use({ viewport: { width: 1100, height: 800 } });
 
 test.describe("TOC Popover", () => {

@@ -34,6 +34,16 @@ npm -w @rwdocs/viewer run dev
 
 ```
 crates/
+├── rw-comments/           # Inline comment storage + quote anchoring
+│   └── src/
+│       ├── lib.rs            # Public API exports
+│       ├── model.rs          # Comment, Selector, CommentStatus types
+│       ├── error.rs          # StoreError, CreateError
+│       ├── sqlite.rs         # SqliteCommentStore (persistence)
+│       ├── creation.rs       # create_comment() — quote-or-selectors wrapper
+│       ├── anchoring.rs      # Quote → selectors resolver (shared by HTTP + napi)
+│       └── html_text.rs      # HTML → textContent extractor (private, for anchoring)
+│
 ├── rw/                    # CLI binary (clap)
 │   └── src/
 │       ├── main.rs           # Entry point, CLI setup
@@ -46,9 +56,19 @@ crates/
 │           │   ├── mod.rs         # `confluence` subcommand group
 │           │   ├── update.rs      # `confluence update` command
 │           │   └── generate_tokens.rs  # `confluence generate-tokens` command
-│           └── backstage/
-│               ├── mod.rs         # `backstage` subcommand group
-│               └── publish.rs     # `backstage publish` command
+│           ├── backstage/
+│           │   ├── mod.rs         # `backstage` subcommand group
+│           │   └── publish.rs     # `backstage publish` command
+│           └── comment/
+│               ├── mod.rs         # `comment` subcommand group (CommonArgs + dispatch)
+│               ├── context.rs     # Shared store + Site construction
+│               ├── identity.rs    # flag + env resolution for Author
+│               ├── format.rs      # text + JSON output helpers
+│               ├── list.rs        # `comment list`
+│               ├── show.rs        # `comment show`
+│               ├── add.rs         # `comment add`
+│               ├── reply.rs       # `comment reply`
+│               └── resolve.rs     # `comment resolve`
 │
 ├── rw-storage-s3/         # S3 storage backend and bundle publisher
 │   └── src/
@@ -196,9 +216,10 @@ crates/
 └── rw-server/             # Native HTTP server (axum)
     └── src/
         ├── lib.rs            # Server configuration and entry point
-        ├── handlers/         # API endpoints (config, pages, navigation)
+        ├── handlers/         # API endpoints (config, pages, navigation, comments)
         ├── live_reload/      # File watching and WebSocket broadcasting
-        └── static_files.rs   # Static file serving with SPA fallback
+        ├── static_files.rs   # Static file serving with SPA fallback
+        └── testing.rs        # TestServer harness (feature = "test-utils")
 
 packages/
 ├── viewer/                # @rwdocs/viewer — Svelte 5 SPA (Vite + Tailwind)

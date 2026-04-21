@@ -21,6 +21,10 @@ pub enum ServerError {
     /// I/O error (bind or serve failure).
     #[error("{0}")]
     Io(#[from] std::io::Error),
+
+    /// Failed to initialize comment store.
+    #[error("failed to initialize comment store: {0}")]
+    CommentStore(#[from] rw_comments::StoreError),
 }
 
 /// Handler error type (internal).

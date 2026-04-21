@@ -19,6 +19,9 @@ test.describe("ToC sticky behavior", () => {
 });
 
 test.describe("Page Content", () => {
+  // Wide enough for the ToC sidebar to render (breakpoint: 1304px)
+  test.use({ viewport: { width: 1400, height: 720 } });
+
   test("renders markdown content with headings", async ({ page }) => {
     await page.goto("/");
 

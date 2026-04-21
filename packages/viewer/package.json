@@ -64,6 +64,8 @@
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
-    "@fontsource/roboto": "^5.2.9"
+    "@fontsource/roboto": "^5.2.9",
+    "@types/diff-match-patch": "^1.0.36",
+    "diff-match-patch": "^1.0.5"
   }
 }

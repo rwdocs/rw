@@ -20,14 +20,19 @@ use crate::static_files;
 ///
 /// * `state` - Shared application state
 pub(crate) fn create_router(state: Arc<AppState>) -> Router {
-    // API routes
-    let api_routes = Router::new()
+    let mut router = Router::new()
         .route("/api/config", get(handlers::config::get_config))
         .route("/api/navigation", get(handlers::navigation::get_navigation))
         .route("/api/pages/", get(handlers::pages::get_root_page))
-        .route("/api/pages/{*path}", get(handlers::pages::get_page));
-
-    let mut router = Router::new().merge(api_routes);
+        .route("/api/pages/{*path}", get(handlers::pages::get_page))
+        .route(
+            "/api/comments",
+            get(handlers::comments::list_comments).post(handlers::comments::create_comment),
+        )
+        .route(
+            "/api/comments/{id}",
+            get(handlers::comments::get_comment).patch(handlers::comments::update_comment),
+        );
 
     // WebSocket for live reload
     if state.live_reload.is_some() {

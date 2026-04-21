@@ -5,6 +5,7 @@ import type { Page } from "../state/page.svelte";
 import type { Navigation } from "../state/navigation.svelte";
 import type { LiveReload } from "../state/liveReload.svelte";
 import type { Ui } from "../state/ui.svelte";
+import type { Comments } from "../state/comments.svelte";
 
 export interface RwContext {
   apiClient: ApiClient;
@@ -13,6 +14,7 @@ export interface RwContext {
   navigation: Navigation;
   liveReload: LiveReload;
   ui: Ui;
+  comments: Comments;
   resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
 }
 

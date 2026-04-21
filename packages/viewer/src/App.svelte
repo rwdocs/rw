@@ -1,11 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { createApiClient } from "./api/client";
+  import { createCommentApiClient } from "./api/comments";
   import { Router } from "./state/router.svelte";
   import { Page as PageState } from "./state/page.svelte";
   import { Navigation } from "./state/navigation.svelte";
   import { LiveReload } from "./state/liveReload.svelte";
   import { Ui } from "./state/ui.svelte";
+  import { Comments } from "./state/comments.svelte";
   import { setRwContext } from "./lib/context";
   import type { ConfigResponse } from "./types";
   import Layout from "./components/Layout.svelte";
@@ -66,6 +68,11 @@
   }
   const liveReload = new LiveReload({ router });
   const ui = new Ui();
+  const commentApiClient = createCommentApiClient(
+    untrack(() => apiBaseUrl),
+    untrack(() => fetchFn),
+  );
+  const comments = new Comments(commentApiClient);
 
   // Close menus and expand navigation on any path change
   let previousPath = router.path;
@@ -99,6 +106,7 @@
     navigation,
     liveReload,
     ui,
+    comments,
     resolveSectionRefs: untrack(() => resolveSectionRefs),
   });
 
@@ -147,6 +155,10 @@
 
       if (config.liveReloadEnabled && !embedded) {
         liveReload.start();
+      }
+
+      if (config.commentsEnabled) {
+        comments.enabled = true;
       }
     })();
 
