@@ -69,6 +69,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 | `rw backstage publish` | Publish documentation bundles to S3 for Backstage |
 | `rw confluence update` | Publish markdown to a Confluence page |
 | `rw confluence generate-tokens` | Generate OAuth access tokens |
+| `rw comment` | Read and write inline comments on project docs (for scripts and LLM agents) |
 
 ## Documentation
 
@@ -76,6 +77,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 - [Page Metadata](docs/metadata.md)
 - [Confluence Publishing](docs/confluence.md)
 - [Diagram Rendering](docs/diagrams.md)
+- [Comment CLI](docs/comment-cli.md)
 
 ## License
 

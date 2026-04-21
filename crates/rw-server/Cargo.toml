@@ -21,6 +21,7 @@ rw-site = { workspace = true }
 rw-config = { workspace = true }
 rw-embedded-preview = { workspace = true, optional = true }
 rw-renderer = { workspace = true, features = ["serde"] }
+rw-comments = { workspace = true }
 rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
 
@@ -42,13 +43,13 @@ serde_json = { workspace = true }
 
 # Utilities
 thiserror = "2"
+uuid = { workspace = true }
 tracing = { workspace = true }
 md-5 = "0.11"
 hex = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 pretty_assertions = { workspace = true }
 tokio-test = "0.4"
 serde_urlencoded = "0.7"

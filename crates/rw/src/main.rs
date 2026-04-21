@@ -5,6 +5,7 @@
 //! - `backstage publish`: Publish documentation bundles to S3 for Backstage
 //! - `confluence update`: Update Confluence pages from markdown
 //! - `confluence generate-tokens`: Generate OAuth access tokens
+//! - `comment`: Read and write comments directly against the local `SQLite` store
 
 mod commands;
 mod error;
@@ -13,7 +14,7 @@ mod output;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use commands::{BackstageCommand, ConfluenceCommand, ServeArgs};
+use commands::{BackstageCommand, CommentCommand, ConfluenceCommand, ServeArgs};
 use output::Output;
 
 /// Application version from Cargo.toml.
@@ -37,6 +38,9 @@ enum Commands {
     /// Confluence publishing commands.
     #[command(subcommand)]
     Confluence(ConfluenceCommand),
+    /// Read and write inline comments on project docs (for scripts and LLM agents).
+    #[command(subcommand)]
+    Comment(CommentCommand),
 }
 
 fn main() {
@@ -62,10 +66,11 @@ fn main() {
         }
         Commands::Backstage(cmd) => cmd.execute(),
         Commands::Confluence(cmd) => cmd.execute(),
+        Commands::Comment(cmd) => cmd.execute(),
     };
 
     if let Err(err) = result {
         output.error(&format!("Error: {err}"));
-        std::process::exit(1);
+        std::process::exit(err.exit_code());
     }
 }

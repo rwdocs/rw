@@ -93,4 +93,5 @@ export interface ApiError {
 /** Server config from GET /api/config */
 export interface ConfigResponse {
   liveReloadEnabled: boolean;
+  commentsEnabled?: boolean;
 }

@@ -21,6 +21,7 @@ embedded-preview = ["rw-server/embedded-preview"]
 
 [dependencies]
 rw-assets = { workspace = true }
+rw-cache = { workspace = true }
 rw-storage-s3 = { workspace = true, features = ["publish"] }
 rw-config = { workspace = true }
 rw-confluence = { workspace = true }
@@ -34,3 +35,10 @@ thiserror = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rw-comments = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

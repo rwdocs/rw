@@ -29,6 +29,7 @@
 //!         live_reload_enabled: true,
 //!         verbose: false,
 //!         version: "1.0.0".to_owned(),
+//!         comments_db: PathBuf::from(".rw/comments/sqlite.db"),
 //!         ..Default::default()
 //!     };
 //!
@@ -63,10 +64,11 @@ mod static_files;
 pub use error::ServerError;
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use rw_comments::SqliteCommentStore;
 use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 use state::AppState;
@@ -97,6 +99,8 @@ pub struct ServerConfig {
     pub version: String,
     /// Metadata file name (default: "meta.yaml").
     pub meta_filename: String,
+    /// Path to `SQLite` database for comments.
+    pub comments_db: PathBuf,
     /// Enable embedded preview mode (serves Backstage-like shell at /).
     /// Only available when the `embedded-preview` feature is enabled.
     #[cfg(feature = "embedded-preview")]
@@ -117,6 +121,7 @@ impl Default for ServerConfig {
             verbose: false,
             version: String::new(),
             meta_filename: "meta.yaml".to_owned(),
+            comments_db: SqliteCommentStore::default_path(Path::new(".rw")),
             #[cfg(feature = "embedded-preview")]
             embedded_preview: false,
         }
@@ -164,12 +169,14 @@ pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
         None
     };
 
-    // Create app state
+    let comment_store = Arc::new(SqliteCommentStore::open(&config.comments_db).await?);
+
     let state = Arc::new(AppState {
         site,
         live_reload,
         verbose: config.verbose,
         version: config.version.clone(),
+        comment_store,
         #[cfg(feature = "embedded-preview")]
         embedded_preview: config.embedded_preview,
     });
@@ -227,6 +234,7 @@ pub fn server_config_from_rw_config(
         verbose,
         version,
         meta_filename: config.metadata.name.clone(),
+        comments_db: SqliteCommentStore::default_path(&config.docs_resolved.project_dir),
         ..Default::default()
     }
 }

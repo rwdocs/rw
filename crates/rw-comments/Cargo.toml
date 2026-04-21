@@ -1,0 +1,28 @@
+[package]
+name = "rw-comments"
+description = "Inline comment storage for RW documentation engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rw-site = { workspace = true }
+
+chrono = "0.4"
+html-escape = "0.2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+rw-cache = { workspace = true }
+rw-storage = { workspace = true, features = ["mock"] }
+
+pretty_assertions = { workspace = true }
+tokio = { version = "1", features = ["rt", "macros"] }
