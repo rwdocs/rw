@@ -1051,7 +1051,7 @@ mod tests {
     fn test_timeout_builder() {
         // Test that timeout builder method works and can be chained
         let processor = DiagramProcessor::new("https://kroki.io")
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_mins(1))
             .dpi(96);
 
         // Verify the processor was created successfully and can process diagrams
