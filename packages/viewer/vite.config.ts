@@ -1,13 +1,15 @@
+/// <reference types="vitest" />
 import { fileURLToPath } from "url";
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { svelteTesting } from "@testing-library/svelte/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { fontPreload } from "./vite-plugin-font-preload";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
-  plugins: [svelte(), tailwindcss(), fontPreload()],
+  plugins: [svelte(), svelteTesting(), tailwindcss(), fontPreload()],
   build: {
     sourcemap: true,
     rolldownOptions: {
@@ -29,7 +31,12 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
       include: ["src/**/*.ts", "src/**/*.svelte"],
-      exclude: ["src/**/*.test.ts", "src/**/*.test.svelte.ts", "src/main.ts"],
+      exclude: [
+        "src/**/*.test.ts",
+        "src/**/*.test.svelte.ts",
+        "src/**/__fixtures__/**",
+        "src/main.ts",
+      ],
     },
   },
 });

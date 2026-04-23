@@ -49,6 +49,20 @@
 
   --color-accent-fg: var(--color-accent-600);
   --color-accent-bg: var(--color-accent-600);
+  --color-accent-bg-hover: var(--color-accent-700);
+
+  /*
+   * Foreground on solid accent/danger buttons. White in both modes because
+   * the solid bg (accent-600 light, accent-500 dark) is dark enough either way.
+   */
+  --color-fg-on-solid: var(--color-neutral-0);
+
+  /*
+   * Solid danger tone — distinct from the intent triple above which is
+   * tuned for alert panels (light-tinted bg, dark fg). Solid is for buttons.
+   */
+  --color-danger-bg-solid: var(--color-danger-500);
+  --color-danger-bg-solid-hover: var(--color-danger-700);
 
   /* Intent triples */
   --color-info-fg: var(--color-info-700);
@@ -87,6 +101,10 @@
 
   --color-accent-fg: var(--color-accent-500);
   --color-accent-bg: var(--color-accent-500);
+  --color-accent-bg-hover: var(--color-accent-600);
+
+  /* --color-danger-bg-solid is unchanged in dark (danger-500 is vivid enough). */
+  --color-danger-bg-solid-hover: var(--color-danger-600);
 
   /*
    * Intents on dark: fg lightens, bg becomes a low-alpha tint of the

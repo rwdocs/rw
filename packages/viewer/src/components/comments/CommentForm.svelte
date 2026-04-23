@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Button from "../../lib/ui/primitives/Button.svelte";
+
   interface Props {
     onSubmit: (body: string) => Promise<void>;
     onCancel?: () => void;
@@ -140,32 +142,11 @@
   {#if showActions}
     <div class="flex justify-end gap-2">
       {#if onCancel}
-        <button
-          type="button"
-          onclick={onCancel}
-          class="
-            rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors
-            hover:text-gray-900
-            dark:text-neutral-400
-            dark:hover:text-neutral-100
-          "
-        >
-          Cancel
-        </button>
+        <Button variant="ghost" onclick={onCancel}>Cancel</Button>
       {/if}
-      <button
-        type="submit"
-        disabled={!body.trim() || submitting}
-        class="
-          rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors
-          hover:bg-blue-700
-          disabled:cursor-not-allowed disabled:opacity-50
-          dark:bg-blue-500
-          dark:hover:bg-blue-600
-        "
-      >
+      <Button type="submit" variant="primary" disabled={!body.trim()} loading={submitting}>
         Comment
-      </button>
+      </Button>
     </div>
   {/if}
 </form>
