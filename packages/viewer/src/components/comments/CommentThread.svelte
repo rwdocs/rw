@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Comment } from "../../types/comments";
+  import Badge from "../../lib/ui/primitives/Badge.svelte";
   import Avatar from "./Avatar.svelte";
   import CommentForm from "./CommentForm.svelte";
 
@@ -106,9 +107,7 @@
           dark:border-neutral-700
         "
       >
-        <span class="text-xs text-gray-500 dark:text-neutral-400">
-          {nav.index + 1} / {nav.total}
-        </span>
+        <Badge intent="neutral" size="sm">{nav.index + 1} / {nav.total}</Badge>
         <div class="flex gap-1">
           <button
             type="button"
@@ -225,12 +224,14 @@
         {comment.author.name}
       </span>
       {#if fuzzy}
-        <span
-          class="text-xs text-amber-600 italic dark:text-amber-400"
+        <Badge
+          intent="warning"
+          size="sm"
+          class="italic"
           title="The exact passage this comment was attached to no longer appears in the page. The highlight is the closest match."
         >
           re-anchored
-        </span>
+        </Badge>
       {/if}
       <span class="ml-auto text-xs text-gray-400 dark:text-neutral-500">
         {formatRelativeTime(comment.createdAt)}
