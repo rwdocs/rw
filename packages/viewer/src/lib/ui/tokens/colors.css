@@ -1,0 +1,115 @@
+/*
+ * Color tokens. Two tiers:
+ *   Primitive — palette aliases (not consumed by components directly)
+ *   Semantic  — intent-named tokens (consumed by components)
+ */
+
+@theme {
+  /* ── Primitive palette ──────────────────────────────────────────── */
+  /* Neutral — extends Tailwind's default `neutral-*` scale with -0. */
+  --color-neutral-0: var(--color-white);
+  /* (neutral-50…950 come from Tailwind's default palette; they're
+   * already in scope via @import "tailwindcss".) */
+
+  /* Accent — primary action color (links, primary buttons). */
+  --color-accent-50: var(--color-blue-50);
+  --color-accent-100: var(--color-blue-100);
+  --color-accent-500: var(--color-blue-500);
+  --color-accent-600: var(--color-blue-600);
+  --color-accent-700: var(--color-blue-700);
+
+  /* Status hues */
+  --color-info-50: var(--color-blue-50);
+  --color-info-500: var(--color-blue-500);
+  --color-info-700: var(--color-blue-700);
+  --color-success-50: var(--color-green-50);
+  --color-success-500: var(--color-green-500);
+  --color-success-700: var(--color-green-700);
+  --color-warning-50: var(--color-yellow-50);
+  --color-warning-500: var(--color-yellow-500);
+  --color-warning-700: var(--color-yellow-700);
+  --color-danger-50: var(--color-red-50);
+  --color-danger-500: var(--color-red-500);
+  --color-danger-700: var(--color-red-700);
+  --color-attention-50: var(--color-purple-50);
+  --color-attention-500: var(--color-purple-500);
+  --color-attention-700: var(--color-purple-700);
+
+  /* ── Semantic tokens (light mode defaults) ──────────────────────── */
+  --color-fg-default: var(--color-neutral-900);
+  --color-fg-muted: var(--color-neutral-500);
+  --color-fg-subtle: var(--color-neutral-400);
+
+  --color-bg-default: var(--color-neutral-0);
+  --color-bg-raised: var(--color-neutral-0);
+  --color-bg-subtle: var(--color-neutral-50);
+
+  --color-border-default: var(--color-neutral-200);
+  --color-border-subtle: var(--color-neutral-100);
+
+  --color-accent-fg: var(--color-accent-600);
+  --color-accent-bg: var(--color-accent-600);
+
+  /* Intent triples */
+  --color-info-fg: var(--color-info-700);
+  --color-info-bg: var(--color-info-50);
+  --color-info-border: var(--color-info-500);
+
+  --color-success-fg: var(--color-success-700);
+  --color-success-bg: var(--color-success-50);
+  --color-success-border: var(--color-success-500);
+
+  --color-warning-fg: var(--color-warning-700);
+  --color-warning-bg: var(--color-warning-50);
+  --color-warning-border: var(--color-warning-500);
+
+  --color-danger-fg: var(--color-danger-700);
+  --color-danger-bg: var(--color-danger-50);
+  --color-danger-border: var(--color-danger-500);
+
+  --color-attention-fg: var(--color-attention-700);
+  --color-attention-bg: var(--color-attention-50);
+  --color-attention-border: var(--color-attention-500);
+}
+
+/* ── Dark-mode overrides ──────────────────────────────────────────── */
+.dark {
+  --color-fg-default: var(--color-neutral-100);
+  --color-fg-muted: var(--color-neutral-400);
+  --color-fg-subtle: var(--color-neutral-500);
+
+  --color-bg-default: var(--color-neutral-900);
+  --color-bg-raised: var(--color-neutral-800);
+  --color-bg-subtle: var(--color-neutral-800);
+
+  --color-border-default: var(--color-neutral-700);
+  --color-border-subtle: var(--color-neutral-800);
+
+  --color-accent-fg: var(--color-accent-500);
+  --color-accent-bg: var(--color-accent-500);
+
+  /*
+   * Intents on dark: fg lightens, bg becomes a low-alpha tint of the
+   * 500-step primitive. color-mix keeps the tint bound to the primitive,
+   * so rebasing the palette automatically updates these.
+   */
+  --color-info-fg: var(--color-info-500);
+  --color-info-bg: color-mix(in srgb, var(--color-info-500) 10%, transparent);
+  --color-info-border: var(--color-info-500);
+
+  --color-success-fg: var(--color-success-500);
+  --color-success-bg: color-mix(in srgb, var(--color-success-500) 10%, transparent);
+  --color-success-border: var(--color-success-500);
+
+  --color-warning-fg: var(--color-warning-500);
+  --color-warning-bg: color-mix(in srgb, var(--color-warning-500) 10%, transparent);
+  --color-warning-border: var(--color-warning-500);
+
+  --color-danger-fg: var(--color-danger-500);
+  --color-danger-bg: color-mix(in srgb, var(--color-danger-500) 10%, transparent);
+  --color-danger-border: var(--color-danger-500);
+
+  --color-attention-fg: var(--color-attention-500);
+  --color-attention-bg: color-mix(in srgb, var(--color-attention-500) 10%, transparent);
+  --color-attention-border: var(--color-attention-500);
+}

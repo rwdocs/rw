@@ -249,16 +249,16 @@
 
 /* Comment highlights */
 ::highlight(rw-comments) {
-  background-color: rgba(255, 212, 0, 0.25);
+  background-color: var(--highlight-comment);
 }
 /* Fuzzy-anchored comments — exact text drifted, re-anchor is approximate.
  * Same yellow at lower opacity so the threading still reads as a comment,
  * with a dashed underline to signal "may have moved". */
 ::highlight(rw-comments-fuzzy) {
-  background-color: rgba(255, 212, 0, 0.15);
-  text-decoration: underline dashed rgba(180, 130, 0, 0.7);
+  background-color: var(--highlight-comment-fuzzy);
+  text-decoration: underline dashed var(--highlight-comment-fuzzy-underline);
   text-underline-offset: 2px;
 }
 ::highlight(rw-comment-active) {
-  background-color: rgba(255, 212, 0, 0.5);
+  background-color: var(--highlight-comment-active);
 }

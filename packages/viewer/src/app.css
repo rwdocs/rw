@@ -2,6 +2,10 @@
 @plugin "@tailwindcss/typography";
 @custom-variant dark (&:where(.dark, .dark *));
 
+@import "./lib/ui/tokens/colors.css";
+@import "./lib/ui/tokens/z-index.css";
+@import "./lib/ui/tokens/highlights.css";
+
 @import "./styles/content.css";
 
 @theme {

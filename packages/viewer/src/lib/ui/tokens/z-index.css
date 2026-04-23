@@ -1,0 +1,14 @@
+/*
+ * Z-index scale — replaces scattered z-30/z-40/z-50 literals.
+ * Tailwind 4 namespaces z-index utilities under `--z-index-*`, so that is
+ * the token prefix we must use for `.z-sticky` etc. to be generated.
+ * Components consume these via utility classes (`class="z-sticky"`) rather
+ * than via var() references.
+ */
+@theme {
+  --z-index-base: 0;
+  --z-index-sticky: 30; /* sticky headers, breadcrumbs */
+  --z-index-dropdown: 40; /* popovers, menus */
+  --z-index-overlay: 50; /* mobile drawer backdrop, selection popover */
+  --z-index-toast: 60; /* reserved */
+}
