@@ -4,6 +4,7 @@
   import { getRwContext } from "../../lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
+  import Alert from "../../lib/ui/primitives/Alert.svelte";
 
   const { comments } = getRwContext();
 
@@ -116,21 +117,9 @@
 </script>
 
 {#if comments.error}
-  <div
-    class="
-      mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700
-      dark:border-red-800 dark:bg-red-950 dark:text-red-300
-    "
-    role="alert"
-  >
+  <Alert intent="danger" dismissible onDismiss={() => (comments.error = null)} class="mb-2">
     {comments.error}
-    <button
-      class="ml-2 font-medium underline hover:no-underline"
-      onclick={() => {
-        comments.error = null;
-      }}>Dismiss</button
-    >
-  </div>
+  </Alert>
 {/if}
 
 {#if comments.pending}

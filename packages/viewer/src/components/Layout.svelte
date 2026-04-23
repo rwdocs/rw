@@ -10,6 +10,7 @@
   import IconButton from "./IconButton.svelte";
   import LoadingBar from "./LoadingBar.svelte";
   import CommentSidebar from "./comments/CommentSidebar.svelte";
+  import Alert from "../lib/ui/primitives/Alert.svelte";
 
   interface Props {
     children: Snippet;
@@ -86,14 +87,9 @@
           >
         </a>
         {#if navigation.error}
-          <div
-            class="
-              mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm text-red-700
-              dark:border-red-800 dark:bg-red-950 dark:text-red-300
-            "
-          >
+          <Alert intent="danger" class="mb-4">
             Failed to load navigation: {navigation.error}
-          </div>
+          </Alert>
         {/if}
         <NavigationSidebar />
       </div>
