@@ -4,6 +4,7 @@
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
   import Alert from "../../lib/ui/primitives/Alert.svelte";
+  import Quote from "../../lib/ui/primitives/Quote.svelte";
 
   const { comments, page } = getRwContext();
 
@@ -86,24 +87,14 @@
         {@const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
         <div>
           {#if quote}
-            <!-- Orphaned inline comment: the stored passage no longer appears
-                 in the page, so we show the quote (with its captured context)
-                 verbatim above the thread. -->
-            <blockquote
+            <Quote
               data-testid="orphan-quote"
               title="This comment was attached to a passage that no longer appears on the page."
-              class="
-                mb-2 border-l-2 border-amber-300 pl-3 text-sm text-gray-600 italic
-                dark:border-amber-500/60 dark:text-neutral-400
-              "
-            >
-              {#if quote.prefix}<span class="opacity-70">…{quote.prefix}</span>{/if}<mark
-                class="
-                  rounded-sm bg-[rgba(255,212,0,0.4)] px-0.5 text-inherit not-italic
-                  dark:bg-[rgba(255,212,0,0.25)]
-                ">{quote.exact}</mark
-              >{#if quote.suffix}<span class="opacity-70">{quote.suffix}…</span>{/if}
-            </blockquote>
+              class="mb-2"
+              prefix={quote.prefix}
+              exact={quote.exact}
+              suffix={quote.suffix}
+            />
           {/if}
           <CommentThread
             comment={thread}

@@ -3,6 +3,7 @@
  */
 :root {
   --highlight-comment: color-mix(in srgb, var(--color-yellow-400) 25%, transparent);
+  --highlight-comment-border: color-mix(in srgb, var(--color-yellow-500) 60%, transparent);
   --highlight-comment-fuzzy: color-mix(in srgb, var(--color-yellow-400) 15%, transparent);
   --highlight-comment-fuzzy-underline: color-mix(in srgb, var(--color-yellow-700) 70%, transparent);
   --highlight-comment-active: color-mix(in srgb, var(--color-yellow-400) 50%, transparent);
