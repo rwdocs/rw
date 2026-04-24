@@ -5,6 +5,7 @@
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "../lib/anchoring";
   import { LOADING_SHOW_DELAY } from "../lib/constants";
   import LoadingSkeleton from "./LoadingSkeleton.svelte";
+  import Alert from "../lib/ui/primitives/Alert.svelte";
   import Button from "../lib/ui/primitives/Button.svelte";
   import Popover from "../lib/ui/primitives/Popover.svelte";
   import PageComments from "./comments/PageComments.svelte";
@@ -406,7 +407,7 @@
   </div>
 {:else if page.error}
   <div class="flex h-64 items-center justify-center">
-    <p class="text-red-600 dark:text-red-400">Error: {page.error}</p>
+    <Alert intent="danger" title="Error">{page.error}</Alert>
   </div>
 {:else if page.data}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
