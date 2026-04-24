@@ -45,6 +45,7 @@
   --color-bg-subtle: var(--color-neutral-50);
 
   --color-border-default: var(--color-neutral-200);
+  --color-border-strong: var(--color-neutral-300);
   --color-border-subtle: var(--color-neutral-100);
 
   --color-accent-fg: var(--color-accent-600);
@@ -103,6 +104,7 @@
   --color-bg-subtle: var(--color-neutral-700);
 
   --color-border-default: var(--color-neutral-700);
+  --color-border-strong: var(--color-neutral-500);
   --color-border-subtle: var(--color-neutral-800);
 
   --color-accent-fg: var(--color-accent-500);
