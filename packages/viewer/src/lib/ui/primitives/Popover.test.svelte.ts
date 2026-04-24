@@ -2,36 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { flushSync } from "svelte";
 import { render, fireEvent } from "@testing-library/svelte";
 import Harness from "./__fixtures__/PopoverHarness.svelte";
-
-// Minimal ResizeObserver stub — jsdom does not provide one, and Popover's
-// anchored mode constructs an observer via useAnchorOffset. For these tests
-// we only need observe/disconnect to exist; the initial rect measurement
-// happens synchronously during the hook's $effect.
-class MockResizeObserver {
-  callback: ResizeObserverCallback;
-  constructor(cb: ResizeObserverCallback) {
-    this.callback = cb;
-  }
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-
-function mockRect(el: HTMLElement, rect: Partial<DOMRect>): void {
-  el.getBoundingClientRect = () =>
-    ({
-      top: 0,
-      left: 0,
-      width: 0,
-      height: 0,
-      right: 0,
-      bottom: 0,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-      ...rect,
-    }) as DOMRect;
-}
+import { MockResizeObserver, mockRect } from "./__fixtures__/overlay-testing";
 
 // The panel is the immediate parent of the <span data-testid="pp-body">
 // tested content — getByTestId returns the span, so stepping up one level
