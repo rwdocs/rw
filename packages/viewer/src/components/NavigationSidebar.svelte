@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getRwContext } from "../lib/context";
+  import Alert from "../lib/ui/primitives/Alert.svelte";
   import NavTree from "./NavTree.svelte";
 
   const { navigation, router } = getRwContext();
@@ -10,7 +11,7 @@
 {#if navigation.loading}
   <div class="text-sm text-gray-600 dark:text-neutral-400">Loading...</div>
 {:else if navigation.error}
-  <div class="text-sm text-red-600 dark:text-red-400">{navigation.error}</div>
+  <Alert intent="danger">{navigation.error}</Alert>
 {:else if navigation.tree}
   <nav>
     {#if navigation.tree.scope && backLink}
