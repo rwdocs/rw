@@ -5,6 +5,7 @@
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "../lib/anchoring";
   import { LOADING_SHOW_DELAY } from "../lib/constants";
   import LoadingSkeleton from "./LoadingSkeleton.svelte";
+  import Button from "../lib/ui/primitives/Button.svelte";
   import Popover from "../lib/ui/primitives/Popover.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
@@ -365,21 +366,11 @@
     x={selectionRect.x}
     y={selectionRect.y - 8}
     class="
-      flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-lg border border-gray-200
-      bg-white px-3 py-1.5 shadow-lg
+      -translate-x-1/2 -translate-y-full rounded-lg border border-gray-200 bg-white shadow-lg
       dark:border-neutral-600 dark:bg-neutral-700
     "
   >
-    <button
-      type="button"
-      onclick={handleAddComment}
-      class="
-        flex items-center gap-1.5 text-sm font-medium text-gray-700 transition-colors
-        hover:text-blue-600
-        dark:text-neutral-200
-        dark:hover:text-blue-400
-      "
-    >
+    <Button variant="ghost" onclick={handleAddComment}>
       <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path
           stroke-linecap="round"
@@ -388,7 +379,7 @@
         />
       </svg>
       Add comment
-    </button>
+    </Button>
   </Popover>
 {/if}
 

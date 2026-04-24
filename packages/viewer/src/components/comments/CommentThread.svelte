@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Comment } from "../../types/comments";
   import Badge from "../../lib/ui/primitives/Badge.svelte";
+  import Button from "../../lib/ui/primitives/Button.svelte";
   import Avatar from "./Avatar.svelte";
   import CommentForm from "./CommentForm.svelte";
 
@@ -98,6 +99,14 @@
     `}
   "
 >
+  {#snippet closeButton()}
+    <Button variant="ghost" size="xs" iconOnly onclick={onClose} aria-label="Close comment">
+      <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </Button>
+  {/snippet}
+
   <!-- Thread navigation -->
   {#if onClose}
     {#if nav && nav.total > 1}
@@ -109,19 +118,13 @@
       >
         <Badge intent="neutral" size="sm">{nav.index + 1} / {nav.total}</Badge>
         <div class="flex gap-1">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="xs"
+            iconOnly
             disabled={nav.index <= 0}
             onclick={nav.onPrev}
             aria-label="Previous comment"
-            class="
-              cursor-pointer rounded-sm p-0.5 text-gray-500 transition-colors
-              hover:bg-gray-100 hover:text-gray-700
-              disabled:cursor-default disabled:opacity-30
-              disabled:hover:bg-transparent
-              dark:text-neutral-400
-              dark:hover:bg-neutral-700 dark:hover:text-neutral-200
-            "
           >
             <svg
               class="size-4"
@@ -132,20 +135,14 @@
             >
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
             </svg>
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            iconOnly
             disabled={nav.index >= nav.total - 1}
             onclick={nav.onNext}
             aria-label="Next comment"
-            class="
-              cursor-pointer rounded-sm p-0.5 text-gray-500 transition-colors
-              hover:bg-gray-100 hover:text-gray-700
-              disabled:cursor-default disabled:opacity-30
-              disabled:hover:bg-transparent
-              dark:text-neutral-400
-              dark:hover:bg-neutral-700 dark:hover:text-neutral-200
-            "
           >
             <svg
               class="size-4"
@@ -156,28 +153,8 @@
             >
               <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
             </svg>
-          </button>
-          <button
-            type="button"
-            onclick={onClose}
-            aria-label="Close comment"
-            class="
-              cursor-pointer rounded-sm p-0.5 text-gray-500 transition-colors
-              hover:bg-gray-100 hover:text-gray-700
-              dark:text-neutral-400
-              dark:hover:bg-neutral-700 dark:hover:text-neutral-200
-            "
-          >
-            <svg
-              class="size-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          </Button>
+          {@render closeButton()}
         </div>
       </div>
     {:else}
@@ -187,27 +164,7 @@
           dark:border-neutral-700
         "
       >
-        <button
-          type="button"
-          onclick={onClose}
-          aria-label="Close comment"
-          class="
-            cursor-pointer rounded-sm p-0.5 text-gray-500 transition-colors
-            hover:bg-gray-100 hover:text-gray-700
-            dark:text-neutral-400
-            dark:hover:bg-neutral-700 dark:hover:text-neutral-200
-          "
-        >
-          <svg
-            class="size-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        {@render closeButton()}
       </div>
     {/if}
   {/if}

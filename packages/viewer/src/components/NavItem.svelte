@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getRwContext } from "../lib/context";
   import type { NavItem } from "../types";
+  import Button from "../lib/ui/primitives/Button.svelte";
   import NavTree from "./NavTree.svelte";
 
   interface Props {
@@ -27,14 +28,12 @@
 <li>
   <div class="flex items-center">
     {#if hasChildren}
-      <button
+      <Button
+        variant="ghost"
+        size="xs"
+        iconOnly
         onclick={toggleExpanded}
-        class="
-          mr-0.5 flex size-5 items-center justify-center rounded-sm text-gray-500
-          hover:bg-gray-100 hover:text-gray-700
-          dark:text-neutral-400
-          dark:hover:bg-neutral-600 dark:hover:text-neutral-300
-        "
+        class="mr-0.5"
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
         <svg
@@ -51,7 +50,7 @@
             clip-rule="evenodd"
           />
         </svg>
-      </button>
+      </Button>
     {:else}
       <!-- Spacer matches expand button: w-5 (20px) + mr-0.5 (2px) = 22px -->
       <span class="w-[22px]"></span>

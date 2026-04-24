@@ -40,6 +40,23 @@ describe("Button", () => {
     expect(getByRole("button").className).toContain("text-xs");
   });
 
+  it("applies xs icon size classes (size-5 + rounded-sm)", () => {
+    const { getByRole } = render(Harness, { size: "xs", iconOnly: true });
+    const cls = getByRole("button").className;
+    expect(cls).toContain("size-5");
+    expect(cls).toContain("rounded-sm");
+  });
+
+  it("sm size uses rounded-md", () => {
+    const { getByRole } = render(Harness, { size: "sm" });
+    expect(getByRole("button").className).toContain("rounded-md");
+  });
+
+  it("md size uses rounded-md", () => {
+    const { getByRole } = render(Harness, { size: "md" });
+    expect(getByRole("button").className).toContain("rounded-md");
+  });
+
   it("iconOnly renders a square (width == height via size-* utility)", () => {
     const { getByRole } = render(Harness, { iconOnly: true });
     expect(getByRole("button").className).toMatch(/\bsize-\d+\b/);
@@ -52,6 +69,14 @@ describe("Button", () => {
     expect(button.getAttribute("aria-disabled")).toBe("true");
     await fireEvent.click(button);
     expect(onclick).not.toHaveBeenCalled();
+  });
+
+  it("suppresses variant hover background while disabled", () => {
+    // Regression guard: without aria-disabled:hover:bg-transparent the ghost
+    // variant's hover:bg-bg-subtle still fires on disabled buttons, so a
+    // disabled prev/next nav button would light up on hover.
+    const { getByRole } = render(Harness, { variant: "ghost", disabled: true });
+    expect(getByRole("button").className).toContain("aria-disabled:hover:bg-transparent");
   });
 
   it("sets aria-disabled and blocks onclick when loading", async () => {

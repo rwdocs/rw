@@ -1,6 +1,6 @@
 <script module lang="ts">
   type Variant = "primary" | "secondary" | "ghost" | "danger";
-  type Size = "sm" | "md";
+  type Size = "xs" | "sm" | "md";
   type SizeKey = `${Size}-${"icon" | "text"}`;
 
   // Tailwind's JIT needs full class strings present in source to compile them,
@@ -16,11 +16,16 @@
       "bg-danger-bg-solid text-fg-on-solid hover:bg-danger-bg-solid-hover focus-visible:outline-danger-fg",
   };
 
+  // Radius lives in the size table (not the base class list) so xs can opt
+  // for rounded-sm while sm/md keep rounded-md, without relying on Tailwind's
+  // utility-sort order to break ties between two rounded utilities.
   const SIZE_CLASSES: Record<SizeKey, string> = {
-    "sm-icon": "size-7 text-xs",
-    "md-icon": "size-8 text-sm",
-    "sm-text": "px-2 py-1 text-xs",
-    "md-text": "px-3 py-1.5 text-sm",
+    "xs-icon": "size-5 rounded-sm text-xs",
+    "sm-icon": "size-7 rounded-md text-xs",
+    "md-icon": "size-8 rounded-md text-sm",
+    "xs-text": "rounded-sm px-1.5 py-0.5 text-xs",
+    "sm-text": "rounded-md px-2 py-1 text-xs",
+    "md-text": "rounded-md px-3 py-1.5 text-sm",
   };
 </script>
 
@@ -66,10 +71,9 @@
   aria-busy={loading || undefined}
   onclick={inactive ? undefined : onclick}
   class="
-    inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md font-medium
-    transition-colors
+    inline-flex cursor-pointer items-center justify-center gap-1.5 font-medium transition-colors
     focus-visible:outline-2 focus-visible:outline-offset-2
-    aria-disabled:cursor-not-allowed aria-disabled:opacity-50
+    aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent
     {VARIANT_CLASSES[variant]}
     {sizeClass}
     {extraClass}
