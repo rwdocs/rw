@@ -2,6 +2,7 @@
   import { getRwContext } from "../lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import Alert from "../lib/ui/primitives/Alert.svelte";
+  import Button from "../lib/ui/primitives/Button.svelte";
 
   const { router, navigation, ui } = getRwContext();
 
@@ -38,14 +39,11 @@
             <a href={router.prefixPath("/")} class="block">
               <span class="text-xl font-semibold text-gray-900 dark:text-neutral-100">RW</span>
             </a>
-            <button
+            <Button
+              variant="ghost"
+              iconOnly
               onclick={ui.closeMobileMenu}
-              class="
-                -mr-2 cursor-pointer p-2 text-gray-500
-                hover:text-gray-700
-                dark:text-neutral-400
-                dark:hover:text-neutral-300
-              "
+              class="-mr-2"
               aria-label="Close menu"
             >
               <svg class="size-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -57,7 +55,7 @@
                   d="M6 18L18 6M6 6l12 12"
                 />
               </svg>
-            </button>
+            </Button>
           </div>
           {#if navigation.error}
             <Alert intent="danger" class="mb-4">

@@ -94,7 +94,13 @@
 
   --color-bg-default: var(--color-neutral-900);
   --color-bg-raised: var(--color-neutral-800);
-  --color-bg-subtle: var(--color-neutral-800);
+  /*
+   * One step above `bg-raised` so it reads as a hover/accent surface against
+   * the raised panels (sidebar, popovers, comment thread). Previously equal
+   * to bg-raised, which made ghost/secondary hovers and neutral Badges
+   * invisible on those surfaces.
+   */
+  --color-bg-subtle: var(--color-neutral-700);
 
   --color-border-default: var(--color-neutral-700);
   --color-border-subtle: var(--color-neutral-800);
