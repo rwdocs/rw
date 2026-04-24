@@ -15,13 +15,13 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             os: macos-14
-            build: npm -w @rwdocs/core run build -- --target aarch64-apple-darwin
+            build: npm -w @rwdocs/core run build -- --target aarch64-apple-darwin -- --locked
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
-            build: npm -w @rwdocs/core run build -- --target x86_64-unknown-linux-gnu
+            build: npm -w @rwdocs/core run build -- --target x86_64-unknown-linux-gnu -- --locked
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            build: npm -w @rwdocs/core run build -- --target x86_64-unknown-linux-musl -x
+            build: npm -w @rwdocs/core run build -- --target x86_64-unknown-linux-musl -x -- --locked
     name: Build native - ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     steps:
