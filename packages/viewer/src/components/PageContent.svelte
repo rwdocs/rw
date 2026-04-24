@@ -5,7 +5,7 @@
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "../lib/anchoring";
   import { LOADING_SHOW_DELAY } from "../lib/constants";
   import LoadingSkeleton from "./LoadingSkeleton.svelte";
-  import SelectionPopover from "./comments/SelectionPopover.svelte";
+  import Popover from "../lib/ui/primitives/Popover.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
@@ -354,7 +354,42 @@
 </script>
 
 {#if comments.enabled && selectionRect}
-  <SelectionPopover x={selectionRect.x} y={selectionRect.y} onAdd={handleAddComment} />
+  <!--
+    Free-mode Popover anchored to the caret end of the current selection.
+    `-translate-x-1/2 -translate-y-full` centers above the click point; the
+    8px gap that SelectionPopover encoded in its transform is folded into `y`
+    so the primitive's style attribute stays generic.
+  -->
+  <Popover
+    open
+    x={selectionRect.x}
+    y={selectionRect.y - 8}
+    class="
+      flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-lg border border-gray-200
+      bg-white px-3 py-1.5 shadow-lg
+      dark:border-neutral-600 dark:bg-neutral-700
+    "
+  >
+    <button
+      type="button"
+      onclick={handleAddComment}
+      class="
+        flex items-center gap-1.5 text-sm font-medium text-gray-700 transition-colors
+        hover:text-blue-600
+        dark:text-neutral-200
+        dark:hover:text-blue-400
+      "
+    >
+      <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+        />
+      </svg>
+      Add comment
+    </button>
+  </Popover>
 {/if}
 
 {#if page.loading && showSkeleton}

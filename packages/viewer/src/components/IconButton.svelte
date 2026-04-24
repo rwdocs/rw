@@ -1,27 +1,28 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import type { HTMLButtonAttributes } from "svelte/elements";
 
-  interface Props {
-    onclick: () => void;
+  // Extends HTMLButtonAttributes so callers can pass any button attribute —
+  // including the ARIA relationship attrs (`aria-controls`, `aria-haspopup`,
+  // `aria-describedby`) that Popover's `controlProps` wires through when
+  // IconButton is used as a Popover trigger.
+  interface Props extends HTMLButtonAttributes {
     "aria-label": string;
-    "aria-expanded"?: boolean;
     active?: boolean;
-    class?: string;
     children: Snippet;
   }
 
   let {
-    onclick,
     "aria-label": ariaLabel,
-    "aria-expanded": ariaExpanded,
     active = false,
     class: extraClass = "",
     children,
+    ...rest
   }: Props = $props();
 </script>
 
 <button
-  {onclick}
+  {...rest}
   class="
     flex size-8 cursor-pointer items-center justify-center rounded-sm border border-gray-200
     bg-white text-gray-500
@@ -36,7 +37,6 @@
   class:border-gray-300={active}
   class:dark:border-neutral-500={active}
   aria-label={ariaLabel}
-  aria-expanded={ariaExpanded}
 >
   {@render children()}
 </button>
