@@ -4,7 +4,7 @@
   import { rewriteSectionRefLinks } from "../lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "../lib/anchoring";
   import { LOADING_SHOW_DELAY } from "../lib/constants";
-  import LoadingSkeleton from "./LoadingSkeleton.svelte";
+  import LoadingSkeleton from "../lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "../lib/ui/primitives/Alert.svelte";
   import Button from "../lib/ui/primitives/Button.svelte";
   import Popover from "../lib/ui/primitives/Popover.svelte";
