@@ -43,6 +43,12 @@
   --color-bg-default: var(--color-neutral-0);
   --color-bg-raised: var(--color-neutral-0);
   --color-bg-subtle: var(--color-neutral-50);
+  /*
+   * Pending-content fill — skeleton blocks, shimmer rectangles. One step
+   * darker than border-default so it reads as a filled surface rather than
+   * an outline against bg-default/bg-raised.
+   */
+  --color-bg-placeholder: var(--color-neutral-200);
 
   --color-border-default: var(--color-neutral-200);
   --color-border-strong: var(--color-neutral-300);
@@ -102,6 +108,7 @@
    * invisible on those surfaces.
    */
   --color-bg-subtle: var(--color-neutral-700);
+  --color-bg-placeholder: var(--color-neutral-600);
 
   --color-border-default: var(--color-neutral-700);
   --color-border-strong: var(--color-neutral-500);
