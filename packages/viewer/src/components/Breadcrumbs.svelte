@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getRwContext } from "../lib/context";
-  import { dismissible } from "../lib/dismissible";
+  import { Menu } from "../lib/ui/primitives/Menu";
   import type { Breadcrumb } from "../types";
 
   interface Props {
@@ -14,7 +14,7 @@
 
   let navEl: HTMLElement | undefined = $state();
   let olEl: HTMLOListElement | undefined = $state();
-  let wrapperEl: HTMLDivElement | undefined = $state();
+  let ellipsisEl: HTMLButtonElement | undefined = $state();
   let open = $state(false);
   let hiddenCount = $state(0);
   // Plain variables (not $state) — only read inside imperative measurement functions.
@@ -41,8 +41,6 @@
   function toggle() {
     open = !open;
   }
-
-  $effect(() => dismissible(open, wrapperEl, close));
 
   function computeHiddenCount(force = false) {
     if (!navEl || itemWidths.length === 0) return;
@@ -142,7 +140,7 @@
   });
 </script>
 
-<div class={compact ? "relative min-h-8" : "relative mb-6 min-h-8"} bind:this={wrapperEl}>
+<div class={compact ? "relative min-h-8" : "relative mb-6 min-h-8"}>
   <nav aria-label="Breadcrumb" class="min-h-8 overflow-hidden" bind:this={navEl}>
     {#if breadcrumbs.length > 0}
       <ol
@@ -172,6 +170,7 @@
             class="after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500"
           >
             <button
+              bind:this={ellipsisEl}
               onclick={toggle}
               class="
                 cursor-pointer
@@ -179,7 +178,6 @@
                 dark:hover:text-neutral-300
               "
               aria-label="Show hidden breadcrumbs"
-              aria-expanded={open}
             >
               &hellip;
             </button>
@@ -215,33 +213,13 @@
     {/if}
   </nav>
 
-  {#if open && hiddenCount > 0}
-    <ul
-      role="menu"
-      aria-label="Hidden breadcrumbs"
-      class="
-        absolute top-full left-0 z-40 mt-1 min-w-48 overflow-y-auto rounded-lg border
-        border-gray-200 bg-white py-1 shadow-lg
-        dark:border-neutral-600 dark:bg-neutral-800
-      "
-    >
+  {#if hiddenCount > 0}
+    <Menu.Root bind:open anchorEl={ellipsisEl ?? null} aria-label="Hidden breadcrumbs">
       {#each hiddenCrumbs as crumb (crumb.path)}
-        <li role="none">
-          <a
-            href={crumb.href ?? router.prefixPath(crumb.path)}
-            role="menuitem"
-            class="
-              block px-3 py-1.5 text-sm text-gray-600
-              hover:bg-gray-100 hover:text-gray-700
-              dark:text-neutral-400
-              dark:hover:bg-neutral-700 dark:hover:text-neutral-300
-            "
-            onclick={close}
-          >
-            {crumb.title}
-          </a>
-        </li>
+        <Menu.Item href={crumb.href ?? router.prefixPath(crumb.path)}>
+          {crumb.title}
+        </Menu.Item>
       {/each}
-    </ul>
+    </Menu.Root>
   {/if}
 </div>
