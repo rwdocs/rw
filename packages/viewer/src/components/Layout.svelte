@@ -11,6 +11,7 @@
   import LoadingBar from "./LoadingBar.svelte";
   import CommentSidebar from "./comments/CommentSidebar.svelte";
   import Alert from "../lib/ui/primitives/Alert.svelte";
+  import { useActiveHeading } from "../lib/ui/hooks/useActiveHeading.svelte";
 
   interface Props {
     children: Snippet;
@@ -20,6 +21,50 @@
 
   const { router, navigation, page, ui, comments } = getRwContext();
   const homeHref = router.prefixPath("/");
+
+  // h1 is the page title; h4+ makes the sidebar too noisy.
+  let tocEntries = $derived(
+    page.data?.toc.filter((entry) => entry.level >= 2 && entry.level <= 3) ?? [],
+  );
+  let tocIds = $derived(tocEntries.map((entry) => entry.id));
+
+  const activeHeading = useActiveHeading(() => tocIds);
+
+  function onTocNavigate(id: string) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    activeHeading.setActiveId(id);
+    element.scrollIntoView({ behavior: "auto" });
+    history.pushState(null, "", `#${id}`);
+    activeHeading.suppressUntilScrollEnd();
+  }
+
+  // Hash → active heading. Outside embedded mode the browser natively
+  // scrolls on hash change, so hold the observer back until scrollend; in
+  // embedded mode the hash never triggers a scroll (popstate below does).
+  $effect(() => {
+    const hash = router.hash;
+    if (hash && untrack(() => tocIds).includes(hash)) {
+      activeHeading.setActiveId(hash);
+      if (!router.embedded) activeHeading.suppressUntilScrollEnd();
+    }
+  });
+
+  // In embedded mode, the router skips popstate handling so Back/Forward
+  // would otherwise silently leave the page scrolled where it was. Scroll
+  // to the referenced heading ourselves.
+  $effect(() => {
+    if (!router.embedded) return;
+    function onPopState() {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      if (id && tocIds.includes(id)) {
+        activeHeading.setActiveId(id);
+        document.getElementById(id)?.scrollIntoView({ behavior: "auto" });
+      }
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  });
 
   // Scroll to top when navigating to a new page (without hash)
   $effect(() => {
@@ -57,9 +102,13 @@
       <div class="min-w-0 flex-1">
         <Breadcrumbs breadcrumbs={page.data.breadcrumbs} compact />
       </div>
-      {#if page.data.toc.length > 0}
+      {#if tocEntries.length > 0}
         <div class="ml-2 shrink-0">
-          <TocPopover toc={page.data.toc} />
+          <TocPopover
+            toc={tocEntries}
+            activeId={activeHeading.activeId}
+            onNavigate={onTocNavigate}
+          />
         </div>
       {/if}
     {/if}
@@ -99,9 +148,13 @@
     <div class="layout-content-area min-w-0" data-testid="content-area">
       <div class="layout-content mx-auto max-w-6xl px-4 pt-6 pb-12">
         {#if page.data}
-          {#if page.data.toc.length > 0}
+          {#if tocEntries.length > 0}
             <div class="layout-toc-popover sticky top-6 z-30 float-right">
-              <TocPopover toc={page.data.toc} />
+              <TocPopover
+                toc={tocEntries}
+                activeId={activeHeading.activeId}
+                onNavigate={onTocNavigate}
+              />
             </div>
           {/if}
           <div class="layout-desktop-breadcrumbs">
@@ -124,13 +177,17 @@
                 <CommentSidebar />
               </div>
             </aside>
-          {:else if page.data && page.data.toc.length > 0}
+          {:else if page.data && tocEntries.length > 0}
             <aside aria-label="Page outline" class="layout-toc hidden w-[320px] shrink-0">
               <div
                 class="layout-toc-sticky sticky top-6 overflow-y-auto pl-8"
                 data-testid="toc-sticky-wrapper"
               >
-                <TocSidebar toc={page.data.toc} />
+                <TocSidebar
+                  toc={tocEntries}
+                  activeId={activeHeading.activeId}
+                  onNavigate={onTocNavigate}
+                />
               </div>
             </aside>
           {/if}
