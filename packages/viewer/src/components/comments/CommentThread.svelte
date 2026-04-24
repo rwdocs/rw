@@ -1,9 +1,15 @@
 <script lang="ts">
-  import type { Comment } from "../../types/comments";
+  import type { Author, Comment } from "../../types/comments";
+  import Avatar from "../../lib/ui/primitives/Avatar.svelte";
   import Badge from "../../lib/ui/primitives/Badge.svelte";
   import Button from "../../lib/ui/primitives/Button.svelte";
-  import Avatar from "./Avatar.svelte";
   import CommentForm from "./CommentForm.svelte";
+
+  function avatarVariant(author: Author): "person" | "ai" | "initials" {
+    if (author.id === "local:ai") return "ai";
+    if (author.id === "local:human") return "person";
+    return "initials";
+  }
 
   interface Props {
     comment: Comment;
@@ -176,7 +182,12 @@
       data-testid="comment-avatar-row"
       class="mb-2 flex items-center gap-2"
     >
-      <Avatar author={comment.author} size={24} />
+      <Avatar
+        variant={avatarVariant(comment.author)}
+        name={comment.author.name}
+        src={comment.author.avatarUrl}
+        size={24}
+      />
       <span class="text-sm font-semibold text-gray-900 dark:text-neutral-100">
         {comment.author.name}
       </span>
@@ -245,7 +256,12 @@
       {#each replies as reply (reply.id)}
         <div class="px-3 py-2">
           <div class="mb-1 flex items-center gap-2">
-            <Avatar author={reply.author} size={20} />
+            <Avatar
+              variant={avatarVariant(reply.author)}
+              name={reply.author.name}
+              src={reply.author.avatarUrl}
+              size={20}
+            />
             <span class="text-xs font-semibold text-gray-900 dark:text-neutral-100">
               {reply.author.name}
             </span>
