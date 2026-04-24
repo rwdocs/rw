@@ -24,18 +24,14 @@
 <button
   {...rest}
   class="
-    flex size-8 cursor-pointer items-center justify-center rounded-sm border border-gray-200
-    bg-white text-gray-500
-    hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700
-    focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500
-    active:bg-gray-100
-    dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400
-    dark:hover:border-neutral-500 dark:hover:bg-neutral-700 dark:hover:text-neutral-300
-    dark:active:bg-neutral-600
+    flex size-8 cursor-pointer items-center justify-center rounded-sm border border-border-default
+    bg-bg-raised text-fg-muted
+    hover:bg-bg-subtle hover:text-fg-default
+    focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-fg
+    active:bg-bg-subtle
     {extraClass}
   "
-  class:border-gray-300={active}
-  class:dark:border-neutral-500={active}
+  class:border-border-strong={active}
   aria-label={ariaLabel}
 >
   {@render children()}

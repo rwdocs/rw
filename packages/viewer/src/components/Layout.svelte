@@ -7,7 +7,7 @@
   import TocPopover from "./TocPopover.svelte";
   import Breadcrumbs from "./Breadcrumbs.svelte";
   import MobileDrawer from "./MobileDrawer.svelte";
-  import IconButton from "./IconButton.svelte";
+  import IconButton from "../lib/ui/primitives/IconButton.svelte";
   import LoadingBar from "./LoadingBar.svelte";
   import CommentSidebar from "./comments/CommentSidebar.svelte";
   import Alert from "../lib/ui/primitives/Alert.svelte";
