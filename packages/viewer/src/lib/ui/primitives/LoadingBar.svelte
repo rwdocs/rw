@@ -1,28 +1,25 @@
 <script lang="ts">
-  import { LOADING_SHOW_DELAY } from "../lib/constants";
-
   const COMPLETION_DURATION = 300;
 
   interface Props {
     loading: boolean;
+    threshold?: number;
   }
 
-  let { loading }: Props = $props();
+  let { loading, threshold = 300 }: Props = $props();
 
   type AnimationState = "idle" | "running" | "completing";
   let animationState = $state<AnimationState>("idle");
 
   $effect(() => {
     if (loading) {
-      // Only show progress bar if loading takes longer than threshold
       const timeout = setTimeout(() => {
         animationState = "running";
-      }, LOADING_SHOW_DELAY);
+      }, threshold);
       return () => clearTimeout(timeout);
     }
 
-    // Not loading - if bar was visible, animate completion then hide
-    if (animationState !== "idle") {
+    if (animationState === "running") {
       animationState = "completing";
       const timeout = setTimeout(() => {
         animationState = "idle";
