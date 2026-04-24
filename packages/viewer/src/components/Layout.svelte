@@ -8,7 +8,7 @@
   import Breadcrumbs from "./Breadcrumbs.svelte";
   import MobileDrawer from "./MobileDrawer.svelte";
   import IconButton from "../lib/ui/primitives/IconButton.svelte";
-  import LoadingBar from "./LoadingBar.svelte";
+  import LoadingBar from "../lib/ui/primitives/LoadingBar.svelte";
   import CommentSidebar from "./comments/CommentSidebar.svelte";
   import Alert from "../lib/ui/primitives/Alert.svelte";
   import { useActiveHeading } from "../lib/ui/hooks/useActiveHeading.svelte";

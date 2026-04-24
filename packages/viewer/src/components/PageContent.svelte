@@ -3,7 +3,6 @@
   import { initializeTabs } from "../lib/tabs";
   import { rewriteSectionRefLinks } from "../lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "../lib/anchoring";
-  import { LOADING_SHOW_DELAY } from "../lib/constants";
   import LoadingSkeleton from "../lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "../lib/ui/primitives/Alert.svelte";
   import Button from "../lib/ui/primitives/Button.svelte";
@@ -34,12 +33,13 @@
     return () => document.removeEventListener("selectionchange", handler);
   });
 
-  // Show skeleton only if loading takes longer than SHOW_DELAY
+  // Delay skeleton appearance so fast page loads don't flash it.
+  const SKELETON_DELAY_MS = 300;
   $effect(() => {
     if (page.loading) {
       const timeout = setTimeout(() => {
         showSkeleton = true;
-      }, LOADING_SHOW_DELAY);
+      }, SKELETON_DELAY_MS);
       return () => clearTimeout(timeout);
     } else {
       showSkeleton = false;
