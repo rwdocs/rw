@@ -9,6 +9,6 @@
   --z-index-base: 0;
   --z-index-sticky: 30; /* sticky headers, breadcrumbs */
   --z-index-dropdown: 40; /* popovers, menus */
-  --z-index-overlay: 50; /* mobile drawer backdrop, selection popover */
+  --z-index-overlay: 50; /* loading bar */
   --z-index-toast: 60; /* reserved */
 }
