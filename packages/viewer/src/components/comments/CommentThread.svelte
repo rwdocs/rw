@@ -3,6 +3,7 @@
   import Avatar from "../../lib/ui/primitives/Avatar.svelte";
   import Badge from "../../lib/ui/primitives/Badge.svelte";
   import Button from "../../lib/ui/primitives/Button.svelte";
+  import { formatRelativeTime } from "../../lib/ui/hooks/formatRelativeTime";
   import CommentForm from "./CommentForm.svelte";
 
   function avatarVariant(author: Author): "person" | "ai" | "initials" {
@@ -44,22 +45,6 @@
 
   let outerRef: HTMLDivElement | undefined = $state();
   let avatarRowRef: HTMLDivElement | undefined = $state();
-
-  function formatRelativeTime(dateStr: string): string {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSec = Math.floor(diffMs / 1000);
-    const diffMin = Math.floor(diffSec / 60);
-    const diffHr = Math.floor(diffMin / 60);
-    const diffDay = Math.floor(diffHr / 24);
-
-    if (diffSec < 60) return "just now";
-    if (diffMin < 60) return `${diffMin}m ago`;
-    if (diffHr < 24) return `${diffHr}h ago`;
-    if (diffDay < 30) return `${diffDay}d ago`;
-    return date.toLocaleDateString();
-  }
 
   async function handleReply(body: string) {
     await onReply(comment.id, body);
@@ -202,7 +187,7 @@
         </Badge>
       {/if}
       <span class="ml-auto text-xs text-gray-400 dark:text-neutral-500">
-        {formatRelativeTime(comment.createdAt)}
+        {formatRelativeTime(new Date(comment.createdAt))}
       </span>
     </div>
     <p
@@ -266,7 +251,7 @@
               {reply.author.name}
             </span>
             <span class="ml-auto text-xs text-gray-400 dark:text-neutral-500">
-              {formatRelativeTime(reply.createdAt)}
+              {formatRelativeTime(new Date(reply.createdAt))}
             </span>
           </div>
           <p class="text-sm text-gray-900 dark:text-neutral-100">
