@@ -7,9 +7,11 @@
 
   interface Props {
     toc: TocEntry[];
+    activeId: string | null;
+    onNavigate: (id: string) => void;
   }
 
-  let { toc }: Props = $props();
+  let { toc, activeId, onNavigate }: Props = $props();
 
   const { router } = getRwContext();
 
@@ -54,6 +56,13 @@
       dark:border-neutral-600 dark:bg-neutral-800
     "
   >
-    <TocSidebar {toc} onnavigate={() => (open = false)} />
+    <TocSidebar
+      {toc}
+      {activeId}
+      onNavigate={(id) => {
+        onNavigate(id);
+        open = false;
+      }}
+    />
   </nav>
 </Popover>
