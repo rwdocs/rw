@@ -172,6 +172,7 @@
   // Determine which page to render based on path
   // Any non-root path is treated as a document page
   const getRoute = (currentPath: string) => {
+    if (import.meta.env.DEV && currentPath === "/_kit") return "kit";
     if (currentPath === "/") return "home";
     // Skip API routes and static assets
     if (currentPath.startsWith("/api/") || currentPath.startsWith("/assets/")) {
@@ -189,6 +190,10 @@
       <Home />
     {:else if route === "page"}
       <Page />
+    {:else if route === "kit"}
+      {#await import("./pages/Kit.svelte") then { default: Kit }}
+        <Kit />
+      {/await}
     {:else}
       <NotFound />
     {/if}
