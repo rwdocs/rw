@@ -3,31 +3,30 @@
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import Alert from "../lib/ui/primitives/Alert.svelte";
   import Button from "../lib/ui/primitives/Button.svelte";
+  import { dismissible } from "../lib/ui/hooks/dismissible";
 
-  const { router, navigation, ui } = getRwContext();
+  interface Props {
+    open: boolean;
+    onClose: () => void;
+    error?: string | null;
+  }
 
-  // Close drawer on escape key (skip in embedded mode to avoid interfering with host app)
+  let { open, onClose, error = null }: Props = $props();
+
+  const { router } = getRwContext();
+
+  let drawerEl: HTMLElement | undefined = $state();
+
+  // Skip Escape in embedded mode to avoid interfering with host app.
   $effect(() => {
     if (router.embedded) return;
-
-    function handleKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape" && ui.mobileMenuOpen) {
-        ui.closeMobileMenu();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeydown);
-    return () => window.removeEventListener("keydown", handleKeydown);
+    return dismissible(open, drawerEl, onClose);
   });
 </script>
 
-{#if ui.mobileMenuOpen}
-  <div class="drawer-flow-anchor">
-    <button
-      type="button"
-      class="drawer-flow-backdrop"
-      onclick={ui.closeMobileMenu}
-      aria-label="Close menu"
+{#if open}
+  <div bind:this={drawerEl} class="drawer-flow-anchor">
+    <button type="button" class="drawer-flow-backdrop" onclick={onClose} aria-label="Close menu"
     ></button>
     <aside aria-label="Mobile navigation" class="drawer-flow-panel">
       <div
@@ -42,7 +41,7 @@
             <Button
               variant="ghost"
               iconOnly
-              onclick={ui.closeMobileMenu}
+              onclick={onClose}
               class="-mr-2"
               aria-label="Close menu"
             >
@@ -57,9 +56,9 @@
               </svg>
             </Button>
           </div>
-          {#if navigation.error}
+          {#if error}
             <Alert intent="danger" class="mb-4">
-              Failed to load navigation: {navigation.error}
+              Failed to load navigation: {error}
             </Alert>
           {/if}
           <NavigationSidebar />
