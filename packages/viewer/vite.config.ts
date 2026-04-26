@@ -1,4 +1,5 @@
 /// <reference types="vitest" />
+import { resolve } from "path";
 import { fileURLToPath } from "url";
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
@@ -12,7 +13,7 @@ export default defineConfig({
   plugins: [svelte(), svelteTesting(), tailwindcss(), fontPreload()],
   resolve: {
     alias: {
-      $lib: __dirname + "src/lib",
+      $lib: resolve(__dirname, "src/lib"),
     },
   },
   build: {

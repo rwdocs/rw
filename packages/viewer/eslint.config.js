@@ -42,10 +42,12 @@ const TAILWIND_HUES = [
 const OUR_PRIMITIVE_SCALES = "accent|info|success|warning|danger|attention";
 const OUR_PRIMITIVE_STEPS = "50|100|500|600|700";
 
-// Layer dependency rules per design-kit spec §2.2. Reused across two file
-// blocks (one for .ts, one for .svelte) so the rule applies under both
-// parsers without each block re-declaring 60 lines of settings.
-const boundariesShared = {
+// Layer dependency config per design-kit spec §2.2. Used in a single block
+// matching .ts/.svelte/.svelte.ts; the .svelte parser is set by the existing
+// svelte block above, and a thin block below sets the TS parser for .ts files
+// — flat config merges configs across matching blocks so rules + parser
+// combine without the boundaries settings being evaluated twice.
+const boundariesConfig = {
   plugins: { boundaries },
   settings: {
     "boundaries/elements": [
@@ -148,14 +150,12 @@ export default defineConfig([
   // standalone package later. `src/lib/context.ts` is the documented composition
   // root and gets its own element type so it may import state shapes.
   {
-    ...boundariesShared,
-    files: ["src/**/*.ts", "src/**/*.svelte.ts"],
-    languageOptions: { parser: tseslint.parser },
+    ...boundariesConfig,
+    files: ["src/**/*.{ts,svelte,svelte.ts}"],
   },
   {
-    ...boundariesShared,
-    files: ["src/**/*.svelte"],
-    languageOptions: svelteLanguageOptions,
+    files: ["src/**/*.{ts,svelte.ts}"],
+    languageOptions: { parser: tseslint.parser },
   },
   // Design-kit guardrail: forbid raw Tailwind palette utilities AND our own
   // primitive tokens inside `src/lib/ui/**`. Kit components must use only the
