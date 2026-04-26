@@ -1,6 +1,6 @@
 import { untrack } from "svelte";
-import type { Page } from "../state/page.svelte";
-import type { Navigation } from "../state/navigation.svelte";
+import type { Page } from "./page.svelte";
+import type { Navigation } from "./navigation.svelte";
 
 /**
  * Creates an effect that watches for page section changes and reloads navigation.
