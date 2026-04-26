@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getRwContext } from "../lib/context";
-  import { watchPageSection } from "../lib/sectionWatcher.svelte";
+  import { watchPageSection } from "../state/sectionWatcher.svelte";
   import PageContent from "../components/PageContent.svelte";
 
   const { router, page, navigation, liveReload } = getRwContext();
