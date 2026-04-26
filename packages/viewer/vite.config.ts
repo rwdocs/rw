@@ -10,6 +10,11 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   plugins: [svelte(), svelteTesting(), tailwindcss(), fontPreload()],
+  resolve: {
+    alias: {
+      $lib: __dirname + "src/lib",
+    },
+  },
   build: {
     sourcemap: true,
     rolldownOptions: {

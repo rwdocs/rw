@@ -4,7 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import dts from "vite-plugin-dts";
 import { readFile, writeFile } from "fs/promises";
 import { resolve } from "path";
+import { fileURLToPath } from "url";
 import { transform, type SelectorComponent, type Selector } from "lightningcss";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 const SCOPE: SelectorComponent = { type: "attribute", name: "data-rw-viewer" };
 const DESCENDANT: SelectorComponent = { type: "combinator", value: "descendant" };
@@ -111,6 +114,11 @@ function scopeCss(): Plugin {
 
 export default defineConfig({
   plugins: [svelte(), tailwindcss(), dts({ rollupTypes: true }), scopeCss()],
+  resolve: {
+    alias: {
+      $lib: __dirname + "src/lib",
+    },
+  },
   build: {
     lib: {
       entry: "src/embed.ts",
