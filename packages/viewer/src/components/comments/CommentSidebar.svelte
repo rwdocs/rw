@@ -1,10 +1,10 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { Comment } from "../../types/comments";
-  import { getRwContext } from "../../lib/context";
+  import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
-  import Alert from "../../lib/ui/primitives/Alert.svelte";
+  import Alert from "$lib/ui/primitives/Alert.svelte";
 
   const { comments } = getRwContext();
 

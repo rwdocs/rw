@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Menu } from "../lib/ui/primitives/Menu";
+  import { Menu } from "$lib/ui/primitives/Menu";
   import type { Breadcrumb } from "../types";
 
   interface Props {

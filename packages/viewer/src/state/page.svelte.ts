@@ -1,8 +1,8 @@
 import type { PageResponse } from "../types";
 import type { ApiClient } from "../api/client";
 import { NotFoundError } from "../api/client";
-import type { SectionRefResolver } from "../lib/sectionRefs";
-import { resolveBreadcrumbs } from "../lib/sectionRefs";
+import type { SectionRefResolver } from "$lib/sectionRefs";
+import { resolveBreadcrumbs } from "$lib/sectionRefs";
 
 export class Page {
   data = $state.raw<PageResponse | null>(null);

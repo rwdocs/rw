@@ -1,4 +1,4 @@
-import type { AnchorStrategy } from "../lib/anchoring";
+import type { AnchorStrategy } from "$lib/anchoring";
 import type { CommentApiClient } from "../api/comments";
 import type { Comment, CreateCommentRequest, Selector } from "../types/comments";
 

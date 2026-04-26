@@ -1,6 +1,6 @@
 <script lang="ts">
   import { extractDocPath } from "../state/router.svelte";
-  import { getRwContext } from "../lib/context";
+  import { getRwContext } from "$lib/context";
   import { watchPageSection } from "../state/sectionWatcher.svelte";
   import PageContent from "../components/PageContent.svelte";
 

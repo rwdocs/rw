@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { getRwContext } from "../lib/context";
+  import { getRwContext } from "$lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
-  import Alert from "../lib/ui/primitives/Alert.svelte";
-  import Button from "../lib/ui/primitives/Button.svelte";
-  import { dismissible } from "../lib/ui/hooks/dismissible";
+  import Alert from "$lib/ui/primitives/Alert.svelte";
+  import Button from "$lib/ui/primitives/Button.svelte";
+  import { dismissible } from "$lib/ui/hooks/dismissible";
 
   interface Props {
     open: boolean;

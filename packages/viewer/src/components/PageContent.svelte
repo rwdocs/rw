@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { getRwContext } from "../lib/context";
-  import { initializeTabs } from "../lib/tabs";
-  import { rewriteSectionRefLinks } from "../lib/sectionRefs";
-  import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "../lib/anchoring";
-  import LoadingSkeleton from "../lib/ui/primitives/LoadingSkeleton.svelte";
-  import Alert from "../lib/ui/primitives/Alert.svelte";
-  import Button from "../lib/ui/primitives/Button.svelte";
-  import Popover from "../lib/ui/primitives/Popover.svelte";
+  import { getRwContext } from "$lib/context";
+  import { initializeTabs } from "$lib/tabs";
+  import { rewriteSectionRefLinks } from "$lib/sectionRefs";
+  import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "$lib/anchoring";
+  import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
+  import Alert from "$lib/ui/primitives/Alert.svelte";
+  import Button from "$lib/ui/primitives/Button.svelte";
+  import Popover from "$lib/ui/primitives/Popover.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
