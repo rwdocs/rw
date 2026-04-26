@@ -84,7 +84,7 @@
 >
   <LoadingBar loading={page.loading} />
   <!-- Mobile Drawer (before header so the sticky anchor covers it in flow mode) -->
-  <MobileDrawer />
+  <MobileDrawer open={ui.mobileMenuOpen} onClose={ui.closeMobileMenu} error={navigation.error} />
 
   <!-- Mobile Header -->
   <header
