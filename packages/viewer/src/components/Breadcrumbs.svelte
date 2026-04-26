@@ -1,16 +1,14 @@
 <script lang="ts">
-  import { getRwContext } from "../lib/context";
   import { Menu } from "../lib/ui/primitives/Menu";
   import type { Breadcrumb } from "../types";
 
   interface Props {
     breadcrumbs: Breadcrumb[];
+    resolveHref: (crumb: Breadcrumb) => string;
     compact?: boolean;
   }
 
-  let { breadcrumbs, compact = false }: Props = $props();
-
-  const { router } = getRwContext();
+  let { breadcrumbs, resolveHref, compact = false }: Props = $props();
 
   let navEl: HTMLElement | undefined = $state();
   let olEl: HTMLOListElement | undefined = $state();
@@ -157,7 +155,7 @@
               : ""}
           >
             <a
-              href={firstCrumb.href ?? router.prefixPath(firstCrumb.path)}
+              href={resolveHref(firstCrumb)}
               class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
             >
               {firstCrumb.title}
@@ -189,7 +187,7 @@
             class="after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500"
           >
             <a
-              href={crumb.href ?? router.prefixPath(crumb.path)}
+              href={resolveHref(crumb)}
               class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
             >
               {crumb.title}
@@ -200,7 +198,7 @@
         {#if lastCrumb}
           <li>
             <a
-              href={lastCrumb.href ?? router.prefixPath(lastCrumb.path)}
+              href={resolveHref(lastCrumb)}
               class="hover:text-gray-700 hover:underline dark:hover:text-neutral-300"
             >
               {lastCrumb.title}
@@ -216,7 +214,7 @@
   {#if hiddenCount > 0}
     <Menu.Root bind:open anchorEl={ellipsisEl ?? null} aria-label="Hidden breadcrumbs">
       {#each hiddenCrumbs as crumb (crumb.path)}
-        <Menu.Item href={crumb.href ?? router.prefixPath(crumb.path)}>
+        <Menu.Item href={resolveHref(crumb)}>
           {crumb.title}
         </Menu.Item>
       {/each}
