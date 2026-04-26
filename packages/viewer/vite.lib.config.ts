@@ -116,7 +116,7 @@ export default defineConfig({
   plugins: [svelte(), tailwindcss(), dts({ rollupTypes: true }), scopeCss()],
   resolve: {
     alias: {
-      $lib: __dirname + "src/lib",
+      $lib: resolve(__dirname, "src/lib"),
     },
   },
   build: {
