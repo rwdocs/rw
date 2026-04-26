@@ -1,4 +1,5 @@
 import eslintPluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
+import boundaries from "eslint-plugin-boundaries";
 import { defineConfig } from "eslint/config";
 import eslintParserSvelte from "svelte-eslint-parser";
 import tseslint from "typescript-eslint";
@@ -41,6 +42,86 @@ const TAILWIND_HUES = [
 const OUR_PRIMITIVE_SCALES = "accent|info|success|warning|danger|attention";
 const OUR_PRIMITIVE_STEPS = "50|100|500|600|700";
 
+// Layer dependency rules per design-kit spec §2.2. Reused across two file
+// blocks (one for .ts, one for .svelte) so the rule applies under both
+// parsers without each block re-declaring 60 lines of settings.
+const boundariesShared = {
+  plugins: { boundaries },
+  settings: {
+    "boundaries/elements": [
+      // More-specific patterns first — first match wins.
+      { type: "kit-tokens", pattern: "src/lib/ui/tokens/**" },
+      { type: "kit-hooks", pattern: "src/lib/ui/hooks/**" },
+      { type: "kit-primitives", pattern: "src/lib/ui/primitives/**" },
+      { type: "kit-root", pattern: "src/lib/ui/*.{ts,svelte}", mode: "file" },
+      { type: "rw-context", pattern: "src/lib/context.ts", mode: "file" },
+      { type: "domain-lib", pattern: "src/lib/*.{ts,svelte}", mode: "file" },
+      { type: "state", pattern: "src/state/**" },
+      { type: "components", pattern: "src/components/**" },
+      { type: "pages", pattern: "src/pages/**" },
+      { type: "api", pattern: "src/api/**" },
+      { type: "types", pattern: "src/types/**" },
+      // Top-level entry points wire everything together.
+      { type: "entry", pattern: "src/{App.svelte,embed.ts,index.ts,main.ts}", mode: "file" },
+    ],
+    "boundaries/ignore": ["src/**/*.test.ts", "src/**/*.test.svelte.ts", "src/**/__fixtures__/**"],
+    "boundaries/include": ["src/**/*.{ts,svelte,svelte.ts}"],
+    "import/resolver": {
+      typescript: { project: "./tsconfig.json" },
+    },
+  },
+  rules: {
+    "boundaries/dependencies": [
+      "error",
+      {
+        default: "disallow",
+        rules: [
+          // Kit layers — strict isolation from domain.
+          {
+            from: { type: "kit-hooks" },
+            allow: { to: { type: ["kit-hooks", "kit-root"] } },
+          },
+          {
+            from: { type: "kit-primitives" },
+            allow: { to: { type: ["kit-primitives", "kit-hooks", "kit-root"] } },
+          },
+          { from: { type: "kit-root" }, allow: { to: { type: "kit-root" } } },
+          // Domain layers.
+          { from: { type: "rw-context" }, allow: { to: { type: ["state", "api", "types"] } } },
+          {
+            from: { type: "domain-lib" },
+            allow: {
+              to: { type: ["domain-lib", "types", "kit-primitives", "kit-hooks", "kit-root"] },
+            },
+          },
+          {
+            from: { type: "state" },
+            allow: {
+              to: {
+                type: [
+                  "state",
+                  "domain-lib",
+                  "rw-context",
+                  "types",
+                  "api",
+                  "kit-primitives",
+                  "kit-hooks",
+                  "kit-root",
+                ],
+              },
+            },
+          },
+          { from: { type: "components" }, allow: { to: { type: "*" } } },
+          { from: { type: "pages" }, allow: { to: { type: "*" } } },
+          { from: { type: "entry" }, allow: { to: { type: "*" } } },
+          { from: { type: "api" }, allow: { to: { type: ["api", "types"] } } },
+          { from: { type: "types" }, allow: { to: { type: "types" } } },
+        ],
+      },
+    ],
+  },
+};
+
 export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
@@ -60,6 +141,20 @@ export default defineConfig([
       ],
     },
     files: ["**/*.svelte"],
+    languageOptions: svelteLanguageOptions,
+  },
+  // Layer dependency rules per design-kit spec §2.2. The kit (`src/lib/ui/**`)
+  // must remain free of RW domain knowledge so it can be lifted into a
+  // standalone package later. `src/lib/context.ts` is the documented composition
+  // root and gets its own element type so it may import state shapes.
+  {
+    ...boundariesShared,
+    files: ["src/**/*.ts", "src/**/*.svelte.ts"],
+    languageOptions: { parser: tseslint.parser },
+  },
+  {
+    ...boundariesShared,
+    files: ["src/**/*.svelte"],
     languageOptions: svelteLanguageOptions,
   },
   // Design-kit guardrail: forbid raw Tailwind palette utilities AND our own
