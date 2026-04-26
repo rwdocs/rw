@@ -188,7 +188,7 @@
 
   // Outside-click + Escape. Registers only while open && dismissible so a
   // closed Popover never holds document-level listeners. Capture-phase click
-  // matches the existing `lib/dismissible` helper so behavior stays
+  // matches the `lib/ui/hooks/dismissible` helper so behavior stays
   // consistent across call sites that still use it.
   $effect(() => {
     if (!open || !dismissible) return;
