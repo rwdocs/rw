@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Button from "../../lib/ui/primitives/Button.svelte";
+  import Button from "$lib/ui/primitives/Button.svelte";
 
   interface Props {
     onSubmit: (body: string) => Promise<void>;

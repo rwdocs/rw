@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { getRwContext } from "../lib/context";
-  import Alert from "../lib/ui/primitives/Alert.svelte";
+  import { getRwContext } from "$lib/context";
+  import Alert from "$lib/ui/primitives/Alert.svelte";
   import NavTree from "./NavTree.svelte";
 
   const { navigation, router } = getRwContext();

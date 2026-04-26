@@ -1,16 +1,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getRwContext } from "../lib/context";
-  import Button from "../lib/ui/primitives/Button.svelte";
-  import IconButton from "../lib/ui/primitives/IconButton.svelte";
-  import Badge from "../lib/ui/primitives/Badge.svelte";
-  import Avatar from "../lib/ui/primitives/Avatar.svelte";
-  import Alert from "../lib/ui/primitives/Alert.svelte";
-  import Popover from "../lib/ui/primitives/Popover.svelte";
-  import { Menu } from "../lib/ui/primitives/Menu";
-  import LoadingBar from "../lib/ui/primitives/LoadingBar.svelte";
-  import LoadingSkeleton from "../lib/ui/primitives/LoadingSkeleton.svelte";
-  import Quote from "../lib/ui/primitives/Quote.svelte";
+  import { getRwContext } from "$lib/context";
+  import Button from "$lib/ui/primitives/Button.svelte";
+  import IconButton from "$lib/ui/primitives/IconButton.svelte";
+  import Badge from "$lib/ui/primitives/Badge.svelte";
+  import Avatar from "$lib/ui/primitives/Avatar.svelte";
+  import Alert from "$lib/ui/primitives/Alert.svelte";
+  import Popover from "$lib/ui/primitives/Popover.svelte";
+  import { Menu } from "$lib/ui/primitives/Menu";
+  import LoadingBar from "$lib/ui/primitives/LoadingBar.svelte";
+  import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
+  import Quote from "$lib/ui/primitives/Quote.svelte";
 
   const { page } = getRwContext();
 

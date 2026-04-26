@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { getRwContext } from "../lib/context";
+  import { getRwContext } from "$lib/context";
   import type { NavItem } from "../types";
-  import Button from "../lib/ui/primitives/Button.svelte";
+  import Button from "$lib/ui/primitives/Button.svelte";
   import NavTree from "./NavTree.svelte";
 
   interface Props {

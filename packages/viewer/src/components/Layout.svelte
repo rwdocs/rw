@@ -1,17 +1,17 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { Snippet } from "svelte";
-  import { getRwContext } from "../lib/context";
+  import { getRwContext } from "$lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
   import TocSidebar from "./TocSidebar.svelte";
   import TocPopover from "./TocPopover.svelte";
   import Breadcrumbs from "./Breadcrumbs.svelte";
   import MobileDrawer from "./MobileDrawer.svelte";
-  import IconButton from "../lib/ui/primitives/IconButton.svelte";
-  import LoadingBar from "../lib/ui/primitives/LoadingBar.svelte";
+  import IconButton from "$lib/ui/primitives/IconButton.svelte";
+  import LoadingBar from "$lib/ui/primitives/LoadingBar.svelte";
   import CommentSidebar from "./comments/CommentSidebar.svelte";
-  import Alert from "../lib/ui/primitives/Alert.svelte";
-  import { useActiveHeading } from "../lib/ui/hooks/useActiveHeading.svelte";
+  import Alert from "$lib/ui/primitives/Alert.svelte";
+  import { useActiveHeading } from "$lib/ui/hooks/useActiveHeading.svelte";
 
   interface Props {
     children: Snippet;

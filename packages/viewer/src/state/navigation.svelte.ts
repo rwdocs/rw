@@ -1,8 +1,8 @@
 import { untrack } from "svelte";
 import type { NavigationTree, NavItem } from "../types";
 import type { ApiClient } from "../api/client";
-import type { SectionRefResolver } from "../lib/sectionRefs";
-import { resolveNavTree } from "../lib/sectionRefs";
+import type { SectionRefResolver } from "$lib/sectionRefs";
+import { resolveNavTree } from "$lib/sectionRefs";
 
 /** Collect all paths with children from the navigation tree */
 export function collectParentPaths(items: NavItem[]): string[] {

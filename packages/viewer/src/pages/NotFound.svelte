@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getRwContext } from "../lib/context";
+  import { getRwContext } from "$lib/context";
 
   const { router } = getRwContext();
 </script>

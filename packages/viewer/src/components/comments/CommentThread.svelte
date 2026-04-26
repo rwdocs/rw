@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { Author, Comment } from "../../types/comments";
-  import Avatar from "../../lib/ui/primitives/Avatar.svelte";
-  import Badge from "../../lib/ui/primitives/Badge.svelte";
-  import Button from "../../lib/ui/primitives/Button.svelte";
-  import { formatRelativeTime } from "../../lib/ui/hooks/formatRelativeTime";
+  import Avatar from "$lib/ui/primitives/Avatar.svelte";
+  import Badge from "$lib/ui/primitives/Badge.svelte";
+  import Button from "$lib/ui/primitives/Button.svelte";
+  import { formatRelativeTime } from "$lib/ui/hooks/formatRelativeTime";
   import CommentForm from "./CommentForm.svelte";
 
   function avatarVariant(author: Author): "person" | "ai" | "initials" {

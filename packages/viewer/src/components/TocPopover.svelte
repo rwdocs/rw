@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { getRwContext } from "../lib/context";
-  import Popover from "../lib/ui/primitives/Popover.svelte";
-  import IconButton from "../lib/ui/primitives/IconButton.svelte";
+  import { getRwContext } from "$lib/context";
+  import Popover from "$lib/ui/primitives/Popover.svelte";
+  import IconButton from "$lib/ui/primitives/IconButton.svelte";
   import TocSidebar from "./TocSidebar.svelte";
   import type { TocEntry } from "../types";
 

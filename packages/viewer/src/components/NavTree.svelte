@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { NavItem } from "../types";
-  import { groupNavItems } from "../lib/navigation";
+  import { groupNavItems } from "$lib/navigation";
   import NavItemComponent from "./NavItem.svelte";
   import NavGroup from "./NavGroup.svelte";
 
