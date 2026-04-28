@@ -1,3 +1,5 @@
+import { observeElement } from "./observeElement.svelte";
+
 /**
  * Track the viewport-relative bounding rect of an element across resizes and
  * ancestor scrolls.
@@ -34,30 +36,18 @@ export interface AnchorOffset {
 export function useAnchorOffset(getEl: () => HTMLElement | null): AnchorOffset {
   const rect = $state({ top: 0, left: 0, width: 0, height: 0, measured: false });
 
-  $effect(() => {
-    const el = getEl();
-    if (!el) return;
-
-    const measure = () => {
+  observeElement(
+    getEl,
+    (el) => {
       const r = el.getBoundingClientRect();
       rect.top = r.top;
       rect.left = r.left;
       rect.width = r.width;
       rect.height = r.height;
       rect.measured = true;
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    window.addEventListener("scroll", measure, { capture: true, passive: true });
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("scroll", measure, { capture: true });
-      window.removeEventListener("resize", measure);
-    };
-  });
+    },
+    { trackWindow: true },
+  );
 
   return {
     get top() {

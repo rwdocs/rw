@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Menu } from "$lib/ui/primitives/Menu";
+  import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import type { Breadcrumb } from "../types";
 
   interface Props {
@@ -15,6 +16,7 @@
   let ellipsisEl: HTMLButtonElement | undefined = $state();
   let open = $state(false);
   let hiddenCount = $state(0);
+  const navSize = useElementSize(() => navEl ?? null);
   // Plain variables (not $state) — only read inside imperative measurement functions.
   // Measurement is two-pass: first pass computes hiddenCount with ellipsisWidth=0,
   // then a second pass (via $effect) measures the rendered ellipsis and recomputes.
@@ -121,20 +123,14 @@
   });
 
   $effect(() => {
-    if (!navEl) return;
-
-    const observer = new ResizeObserver(() => {
-      // Re-measure item widths when transitioning from hidden (display:none)
-      // to visible — all widths will be zero from the initial measurement.
-      if (itemWidthsTotal === 0 && breadcrumbs.length > 2) {
-        measureItemWidths();
-      } else {
-        computeHiddenCount();
-      }
-    });
-
-    observer.observe(navEl);
-    return () => observer.disconnect();
+    void navSize.version;
+    // Re-measure item widths when transitioning from hidden (display:none)
+    // to visible — all widths will be zero from the initial measurement.
+    if (itemWidthsTotal === 0 && breadcrumbs.length > 2) {
+      measureItemWidths();
+    } else {
+      computeHiddenCount();
+    }
   });
 </script>
 

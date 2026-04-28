@@ -7,6 +7,7 @@
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
   import Popover from "$lib/ui/primitives/Popover.svelte";
+  import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
@@ -14,6 +15,8 @@
 
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
+
+  const articleSize = useElementSize(() => articleRef ?? null);
 
   // Comment selection state
   let selectionRect: { x: number; y: number } | null = $state(null);
@@ -168,24 +171,14 @@
     };
   });
 
-  // Keep activeTop in sync with activeId — recomputes whenever either changes.
-  // Article reflow (window resize, font load, sidebar open/close) shifts the
-  // highlight vertically inside the article, so a ResizeObserver re-measures
-  // the offset whenever the article changes size.
   $effect(() => {
     const activeId = comments.activeId;
-    const container = articleRef;
-    if (!activeId || !container) {
+    if (!activeId || !articleRef) {
       comments.activeTop = null;
       return;
     }
+    void articleSize.version;
     comments.activeTop = getHighlightTop(activeId);
-
-    const observer = new ResizeObserver(() => {
-      comments.activeTop = getHighlightTop(activeId);
-    });
-    observer.observe(container);
-    return () => observer.disconnect();
   });
 
   // Apply active comment highlight (existing comment or pending new comment)
@@ -315,8 +308,6 @@
     return firstLineRect.top + firstLineRect.height / 2 - articleRect.top;
   }
 
-  // Keep pendingTop in sync — recalculates when the sidebar opens and whenever
-  // the article resizes, since content reflow moves the anchored range.
   $effect(() => {
     const pending = comments.pending;
     const container = articleRef;
@@ -324,20 +315,14 @@
       comments.pendingTop = null;
       return;
     }
+    void articleSize.version;
 
-    const measure = () => {
-      const result = selectorsToRange(pending.selectors, container);
-      if (result) {
-        const rangeRect = result.range.getBoundingClientRect();
-        const articleRect = container.getBoundingClientRect();
-        comments.pendingTop = rangeRect.top - articleRect.top;
-      }
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(container);
-    return () => observer.disconnect();
+    const result = selectorsToRange(pending.selectors, container);
+    if (result) {
+      const rangeRect = result.range.getBoundingClientRect();
+      const articleRect = container.getBoundingClientRect();
+      comments.pendingTop = rangeRect.top - articleRect.top;
+    }
   });
 
   function handleAddComment() {

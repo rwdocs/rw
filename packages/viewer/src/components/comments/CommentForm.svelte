@@ -1,5 +1,6 @@
 <script lang="ts">
   import Button from "$lib/ui/primitives/Button.svelte";
+  import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
 
   interface Props {
     onSubmit: (body: string) => Promise<void>;
@@ -36,6 +37,9 @@
   let textareaRef: HTMLTextAreaElement | undefined = $state();
   let formRef: HTMLFormElement | undefined = $state();
 
+  const formSize = useElementSize(() => formRef ?? null);
+  const textareaSize = useElementSize(() => textareaRef ?? null);
+
   let showActions = $derived(pinActions || focused || body.trim().length > 0);
 
   // Defer to rAF so the parent's visibility-hidden-until-measured wrapper
@@ -48,29 +52,21 @@
     return () => cancelAnimationFrame(id);
   });
 
+  let lastReported: number | null = null;
   $effect(() => {
     if (!onAnchor || !formRef || !textareaRef) return;
-
-    let lastReported: number | null = null;
-    const measure = () => {
-      if (!formRef || !textareaRef) return;
-      // offsetTop is relative to offsetParent, which isn't guaranteed to be
-      // formRef (form isn't positioned). Use bounding rects so the returned
-      // offset is always relative to the form's outer border.
-      const formRect = formRef.getBoundingClientRect();
-      const taRect = textareaRef.getBoundingClientRect();
-      const paddingTop = parseFloat(getComputedStyle(textareaRef).paddingTop) || 0;
-      const offset = taRect.top - formRect.top + paddingTop;
-      if (lastReported === null || Math.abs(offset - lastReported) > 0.5) {
-        lastReported = offset;
-        onAnchor?.(offset);
-      }
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(formRef);
-    return () => observer.disconnect();
+    void formSize.version;
+    void textareaSize.version;
+    // Bounding rects rather than offsetTop because the form isn't positioned,
+    // so its offsetParent isn't guaranteed to be formRef.
+    const formRect = formRef.getBoundingClientRect();
+    const taRect = textareaRef.getBoundingClientRect();
+    const paddingTop = parseFloat(getComputedStyle(textareaRef).paddingTop) || 0;
+    const offset = taRect.top - formRect.top + paddingTop;
+    if (lastReported === null || Math.abs(offset - lastReported) > 0.5) {
+      lastReported = offset;
+      onAnchor(offset);
+    }
   });
 
   function handleFocusOut(event: FocusEvent) {

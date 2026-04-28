@@ -1,16 +1,9 @@
 // Shared test helpers for anchored-overlay primitives (Popover, Menu, ...).
 // jsdom does not ship a ResizeObserver, which Popover's anchored mode relies
-// on via useAnchorOffset — stub it with a no-op; the initial rect measurement
-// happens synchronously during the hook's first effect.
-export class MockResizeObserver {
-  callback: ResizeObserverCallback;
-  constructor(cb: ResizeObserverCallback) {
-    this.callback = cb;
-  }
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
+// on via useAnchorOffset — re-export the richer mock from the hooks fixture.
+// Primitives tests don't need `instances`/`trigger()`, but a single shared
+// implementation keeps the global stub consistent across suites.
+export { MockResizeObserver } from "../../hooks/__fixtures__/resize-observer-mock";
 
 export function mockRect(el: HTMLElement, rect: Partial<DOMRect>): void {
   el.getBoundingClientRect = () =>
