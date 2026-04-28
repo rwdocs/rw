@@ -4,6 +4,7 @@
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
   import { formatRelativeTime } from "$lib/ui/hooks/formatRelativeTime";
+  import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import CommentForm from "./CommentForm.svelte";
 
   function avatarVariant(author: Author): "person" | "ai" | "initials" {
@@ -46,33 +47,27 @@
   let outerRef: HTMLDivElement | undefined = $state();
   let avatarRowRef: HTMLDivElement | undefined = $state();
 
+  const outerSize = useElementSize(() => outerRef ?? null);
+  const rowSize = useElementSize(() => avatarRowRef ?? null);
+
   async function handleReply(body: string) {
     await onReply(comment.id, body);
   }
 
+  let lastReported: number | null = null;
   $effect(() => {
     if (!onAnchor || !outerRef || !avatarRowRef) return;
-
-    let lastReported: number | null = null;
-    const measure = () => {
-      if (!outerRef || !avatarRowRef) return;
-      // offsetTop is relative to offsetParent, which isn't guaranteed to be
-      // outerRef (outer div isn't positioned). Use bounding rects instead so
-      // the returned offset is always relative to the thread's outer border.
-      const outerRect = outerRef.getBoundingClientRect();
-      const rowRect = avatarRowRef.getBoundingClientRect();
-      const offset = rowRect.top - outerRect.top + rowRect.height / 2;
-      if (lastReported === null || Math.abs(offset - lastReported) > 0.5) {
-        lastReported = offset;
-        onAnchor?.(offset);
-      }
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(outerRef);
-    observer.observe(avatarRowRef);
-    return () => observer.disconnect();
+    void outerSize.version;
+    void rowSize.version;
+    // Bounding rects rather than offsetTop because the outer div isn't
+    // positioned, so its offsetParent isn't guaranteed to be the thread root.
+    const outerRect = outerRef.getBoundingClientRect();
+    const rowRect = avatarRowRef.getBoundingClientRect();
+    const offset = rowRect.top - outerRect.top + rowRect.height / 2;
+    if (lastReported === null || Math.abs(offset - lastReported) > 0.5) {
+      lastReported = offset;
+      onAnchor(offset);
+    }
   });
 </script>
 
