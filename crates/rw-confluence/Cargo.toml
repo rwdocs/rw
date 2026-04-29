@@ -10,7 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-rw-diagrams = { workspace = true }
+rw-kroki = { workspace = true }
 rw-renderer = { workspace = true }
 
 quick-xml = { workspace = true }

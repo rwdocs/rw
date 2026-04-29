@@ -3398,7 +3398,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rw-diagrams"
+name = "rw-kroki"
 version = "0.1.24"
 dependencies = [
  "base64",
@@ -3464,7 +3464,7 @@ version = "0.1.24"
 dependencies = [
  "regex",
  "rw-cache",
- "rw-diagrams",
+ "rw-kroki",
  "rw-renderer",
  "rw-sections",
  "rw-storage",

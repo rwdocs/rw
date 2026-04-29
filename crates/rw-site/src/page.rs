@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
+use rw_kroki::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{
     HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, TabsDirective, TocEntry,

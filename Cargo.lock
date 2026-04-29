@@ -4300,7 +4300,7 @@ dependencies = [
  "rand 0.10.1",
  "regex",
  "rsa",
- "rw-diagrams",
+ "rw-kroki",
  "rw-renderer",
  "serde",
  "serde_json",
@@ -4312,7 +4312,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "rw-diagrams"
+name = "rw-embedded-preview"
+version = "0.1.24"
+dependencies = [
+ "axum",
+ "tokio",
+]
+
+[[package]]
+name = "rw-kroki"
 version = "0.1.24"
 dependencies = [
  "base64",
@@ -4326,14 +4334,6 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror",
  "ureq",
-]
-
-[[package]]
-name = "rw-embedded-preview"
-version = "0.1.24"
-dependencies = [
- "axum",
- "tokio",
 ]
 
 [[package]]
@@ -4401,7 +4401,7 @@ dependencies = [
  "criterion",
  "regex",
  "rw-cache",
- "rw-diagrams",
+ "rw-kroki",
  "rw-renderer",
  "rw-sections",
  "rw-storage",
@@ -4448,7 +4448,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "pretty_assertions",
- "rw-diagrams",
+ "rw-kroki",
  "rw-renderer",
  "rw-storage",
  "serde",

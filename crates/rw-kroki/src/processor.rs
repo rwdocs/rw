@@ -65,7 +65,7 @@ struct ProcessorConfig {
 /// # Example
 ///
 /// ```no_run
-/// use rw_diagrams::DiagramProcessor;
+/// use rw_kroki::DiagramProcessor;
 /// use rw_renderer::{MarkdownRenderer, HtmlBackend};
 ///
 /// let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
@@ -98,7 +98,7 @@ impl DiagramProcessor {
     /// # Example
     ///
     /// ```
-    /// # use rw_diagrams::DiagramProcessor;
+    /// # use rw_kroki::DiagramProcessor;
     /// let processor = DiagramProcessor::new("https://kroki.io");
     /// ```
     #[must_use]
@@ -126,7 +126,7 @@ impl DiagramProcessor {
     ///
     /// ```
     /// # use std::path::PathBuf;
-    /// # use rw_diagrams::DiagramProcessor;
+    /// # use rw_kroki::DiagramProcessor;
     /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .include_dirs(&[PathBuf::from("docs"), PathBuf::from("includes")]);
     /// ```
@@ -143,7 +143,7 @@ impl DiagramProcessor {
     /// # Example
     ///
     /// ```
-    /// # use rw_diagrams::DiagramProcessor;
+    /// # use rw_kroki::DiagramProcessor;
     /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .dpi(96); // Standard resolution
     /// ```
@@ -161,7 +161,7 @@ impl DiagramProcessor {
     ///
     /// ```
     /// use std::time::Duration;
-    /// # use rw_diagrams::DiagramProcessor;
+    /// # use rw_kroki::DiagramProcessor;
     ///
     /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .timeout(Duration::from_secs(60)); // 60 second timeout
@@ -184,7 +184,7 @@ impl DiagramProcessor {
     ///
     /// ```
     /// use rw_cache::{Cache, NullCache};
-    /// use rw_diagrams::DiagramProcessor;
+    /// use rw_kroki::DiagramProcessor;
     ///
     /// let cache = NullCache;
     /// let processor = DiagramProcessor::new("https://kroki.io")
@@ -203,7 +203,7 @@ impl DiagramProcessor {
     /// # Example
     ///
     /// ```
-    /// use rw_diagrams::{DiagramProcessor, DiagramOutput};
+    /// use rw_kroki::{DiagramProcessor, DiagramOutput};
     ///
     /// let processor = DiagramProcessor::new("https://kroki.io")
     ///     .output(DiagramOutput::Inline);

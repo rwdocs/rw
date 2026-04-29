@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use rw_diagrams::{RenderedDiagramInfo, TagGenerator};
+use rw_kroki::{RenderedDiagramInfo, TagGenerator};
 
 /// Create a Confluence image macro tag generator.
 ///
