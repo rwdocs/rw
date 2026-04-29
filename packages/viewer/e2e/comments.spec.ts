@@ -148,6 +148,35 @@ test.describe("Inline comments", () => {
     await expect(commentButton).toBeVisible();
   });
 
+  test("popover follows the highlighted text on scroll", async ({ page }) => {
+    // Shrink the viewport so the homepage overflows and the window scrolls.
+    await page.setViewportSize({ width: 1400, height: 400 });
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    await selectText(page, "Navigation sidebar");
+
+    const commentButton = page.getByRole("button", { name: "Add comment" });
+    await expect(commentButton).toBeVisible();
+
+    const before = await commentButton.boundingBox();
+    expect(before).not.toBeNull();
+
+    const scrollDelta = 50;
+    await page.evaluate((y) => window.scrollBy(0, y), scrollDelta);
+
+    // Re-measure runs on the scroll event; poll until the popover updates.
+    await expect
+      .poll(async () => (await commentButton.boundingBox())?.y, { timeout: 1000 })
+      .not.toBe(before!.y);
+
+    const after = await commentButton.boundingBox();
+    expect(after).not.toBeNull();
+    // Popover sits in viewport-fixed coords, so a downward scroll of N pushes
+    // the highlighted text — and therefore the popover — up by N.
+    expect(after!.y).toBeCloseTo(before!.y - scrollDelta, 0);
+  });
+
   test("clicking the selected text dismisses the comment popover", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
