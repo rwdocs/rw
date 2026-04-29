@@ -1,6 +1,6 @@
 [package]
-name = "rw-diagrams"
-description = "Diagram rendering via Kroki"
+name = "rw-kroki"
+description = "Kroki-backed diagram rendering for RW"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

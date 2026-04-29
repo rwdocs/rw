@@ -14,7 +14,7 @@ use crate::page::{
 };
 use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
-use rw_diagrams::{EntityInfo, MetaIncludeSource};
+use rw_kroki::{EntityInfo, MetaIncludeSource};
 use rw_renderer::TitleResolver;
 use rw_sections::Sections;
 use rw_storage::{Storage, StorageError};

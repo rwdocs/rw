@@ -149,7 +149,7 @@ crates/
 │       ├── preview.html      # Preview shell HTML (Backstage-like layout)
 │       └── preview.js        # Preview shell JS (mountRw, theme toggle)
 │
-├── rw-diagrams/           # Diagram rendering via Kroki
+├── rw-kroki/              # Kroki-backed diagram rendering (PlantUML, Mermaid, etc.)
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── language.rs       # DiagramLanguage, DiagramFormat, ExtractedDiagram
@@ -244,7 +244,7 @@ extraction, Confluence rendering, Kroki diagram rendering, API calls) → Conflu
 with syntax highlighting, ToC generation, HTTP serving) → Browser
 
 **Data flow (NAPI)**: Node.js → rw-napi (napi-rs bindings) → rw-site, rw-renderer,
-rw-diagrams (Rust) → Node.js objects
+rw-kroki (Rust) → Node.js objects
 
 ## Key Technical Details
 

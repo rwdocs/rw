@@ -18,7 +18,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use rw_diagrams::DiagramProcessor;
+//! use rw_kroki::DiagramProcessor;
 //! use rw_renderer::{MarkdownRenderer, HtmlBackend};
 //!
 //! let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";

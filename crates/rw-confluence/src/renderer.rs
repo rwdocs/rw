@@ -20,7 +20,7 @@
 //! Create a `PageRenderer` with builder methods (`prepend_toc`, `extract_title`, `dpi`),
 //! then call `render(markdown, kroki_url, diagram_dir)` to produce Confluence XHTML.
 
-use rw_diagrams::{DiagramOutput, DiagramProcessor};
+use rw_kroki::{DiagramOutput, DiagramProcessor};
 use rw_renderer::{MarkdownRenderer, RenderResult, TocEntry};
 use std::path::{Path, PathBuf};
 

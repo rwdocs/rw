@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rw_diagrams::DiagramProcessor;
+use rw_kroki::DiagramProcessor;
 use rw_renderer::bundle_markdown;
 use rw_storage::Storage;
 

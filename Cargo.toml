@@ -17,7 +17,7 @@ rw-comments = { path = "crates/rw-comments" }
 rw-cache-s3 = { path = "crates/rw-cache-s3" }
 rw-config = { path = "crates/rw-config" }
 rw-confluence = { path = "crates/rw-confluence" }
-rw-diagrams = { path = "crates/rw-diagrams" }
+rw-kroki = { path = "crates/rw-kroki" }
 rw-embedded-preview = { path = "crates/rw-embedded-preview" }
 rw-meta = { path = "crates/rw-meta" }
 rw-renderer = { path = "crates/rw-renderer" }
