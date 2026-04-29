@@ -62,6 +62,15 @@
     return () => document.removeEventListener("selectionchange", handler);
   });
 
+  // Drop any in-flight selection when the article content changes (live reload,
+  // navigation). The cached Range's start/end nodes get detached, so
+  // getBoundingClientRect() returns zeros and would briefly jump the popover to
+  // the top-left corner before anything else dismissed it.
+  $effect(() => {
+    void page.data;
+    selectionRange = null;
+  });
+
   // Delay skeleton appearance so fast page loads don't flash it.
   const SKELETON_DELAY_MS = 300;
   $effect(() => {
