@@ -18,8 +18,34 @@
 
   const articleSize = useElementSize(() => articleRef ?? null);
 
-  // Comment selection state
+  // Comment selection state. We hold the Range itself (not a snapshot rect) so
+  // we can re-measure on scroll/resize — the popover sits in `position: fixed`
+  // viewport coords and would otherwise detach from the highlighted text the
+  // moment anything scrolls.
+  let selectionRange: Range | null = $state.raw(null);
   let selectionRect: { x: number; y: number } | null = $state(null);
+
+  // Re-measure the range on scroll/resize so the popover stays attached.
+  // Capture-phase scroll catches ancestor scroll containers (e.g. when the
+  // viewer is embedded), matching how `observeElement` tracks element anchors.
+  $effect(() => {
+    const range = selectionRange;
+    if (!range) {
+      selectionRect = null;
+      return;
+    }
+    const measure = () => {
+      const rect = range.getBoundingClientRect();
+      selectionRect = { x: rect.left + rect.width / 2, y: rect.top };
+    };
+    measure();
+    window.addEventListener("scroll", measure, { capture: true, passive: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("scroll", measure, { capture: true });
+      window.removeEventListener("resize", measure);
+    };
+  });
 
   // Dismiss the popover when the selection collapses (e.g. user clicks on the
   // selected text). Blink runs the click-on-selection collapse as a default
@@ -27,10 +53,10 @@
   // still returns the active range — handleMouseUp would re-pin the popover
   // at the same coords and only the highlight would disappear.
   $effect(() => {
-    if (!selectionRect) return;
+    if (!selectionRange) return;
     const handler = () => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) selectionRect = null;
+      if (!sel || sel.isCollapsed) selectionRange = null;
     };
     document.addEventListener("selectionchange", handler);
     return () => document.removeEventListener("selectionchange", handler);
@@ -232,7 +258,7 @@
 
     // If no text selected, check if click landed on a comment highlight
     if (!selection || selection.isCollapsed) {
-      selectionRect = null;
+      selectionRange = null;
 
       // Toggle: click an inactive highlight to activate, click the active one to dismiss.
       const hitId = findCommentAtPoint(event);
@@ -242,12 +268,14 @@
 
     const range = selection.getRangeAt(0);
     if (!articleRef || !articleRef.contains(range.commonAncestorContainer)) {
-      selectionRect = null;
+      selectionRange = null;
       return;
     }
 
-    const rect = range.getBoundingClientRect();
-    selectionRect = { x: rect.left + rect.width / 2, y: rect.top };
+    // Clone so the captured range is decoupled from the live Selection — the
+    // browser may reuse the same Range object for subsequent selections, which
+    // would defeat $state.raw identity tracking on a reassignment.
+    selectionRange = range.cloneRange();
   }
 
   function handleMouseMove(event: MouseEvent) {
@@ -335,7 +363,7 @@
 
     comments.pending = { documentId: docId, selectors };
     comments.activeId = null;
-    selectionRect = null;
+    selectionRange = null;
     window.getSelection()?.removeAllRanges();
   }
 </script>
