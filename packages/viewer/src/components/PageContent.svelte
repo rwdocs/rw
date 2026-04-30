@@ -8,7 +8,7 @@
   import Button from "$lib/ui/primitives/Button.svelte";
   import Popover from "$lib/ui/primitives/Popover.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
-  import { useRangeRect } from "$lib/ui/hooks/useRangeRect.svelte";
+  import { useAnchorOffset } from "$lib/ui/hooks/useAnchorOffset.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
@@ -20,10 +20,9 @@
   const articleSize = useElementSize(() => articleRef ?? null);
 
   // The popover renders in `position: fixed` coords, so its anchor must
-  // re-measure on scroll. Hold the Range itself, not a one-shot rect, and let
-  // useRangeRect track it.
+  // re-measure on scroll — hold the Range, not a one-shot rect.
   let selectionRange: Range | null = $state.raw(null);
-  const selectionRect = useRangeRect(() => selectionRange);
+  const selectionRect = useAnchorOffset(() => selectionRange);
 
   // Dismiss the popover when the selection collapses (e.g. user clicks on the
   // selected text). Blink runs the click-on-selection collapse as a default

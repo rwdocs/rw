@@ -13,8 +13,8 @@
  * viewport-relative coordinates; skip it for size-only hooks, since size is
  * scroll-invariant and listening would only produce redundant work.
  *
- * Implementation detail of `useElementSize` / `useAnchorOffset` /
- * `useRangeRect` — not exported outside the hooks/ layer.
+ * Implementation detail of `useElementSize` / `useAnchorOffset` — not
+ * exported outside the hooks/ layer.
  */
 export function observeElement<T extends Element | Range>(
   getTarget: () => T | null,
