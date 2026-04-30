@@ -5,7 +5,7 @@
 // implementation keeps the global stub consistent across suites.
 import { fakeRect } from "../../hooks/__fixtures__/resize-observer-mock";
 
-export { MockResizeObserver } from "../../hooks/__fixtures__/resize-observer-mock";
+export { MockResizeObserver, fakeRect } from "../../hooks/__fixtures__/resize-observer-mock";
 
 export function mockRect(el: HTMLElement, rect: Partial<DOMRect>): void {
   el.getBoundingClientRect = () => fakeRect(rect);

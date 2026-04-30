@@ -13,17 +13,24 @@
  * viewport-relative coordinates; skip it for size-only hooks, since size is
  * scroll-invariant and listening would only produce redundant work.
  *
+ * `onLost`: called whenever the getter returns `null`, so consumers can roll
+ * any "anchor disappeared" state in without spawning a second `$effect` that
+ * re-subscribes to the same getter.
+ *
  * Implementation detail of `useElementSize` / `useAnchorOffset` — not
  * exported outside the hooks/ layer.
  */
 export function observeTarget<T extends Element | Range>(
   getTarget: () => T | null,
   onMeasure: (target: T) => void,
-  { trackWindow = false }: { trackWindow?: boolean } = {},
+  { trackWindow = false, onLost }: { trackWindow?: boolean; onLost?: () => void } = {},
 ): void {
   $effect(() => {
     const target = getTarget();
-    if (!target) return;
+    if (!target) {
+      onLost?.();
+      return;
+    }
 
     const measure = () => onMeasure(target);
 

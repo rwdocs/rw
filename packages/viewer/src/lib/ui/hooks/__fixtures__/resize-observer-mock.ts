@@ -48,8 +48,7 @@ export function fakeRect(rect: Partial<DOMRect>): DOMRect {
 }
 
 // Not redefining getBoundingClientRect on the prototype keeps other tests
-// (and any unrelated rects read from the document root) untouched. The getter
-// form lets tests mutate the rect across re-measure events (resize, scroll).
+// (and any unrelated rects read from the document root) untouched.
 export function makeAnchor(rect: Partial<DOMRect> | (() => Partial<DOMRect>)): HTMLElement {
   const get = typeof rect === "function" ? rect : () => rect;
   const el = document.createElement("div");
@@ -57,9 +56,9 @@ export function makeAnchor(rect: Partial<DOMRect> | (() => Partial<DOMRect>)): H
   return el;
 }
 
-// Range counterpart of `makeAnchor` — Ranges can't be `observe()`-d, so the
-// getter form is the only way to drive re-measurement under window events.
 export function makeRange(rect: Partial<DOMRect> | (() => Partial<DOMRect>)): Range {
   const get = typeof rect === "function" ? rect : () => rect;
-  return { getBoundingClientRect: () => fakeRect(get()) } as unknown as Range;
+  const range = document.createRange();
+  range.getBoundingClientRect = () => fakeRect(get());
+  return range;
 }

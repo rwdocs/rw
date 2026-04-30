@@ -196,10 +196,6 @@ describe("useAnchorOffset", () => {
     expect(out.dataset.width).toBe("30");
   });
 
-  // Range targets share the same window scroll/resize plumbing as Element
-  // anchors — most behavior is covered above. These tests pin the
-  // Range-specific surface: no ResizeObserver subscription, and re-measure
-  // on window scroll still works.
   describe("with a Range anchor", () => {
     it("populates the rect fields without subscribing to ResizeObserver", () => {
       const anchor = makeRange({ top: 10, left: 20, width: 100, height: 50 });

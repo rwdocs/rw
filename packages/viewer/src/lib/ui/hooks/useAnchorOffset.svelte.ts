@@ -41,10 +41,6 @@ export function useAnchorOffset<T extends Element | Range>(
 ): AnchorOffset {
   const rect = $state({ top: 0, left: 0, width: 0, height: 0, measured: false });
 
-  $effect(() => {
-    if (!getTarget()) rect.measured = false;
-  });
-
   observeTarget(
     getTarget,
     (target) => {
@@ -55,7 +51,12 @@ export function useAnchorOffset<T extends Element | Range>(
       rect.height = r.height;
       rect.measured = true;
     },
-    { trackWindow: true },
+    {
+      trackWindow: true,
+      onLost: () => {
+        rect.measured = false;
+      },
+    },
   );
 
   return {
