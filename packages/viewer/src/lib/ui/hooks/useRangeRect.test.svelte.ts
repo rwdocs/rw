@@ -2,15 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { flushSync } from "svelte";
 import { render } from "@testing-library/svelte";
 import Harness from "./__fixtures__/RangeRectHarness.svelte";
-
-function makeRange(rect: Partial<DOMRect>): Range {
-  const full = { top: 0, left: 0, width: 0, height: 0, ...rect };
-  const range = {
-    getBoundingClientRect: () =>
-      ({ ...full, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
-  };
-  return range as unknown as Range;
-}
+import { makeRange } from "./__fixtures__/resize-observer-mock";
 
 describe("useRangeRect", () => {
   it("populates the rect fields from getBoundingClientRect on mount", () => {
@@ -34,11 +26,8 @@ describe("useRangeRect", () => {
   });
 
   it("re-measures when window scrolls", () => {
-    let current = { top: 100, left: 50, width: 100, height: 50 };
-    const range = {
-      getBoundingClientRect: () =>
-        ({ ...current, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
-    } as unknown as Range;
+    let current: Partial<DOMRect> = { top: 100, left: 50, width: 100, height: 50 };
+    const range = makeRange(() => current);
 
     const { getByTestId } = render(Harness, { range });
     const out = getByTestId("range-rect");
@@ -52,11 +41,8 @@ describe("useRangeRect", () => {
   });
 
   it("re-measures on ancestor scroll-container scrolls (capture phase)", () => {
-    let current = { top: 100, left: 50, width: 100, height: 50 };
-    const range = {
-      getBoundingClientRect: () =>
-        ({ ...current, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
-    } as unknown as Range;
+    let current: Partial<DOMRect> = { top: 100, left: 50, width: 100, height: 50 };
+    const range = makeRange(() => current);
     const scroller = document.createElement("div");
     document.body.appendChild(scroller);
 
@@ -76,11 +62,8 @@ describe("useRangeRect", () => {
   });
 
   it("re-measures when window resizes", () => {
-    let current = { top: 10, left: 10, width: 100, height: 50 };
-    const range = {
-      getBoundingClientRect: () =>
-        ({ ...current, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
-    } as unknown as Range;
+    let current: Partial<DOMRect> = { top: 10, left: 10, width: 100, height: 50 };
+    const range = makeRange(() => current);
 
     const { getByTestId } = render(Harness, { range });
     const out = getByTestId("range-rect");

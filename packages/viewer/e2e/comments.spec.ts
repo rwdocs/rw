@@ -165,7 +165,6 @@ test.describe("Inline comments", () => {
     const scrollDelta = 50;
     await page.evaluate((y) => window.scrollBy(0, y), scrollDelta);
 
-    // Re-measure runs on the scroll event; poll until the popover updates.
     await expect
       .poll(async () => (await commentButton.boundingBox())?.y, { timeout: 1000 })
       .not.toBe(before!.y);

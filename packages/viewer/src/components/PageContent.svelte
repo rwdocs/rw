@@ -19,10 +19,9 @@
 
   const articleSize = useElementSize(() => articleRef ?? null);
 
-  // Comment selection state. We hold the Range itself (not a snapshot rect) so
-  // useRangeRect can re-measure on scroll/resize — the popover sits in
-  // `position: fixed` viewport coords and would otherwise detach from the
-  // highlighted text the moment anything scrolls.
+  // The popover renders in `position: fixed` coords, so its anchor must
+  // re-measure on scroll. Hold the Range itself, not a one-shot rect, and let
+  // useRangeRect track it.
   let selectionRange: Range | null = $state.raw(null);
   const selectionRect = useRangeRect(() => selectionRange);
 
@@ -260,9 +259,8 @@
       return;
     }
 
-    // Clone so the captured range is decoupled from the live Selection — the
-    // browser may reuse the same Range object for subsequent selections, which
-    // would defeat $state.raw identity tracking on a reassignment.
+    // `Selection.getRangeAt(0)` returns a live Range that mutates when the
+    // user re-selects; clone so the captured range stays put.
     selectionRange = range.cloneRange();
   }
 
