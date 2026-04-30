@@ -8,6 +8,7 @@
   import Button from "$lib/ui/primitives/Button.svelte";
   import Popover from "$lib/ui/primitives/Popover.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
+  import { useRangeRect } from "$lib/ui/hooks/useRangeRect.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
@@ -19,36 +20,11 @@
   const articleSize = useElementSize(() => articleRef ?? null);
 
   // Comment selection state. We hold the Range itself (not a snapshot rect) so
-  // we can re-measure on scroll/resize — the popover sits in `position: fixed`
-  // viewport coords and would otherwise detach from the highlighted text the
-  // moment anything scrolls.
+  // useRangeRect can re-measure on scroll/resize — the popover sits in
+  // `position: fixed` viewport coords and would otherwise detach from the
+  // highlighted text the moment anything scrolls.
   let selectionRange: Range | null = $state.raw(null);
-  let selectionRect: { x: number; y: number } | null = $state(null);
-
-  // Re-measure the range on scroll/resize so the popover stays attached.
-  // Capture-phase scroll catches ancestor scroll containers (e.g. when the
-  // viewer is embedded), matching how `observeElement` tracks element anchors.
-  $effect(() => {
-    const range = selectionRange;
-    if (!range) {
-      selectionRect = null;
-      return;
-    }
-    const measure = () => {
-      const rect = range.getBoundingClientRect();
-      const x = rect.left + rect.width / 2;
-      const y = rect.top;
-      if (selectionRect && selectionRect.x === x && selectionRect.y === y) return;
-      selectionRect = { x, y };
-    };
-    measure();
-    window.addEventListener("scroll", measure, { capture: true, passive: true });
-    window.addEventListener("resize", measure);
-    return () => {
-      window.removeEventListener("scroll", measure, { capture: true });
-      window.removeEventListener("resize", measure);
-    };
-  });
+  const selectionRect = useRangeRect(() => selectionRange);
 
   // Dismiss the popover when the selection collapses (e.g. user clicks on the
   // selected text). Blink runs the click-on-selection collapse as a default
@@ -380,7 +356,7 @@
   }
 </script>
 
-{#if comments.enabled && selectionRect}
+{#if comments.enabled && selectionRect.measured}
   <!--
     Free-mode Popover anchored to the caret end of the current selection.
     `-translate-x-1/2 -translate-y-full` centers above the click point; the
@@ -389,8 +365,8 @@
   -->
   <Popover
     open
-    x={selectionRect.x}
-    y={selectionRect.y - 8}
+    x={selectionRect.left + selectionRect.width / 2}
+    y={selectionRect.top - 8}
     class="
       -translate-x-1/2 -translate-y-full rounded-lg border border-gray-200 bg-white shadow-lg
       dark:border-neutral-600 dark:bg-neutral-700
