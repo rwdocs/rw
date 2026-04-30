@@ -42,6 +42,22 @@ RW looks for markdown files in `docs/` by default. If `docs/` has no `index.md`,
 
 Open [http://localhost:7979](http://localhost:7979) to see your site.
 
+## Local development with devcontainers
+
+A `.devcontainer/` is provided for contributors who want a reproducible build
+environment. With Docker Desktop or OrbStack and the VS Code Dev Containers
+extension installed, "Reopen in Container" sets up the full toolchain
+(Rust 1.95, Node 20, napi-rs, Playwright, Claude Code) automatically.
+
+To enable an egress firewall for sandboxed sessions, set
+`RW_DEVCONTAINER_FIREWALL=1` on your host before opening the container.
+See `.devcontainer/init-firewall.sh` for the allowlist.
+
+> **Security note:** the container bind-mounts your repo, including any
+> `private_key.pem` (Confluence OAuth) or `.env` files. Don't run untrusted
+> Claude Code prompts in this container without enabling the firewall, and
+> avoid mounting host credentials (`~/.ssh`, cloud creds) into it.
+
 ## Configuration
 
 RW uses `rw.toml` for configuration, automatically discovered in the current directory or any parent directory.
