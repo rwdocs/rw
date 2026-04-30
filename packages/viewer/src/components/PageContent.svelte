@@ -36,7 +36,10 @@
     }
     const measure = () => {
       const rect = range.getBoundingClientRect();
-      selectionRect = { x: rect.left + rect.width / 2, y: rect.top };
+      const x = rect.left + rect.width / 2;
+      const y = rect.top;
+      if (selectionRect && selectionRect.x === x && selectionRect.y === y) return;
+      selectionRect = { x, y };
     };
     measure();
     window.addEventListener("scroll", measure, { capture: true, passive: true });
