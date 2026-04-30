@@ -1,4 +1,4 @@
-import { observeElement } from "./observeElement.svelte";
+import { observeTarget } from "./observeTarget.svelte";
 
 /**
  * Track an element's content-box size across resizes.
@@ -34,7 +34,7 @@ export function useElementSize(getEl: () => HTMLElement | null): ElementSize {
   // self-dependency that re-fires the effect on its own write.
   let counter = 0;
 
-  observeElement(getEl, (el) => {
+  observeTarget(getEl, (el) => {
     const r = el.getBoundingClientRect();
     size.width = r.width;
     size.height = r.height;

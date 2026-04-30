@@ -1,4 +1,4 @@
-import { observeElement } from "./observeElement.svelte";
+import { observeTarget } from "./observeTarget.svelte";
 
 /**
  * Track the viewport-relative bounding rect of a target across resizes and
@@ -45,7 +45,7 @@ export function useAnchorOffset<T extends Element | Range>(
     if (!getTarget()) rect.measured = false;
   });
 
-  observeElement(
+  observeTarget(
     getTarget,
     (target) => {
       const r = target.getBoundingClientRect();

@@ -16,7 +16,7 @@
  * Implementation detail of `useElementSize` / `useAnchorOffset` — not
  * exported outside the hooks/ layer.
  */
-export function observeElement<T extends Element | Range>(
+export function observeTarget<T extends Element | Range>(
   getTarget: () => T | null,
   onMeasure: (target: T) => void,
   { trackWindow = false }: { trackWindow?: boolean } = {},

@@ -5,7 +5,7 @@
   a returned handle, since runes hooks can only be called from a component.
 
   `el` is a slight misnomer when a Range is passed, but `target` and `anchor`
-  collide with @testing-library/svelte's mount options.
+  both collide with Svelte 5's mount options.
 -->
 <script lang="ts">
   import { useAnchorOffset } from "../useAnchorOffset.svelte";

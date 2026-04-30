@@ -73,10 +73,8 @@ describe("useAnchorOffset", () => {
   });
 
   it("updates the rect fields when ResizeObserver fires", () => {
-    let currentRect = { top: 0, left: 0, width: 100, height: 50 };
-    const anchor = document.createElement("div");
-    anchor.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    let currentRect: Partial<DOMRect> = { top: 0, left: 0, width: 100, height: 50 };
+    const anchor = makeAnchor(() => currentRect);
 
     const { getByTestId } = render(Harness, { el: anchor });
     const out = getByTestId("anchor-offset");
@@ -105,10 +103,8 @@ describe("useAnchorOffset", () => {
   });
 
   it("updates the rect fields when window scrolls", () => {
-    let currentRect = { top: 100, left: 50, width: 100, height: 50 };
-    const anchor = document.createElement("div");
-    anchor.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    let currentRect: Partial<DOMRect> = { top: 100, left: 50, width: 100, height: 50 };
+    const anchor = makeAnchor(() => currentRect);
 
     const { getByTestId } = render(Harness, { el: anchor });
     const out = getByTestId("anchor-offset");
@@ -122,13 +118,11 @@ describe("useAnchorOffset", () => {
   });
 
   it("updates the rect fields when an ancestor scroll-container scrolls (capture phase)", () => {
-    let currentRect = { top: 100, left: 50, width: 100, height: 50 };
+    let currentRect: Partial<DOMRect> = { top: 100, left: 50, width: 100, height: 50 };
     const scroller = document.createElement("div");
-    const anchor = document.createElement("div");
+    const anchor = makeAnchor(() => currentRect);
     scroller.appendChild(anchor);
     document.body.appendChild(scroller);
-    anchor.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
 
     try {
       const { getByTestId } = render(Harness, { el: anchor });
@@ -146,10 +140,8 @@ describe("useAnchorOffset", () => {
   });
 
   it("updates the rect fields when the window resizes", () => {
-    let currentRect = { top: 10, left: 10, width: 100, height: 50 };
-    const anchor = document.createElement("div");
-    anchor.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    let currentRect: Partial<DOMRect> = { top: 10, left: 10, width: 100, height: 50 };
+    const anchor = makeAnchor(() => currentRect);
 
     const { getByTestId } = render(Harness, { el: anchor });
     const out = getByTestId("anchor-offset");
