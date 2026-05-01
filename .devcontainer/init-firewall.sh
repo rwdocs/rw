@@ -101,6 +101,8 @@ for domain in \
     "static.crates.io" \
     "index.crates.io" \
     "api.anthropic.com" \
+    "claude.ai" \
+    "downloads.claude.ai" \
     "statsig.anthropic.com" \
     "statsig.com" \
     "sentry.io" \
@@ -147,13 +149,19 @@ iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
 iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
 
-# 8. Verify
+# 8. Verify.
+# Negative check uses 8.8.8.8 (Google DNS over HTTPS, IP literal in 8.0.0.0/8 —
+# guaranteed not inside any of our allowlist CIDRs). Don't use a domain like
+# example.com here: example.com migrated to Cloudflare and its IPs now fall
+# inside our intentional 104.16.0.0/13 / 172.64.0.0/13 ranges, making the
+# negative test a false positive. -k skips cert verification (the cert won't
+# match an IP literal).
 echo "Verifying firewall rules..."
-if curl --connect-timeout 5 https://example.com >/dev/null 2>&1; then
-    echo "ERROR: Firewall verification failed - was able to reach https://example.com"
+if curl --connect-timeout 5 -k https://8.8.8.8/ >/dev/null 2>&1; then
+    echo "ERROR: Firewall verification failed - was able to reach https://8.8.8.8/"
     exit 1
 fi
-echo "Firewall verification passed - example.com correctly blocked"
+echo "Firewall verification passed - 8.8.8.8 correctly blocked"
 if ! curl --connect-timeout 5 https://api.github.com/zen >/dev/null 2>&1; then
     echo "ERROR: Firewall verification failed - unable to reach https://api.github.com"
     exit 1

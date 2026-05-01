@@ -5,8 +5,7 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1":        { "version": "20" },
     "ghcr.io/devcontainers/features/rust:1":        { "profile": "minimal" },
-    "ghcr.io/devcontainers/features/github-cli:1":  {},
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    "ghcr.io/devcontainers/features/github-cli:1":  {}
   },
 
   "remoteUser": "vscode",
@@ -23,6 +22,7 @@
 
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    "PATH": "/home/vscode/.local/bin:/usr/local/cargo/bin:/usr/local/share/nvm/current/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "RW_DEVCONTAINER_FIREWALL": "${localEnv:RW_DEVCONTAINER_FIREWALL:0}"
   },
 

@@ -16,8 +16,18 @@ rustup component add llvm-tools-preview
 # 4. Cargo dev tools (lands in rw-cargo-cache volume, persists across rebuilds)
 cargo install --locked cargo-llvm-cov cargo-edit
 
-# 5. Node deps (lands in rw-node-modules volume)
-npm install
+# 5. Node deps (lands in rw-node-modules volume).
+#    `npm ci` instead of `npm install` because the latter rewrites
+#    package-lock.json based on the workspace directory name (/workspace inside
+#    the container vs the bind-mount source on the host), which would dirty
+#    the working tree.
+npm ci
+
+# 5b. Claude Code CLI via the official installer.
+#     We install directly rather than via the claude-code devcontainer feature
+#     because the latest published OCI artifact still ships an init-firewall.sh
+#     that overwrites our /usr/local/bin/init-firewall.sh.
+curl -fsSL https://claude.ai/install.sh | bash
 
 # 6. Playwright: install chromium plus its OS package deps in one shot.
 #    Covers both `chromium` and `chromium-embedded` projects (same browser binary).
