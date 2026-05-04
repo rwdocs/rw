@@ -10,5 +10,12 @@
   "minimumReleaseAge": "14 days",
   "postUpdateOptions": [
     "npmDedupe"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["napi", "napi-build", "napi-derive"],
+      "groupName": "napi-rs crates"
+    }
   ]
 }
