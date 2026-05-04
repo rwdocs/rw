@@ -32,11 +32,8 @@ export class MockResizeObserver {
   }
 }
 
-// Not redefining getBoundingClientRect on the prototype keeps other tests
-// (and any unrelated rects read from the document root) untouched.
-export function makeAnchor(rect: Partial<DOMRect>): HTMLElement {
-  const el = document.createElement("div");
-  const get = () => ({
+export function fakeRect(rect: Partial<DOMRect>): DOMRect {
+  return {
     top: 0,
     left: 0,
     width: 0,
@@ -47,7 +44,21 @@ export function makeAnchor(rect: Partial<DOMRect>): HTMLElement {
     y: 0,
     toJSON: () => ({}),
     ...rect,
-  });
-  el.getBoundingClientRect = () => get() as DOMRect;
+  } as DOMRect;
+}
+
+// Not redefining getBoundingClientRect on the prototype keeps other tests
+// (and any unrelated rects read from the document root) untouched.
+export function makeAnchor(rect: Partial<DOMRect> | (() => Partial<DOMRect>)): HTMLElement {
+  const get = typeof rect === "function" ? rect : () => rect;
+  const el = document.createElement("div");
+  el.getBoundingClientRect = () => fakeRect(get());
   return el;
+}
+
+export function makeRange(rect: Partial<DOMRect> | (() => Partial<DOMRect>)): Range {
+  const get = typeof rect === "function" ? rect : () => rect;
+  const range = document.createRange();
+  range.getBoundingClientRect = () => fakeRect(get());
+  return range;
 }

@@ -8,6 +8,7 @@
   import Button from "$lib/ui/primitives/Button.svelte";
   import Popover from "$lib/ui/primitives/Popover.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
+  import { useAnchorOffset } from "$lib/ui/hooks/useAnchorOffset.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
@@ -18,8 +19,10 @@
 
   const articleSize = useElementSize(() => articleRef ?? null);
 
-  // Comment selection state
-  let selectionRect: { x: number; y: number } | null = $state(null);
+  // The popover renders in `position: fixed` coords, so its anchor must
+  // re-measure on scroll — hold the Range, not a one-shot rect.
+  let selectionRange: Range | null = $state.raw(null);
+  const selectionRect = useAnchorOffset(() => selectionRange);
 
   // Dismiss the popover when the selection collapses (e.g. user clicks on the
   // selected text). Blink runs the click-on-selection collapse as a default
@@ -27,13 +30,22 @@
   // still returns the active range — handleMouseUp would re-pin the popover
   // at the same coords and only the highlight would disappear.
   $effect(() => {
-    if (!selectionRect) return;
+    if (!selectionRange) return;
     const handler = () => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) selectionRect = null;
+      if (!sel || sel.isCollapsed) selectionRange = null;
     };
     document.addEventListener("selectionchange", handler);
     return () => document.removeEventListener("selectionchange", handler);
+  });
+
+  // Drop any in-flight selection when the article content changes (live reload,
+  // navigation). The cached Range's start/end nodes get detached, so
+  // getBoundingClientRect() returns zeros and would briefly jump the popover to
+  // the top-left corner before anything else dismissed it.
+  $effect(() => {
+    void page.data;
+    selectionRange = null;
   });
 
   // Delay skeleton appearance so fast page loads don't flash it.
@@ -232,7 +244,7 @@
 
     // If no text selected, check if click landed on a comment highlight
     if (!selection || selection.isCollapsed) {
-      selectionRect = null;
+      selectionRange = null;
 
       // Toggle: click an inactive highlight to activate, click the active one to dismiss.
       const hitId = findCommentAtPoint(event);
@@ -242,12 +254,13 @@
 
     const range = selection.getRangeAt(0);
     if (!articleRef || !articleRef.contains(range.commonAncestorContainer)) {
-      selectionRect = null;
+      selectionRange = null;
       return;
     }
 
-    const rect = range.getBoundingClientRect();
-    selectionRect = { x: rect.left + rect.width / 2, y: rect.top };
+    // `Selection.getRangeAt(0)` returns a live Range that mutates when the
+    // user re-selects; clone so the captured range stays put.
+    selectionRange = range.cloneRange();
   }
 
   function handleMouseMove(event: MouseEvent) {
@@ -335,12 +348,12 @@
 
     comments.pending = { documentId: docId, selectors };
     comments.activeId = null;
-    selectionRect = null;
+    selectionRange = null;
     window.getSelection()?.removeAllRanges();
   }
 </script>
 
-{#if comments.enabled && selectionRect}
+{#if comments.enabled && selectionRect.measured}
   <!--
     Free-mode Popover anchored to the caret end of the current selection.
     `-translate-x-1/2 -translate-y-full` centers above the click point; the
@@ -349,8 +362,8 @@
   -->
   <Popover
     open
-    x={selectionRect.x}
-    y={selectionRect.y - 8}
+    x={selectionRect.left + selectionRect.width / 2}
+    y={selectionRect.top - 8}
     class="
       -translate-x-1/2 -translate-y-full rounded-lg border border-gray-200 bg-white shadow-lg
       dark:border-neutral-600 dark:bg-neutral-700

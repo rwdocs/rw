@@ -3,12 +3,15 @@
   lifecycle (mount / prop-change / unmount), so its internal $effect actually
   runs. Tests read the reactive values from data-* attributes rather than from
   a returned handle, since runes hooks can only be called from a component.
+
+  `el` is a slight misnomer when a Range is passed, but `target` and `anchor`
+  both collide with Svelte 5's mount options.
 -->
 <script lang="ts">
   import { useAnchorOffset } from "../useAnchorOffset.svelte";
 
   interface Props {
-    el: HTMLElement | null;
+    el: Element | Range | null;
   }
 
   let { el }: Props = $props();

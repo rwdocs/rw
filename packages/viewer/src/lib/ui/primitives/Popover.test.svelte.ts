@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { flushSync } from "svelte";
 import { render, fireEvent } from "@testing-library/svelte";
 import Harness from "./__fixtures__/PopoverHarness.svelte";
-import { MockResizeObserver, mockRect } from "./__fixtures__/overlay-testing";
+import { MockResizeObserver, fakeRect, mockRect } from "./__fixtures__/overlay-testing";
 
 // The panel is the immediate parent of the <span data-testid="pp-body">
 // tested content — getByTestId returns the span, so stepping up one level
@@ -206,7 +206,7 @@ describe("Popover", () => {
       const original = HTMLElement.prototype.getBoundingClientRect;
       HTMLElement.prototype.getBoundingClientRect = function () {
         if (this.tagName === "SPAN" && this.classList.contains("inline-block")) {
-          return {
+          return fakeRect({
             top: 10,
             left: 20,
             width: 50,
@@ -215,8 +215,7 @@ describe("Popover", () => {
             bottom: 24,
             x: 20,
             y: 10,
-            toJSON: () => ({}),
-          } as DOMRect;
+          });
         }
         return original.call(this);
       };
@@ -497,7 +496,7 @@ describe("Popover", () => {
       const original = HTMLElement.prototype.getBoundingClientRect;
       HTMLElement.prototype.getBoundingClientRect = function () {
         if (this.tagName === "SPAN" && this.classList.contains("inline-block")) {
-          return {
+          return fakeRect({
             top: 10,
             left: 20,
             width: 50,
@@ -506,8 +505,7 @@ describe("Popover", () => {
             bottom: 24,
             x: 20,
             y: 10,
-            toJSON: () => ({}),
-          } as DOMRect;
+          });
         }
         return original.call(this);
       };

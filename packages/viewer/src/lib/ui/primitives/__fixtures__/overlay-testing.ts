@@ -3,22 +3,12 @@
 // on via useAnchorOffset — re-export the richer mock from the hooks fixture.
 // Primitives tests don't need `instances`/`trigger()`, but a single shared
 // implementation keeps the global stub consistent across suites.
-export { MockResizeObserver } from "../../hooks/__fixtures__/resize-observer-mock";
+import { fakeRect } from "../../hooks/__fixtures__/resize-observer-mock";
+
+export { MockResizeObserver, fakeRect } from "../../hooks/__fixtures__/resize-observer-mock";
 
 export function mockRect(el: HTMLElement, rect: Partial<DOMRect>): void {
-  el.getBoundingClientRect = () =>
-    ({
-      top: 0,
-      left: 0,
-      width: 0,
-      height: 0,
-      right: 0,
-      bottom: 0,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-      ...rect,
-    }) as DOMRect;
+  el.getBoundingClientRect = () => fakeRect(rect);
 }
 
 export function createAnchor(): HTMLButtonElement {
