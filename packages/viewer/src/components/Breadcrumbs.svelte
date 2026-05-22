@@ -134,7 +134,7 @@
   });
 </script>
 
-<div class={compact ? "relative min-h-8" : "relative mb-6 min-h-8"}>
+<div class={["relative min-h-8", { "mb-6": !compact }]}>
   <nav aria-label="Breadcrumb" class="min-h-8 overflow-hidden" bind:this={navEl}>
     {#if breadcrumbs.length > 0}
       <ol
@@ -146,9 +146,10 @@
       >
         {#if firstCrumb}
           <li
-            class={breadcrumbs.length > 1
-              ? "after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500"
-              : ""}
+            class={{
+              "after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500":
+                breadcrumbs.length > 1,
+            }}
           >
             <a
               href={resolveHref(firstCrumb)}

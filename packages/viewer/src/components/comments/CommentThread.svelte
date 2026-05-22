@@ -156,7 +156,7 @@
   {/if}
 
   <!-- Main comment -->
-  <div class={comment.status === "resolved" ? "opacity-60" : ""}>
+  <div class={{ "opacity-60": comment.status === "resolved" }}>
     <div
       bind:this={avatarRowRef}
       data-testid="comment-avatar-row"
