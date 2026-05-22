@@ -8,6 +8,7 @@
   import Button from "$lib/ui/primitives/Button.svelte";
   import Popover from "$lib/ui/primitives/Popover.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
+  import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
@@ -18,22 +19,17 @@
 
   const articleSize = useElementSize(() => articleRef ?? null);
 
-  // Comment selection state
-  let selectionRect: { x: number; y: number } | null = $state(null);
+  // Text-selection state for the Add-comment popover. The hook owns the
+  // captured Range, the article-relative anchor point, and dismiss-on-collapse.
+  const selectionPopover = useSelectionPopover(() => articleRef ?? null, articleSize);
 
-  // Dismiss the popover when the selection collapses (e.g. user clicks on the
-  // selected text). Blink runs the click-on-selection collapse as a default
-  // action of `click`, so reading window.getSelection() inside `mouseup`
-  // still returns the active range — handleMouseUp would re-pin the popover
-  // at the same coords and only the highlight would disappear.
+  // Drop any in-flight selection when the article content changes (live reload,
+  // navigation). The cached Range's start/end nodes get detached, so its rect
+  // collapses to zero and would briefly jump the popover to the top-left
+  // corner before anything else dismissed it.
   $effect(() => {
-    if (!selectionRect) return;
-    const handler = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) selectionRect = null;
-    };
-    document.addEventListener("selectionchange", handler);
-    return () => document.removeEventListener("selectionchange", handler);
+    void page.data;
+    selectionPopover.clear();
   });
 
   // Delay skeleton appearance so fast page loads don't flash it.
@@ -232,7 +228,7 @@
 
     // If no text selected, check if click landed on a comment highlight
     if (!selection || selection.isCollapsed) {
-      selectionRect = null;
+      selectionPopover.clear();
 
       // Toggle: click an inactive highlight to activate, click the active one to dismiss.
       const hitId = findCommentAtPoint(event);
@@ -240,14 +236,7 @@
       return;
     }
 
-    const range = selection.getRangeAt(0);
-    if (!articleRef || !articleRef.contains(range.commonAncestorContainer)) {
-      selectionRect = null;
-      return;
-    }
-
-    const rect = range.getBoundingClientRect();
-    selectionRect = { x: rect.left + rect.width / 2, y: rect.top };
+    selectionPopover.capture(selection.getRangeAt(0));
   }
 
   function handleMouseMove(event: MouseEvent) {
@@ -335,39 +324,10 @@
 
     comments.pending = { documentId: docId, selectors };
     comments.activeId = null;
-    selectionRect = null;
+    selectionPopover.clear();
     window.getSelection()?.removeAllRanges();
   }
 </script>
-
-{#if comments.enabled && selectionRect}
-  <!--
-    Free-mode Popover anchored to the caret end of the current selection.
-    `-translate-x-1/2 -translate-y-full` centers above the click point; the
-    8px gap that SelectionPopover encoded in its transform is folded into `y`
-    so the primitive's style attribute stays generic.
-  -->
-  <Popover
-    open
-    x={selectionRect.x}
-    y={selectionRect.y - 8}
-    class="
-      -translate-x-1/2 -translate-y-full rounded-lg border border-gray-200 bg-white shadow-lg
-      dark:border-neutral-600 dark:bg-neutral-700
-    "
-  >
-    <Button variant="ghost" onclick={handleAddComment}>
-      <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
-        />
-      </svg>
-      Add comment
-    </Button>
-  </Popover>
-{/if}
 
 {#if page.loading && showSkeleton}
   <LoadingSkeleton />
@@ -395,15 +355,57 @@
     <Alert intent="danger" title="Error">{page.error}</Alert>
   </div>
 {:else if page.data}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <article
-    bind:this={articleRef}
-    class="prose max-w-none prose-slate dark:prose-invert"
-    onmouseup={handleMouseUp}
-    onmousemove={handleMouseMove}
-  >
-    {@html page.data.content}
-  </article>
+  <!--
+    Relative wrapper so the Add-comment popover can anchor `position: absolute`
+    to the article — sharing its scroll layer keeps the popover pinned to the
+    highlighted text via the compositor, with no JS repositioning on scroll.
+  -->
+  <div class="relative">
+    {#if comments.enabled && selectionPopover.pos}
+      <!--
+        Free-mode Popover anchored above the current selection.
+        `-translate-x-1/2 -translate-y-full` centers the panel above the anchor
+        point; the 8px gap is folded into `y` so the primitive's style stays
+        generic. `selectionPopover.pos` is article-relative.
+      -->
+      <Popover
+        open
+        strategy="absolute"
+        x={selectionPopover.pos.x}
+        y={selectionPopover.pos.y - 8}
+        class="
+          -translate-x-1/2 -translate-y-full rounded-lg border border-gray-200 bg-white shadow-lg
+          dark:border-neutral-600 dark:bg-neutral-700
+        "
+      >
+        <Button variant="ghost" onclick={handleAddComment}>
+          <svg
+            class="size-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+            />
+          </svg>
+          Add comment
+        </Button>
+      </Popover>
+    {/if}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <article
+      bind:this={articleRef}
+      class="prose max-w-none prose-slate dark:prose-invert"
+      onmouseup={handleMouseUp}
+      onmousemove={handleMouseMove}
+    >
+      {@html page.data.content}
+    </article>
+  </div>
   {#if comments.enabled}
     <PageComments />
   {/if}
