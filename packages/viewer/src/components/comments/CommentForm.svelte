@@ -42,15 +42,15 @@
 
   let showActions = $derived(pinActions || focused || body.trim().length > 0);
 
-  // Defer to rAF so the parent's visibility-hidden-until-measured wrapper
-  // (CommentSidebar) has flipped to visible before we focus — focus() on a
-  // visibility:hidden element is a spec no-op.
-  $effect(() => {
-    if (!autofocus || !textareaRef) return;
-    const ta = textareaRef;
+  // Auto-focus the textarea on mount. Deferred to rAF so the parent's
+  // visibility-hidden-until-measured wrapper (CommentSidebar) has flipped to
+  // visible before we focus — focus() on a visibility:hidden element is a spec
+  // no-op.
+  function autofocusTextarea(ta: HTMLTextAreaElement) {
+    if (!autofocus) return;
     const id = requestAnimationFrame(() => ta.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(id);
-  });
+  }
 
   let lastReported: number | null = null;
   $effect(() => {
@@ -77,15 +77,15 @@
     }
   }
 
-  // Re-run whenever body changes — including programmatic resets after submit,
-  // which don't fire `oninput` and would otherwise leave the textarea stuck at
-  // its previous grown height.
-  $effect(() => {
-    body;
-    if (!textareaRef) return;
-    textareaRef.style.height = "auto";
-    textareaRef.style.height = `${textareaRef.scrollHeight}px`;
-  });
+  // Grow the textarea to fit its content. Reads `body` so it re-runs on every
+  // change — including programmatic resets after submit, which don't fire
+  // `oninput` and would otherwise leave the textarea stuck at its previous
+  // grown height.
+  function autoGrowTextarea(ta: HTMLTextAreaElement) {
+    void body;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }
 
   async function submit() {
     if (!body.trim() || submitting) return;
@@ -125,6 +125,8 @@
     bind:this={textareaRef}
     bind:value={body}
     onkeydown={handleKeydown}
+    {@attach autoGrowTextarea}
+    {@attach autofocusTextarea}
     {placeholder}
     rows={1}
     class="
