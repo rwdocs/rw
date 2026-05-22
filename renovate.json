@@ -16,6 +16,11 @@
       "matchManagers": ["cargo"],
       "matchPackageNames": ["napi", "napi-build", "napi-derive"],
       "groupName": "napi-rs crates"
+    },
+    {
+      "description": "Bump so npm updates edit package.json and package-lock.json together — avoids lockfile-mirror drift in npm workspaces (see renovatebot/renovate#28797)",
+      "matchManagers": ["npm"],
+      "rangeStrategy": "bump"
     }
   ]
 }
