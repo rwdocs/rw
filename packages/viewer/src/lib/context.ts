@@ -1,4 +1,4 @@
-import { getContext, setContext } from "svelte";
+import { createContext } from "svelte";
 import type { ApiClient } from "../api/client";
 import type { Router } from "../state/router.svelte";
 import type { Page } from "../state/page.svelte";
@@ -18,12 +18,6 @@ export interface RwContext {
   resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
 }
 
-const RW_KEY = Symbol("rw");
-
-export function setRwContext(ctx: RwContext) {
-  setContext(RW_KEY, ctx);
-}
-
-export function getRwContext(): RwContext {
-  return getContext<RwContext>(RW_KEY);
-}
+// `getRwContext()` throws if no ancestor set the context; `App.svelte` always
+// calls `setRwContext()` at the root, so every consumer is covered.
+export const [getRwContext, setRwContext] = createContext<RwContext>();

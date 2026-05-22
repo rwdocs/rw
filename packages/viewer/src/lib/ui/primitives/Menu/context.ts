@@ -1,4 +1,4 @@
-import { createContextKey } from "../../context";
+import { getContext, hasContext, setContext } from "svelte";
 
 /**
  * Shared state `<Menu.Root>` publishes for `<Menu.Item>` descendants:
@@ -13,4 +13,14 @@ export interface MenuContext {
   isTabbable(el: HTMLElement | undefined): boolean;
 }
 
-export const menuContext = createContextKey<MenuContext>("Menu");
+// Lenient context: `get()` returns `undefined` when there is no parent
+// `<Menu.Root>`, so `<Menu.Item>` can render standalone. Svelte's built-in
+// `createContext` throws on a missing provider, so Menu keeps an explicit
+// `hasContext` guard instead. The Symbol key keeps this isolated from any
+// other module that picks the same context name.
+const key = Symbol("Menu");
+
+export const menuContext = {
+  set: (value: MenuContext): MenuContext => setContext(key, value),
+  get: (): MenuContext | undefined => (hasContext(key) ? getContext<MenuContext>(key) : undefined),
+};
