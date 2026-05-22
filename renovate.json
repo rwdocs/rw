@@ -21,6 +21,11 @@
       "description": "Bump so npm updates edit package.json and package-lock.json together — avoids lockfile-mirror drift in npm workspaces (see renovatebot/renovate#28797)",
       "matchManagers": ["npm"],
       "rangeStrategy": "bump"
+    },
+    {
+      "description": "The engines.node constraint is a deliberate minimum (set to match a tooling requirement), not something to auto-bump to the latest release",
+      "matchDepTypes": ["engines"],
+      "enabled": false
     }
   ]
 }
