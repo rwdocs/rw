@@ -73,7 +73,8 @@
   class="
     inline-flex cursor-pointer items-center justify-center gap-1.5 font-medium transition-colors
     focus-visible:outline-2 focus-visible:outline-offset-2
-    aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent
+    aria-disabled:cursor-not-allowed aria-disabled:opacity-50
+    aria-disabled:hover:bg-transparent
     {VARIANT_CLASSES[variant]}
     {sizeClass}
     {extraClass}
