@@ -141,6 +141,7 @@ export default defineConfig([
         "warn",
         { printWidth: 100, strictness: "loose", preferSingleLine: true },
       ],
+      "better-tailwindcss/enforce-consistent-variant-order": "warn",
     },
     files: ["**/*.svelte"],
     languageOptions: svelteLanguageOptions,
