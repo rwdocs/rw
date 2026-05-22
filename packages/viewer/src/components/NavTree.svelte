@@ -20,7 +20,7 @@
     <NavGroup {group} />
   {/each}
 {:else}
-  <ul class={depth > 0 ? "ml-3" : ""}>
+  <ul class={{ "ml-3": depth > 0 }}>
     {#each items as item (item.path)}
       <NavItemComponent {item} {depth} />
     {/each}

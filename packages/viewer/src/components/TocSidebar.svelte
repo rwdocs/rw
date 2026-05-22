@@ -18,7 +18,7 @@
   </h3>
   <ul class="space-y-1.5">
     {#each toc as entry (entry.id)}
-      <li class={entry.level === 3 ? "ml-3" : ""}>
+      <li class={{ "ml-3": entry.level === 3 }}>
         <a
           href="#{entry.id}"
           onclick={(e) => {
