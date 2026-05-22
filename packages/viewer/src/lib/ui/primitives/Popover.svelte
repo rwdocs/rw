@@ -75,7 +75,6 @@
   }: Props = $props();
 
   let triggerWrapperEl: HTMLElement | undefined = $state();
-  let panelEl: HTMLElement | undefined = $state();
 
   const panelId = $props.id();
 
@@ -195,16 +194,17 @@
     }
   });
 
-  // Outside-click + Escape. Registers only while open && dismissible so a
-  // closed Popover never holds document-level listeners. Capture-phase click
-  // matches the `lib/ui/hooks/dismissible` helper so behavior stays
-  // consistent across call sites that still use it.
-  $effect(() => {
-    if (!open || !dismissible) return;
+  // Outside-click + Escape dismiss. Attached to the panel, so the
+  // document-level listeners exist only while the panel is mounted (i.e. while
+  // open) — a closed Popover never holds them. Capture-phase click matches the
+  // `lib/ui/hooks/dismissible` helper so behavior stays consistent across call
+  // sites that still use it.
+  function dismissOnInteraction(panel: HTMLElement) {
+    if (!dismissible) return;
 
     function onClick(event: MouseEvent) {
       const target = event.target as Node;
-      if (panelEl?.contains(target)) return;
+      if (panel.contains(target)) return;
       if (triggerWrapperEl?.contains(target)) return;
       if (mode === "external" && anchorEl?.contains(target)) return;
       open = false;
@@ -223,7 +223,7 @@
       document.removeEventListener("click", onClick, true);
       window.removeEventListener("keydown", onKeydown);
     };
-  });
+  }
 </script>
 
 {#if trigger}
@@ -234,7 +234,7 @@
 
 {#if open}
   <div
-    bind:this={panelEl}
+    {@attach dismissOnInteraction}
     id={panelId}
     class="{strategy} z-dropdown {extraClass}"
     style="{positionStyle}{isPositioned ? '' : ' visibility: hidden; pointer-events: none;'}"

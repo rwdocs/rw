@@ -336,6 +336,37 @@ describe("Popover", () => {
         anchorEl.remove();
       }
     });
+
+    it("removes the outside-click listener when the panel closes", async () => {
+      const addSpy = vi.spyOn(document, "addEventListener");
+      const removeSpy = vi.spyOn(document, "removeEventListener");
+
+      try {
+        const { getByTestId } = render(Harness, {
+          x: 0,
+          y: 0,
+          initialOpen: true,
+          dismissible: true,
+        });
+        flushSync();
+
+        // The dismiss attachment installs a capture-phase click listener
+        // while the panel is open.
+        const clickCall = addSpy.mock.calls.find((call) => call[0] === "click" && call[2] === true);
+        expect(clickCall).toBeTruthy();
+
+        await fireEvent.keyDown(window, { key: "Escape" });
+        flushSync();
+        expect(getByTestId("pp-harness").dataset.open).toBe("false");
+
+        // Closing unmounts the panel, so the attachment teardown ran and
+        // removed the exact listener it installed.
+        expect(removeSpy).toHaveBeenCalledWith("click", clickCall![1], true);
+      } finally {
+        addSpy.mockRestore();
+        removeSpy.mockRestore();
+      }
+    });
   });
 
   describe("aria", () => {
