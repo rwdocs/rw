@@ -24,6 +24,7 @@
     },
     {
       "description": "The engines.node constraint is a deliberate minimum (set to match a tooling requirement), not something to auto-bump to the latest release",
+      "matchManagers": ["npm"],
       "matchDepTypes": ["engines"],
       "enabled": false
     }
