@@ -22,10 +22,18 @@
     offset?: number;
     /** External anchor element. Mutually exclusive with `trigger` and x/y. */
     anchorEl?: HTMLElement | null;
-    /** Free-mode x coordinate (viewport-fixed). Must pair with `y`. */
+    /** Free-mode x coordinate. Must pair with `y`. Interpreted per `strategy`. */
     x?: number;
-    /** Free-mode y coordinate (viewport-fixed). Must pair with `x`. */
+    /** Free-mode y coordinate. Must pair with `x`. Interpreted per `strategy`. */
     y?: number;
+    /**
+     * CSS positioning of the panel. `"fixed"` (default) places it in viewport
+     * coordinates; `"absolute"` places it relative to the nearest positioned
+     * ancestor. Use `"absolute"` in free mode when the panel must scroll with
+     * its container — repositioning a `fixed` panel from JS scroll handlers
+     * always lags the content by at least a frame.
+     */
+    strategy?: "fixed" | "absolute";
     /** Dismiss the panel on Escape or outside-click. Requires `bind:open`. */
     dismissible?: boolean;
     /**
@@ -58,6 +66,7 @@
     anchorEl = null,
     x,
     y,
+    strategy = "fixed",
     dismissible = false,
     role,
     trigger,
@@ -227,7 +236,7 @@
   <div
     bind:this={panelEl}
     id={panelId}
-    class="fixed z-dropdown {extraClass}"
+    class="{strategy} z-dropdown {extraClass}"
     style="{positionStyle}{isPositioned ? '' : ' visibility: hidden; pointer-events: none;'}"
     {role}
   >

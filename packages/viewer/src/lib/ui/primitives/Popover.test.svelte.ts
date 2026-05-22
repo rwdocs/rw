@@ -63,6 +63,18 @@ describe("Popover", () => {
       expect(panel.className).toContain("z-dropdown");
       expect(panel.className).toContain("custom-marker");
     });
+
+    it("renders the panel position:absolute when strategy is absolute", () => {
+      const { getByTestId } = render(Harness, {
+        x: 0,
+        y: 0,
+        initialOpen: true,
+        strategy: "absolute",
+      });
+      const panel = panelOf(getByTestId("pp-body"));
+      expect(panel.className).toContain("absolute");
+      expect(panel.className).not.toContain("fixed");
+    });
   });
 
   describe("anchored mode", () => {
