@@ -21,7 +21,8 @@
 //! then call `render(markdown, kroki_url, diagram_dir)` to produce Confluence XHTML.
 
 use rw_kroki::{DiagramOutput, DiagramProcessor};
-use rw_renderer::{MarkdownRenderer, RenderResult, TocEntry};
+use rw_renderer::directive::DirectiveProcessor;
+use rw_renderer::{MarkdownRenderer, RenderResult, StatusDirective, TocEntry};
 use std::path::{Path, PathBuf};
 
 use crate::backend::ConfluenceBackend;
@@ -150,10 +151,56 @@ impl PageRenderer {
 
     /// Create a Confluence renderer with common configuration.
     fn create_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
-        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new().with_gfm(self.gfm);
+        let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
+        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new()
+            .with_gfm(self.gfm)
+            .with_directives(directives);
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
         renderer
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_status_directive_renders_confluence_macro() {
+        let renderer = PageRenderer::new();
+        let result = renderer.render(":status[On Track]{color=green}", None, None);
+        assert!(
+            result.html.contains(r#"ac:name="status""#),
+            "got: {}",
+            result.html
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<ac:parameter ac:name="colour">Green</ac:parameter>"#),
+            "got: {}",
+            result.html
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<ac:parameter ac:name="title">On Track</ac:parameter>"#),
+            "got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_status_directive_unknown_color_is_grey() {
+        let renderer = PageRenderer::new();
+        let result = renderer.render(":status[X]{color=mauve}", None, None);
+        assert!(
+            result
+                .html
+                .contains(r#"<ac:parameter ac:name="colour">Grey</ac:parameter>"#),
+            "got: {}",
+            result.html
+        );
     }
 }

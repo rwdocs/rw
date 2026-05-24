@@ -5,7 +5,7 @@
 
 use std::fmt::Write;
 
-use rw_renderer::{AlertKind, RenderBackend, escape_html};
+use rw_renderer::{AlertKind, RenderBackend, StatusColor, escape_html};
 
 /// Confluence render backend.
 ///
@@ -90,6 +90,45 @@ impl RenderBackend for ConfluenceBackend {
 
     fn task_list_marker(checked: bool, out: &mut String) {
         out.push_str(if checked { "[x] " } else { "[ ] " });
+    }
+
+    /// Translates the `<rw-status>` markers emitted by the status directive
+    /// into Confluence `status` structured macros; all other raw HTML passes
+    /// through unchanged.
+    ///
+    /// The open marker becomes the macro prefix plus an open `title`
+    /// parameter, the close marker closes that parameter and the macro — the
+    /// label text in between flows through the normal `text` path.
+    fn raw_html(html: &str, out: &mut String) {
+        if let Some(rest) = html.strip_prefix(r#"<rw-status data-color=""#) {
+            // `rest` is `COLOR">` — the color value up to its closing quote.
+            let color = rest
+                .split_once('"')
+                .map_or_else(StatusColor::default, |(name, _)| StatusColor::from(name));
+            // Confluence's `colour` parameter expects capitalized names.
+            let confluence_color = match color {
+                StatusColor::Grey => "Grey",
+                StatusColor::Red => "Red",
+                StatusColor::Yellow => "Yellow",
+                StatusColor::Green => "Green",
+                StatusColor::Blue => "Blue",
+                StatusColor::Purple => "Purple",
+            };
+            write!(
+                out,
+                concat!(
+                    r#"<ac:structured-macro ac:name="status" ac:schema-version="1">"#,
+                    r#"<ac:parameter ac:name="colour">{}</ac:parameter>"#,
+                    r#"<ac:parameter ac:name="title">"#,
+                ),
+                confluence_color
+            )
+            .unwrap();
+        } else if html == "</rw-status>" {
+            out.push_str("</ac:parameter></ac:structured-macro>");
+        } else {
+            out.push_str(html);
+        }
     }
 }
 
@@ -209,5 +248,44 @@ mod tests {
         ConfluenceBackend::alert_end(AlertKind::Caution, &mut out);
         // Caution also maps to "warning" macro in Confluence
         assert!(out.contains(r#"ac:name="warning""#));
+    }
+
+    #[test]
+    fn test_raw_html_status_open_emits_macro_prefix() {
+        let mut out = String::new();
+        ConfluenceBackend::raw_html(r#"<rw-status data-color="green">"#, &mut out);
+        assert!(out.contains(r#"ac:name="status""#), "got: {out}");
+        assert!(
+            out.contains(r#"<ac:parameter ac:name="colour">Green</ac:parameter>"#),
+            "got: {out}"
+        );
+        assert!(
+            out.ends_with(r#"<ac:parameter ac:name="title">"#),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn test_raw_html_status_close_emits_macro_suffix() {
+        let mut out = String::new();
+        ConfluenceBackend::raw_html("</rw-status>", &mut out);
+        assert_eq!(out, "</ac:parameter></ac:structured-macro>");
+    }
+
+    #[test]
+    fn test_raw_html_status_unknown_color_is_grey() {
+        let mut out = String::new();
+        ConfluenceBackend::raw_html(r#"<rw-status data-color="mauve">"#, &mut out);
+        assert!(
+            out.contains(r#"<ac:parameter ac:name="colour">Grey</ac:parameter>"#),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn test_raw_html_passes_through_unrelated_html() {
+        let mut out = String::new();
+        ConfluenceBackend::raw_html("<br />", &mut out);
+        assert_eq!(out, "<br />");
     }
 }

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comment REST API (`/_api/comments`) for creating, listing, and updating inline annotations
 - Comment authorship — every comment carries an author (`{ id, name, avatarUrl? }`); `rw serve` stamps browser-created comments with "You". Authors with id `local:human` render a person avatar; authors with id `local:ai` render a sparkles avatar (recommended for LLM agents writing via `rw comment`); others fall back to name initials.
 - `rw comment` CLI (list, show, add, reply, resolve) for scripting and LLM agents — reads and writes comments in the project's `.rw/comments/sqlite.db` directly; works whether or not `rw serve` is running. Identity via `RW_COMMENT_AUTHOR_ID` / `RW_COMMENT_AUTHOR_NAME` env vars or `--author-id` / `--author-name` flags; falls back to the default `local:human` / "You" identity when neither is set. Inline anchoring via `--quote "passage text"` — the CLI renders the target page in-process and rejects ambiguous or missing matches.
+- Status badges — `:status[Label]{color=NAME}` renders an inline colored pill label (`grey`, `red`, `yellow`, `green`, `blue`, `purple`). Publishing to Confluence emits the native `status` macro, so badges stay editable and on-style in Confluence. Color is case-insensitive and optional; unknown or omitted colors fall back to `grey`.
 
 ### Changed
 

@@ -13,6 +13,7 @@ Publish the same markdown to Confluence pages or embed in Backstage with native 
 - **Live reload** — edit markdown, see changes instantly in the browser
 - **Diagram rendering** — PlantUML, Mermaid, GraphViz, and 14+ formats via Kroki
 - **Tabbed content** — group related content with `:::tab` syntax
+- **Status badges** — inline colored pill labels with Confluence status-macro parity
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
 - **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, and custom variables
@@ -77,6 +78,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 - [Page Metadata](docs/metadata.md)
 - [Confluence Publishing](docs/confluence.md)
 - [Diagram Rendering](docs/diagrams.md)
+- [Status Badges](docs/status-badges.md)
 - [Comment CLI](docs/comment-cli.md)
 
 ## License
