@@ -17,7 +17,7 @@ use crate::state::AppState;
 #[derive(Deserialize)]
 pub(crate) struct NavigationQuery {
     /// Section ref (optional). If provided, returns navigation for that section.
-    /// Format: "kind:default/name" (e.g., "domain:default/billing").
+    /// Format: "kind:namespace/name" (e.g., "domain:default/billing", "domain:payments/billing").
     #[serde(rename = "sectionRef")]
     section_ref: Option<String>,
 }
@@ -150,6 +150,7 @@ mod tests {
                 title: "Billing".to_owned(),
                 section: Section {
                     kind: "domain".to_owned(),
+                    namespace: "payments".parse().unwrap(),
                     name: "billing".to_owned(),
                 },
             }),
@@ -161,6 +162,7 @@ mod tests {
         assert_eq!(json["scope"]["path"], "/domains/billing");
         assert_eq!(json["scope"]["title"], "Billing");
         assert_eq!(json["scope"]["section"]["kind"], "domain");
+        assert_eq!(json["scope"]["section"]["namespace"], "payments");
         assert_eq!(json["scope"]["section"]["name"], "billing");
         assert!(json.get("parentScope").is_none());
     }

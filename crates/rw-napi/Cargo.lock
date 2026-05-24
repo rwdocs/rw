@@ -3437,6 +3437,7 @@ dependencies = [
  "notify",
  "rayon",
  "rw-meta",
+ "rw-sections",
  "rw-storage",
  "rw-vcs",
  "serde_yaml",

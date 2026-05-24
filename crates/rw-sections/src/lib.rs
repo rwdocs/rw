@@ -9,8 +9,8 @@
 //! Backstage can map sections to catalog entities based on their kind.
 //!
 //! Every section has a canonical **ref string** of the form
-//! `"kind:namespace/name"` (e.g., `"domain:default/billing"`). The namespace is
-//! currently always `default`.
+//! `"kind:namespace/name"` (e.g., `"domain:default/billing"`). The namespace
+//! defaults to `"default"` and is set per page via the `namespace` metadata field.
 //!
 //! The main entry point is [`Sections`], a map from scope paths to
 //! [`Section`] values that supports prefix-based lookup.
@@ -27,12 +27,13 @@
 //!
 //! ```
 //! use std::collections::HashMap;
-//! use rw_sections::{Section, Sections};
+//! use rw_sections::{Namespace, Section, Sections};
 //!
 //! // Build a section map (typically done by rw-site from page metadata)
 //! let sections = Sections::new(HashMap::from([
 //!     ("domains/billing".to_owned(), Section {
 //!         kind: "domain".to_owned(),
+//!         namespace: Namespace::default(),
 //!         name: "billing".to_owned(),
 //!     }),
 //! ]));
@@ -52,6 +53,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+mod namespace;
+pub use namespace::{InvalidNamespace, Namespace};
+
 /// A named documentation section with a kind and name.
 ///
 /// Represents one node in the section hierarchy. The [`kind`](Self::kind) is a
@@ -67,11 +71,12 @@ use std::str::FromStr;
 /// # Examples
 ///
 /// ```
-/// use rw_sections::Section;
+/// use rw_sections::{Namespace, Section};
 ///
 /// // Parse a ref string
 /// let section: Section = "domain:default/billing".parse()?;
 /// assert_eq!(section.kind, "domain");
+/// assert_eq!(section.namespace, "default");
 /// assert_eq!(section.name, "billing");
 ///
 /// // Round-trips through Display
@@ -83,6 +88,13 @@ use std::str::FromStr;
 pub struct Section {
     /// Freeform label classifying this section (e.g., `"domain"`, `"system"`).
     pub kind: String,
+    /// Section namespace (e.g., `"default"`, `"payments"`). Inherited down the
+    /// page tree from `namespace` metadata; `#[serde(default)]` so older
+    /// cached `Section` JSON written before this field existed (just
+    /// `{kind, name}`) still deserializes — the missing namespace becomes
+    /// [`Namespace::default()`] (`"default"`), matching historical behavior.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub namespace: Namespace,
     /// Section name, currently the last segment of the scope path (e.g., `"billing"`).
     pub name: String,
 }
@@ -91,7 +103,7 @@ impl Section {
     /// Name used for sections rooted at the empty scope path.
     pub const ROOT_NAME: &str = "root";
 
-    /// Returns the implicit root section (`section:default/root`).
+    /// Returns the implicit root section in `namespace` (`section:<namespace>/root`).
     ///
     /// Used when a documentation site has pages at the root level that don't
     /// belong to any explicitly defined section.
@@ -99,67 +111,90 @@ impl Section {
     /// # Examples
     ///
     /// ```
-    /// use rw_sections::Section;
+    /// use rw_sections::{Namespace, Section};
     ///
-    /// let root = Section::root();
+    /// let root = Section::root(Namespace::default());
     /// assert_eq!(root.kind, "section");
     /// assert_eq!(root.name, "root");
     /// assert_eq!(root.to_string(), "section:default/root");
     /// ```
     #[must_use]
-    pub fn root() -> Self {
+    pub fn root(namespace: Namespace) -> Self {
         Self {
             kind: "section".to_owned(),
+            namespace,
             name: Self::ROOT_NAME.to_owned(),
         }
     }
 }
 
 impl fmt::Display for Section {
-    /// Formats as `"kind:default/name"`.
+    /// Formats as `"kind:namespace/name"`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:default/{}", self.kind, self.name)
+        write!(f, "{}:{}/{}", self.kind, self.namespace, self.name)
     }
 }
 
 /// Error returned when parsing a [`Section`] from a ref string fails.
 ///
-/// The expected format is `"kind:default/name"` where both `kind` and `name`
-/// are non-empty.
+/// The expected format is `"kind:namespace/name"` where `kind`, `namespace`,
+/// and `name` are all non-empty. When the namespace segment is present but
+/// fails [`validate_namespace`], the underlying [`InvalidNamespace`] is
+/// carried as the cause (accessible via [`std::error::Error::source`] and
+/// surfaced in the [`Display`](fmt::Display) output).
 ///
 /// # Examples
 ///
 /// ```
-/// use rw_sections::Section;
+/// use rw_sections::{Namespace, Section};
 ///
 /// let err = "invalid".parse::<Section>().unwrap_err();
-/// assert_eq!(err.to_string(), "invalid section ref: expected \"kind:default/name\"");
+/// assert_eq!(err.to_string(), "invalid section ref: expected \"kind:namespace/name\"");
+///
+/// // Namespace charset violations propagate the specific reason.
+/// let err = "domain:bad value/billing".parse::<Section>().unwrap_err();
+/// assert!(err.to_string().contains("bad value"));
 /// ```
-#[derive(Debug)]
-pub struct ParseSectionError;
+#[derive(Debug, Default)]
+pub struct ParseSectionError(Option<InvalidNamespace>);
 
 impl fmt::Display for ParseSectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("invalid section ref: expected \"kind:default/name\"")
+        match &self.0 {
+            Some(e) => write!(f, "invalid section ref: {e}"),
+            None => f.write_str("invalid section ref: expected \"kind:namespace/name\""),
+        }
     }
 }
 
-impl std::error::Error for ParseSectionError {}
+impl std::error::Error for ParseSectionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0
+            .as_ref()
+            .map(|e| e as &(dyn std::error::Error + 'static))
+    }
+}
+
+impl From<InvalidNamespace> for ParseSectionError {
+    fn from(e: InvalidNamespace) -> Self {
+        Self(Some(e))
+    }
+}
 
 impl FromStr for Section {
     type Err = ParseSectionError;
 
-    /// Parses a ref string in `"kind:default/name"` format.
+    /// Parses a ref string in `"kind:namespace/name"` format.
     ///
     /// # Errors
     ///
-    /// Returns [`ParseSectionError`] if the string does not contain
-    /// `:default/`, or if either the kind or name segment is empty.
+    /// Returns [`ParseSectionError`] if the string does not match
+    /// `kind:namespace/name`, or if any of kind, namespace, or name is empty.
     ///
     /// # Examples
     ///
     /// ```
-    /// use rw_sections::Section;
+    /// use rw_sections::{Namespace, Section};
     ///
     /// let section: Section = "component:default/auth".parse()?;
     /// assert_eq!(section.kind, "component");
@@ -167,12 +202,15 @@ impl FromStr for Section {
     /// # Ok::<(), rw_sections::ParseSectionError>(())
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (kind, name) = s
-            .split_once(":default/")
-            .filter(|(k, n)| !k.is_empty() && !n.is_empty())
-            .ok_or(ParseSectionError)?;
+        let (kind, rest) = s.split_once(':').ok_or(ParseSectionError::default())?;
+        let (namespace, name) = rest.split_once('/').ok_or(ParseSectionError::default())?;
+        if kind.is_empty() || name.is_empty() {
+            return Err(ParseSectionError::default());
+        }
+        let namespace: Namespace = namespace.parse()?;
         Ok(Self {
             kind: kind.to_owned(),
+            namespace,
             name: name.to_owned(),
         })
     }
@@ -185,11 +223,12 @@ impl FromStr for Section {
 ///
 /// ```
 /// use std::collections::HashMap;
-/// use rw_sections::{Section, Sections};
+/// use rw_sections::{Namespace, Section, Sections};
 ///
 /// let sections = Sections::new(HashMap::from([
 ///     ("domains/billing".to_owned(), Section {
 ///         kind: "domain".to_owned(),
+///         namespace: Namespace::default(),
 ///         name: "billing".to_owned(),
 ///     }),
 /// ]));
@@ -225,15 +264,17 @@ pub struct SectionPath<'s, 'h> {
 ///
 /// ```
 /// use std::collections::HashMap;
-/// use rw_sections::{Section, Sections};
+/// use rw_sections::{Namespace, Section, Sections};
 ///
 /// let sections = Sections::new(HashMap::from([
 ///     ("domains/billing".to_owned(), Section {
 ///         kind: "domain".to_owned(),
+///         namespace: Namespace::default(),
 ///         name: "billing".to_owned(),
 ///     }),
 ///     ("domains/billing/systems/pay".to_owned(), Section {
 ///         kind: "system".to_owned(),
+///         namespace: Namespace::default(),
 ///         name: "pay".to_owned(),
 ///     }),
 /// ]));
@@ -262,11 +303,12 @@ impl Sections {
     ///
     /// ```
     /// use std::collections::HashMap;
-    /// use rw_sections::{Section, Sections};
+    /// use rw_sections::{Namespace, Section, Sections};
     ///
     /// let sections = Sections::new(HashMap::from([
     ///     ("".to_owned(), Section {
     ///         kind: "section".to_owned(),
+    ///         namespace: Namespace::default(),
     ///         name: "root".to_owned(),
     ///     }),
     /// ]));
@@ -292,11 +334,12 @@ impl Sections {
     ///
     /// ```
     /// use std::collections::HashMap;
-    /// use rw_sections::{Section, Sections};
+    /// use rw_sections::{Namespace, Section, Sections};
     ///
     /// let sections = Sections::new(HashMap::from([
     ///     ("domains/billing".to_owned(), Section {
     ///         kind: "domain".to_owned(),
+    ///         namespace: Namespace::default(),
     ///         name: "billing".to_owned(),
     ///     }),
     /// ]));
@@ -324,11 +367,12 @@ impl Sections {
     ///
     /// ```
     /// use std::collections::HashMap;
-    /// use rw_sections::{Section, Sections};
+    /// use rw_sections::{Namespace, Section, Sections};
     ///
     /// let sections = Sections::new(HashMap::from([
     ///     ("domains/billing".to_owned(), Section {
     ///         kind: "domain".to_owned(),
+    ///         namespace: Namespace::default(),
     ///         name: "billing".to_owned(),
     ///     }),
     /// ]));
@@ -399,11 +443,12 @@ impl Sections {
     ///
     /// ```
     /// use std::collections::HashMap;
-    /// use rw_sections::{Section, Sections};
+    /// use rw_sections::{Namespace, Section, Sections};
     ///
     /// let sections = Sections::new(HashMap::from([
     ///     ("domains/billing".to_owned(), Section {
     ///         kind: "domain".to_owned(),
+    ///         namespace: Namespace::default(),
     ///         name: "billing".to_owned(),
     ///     }),
     /// ]));
@@ -444,7 +489,11 @@ impl Sections {
             return None;
         }
 
-        let section_ref_string = if let Some(ref_str) = target.to_section_ref() {
+        let current_namespace = base_path
+            .and_then(|bp| self.find(bp))
+            .map_or("default", |sp| sp.section.namespace.as_ref());
+
+        let section_ref_string = if let Some(ref_str) = target.to_section_ref(current_namespace) {
             ref_str
         } else {
             let sp = self.find(base_path?)?;
@@ -587,16 +636,16 @@ impl<'a> ParsedRefpath<'a> {
 
     /// Build a full ref string (e.g., `"domain:default/billing"`).
     ///
-    /// Applies defaults: kind defaults to `"section"`,
-    /// namespace defaults to `"default"`.
+    /// Applies defaults: kind defaults to `"section"`; namespace defaults to
+    /// `default_namespace` when the refpath omits one.
     ///
     /// Returns `None` if `name` is `None` (current-section target — caller
     /// must resolve the current section externally).
     #[must_use]
-    pub fn to_section_ref(&self) -> Option<String> {
+    pub fn to_section_ref(&self, default_namespace: &str) -> Option<String> {
         let name = self.name?;
         let kind = self.kind.unwrap_or(ROOT_SECTION_KIND);
-        let namespace = self.namespace.unwrap_or("default");
+        let namespace = self.namespace.unwrap_or(default_namespace);
         Some(format!("{kind}:{namespace}/{name}"))
     }
 }
@@ -610,6 +659,7 @@ mod tests {
             "domains/billing".to_owned(),
             Section {
                 kind: "domain".to_owned(),
+                namespace: Namespace::default(),
                 name: "billing".to_owned(),
             },
         )]))
@@ -645,6 +695,7 @@ mod tests {
                 "domains/billing".to_owned(),
                 Section {
                     kind: "domain".to_owned(),
+                    namespace: Namespace::default(),
                     name: "billing".to_owned(),
                 },
             ),
@@ -652,6 +703,7 @@ mod tests {
                 "domains/billing/systems/pay".to_owned(),
                 Section {
                     kind: "system".to_owned(),
+                    namespace: Namespace::default(),
                     name: "pay".to_owned(),
                 },
             ),
@@ -667,6 +719,7 @@ mod tests {
             "domains/bill".to_owned(),
             Section {
                 kind: "domain".to_owned(),
+                namespace: Namespace::default(),
                 name: "bill".to_owned(),
             },
         )]));
@@ -701,6 +754,7 @@ mod tests {
     fn parse_section_roundtrip() {
         let section = Section {
             kind: "system".to_owned(),
+            namespace: Namespace::default(),
             name: "payments".to_owned(),
         };
         let parsed: Section = section.to_string().parse().unwrap();
@@ -809,24 +863,147 @@ mod tests {
     #[test]
     fn section_target_to_ref_full() {
         let t = ParsedRefpath::parse("domain:billing::overview");
-        assert_eq!(t.to_section_ref().unwrap(), "domain:default/billing");
+        assert_eq!(
+            t.to_section_ref("default").unwrap(),
+            "domain:default/billing"
+        );
     }
 
     #[test]
     fn section_target_to_ref_with_namespace() {
         let t = ParsedRefpath::parse("domain:production/billing::overview");
-        assert_eq!(t.to_section_ref().unwrap(), "domain:production/billing");
+        assert_eq!(
+            t.to_section_ref("default").unwrap(),
+            "domain:production/billing"
+        );
     }
 
     #[test]
     fn section_target_to_ref_name_only() {
         let t = ParsedRefpath::parse("billing");
-        assert_eq!(t.to_section_ref().unwrap(), "section:default/billing");
+        assert_eq!(
+            t.to_section_ref("default").unwrap(),
+            "section:default/billing"
+        );
     }
 
     #[test]
     fn section_target_to_ref_current_section() {
         let t = ParsedRefpath::parse("::overview");
-        assert!(t.to_section_ref().is_none());
+        assert!(t.to_section_ref("default").is_none());
+    }
+
+    #[test]
+    fn section_display_custom_namespace() {
+        let section = Section {
+            kind: "domain".to_owned(),
+            namespace: "payments".parse().unwrap(),
+            name: "billing".to_owned(),
+        };
+        assert_eq!(section.to_string(), "domain:payments/billing");
+    }
+
+    #[test]
+    fn section_from_str_custom_namespace() {
+        let section: Section = "system:production/auth".parse().unwrap();
+        assert_eq!(section.kind, "system");
+        assert_eq!(section.namespace, "production");
+        assert_eq!(section.name, "auth");
+    }
+
+    #[test]
+    fn section_from_str_rejects_malformed() {
+        assert!("".parse::<Section>().is_err());
+        assert!("domain".parse::<Section>().is_err());
+        assert!("domain:billing".parse::<Section>().is_err()); // no '/'
+        assert!(":default/billing".parse::<Section>().is_err()); // empty kind
+        assert!("domain:/billing".parse::<Section>().is_err()); // empty namespace
+        assert!("domain:default/".parse::<Section>().is_err()); // empty name
+        // Structurally complete but namespace fails the Backstage charset —
+        // must propagate InvalidNamespace as the source rather than the
+        // generic "expected kind:namespace/name" message.
+        let err = "domain:bad value/billing".parse::<Section>().unwrap_err();
+        assert!(
+            err.to_string().contains("bad value"),
+            "namespace error should surface the bad value: {err}"
+        );
+        assert!(
+            std::error::Error::source(&err).is_some(),
+            "InvalidNamespace should be carried as the error source"
+        );
+    }
+
+    #[test]
+    fn section_roundtrip_custom_namespace() {
+        let section = Section {
+            kind: "component".to_owned(),
+            namespace: "staging".parse().unwrap(),
+            name: "api".to_owned(),
+        };
+        let parsed: Section = section.to_string().parse().unwrap();
+        assert_eq!(parsed, section);
+    }
+
+    #[test]
+    fn section_root_uses_given_namespace() {
+        assert_eq!(
+            Section::root("payments".parse().unwrap()).to_string(),
+            "section:payments/root"
+        );
+        assert_eq!(Section::root(Namespace::default()).namespace, "default");
+    }
+
+    #[test]
+    fn resolve_refpath_omitted_namespace_uses_current_page_namespace() {
+        let sections = Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                namespace: "payments".parse().unwrap(),
+                name: "billing".to_owned(),
+            },
+        )]));
+        // base_path is a page inside the payments-namespace section; the wikilink
+        // omits the namespace, so it must resolve within "payments".
+        let (href, sp) = sections
+            .resolve_refpath("domain:billing::overview", Some("domains/billing/api"))
+            .expect("should resolve");
+        assert_eq!(href, "/domains/billing/overview");
+        assert_eq!(sp.section.namespace, "payments");
+    }
+
+    #[test]
+    fn resolve_refpath_explicit_namespace_is_honored() {
+        let sections = Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                namespace: "payments".parse().unwrap(),
+                name: "billing".to_owned(),
+            },
+        )]));
+        let (href, _) = sections
+            .resolve_refpath("domain:payments/billing::overview", None)
+            .expect("explicit namespace resolves");
+        assert_eq!(href, "/domains/billing/overview");
+        // A mismatched explicit namespace does not resolve.
+        assert!(
+            sections
+                .resolve_refpath("domain:default/billing::overview", None)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn to_section_ref_uses_default_namespace_argument() {
+        let t = ParsedRefpath::parse("domain:billing::overview");
+        assert_eq!(
+            t.to_section_ref("payments").unwrap(),
+            "domain:payments/billing"
+        );
+        assert_eq!(
+            t.to_section_ref("default").unwrap(),
+            "domain:default/billing"
+        );
     }
 }

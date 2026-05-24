@@ -6,6 +6,7 @@ use serde::Deserialize;
 pub(crate) struct MetaFields {
     #[serde(alias = "type")]
     pub kind: Option<String>,
+    pub namespace: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
     #[serde(default)]
@@ -22,6 +23,7 @@ impl MetaFields {
     /// Merge `other` onto self. `other` fields win when Some; vars merged at key level.
     pub(crate) fn merge(mut self, other: Self) -> Self {
         self.kind = other.kind.or(self.kind);
+        self.namespace = other.namespace.or(self.namespace);
         self.title = other.title.or(self.title);
         self.description = other.description.or(self.description);
         self.pages = other.pages.or(self.pages);
@@ -236,5 +238,34 @@ mod tests {
             Some("Overlay desc"),
             "overlay description wins"
         );
+    }
+
+    #[test]
+    fn parse_namespace() {
+        let fields = MetaFields::from_yaml("namespace: payments");
+        assert_eq!(fields.namespace.as_deref(), Some("payments"));
+    }
+
+    #[test]
+    fn merge_overlay_namespace_wins() {
+        let base = MetaFields {
+            namespace: Some("base-ns".to_owned()),
+            ..Default::default()
+        };
+        let overlay = MetaFields {
+            namespace: Some("overlay-ns".to_owned()),
+            ..Default::default()
+        };
+        assert_eq!(base.merge(overlay).namespace.as_deref(), Some("overlay-ns"));
+    }
+
+    #[test]
+    fn merge_base_namespace_when_overlay_none() {
+        let base = MetaFields {
+            namespace: Some("base-ns".to_owned()),
+            ..Default::default()
+        };
+        let merged = base.merge(MetaFields::default());
+        assert_eq!(merged.namespace.as_deref(), Some("base-ns"));
     }
 }

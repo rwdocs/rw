@@ -81,6 +81,7 @@ impl MockStorage {
             title: title.into(),
             has_content: true,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -107,6 +108,7 @@ impl MockStorage {
             title: title.into(),
             has_content: true,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: Some(pages),
@@ -133,6 +135,31 @@ impl MockStorage {
             title: title.into(),
             has_content: true,
             page_kind: Some(page_kind.into()),
+            namespace: None,
+            description: None,
+            origin: None,
+            pages: None,
+        });
+        self
+    }
+
+    /// Add a content document with an explicit `page_kind` and `namespace`.
+    ///
+    /// The document has `has_content = true`.
+    #[must_use]
+    pub fn with_document_kind_namespace(
+        self,
+        path: impl Into<String>,
+        title: impl Into<String>,
+        page_kind: impl Into<String>,
+        namespace: impl Into<String>,
+    ) -> Self {
+        self.documents.write().unwrap().push(Document {
+            path: path.into(),
+            title: title.into(),
+            has_content: true,
+            page_kind: Some(page_kind.into()),
+            namespace: Some(namespace.into()),
             description: None,
             origin: None,
             pages: None,
@@ -154,6 +181,7 @@ impl MockStorage {
             title: title.into(),
             has_content: false,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -178,6 +206,7 @@ impl MockStorage {
             title: title.into(),
             has_content: false,
             page_kind: Some(page_kind.into()),
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -219,6 +248,7 @@ impl MockStorage {
             title: title.into(),
             has_content: true,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -357,6 +387,7 @@ impl Storage for MockStorage {
                 title: d.title.clone(),
                 has_content: d.has_content,
                 page_kind: d.page_kind.clone(),
+                namespace: d.namespace.clone(),
                 description: d.description.clone(),
                 origin: d.origin.clone(),
                 pages: d.pages.clone(),
@@ -708,5 +739,19 @@ mod tests {
         let storage = MockStorage::new();
 
         assert!(storage.has_changed().unwrap());
+    }
+
+    #[test]
+    fn test_document_kind_namespace() {
+        let storage = MockStorage::new().with_document_kind_namespace(
+            "domains/billing",
+            "Billing",
+            "domain",
+            "payments",
+        );
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "domains/billing").unwrap();
+        assert_eq!(doc.page_kind.as_deref(), Some("domain"));
+        assert_eq!(doc.namespace.as_deref(), Some("payments"));
     }
 }

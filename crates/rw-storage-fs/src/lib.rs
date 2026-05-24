@@ -40,6 +40,7 @@ use glob::Pattern;
 use notify::{RecursiveMode, Watcher};
 use rayon::prelude::*;
 use rw_meta::Meta;
+use rw_sections::Namespace;
 use rw_vcs::Vcs;
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
@@ -235,9 +236,21 @@ impl FsStorage {
     /// Converts discovery results (file references) into full Document structs
     /// by reading file contents and extracting titles/metadata.
     ///
-    /// Returns `None` if the ref produces no valid document (e.g., empty meta.yaml
-    /// for a virtual page).
-    fn build_document(&self, doc_ref: &DocumentRef) -> Option<Document> {
+    /// Returns `Ok(None)` if the ref produces no valid document (e.g., empty meta.yaml
+    /// for a virtual page). Returns `Err` if the namespace declared in metadata is invalid.
+    fn build_document(&self, doc_ref: &DocumentRef) -> Result<Option<Document>, StorageError> {
+        let validate = |meta: &Meta, file: &Path| -> Result<(), StorageError> {
+            if let Some(ns) = &meta.namespace {
+                ns.parse::<Namespace>().map_err(|e| {
+                    StorageError::new(StorageErrorKind::InvalidPath)
+                        .with_backend(BACKEND)
+                        .with_path(file.to_path_buf())
+                        .with_source(e)
+                })?;
+            }
+            Ok(())
+        };
+
         if let Some(md_path) = &doc_ref.content_path {
             let name_lower = md_path
                 .file_name()
@@ -245,20 +258,32 @@ impl FsStorage {
 
             let meta = self.get_meta(md_path, doc_ref.meta_path.as_deref(), &name_lower);
 
-            Some(Document {
+            // Namespace declarations almost always live in the sidecar
+            // meta.yaml; attribute validation errors there when one exists,
+            // otherwise to the .md file. Edge case: a namespace declared in
+            // .md frontmatter alongside an unrelated meta.yaml will be
+            // misattributed — the bad value still appears in the error
+            // message, so a grep finds it.
+            let validation_file = doc_ref.meta_path.as_deref().unwrap_or(md_path);
+            validate(&meta, validation_file)?;
+
+            Ok(Some(Document {
                 path: doc_ref.url_path.clone(),
                 title: meta.title,
                 has_content: true,
                 page_kind: meta.kind,
+                namespace: meta.namespace,
                 description: meta.description,
                 origin: None,
                 pages: meta.pages,
-            })
+            }))
         } else if let Some(meta_path) = &doc_ref.meta_path {
-            let meta_yaml = fs::read_to_string(meta_path).ok()?;
+            let Ok(meta_yaml) = fs::read_to_string(meta_path) else {
+                return Ok(None);
+            };
 
             if meta_yaml.trim().is_empty() {
-                return None;
+                return Ok(None);
             }
 
             let dir_name = Path::new(&doc_ref.url_path)
@@ -267,17 +292,20 @@ impl FsStorage {
 
             let meta = Meta::resolve(None, Some(&meta_yaml), dir_name);
 
-            Some(Document {
+            validate(&meta, meta_path)?;
+
+            Ok(Some(Document {
                 path: doc_ref.url_path.clone(),
                 title: meta.title,
                 has_content: false,
                 page_kind: meta.kind,
+                namespace: meta.namespace,
                 description: meta.description,
                 origin: None,
                 pages: meta.pages,
-            })
+            }))
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -470,8 +498,8 @@ impl Storage for FsStorage {
         let t1 = Instant::now();
         let mut documents: Vec<Document> = refs
             .par_iter()
-            .filter_map(|r| self.build_document(r))
-            .collect();
+            .filter_map(|r| self.build_document(r).transpose())
+            .collect::<Result<Vec<_>, _>>()?;
         let build_elapsed = t1.elapsed();
 
         tracing::info!(
@@ -500,6 +528,7 @@ impl Storage for FsStorage {
                 title: meta.title,
                 has_content: true,
                 page_kind: None,
+                namespace: None,
                 description: None,
                 origin,
                 pages: None,
@@ -1741,5 +1770,55 @@ mod tests {
 
         let guide = docs.iter().find(|d| d.path == "guide").unwrap();
         assert!(guide.pages.is_none());
+    }
+
+    #[test]
+    fn scan_populates_document_namespace_from_meta_yaml() {
+        let temp_dir = create_test_dir();
+        let domain_dir = temp_dir.path().join("billing");
+        fs::create_dir(&domain_dir).unwrap();
+        fs::write(domain_dir.join("index.md"), "# Billing").unwrap();
+        fs::write(
+            domain_dir.join("meta.yaml"),
+            "kind: domain\nnamespace: payments",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "billing").unwrap();
+        assert_eq!(doc.namespace.as_deref(), Some("payments"));
+    }
+
+    #[test]
+    fn scan_rejects_invalid_namespace() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
+        fs::write(temp_dir.path().join("meta.yaml"), "namespace: bad/value").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let err = storage.scan().unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("bad/value"),
+            "error should name the value: {msg}"
+        );
+    }
+
+    #[test]
+    fn scan_error_names_meta_yaml_when_namespace_in_sidecar() {
+        // Namespace declared in meta.yaml — error attributes to it, not the
+        // companion index.md.
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
+        fs::write(temp_dir.path().join("meta.yaml"), "namespace: bad/value").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let err = storage.scan().unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("meta.yaml"),
+            "error should name meta.yaml: {msg}"
+        );
     }
 }

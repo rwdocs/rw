@@ -74,6 +74,7 @@ export interface SearchDocumentResponse {
 
 export interface SectionResponse {
   kind: string
+  namespace: string
   name: string
 }
 

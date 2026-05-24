@@ -956,7 +956,7 @@ mod tests {
     use crate::HtmlBackend;
     use crate::code_block::ExtractedCodeBlock;
     use pulldown_cmark::{Options, Parser};
-    use rw_sections::Section;
+    use rw_sections::{Namespace, Section};
 
     fn render_html(markdown: &str) -> RenderResult {
         let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
@@ -1564,6 +1564,7 @@ Install with apt.
                 "domains/billing".to_owned(),
                 Section {
                     kind: "domain".to_owned(),
+                    namespace: Namespace::default(),
                     name: "billing".to_owned(),
                 },
             ),
@@ -1571,6 +1572,7 @@ Install with apt.
                 "domains/billing/systems/pay".to_owned(),
                 Section {
                     kind: "system".to_owned(),
+                    namespace: Namespace::default(),
                     name: "pay".to_owned(),
                 },
             ),
@@ -1596,6 +1598,7 @@ Install with apt.
             "domains/billing".to_owned(),
             Section {
                 kind: "domain".to_owned(),
+                namespace: Namespace::default(),
                 name: "billing".to_owned(),
             },
         )])));
@@ -1622,6 +1625,7 @@ Install with apt.
             "domains/billing".to_owned(),
             Section {
                 kind: "domain".to_owned(),
+                namespace: Namespace::default(),
                 name: "billing".to_owned(),
             },
         )])));
@@ -1639,6 +1643,7 @@ Install with apt.
             "domains/billing".to_owned(),
             Section {
                 kind: "domain".to_owned(),
+                namespace: Namespace::default(),
                 name: "billing".to_owned(),
             },
         )])));
@@ -1665,6 +1670,7 @@ Install with apt.
             "domains/billing".to_owned(),
             Section {
                 kind: "domain".to_owned(),
+                namespace: Namespace::default(),
                 name: "billing".to_owned(),
             },
         )])));
@@ -1708,12 +1714,13 @@ Install with apt.
     }
 
     fn wikilink_sections() -> Arc<Sections> {
-        use rw_sections::Section;
+        use rw_sections::{Namespace, Section};
         Arc::new(Sections::new(HashMap::from([
             (
                 String::new(),
                 Section {
                     kind: "section".to_owned(),
+                    namespace: Namespace::default(),
                     name: "root".to_owned(),
                 },
             ),
@@ -1721,6 +1728,7 @@ Install with apt.
                 "domains/billing".to_owned(),
                 Section {
                     kind: "domain".to_owned(),
+                    namespace: Namespace::default(),
                     name: "billing".to_owned(),
                 },
             ),

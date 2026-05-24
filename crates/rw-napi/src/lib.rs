@@ -357,6 +357,7 @@ mod tests {
             path: "guides".to_owned(),
             section: Some(rw_site::Section {
                 kind: "guide".to_owned(),
+                namespace: rw_site::Namespace::default(),
                 name: "guides".to_owned(),
             }),
             children: vec![NavItem {
@@ -417,6 +418,7 @@ mod tests {
             title: "Domains".to_owned(),
             section: rw_site::Section {
                 kind: "domain".to_owned(),
+                namespace: rw_site::Namespace::default(),
                 name: "domains".to_owned(),
             },
         };

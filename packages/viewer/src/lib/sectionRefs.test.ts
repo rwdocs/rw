@@ -5,7 +5,7 @@ import {
   resolveNavTree,
   resolveBreadcrumbs,
 } from "./sectionRefs";
-import type { NavigationTree, Breadcrumb } from "../types";
+import type { NavigationTree, Breadcrumb, SectionInfo } from "../types";
 
 function createContainer(html: string): HTMLElement {
   const el = document.createElement("div");
@@ -14,8 +14,13 @@ function createContainer(html: string): HTMLElement {
 }
 
 describe("sectionRefString", () => {
-  it("builds ref string from section info", () => {
-    expect(sectionRefString({ kind: "domain", name: "billing" })).toBe("domain:default/billing");
+  it("builds a ref string from section info", () => {
+    expect(sectionRefString({ kind: "domain", namespace: "default", name: "billing" })).toBe(
+      "domain:default/billing",
+    );
+    expect(sectionRefString({ kind: "domain", namespace: "payments", name: "billing" })).toBe(
+      "domain:payments/billing",
+    );
   });
 });
 
@@ -99,13 +104,13 @@ describe("resolveNavTree", () => {
         {
           title: "Billing",
           path: "/domains/billing",
-          section: { kind: "domain", name: "billing" },
+          section: { kind: "domain", namespace: "default", name: "billing" },
           children: [
             { title: "API", path: "/domains/billing/api" },
             {
               title: "Payments",
               path: "/domains/billing/systems/payments",
-              section: { kind: "system", name: "payments" },
+              section: { kind: "system", namespace: "default", name: "payments" },
             },
           ],
         },
@@ -134,12 +139,12 @@ describe("resolveNavTree", () => {
       scope: {
         path: "/domains/billing",
         title: "Billing",
-        section: { kind: "domain", name: "billing" },
+        section: { kind: "domain", namespace: "default", name: "billing" },
       },
       parentScope: {
         path: "/",
         title: "Home",
-        section: { kind: "root", name: "home" },
+        section: { kind: "root", namespace: "default", name: "home" },
       },
     };
     const resolver = vi.fn().mockResolvedValue({
@@ -172,7 +177,7 @@ describe("resolveNavTree", () => {
       scope: {
         path: "/domains/billing",
         title: "Billing",
-        section: { kind: "domain", name: "billing" },
+        section: { kind: "domain", namespace: "default", name: "billing" },
       },
       // No parentScope — this is a top-level section
     };
@@ -189,13 +194,59 @@ describe("resolveNavTree", () => {
     expect(resolver).toHaveBeenCalledWith(expect.arrayContaining(["section:default/root"]));
   });
 
+  it("synthesizes root parentScope using the scope's namespace", async () => {
+    // Custom-namespace site: the synthesized root should inherit the scope's
+    // namespace so the ref matches the catalog entity for the right namespace.
+    const tree: NavigationTree = {
+      items: [{ title: "Overview", path: "/domains/billing/overview" }],
+      scope: {
+        path: "/domains/billing",
+        title: "Billing",
+        section: { kind: "domain", namespace: "payments", name: "billing" },
+      },
+    };
+    const resolver = vi.fn().mockResolvedValue({
+      "domain:payments/billing": "/catalog/payments/domain/billing/docs",
+      "section:payments/root": "/catalog/payments/system/my-service/docs",
+    });
+
+    const result = await resolveNavTree(tree, resolver);
+
+    expect(result.parentScope!.href).toBe("/catalog/payments/system/my-service/docs");
+    expect(resolver).toHaveBeenCalledWith(expect.arrayContaining(["section:payments/root"]));
+  });
+
+  it("synthesizes root parentScope with 'default' when scope.section.namespace is missing", async () => {
+    // Backward-compat: an older backend may serialize scope.section without
+    // the new namespace field. TypeScript types it as required string, but at
+    // runtime the value is undefined. The fallback must coerce to "default"
+    // (the historical behavior) rather than producing "section:undefined/root".
+    const tree: NavigationTree = {
+      items: [{ title: "Overview", path: "/domains/billing/overview" }],
+      scope: {
+        path: "/domains/billing",
+        title: "Billing",
+        // Cast around the type-checker to mimic an older backend's payload.
+        section: { kind: "domain", name: "billing" } as unknown as SectionInfo,
+      },
+    };
+    const resolver = vi.fn().mockResolvedValue({
+      "section:default/root": "/catalog/default/system/my-service/docs",
+    });
+
+    const result = await resolveNavTree(tree, resolver);
+
+    expect(result.parentScope!.href).toBe("/catalog/default/system/my-service/docs");
+    expect(resolver).toHaveBeenCalledWith(expect.arrayContaining(["section:default/root"]));
+  });
+
   it("keeps original path for unresolved nav refs", async () => {
     const tree: NavigationTree = {
       items: [
         {
           title: "Billing",
           path: "/domains/billing",
-          section: { kind: "domain", name: "billing" },
+          section: { kind: "domain", namespace: "default", name: "billing" },
         },
       ],
     };
@@ -212,7 +263,11 @@ describe("resolveBreadcrumbs", () => {
   it("sets href on breadcrumbs with resolved refs", async () => {
     const breadcrumbs: Breadcrumb[] = [
       { title: "Home", path: "/" },
-      { title: "Billing", path: "/domains/billing", section: { kind: "domain", name: "billing" } },
+      {
+        title: "Billing",
+        path: "/domains/billing",
+        section: { kind: "domain", namespace: "default", name: "billing" },
+      },
       { title: "API", path: "/domains/billing/api" },
     ];
     const resolver = vi.fn().mockResolvedValue({

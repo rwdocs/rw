@@ -297,7 +297,13 @@ describe("page store", () => {
 
       const responseWithBreadcrumbs: PageResponse = {
         ...mockPageResponse,
-        breadcrumbs: [{ title: "API", path: "/", section: { kind: "component", name: "api" } }],
+        breadcrumbs: [
+          {
+            title: "API",
+            path: "/",
+            section: { kind: "component", namespace: "default", name: "api" },
+          },
+        ],
       };
 
       // The bug: load1 fetches page, then awaits resolveBreadcrumbs. While

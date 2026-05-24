@@ -2,6 +2,8 @@
 export interface SectionInfo {
   /** Section kind (e.g., "domain", "system"). */
   kind: string;
+  /** Section namespace (e.g., "default", "payments"). */
+  namespace: string;
   /** Section name — last path segment (e.g., "billing"). */
   name: string;
 }
