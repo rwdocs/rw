@@ -42,6 +42,10 @@ pub struct Document {
     /// Used for section detection. Not inherited.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_kind: Option<String>,
+    /// Section namespace declared by this page's own metadata.
+    /// Un-inherited (like `page_kind`); `rw-site` inherits it down the tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     /// Page description from metadata.
     /// Not inherited.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -351,6 +355,7 @@ mod tests {
             title: "Home".to_owned(),
             has_content: true,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -369,6 +374,7 @@ mod tests {
             title: "Guide".to_owned(),
             has_content: true,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -387,6 +393,7 @@ mod tests {
             title: "Billing".to_owned(),
             has_content: true,
             page_kind: Some("domain".to_owned()),
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -404,6 +411,7 @@ mod tests {
             title: "Domains".to_owned(),
             has_content: false,
             page_kind: Some("section".to_owned()),
+            namespace: None,
             description: None,
             origin: None,
             pages: None,

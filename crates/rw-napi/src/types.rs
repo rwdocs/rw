@@ -34,6 +34,7 @@ pub struct S3Config {
 #[napi(object)]
 pub struct SectionResponse {
     pub kind: String,
+    pub namespace: String,
     pub name: String,
 }
 
@@ -41,6 +42,7 @@ impl From<Section> for SectionResponse {
     fn from(s: Section) -> Self {
         Self {
             kind: s.kind,
+            namespace: s.namespace.into(),
             name: s.name,
         }
     }

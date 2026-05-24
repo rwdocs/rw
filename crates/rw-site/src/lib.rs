@@ -100,13 +100,17 @@ pub(crate) mod site_state;
 
 pub use page::{BreadcrumbItem, PageRenderResult, PageRendererConfig, RenderError, SearchDocument};
 
-/// A section identity consisting of a freeform `kind` and a `name`
-/// (the last path segment of the section root). Parsed from and
-/// serialized to section ref strings like `"domain:default/billing"`.
+/// A section identity consisting of a freeform `kind`, a validated
+/// [`Namespace`], and a `name` (the last path segment of the section root).
+/// Parsed from and serialized to section ref strings like
+/// `"domain:default/billing"`.
 pub use rw_sections::Section;
 
-/// A parsed section ref broken into its `kind`, `namespace`, and `name`
-/// components. See the [sections overview](crate#sections-and-scoped-navigation).
+/// A validated section namespace — see [`rw_sections::Namespace`].
+pub use rw_sections::Namespace;
+
+/// The result of a section lookup: the matched [`Section`], the path within
+/// it, and an optional fragment. See the [sections overview](crate#sections-and-scoped-navigation).
 pub use rw_sections::SectionPath;
 
 /// A map from URL paths to [`Section`] values, supporting lookup by

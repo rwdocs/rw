@@ -169,7 +169,7 @@ pub fn annotate_svg_links(svg: &str, sections: &Sections) -> String {
 mod tests {
     use std::collections::HashMap;
 
-    use rw_sections::{Section, Sections};
+    use rw_sections::{Namespace, Section, Sections};
 
     use super::*;
 
@@ -178,6 +178,7 @@ mod tests {
             "domains/billing".to_owned(),
             Section {
                 kind: "domain".to_owned(),
+                namespace: Namespace::default(),
                 name: "billing".to_owned(),
             },
         )]))

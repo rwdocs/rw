@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use rw_cache::{CacheBucket, CacheBucketExt};
-use rw_sections::{Section, Sections};
+use rw_sections::{Namespace, Section, Sections};
 use serde::{Deserialize, Serialize};
 
 use crate::page::{BreadcrumbItem, Page};
@@ -106,6 +106,7 @@ pub struct SiteState {
     sections: HashMap<String, Section>,
     sections_by_name: HashMap<String, Vec<usize>>,
     subtree_has_content: Vec<bool>,
+    root_namespace: Namespace,
 }
 
 /// Compute which pages have markdown content in their subtree.
@@ -147,6 +148,7 @@ impl SiteState {
         parents: Vec<Option<usize>>,
         roots: Vec<usize>,
         sections: HashMap<String, Section>,
+        root_namespace: Namespace,
     ) -> Self {
         let path_index: HashMap<String, usize> = pages
             .iter()
@@ -176,6 +178,7 @@ impl SiteState {
             sections,
             sections_by_name,
             subtree_has_content,
+            root_namespace,
         }
     }
 
@@ -375,8 +378,8 @@ impl SiteState {
     /// the section containing `page_path`.
     ///
     /// Walks up the path hierarchy to find the nearest ancestor that is a
-    /// section root. Falls back to `"section:default/root"` when no explicit
-    /// section is found.
+    /// section root. Falls back to the implicit root section
+    /// (`"section:<root_namespace>/root"`) when no explicit section is found.
     #[must_use]
     pub fn get_section_ref(&self, page_path: &str) -> String {
         if let Some(section) = self.sections.get(page_path) {
@@ -395,7 +398,7 @@ impl SiteState {
             return section.to_string();
         }
 
-        Section::root().to_string()
+        Section::root(self.root_namespace.clone()).to_string()
     }
 
     /// Build [`NavItem`] but stop recursion at section boundaries.
@@ -459,7 +462,7 @@ impl SiteState {
         ScopeInfo {
             path: "/".to_owned(),
             title: self.page_title_or("", "Home"),
-            section: Section::root(),
+            section: Section::root(self.root_namespace.clone()),
         }
     }
 
@@ -477,7 +480,8 @@ impl SiteState {
             .collect();
 
         // Insert implicit root section if no explicit section exists at root
-        map.entry(String::new()).or_insert_with(Section::root);
+        map.entry(String::new())
+            .or_insert_with(|| Section::root(self.root_namespace.clone()));
 
         Arc::new(Sections::new(map))
     }
@@ -515,6 +519,7 @@ pub(crate) struct SiteStateBuilder {
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
     sections: HashMap<String, Section>,
+    root_namespace: Namespace,
 }
 
 impl SiteStateBuilder {
@@ -527,7 +532,15 @@ impl SiteStateBuilder {
             parents: Vec::new(),
             roots: Vec::new(),
             sections: HashMap::new(),
+            root_namespace: Namespace::default(),
         }
+    }
+
+    /// Set the namespace of the implicit root section.
+    #[must_use]
+    pub(crate) fn root_namespace(mut self, namespace: Namespace) -> Self {
+        self.root_namespace = namespace;
+        self
     }
 
     /// Add a page to the site.
@@ -538,6 +551,7 @@ impl SiteStateBuilder {
         page: Page,
         parent_idx: Option<usize>,
         page_kind: Option<&str>,
+        namespace: Namespace,
     ) -> usize {
         let idx = self.pages.len();
 
@@ -553,6 +567,7 @@ impl SiteStateBuilder {
                 Section {
                     name,
                     kind: section_kind.to_owned(),
+                    namespace,
                 },
             );
         }
@@ -649,6 +664,7 @@ impl SiteStateBuilder {
             self.parents,
             self.roots,
             self.sections,
+            self.root_namespace,
         )
     }
 }
@@ -661,6 +677,7 @@ struct CachedSiteStateRef<'a> {
     parents: &'a [Option<usize>],
     roots: &'a [usize],
     sections: &'a HashMap<String, Section>,
+    root_namespace: &'a Namespace,
 }
 
 impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
@@ -671,6 +688,7 @@ impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
             parents: &state.parents,
             roots: &state.roots,
             sections: &state.sections,
+            root_namespace: &state.root_namespace,
         }
     }
 }
@@ -684,6 +702,8 @@ struct CachedSiteState {
     roots: Vec<usize>,
     #[serde(default)]
     sections: HashMap<String, Section>,
+    #[serde(default)]
+    root_namespace: Namespace,
 }
 
 impl From<CachedSiteState> for SiteState {
@@ -694,6 +714,7 @@ impl From<CachedSiteState> for SiteState {
             cached.parents,
             cached.roots,
             cached.sections,
+            cached.root_namespace,
         )
     }
 }
@@ -716,6 +737,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -758,6 +780,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -780,6 +803,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -790,6 +814,7 @@ mod tests {
             },
             Some(parent_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -823,6 +848,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let domain_idx = builder.add_page(
             Page {
@@ -833,6 +859,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -843,6 +870,7 @@ mod tests {
             },
             Some(domain_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -867,6 +895,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -877,6 +906,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -902,6 +932,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
 
         assert_eq!(idx, 0);
@@ -920,6 +951,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let idx2 = builder.add_page(
             Page {
@@ -930,6 +962,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
 
         assert_eq!(idx1, 0);
@@ -948,6 +981,7 @@ mod tests {
             },
             None,
             Some("section"),
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -958,6 +992,7 @@ mod tests {
             },
             Some(parent_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -979,6 +1014,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
 
         let site = builder.build();
@@ -1041,6 +1077,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1051,6 +1088,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1074,6 +1112,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1084,6 +1123,7 @@ mod tests {
             },
             Some(parent_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1111,6 +1151,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let idx_b = builder.add_page(
             Page {
@@ -1121,6 +1162,7 @@ mod tests {
             },
             Some(idx_a),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1131,6 +1173,7 @@ mod tests {
             },
             Some(idx_b),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1154,6 +1197,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1164,6 +1208,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1174,6 +1219,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1199,6 +1245,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1209,6 +1256,7 @@ mod tests {
             },
             Some(root_idx),
             Some("domain"),
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1219,6 +1267,7 @@ mod tests {
             },
             Some(root_idx),
             Some("system"),
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1229,6 +1278,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1340,6 +1390,7 @@ mod tests {
             path: "domains/billing".to_owned(),
             section: Some(Section {
                 kind: "domain".to_owned(),
+                namespace: Namespace::default(),
                 name: "billing".to_owned(),
             }),
             children: Vec::new(),
@@ -1350,6 +1401,10 @@ mod tests {
         assert_eq!(json["title"], "Billing");
         assert_eq!(json["path"], "domains/billing");
         assert_eq!(json["section"]["kind"], "domain");
+        // Namespace is serialized transparently as a plain string via
+        // `#[serde(into = "String")]` on Namespace — guard against a
+        // regression to the tuple-struct shape `{"0": "default"}`.
+        assert_eq!(json["section"]["namespace"], "default");
         assert_eq!(json["section"]["name"], "billing");
     }
 
@@ -1381,6 +1436,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1391,6 +1447,7 @@ mod tests {
             },
             Some(root_idx),
             Some("domain"),
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1401,6 +1458,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1410,7 +1468,7 @@ mod tests {
         let scope = nav.scope.as_ref().unwrap();
         assert_eq!(scope.path, "/");
         assert_eq!(scope.title, "Home");
-        assert_eq!(scope.section, Section::root());
+        assert_eq!(scope.section, Section::root(Namespace::default()));
         assert!(nav.parent_scope.is_none());
 
         // Should show both items
@@ -1434,6 +1492,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let billing_idx = builder.add_page(
             Page {
@@ -1444,6 +1503,7 @@ mod tests {
             },
             Some(root_idx),
             Some("domain"),
+            Namespace::default(),
         );
         // Add child under section
         builder.add_page(
@@ -1455,6 +1515,7 @@ mod tests {
             },
             Some(billing_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1477,6 +1538,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let billing_idx = builder.add_page(
             Page {
@@ -1487,6 +1549,7 @@ mod tests {
             },
             Some(root_idx),
             Some("domain"),
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1497,6 +1560,7 @@ mod tests {
             },
             Some(billing_idx),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1507,6 +1571,7 @@ mod tests {
             },
             Some(billing_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1524,7 +1589,7 @@ mod tests {
         let parent = nav.parent_scope.unwrap();
         assert_eq!(parent.path, "/");
         assert_eq!(parent.title, "Home");
-        assert_eq!(parent.section, Section::root());
+        assert_eq!(parent.section, Section::root(Namespace::default()));
 
         // Should show billing's children
         assert_eq!(nav.items.len(), 2);
@@ -1545,6 +1610,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let billing_idx = builder.add_page(
             Page {
@@ -1555,6 +1621,7 @@ mod tests {
             },
             Some(root_idx),
             Some("domain"),
+            Namespace::default(),
         );
         let payments_idx = builder.add_page(
             Page {
@@ -1565,6 +1632,7 @@ mod tests {
             },
             Some(billing_idx),
             Some("system"),
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1575,6 +1643,7 @@ mod tests {
             },
             Some(payments_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1612,6 +1681,7 @@ mod tests {
             },
             None,
             Some("domain"),
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1632,6 +1702,7 @@ mod tests {
             },
             None,
             Some("domain"),
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1642,6 +1713,7 @@ mod tests {
             },
             Some(billing_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1662,6 +1734,7 @@ mod tests {
             },
             None,
             Some("domain"),
+            Namespace::default(),
         );
         let payments_idx = builder.add_page(
             Page {
@@ -1672,6 +1745,7 @@ mod tests {
             },
             Some(billing_idx),
             Some("system"),
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1682,6 +1756,7 @@ mod tests {
             },
             Some(payments_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1702,13 +1777,14 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
         let section_ref = site.get_section_ref("guide");
 
         // Falls back to implicit root section
-        assert_eq!(section_ref, Section::root().to_string());
+        assert_eq!(section_ref, Section::root(Namespace::default()).to_string());
     }
 
     #[test]
@@ -1723,6 +1799,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1748,6 +1825,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         // Virtual page (no content) with no children
         builder.add_page(
@@ -1758,6 +1836,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         // Real page
         builder.add_page(
@@ -1769,6 +1848,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1791,6 +1871,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         // Virtual page (no content) but has a child with content
         let section_idx = builder.add_page(
@@ -1801,6 +1882,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         // Real child page
         builder.add_page(
@@ -1812,6 +1894,7 @@ mod tests {
             },
             Some(section_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1836,6 +1919,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         // Virtual page with content
         let section_idx = builder.add_page(
@@ -1846,6 +1930,7 @@ mod tests {
             },
             Some(root_idx),
             None,
+            Namespace::default(),
         );
         // Empty virtual child (should be filtered)
         builder.add_page(
@@ -1856,6 +1941,7 @@ mod tests {
             },
             Some(section_idx),
             None,
+            Namespace::default(),
         );
         // Real child page
         builder.add_page(
@@ -1867,6 +1953,7 @@ mod tests {
             },
             Some(section_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1891,6 +1978,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         // Section with type
         let billing_idx = builder.add_page(
@@ -1902,6 +1990,7 @@ mod tests {
             },
             Some(root_idx),
             Some("domain"),
+            Namespace::default(),
         );
         // Empty virtual child (should be filtered)
         builder.add_page(
@@ -1912,6 +2001,7 @@ mod tests {
             },
             Some(billing_idx),
             None,
+            Namespace::default(),
         );
         // Real child
         builder.add_page(
@@ -1923,6 +2013,7 @@ mod tests {
             },
             Some(billing_idx),
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1947,6 +2038,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -1957,6 +2049,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -1966,7 +2059,7 @@ mod tests {
         let root = sections
             .get("")
             .expect("implicit root section should exist");
-        assert_eq!(*root, Section::root());
+        assert_eq!(*root, Section::root(Namespace::default()));
     }
 
     #[test]
@@ -1981,6 +2074,7 @@ mod tests {
             },
             None,
             Some("component"),
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -2005,6 +2099,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2015,6 +2110,7 @@ mod tests {
             },
             Some(root_idx),
             Some("domain"),
+            Namespace::default(),
         );
         let site = builder.build();
 
@@ -2024,7 +2120,7 @@ mod tests {
         let root = sections
             .get("")
             .expect("implicit root section should exist");
-        assert_eq!(*root, Section::root());
+        assert_eq!(*root, Section::root(Namespace::default()));
 
         let billing = sections
             .get("billing")
@@ -2045,12 +2141,13 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let site = builder.build();
 
         let sections = site.build_sections();
 
-        let root_ref = Section::root().to_string();
+        let root_ref = Section::root(Namespace::default()).to_string();
         assert_eq!(sections.find_by_ref(&root_ref), Some(""));
     }
 
@@ -2059,10 +2156,50 @@ mod tests {
         let section = Section {
             name: Section::ROOT_NAME.to_owned(),
             kind: "component".to_owned(),
+            namespace: Namespace::default(),
         };
 
         assert_eq!(section.kind, "component");
         assert_eq!(section.name, "root");
+    }
+
+    #[test]
+    fn cached_site_state_deserializes_old_section_without_namespace_field() {
+        // Cache entries written before the `namespace` field existed contain
+        // sections like {"kind":"domain","name":"billing"} with no namespace
+        // key. The serde default on Section::namespace must fill in "default"
+        // so an upgrade without a cache-version bump still loads the cache
+        // instead of silently turning every reload into a full storage scan.
+        let json = r#"{
+            "pages": [],
+            "children": [],
+            "parents": [],
+            "roots": [],
+            "sections": {"billing": {"kind": "domain", "name": "billing"}}
+        }"#;
+        let cached: CachedSiteState = serde_json::from_str(json).unwrap();
+        let section = cached.sections.get("billing").expect("billing exists");
+        assert_eq!(section.kind, "domain");
+        assert_eq!(section.namespace, "default");
+        assert_eq!(section.name, "billing");
+    }
+
+    #[test]
+    fn add_page_with_namespace_builds_namespaced_section() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("domain"),
+            "payments".parse().unwrap(),
+        );
+        let site = builder.build();
+        assert_eq!(site.get_section_ref("billing"), "domain:payments/billing");
     }
 
     #[test]
@@ -2077,6 +2214,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2087,6 +2225,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2097,6 +2236,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2107,6 +2247,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
 
         // Reorder: getting-started first, then config; advanced is unlisted
@@ -2134,6 +2275,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2144,6 +2286,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2154,6 +2297,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2164,6 +2308,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
 
         // Only list "b" — "a" and "c" sorted alphabetically after
@@ -2188,6 +2333,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2198,6 +2344,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2208,6 +2355,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
 
         // All children listed — no unlisted remainder
@@ -2231,6 +2379,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2241,6 +2390,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2251,6 +2401,7 @@ mod tests {
             },
             Some(root),
             Some("domain"),
+            Namespace::default(),
         );
 
         // "domain" is a section — should be skipped, order unchanged
@@ -2275,6 +2426,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2285,6 +2437,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
 
         // "nonexistent" is not a child — should be skipped
@@ -2308,6 +2461,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2318,6 +2472,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2328,6 +2483,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
 
         // "a" listed twice — second occurrence ignored
@@ -2352,6 +2508,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2362,6 +2519,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2372,6 +2530,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
 
         // Empty slugs = no reorder
@@ -2395,6 +2554,7 @@ mod tests {
             },
             None,
             None,
+            Namespace::default(),
         );
         let guides = builder.add_page(
             Page {
@@ -2405,6 +2565,7 @@ mod tests {
             },
             Some(root),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2415,6 +2576,7 @@ mod tests {
             },
             Some(guides),
             None,
+            Namespace::default(),
         );
         builder.add_page(
             Page {
@@ -2425,6 +2587,7 @@ mod tests {
             },
             Some(guides),
             None,
+            Namespace::default(),
         );
 
         let order = vec!["getting-started".to_owned(), "advanced".to_owned()];

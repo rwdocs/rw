@@ -16,7 +16,7 @@ use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
 use rw_kroki::{EntityInfo, MetaIncludeSource};
 use rw_renderer::TitleResolver;
-use rw_sections::Sections;
+use rw_sections::{Namespace, Sections};
 use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
@@ -465,9 +465,31 @@ impl Site {
         // Track URL paths to page indices for parent lookup
         let mut url_to_idx: HashMap<String, usize> = HashMap::new();
 
-        // Process documents in sorted order
+        // Process documents in sorted order. Documents are sorted parent-first,
+        // so each page's parent namespace is resolved before the page itself.
+        // `namespaces[idx]` holds each page's resolved (inherited) namespace.
+        // Storage backends are contracted to produce only validated namespace
+        // strings (rw-storage-fs validates in build_document; the S3 bundle
+        // round-trips an already-validated value). expect() surfaces a
+        // contract violation as a clear panic instead of silently coercing
+        // bad data to "default".
+        let mut namespaces: Vec<Namespace> = Vec::new();
         for doc in &documents {
             let parent_idx = Self::find_parent_from_url(&doc.path, &url_to_idx);
+
+            let namespace: Namespace = doc
+                .namespace
+                .as_deref()
+                .map(|s| {
+                    s.parse().unwrap_or_else(|e| {
+                        panic!(
+                            "storage produced invalid namespace {s:?} for page {:?}: {e}",
+                            doc.path
+                        )
+                    })
+                })
+                .or_else(|| parent_idx.map(|p| namespaces[p].clone()))
+                .unwrap_or_default();
 
             let idx = builder.add_page(
                 Page {
@@ -480,9 +502,17 @@ impl Site {
                 },
                 parent_idx,
                 doc.page_kind.as_deref(),
+                namespace.clone(),
             );
+            namespaces.push(namespace);
             url_to_idx.insert(doc.path.clone(), idx);
         }
+
+        // The implicit root section uses the namespace resolved for the
+        // root-path ("") document, or the default when there is no root page.
+        let root_namespace = url_to_idx
+            .get("")
+            .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
 
         // Apply custom page ordering from `pages` metadata
         for doc in &documents {
@@ -493,7 +523,7 @@ impl Site {
             }
         }
 
-        Ok(builder.build())
+        Ok(builder.root_namespace(root_namespace).build())
     }
 
     /// Find parent page index from URL path.
@@ -1276,6 +1306,27 @@ mod tests {
         let result = site.reload(false);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn load_from_storage_inherits_namespace_into_child_section() {
+        // Parent section declares namespace=payments; the child section declares
+        // only a kind, so it must inherit the namespace from its parent.
+        let storage = MockStorage::new()
+            .with_document_kind_namespace("billing", "Billing", "domain", "payments")
+            .with_document_and_kind("billing/payments-api", "API", "system");
+        let site = create_site_with_storage(storage);
+
+        let snapshot = site.reload_if_needed().unwrap();
+
+        assert_eq!(
+            snapshot.state.get_section_ref("billing"),
+            "domain:payments/billing"
+        );
+        assert_eq!(
+            snapshot.state.get_section_ref("billing/payments-api"),
+            "system:payments/payments-api"
+        );
     }
 
     #[test]

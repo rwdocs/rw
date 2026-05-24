@@ -42,8 +42,28 @@ These fields are available in both frontmatter and meta.yaml:
 - `title` -- custom page title (overrides H1 extraction)
 - `description` -- page description for display
 - `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections. Also accepts `type` as an alias.
+- `namespace` -- Backstage catalog namespace for the section (see below).
 - `vars` -- custom variables (key-value pairs)
 - `pages` -- ordered list of child page slugs for navigation sidebar ordering (directory-level only)
+
+### `namespace`
+
+The Backstage catalog namespace this section belongs to. Used to build section
+ref strings (`kind:namespace/name`) that map to catalog entities.
+
+Unlike `kind`, `namespace` is **inherited**: set it once in a directory's
+`meta.yaml` (or frontmatter) and every page below inherits it. A subtree can
+override it with its own `namespace`. When unset, the namespace is `default`.
+
+Valid namespaces are 1–63 characters, start and end with a letter or digit, and
+otherwise contain only letters, digits, `-`, `_`, or `.` (the Backstage
+namespace charset). An invalid value fails the site load with an error naming
+the offending file.
+
+```yaml
+# docs/meta.yaml — applies to the whole site
+namespace: payments
+```
 
 ## Navigation ordering
 
@@ -82,6 +102,7 @@ Metadata is inherited from parent directories:
 - `title` -- never inherited
 - `description` -- never inherited
 - `kind` -- never inherited
+- `namespace` -- inherited (child can override)
 - `pages` -- never inherited
 - `vars` -- deep merged (child values override parent keys)
 

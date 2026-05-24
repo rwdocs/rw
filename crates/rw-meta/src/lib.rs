@@ -11,6 +11,8 @@ use head::Head;
 pub struct Meta {
     /// Page kind (e.g., "domain", "guide").
     pub kind: Option<String>,
+    /// Section namespace declared by this page's metadata.
+    pub namespace: Option<String>,
     /// Page title (always resolved — falls back to titlecase of filename).
     pub title: String,
     /// Page description.
@@ -54,6 +56,7 @@ impl Meta {
 
         Self {
             kind: merged.kind,
+            namespace: merged.namespace,
             title,
             description: merged.description,
             vars: merged.vars,
@@ -272,5 +275,18 @@ mod tests {
     fn resolve_no_pages() {
         let meta = Meta::resolve(Some("# Hello"), None, "page.md");
         assert!(meta.pages.is_none());
+    }
+
+    #[test]
+    fn resolve_namespace_from_meta_yaml() {
+        let meta = Meta::resolve(None, Some("namespace: payments"), "page.md");
+        assert_eq!(meta.namespace.as_deref(), Some("payments"));
+    }
+
+    #[test]
+    fn resolve_namespace_frontmatter_overrides_meta_yaml() {
+        let md = "---\nnamespace: front-ns\n---\n# Title\n";
+        let meta = Meta::resolve(Some(md), Some("namespace: yaml-ns"), "page.md");
+        assert_eq!(meta.namespace.as_deref(), Some("front-ns"));
     }
 }

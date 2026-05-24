@@ -3,11 +3,10 @@ import type { SectionInfo, ScopeInfo, NavItem, Breadcrumb, NavigationTree } from
 export type SectionRefResolver = (refs: string[]) => Promise<Record<string, string>>;
 
 /**
- * Build a ref string from section info (e.g., "domain:default/billing").
- * Namespace is always "default" — the backend does not expose namespace yet.
+ * Build a ref string from section info (e.g., "domain:payments/billing").
  */
 export function sectionRefString(section: SectionInfo): string {
-  return `${section.kind}:default/${section.name}`;
+  return `${section.kind}:${section.namespace}/${section.name}`;
 }
 
 /**
@@ -83,7 +82,19 @@ export async function resolveNavTree(
   const effectiveParentScope: ScopeInfo | undefined =
     tree.parentScope ??
     (tree.scope && !isRootScope
-      ? { path: "/", title: "Home", section: { kind: "section", name: "root" } }
+      ? {
+          path: "/",
+          title: "Home",
+          // Inherit namespace from the current scope so the synthesized root
+          // ref matches a custom-namespace site; fall back to "default" when
+          // an older backend omits the field entirely (runtime would otherwise
+          // produce "section:undefined/root").
+          section: {
+            kind: "section",
+            namespace: tree.scope.section.namespace ?? "default",
+            name: "root",
+          },
+        }
       : undefined);
 
   const refs = collectNavRefs(tree.items);

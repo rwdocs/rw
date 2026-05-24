@@ -81,6 +81,7 @@ mod tests {
                 title: "Home".to_owned(),
                 has_content: true,
                 page_kind: None,
+                namespace: None,
                 description: None,
                 origin: None,
                 pages: None,
@@ -90,6 +91,7 @@ mod tests {
                 title: "Guide".to_owned(),
                 has_content: true,
                 page_kind: Some("guide".to_owned()),
+                namespace: None,
                 description: Some("Getting started".to_owned()),
                 origin: None,
                 pages: None,
@@ -146,6 +148,7 @@ mod tests {
             title: "Guide".to_owned(),
             has_content: true,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -153,6 +156,7 @@ mod tests {
 
         let json = serde_json::to_string(&doc).unwrap();
         assert!(!json.contains("page_kind"));
+        assert!(!json.contains("namespace"));
         assert!(!json.contains("description"));
     }
 
@@ -189,6 +193,7 @@ mod tests {
             title: "Guide".to_owned(),
             has_content: true,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: None,
@@ -217,6 +222,7 @@ mod tests {
             title: "Guides".to_owned(),
             has_content: true,
             page_kind: None,
+            namespace: None,
             description: None,
             origin: None,
             pages: Some(vec![
