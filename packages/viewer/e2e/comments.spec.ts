@@ -114,11 +114,11 @@ async function createCommentViaUI(page: Page, targetText: string, body: string) 
 /** Resolve all comments for a document via the API so they don't interfere with new tests. */
 async function resolveAllComments(page: Page, documentId: string) {
   await page.evaluate(async (docId) => {
-    const res = await fetch(`/api/comments?documentId=${encodeURIComponent(docId)}`);
+    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
     const comments = await res.json();
     for (const c of comments) {
       if (c.status === "open") {
-        await fetch(`/api/comments/${c.id}`, {
+        await fetch(`/_api/comments/${c.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "resolved" }),
@@ -231,7 +231,7 @@ test.describe("Inline comments", () => {
 
     // Comment should be persisted via the API
     const comments = await page.evaluate(async () => {
-      const res = await fetch("/api/comments?documentId=&status=open");
+      const res = await fetch("/_api/comments?documentId=&status=open");
       return res.json();
     });
     const created = comments.find(
@@ -251,10 +251,12 @@ test.describe("Inline comments", () => {
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     await sidebar.getByPlaceholder("Write a comment...").fill("Check highlight");
     await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
+    // Wait for the form to close — confirms the POST completed before we query.
+    await expect(sidebar.getByPlaceholder("Write a comment...")).not.toBeVisible();
 
     // Verify via API that the comment has both selector types
     const comments = await page.evaluate(async () => {
-      const res = await fetch("/api/comments?documentId=&status=open");
+      const res = await fetch("/_api/comments?documentId=&status=open");
       return res.json();
     });
     const created = comments.find((c: { body: string }) => c.body === "Check highlight");
@@ -368,7 +370,7 @@ test.describe("Inline comments", () => {
 
     // Verify via API that the reply has the correct parentId
     const comments = await page.evaluate(async () => {
-      const res = await fetch("/api/comments?documentId=&status=open");
+      const res = await fetch("/_api/comments?documentId=&status=open");
       return res.json();
     });
     const parent = comments.find((c: { body: string }) => c.body === "Parent comment");
@@ -393,7 +395,7 @@ test.describe("Inline comments", () => {
     await page.getByRole("article").waitFor();
 
     const comments = await page.evaluate(async () => {
-      const res = await fetch("/api/comments?documentId=&status=open");
+      const res = await fetch("/_api/comments?documentId=&status=open");
       return res.json();
     });
     const persisted = comments.find((c: { body: string }) => c.body === "Persistent comment");
@@ -433,7 +435,7 @@ test.describe("Page comments", () => {
 
     // Verify via API — should have no selectors
     const comments = await page.evaluate(async () => {
-      const res = await fetch("/api/comments?documentId=&status=open");
+      const res = await fetch("/_api/comments?documentId=&status=open");
       return res.json();
     });
     const created = comments.find((c: { body: string }) => c.body === "A page-level comment");
@@ -462,7 +464,7 @@ test.describe("Page comments", () => {
 
     // Verify via API — find the reply and check its parentId
     const comments = await page.evaluate(async () => {
-      const res = await fetch("/api/comments?documentId=");
+      const res = await fetch("/_api/comments?documentId=");
       return res.json();
     });
     const reply = comments.find(
@@ -504,7 +506,7 @@ test.describe("Page comments", () => {
     await page.getByRole("article").waitFor();
 
     await page.evaluate(async () => {
-      await fetch("/api/comments", {
+      await fetch("/_api/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -13,7 +13,7 @@ use crate::error::HandlerError;
 use crate::handlers::to_url_path;
 use crate::state::AppState;
 
-/// Query parameters for GET /api/navigation.
+/// Query parameters for GET /_api/navigation.
 #[derive(Deserialize)]
 pub(crate) struct NavigationQuery {
     /// Section ref (optional). If provided, returns navigation for that section.
@@ -22,7 +22,7 @@ pub(crate) struct NavigationQuery {
     section_ref: Option<String>,
 }
 
-/// Response for GET /api/navigation.
+/// Response for GET /_api/navigation.
 #[derive(Serialize)]
 pub(crate) struct NavigationResponse {
     /// Navigation tree items.
@@ -86,7 +86,7 @@ impl From<NavItem> for NavItemResponse {
     }
 }
 
-/// Handle GET /api/navigation.
+/// Handle GET /_api/navigation.
 pub(crate) async fn get_navigation(
     Query(query): Query<NavigationQuery>,
     State(state): State<Arc<AppState>>,

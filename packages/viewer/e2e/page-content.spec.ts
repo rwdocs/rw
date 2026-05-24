@@ -198,3 +198,34 @@ test.describe("Page Content", () => {
     await expect(page).toHaveTitle(/Installation - RW/);
   });
 });
+
+test.describe("Pages under /api/", () => {
+  // Wide enough for the ToC sidebar to render (breakpoint: 1304px)
+  test.use({ viewport: { width: 1400, height: 720 } });
+
+  // Regression test for issue #305: a doc page whose URL starts with /api/
+  // must not collide with the server API namespace on a server round-trip.
+  test("loads a page under /api/ on direct navigation and reload", async ({ page }) => {
+    await page.goto("/api/endpoints");
+
+    const article = page.getByRole("article");
+    await expect(article).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("API Endpoints");
+
+    // Reload hits the server fresh (no SPA shortcut) — must still resolve.
+    await page.reload();
+    await expect(article).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("API Endpoints");
+  });
+
+  // Unmatched paths under the reserved /_api/ prefix must 404, not fall through
+  // to the SPA shell — otherwise API clients receive HTML with a 200 status.
+  // Covers both the bare `/_api` segment and a path under the prefix.
+  for (const apiPath of ["/_api", "/_api/does-not-exist"]) {
+    test(`unknown ${apiPath} returns 404 with no HTML body`, async ({ page }) => {
+      const response = await page.request.get(apiPath);
+      expect(response.status()).toBe(404);
+      expect(response.headers()["content-type"] ?? "").not.toContain("html");
+    });
+  }
+});

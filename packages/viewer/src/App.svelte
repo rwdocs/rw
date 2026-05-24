@@ -16,7 +16,7 @@
   import NotFound from "./pages/NotFound.svelte";
 
   interface Props {
-    /** API base URL. Defaults to "/api". */
+    /** API base URL. Defaults to "/_api". */
     apiBaseUrl?: string;
     /** Run in embedded mode (no pushState). Defaults to false. */
     embedded?: boolean;
@@ -35,7 +35,7 @@
   }
 
   let {
-    apiBaseUrl = "/api",
+    apiBaseUrl = "/_api",
     embedded = false,
     initialPath,
     sectionRef,
@@ -174,8 +174,8 @@
   const getRoute = (currentPath: string) => {
     if (import.meta.env.DEV && currentPath === "/_kit") return "kit";
     if (currentPath === "/") return "home";
-    // Skip API routes and static assets
-    if (currentPath.startsWith("/api/") || currentPath.startsWith("/assets/")) {
+    // Skip static assets and the reserved /_api/ namespace
+    if (currentPath.startsWith("/assets/") || currentPath.startsWith("/_api/")) {
       return "notfound";
     }
     return "page";

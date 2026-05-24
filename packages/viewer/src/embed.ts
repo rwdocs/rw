@@ -3,7 +3,8 @@ import App from "./App.svelte";
 import { mount, unmount } from "svelte";
 
 export interface MountOptions {
-  /** API base URL (e.g. "/api/rw"). */
+  /** API base URL (host-supplied — e.g. `/api/rw` when proxied by a Backstage
+   *  plugin to the rwdocs backend). */
   apiBaseUrl: string;
   /** Run in embedded mode (no pushState). Defaults to true. */
   embedded?: boolean;

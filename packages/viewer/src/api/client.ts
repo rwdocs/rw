@@ -39,7 +39,7 @@ export interface ApiClient {
 }
 
 /** Create an API client bound to the given base URL */
-export function createApiClient(apiBase: string = "/api", fetchFn?: typeof fetch): ApiClient {
+export function createApiClient(apiBase: string = "/_api", fetchFn?: typeof fetch): ApiClient {
   const doFetch = fetchFn ?? fetch;
   const base = apiBase.replace(/\/+$/, "");
 

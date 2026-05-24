@@ -55,7 +55,7 @@ impl IntoResponse for CommentApiError {
     }
 }
 
-/// Handle `GET /api/comments?documentId=...&status=...`.
+/// Handle `GET /_api/comments?documentId=...&status=...`.
 pub(crate) async fn list_comments(
     State(state): State<Arc<AppState>>,
     Query(filter): Query<CommentFilter>,
@@ -63,7 +63,7 @@ pub(crate) async fn list_comments(
     Ok(Json(state.comment_store.list(filter).await?))
 }
 
-/// Handle `POST /api/comments`.
+/// Handle `POST /_api/comments`.
 pub(crate) async fn create_comment(
     State(state): State<Arc<AppState>>,
     Json(input): Json<NewComment>,
@@ -72,7 +72,7 @@ pub(crate) async fn create_comment(
     Ok((StatusCode::CREATED, Json(comment)))
 }
 
-/// Handle `GET /api/comments/{id}`.
+/// Handle `GET /_api/comments/{id}`.
 pub(crate) async fn get_comment(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -80,7 +80,7 @@ pub(crate) async fn get_comment(
     Ok(Json(state.comment_store.get(id).await?))
 }
 
-/// Handle `PATCH /api/comments/{id}`.
+/// Handle `PATCH /_api/comments/{id}`.
 pub(crate) async fn update_comment(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,

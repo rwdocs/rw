@@ -21,16 +21,19 @@ use crate::static_files;
 /// * `state` - Shared application state
 pub(crate) fn create_router(state: Arc<AppState>) -> Router {
     let mut router = Router::new()
-        .route("/api/config", get(handlers::config::get_config))
-        .route("/api/navigation", get(handlers::navigation::get_navigation))
-        .route("/api/pages/", get(handlers::pages::get_root_page))
-        .route("/api/pages/{*path}", get(handlers::pages::get_page))
+        .route("/_api/config", get(handlers::config::get_config))
         .route(
-            "/api/comments",
+            "/_api/navigation",
+            get(handlers::navigation::get_navigation),
+        )
+        .route("/_api/pages/", get(handlers::pages::get_root_page))
+        .route("/_api/pages/{*path}", get(handlers::pages::get_page))
+        .route(
+            "/_api/comments",
             get(handlers::comments::list_comments).post(handlers::comments::create_comment),
         )
         .route(
-            "/api/comments/{id}",
+            "/_api/comments/{id}",
             get(handlers::comments::get_comment).patch(handlers::comments::update_comment),
         );
 

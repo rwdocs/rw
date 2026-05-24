@@ -40,7 +40,7 @@ describe("fetchNavigation", () => {
     const client = createApiClient();
     const result = await client.fetchNavigation();
 
-    expect(fetch).toHaveBeenCalledWith("/api/navigation", {});
+    expect(fetch).toHaveBeenCalledWith("/_api/navigation", {});
     expect(result).toEqual(mockNavTree);
   });
 
@@ -48,7 +48,7 @@ describe("fetchNavigation", () => {
     const client = createApiClient();
     await client.fetchNavigation({ bypassCache: true });
 
-    expect(fetch).toHaveBeenCalledWith("/api/navigation", { cache: "no-store" });
+    expect(fetch).toHaveBeenCalledWith("/_api/navigation", { cache: "no-store" });
   });
 
   it("throws error on non-ok response", async () => {
@@ -91,7 +91,7 @@ describe("fetchPage", () => {
     const client = createApiClient();
     const result = await client.fetchPage("test");
 
-    expect(fetch).toHaveBeenCalledWith("/api/pages/test", {});
+    expect(fetch).toHaveBeenCalledWith("/_api/pages/test", {});
     expect(result).toEqual(mockPage);
   });
 
@@ -99,7 +99,7 @@ describe("fetchPage", () => {
     const client = createApiClient();
     await client.fetchPage("test", { bypassCache: true });
 
-    expect(fetch).toHaveBeenCalledWith("/api/pages/test", { cache: "no-store" });
+    expect(fetch).toHaveBeenCalledWith("/_api/pages/test", { cache: "no-store" });
   });
 
   it("passes signal when provided", async () => {
@@ -107,7 +107,7 @@ describe("fetchPage", () => {
     const client = createApiClient();
     await client.fetchPage("test", { signal: controller.signal });
 
-    expect(fetch).toHaveBeenCalledWith("/api/pages/test", { signal: controller.signal });
+    expect(fetch).toHaveBeenCalledWith("/_api/pages/test", { signal: controller.signal });
   });
 
   it("passes both cache and signal when provided", async () => {
@@ -115,7 +115,7 @@ describe("fetchPage", () => {
     const client = createApiClient();
     await client.fetchPage("test", { bypassCache: true, signal: controller.signal });
 
-    expect(fetch).toHaveBeenCalledWith("/api/pages/test", {
+    expect(fetch).toHaveBeenCalledWith("/_api/pages/test", {
       cache: "no-store",
       signal: controller.signal,
     });
@@ -199,7 +199,7 @@ describe("fetchConfig", () => {
     const client = createApiClient();
     const result = await client.fetchConfig();
 
-    expect(fetch).toHaveBeenCalledWith("/api/config");
+    expect(fetch).toHaveBeenCalledWith("/_api/config");
     expect(result).toEqual(mockConfig);
   });
 
