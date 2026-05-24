@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::state::AppState;
 
-/// Response for GET /api/config.
+/// Response for GET /_api/config.
 ///
 /// Other backends that share this schema (e.g. the Backstage backend plugin)
 /// set `commentsEnabled` to `false` to opt out.
@@ -23,7 +23,7 @@ pub(crate) struct ConfigResponse {
     comments_enabled: bool,
 }
 
-/// Handle GET /api/config.
+/// Handle GET /_api/config.
 pub(crate) async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
     Json(ConfigResponse {
         live_reload_enabled: state.live_reload_enabled(),

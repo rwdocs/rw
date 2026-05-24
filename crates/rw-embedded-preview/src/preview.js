@@ -21,7 +21,7 @@ function applyShellTheme() {
 applyShellTheme();
 
 const currentInstance = mountRw(root, {
-  apiBaseUrl: "/api",
+  apiBaseUrl: "/_api",
   embedded: true,
   colorScheme: themes[themeIndex],
   initialPath: window.location.pathname || "/",

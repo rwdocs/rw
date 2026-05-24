@@ -20,7 +20,7 @@ use crate::error::HandlerError;
 use crate::handlers::to_url_path;
 use crate::state::AppState;
 
-/// Response for GET /api/pages/{path}.
+/// Response for GET /_api/pages/{path}.
 #[derive(Serialize)]
 struct PageResponse {
     /// Page metadata.
@@ -101,7 +101,7 @@ impl From<&TocEntry> for TocResponse {
     }
 }
 
-/// Handle GET /api/pages/ (root page).
+/// Handle GET /_api/pages/ (root page).
 pub(crate) async fn get_root_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -109,7 +109,7 @@ pub(crate) async fn get_root_page(
     get_page_impl(String::new(), state, headers)
 }
 
-/// Handle GET /api/pages/{path}.
+/// Handle GET /_api/pages/{path}.
 pub(crate) async fn get_page(
     Path(path): Path<String>,
     State(state): State<Arc<AppState>>,

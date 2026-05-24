@@ -7,7 +7,7 @@ export interface CommentApiClient {
 }
 
 export function createCommentApiClient(
-  apiBase: string = "/api",
+  apiBase: string = "/_api",
   fetchFn?: typeof fetch,
 ): CommentApiClient {
   const doFetch = fetchFn ?? fetch;

@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Inline comments — select text in the browser and add comments anchored to specific passages; comments persist in `.rw/comments/sqlite.db` and survive content re-renders via multi-selector anchoring (TextQuoteSelector + TextPositionSelector). When the original passage no longer appears verbatim — e.g. after a typo fix or a paragraph split that drops a space — the viewer falls back to fuzzy re-anchoring (diff-match-patch) and marks the comment as **re-anchored** with a softer dashed-underline highlight and an italic label in the thread header, so reviewers can tell when a comment may have moved.
 - Page comments — leave comments on a page without selecting text; page comments appear below the article content with the same threading and resolve/reopen workflow as inline comments
-- Comment REST API (`/api/comments`) for creating, listing, and updating inline annotations
+- Comment REST API (`/_api/comments`) for creating, listing, and updating inline annotations
 - Comment authorship — every comment carries an author (`{ id, name, avatarUrl? }`); `rw serve` stamps browser-created comments with "You". Authors with id `local:human` render a person avatar; authors with id `local:ai` render a sparkles avatar (recommended for LLM agents writing via `rw comment`); others fall back to name initials.
 - `rw comment` CLI (list, show, add, reply, resolve) for scripting and LLM agents — reads and writes comments in the project's `.rw/comments/sqlite.db` directly; works whether or not `rw serve` is running. Identity via `RW_COMMENT_AUTHOR_ID` / `RW_COMMENT_AUTHOR_NAME` env vars or `--author-id` / `--author-name` flags; falls back to the default `local:human` / "You" identity when neither is set. Inline anchoring via `--quote "passage text"` — the CLI renders the target page in-process and rejects ambiguous or missing matches.
 
@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Page modification times (`lastModified` in API responses) now reflect the git commit time instead of the filesystem modification time — timestamps remain stable across `git checkout`, `git pull`, and branch switching
 - S3-published documentation bundles now include page modification times in the manifest — previously `lastModified` was always epoch zero for Backstage-served pages
 - `@rwdocs/viewer` now requires Node.js `>=22.12.0` (was `>=20`) — the previous floor was incorrect since Vite 8 needs Node 20.19+/22.12+, and Node 20 reached end-of-life on 2026-04-30; `22.12.0` is the first release where `require(esm)` works without a flag
+- **Breaking:** the HTTP API served by `rw serve` moved from `/api/*` to the reserved `/_api/*` prefix (e.g. `/_api/navigation`, `/_api/pages/...`, `/_api/comments`), freeing the `/api/*` URL space for documentation pages. The bundled viewer moves in lockstep; only external callers hitting `rw serve`'s HTTP endpoints directly need to update.
+
+### Fixed
+
+- Documentation pages whose URL begins with `/api/` (e.g. `docs/api/usage.md`) no longer return 404 when opened directly or refreshed in the browser.
 
 ## [0.1.24] - 2026-04-10
 

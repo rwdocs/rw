@@ -6,7 +6,7 @@ export interface SectionInfo {
   name: string;
 }
 
-/** Navigation tree item from GET /api/navigation */
+/** Navigation tree item from GET /_api/navigation */
 export interface NavItem {
   title: string;
   path: string;
@@ -46,7 +46,7 @@ export interface NavigationTree {
   parentScope?: ScopeInfo;
 }
 
-/** Page metadata from GET /api/pages/{path} */
+/** Page metadata from GET /_api/pages/{path} */
 export interface PageMeta {
   title: string;
   path: string;
@@ -76,7 +76,7 @@ export interface TocEntry {
   id: string;
 }
 
-/** Page response from GET /api/pages/{path} */
+/** Page response from GET /_api/pages/{path} */
 export interface PageResponse {
   meta: PageMeta;
   breadcrumbs: Breadcrumb[];
@@ -90,7 +90,7 @@ export interface ApiError {
   path?: string;
 }
 
-/** Server config from GET /api/config */
+/** Server config from GET /_api/config */
 export interface ConfigResponse {
   liveReloadEnabled: boolean;
   commentsEnabled?: boolean;
