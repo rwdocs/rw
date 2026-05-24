@@ -12,8 +12,8 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_kroki::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, TabsDirective, TocEntry,
-    escape_html,
+    HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, StatusDirective,
+    TabsDirective, TocEntry, escape_html,
 };
 use rw_sections::{Section, Sections};
 
@@ -428,7 +428,9 @@ impl PageRenderer {
         renderer: MarkdownRenderer<B>,
         ctx: &RenderContext,
     ) -> MarkdownRenderer<B> {
-        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+        let directives = DirectiveProcessor::new()
+            .with_container(TabsDirective::new())
+            .with_inline(StatusDirective::new());
 
         let mut renderer = renderer
             .with_gfm(true)

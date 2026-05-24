@@ -2,12 +2,18 @@
 //!
 //! Inline directives use single-colon syntax: `:name[content]{attrs}`
 
-use super::{DirectiveArgs, DirectiveContext, DirectiveOutput};
+use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 
 /// Handler for inline directives: `:name[content]{attrs}`
 ///
 /// Inline directives appear within text flow and produce inline HTML elements.
 /// They are processed during the preprocessing phase before pulldown-cmark parsing.
+///
+/// # Two-Phase Processing
+///
+/// Inline directives support post-processing via [`post_process`](Self::post_process).
+/// During preprocessing, return intermediate HTML that will be transformed
+/// during post-processing.
 ///
 /// # Thread Safety
 ///
@@ -44,6 +50,15 @@ pub trait InlineDirective: Send {
     /// Note: [`DirectiveOutput::Markdown`] is supported but uncommon for inline
     /// directives since they typically produce simple HTML.
     fn process(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput;
+
+    /// Register post-processing replacements for intermediate marker elements.
+    ///
+    /// Inline directives that emit neutral marker elements during
+    /// [`process`](Self::process) can override this to rewrite those markers
+    /// into final HTML after rendering, using the [`Replacements`] collector.
+    /// The default is a no-op — most inline directives emit final HTML
+    /// directly and need nothing here.
+    fn post_process(&mut self, _replacements: &mut Replacements) {}
 }
 
 #[cfg(test)]
@@ -87,5 +102,13 @@ mod tests {
     fn test_inline_directive_name() {
         let kbd = TestKbd;
         assert_eq!(kbd.name(), "kbd");
+    }
+
+    #[test]
+    fn test_default_post_process() {
+        let mut kbd = TestKbd;
+        let mut replacements = Replacements::new();
+        kbd.post_process(&mut replacements);
+        assert!(replacements.is_empty());
     }
 }

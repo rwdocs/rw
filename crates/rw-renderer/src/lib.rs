@@ -124,6 +124,7 @@ mod html;
 mod renderer;
 mod search_document;
 mod state;
+mod status;
 pub(crate) mod tabs;
 mod util;
 
@@ -144,4 +145,5 @@ pub use renderer::{MarkdownRenderer, RenderResult, TitleResolver};
 pub use rw_sections::Sections;
 pub use search_document::SearchDocumentBackend;
 pub use state::{TocEntry, escape_html};
+pub use status::{StatusColor, StatusDirective};
 pub use tabs::TabsDirective;

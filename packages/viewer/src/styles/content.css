@@ -123,6 +123,39 @@
     @apply text-danger-fg;
   }
 
+  /* Status badges — inline colored pill labels (`:status[Label]{color=NAME}`).
+     Mode-independent: a saturated pill carries its own context and renders
+     identically in light and dark mode, matching Confluence's status badges.
+     Backgrounds are dark enough that the bold white label clears WCAG AA;
+     the yellow variant is a deep amber for that reason. */
+  .prose .status {
+    @apply inline-block whitespace-nowrap rounded px-1.5 py-0.5 align-middle text-xs font-bold text-white;
+  }
+
+  .prose .status-grey {
+    @apply bg-gray-600;
+  }
+
+  .prose .status-red {
+    @apply bg-red-700;
+  }
+
+  .prose .status-yellow {
+    @apply bg-amber-700;
+  }
+
+  .prose .status-green {
+    @apply bg-green-700;
+  }
+
+  .prose .status-blue {
+    @apply bg-blue-700;
+  }
+
+  .prose .status-purple {
+    @apply bg-purple-700;
+  }
+
   /* Tabs styling */
   .prose .tabs {
     @apply my-6;

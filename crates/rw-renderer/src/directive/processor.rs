@@ -386,10 +386,14 @@ impl DirectiveProcessor {
     ///
     /// Collects all replacements from handlers and applies them in a single pass.
     pub fn post_process(&mut self, html: &mut String) {
-        let capacity = self.leaf_handlers.len() + self.container_handlers.len();
+        let capacity =
+            self.inline_handlers.len() + self.leaf_handlers.len() + self.container_handlers.len();
         let mut replacements = Replacements::with_capacity(capacity);
 
         // Collect replacements from all handlers
+        for handler in &mut self.inline_handlers {
+            handler.post_process(&mut replacements);
+        }
         for handler in &mut self.leaf_handlers {
             handler.post_process(&mut replacements);
         }
@@ -481,6 +485,35 @@ mod tests {
 
         let output = processor.process("Press :kbd[Ctrl+C] to copy.");
         assert_eq!(output, "Press <kbd>Ctrl+C</kbd> to copy.");
+    }
+
+    #[test]
+    fn test_inline_directive_post_process_runs() {
+        struct MarkerDirective;
+
+        impl InlineDirective for MarkerDirective {
+            fn name(&self) -> &'static str {
+                "marker"
+            }
+
+            fn process(
+                &mut self,
+                _args: DirectiveArgs,
+                _ctx: &DirectiveContext,
+            ) -> DirectiveOutput {
+                DirectiveOutput::html("<rw-marker>")
+            }
+
+            fn post_process(&mut self, replacements: &mut Replacements) {
+                replacements.add("<rw-marker>", r#"<span class="marker">"#);
+            }
+        }
+
+        let mut processor = DirectiveProcessor::new().with_inline(MarkerDirective);
+        let mut html = processor.process(":marker[x]");
+        processor.post_process(&mut html);
+
+        assert_eq!(html, r#"<span class="marker">"#);
     }
 
     #[test]

@@ -1521,6 +1521,26 @@ Install with apt.
     }
 
     #[test]
+    fn test_with_directives_status() {
+        use crate::StatusDirective;
+        use crate::directive::DirectiveProcessor;
+
+        let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        let result =
+            renderer.render_markdown("Billing is :status[On Track]{color=green} this quarter.");
+
+        assert!(
+            result
+                .html
+                .contains(r#"<span class="status status-green">On Track</span>"#),
+            "got: {}",
+            result.html
+        );
+    }
+
+    #[test]
     fn test_directives_warnings_included() {
         use crate::TabsDirective;
         use crate::directive::DirectiveProcessor;
