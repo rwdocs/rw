@@ -287,7 +287,12 @@ impl Site {
     ///
     /// On the **initial** load, storage errors propagate to the caller so
     /// that misconfigured storage is surfaced immediately. On subsequent
-    /// reloads, errors are logged and the previous snapshot is kept.
+    /// reloads, errors are logged and the previous snapshot is kept. The
+    /// cache flag is normally restored so later reads serve that snapshot
+    /// via the fast path instead of repeatedly retrying an unreachable
+    /// backend — unless an [`invalidate`](Self::invalidate) raced with
+    /// the failing scan, in which case the next reader retries instead of
+    /// swallowing that signal.
     ///
     /// # Errors
     ///
@@ -311,7 +316,8 @@ impl Site {
         }
 
         let has_loaded = self.has_loaded.load(Ordering::Acquire);
-        let etag = self.generation.load(Ordering::Acquire).to_string();
+        let pre_scan_generation = self.generation.load(Ordering::Acquire);
+        let etag = pre_scan_generation.to_string();
 
         // Load state: skip bucket cache on initial load to verify storage connectivity
         let state = if has_loaded {
@@ -325,6 +331,19 @@ impl Site {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Failed to reload site from storage, keeping stale data");
+                        // Restore the fast path so subsequent reads return the
+                        // stale snapshot immediately. Without this, every read
+                        // would re-enter the slow path, serialize on the reload
+                        // mutex, and re-call the unreachable backend.
+                        //
+                        // Only restore it if no `invalidate()` raced with us
+                        // during the (potentially long) failing scan. If the
+                        // generation changed, an invalidate is pending and the
+                        // next reader must retry — otherwise we'd swallow that
+                        // signal and serve stale data even after recovery.
+                        if self.generation.load(Ordering::Acquire) == pre_scan_generation {
+                            self.cache_valid.store(true, Ordering::Release);
+                        }
                         return Ok(self.snapshot());
                     }
                 }
@@ -377,8 +396,14 @@ impl Site {
     /// Readers that already hold a snapshot are unaffected — they continue
     /// using the previous data. This method is lock-free.
     pub fn invalidate(&self) {
-        self.cache_valid.store(false, Ordering::Release);
+        // Bump generation BEFORE clearing the cache flag. The failure branch
+        // of `reload_if_needed` uses the generation as a "was an invalidate
+        // pending?" probe; if we cleared cache_valid first, a concurrent
+        // failing reload could observe the unchanged generation and restore
+        // cache_valid=true before our `fetch_add` lands, swallowing the
+        // invalidate signal.
         self.generation.fetch_add(1, Ordering::Release);
+        self.cache_valid.store(false, Ordering::Release);
     }
 
     /// Renders a page to HTML by its URL path.
@@ -1184,6 +1209,75 @@ mod tests {
         // Reload should succeed with stale data
         let snapshot2 = site.reload_if_needed().unwrap();
         assert!(snapshot2.state.get_page("guide").is_some());
+    }
+
+    #[test]
+    fn test_reload_after_failure_does_not_repeat_storage_scan() {
+        // Regression test for #403: after a failed reload, subsequent reads
+        // must take the fast path and return stale data, NOT re-enter the
+        // slow path and re-call storage. Without the fix, every read during
+        // a backend outage would serialize on the reload mutex and hit the
+        // unreachable backend.
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+
+        // Initial load: one scan, succeeds
+        site.reload_if_needed().unwrap();
+        assert_eq!(storage.scan_count(), 1);
+
+        // Backend goes down; explicit invalidate signals "please reload"
+        storage.set_scan_error(Some(StorageErrorKind::Unavailable));
+        site.invalidate();
+
+        // First read after invalidate retries storage and falls back to stale data
+        let snapshot = site.reload_if_needed().unwrap();
+        assert!(snapshot.state.get_page("guide").is_some());
+        assert_eq!(storage.scan_count(), 2);
+
+        // Subsequent reads must NOT re-scan storage — they ride the fast path
+        for _ in 0..5 {
+            let snapshot = site.reload_if_needed().unwrap();
+            assert!(snapshot.state.get_page("guide").is_some());
+        }
+        assert_eq!(storage.scan_count(), 2);
+
+        // After explicit invalidate, the next read retries storage again
+        site.invalidate();
+        site.reload_if_needed().unwrap();
+        assert_eq!(storage.scan_count(), 3);
+    }
+
+    #[test]
+    fn test_reload_recovers_after_storage_comes_back() {
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        );
+
+        site.reload_if_needed().unwrap();
+        assert_eq!(storage.scan_count(), 1);
+
+        // Outage
+        storage.set_scan_error(Some(StorageErrorKind::Unavailable));
+        site.invalidate();
+        site.reload_if_needed().unwrap();
+        assert_eq!(storage.scan_count(), 2);
+
+        // Backend comes back; invalidate to signal a retry
+        storage.set_scan_error(None);
+        site.invalidate();
+
+        let snapshot = site.reload_if_needed().unwrap();
+        assert!(snapshot.state.get_page("guide").is_some());
+        // The recovery reload must actually re-call storage, not just serve
+        // the stale snapshot (which would also contain "guide").
+        assert_eq!(storage.scan_count(), 3);
     }
 
     #[test]

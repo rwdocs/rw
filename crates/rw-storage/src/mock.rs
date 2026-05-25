@@ -4,6 +4,7 @@
 //! This implementation returns metadata exactly as set - no inheritance logic.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
@@ -44,6 +45,8 @@ pub struct MockStorage {
     /// If set, overrides the default `has_changed()` return value.
     has_changed: RwLock<Option<Result<bool, StorageErrorKind>>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
+    /// Number of times `scan()` has been called (including failed calls).
+    scan_count: AtomicUsize,
 }
 
 impl Default for MockStorage {
@@ -56,6 +59,7 @@ impl Default for MockStorage {
             scan_error: RwLock::new(None),
             has_changed: RwLock::new(None),
             event_sender: RwLock::new(None),
+            scan_count: AtomicUsize::new(0),
         }
     }
 }
@@ -307,6 +311,16 @@ impl MockStorage {
         *self.scan_error.write().unwrap() = kind;
     }
 
+    /// Number of times `scan()` has been called, including failed calls.
+    ///
+    /// Useful for verifying that callers do not re-scan during a backend outage.
+    /// The counter has no associated state to synchronize, so `Relaxed` is
+    /// sufficient — callers reading the counter must already happen-after the
+    /// scans they want to observe through some other synchronization.
+    pub fn scan_count(&self) -> usize {
+        self.scan_count.load(Ordering::Relaxed)
+    }
+
     /// Override `has_changed()` to return a fixed value or error.
     ///
     /// - `Some(Ok(true))` — report changed
@@ -376,6 +390,7 @@ impl MockStorage {
 
 impl Storage for MockStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
+        self.scan_count.fetch_add(1, Ordering::Relaxed);
         if let Some(kind) = self.scan_error.read().unwrap().as_ref() {
             return Err(StorageError::new(*kind).with_backend("Mock"));
         }
