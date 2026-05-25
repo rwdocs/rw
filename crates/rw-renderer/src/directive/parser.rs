@@ -21,31 +21,29 @@ pub(crate) enum ParsedDirective {
     ContainerEnd { colon_count: usize },
 }
 
-/// Parse a line for directive syntax.
+/// Parse a line for an inline directive (`:name`).
 ///
-/// Returns `None` if the line doesn't contain a directive.
+/// Skips over multi-colon runs (`::`, `:::`, …) so that an inline directive
+/// can still be found after a leaf-like or container-like token on the same
+/// line. Returns `None` only when no single-colon inline directive remains
+/// in the input.
 pub(crate) fn parse_line(line: &str) -> Option<(ParsedDirective, usize, usize)> {
-    // Find first colon that might start a directive
-    let start = line.find(':')?;
-
-    // Count colons
-    let colon_count = line[start..].chars().take_while(|&c| c == ':').count();
-
-    if colon_count < 1 {
-        return None;
-    }
+    // Walk colon runs from left to right, skipping any run of two or more
+    // colons (those are leaf / container tokens, not inline). Stop at the
+    // first single-colon run that starts a valid inline directive.
+    let mut search_from = 0;
+    let (start, colon_count) = loop {
+        let rel = line[search_from..].find(':')?;
+        let abs = search_from + rel;
+        let count = line[abs..].chars().take_while(|&c| c == ':').count();
+        if count == 1 {
+            break (abs, count);
+        }
+        search_from = abs + count;
+    };
 
     let mut pos = start + colon_count;
     let after_colons = &line[pos..];
-
-    // Container end: just colons (with optional whitespace after)
-    if colon_count >= 3 && after_colons.trim().is_empty() {
-        return Some((
-            ParsedDirective::ContainerEnd { colon_count },
-            start,
-            line.len(),
-        ));
-    }
 
     // Parse name - name ends at [, {, or whitespace
     let name_end = after_colons
@@ -69,23 +67,59 @@ pub(crate) fn parse_line(line: &str) -> Option<(ParsedDirective, usize, usize)> 
 
     let args = DirectiveArgs::parse(&content, &attrs_str);
 
-    let directive = match colon_count {
-        1 => ParsedDirective::Inline {
+    Some((
+        ParsedDirective::Inline {
             name: name.to_owned(),
             args,
         },
-        2 => ParsedDirective::Leaf {
-            name: name.to_owned(),
-            args,
-        },
-        _ => ParsedDirective::ContainerStart {
-            name: name.to_owned(),
-            args,
-            colon_count,
-        },
-    };
+        start,
+        pos,
+    ))
+}
 
-    Some((directive, start, pos))
+/// Parse a whole line for a leaf directive.
+///
+/// Used for leaf-style directives that take the entire line.
+/// Returns `None` if the line is not a leaf directive (e.g., `:::name` is a container).
+pub(crate) fn parse_leaf_line(line: &str) -> Option<ParsedDirective> {
+    let trimmed = line.trim();
+
+    // Must start with exactly two colons; three or more is a container
+    if !trimmed.starts_with("::") || trimmed.starts_with(":::") {
+        return None;
+    }
+
+    let after_colons = &trimmed[2..];
+
+    // Parse name
+    let name_end = after_colons
+        .find(|c: char| c == '[' || c == '{' || c.is_whitespace())
+        .unwrap_or(after_colons.len());
+
+    let name = &after_colons[..name_end];
+    if name.is_empty() || !is_valid_directive_name(name) {
+        return None;
+    }
+
+    let after_name = &after_colons[name_end..];
+
+    // Parse content and attributes
+    let (content, content_consumed) = parse_brackets(after_name);
+    let after_content = &after_name[content_consumed..];
+    let (attrs_str, attrs_consumed) = parse_braces(after_content);
+    let after_attrs = &after_content[attrs_consumed..];
+
+    // The rest of the (trimmed) line must be empty — leaf consumes the whole line
+    if !after_attrs.trim().is_empty() {
+        return None;
+    }
+
+    let args = DirectiveArgs::parse(&content, &attrs_str);
+
+    Some(ParsedDirective::Leaf {
+        name: name.to_owned(),
+        args,
+    })
 }
 
 /// Check if a name is a valid directive name.
@@ -249,33 +283,38 @@ mod tests {
     }
 
     #[test]
-    fn test_leaf_directive() {
-        let result = parse_line("::youtube[dQw4w9WgXcQ]");
-        let (directive, _, _) = result.unwrap();
-
-        match directive {
-            ParsedDirective::Leaf { name, args } => {
-                assert_eq!(name, "youtube");
-                assert_eq!(args.content, "dQw4w9WgXcQ");
-            }
-            _ => panic!("expected leaf directive"),
-        }
+    fn test_leaf_directive_no_longer_inline() {
+        // parse_line now returns None for :: (leaf) sequences
+        assert!(parse_line("::youtube[dQw4w9WgXcQ]").is_none());
     }
 
     #[test]
-    fn test_leaf_with_attrs() {
-        let result = parse_line("::include[snippet.md]{#code .highlight}");
-        let (directive, _, _) = result.unwrap();
+    fn test_leaf_with_attrs_no_longer_inline() {
+        // parse_line now returns None for :: (leaf) sequences
+        assert!(parse_line("::include[snippet.md]{#code .highlight}").is_none());
+    }
 
+    #[test]
+    fn test_double_colon_mid_line_no_longer_inline() {
+        // parse_line must return None when the only colon run is >=2
+        assert!(parse_line("text ::foo[x] more").is_none());
+    }
+
+    #[test]
+    fn test_inline_directive_after_double_colon_run() {
+        // A `::leaf` token at the start of the line must not blind the scanner
+        // to a single-colon inline directive that follows on the same line.
+        let result = parse_line("::foo[x] :kbd[Y]");
+        let (directive, start, end) = result.expect("should find :kbd after the :: run");
         match directive {
-            ParsedDirective::Leaf { name, args } => {
-                assert_eq!(name, "include");
-                assert_eq!(args.content, "snippet.md");
-                assert_eq!(args.id, Some("code".to_owned()));
-                assert_eq!(args.classes, vec!["highlight"]);
+            ParsedDirective::Inline { name, args } => {
+                assert_eq!(name, "kbd");
+                assert_eq!(args.content, "Y");
             }
-            _ => panic!("expected leaf directive"),
+            _ => panic!("expected inline directive"),
         }
+        assert_eq!(start, 9);
+        assert_eq!(end, 16);
     }
 
     #[test]
@@ -395,6 +434,76 @@ mod tests {
         assert!(!is_valid_directive_name(""));
         assert!(!is_valid_directive_name("foo@bar"));
         assert!(!is_valid_directive_name("foo bar"));
+    }
+
+    mod parse_leaf_line_tests {
+        use super::*;
+
+        #[test]
+        fn bare_leaf() {
+            let result = parse_leaf_line("::youtube[dQw4w9WgXcQ]");
+            match result.unwrap() {
+                ParsedDirective::Leaf { name, args } => {
+                    assert_eq!(name, "youtube");
+                    assert_eq!(args.content, "dQw4w9WgXcQ");
+                }
+                _ => panic!("expected leaf directive"),
+            }
+        }
+
+        #[test]
+        fn leaf_with_attrs() {
+            let result = parse_leaf_line("::include[snippet.md]{#code .highlight}");
+            match result.unwrap() {
+                ParsedDirective::Leaf { name, args } => {
+                    assert_eq!(name, "include");
+                    assert_eq!(args.content, "snippet.md");
+                    assert_eq!(args.id, Some("code".to_owned()));
+                    assert_eq!(args.classes, vec!["highlight"]);
+                }
+                _ => panic!("expected leaf directive"),
+            }
+        }
+
+        #[test]
+        fn leading_whitespace_tolerated() {
+            let result = parse_leaf_line("  ::youtube[x]");
+            assert!(result.is_some(), "leading whitespace should be accepted");
+            match result.unwrap() {
+                ParsedDirective::Leaf { name, .. } => assert_eq!(name, "youtube"),
+                _ => panic!("expected leaf directive"),
+            }
+        }
+
+        #[test]
+        fn trailing_whitespace_tolerated() {
+            let result = parse_leaf_line("::youtube[x]   ");
+            assert!(result.is_some(), "trailing whitespace should be accepted");
+        }
+
+        #[test]
+        fn trailing_non_whitespace_rejected() {
+            // "::foo[x] bar" — extra text after the directive → None
+            assert!(parse_leaf_line("::foo[x] bar").is_none());
+        }
+
+        #[test]
+        fn three_colons_rejected() {
+            // ":::note" is a container, not a leaf
+            assert!(parse_leaf_line(":::note").is_none());
+        }
+
+        #[test]
+        fn one_colon_rejected() {
+            // ":kbd[X]" is inline, not a leaf
+            assert!(parse_leaf_line(":kbd[X]").is_none());
+        }
+
+        #[test]
+        fn not_at_start_rejected() {
+            // "text ::foo[x]" — leaf must occupy the whole line
+            assert!(parse_leaf_line("text ::foo[x]").is_none());
+        }
     }
 
     #[test]
