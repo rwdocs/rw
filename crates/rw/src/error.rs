@@ -34,6 +34,9 @@ pub(crate) enum CliError {
 
     #[error(transparent)]
     QuoteResolution(#[from] QuoteResolutionError),
+
+    #[error("publish completed with {count} diagram warning(s); --strict was set")]
+    DiagramWarningsInStrictMode { count: usize },
 }
 
 impl From<CreateError> for CliError {
@@ -62,5 +65,17 @@ impl CliError {
             | CliError::QuoteResolution(QuoteResolutionError::DocumentNotFound { .. }) => 2,
             _ => 1,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagram_warnings_in_strict_mode_exits_1() {
+        // Pin the exit code so future changes to the catch-all surface here.
+        let err = CliError::DiagramWarningsInStrictMode { count: 2 };
+        assert_eq!(err.exit_code(), 1);
     }
 }

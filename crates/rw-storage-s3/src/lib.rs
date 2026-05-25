@@ -19,4 +19,4 @@ pub use storage::S3Storage;
 mod publisher;
 
 #[cfg(feature = "publish")]
-pub use publisher::{BundlePublishError, BundlePublisher};
+pub use publisher::{BundlePublishError, BundlePublisher, PublishReport};
