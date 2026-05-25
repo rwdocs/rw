@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::tabs::FenceTracker;
 
-use super::parser::{ParsedDirective, parse_container_line, parse_line};
+use super::parser::{ParsedDirective, parse_container_line, parse_leaf_line, parse_line};
 use super::{
     ContainerDirective, DirectiveContext, DirectiveOutput, InlineDirective, LeafDirective,
     Replacements,
@@ -235,12 +235,17 @@ impl DirectiveProcessor {
             return line.to_owned();
         }
 
-        // Try container directive first (takes whole line)
+        // 1. Container directive — takes the whole line (:::name)
         if let Some(directive) = parse_container_line(line) {
             return self.dispatch_container(directive, line_num, depth);
         }
 
-        // Try inline/leaf directives (can be within a line)
+        // 2. Leaf directive — takes the whole line (::name)
+        if let Some(directive) = parse_leaf_line(line) {
+            return self.dispatch_leaf(directive, line_num, depth);
+        }
+
+        // 3. Inline directives — can appear anywhere in the line (:name)
         self.process_inline_directives(line, line_num, depth)
     }
 
@@ -254,7 +259,7 @@ impl DirectiveProcessor {
                 result.push_str(&remaining[..start]);
 
                 // Process the directive
-                let output = self.dispatch_inline_or_leaf(directive, line_num);
+                let output = self.dispatch_inline(directive, line_num);
 
                 match output {
                     DirectiveOutput::Html(html) => result.push_str(&html),
@@ -344,11 +349,35 @@ impl DirectiveProcessor {
         }
     }
 
-    fn dispatch_inline_or_leaf(
+    fn dispatch_leaf(
         &mut self,
         directive: ParsedDirective,
         line_num: usize,
-    ) -> DirectiveOutput {
+        depth: usize,
+    ) -> String {
+        match directive {
+            ParsedDirective::Leaf { name, args } => {
+                let handler_idx = self.leaf_handlers.iter().position(|h| h.name() == name);
+
+                if let Some(idx) = handler_idx {
+                    let syntax = args.to_syntax();
+                    let ctx = self.config.create_context(line_num);
+                    let output = self.leaf_handlers[idx].process(args, &ctx);
+                    match output {
+                        DirectiveOutput::Html(html) => html,
+                        DirectiveOutput::Markdown(md) => self.process_with_depth(&md, depth + 1),
+                        DirectiveOutput::Skip => format!("::{name}{syntax}"),
+                    }
+                } else {
+                    // No handler — pass through verbatim
+                    format!("::{name}{}", args.to_syntax())
+                }
+            }
+            _ => unreachable!("dispatch_leaf only handles leaf directives"),
+        }
+    }
+
+    fn dispatch_inline(&mut self, directive: ParsedDirective, line_num: usize) -> DirectiveOutput {
         match directive {
             ParsedDirective::Inline { name, args } => {
                 let handler_idx = self.inline_handlers.iter().position(|h| h.name() == name);
@@ -356,16 +385,6 @@ impl DirectiveProcessor {
                 if let Some(idx) = handler_idx {
                     let ctx = self.config.create_context(line_num);
                     self.inline_handlers[idx].process(args, &ctx)
-                } else {
-                    DirectiveOutput::Skip
-                }
-            }
-            ParsedDirective::Leaf { name, args } => {
-                let handler_idx = self.leaf_handlers.iter().position(|h| h.name() == name);
-
-                if let Some(idx) = handler_idx {
-                    let ctx = self.config.create_context(line_num);
-                    self.leaf_handlers[idx].process(args, &ctx)
                 } else {
                     DirectiveOutput::Skip
                 }
@@ -681,5 +700,74 @@ mod tests {
         let warnings = processor.warnings();
 
         assert!(warnings.iter().any(|w| w.contains("Maximum include depth")));
+    }
+
+    #[test]
+    fn leaf_in_paragraph_is_not_expanded() {
+        // A leaf directive token inside a paragraph must NOT be expanded
+        let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
+
+        let input = "Press ::youtube[x] now.";
+        let output = processor.process(input);
+
+        // The line is not a standalone leaf directive, so it passes through verbatim
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn leaf_with_leading_whitespace_is_expanded() {
+        // A leaf directive with leading whitespace on an otherwise-empty line IS expanded
+        let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
+
+        let output = processor.process("  ::youtube[dQw4w9WgXcQ]");
+        assert!(
+            output.contains("dQw4w9WgXcQ"),
+            "leaf directive with leading whitespace should be expanded"
+        );
+        assert!(
+            output.contains("<iframe"),
+            "leaf directive output should contain iframe"
+        );
+    }
+
+    #[test]
+    fn container_takes_precedence_over_leaf() {
+        // A :::note line routes to the container handler, not the leaf path
+        let mut processor = DirectiveProcessor::new().with_container(TestNote);
+
+        let output = processor.process(":::note[Important]\nContent here\n:::");
+        assert!(
+            output.contains(r#"<div class="note""#),
+            "container handler must fire, not leaf"
+        );
+        assert!(output.contains("Content here"));
+        assert!(output.contains("</div>"));
+    }
+
+    #[test]
+    fn unknown_leaf_passes_through_verbatim() {
+        // An unregistered leaf on a full line is passed through with attrs preserved
+        let mut processor = DirectiveProcessor::new();
+
+        let output = processor.process("::unknown[content]{#id .cls}");
+        assert!(output.contains("::unknown"), "name must be preserved");
+        assert!(output.contains("[content]"), "content must be preserved");
+        assert!(output.contains("#id"), "id attr must be preserved");
+        assert!(output.contains(".cls"), "class attr must be preserved");
+    }
+
+    #[test]
+    fn inline_directive_after_leaf_token_in_paragraph_still_expands() {
+        // Regression guard: a `::leaf` token mid-line must not stop the scanner
+        // from finding a later `:inline` directive on the same line.
+        let mut processor = DirectiveProcessor::new().with_inline(TestKbd);
+
+        let output = processor.process("Press ::foo[x] then :kbd[Ctrl+C].");
+        assert!(
+            output.contains("<kbd>Ctrl+C</kbd>"),
+            "inline directive after a `::` token should still expand. got: {output}"
+        );
+        // The mid-line `::foo[x]` is literal text — no leaf expansion mid-paragraph
+        assert!(output.contains("::foo[x]"));
     }
 }

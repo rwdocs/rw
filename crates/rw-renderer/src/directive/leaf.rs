@@ -6,7 +6,11 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 
 /// Handler for leaf directives: `::name[content]{attrs}`
 ///
-/// Leaf directives are self-contained blocks (like void HTML elements).
+/// Leaf directives are block-level. The handler is invoked only when
+/// `::name[…]{…}` occupies an entire line (leading/trailing whitespace
+/// permitted). A `::name` token inside a paragraph or list item is treated as
+/// literal text and passed through to the markdown parser.
+///
 /// They can return markdown (for `::include`) or HTML (for `::youtube`).
 ///
 /// # Two-Phase Processing
