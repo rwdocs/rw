@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - S3-published documentation bundles now include page modification times in the manifest — previously `lastModified` was always epoch zero for Backstage-served pages
 - `@rwdocs/viewer` now requires Node.js `>=22.12.0` (was `>=20`) — the previous floor was incorrect since Vite 8 needs Node 20.19+/22.12+, and Node 20 reached end-of-life on 2026-04-30; `22.12.0` is the first release where `require(esm)` works without a flag
 - **Breaking:** the HTTP API served by `rw serve` moved from `/api/*` to the reserved `/_api/*` prefix (e.g. `/_api/navigation`, `/_api/pages/...`, `/_api/comments`), freeing the `/api/*` URL space for documentation pages. The bundled viewer moves in lockstep; only external callers hitting `rw serve`'s HTTP endpoints directly need to update.
+- **Breaking (`rw-renderer` Rust API):** `DirectiveContext::resolve_path` now returns `Result<PathBuf, ResolveError>` and rejects inputs that would escape the base directory (absolute paths, Windows-specific prefixes such as `C:\…` / `\\?\…` / UNC, `..` segments that pop above the root, and control bytes). The previous unchecked variant and the canonicalize-based `resolve_path_safe` have both been removed. No directive shipped in `rw` itself used either method, so end-user `rw` binaries are unaffected; only downstream crates that embed `rw-renderer` and implement custom directives (e.g. an `::include` handler) need to migrate.
 
 ### Fixed
 

@@ -113,7 +113,18 @@ mod tests {
         }
 
         fn process(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput {
-            let path = ctx.resolve_path(args.content());
+            let path = match ctx.resolve_path(args.content()) {
+                Ok(p) => p,
+                Err(e) => {
+                    self.warnings.push(format!(
+                        "line {}: invalid include '{}': {}",
+                        ctx.line(),
+                        args.content(),
+                        e
+                    ));
+                    return DirectiveOutput::Skip;
+                }
+            };
             match ctx.read(&path) {
                 Ok(contents) => DirectiveOutput::markdown(contents),
                 Err(e) => {
@@ -194,6 +205,50 @@ mod tests {
         assert_eq!(include.warnings().len(), 1);
         assert!(include.warnings()[0].contains("line 10"));
         assert!(include.warnings()[0].contains("missing.md"));
+    }
+
+    #[test]
+    fn test_include_rejects_absolute_path_without_reading() {
+        let mut include = TestInclude::new();
+
+        // read_file callback that panics if invoked — proves the file
+        // is never read on resolution failure.
+        let ctx = DirectiveContext {
+            source_path: None,
+            base_dir: Path::new("/docs"),
+            line: 7,
+            read_file: &|p| panic!("read_file should not be called; got {p:?}"),
+        };
+
+        let args = DirectiveArgs::parse("/etc/passwd", "");
+        let output = include.process(args, &ctx);
+
+        assert_eq!(output, DirectiveOutput::Skip);
+        assert_eq!(include.warnings().len(), 1);
+        assert!(include.warnings()[0].contains("line 7"));
+        assert!(include.warnings()[0].contains("/etc/passwd"));
+        assert!(include.warnings()[0].contains("invalid include"));
+    }
+
+    #[test]
+    fn test_include_rejects_traversal_without_reading() {
+        let mut include = TestInclude::new();
+
+        let ctx = DirectiveContext {
+            source_path: None,
+            base_dir: Path::new("/docs"),
+            line: 12,
+            read_file: &|p| panic!("read_file should not be called; got {p:?}"),
+        };
+
+        let args = DirectiveArgs::parse("../secret.md", "");
+        let output = include.process(args, &ctx);
+
+        assert_eq!(output, DirectiveOutput::Skip);
+        assert_eq!(include.warnings().len(), 1);
+        assert!(include.warnings()[0].contains("line 12"));
+        assert!(include.warnings()[0].contains("../secret.md"));
+        assert!(include.warnings()[0].contains("invalid include"));
     }
 
     #[test]
