@@ -30,4 +30,6 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+rw-storage = { workspace = true, features = ["mock"] }
+rw-renderer = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
