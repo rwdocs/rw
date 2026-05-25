@@ -75,8 +75,11 @@ impl DirectiveArgs {
                 args.attrs.insert(key.to_owned(), value.to_owned());
                 remaining = rest;
             } else {
-                // Skip unrecognized character
-                remaining = &remaining[1..];
+                // Advance one codepoint — byte indexing would split a
+                // multi-byte UTF-8 char (e.g. `ц`, `🎉`) and panic.
+                let mut chars = remaining.chars();
+                chars.next();
+                remaining = chars.as_str();
             }
         }
 
@@ -347,5 +350,25 @@ mod tests {
     fn test_to_syntax_attrs_only() {
         let args = DirectiveArgs::parse("", "#my-id");
         assert_eq!(args.to_syntax(), "{#my-id}");
+    }
+
+    #[test]
+    fn test_non_ascii_bareword_does_not_panic() {
+        // Each input covers a different UTF-8 codepoint width (2, 4, 2 bytes)
+        // through the unrecognized-character fallback.
+        for input in ["цвет", "🎉", "اختبار"] {
+            let args = DirectiveArgs::parse("", input);
+            assert_eq!(args.id, None);
+            assert!(args.classes.is_empty());
+            assert!(args.attrs.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_non_ascii_bareword_then_valid_token() {
+        // The fallback must hand control back to the loop so a recognized
+        // token after the bareword still parses.
+        let args = DirectiveArgs::parse("", "цвет #id");
+        assert_eq!(args.id, Some("id".to_owned()));
     }
 }
