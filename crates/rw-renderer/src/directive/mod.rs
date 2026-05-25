@@ -28,6 +28,16 @@
 //!    HTML using the [`Replacements`] collector for efficient single-pass
 //!    string replacement.
 //!
+//! # Path Resolution Sandbox
+//!
+//! Directive handlers that read files (e.g. `::include`) should call
+//! [`DirectiveContext::resolve_path`] to resolve a user-supplied path.
+//! The method rejects absolute paths, Windows-specific prefixes,
+//! `..` segments that would escape the base directory, and control
+//! bytes in the input. See [`ResolveError`] for the full failure
+//! taxonomy. [`DirectiveContext::read`] does **not** sandbox on its own
+//! — handlers must run `resolve_path` first.
+//!
 //! # Example
 //!
 //! ```
@@ -65,7 +75,7 @@ mod replacements;
 
 pub use args::DirectiveArgs;
 pub use container::ContainerDirective;
-pub use context::DirectiveContext;
+pub use context::{DirectiveContext, ResolveError};
 pub use inline::InlineDirective;
 pub use leaf::LeafDirective;
 pub use output::DirectiveOutput;
