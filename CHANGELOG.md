@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Documentation pages whose URL begins with `/api/` (e.g. `docs/api/usage.md`) no longer return 404 when opened directly or refreshed in the browser.
 - Long URLs and other unbreakable tokens (UUIDs, hash digests, file paths) in tables, paragraphs, and list items now wrap instead of forcing horizontal scrolling on narrow viewports — table cells break anywhere, body text only breaks tokens that would otherwise overflow.
+- Directives with non-ASCII characters in their attribute braces (e.g. `:foo[bar]{цвет}`, `{🎉}`, `{اختبار}`) no longer panic the renderer — `rw serve` previously returned 500 and `rw confluence update` / `rw backstage publish` aborted mid-run on these inputs. Valid uses such as `{.заголовок}`, `{#заголовок}`, and `{цвет=зелёный}` were already safe and remain unchanged.
 
 ## [0.1.24] - 2026-04-10
 
