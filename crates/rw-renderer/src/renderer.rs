@@ -472,6 +472,24 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         }
     }
 
+    /// Get the buffer for inline *markup* (formatting tags like `<strong>`,
+    /// `<em>`, `<a>`).
+    ///
+    /// Returns `None` while collecting image alt text — per the
+    /// `CommonMark` spec, alt text is a plain-text projection, so callers
+    /// should skip emitting their markup entirely. Otherwise returns the same buffer as
+    /// [`inline_out`](Self::inline_out): heading HTML buffer when inside a
+    /// heading, main output buffer otherwise.
+    fn inline_markup_out(&mut self) -> Option<&mut String> {
+        if self.image.is_active() {
+            None
+        } else if self.heading.is_active() {
+            Some(self.heading.html_buffer())
+        } else {
+            Some(&mut self.output)
+        }
+    }
+
     /// Build ref data attributes for a resolved path, if applicable.
     ///
     /// Returns `None` for:
@@ -691,16 +709,19 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 B::table_cell_start(is_head, alignment, &mut self.output);
             }
             Tag::Emphasis => {
-                let out = self.inline_out();
-                B::emphasis_start(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::emphasis_start(out);
+                }
             }
             Tag::Strong => {
-                let out = self.inline_out();
-                B::strong_start(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::strong_start(out);
+                }
             }
             Tag::Strikethrough => {
-                let out = self.inline_out();
-                B::strikethrough_start(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::strikethrough_start(out);
+                }
             }
             Tag::Link {
                 link_type: LinkType::WikiLink { has_pothole },
@@ -708,29 +729,28 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 ..
             } if self.wikilinks => {
                 let resolution = self.resolve_wikilink(&dest_url);
-                match &resolution {
-                    WikilinkResolution::Resolved {
-                        href,
-                        section_ref,
-                        subpath,
-                        ..
-                    } => {
-                        let section_attrs = if section_ref.is_empty() {
-                            None
-                        } else {
-                            Some((section_ref.as_str(), subpath.as_str()))
-                        };
-                        let out = self.inline_out();
-                        B::link_start(href, section_attrs, out);
-                    }
-                    WikilinkResolution::Fragment(fragment) => {
-                        let href = format!("#{fragment}");
-                        let out = self.inline_out();
-                        B::link_start(&href, None, out);
-                    }
-                    WikilinkResolution::Broken { .. } => {
-                        let out = self.inline_out();
-                        B::broken_link_start(out);
+                if let Some(out) = self.inline_markup_out() {
+                    match &resolution {
+                        WikilinkResolution::Resolved {
+                            href,
+                            section_ref,
+                            subpath,
+                            ..
+                        } => {
+                            let section_attrs = if section_ref.is_empty() {
+                                None
+                            } else {
+                                Some((section_ref.as_str(), subpath.as_str()))
+                            };
+                            B::link_start(href, section_attrs, out);
+                        }
+                        WikilinkResolution::Fragment(fragment) => {
+                            let href = format!("#{fragment}");
+                            B::link_start(&href, None, out);
+                        }
+                        WikilinkResolution::Broken { .. } => {
+                            B::broken_link_start(out);
+                        }
                     }
                 }
                 if !has_pothole {
@@ -745,8 +765,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
                 let section_ref = self.section_ref_attrs(&href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
-                let out = self.inline_out();
-                B::link_start(&href, section_attrs, out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::link_start(&href, section_attrs, out);
+                }
             }
             Tag::Image {
                 dest_url, title, ..
@@ -757,12 +778,14 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 self.pending_image = Some((dest_url.into_owned(), title.to_string()));
             }
             Tag::Superscript => {
-                let out = self.inline_out();
-                B::superscript_start(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::superscript_start(out);
+                }
             }
             Tag::Subscript => {
-                let out = self.inline_out();
-                B::subscript_start(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::subscript_start(out);
+                }
             }
         }
     }
@@ -831,10 +854,13 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 self.in_metadata_block = false;
             }
             TagEnd::Image => {
-                // Render image with collected alt text
+                // Render image with collected alt text. Route through
+                // `inline_out` so an image inside a heading lands in the
+                // heading buffer instead of escaping the `<h*>`.
                 let alt = self.image.end();
                 if let Some((src, title)) = self.pending_image.take() {
-                    B::image(&src, &alt, &title, &mut self.output);
+                    let out = self.inline_out();
+                    B::image(&src, &alt, &title, out);
                 }
             }
             TagEnd::DefinitionList => {
@@ -861,28 +887,34 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 self.table.next_cell();
             }
             TagEnd::Emphasis => {
-                let out = self.inline_out();
-                B::emphasis_end(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::emphasis_end(out);
+                }
             }
             TagEnd::Strong => {
-                let out = self.inline_out();
-                B::strong_end(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::strong_end(out);
+                }
             }
             TagEnd::Strikethrough => {
-                let out = self.inline_out();
-                B::strikethrough_end(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::strikethrough_end(out);
+                }
             }
             TagEnd::Link => {
-                let out = self.inline_out();
-                B::link_end(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::link_end(out);
+                }
             }
             TagEnd::Superscript => {
-                let out = self.inline_out();
-                B::superscript_end(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::superscript_end(out);
+                }
             }
             TagEnd::Subscript => {
-                let out = self.inline_out();
-                B::subscript_end(out);
+                if let Some(out) = self.inline_markup_out() {
+                    B::subscript_end(out);
+                }
             }
         }
     }
@@ -903,7 +935,11 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     fn inline_code(&mut self, code: &str) {
-        if self.heading.is_active() {
+        if self.image.is_active() {
+            // CommonMark alt text is plain text — append the code body
+            // without `<code>` wrapping.
+            self.image.push_str(code);
+        } else if self.heading.is_active() {
             self.heading.push_text(code);
             B::inline_code(code, self.heading.html_buffer());
         } else {
@@ -912,6 +948,11 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     fn raw_html(&mut self, html: &str) {
+        if self.image.is_active() {
+            // CommonMark alt text is plain text — raw HTML tags are
+            // suppressed (their visible text comes through as `Text` events).
+            return;
+        }
         if self.heading.is_active() {
             B::raw_html(html, self.heading.html_buffer());
         } else {
@@ -922,6 +963,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     fn soft_break(&mut self) {
         if self.code.is_active() {
             self.code.push_newline();
+        } else if self.image.is_active() {
+            // Soft breaks inside alt text collapse to a single space.
+            self.image.push_str(" ");
         } else if self.heading.is_active() {
             B::soft_break(self.heading.html_buffer());
         } else {
@@ -930,7 +974,12 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     fn hard_break(&mut self) {
-        B::hard_break(&mut self.output);
+        if self.image.is_active() {
+            // Hard breaks inside alt text collapse to a single space.
+            self.image.push_str(" ");
+        } else {
+            B::hard_break(&mut self.output);
+        }
     }
 
     fn horizontal_rule(&mut self) {
@@ -1103,6 +1152,123 @@ mod tests {
             result
                 .html
                 .contains(r#"<img src="image.png" alt="Alt text">"#)
+        );
+    }
+
+    #[test]
+    fn test_image_alt_with_bold_no_stray_markup() {
+        // `**bold alt**` inside alt text must not leak `<strong></strong>`
+        // into surrounding HTML, and the alt attribute must still carry
+        // the formatted text.
+        let result = render_html("![**bold alt**](pic.png)");
+        assert_eq!(result.html, r#"<p><img src="pic.png" alt="bold alt"></p>"#,);
+    }
+
+    #[test]
+    fn test_image_alt_with_emphasis_no_stray_markup() {
+        let result = render_html("![*emphasized*](pic.png)");
+        assert_eq!(
+            result.html,
+            r#"<p><img src="pic.png" alt="emphasized"></p>"#,
+        );
+    }
+
+    #[test]
+    fn test_image_alt_with_strikethrough_no_stray_markup() {
+        let result = render_html("![~~struck~~](pic.png)");
+        assert_eq!(result.html, r#"<p><img src="pic.png" alt="struck"></p>"#,);
+    }
+
+    #[test]
+    fn test_image_alt_with_inline_code_preserves_text() {
+        // Inline code inside alt text must contribute its content to the
+        // alt attribute and must not leak a `<code>` element outside `<img>`.
+        let result = render_html("![alt with `code` text](pic.png)");
+        assert_eq!(
+            result.html,
+            r#"<p><img src="pic.png" alt="alt with code text"></p>"#,
+        );
+    }
+
+    #[test]
+    fn test_image_alt_with_raw_html_drops_tags() {
+        // Raw HTML inside alt text contributes its visible text but the
+        // tags themselves do not leak outside the `<img>`.
+        let result = render_html("![pre <span>html</span> post](pic.png)");
+        assert_eq!(
+            result.html,
+            r#"<p><img src="pic.png" alt="pre html post"></p>"#,
+        );
+    }
+
+    #[test]
+    fn test_image_alt_with_link_no_stray_markup() {
+        let result = render_html("![text [link](https://example.com) more](pic.png)");
+        assert_eq!(
+            result.html,
+            r#"<p><img src="pic.png" alt="text link more"></p>"#,
+        );
+    }
+
+    #[test]
+    fn test_image_inside_heading_stays_inside() {
+        // An image inside a heading must land inside the `<h*>` element,
+        // not before it.
+        let result = render_html("# Heading with ![icon](icon.png) in it");
+        assert_eq!(
+            result.html,
+            r#"<h1 id="heading-with-in-it">Heading with <img src="icon.png" alt="icon"> in it</h1>"#,
+        );
+    }
+
+    #[test]
+    fn test_image_inside_heading_with_formatted_alt() {
+        let result = render_html("## See ![**Logo**](logo.png) here");
+        assert_eq!(
+            result.html,
+            r#"<h2 id="see-here">See <img src="logo.png" alt="Logo"> here</h2>"#,
+        );
+    }
+
+    #[test]
+    fn test_image_alt_with_html_entity_preserves_decoded_character() {
+        // `&amp;`, `&#8211;`, etc. are decoded by pulldown-cmark into `Text`
+        // events before reaching `raw_html`, so the resulting glyphs survive
+        // into the alt attribute (and get re-escaped by the backend).
+        let result = render_html("![alt &amp; more](pic.png)");
+        assert_eq!(
+            result.html,
+            r#"<p><img src="pic.png" alt="alt &amp; more"></p>"#,
+        );
+    }
+
+    #[test]
+    fn test_image_alt_with_soft_break_collapses_to_space() {
+        // A soft break inside alt text becomes a single space, not a newline
+        // or `<br>` — matches CommonMark's plain-text projection rule.
+        let result = render_html("![alt\ntext](pic.png)");
+        assert_eq!(result.html, r#"<p><img src="pic.png" alt="alt text"></p>"#,);
+    }
+
+    #[test]
+    fn test_image_alt_with_hard_break_collapses_to_space() {
+        // A hard break (`\\\n` or two trailing spaces + newline) inside alt
+        // text collapses to a single space — and no `<br>` leaks outside the
+        // `<img>`.
+        let result = render_html("![alt\\\ntext](pic.png)");
+        assert_eq!(result.html, r#"<p><img src="pic.png" alt="alt text"></p>"#,);
+    }
+
+    #[test]
+    fn test_image_inside_link_is_unaffected() {
+        // Regression: image-in-link continues to render correctly.
+        let result = render_html("[![alt](pic.png)](https://example.com)");
+        assert!(
+            result
+                .html
+                .contains(r#"<a href="https://example.com"><img src="pic.png" alt="alt"></a>"#),
+            "got: {}",
+            result.html,
         );
     }
 
