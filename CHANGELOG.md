@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Long URLs and other unbreakable tokens (UUIDs, hash digests, file paths) in tables, paragraphs, and list items now wrap instead of forcing horizontal scrolling on narrow viewports — table cells break anywhere, body text only breaks tokens that would otherwise overflow.
 - Directives with non-ASCII characters in their attribute braces (e.g. `:foo[bar]{цвет}`, `{🎉}`, `{اختبار}`) no longer panic the renderer — `rw serve` previously returned 500 and `rw confluence update` / `rw backstage publish` aborted mid-run on these inputs. Valid uses such as `{.заголовок}`, `{#заголовок}`, and `{цвет=зелёный}` were already safe and remain unchanged.
 - S3 (and other remote storage) outages no longer turn into "soft outages" where every read serializes on a mutex and re-calls the unreachable backend. When a background reload fails, `rw serve` now keeps serving the stale snapshot via the fast path and only retries on the next explicit signal (file-watcher event, `reload(true)`, or successful `has_changed()` poll).
+- Formatted image alt text (`![**Logo**](...)`, `` ![Press `Enter`](...) ``, `![<span>html</span>](...)`) no longer leaks empty inline tags such as `<strong></strong>` or `<code></code>` next to the `<img>`, and inline code inside alt text now contributes its content to the rendered `alt` attribute instead of disappearing — restoring accessibility for screen readers.
+- An image inside a heading (e.g. `# ![](icon.png) Project Name`) now renders inside the `<h*>` element instead of escaping before it, fixing document outline, table of contents, and SEO for icon-led section titles.
 
 ## [0.1.24] - 2026-04-10
 
