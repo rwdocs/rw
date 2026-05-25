@@ -8,7 +8,6 @@ use std::fmt;
 use crate::directive::{
     DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective, Replacements,
 };
-use crate::state::escape_html;
 
 /// One of the six Confluence-native status colors. [`Default`] is Grey;
 /// [`From<&str>`] parses a name case-insensitively and returns the default
@@ -75,15 +74,14 @@ impl fmt::Display for StatusColor {
 /// # Example
 ///
 /// ```
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, StatusDirective};
 /// use rw_renderer::directive::DirectiveProcessor;
-/// use rw_renderer::StatusDirective;
 ///
-/// let mut processor = DirectiveProcessor::new()
-///     .with_inline(StatusDirective::new());
+/// let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
+/// let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
 ///
-/// let mut html = processor.process(":status[On Track]{color=green}");
-/// processor.post_process(&mut html);
-/// assert_eq!(html, r#"<span class="status status-green">On Track</span>"#);
+/// let result = renderer.render_markdown(":status[On Track]{color=green}");
+/// assert!(result.html.contains(r#"<span class="status status-green">On Track</span>"#));
 /// ```
 #[derive(Debug, Default)]
 pub struct StatusDirective;
@@ -103,12 +101,15 @@ impl InlineDirective for StatusDirective {
 
     fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
         let color = StatusColor::from(args.get("color").unwrap_or_default());
-        // The label becomes element content and is re-parsed as markdown by
-        // pulldown-cmark, so escape it to neutralize any HTML metacharacters.
-        let label = escape_html(args.content().trim());
-        DirectiveOutput::html(format!(
-            r#"<rw-status data-color="{color}">{label}</rw-status>"#
-        ))
+        // Emit as a marker triple — the renderer routes the label through its
+        // `text` method, which HTML-escapes it. Backends with stateful
+        // `raw_html` (Confluence) see the open and close markers as discrete
+        // events so they can translate to native macros.
+        DirectiveOutput::marker(
+            format!(r#"<rw-status data-color="{color}">"#),
+            args.content().trim(),
+            "</rw-status>",
+        )
     }
 
     fn post_process(&mut self, replacements: &mut Replacements) {
@@ -129,6 +130,7 @@ impl InlineDirective for StatusDirective {
 mod tests {
     use super::*;
     use crate::directive::DirectiveProcessor;
+    use crate::{HtmlBackend, MarkdownRenderer};
 
     #[test]
     fn test_from_known_colors() {
@@ -167,57 +169,80 @@ mod tests {
         assert_eq!(StatusColor::Purple.to_string(), "purple");
     }
 
+    /// Render `input` through the full `MarkdownRenderer` pipeline.
+    ///
+    /// Inline directives are expanded during the pulldown-cmark event
+    /// stream (see [`DirectiveProcessor::transform_events`]), so they only
+    /// take effect end-to-end. `MarkdownRenderer` wraps single-paragraph
+    /// input in `<p>…</p>` — the assertions below contain the resulting
+    /// HTML as a substring.
     fn render(input: &str) -> String {
-        let mut processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
-        let mut html = processor.process(input);
-        processor.post_process(&mut html);
-        html
+        let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+        renderer.render_markdown(input).html
     }
 
     #[test]
     fn test_status_renders_span() {
-        assert_eq!(
-            render(":status[On Track]{color=green}"),
-            r#"<span class="status status-green">On Track</span>"#
+        let html = render(":status[On Track]{color=green}");
+        assert!(
+            html.contains(r#"<span class="status status-green">On Track</span>"#),
+            "got: {html}"
         );
     }
 
     #[test]
     fn test_status_color_defaults_to_grey() {
-        assert_eq!(
-            render(":status[Declined]"),
-            r#"<span class="status status-grey">Declined</span>"#
+        let html = render(":status[Declined]");
+        assert!(
+            html.contains(r#"<span class="status status-grey">Declined</span>"#),
+            "got: {html}"
         );
     }
 
     #[test]
     fn test_status_unknown_color_falls_back_to_grey() {
-        assert_eq!(
-            render(":status[X]{color=mauve}"),
-            r#"<span class="status status-grey">X</span>"#
+        let html = render(":status[X]{color=mauve}");
+        assert!(
+            html.contains(r#"<span class="status status-grey">X</span>"#),
+            "got: {html}"
         );
     }
 
     #[test]
     fn test_status_escapes_label() {
-        let html = render(":status[<script>]{color=red}");
-        assert!(html.contains("&lt;script&gt;"), "got: {html}");
-        assert!(!html.contains("<script>"), "got: {html}");
+        // The directive only sees text characters that pulldown-cmark
+        // delivers via `Event::Text` (raw HTML like `<…>` is delivered as
+        // `Event::Html` and bypasses the directive entirely). Of the HTML
+        // metacharacters, the only one that pulldown-cmark still passes as
+        // text inside a paragraph is `&` — and the directive must escape
+        // it so the resulting `<span>` doesn't end up holding a literal
+        // entity reference written by the user.
+        let html = render(":status[A &amp; B]{color=red}");
+        // The directive's input is the textual content as pulldown delivers
+        // it: pulldown normalizes `&amp;` to `&`, which the directive must
+        // re-escape back to `&amp;` before placing it in the span body.
+        assert!(
+            html.contains(r#"<span class="status status-red">A &amp; B</span>"#),
+            "got: {html}"
+        );
     }
 
     #[test]
     fn test_status_trims_label() {
-        assert_eq!(
-            render(":status[  Spaced  ]{color=blue}"),
-            r#"<span class="status status-blue">Spaced</span>"#
+        let html = render(":status[  Spaced  ]{color=blue}");
+        assert!(
+            html.contains(r#"<span class="status status-blue">Spaced</span>"#),
+            "got: {html}"
         );
     }
 
     #[test]
     fn test_status_empty_label() {
-        assert_eq!(
-            render(":status[]{color=blue}"),
-            r#"<span class="status status-blue"></span>"#
+        let html = render(":status[]{color=blue}");
+        assert!(
+            html.contains(r#"<span class="status status-blue"></span>"#),
+            "got: {html}"
         );
     }
 

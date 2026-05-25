@@ -4,30 +4,48 @@
 
 /// Output from directive processing.
 ///
-/// Directives can produce three types of output:
+/// Directives can produce four kinds of output:
 ///
-/// - [`Html`](Self::Html): HTML that passes through pulldown-cmark unchanged
-/// - [`Markdown`](Self::Markdown): Markdown that needs recursive processing (for `::include`)
-/// - [`Skip`](Self::Skip): Pass through the directive unchanged
+/// - [`Html`](Self::Html): a single HTML blob passed verbatim to the backend's `raw_html`.
+/// - [`Marker`](Self::Marker): a structured open-tag / body / close-tag triple. The renderer
+///   emits these as three separate backend calls (`raw_html(open) + text(body) + raw_html(close)`),
+///   so a stateful backend (e.g. Confluence translating `<rw-status>` markers into native macros)
+///   can pattern-match the opening and closing tags independently while still seeing the body
+///   as text. Use this for any directive that wraps a label.
+/// - [`Markdown`](Self::Markdown): markdown that needs recursive processing (used by `::include`).
+/// - [`Skip`](Self::Skip): the handler declines; the original directive syntax is preserved.
 ///
 /// # Example
 ///
 /// ```
 /// use rw_renderer::directive::DirectiveOutput;
 ///
-/// // Return HTML
-/// let output = DirectiveOutput::html("<kbd>Ctrl+C</kbd>");
+/// // Single HTML blob.
+/// let _ = DirectiveOutput::html("<kbd>Ctrl+C</kbd>");
 ///
-/// // Return markdown for recursive processing
-/// let output = DirectiveOutput::markdown("# Included Content\n\nSome text.");
+/// // Marker pair — backend sees three discrete events.
+/// let _ = DirectiveOutput::marker(r#"<rw-status data-color="green">"#, "On Track", "</rw-status>");
 ///
-/// // Skip handling (pass through unchanged)
-/// let output = DirectiveOutput::Skip;
+/// // Markdown for recursive processing.
+/// let _ = DirectiveOutput::markdown("# Included Content\n\nSome text.");
+///
+/// // Skip handling (pass through unchanged).
+/// let _ = DirectiveOutput::Skip;
 /// ```
 #[derive(Debug, PartialEq, Eq)]
 pub enum DirectiveOutput {
-    /// HTML that passes through pulldown-cmark unchanged.
+    /// HTML that passes through to the backend as a single `raw_html` call.
     Html(String),
+    /// A marker pair: opening tag, body text, closing tag. The renderer emits these as
+    /// three separate backend calls (`raw_html(open) + text(body) + raw_html(close)`).
+    Marker {
+        /// Opening marker — emitted verbatim via `raw_html`.
+        open: String,
+        /// Body text — emitted via `text` (HTML-escaped by the backend).
+        body: String,
+        /// Closing marker — emitted verbatim via `raw_html`.
+        close: String,
+    },
     /// Markdown that needs to be processed through the full pipeline.
     ///
     /// Used by `::include` to inline file contents for recursive processing.
@@ -50,6 +68,37 @@ impl DirectiveOutput {
     #[must_use]
     pub fn html(s: impl Into<String>) -> Self {
         Self::Html(s.into())
+    }
+
+    /// Create a marker triple — opening tag, body text, closing tag.
+    ///
+    /// The renderer emits these as three separate backend calls so a stateful
+    /// backend can pattern-match the opening and closing tags while still
+    /// seeing the body as text.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rw_renderer::directive::DirectiveOutput;
+    ///
+    /// let output = DirectiveOutput::marker(
+    ///     r#"<rw-status data-color="green">"#,
+    ///     "On Track",
+    ///     "</rw-status>",
+    /// );
+    /// assert!(matches!(output, DirectiveOutput::Marker { .. }));
+    /// ```
+    #[must_use]
+    pub fn marker(
+        open: impl Into<String>,
+        body: impl Into<String>,
+        close: impl Into<String>,
+    ) -> Self {
+        Self::Marker {
+            open: open.into(),
+            body: body.into(),
+            close: close.into(),
+        }
     }
 
     /// Create a markdown output (for includes).

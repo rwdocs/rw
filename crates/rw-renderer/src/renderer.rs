@@ -12,7 +12,9 @@ use rw_sections::Sections;
 
 use crate::backend::{AlertKind, RenderBackend};
 use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
+use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
+use crate::directive::parser::{ParsedDirective, parse_line};
 use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry};
 use crate::util::heading_level_to_num;
 
@@ -183,6 +185,12 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     /// after the `WikiLink` tag start. We suppress it because we render our own
     /// resolved display text in `start_tag` instead.
     skip_wikilink_text: bool,
+    /// Buffer for adjacent `Event::Text` content awaiting inline-directive
+    /// scanning. pulldown-cmark splits text at `[`, `]`, and other inline
+    /// delimiters, so a `:name[content]` directive can land across several
+    /// `Event::Text` events. We coalesce them and flush via [`flush_text`]
+    /// before any non-Text event (or at end of stream).
+    text_buffer: String,
     _backend: PhantomData<B>,
 }
 
@@ -211,6 +219,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             wikilinks: false,
             title_resolver: None,
             skip_wikilink_text: false,
+            text_buffer: String::new(),
             _backend: PhantomData,
         }
     }
@@ -391,17 +400,25 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// Use [`render`](Self::render) instead when you already have a
     /// pulldown-cmark event iterator or need to skip directive processing.
     pub fn render_markdown(&mut self, markdown: &str) -> RenderResult {
-        // Phase 1: Preprocess directives (if configured)
+        // Phase 1: Preprocess directives — block-level only. Inline
+        // directives are expanded by the renderer itself in Phase 2: it
+        // scans buffered `Event::Text` content for `:name[…]` syntax and
+        // dispatches handlers directly into its backend. That keeps inline
+        // code spans, code blocks, and raw HTML naturally suppressing
+        // expansion, and avoids invoking pulldown-cmark a second time.
         let preprocessed = if let Some(ref mut processor) = self.directives {
             processor.process(markdown)
         } else {
             markdown.to_owned()
         };
 
-        // Phase 2: Parse and render
-        let mut result = self.render(self.create_parser(&preprocessed));
+        // Phase 2: Parse and render once. Inline-directive expansion happens
+        // inside `render` itself (see `flush_text`), so there's no second
+        // parse and no borrow-checker dance.
+        let parser = self.create_parser(&preprocessed);
+        let mut result = self.render(parser);
 
-        // Phase 3: Post-process directives (if configured)
+        // Phase 3: Post-process directives (if configured).
         if let Some(ref mut processor) = self.directives {
             processor.post_process(&mut result.html);
             result.warnings.extend(processor.warnings());
@@ -594,6 +611,9 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         for event in events {
             self.process_event(event);
         }
+        // Flush any trailing buffered text (e.g., the last paragraph if the
+        // stream ended without a closing tag observed).
+        self.flush_text_buffer();
 
         let mut html = std::mem::take(&mut self.output);
         for processor in &mut self.processors {
@@ -609,6 +629,20 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     }
 
     fn process_event(&mut self, event: Event<'_>) {
+        // Inline-directive expansion needs to see a full `:name[content]`
+        // span, but pulldown-cmark splits text at delimiters like `[` and
+        // `]`. We buffer adjacent `Event::Text` content outside code blocks
+        // and metadata, and flush it through `flush_text` immediately
+        // before processing any non-text event.
+        let should_buffer = matches!(&event, Event::Text(_))
+            && !self.code.is_active()
+            && !self.in_metadata_block
+            && !self.skip_wikilink_text;
+
+        if !should_buffer {
+            self.flush_text_buffer();
+        }
+
         match event {
             Event::Start(tag) => self.start_tag(tag),
             Event::End(tag) => self.end_tag(tag),
@@ -617,8 +651,13 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                     self.skip_wikilink_text = false;
                     return;
                 }
-                if !self.in_metadata_block {
+                if self.in_metadata_block {
+                    return;
+                }
+                if self.code.is_active() {
                     self.text(&text);
+                } else {
+                    self.text_buffer.push_str(&text);
                 }
             }
             Event::Code(code) => {
@@ -634,6 +673,88 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
                 // Not supported
             }
+        }
+    }
+
+    /// Flush buffered text through inline-directive expansion (if any handlers
+    /// are registered) and into the backend via [`text`](Self::text) /
+    /// [`raw_html`](Self::raw_html).
+    fn flush_text_buffer(&mut self) {
+        if self.text_buffer.is_empty() {
+            return;
+        }
+        let buf = std::mem::take(&mut self.text_buffer);
+        self.flush_text(&buf);
+    }
+
+    fn flush_text(&mut self, text: &str) {
+        if self.directives.is_none() {
+            self.text(text);
+            return;
+        }
+
+        let mut remaining = text;
+        while !remaining.is_empty() {
+            let Some((directive, start, end)) = parse_line(remaining) else {
+                self.text(remaining);
+                return;
+            };
+
+            if start > 0 {
+                self.text(&remaining[..start]);
+            }
+
+            let matched = &remaining[start..end];
+
+            // Tightly-scoped processor borrow: dispatch and capture the name
+            // before relinquishing the borrow so we can call self.text /
+            // self.raw_html below.
+            let outcome: Option<(DirectiveOutput, String)> = match directive {
+                ParsedDirective::Inline { name, args } => {
+                    let processor = self
+                        .directives
+                        .as_mut()
+                        .expect("checked above: directives is Some");
+                    let output = processor.dispatch_inline_named(&name, args);
+                    Some((output, name))
+                }
+                // Block-level directives shouldn't reach here (the line
+                // preprocessor consumed them), but defensively pass them
+                // through verbatim.
+                _ => None,
+            };
+
+            match outcome {
+                Some((DirectiveOutput::Html(html), _)) => {
+                    self.raw_html(&html);
+                }
+                Some((DirectiveOutput::Marker { open, body, close }, _)) => {
+                    self.raw_html(&open);
+                    self.text(&body);
+                    self.raw_html(&close);
+                }
+                Some((DirectiveOutput::Markdown(md), name)) => {
+                    if let Some(p) = self.directives.as_mut() {
+                        p.push_warning(format!(
+                            "inline directive ':{name}' returned Markdown; emitted as raw HTML (re-parsing of inline-directive Markdown output is not supported)"
+                        ));
+                    }
+                    self.raw_html(&md);
+                }
+                Some((DirectiveOutput::Skip, name)) => {
+                    if let Some(p) = self.directives.as_mut() {
+                        p.push_warning(format!(
+                            "unknown inline directive ':{name}' — no handler registered (or handler returned Skip)"
+                        ));
+                    }
+                    self.text(matched);
+                }
+                None => {
+                    self.text(matched);
+                }
+            }
+
+            remaining = &remaining[end..];
         }
     }
 
@@ -1684,6 +1805,136 @@ Install with apt.
         let result = renderer.render_markdown("Press :kbd[Ctrl+C] to copy.");
 
         assert!(result.html.contains("<kbd>Ctrl+C</kbd>"));
+    }
+
+    #[test]
+    fn test_inline_directive_inside_code_span_not_expanded() {
+        use crate::directive::DirectiveProcessor;
+
+        struct KbdDirective;
+        impl crate::directive::InlineDirective for KbdDirective {
+            fn name(&self) -> &'static str {
+                "kbd"
+            }
+            fn process(
+                &mut self,
+                args: crate::directive::DirectiveArgs,
+                _ctx: &crate::directive::DirectiveContext,
+            ) -> crate::directive::DirectiveOutput {
+                crate::directive::DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
+            }
+        }
+
+        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        let result = renderer.render_markdown("Use `:kbd[Ctrl+C]` to copy.");
+
+        assert!(
+            result.html.contains("<code>:kbd[Ctrl+C]</code>"),
+            "expected literal directive syntax inside <code>; got: {}",
+            result.html,
+        );
+        assert!(
+            !result.html.contains("<kbd>"),
+            "directive should NOT have been expanded inside the code span; got: {}",
+            result.html,
+        );
+    }
+
+    #[test]
+    fn test_inline_directive_outside_code_span_still_expands() {
+        use crate::directive::DirectiveProcessor;
+
+        struct KbdDirective;
+        impl crate::directive::InlineDirective for KbdDirective {
+            fn name(&self) -> &'static str {
+                "kbd"
+            }
+            fn process(
+                &mut self,
+                args: crate::directive::DirectiveArgs,
+                _ctx: &crate::directive::DirectiveContext,
+            ) -> crate::directive::DirectiveOutput {
+                crate::directive::DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
+            }
+        }
+
+        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        let result = renderer.render_markdown("Use :kbd[Ctrl+C] not `:kbd[Esc]`.");
+
+        assert!(
+            result.html.contains("<kbd>Ctrl+C</kbd>"),
+            "directive outside code span should expand; got: {}",
+            result.html,
+        );
+        assert!(
+            result.html.contains("<code>:kbd[Esc]</code>"),
+            "directive inside code span should stay literal; got: {}",
+            result.html,
+        );
+    }
+
+    #[test]
+    fn test_inline_directive_in_indented_code_block_not_expanded() {
+        use crate::directive::DirectiveProcessor;
+
+        struct KbdDirective;
+        impl crate::directive::InlineDirective for KbdDirective {
+            fn name(&self) -> &'static str {
+                "kbd"
+            }
+            fn process(
+                &mut self,
+                args: crate::directive::DirectiveArgs,
+                _ctx: &crate::directive::DirectiveContext,
+            ) -> crate::directive::DirectiveOutput {
+                crate::directive::DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
+            }
+        }
+
+        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        let result = renderer.render_markdown("paragraph\n\n    :kbd[X]\n");
+
+        assert!(
+            !result.html.contains("<kbd>"),
+            "directive inside indented code block should not expand; got: {}",
+            result.html,
+        );
+    }
+
+    #[test]
+    fn test_plain_code_span_unaffected() {
+        use crate::directive::DirectiveProcessor;
+
+        struct KbdDirective;
+        impl crate::directive::InlineDirective for KbdDirective {
+            fn name(&self) -> &'static str {
+                "kbd"
+            }
+            fn process(
+                &mut self,
+                args: crate::directive::DirectiveArgs,
+                _ctx: &crate::directive::DirectiveContext,
+            ) -> crate::directive::DirectiveOutput {
+                crate::directive::DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
+            }
+        }
+
+        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        let result = renderer.render_markdown("Plain `code` no directive.");
+
+        assert!(
+            result.html.contains("<code>code</code>"),
+            "plain code span should render normally; got: {}",
+            result.html,
+        );
     }
 
     #[test]
