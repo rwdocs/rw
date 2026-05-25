@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Documentation pages whose URL begins with `/api/` (e.g. `docs/api/usage.md`) no longer return 404 when opened directly or refreshed in the browser.
+- Long URLs and other unbreakable tokens (UUIDs, hash digests, file paths) in tables, paragraphs, and list items now wrap instead of forcing horizontal scrolling on narrow viewports — table cells break anywhere, body text only breaks tokens that would otherwise overflow.
 
 ## [0.1.24] - 2026-04-10
 
