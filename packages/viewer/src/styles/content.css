@@ -6,6 +6,19 @@
     scroll-margin-top: var(--scroll-anchor-offset, 1.5rem);
   }
 
+  /* Wrap long unbreakable tokens (URLs, UUIDs, hashes, file paths) so they
+     don't force horizontal scrolling. Table cells are width-constrained, so
+     they break anywhere; body text only breaks when a token would otherwise
+     overflow, preserving normal word-break behavior. Inline <code> inherits
+     overflow-wrap from its parent. <pre> blocks scroll horizontally. */
+  .prose :where(td, th) {
+    overflow-wrap: anywhere;
+  }
+
+  .prose :where(p, li) {
+    overflow-wrap: break-word;
+  }
+
   /* Remove backticks from inline code (typography plugin default) */
   .prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::before,
   .prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *))::after {
