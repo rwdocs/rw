@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 
 use crate::tabs::FenceTracker;
 
-use super::parser::{ParsedDirective, parse_container_line, parse_leaf_line, parse_line};
+use super::parser::{ParsedDirective, parse_container_line, parse_leaf_line};
 use super::{
-    ContainerDirective, DirectiveContext, DirectiveOutput, InlineDirective, LeafDirective,
-    Replacements,
+    ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective,
+    LeafDirective, Replacements,
 };
 
 /// Type alias for the file reading callback function.
@@ -106,27 +106,32 @@ fn default_read_file(path: &Path) -> io::Result<String> {
 ///
 /// # Example
 ///
+/// `process` handles block-level directives (leaf and container). Inline
+/// directives are expanded later by
+/// [`MarkdownRenderer::render_markdown`](crate::MarkdownRenderer::render_markdown),
+/// which scans `Event::Text` content for `:name[…]` syntax and dispatches
+/// the registered inline handlers directly into its backend — inline code
+/// spans, code blocks, and raw HTML pass through unchanged.
+///
 /// ```
-/// use std::path::Path;
 /// use rw_renderer::directive::{
-///     DirectiveProcessor, DirectiveProcessorConfig, DirectiveArgs,
-///     DirectiveContext, DirectiveOutput, InlineDirective,
+///     DirectiveProcessor, DirectiveArgs, DirectiveContext, DirectiveOutput, LeafDirective,
 /// };
 ///
-/// struct KbdDirective;
+/// struct YouTube;
 ///
-/// impl InlineDirective for KbdDirective {
-///     fn name(&self) -> &str { "kbd" }
+/// impl LeafDirective for YouTube {
+///     fn name(&self) -> &str { "youtube" }
 ///     fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-///         DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
+///         DirectiveOutput::html(format!(r#"<iframe src="https://youtu.be/{}"></iframe>"#, args.content()))
 ///     }
 /// }
 ///
 /// let mut processor = DirectiveProcessor::new()
-///     .with_inline(KbdDirective);
+///     .with_leaf(YouTube);
 ///
-/// let output = processor.process("Press :kbd[Ctrl+C] to copy.");
-/// assert!(output.contains("<kbd>Ctrl+C</kbd>"));
+/// let output = processor.process("::youtube[dQw4w9WgXcQ]");
+/// assert!(output.contains("<iframe"));
 /// ```
 pub struct DirectiveProcessor {
     config: DirectiveProcessorConfig,
@@ -167,22 +172,51 @@ impl DirectiveProcessor {
     }
 
     /// Register an inline directive handler.
+    ///
+    /// Dispatch picks the *first* handler whose `name()` matches, so
+    /// registering two handlers under the same name shadows the second
+    /// silently. A warning is recorded if that happens (visible via
+    /// [`warnings`](Self::warnings)).
     #[must_use]
     pub fn with_inline<D: InlineDirective + 'static>(mut self, handler: D) -> Self {
+        let name = handler.name().to_owned();
+        if self.inline_handlers.iter().any(|h| h.name() == name) {
+            self.warnings.push(format!(
+                "inline directive ':{name}' is registered more than once; only the first handler will be dispatched"
+            ));
+        }
         self.inline_handlers.push(Box::new(handler));
         self
     }
 
     /// Register a leaf directive handler.
+    ///
+    /// Dispatch picks the *first* handler whose `name()` matches; a duplicate
+    /// registration records a warning rather than overriding the original.
     #[must_use]
     pub fn with_leaf<D: LeafDirective + 'static>(mut self, handler: D) -> Self {
+        let name = handler.name().to_owned();
+        if self.leaf_handlers.iter().any(|h| h.name() == name) {
+            self.warnings.push(format!(
+                "leaf directive '::{name}' is registered more than once; only the first handler will be dispatched"
+            ));
+        }
         self.leaf_handlers.push(Box::new(handler));
         self
     }
 
     /// Register a container directive handler.
+    ///
+    /// Dispatch picks the *first* handler whose `name()` matches; a duplicate
+    /// registration records a warning rather than overriding the original.
     #[must_use]
     pub fn with_container<D: ContainerDirective + 'static>(mut self, handler: D) -> Self {
+        let name = handler.name().to_owned();
+        if self.container_handlers.iter().any(|h| h.name() == name) {
+            self.warnings.push(format!(
+                "container directive ':::{name}' is registered more than once; only the first handler will be dispatched"
+            ));
+        }
         self.container_handlers.push(Box::new(handler));
         self
     }
@@ -245,43 +279,11 @@ impl DirectiveProcessor {
             return self.dispatch_leaf(directive, line_num, depth);
         }
 
-        // 3. Inline directives — can appear anywhere in the line (:name)
-        self.process_inline_directives(line, line_num, depth)
-    }
-
-    fn process_inline_directives(&mut self, line: &str, line_num: usize, depth: usize) -> String {
-        let mut result = String::with_capacity(line.len());
-        let mut remaining = line;
-
-        while !remaining.is_empty() {
-            if let Some((directive, start, end)) = parse_line(remaining) {
-                // Add content before the directive
-                result.push_str(&remaining[..start]);
-
-                // Process the directive
-                let output = self.dispatch_inline(directive, line_num);
-
-                match output {
-                    DirectiveOutput::Html(html) => result.push_str(&html),
-                    DirectiveOutput::Markdown(md) => {
-                        let processed = self.process_with_depth(&md, depth + 1);
-                        result.push_str(&processed);
-                    }
-                    DirectiveOutput::Skip => {
-                        // Pass through unchanged
-                        result.push_str(&remaining[start..end]);
-                    }
-                }
-
-                remaining = &remaining[end..];
-            } else {
-                // No more directives, add remaining content
-                result.push_str(remaining);
-                break;
-            }
-        }
-
-        result
+        // 3. Inline directives (`:name[…]`) are expanded in
+        //    [`transform_events`](Self::transform_events) during the
+        //    pulldown-cmark event-stream phase, where code spans, code
+        //    blocks, and raw HTML are visible. Pass through unchanged here.
+        line.to_owned()
     }
 
     fn dispatch_container(
@@ -307,6 +309,13 @@ impl DirectiveProcessor {
                         DirectiveOutput::Html(html) => {
                             self.active_containers.push(name);
                             html
+                        }
+                        DirectiveOutput::Marker { open, body, close } => {
+                            // Container directives are block-level; treat a
+                            // marker triple as a single HTML run so the
+                            // wrapping container stays well-formed.
+                            self.active_containers.push(name);
+                            format!("{open}{body}{close}")
                         }
                         DirectiveOutput::Markdown(md) => {
                             self.active_containers.push(name);
@@ -365,6 +374,11 @@ impl DirectiveProcessor {
                     let output = self.leaf_handlers[idx].process(args, &ctx);
                     match output {
                         DirectiveOutput::Html(html) => html,
+                        DirectiveOutput::Marker { open, body, close } => {
+                            // Leaf directives are block-level; emit the
+                            // marker triple as a single HTML run.
+                            format!("{open}{body}{close}")
+                        }
                         DirectiveOutput::Markdown(md) => self.process_with_depth(&md, depth + 1),
                         DirectiveOutput::Skip => format!("::{name}{syntax}"),
                     }
@@ -377,20 +391,25 @@ impl DirectiveProcessor {
         }
     }
 
-    fn dispatch_inline(&mut self, directive: ParsedDirective, line_num: usize) -> DirectiveOutput {
-        match directive {
-            ParsedDirective::Inline { name, args } => {
-                let handler_idx = self.inline_handlers.iter().position(|h| h.name() == name);
-
-                if let Some(idx) = handler_idx {
-                    let ctx = self.config.create_context(line_num);
-                    self.inline_handlers[idx].process(args, &ctx)
-                } else {
-                    DirectiveOutput::Skip
-                }
-            }
-            _ => DirectiveOutput::Skip,
-        }
+    /// Dispatch an inline directive by name.
+    ///
+    /// Returns [`DirectiveOutput::Skip`] when no handler is registered for
+    /// `name`. Called by [`MarkdownRenderer`](crate::MarkdownRenderer) while
+    /// flushing buffered text content from the pulldown-cmark event stream.
+    ///
+    /// Line number is currently not threaded through; `DirectiveContext::line`
+    /// returns `0` for inline-directive calls. No existing inline handler
+    /// consults it.
+    pub(crate) fn dispatch_inline_named(
+        &mut self,
+        name: &str,
+        args: DirectiveArgs,
+    ) -> DirectiveOutput {
+        let Some(idx) = self.inline_handlers.iter().position(|h| h.name() == name) else {
+            return DirectiveOutput::Skip;
+        };
+        let ctx = self.config.create_context(0);
+        self.inline_handlers[idx].process(args, &ctx)
     }
 
     fn finalize(&mut self) {
@@ -424,6 +443,15 @@ impl DirectiveProcessor {
         replacements.apply(html);
     }
 
+    /// Record a warning. Called by [`InlineDirectiveStream`] when it
+    /// encounters cases it can't fully honor (e.g., an inline directive
+    /// returning `DirectiveOutput::Markdown`).
+    ///
+    /// [`InlineDirectiveStream`]: super::InlineDirectiveStream
+    pub(crate) fn push_warning(&mut self, msg: String) {
+        self.warnings.push(msg);
+    }
+
     /// Get all warnings generated during processing.
     ///
     /// Includes warnings from the processor itself and from all handlers.
@@ -446,6 +474,7 @@ impl DirectiveProcessor {
 mod tests {
     use super::*;
     use crate::directive::DirectiveArgs;
+    use crate::{HtmlBackend, MarkdownRenderer};
 
     // Test inline directive
     struct TestKbd;
@@ -500,10 +529,19 @@ mod tests {
 
     #[test]
     fn test_inline_directive() {
-        let mut processor = DirectiveProcessor::new().with_inline(TestKbd);
+        // Inline directives are expanded via `transform_events` (during the
+        // pulldown-cmark event stream), not by `process`. Drive the full
+        // `MarkdownRenderer` pipeline so the wiring runs end-to-end.
 
-        let output = processor.process("Press :kbd[Ctrl+C] to copy.");
-        assert_eq!(output, "Press <kbd>Ctrl+C</kbd> to copy.");
+        let processor = DirectiveProcessor::new().with_inline(TestKbd);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+        let result = renderer.render_markdown("Press :kbd[Ctrl+C] to copy.");
+
+        assert!(
+            result.html.contains("<kbd>Ctrl+C</kbd>"),
+            "got: {}",
+            result.html,
+        );
     }
 
     #[test]
@@ -528,19 +566,33 @@ mod tests {
             }
         }
 
-        let mut processor = DirectiveProcessor::new().with_inline(MarkerDirective);
-        let mut html = processor.process(":marker[x]");
-        processor.post_process(&mut html);
+        let processor = DirectiveProcessor::new().with_inline(MarkerDirective);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+        let result = renderer.render_markdown(":marker[x]");
 
-        assert_eq!(html, r#"<span class="marker">"#);
+        assert!(
+            result.html.contains(r#"<span class="marker">"#),
+            "got: {}",
+            result.html,
+        );
     }
 
     #[test]
     fn test_multiple_inline_directives() {
-        let mut processor = DirectiveProcessor::new().with_inline(TestKbd);
+        let processor = DirectiveProcessor::new().with_inline(TestKbd);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+        let result = renderer.render_markdown("Press :kbd[Ctrl+C] then :kbd[Ctrl+V].");
 
-        let output = processor.process("Press :kbd[Ctrl+C] then :kbd[Ctrl+V].");
-        assert_eq!(output, "Press <kbd>Ctrl+C</kbd> then <kbd>Ctrl+V</kbd>.");
+        assert!(
+            result.html.contains("<kbd>Ctrl+C</kbd>"),
+            "got: {}",
+            result.html,
+        );
+        assert!(
+            result.html.contains("<kbd>Ctrl+V</kbd>"),
+            "got: {}",
+            result.html,
+        );
     }
 
     #[test]
@@ -592,13 +644,26 @@ mod tests {
 
     #[test]
     fn test_code_fence_skipping() {
-        let mut processor = DirectiveProcessor::new().with_inline(TestKbd);
+        // End-to-end: a fenced code block should preserve inline directive
+        // syntax literally, while the same directive on a regular paragraph
+        // line should expand. The `transform_events` stream is responsible
+        // for skipping `Tag::CodeBlock` content; `process` no longer touches
+        // inline syntax at all.
 
-        let input = "```\n:kbd[inside fence]\n```\n:kbd[outside]";
-        let output = processor.process(input);
+        let processor = DirectiveProcessor::new().with_inline(TestKbd);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+        let result = renderer.render_markdown("```\n:kbd[inside fence]\n```\n\n:kbd[outside]");
 
-        assert!(output.contains(":kbd[inside fence]")); // Should NOT be processed
-        assert!(output.contains("<kbd>outside</kbd>")); // Should be processed
+        assert!(
+            result.html.contains(":kbd[inside fence]"),
+            "directive inside fence should stay literal; got: {}",
+            result.html,
+        );
+        assert!(
+            result.html.contains("<kbd>outside</kbd>"),
+            "directive outside fence should expand; got: {}",
+            result.html,
+        );
     }
 
     #[test]
@@ -758,16 +823,21 @@ mod tests {
 
     #[test]
     fn inline_directive_after_leaf_token_in_paragraph_still_expands() {
-        // Regression guard: a `::leaf` token mid-line must not stop the scanner
-        // from finding a later `:inline` directive on the same line.
-        let mut processor = DirectiveProcessor::new().with_inline(TestKbd);
+        // Regression guard: a `::leaf` token mid-line must not stop the
+        // scanner from finding a later `:inline` directive on the same line.
+        // Driven through the full pipeline because inline expansion now
+        // happens in `transform_events`, not in `process`.
 
-        let output = processor.process("Press ::foo[x] then :kbd[Ctrl+C].");
+        let processor = DirectiveProcessor::new().with_inline(TestKbd);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+        let result = renderer.render_markdown("Press ::foo[x] then :kbd[Ctrl+C].");
+
         assert!(
-            output.contains("<kbd>Ctrl+C</kbd>"),
-            "inline directive after a `::` token should still expand. got: {output}"
+            result.html.contains("<kbd>Ctrl+C</kbd>"),
+            "inline directive after a `::` token should still expand. got: {}",
+            result.html,
         );
         // The mid-line `::foo[x]` is literal text — no leaf expansion mid-paragraph
-        assert!(output.contains("::foo[x]"));
+        assert!(result.html.contains("::foo[x]"), "got: {}", result.html);
     }
 }

@@ -28,6 +28,11 @@
 //!    HTML using the [`Replacements`] collector for efficient single-pass
 //!    string replacement.
 //!
+//! Inline directives are expanded by the renderer itself: as it iterates the
+//! pulldown-cmark event stream it scans `Event::Text` content for
+//! `:name[…]` syntax and dispatches handlers directly into its backend.
+//! Inline code spans, code blocks, and raw HTML pass through unchanged.
+//!
 //! # Path Resolution Sandbox
 //!
 //! Directive handlers that read files (e.g. `::include`) should call
@@ -40,8 +45,11 @@
 //!
 //! # Example
 //!
+//! The easiest way to see inline directives in action is through the full
+//! [`MarkdownRenderer`](crate::MarkdownRenderer) pipeline:
+//!
 //! ```
-//! use std::path::Path;
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer};
 //! use rw_renderer::directive::{
 //!     DirectiveProcessor, DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective,
 //! };
@@ -56,11 +64,11 @@
 //!     }
 //! }
 //!
-//! let mut processor = DirectiveProcessor::new()
-//!     .with_inline(KbdDirective);
+//! let processor = DirectiveProcessor::new().with_inline(KbdDirective);
+//! let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
 //!
-//! let output = processor.process("Press :kbd[Ctrl+C] to copy.");
-//! assert!(output.contains("<kbd>Ctrl+C</kbd>"));
+//! let result = renderer.render_markdown("Press :kbd[Ctrl+C] to copy.");
+//! assert!(result.html.contains("<kbd>Ctrl+C</kbd>"));
 //! ```
 
 mod args;
@@ -69,7 +77,7 @@ mod context;
 mod inline;
 mod leaf;
 mod output;
-mod parser;
+pub(crate) mod parser;
 mod processor;
 mod replacements;
 
