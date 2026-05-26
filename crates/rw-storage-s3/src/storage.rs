@@ -3,8 +3,9 @@
 //! Reads documentation bundles from S3 using the format defined in [`crate::format`].
 //! Tracks the manifest `ETag` to support change detection via [`Storage::has_changed`].
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::GetObjectError;
@@ -164,14 +165,8 @@ impl S3Storage {
 impl Storage for S3Storage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let (manifest, etag) = self.fetch_manifest()?;
-        // Recover from poisoning so a panic that touched these caches once
-        // (e.g., allocator failure mid-assignment) does not permanently
-        // brick `Site::reload` (#409).
-        *self
-            .last_etag
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = etag;
-        *self.mtimes.lock().unwrap_or_else(PoisonError::into_inner) = manifest.mtimes;
+        *self.last_etag.lock() = etag;
+        *self.mtimes.lock() = manifest.mtimes;
         Ok(manifest.documents)
     }
 
@@ -190,13 +185,7 @@ impl Storage for S3Storage {
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
-        Ok(self
-            .mtimes
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(path)
-            .copied()
-            .unwrap_or(0.0))
+        Ok(self.mtimes.lock().get(path).copied().unwrap_or(0.0))
     }
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
@@ -205,61 +194,10 @@ impl Storage for S3Storage {
 
     fn has_changed(&self) -> Result<bool, StorageError> {
         let remote_etag = self.head_manifest_etag()?;
-        let last = self
-            .last_etag
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let last = self.last_etag.lock();
         match (&*last, &remote_etag) {
             (Some(last), Some(remote)) if last == remote => Ok(false),
             _ => Ok(true),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::runtime::Runtime;
-
-    fn test_storage() -> S3Storage {
-        // Dummy config with explicit credentials so `aws_config` does not
-        // attempt to discover them from the environment / IMDS at test time.
-        // No network is hit by `S3Storage::new` itself.
-        let runtime = Arc::new(Runtime::new().unwrap());
-        let config = S3Config {
-            bucket: "test".to_owned(),
-            prefix: "test".to_owned(),
-            region: "us-east-1".to_owned(),
-            endpoint: Some("http://localhost:9".to_owned()),
-            bucket_root_path: None,
-            access_key_id: Some("test".to_owned()),
-            secret_access_key: Some("test".to_owned()),
-        };
-        S3Storage::new(config, runtime).unwrap()
-    }
-
-    #[test]
-    fn mtime_recovers_from_poisoned_mtimes_lock() {
-        // White-box regression for #409: a panic that poisons `mtimes` must
-        // not brick subsequent `mtime()` calls (which are reached per page
-        // during rendering). Reaches into the private Mutex; rewrite if the
-        // recovery primitive ever changes (parking_lot, etc.).
-        let storage = Arc::new(test_storage());
-
-        let storage_clone = Arc::clone(&storage);
-        let join = std::thread::spawn(move || {
-            let _guard = storage_clone.mtimes.lock().unwrap();
-            panic!("induced");
-        });
-        assert!(join.join().is_err(), "spawned thread should have panicked");
-        assert!(
-            storage.mtimes.is_poisoned(),
-            "panic-with-lock-held should have poisoned the lock"
-        );
-
-        // Without the fix this would panic at `mtimes.lock().unwrap()`. With
-        // the fix it returns the default mtime (0.0) for an unknown path.
-        let mtime = storage.mtime("anything").unwrap();
-        assert!((mtime - 0.0).abs() < f64::EPSILON);
     }
 }

@@ -32,6 +32,7 @@ rw-vcs = { path = "crates/rw-vcs" }
 base64 = "0.22"
 glob = "0.3"
 notify = "8"
+parking_lot = "0.12"
 quick-xml = "0.39"
 thiserror = "2"
 serde = { version = "1.0", features = ["derive"] }
@@ -70,6 +71,7 @@ missing_panics_doc = "allow"
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
 # Restriction lints
+disallowed_types = "warn"
 clone_on_ref_ptr = "warn"
 dbg_macro = "warn"
 empty_drop = "warn"

@@ -21,6 +21,7 @@ rw-kroki = { workspace = true, optional = true }
 rw-renderer = { workspace = true, optional = true }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
+parking_lot = { workspace = true }
 aws-sdk-s3 = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }

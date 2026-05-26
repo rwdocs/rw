@@ -4420,6 +4420,7 @@ name = "rw-site"
 version = "0.1.24"
 dependencies = [
  "criterion",
+ "parking_lot",
  "regex",
  "rw-cache",
  "rw-kroki",
@@ -4440,6 +4441,7 @@ dependencies = [
 name = "rw-storage"
 version = "0.1.24"
 dependencies = [
+ "parking_lot",
  "serde",
  "serde_json",
  "thiserror",
@@ -4452,6 +4454,7 @@ dependencies = [
  "glob",
  "ignore",
  "notify",
+ "parking_lot",
  "rayon",
  "rw-meta",
  "rw-sections",
@@ -4469,6 +4472,7 @@ version = "0.1.24"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
+ "parking_lot",
  "pretty_assertions",
  "rw-kroki",
  "rw-renderer",
