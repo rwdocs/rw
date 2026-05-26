@@ -119,13 +119,18 @@ impl LiveReloadManager {
                 }
             }
             StorageEventKind::Created => {
+                // Broadcast unconditionally. Do NOT gate this on a
+                // snapshot read (e.g., `site.has_page(&event.path)`):
+                // any read here triggers a reload that races the
+                // watcher event we just received, and on transient
+                // `storage.scan()` failure returns the pre-event
+                // snapshot — silently dropping the broadcast. See
+                // issue #407 and the `created_broadcasts_*` tests below.
                 site.invalidate();
-                if site.has_page(&event.path).unwrap_or(false) {
-                    let _ = broadcaster.send(ReloadEvent {
-                        event_type: ReloadEventType::Structure,
-                        path: url_path,
-                    });
-                }
+                let _ = broadcaster.send(ReloadEvent {
+                    event_type: ReloadEventType::Structure,
+                    path: url_path,
+                });
             }
             StorageEventKind::Removed => {
                 let known = site.has_page(&event.path).unwrap_or(false);
@@ -151,6 +156,9 @@ impl LiveReloadManager {
 mod tests {
     use super::*;
 
+    use rw_site::PageRendererConfig;
+    use rw_storage::{MockStorage, StorageErrorKind, StorageEvent};
+
     #[test]
     fn test_content_event_serialization() {
         let event = ReloadEvent {
@@ -175,5 +183,90 @@ mod tests {
 
         assert_eq!(json["type"], "structure");
         assert_eq!(json["path"], "/guide");
+    }
+
+    // Returns a `Site` with `has_loaded=true`, so any subsequent
+    // `reload_if_needed` failure is swallowed and the stale snapshot is
+    // returned — the production behavior the Created handler must cope with.
+    fn loaded_site(storage: &Arc<MockStorage>) -> Arc<Site> {
+        let site = Arc::new(Site::new(
+            Arc::clone(storage) as Arc<dyn Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        ));
+        // Force has_loaded=true so reload_if_needed swallows later errors.
+        site.navigation(None).expect("initial load");
+        site
+    }
+
+    #[test]
+    fn created_broadcasts_structure_even_when_post_event_reload_would_fail() {
+        // Pins #407: the Created handler must broadcast Structure without
+        // depending on any post-invalidate snapshot read. Setup arranges
+        // a state where any such read would silently swallow a scan
+        // error and return the (pre-event) stale snapshot — exactly the
+        // race that would re-introduce the bug.
+        let storage = Arc::new(MockStorage::new());
+        let site = loaded_site(&storage);
+
+        let (tx, mut rx) = broadcast::channel(8);
+
+        storage.set_scan_error(Some(StorageErrorKind::Unavailable));
+
+        LiveReloadManager::handle_storage_event(
+            &StorageEvent {
+                path: "foo".into(),
+                kind: StorageEventKind::Created,
+            },
+            &site,
+            &tx,
+        );
+
+        let event = rx
+            .try_recv()
+            .expect("Created should broadcast Structure even when reload would fail");
+        assert!(matches!(event.event_type, ReloadEventType::Structure));
+        assert_eq!(event.path, "/foo");
+        assert!(
+            rx.try_recv().is_err(),
+            "Created should produce exactly one Structure broadcast",
+        );
+
+        // Confirm the broadcast did not depend on a successful scan: a
+        // direct read still surfaces the stale snapshot (the scan error
+        // is swallowed and `foo` is absent), so any future re-introduction
+        // of a post-invalidate `has_page` re-check would re-trigger the bug.
+        assert!(
+            !site
+                .has_page("foo")
+                .expect("scan error is swallowed after initial load")
+        );
+    }
+
+    #[test]
+    fn created_broadcasts_structure_on_successful_path() {
+        // Locks in the simple-path behavior: a Created event with no
+        // backend failure still produces a single Structure broadcast.
+        let storage = Arc::new(MockStorage::new());
+        let site = loaded_site(&storage);
+
+        let (tx, mut rx) = broadcast::channel(8);
+
+        LiveReloadManager::handle_storage_event(
+            &StorageEvent {
+                path: "foo".into(),
+                kind: StorageEventKind::Created,
+            },
+            &site,
+            &tx,
+        );
+
+        let event = rx.try_recv().expect("Created should broadcast Structure");
+        assert!(matches!(event.event_type, ReloadEventType::Structure));
+        assert_eq!(event.path, "/foo");
+        assert!(
+            rx.try_recv().is_err(),
+            "Created should produce exactly one Structure broadcast",
+        );
     }
 }
