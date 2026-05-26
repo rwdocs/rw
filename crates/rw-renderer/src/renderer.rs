@@ -1808,6 +1808,36 @@ Install with apt.
     }
 
     #[test]
+    fn test_inline_directive_after_punctuation_colon_still_expands() {
+        // Issue #390: a punctuation colon earlier on the line (`Note:`) used to
+        // blind the scanner to the real :kbd directive that followed.
+        use crate::directive::{
+            DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor, InlineDirective,
+        };
+
+        struct KbdDirective;
+        impl InlineDirective for KbdDirective {
+            fn name(&self) -> &'static str {
+                "kbd"
+            }
+            fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
+                DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
+            }
+        }
+
+        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+
+        let result = renderer.render_markdown("Note: press :kbd[Ctrl+C] to copy.");
+
+        assert!(
+            result.html.contains("<kbd>Ctrl+C</kbd>"),
+            "expected :kbd to expand after a non-directive colon; got: {}",
+            result.html,
+        );
+    }
+
+    #[test]
     fn test_inline_directive_inside_code_span_not_expanded() {
         use crate::directive::DirectiveProcessor;
 

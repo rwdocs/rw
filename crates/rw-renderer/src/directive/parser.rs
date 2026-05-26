@@ -23,45 +23,81 @@ pub(crate) enum ParsedDirective {
 
 /// Parse a line for an inline directive (`:name`).
 ///
-/// Skips over multi-colon runs (`::`, `:::`, …) so that an inline directive
-/// can still be found after a leaf-like or container-like token on the same
-/// line. Returns `None` only when no single-colon inline directive remains
-/// in the input.
+/// Walks colon runs from left to right and returns the first that opens a
+/// valid inline directive. To stay out of the way of prose punctuation, the
+/// scanner only considers a single colon as a directive opener when it sits
+/// at a word boundary — start-of-line or preceded by a non-name character.
+/// Colons embedded inside an alphanumeric run (`9:30`, `14:30:45`, URL
+/// schemes like `https:`, or qualified identifiers like `pkg:mod`) are
+/// skipped so prose containing them does not dispatch unintended directives.
+/// Multi-colon runs (`::`, `:::`, …) are skipped wholesale — those belong
+/// to leaf / container tokens. Returns `None` when no inline directive
+/// remains in the input.
 pub(crate) fn parse_line(line: &str) -> Option<(ParsedDirective, usize, usize)> {
-    // Walk colon runs from left to right, skipping any run of two or more
-    // colons (those are leaf / container tokens, not inline). Stop at the
-    // first single-colon run that starts a valid inline directive.
     let mut search_from = 0;
-    let (start, colon_count) = loop {
+    loop {
         let rel = line[search_from..].find(':')?;
         let abs = search_from + rel;
         let count = line[abs..].chars().take_while(|&c| c == ':').count();
-        if count == 1 {
-            break (abs, count);
+
+        if count != 1 {
+            search_from = abs + count;
+            continue;
         }
-        search_from = abs + count;
-    };
 
-    let mut pos = start + colon_count;
-    let after_colons = &line[pos..];
+        if is_directive_boundary(line, abs)
+            && let Some(parsed) = try_parse_inline_at(line, abs)
+        {
+            return Some(parsed);
+        }
 
-    // Parse name - name ends at [, {, or whitespace
-    let name_end = after_colons
+        // Colon is mid-word (`9:30`) or starts an invalid name — step past
+        // it and keep scanning.
+        search_from = abs + 1;
+    }
+}
+
+/// True when a colon at byte offset `colon_pos` looks like the opener of an
+/// inline directive rather than punctuation embedded in a word.
+///
+/// The opener is accepted at start-of-line or when the preceding character
+/// is anything other than a directive-name character (alphanumeric, `-`,
+/// `_`). That keeps `:kbd[X]`, ` :kbd[X]`, `(:kbd[X])` working while
+/// rejecting `9:30`, `pkg:mod`, and `:foo:bar`'s second colon.
+fn is_directive_boundary(line: &str, colon_pos: usize) -> bool {
+    match line[..colon_pos].chars().next_back() {
+        None => true,
+        Some(prev) => !is_name_char(prev),
+    }
+}
+
+fn is_name_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '-' || c == '_'
+}
+
+/// Attempt to parse an inline directive whose opening colon sits at `start`.
+///
+/// Returns `None` (without consuming anything) when the colon is not followed
+/// by a valid directive name. Callers should advance past the colon and keep
+/// scanning.
+fn try_parse_inline_at(line: &str, start: usize) -> Option<(ParsedDirective, usize, usize)> {
+    let mut pos = start + 1;
+    let after_colon = &line[pos..];
+
+    let name_end = after_colon
         .find(|c: char| c == '[' || c == '{' || c.is_whitespace())
-        .unwrap_or(after_colons.len());
+        .unwrap_or(after_colon.len());
 
-    let name = &after_colons[..name_end];
+    let name = &after_colon[..name_end];
     if name.is_empty() || !is_valid_directive_name(name) {
         return None;
     }
 
     pos += name_end;
 
-    // Parse content in brackets [...]
     let (content, content_consumed) = parse_brackets(&line[pos..]);
     pos += content_consumed;
 
-    // Parse attributes in braces {...}
     let (attrs_str, attrs_consumed) = parse_braces(&line[pos..]);
     pos += attrs_consumed;
 
@@ -126,10 +162,7 @@ pub(crate) fn parse_leaf_line(line: &str) -> Option<ParsedDirective> {
 ///
 /// Valid names contain only alphanumeric characters, hyphens, and underscores.
 fn is_valid_directive_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    !name.is_empty() && name.chars().all(is_name_char)
 }
 
 /// Parse content from brackets: `[content]`
@@ -315,6 +348,81 @@ mod tests {
         }
         assert_eq!(start, 9);
         assert_eq!(end, 16);
+    }
+
+    // -- Issue #390: directives after a non-directive single colon --------
+
+    #[test]
+    fn test_inline_directive_after_punctuation_colon() {
+        // "Note: " has a colon followed by whitespace — empty directive name.
+        // The scanner must skip past it and find :kbd further along.
+        let result = parse_line("Note: press :kbd[Ctrl+C] to copy.");
+        let (directive, start, end) = result.expect("should find :kbd after `Note:`");
+        match directive {
+            ParsedDirective::Inline { name, args } => {
+                assert_eq!(name, "kbd");
+                assert_eq!(args.content, "Ctrl+C");
+            }
+            _ => panic!("expected inline directive"),
+        }
+        assert_eq!(start, 12);
+        assert_eq!(end, 24);
+    }
+
+    #[test]
+    fn test_inline_directive_after_url_scheme() {
+        // The `:` in `https:` is followed by `//…`, which is not a valid name.
+        // The scanner must keep going and find :cmd.
+        let result = parse_line("See https://example.com then :cmd[deploy]");
+        let (directive, _, _) = result.expect("should find :cmd after the URL scheme colon");
+        match directive {
+            ParsedDirective::Inline { name, args } => {
+                assert_eq!(name, "cmd");
+                assert_eq!(args.content, "deploy");
+            }
+            _ => panic!("expected inline directive"),
+        }
+    }
+
+    #[test]
+    fn test_punctuation_colon_with_no_directive() {
+        // A line with only a punctuation colon and no directive must still
+        // return None — we should not invent directives where none exist.
+        assert!(parse_line("Note: nothing to see here.").is_none());
+    }
+
+    #[test]
+    fn test_time_strings_are_not_directives() {
+        // The colon inside a time-of-day is wedged between digits — it is
+        // not a word boundary and must not be treated as a directive opener.
+        // Otherwise `:30` / `:45` would be dispatched as unknown inline
+        // directives and pollute the warnings channel (failing --strict
+        // publishes on benign prose).
+        assert!(parse_line("Standup at 9:30 sharp").is_none());
+        assert!(parse_line("Build started at 14:30:45 UTC").is_none());
+        assert!(parse_line("standup: 9:30 then deploy").is_none());
+    }
+
+    #[test]
+    fn test_qualified_identifier_is_not_a_directive() {
+        // `:foo:bar` — second colon is preceded by an alphanumeric char, so
+        // it is mid-word and not a directive opener.
+        assert!(parse_line(":foo:bar").is_none());
+        assert!(parse_line("aspect ratio :1:1 means equal").is_none());
+        assert!(parse_line("see pkg:mod for details").is_none());
+    }
+
+    #[test]
+    fn test_directive_after_open_punctuation() {
+        // Colons immediately after non-name punctuation should still open a
+        // directive — `(`, `]`, `,`, etc. are all word boundaries.
+        let (directive, start, _) =
+            parse_line("(:kbd[X])").expect("colon after `(` should open a directive");
+        match directive {
+            ParsedDirective::Inline { name, .. } => assert_eq!(name, "kbd"),
+            _ => panic!("expected inline directive"),
+        }
+        assert_eq!(start, 1);
     }
 
     #[test]
