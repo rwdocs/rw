@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 /// Kind of raw file-system event (before title resolution).
@@ -62,7 +62,9 @@ impl EventDebouncer {
     pub fn record(&self, path: PathBuf, kind: RawEventKind) {
         use std::collections::hash_map::Entry;
 
-        let mut pending = self.pending.lock().unwrap();
+        // Recover from poisoning so a panic in one watcher callback does
+        // not silently kill live reload for the rest of the process (#409).
+        let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
         let deadline = Instant::now() + self.debounce_duration;
 
         match pending.entry(path) {
@@ -114,7 +116,7 @@ impl EventDebouncer {
     /// Thread-safe, called from watcher thread.
     /// Returns events with file system paths (not URL paths).
     pub fn drain_ready(&self) -> Vec<DebouncedEvent> {
-        let mut pending = self.pending.lock().unwrap();
+        let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
         let now = Instant::now();
 
         // Use extract_if when stabilized; for now, collect keys then remove
@@ -290,5 +292,34 @@ mod tests {
         assert_eq!(EventDebouncer::coalesce(Removed, Created), Some(Modified));
         assert_eq!(EventDebouncer::coalesce(Removed, Modified), Some(Removed));
         assert_eq!(EventDebouncer::coalesce(Removed, Removed), Some(Removed));
+    }
+
+    #[test]
+    fn record_and_drain_recover_from_poisoned_pending() {
+        // White-box regression for #409: a panic that poisons `pending` must
+        // not silently kill live reload. Reaches into the private Mutex;
+        // rewrite if the recovery primitive ever changes (parking_lot, etc.).
+        use std::sync::Arc;
+
+        let debouncer = Arc::new(EventDebouncer::new(Duration::from_millis(10)));
+
+        // Poison `pending` from a worker thread that panics while holding it.
+        let debouncer_clone = Arc::clone(&debouncer);
+        let join = thread::spawn(move || {
+            let _guard = debouncer_clone.pending.lock().unwrap();
+            panic!("induced");
+        });
+        assert!(join.join().is_err(), "spawned thread should have panicked");
+        assert!(
+            debouncer.pending.is_poisoned(),
+            "panic-with-lock-held should have poisoned the lock"
+        );
+
+        // Without the fix, both calls would panic at `pending.lock().unwrap()`.
+        debouncer.record(PathBuf::from("guide.md"), RawEventKind::Modified);
+        thread::sleep(Duration::from_millis(15));
+        let events = debouncer.drain_ready();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].path, PathBuf::from("guide.md"));
     }
 }

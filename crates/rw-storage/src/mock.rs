@@ -4,7 +4,7 @@
 //! This implementation returns metadata exactly as set - no inheritance logic.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{RwLock, mpsc};
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
@@ -42,6 +42,8 @@ pub struct MockStorage {
     metadata: RwLock<HashMap<String, Metadata>>,
     /// If set, `scan()` returns this error kind.
     scan_error: RwLock<Option<StorageErrorKind>>,
+    /// If `true`, `scan()` panics instead of returning.
+    scan_panic: AtomicBool,
     /// If set, overrides the default `has_changed()` return value.
     has_changed: RwLock<Option<Result<bool, StorageErrorKind>>>,
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
@@ -57,6 +59,7 @@ impl Default for MockStorage {
             mtimes: RwLock::new(HashMap::new()),
             metadata: RwLock::new(HashMap::new()),
             scan_error: RwLock::new(None),
+            scan_panic: AtomicBool::new(false),
             has_changed: RwLock::new(None),
             event_sender: RwLock::new(None),
             scan_count: AtomicUsize::new(0),
@@ -311,6 +314,17 @@ impl MockStorage {
         *self.scan_error.write().unwrap() = kind;
     }
 
+    /// Configure `scan()` to panic instead of returning.
+    ///
+    /// Used by lock-poisoning regression tests to simulate a backend that
+    /// panics while `Site` holds `reload_lock`. `Release`/`Acquire` are used
+    /// (instead of `Relaxed`) so cross-thread tests that set the flag from
+    /// one thread and observe it from a reload worker on another thread get
+    /// a happens-before guarantee.
+    pub fn set_scan_panic(&self, panic: bool) {
+        self.scan_panic.store(panic, Ordering::Release);
+    }
+
     /// Number of times `scan()` has been called, including failed calls.
     ///
     /// Useful for verifying that callers do not re-scan during a backend outage.
@@ -391,6 +405,10 @@ impl MockStorage {
 impl Storage for MockStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         self.scan_count.fetch_add(1, Ordering::Relaxed);
+        assert!(
+            !self.scan_panic.load(Ordering::Acquire),
+            "MockStorage::scan: induced panic"
+        );
         if let Some(kind) = self.scan_error.read().unwrap().as_ref() {
             return Err(StorageError::new(*kind).with_backend("Mock"));
         }
