@@ -10,6 +10,7 @@ description = "Storage abstraction for RW documentation engine"
 workspace = true
 
 [dependencies]
+parking_lot = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -19,4 +20,4 @@ serde_json = { workspace = true }
 
 [features]
 default = []
-mock = []
+mock = ["dep:parking_lot"]

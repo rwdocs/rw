@@ -5,7 +5,9 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{RwLock, mpsc};
+use std::sync::mpsc;
+
+use parking_lot::RwLock;
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
 use crate::metadata::Metadata;
@@ -77,13 +79,9 @@ impl MockStorage {
     /// Add a document with the given URL path and title.
     ///
     /// The document has `has_content=true` and no `page_kind`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_document(self, path: impl Into<String>, title: impl Into<String>) -> Self {
-        self.documents.write().unwrap().push(Document {
+        self.documents.write().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: true,
@@ -99,10 +97,6 @@ impl MockStorage {
     /// Add a document with an ordered `pages` list.
     ///
     /// The document has `has_content=true` and the specified `pages` ordering.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_document_and_pages(
         self,
@@ -110,7 +104,7 @@ impl MockStorage {
         title: impl Into<String>,
         pages: Vec<String>,
     ) -> Self {
-        self.documents.write().unwrap().push(Document {
+        self.documents.write().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: true,
@@ -126,10 +120,6 @@ impl MockStorage {
     /// Add a document with a page kind (section).
     ///
     /// The document has `has_content=true` and the specified `page_kind`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_document_and_kind(
         self,
@@ -137,7 +127,7 @@ impl MockStorage {
         title: impl Into<String>,
         page_kind: impl Into<String>,
     ) -> Self {
-        self.documents.write().unwrap().push(Document {
+        self.documents.write().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: true,
@@ -161,7 +151,7 @@ impl MockStorage {
         page_kind: impl Into<String>,
         namespace: impl Into<String>,
     ) -> Self {
-        self.documents.write().unwrap().push(Document {
+        self.documents.write().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: true,
@@ -177,13 +167,9 @@ impl MockStorage {
     /// Add a virtual page (no content, with optional kind).
     ///
     /// The document has `has_content=false`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_virtual_page(self, path: impl Into<String>, title: impl Into<String>) -> Self {
-        self.documents.write().unwrap().push(Document {
+        self.documents.write().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: false,
@@ -197,10 +183,6 @@ impl MockStorage {
     }
 
     /// Add a virtual page with a page kind.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_virtual_page_and_kind(
         self,
@@ -208,7 +190,7 @@ impl MockStorage {
         title: impl Into<String>,
         page_kind: impl Into<String>,
     ) -> Self {
-        self.documents.write().unwrap().push(Document {
+        self.documents.write().push(Document {
             path: path.into(),
             title: title.into(),
             has_content: false,
@@ -222,26 +204,15 @@ impl MockStorage {
     }
 
     /// Add content for a URL path.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_content(self, path: impl Into<String>, content: impl Into<String>) -> Self {
-        self.contents
-            .write()
-            .unwrap()
-            .insert(path.into(), content.into());
+        self.contents.write().insert(path.into(), content.into());
         self
     }
 
     /// Add a document with both document entry and content.
     ///
     /// The document has `has_content=true` and no `page_kind`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_file(
         self,
@@ -250,7 +221,7 @@ impl MockStorage {
         content: impl Into<String>,
     ) -> Self {
         let path: String = path.into();
-        self.documents.write().unwrap().push(Document {
+        self.documents.write().push(Document {
             path: path.clone(),
             title: title.into(),
             has_content: true,
@@ -260,7 +231,7 @@ impl MockStorage {
             origin: None,
             pages: None,
         });
-        self.contents.write().unwrap().insert(path, content.into());
+        self.contents.write().insert(path, content.into());
         self
     }
 
@@ -268,13 +239,9 @@ impl MockStorage {
     ///
     /// Note: Unlike `FsStorage`, metadata is returned exactly as set.
     /// No inheritance logic is applied.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_metadata(self, path: impl Into<String>, metadata: Metadata) -> Self {
-        self.metadata.write().unwrap().insert(path.into(), metadata);
+        self.metadata.write().insert(path.into(), metadata);
         self
     }
 
@@ -284,42 +251,30 @@ impl MockStorage {
     ///
     /// * `path` - URL path
     /// * `mtime` - Modification time as seconds since Unix epoch
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_mtime(self, path: impl Into<String>, mtime: f64) -> Self {
-        self.mtimes.write().unwrap().insert(path.into(), mtime);
+        self.mtimes.write().insert(path.into(), mtime);
         self
     }
 
     /// Configure `scan()` to return an error with the given kind.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     #[must_use]
     pub fn with_scan_error(self, kind: StorageErrorKind) -> Self {
-        *self.scan_error.write().unwrap() = Some(kind);
+        *self.scan_error.write() = Some(kind);
         self
     }
 
     /// Set or clear the scan error at runtime (for testing reload-with-error scenarios).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     pub fn set_scan_error(&self, kind: Option<StorageErrorKind>) {
-        *self.scan_error.write().unwrap() = kind;
+        *self.scan_error.write() = kind;
     }
 
     /// Configure `scan()` to panic instead of returning.
     ///
-    /// Used by lock-poisoning regression tests to simulate a backend that
-    /// panics while `Site` holds `reload_lock`. `Release`/`Acquire` are used
-    /// (instead of `Relaxed`) so cross-thread tests that set the flag from
-    /// one thread and observe it from a reload worker on another thread get
+    /// Used by regression tests that simulate a backend panicking while
+    /// `Site` holds `reload_lock`. `Release`/`Acquire` are used (instead
+    /// of `Relaxed`) so cross-thread tests that set the flag from one
+    /// thread and observe it from a reload worker on another thread get
     /// a happens-before guarantee.
     pub fn set_scan_panic(&self, panic: bool) {
         self.scan_panic.store(panic, Ordering::Release);
@@ -341,32 +296,20 @@ impl MockStorage {
     /// - `Some(Ok(false))` — report unchanged
     /// - `Some(Err(kind))` — return an error
     /// - `None` — use the default (always `true`)
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     pub fn set_has_changed(&self, value: Option<Result<bool, StorageErrorKind>>) {
-        *self.has_changed.write().unwrap() = value;
+        *self.has_changed.write() = value;
     }
 
     /// Emit a storage event.
     ///
     /// Only works if `watch()` has been called first.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     pub fn emit(&self, event: StorageEvent) {
-        if let Some(sender) = self.event_sender.read().unwrap().as_ref() {
+        if let Some(sender) = self.event_sender.read().as_ref() {
             let _ = sender.send(event);
         }
     }
 
     /// Emit a Created event.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     pub fn emit_created(&self, path: impl Into<String>) {
         self.emit(StorageEvent {
             path: path.into(),
@@ -375,10 +318,6 @@ impl MockStorage {
     }
 
     /// Emit a Modified event with the given title.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     pub fn emit_modified(&self, path: impl Into<String>, title: impl Into<String>) {
         self.emit(StorageEvent {
             path: path.into(),
@@ -390,10 +329,6 @@ impl MockStorage {
     }
 
     /// Emit a Removed event.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the internal lock is poisoned.
     pub fn emit_removed(&self, path: impl Into<String>) {
         self.emit(StorageEvent {
             path: path.into(),
@@ -409,10 +344,10 @@ impl Storage for MockStorage {
             !self.scan_panic.load(Ordering::Acquire),
             "MockStorage::scan: induced panic"
         );
-        if let Some(kind) = self.scan_error.read().unwrap().as_ref() {
+        if let Some(kind) = self.scan_error.read().as_ref() {
             return Err(StorageError::new(*kind).with_backend("Mock"));
         }
-        let guard = self.documents.read().unwrap();
+        let guard = self.documents.read();
         Ok(guard
             .iter()
             .map(|d| Document {
@@ -429,33 +364,23 @@ impl Storage for MockStorage {
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
-        self.contents
-            .read()
-            .unwrap()
-            .get(path)
-            .cloned()
-            .ok_or_else(|| {
-                StorageError::new(StorageErrorKind::NotFound)
-                    .with_path(path)
-                    .with_backend("Mock")
-            })
+        self.contents.read().get(path).cloned().ok_or_else(|| {
+            StorageError::new(StorageErrorKind::NotFound)
+                .with_path(path)
+                .with_backend("Mock")
+        })
     }
 
     fn exists(&self, path: &str) -> bool {
-        self.contents.read().unwrap().contains_key(path)
+        self.contents.read().contains_key(path)
     }
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
-        self.mtimes
-            .read()
-            .unwrap()
-            .get(path)
-            .copied()
-            .ok_or_else(|| {
-                StorageError::new(StorageErrorKind::NotFound)
-                    .with_path(path)
-                    .with_backend("Mock")
-            })
+        self.mtimes.read().get(path).copied().ok_or_else(|| {
+            StorageError::new(StorageErrorKind::NotFound)
+                .with_path(path)
+                .with_backend("Mock")
+        })
     }
 
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
@@ -463,7 +388,7 @@ impl Storage for MockStorage {
         let (tx, rx) = mpsc::channel();
 
         // Store sender for emit methods
-        *self.event_sender.write().unwrap() = Some(tx);
+        *self.event_sender.write() = Some(tx);
 
         // Return receiver and no-op handle (MockStorage doesn't need cleanup)
         Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
@@ -471,7 +396,7 @@ impl Storage for MockStorage {
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
         // Simple lookup - no inheritance
-        Ok(self.metadata.read().unwrap().get(path).map(|m| Metadata {
+        Ok(self.metadata.read().get(path).map(|m| Metadata {
             title: m.title.clone(),
             description: m.description.clone(),
             page_kind: m.page_kind.clone(),
@@ -481,7 +406,7 @@ impl Storage for MockStorage {
     }
 
     fn has_changed(&self) -> Result<bool, StorageError> {
-        match *self.has_changed.read().unwrap() {
+        match *self.has_changed.read() {
             Some(Ok(value)) => Ok(value),
             Some(Err(kind)) => Err(StorageError::new(kind).with_backend("Mock")),
             None => Ok(true),

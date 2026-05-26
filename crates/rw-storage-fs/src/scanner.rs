@@ -4,10 +4,10 @@
 //! phase (creating Documents). The Scanner only identifies files that could
 //! form documents, returning lightweight references for `FsStorage` to process.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
 
 use ignore::WalkBuilder;
 
@@ -108,24 +108,14 @@ impl Scanner {
                     if let Some(source) =
                         SourceFile::classify(path, &filename, source_dir, meta_filename)
                     {
-                        // Recover from poisoning so a sibling worker that
-                        // grabs the lock after one worker panicked does not
-                        // also panic on the chained `.unwrap()` and add a
-                        // second confusing trace to the original failure
-                        // (#409). `ignore::WalkBuilder::run` itself rethrows
-                        // the original worker panic when it joins, so the
-                        // scan still fails — we just don't compound it here.
-                        files
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .push(source);
+                        files.lock().push(source);
                     }
 
                     ignore::WalkState::Continue
                 })
             });
 
-        files.into_inner().unwrap_or_else(PoisonError::into_inner)
+        files.into_inner()
     }
 
     /// Group source files into document references by `url_path`.

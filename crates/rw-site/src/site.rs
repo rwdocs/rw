@@ -4,9 +4,10 @@
 //! the [crate-level docs](crate) for an overview of sections, virtual pages,
 //! and the lazy reload pattern.
 
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use crate::page::{
     BreadcrumbItem, Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext,
@@ -181,18 +182,7 @@ impl Site {
     }
 
     fn snapshot(&self) -> Arc<SiteSnapshot> {
-        // Recover from a poisoned lock instead of propagating the panic.
-        // The snapshot is built outside the lock and assigned in a single
-        // `*guard = Arc::clone(...)` step while the write lock is held, so
-        // readers never observe a partially-constructed `SiteSnapshot`.
-        // Without this, a single transient panic anywhere under
-        // `reload_lock` would brick every subsequent request (#409).
-        Arc::clone(
-            &self
-                .current_snapshot
-                .read()
-                .unwrap_or_else(PoisonError::into_inner),
-        )
+        Arc::clone(&self.current_snapshot.read())
     }
 
     /// Returns the navigation tree scoped to a section.
@@ -314,20 +304,8 @@ impl Site {
             return Ok(self.snapshot());
         }
 
-        // Slow path: acquire reload lock. Recovering from poisoning is safe
-        // because the only mutation to `Site`'s in-memory shared state under
-        // this guard is the single `*current_snapshot.write() = ...` at the
-        // bottom of the function — a panic anywhere before that line leaves
-        // shared state untouched, and the assignment itself is atomic with
-        // respect to readers (RwLock's write half blocks them). If future
-        // changes introduce any non-atomic shared-state mutation under this
-        // guard — split assignment, multi-step update, partial cache write —
-        // poison recovery would silently expose torn state and must be
-        // revisited. See `snapshot()` for the broader rationale (#409).
-        let _guard = self
-            .reload_lock
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        // Slow path: acquire reload lock.
+        let _guard = self.reload_lock.lock();
 
         // Double-check after acquiring lock
         if self.cache_valid.load(Ordering::Acquire) {
@@ -376,10 +354,7 @@ impl Site {
         let sections = state.build_sections();
         let snapshot = Arc::new(SiteSnapshot { state, sections });
 
-        *self
-            .current_snapshot
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = Arc::clone(&snapshot);
+        *self.current_snapshot.write() = Arc::clone(&snapshot);
         self.cache_valid.store(true, Ordering::Release);
         self.has_loaded.store(true, Ordering::Release);
 
@@ -1334,10 +1309,13 @@ mod tests {
     #[test]
     fn test_panic_under_reload_lock_does_not_brick_subsequent_reads() {
         // Regression test for #409: a transient panic inside `storage.scan()`
-        // (called while `reload_lock` is held) used to poison the lock and
-        // panic every subsequent acquisition, bricking `rw serve` until
-        // restart. After the fix, reads must continue working after the
-        // panicking call returns control.
+        // (called while `reload_lock` is held) once bricked `rw serve` until
+        // restart, because `std::sync::Mutex` poisoned on the unwound panic
+        // and every subsequent `lock().unwrap()` panicked too. The lock type
+        // is now `parking_lot::Mutex`, which has no poison concept, so the
+        // brick is structurally prevented — this test pins the behavior
+        // (reads succeed after a scan panic) regardless of which lock crate
+        // is in use.
         //
         // We deliberately do not install a custom panic hook to suppress
         // stderr output: `panic::set_hook` is process-global and races with
@@ -1369,48 +1347,11 @@ mod tests {
         storage.set_scan_panic(false);
         site.invalidate();
 
-        // The bug manifested here: every read panicked because `reload_lock`
-        // stayed poisoned. After the fix these calls must just work.
+        // Before the fix, every read panicked here because `reload_lock`
+        // stayed poisoned. These calls must just work.
         assert!(site.has_page("guide").unwrap());
         let nav = site.navigation(None).unwrap();
         assert!(nav.items.iter().any(|i| i.path == "guide"));
-    }
-
-    #[test]
-    fn test_snapshot_recovers_from_poisoned_current_snapshot_lock() {
-        // The induced panic in the test above happens inside `storage.scan()`,
-        // long before `current_snapshot.write()` is ever taken — so the
-        // `current_snapshot` RwLock cannot actually be poisoned by that flow.
-        // This test directly poisons that lock so the matching
-        // `unwrap_or_else(PoisonError::into_inner)` in `snapshot()` is
-        // covered by the regression suite.
-        //
-        // White-box: pokes the `std::sync::RwLock` directly. If the recovery
-        // primitive ever changes (parking_lot, ArcSwap, etc.), this test
-        // needs to be rewritten — not just adjusted.
-
-        let storage = MockStorage::new().with_document("guide", "Guide");
-        let site = Arc::new(create_site_with_storage(storage));
-        site.reload_if_needed().unwrap();
-
-        // Panic while holding the write half of `current_snapshot`. After the
-        // worker thread unwinds, the RwLock is poisoned. `JoinHandle::join`
-        // returns `Err` for a panicked thread (it doesn't itself panic), so
-        // no `catch_unwind` is needed.
-        let site_clone = Arc::clone(&site);
-        let join = std::thread::spawn(move || {
-            let _guard = site_clone.current_snapshot.write().unwrap();
-            panic!("induced");
-        });
-        assert!(join.join().is_err(), "spawned thread should have panicked");
-        assert!(
-            site.current_snapshot.is_poisoned(),
-            "write-guarded panic should have poisoned the lock"
-        );
-
-        // `page_title` reads `current_snapshot` directly via `snapshot()`. It
-        // must succeed despite the poison.
-        assert_eq!(site.page_title("guide"), Some("Guide".to_owned()));
     }
 
     // ========================================================================
