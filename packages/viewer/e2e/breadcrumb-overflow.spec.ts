@@ -1,7 +1,8 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 
 test.describe("Breadcrumb Overflow", () => {
-  // Deep page with 5 breadcrumbs: Home > Advanced Topics > Plugin Development > Custom Extensions Development > Getting Started With Extensions
+  // Deep page: 4 ancestor breadcrumbs (Home > Advanced Topics > Plugin Development >
+  // Custom Extensions Development); the current-page segment renders as the H1, not the nav.
   const deepPage = "/advanced/plugins/custom-extensions/getting-started-guide";
 
   async function openEllipsisDropdown(page: Page): Promise<{
@@ -27,36 +28,57 @@ test.describe("Breadcrumb Overflow", () => {
 
     const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(breadcrumbs).toBeVisible();
-    await expect(breadcrumbs.getByRole("link", { name: "Home" })).toBeVisible();
-    await expect(
-      breadcrumbs.getByRole("link", { name: "Custom Extensions Development" }),
-    ).toBeVisible();
-
-    // Ellipsis should not be present at full width
+    await expect(breadcrumbs).toMatchAriaSnapshot(`
+      - navigation "Breadcrumb":
+        - list:
+          - listitem:
+            - link "Home":
+              - /url: /
+            - text: /
+          - listitem:
+            - link "Advanced Topics":
+              - /url: /advanced
+            - text: /
+          - listitem:
+            - link "Plugin Development":
+              - /url: /advanced/plugins
+            - text: /
+          - listitem:
+            - link "Custom Extensions Development":
+              - /url: /advanced/plugins/custom-extensions
+    `);
+    // Aria snapshots don't assert absence of unlisted nodes; pin it explicitly.
     await expect(breadcrumbs.getByRole("button", { name: "Show hidden breadcrumbs" })).toBeHidden();
 
     // Shrink viewport to trigger overflow
     await page.setViewportSize({ width: 400, height: 800 });
 
-    // Ellipsis button should appear
-    const ellipsisButton = breadcrumbs.getByRole("button", {
-      name: "Show hidden breadcrumbs",
-    });
-    await expect(ellipsisButton).toBeVisible();
-
-    // First and last breadcrumbs should always remain visible
-    await expect(breadcrumbs.getByRole("link", { name: "Home" })).toBeVisible();
-    await expect(
-      breadcrumbs.getByRole("link", { name: "Custom Extensions Development" }),
-    ).toBeVisible();
+    // Ellipsis button + first/last breadcrumbs remain visible; middle items collapse
+    await expect(breadcrumbs).toMatchAriaSnapshot(`
+      - navigation "Breadcrumb":
+        - list:
+          - listitem:
+            - link "Home":
+              - /url: /
+            - text: /
+          - listitem:
+            - button "Show hidden breadcrumbs": …
+            - text: /
+          - listitem:
+            - link "Custom Extensions Development":
+              - /url: /advanced/plugins/custom-extensions
+    `);
   });
 
   test("opens dropdown with hidden breadcrumbs on ellipsis click", async ({ page }) => {
     await openEllipsisDropdown(page);
 
-    // Dropdown should show hidden middle items
     const dropdown = page.getByRole("menu", { name: "Hidden breadcrumbs" });
-    await expect(dropdown.getByRole("menuitem", { name: "Advanced Topics" })).toBeVisible();
+    await expect(dropdown).toMatchAriaSnapshot(`
+      - menu "Hidden breadcrumbs":
+        - menuitem "Advanced Topics"
+        - menuitem "Plugin Development"
+    `);
   });
 
   test("navigates when clicking a hidden breadcrumb in dropdown", async ({ page }) => {
@@ -94,11 +116,21 @@ test.describe("Breadcrumb Overflow", () => {
 
     const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(breadcrumbs).toBeVisible();
-
-    await expect(breadcrumbs.getByRole("link", { name: "Home" })).toBeVisible();
-    await expect(breadcrumbs.getByRole("link", { name: "Advanced Topics" })).toBeVisible();
-    await expect(breadcrumbs.getByRole("link", { name: "Plugin Development" })).toBeVisible();
-
+    await expect(breadcrumbs).toMatchAriaSnapshot(`
+      - navigation "Breadcrumb":
+        - list:
+          - listitem:
+            - link "Home":
+              - /url: /
+            - text: /
+          - listitem:
+            - link "Advanced Topics":
+              - /url: /advanced
+            - text: /
+          - listitem:
+            - link "Plugin Development":
+              - /url: /advanced/plugins
+    `);
     await expect(breadcrumbs.getByRole("button", { name: "Show hidden breadcrumbs" })).toBeHidden();
   });
 });

@@ -34,13 +34,25 @@ test.describe("TOC Popover", () => {
     const button = page.getByRole("button", { name: "Table of contents" });
     await button.click();
 
-    // Popover nav should appear with TOC links
     const popover = page.getByRole("navigation", { name: "Table of contents" });
     await expect(popover).toBeVisible();
-
-    // Should contain heading links from the page
-    await expect(popover.getByRole("link", { name: "Features" })).toBeVisible();
-    await expect(popover.getByRole("link", { name: "Quick Start" })).toBeVisible();
+    await expect(popover).toMatchAriaSnapshot(`
+      - navigation "Table of contents":
+        - heading "On this page" [level=3]
+        - list:
+          - listitem:
+            - link "Features":
+              - /url: "#features"
+          - listitem:
+            - link "Quick Start":
+              - /url: "#quick-start"
+          - listitem:
+            - link "Code Example":
+              - /url: "#code-example"
+          - listitem:
+            - link "Learn More":
+              - /url: "#learn-more"
+    `);
   });
 
   test("sets aria-expanded on toggle", async ({ page }) => {
