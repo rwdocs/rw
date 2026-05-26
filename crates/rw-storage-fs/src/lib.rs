@@ -32,8 +32,8 @@ mod source;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 use std::sync::mpsc;
+use std::sync::{PoisonError, RwLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use glob::Pattern;
@@ -320,9 +320,14 @@ impl FsStorage {
             .and_then(|p| fs::metadata(p).ok())
             .and_then(|m| m.modified().ok());
 
-        // Check cache — avoid reading file content if both mtimes unchanged
+        // Check cache — avoid reading file content if both mtimes unchanged.
+        // Recover from poisoning so one transient panic does not cascade
+        // into `Site::reload_if_needed` (#409).
         {
-            let cache = self.mtime_cache.read().unwrap();
+            let cache = self
+                .mtime_cache
+                .read()
+                .unwrap_or_else(PoisonError::into_inner);
             if let (Some(cached), Some(md_mtime)) = (cache.get(file_path), current_md_mtime)
                 && cached.md_mtime == md_mtime
                 && cached.meta_mtime == current_meta_mtime
@@ -338,7 +343,10 @@ impl FsStorage {
 
         // Update cache
         if let Some(md_mtime) = current_md_mtime {
-            let mut cache = self.mtime_cache.write().unwrap();
+            let mut cache = self
+                .mtime_cache
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
             cache.insert(
                 file_path.to_path_buf(),
                 CachedMeta {
@@ -1820,5 +1828,38 @@ mod tests {
             msg.contains("meta.yaml"),
             "error should name meta.yaml: {msg}"
         );
+    }
+
+    #[test]
+    fn scan_recovers_from_poisoned_mtime_cache() {
+        // White-box regression for #409: a panic that poisons `mtime_cache`
+        // must not brick subsequent scans. Reaches into the private RwLock;
+        // rewrite if the recovery primitive ever changes (parking_lot, etc.).
+        use std::sync::Arc;
+
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
+
+        let storage = Arc::new(FsStorage::new(temp_dir.path().to_path_buf()));
+        // Prime the cache so the read path will hit the cache lookup.
+        storage.scan().unwrap();
+
+        // Poison `mtime_cache` from a worker thread that panics while
+        // holding the write half.
+        let storage_clone = Arc::clone(&storage);
+        let join = std::thread::spawn(move || {
+            let _guard = storage_clone.mtime_cache.write().unwrap();
+            panic!("induced");
+        });
+        assert!(join.join().is_err(), "spawned thread should have panicked");
+        assert!(
+            storage.mtime_cache.is_poisoned(),
+            "write-guarded panic should have poisoned the lock"
+        );
+
+        // Without the fix, this scan would panic at `mtime_cache.read()`
+        // or `.write()`. With the fix it succeeds and returns the page.
+        let docs = storage.scan().unwrap();
+        assert!(docs.iter().any(|d| d.path == "guide"));
     }
 }
