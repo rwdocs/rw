@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Inline comments anchored to short or common text (`-`, `,`, `TODO`, single chars) no longer silently migrate to unrelated occurrences when the original passage is edited away — they now appear in the page-comments timeline at the bottom with the original quote block, instead of getting a confident solid-underline highlight on a different character.
 - Inline directive syntax (`:name[…]`) inside an inline code span (e.g., `` `:status[On Track]` ``), indented code block, or raw inline HTML is no longer expanded — documentation can now demonstrate `:status[…]` or other inline directives as code.
 - Inline directives following a non-directive colon on the same line (e.g. `Note: press :kbd[Ctrl+C]`, `Status: see :status[Done]`, `See https://example.com then run :cmd[deploy]`) are no longer silently dropped — the renderer now skips past punctuation colons, URL schemes, and times and continues scanning for the real directive.
 - Documentation pages whose URL begins with `/api/` (e.g. `docs/api/usage.md`) no longer return 404 when opened directly or refreshed in the browser.

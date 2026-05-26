@@ -1,6 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { rangeToSelectors, selectorsToRange } from "./anchoring";
 import type { Selector } from "../types/comments";
+
+afterEach(() => {
+  document.body.replaceChildren();
+});
 
 function createContainer(html: string): HTMLElement {
   const el = document.createElement("div");
@@ -320,6 +324,156 @@ describe("fuzzy fallback", () => {
 
     const result = selectorsToRange(selectors, container);
     expect(result).toBeNull();
+  });
+});
+
+describe("low-confidence demotion", () => {
+  it("orphans a short lone quote when no surviving occurrence has strong context", () => {
+    // Original doc: "abc - def - xyz", comment on the first "-".
+    // After edit, doc is "abc def - xyz" (one "-" left, at offset 8).
+    // The lone "-" has weak prefix/suffix match against the stored context
+    // (only the bordering spaces agree). Must NOT anchor inline.
+    const container = createContainer("<p>abc def - xyz</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "-", prefix: "abc ", suffix: " def - xyz" },
+      { type: "TextPositionSelector", start: 4, end: 5 },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
+  });
+
+  it("orphans a short common word with weak context after the original passage is gone", () => {
+    // Common-token quote ("TODO") that survives elsewhere on the page but
+    // with totally unrelated context. Must not anchor inline.
+    const container = createContainer("<p>morning standup TODO xyz</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "TODO", prefix: "finished ", suffix: " item" },
+      { type: "TextPositionSelector", start: 8, end: 12 },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
+  });
+
+  it("keeps a single-char quote anchored when both sides have strong context", () => {
+    // The same short-quote shape, but with surrounding context that DOES agree —
+    // this is a legitimate anchor and must NOT be demoted.
+    const container = createContainer("<p>foo - bar</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "-", prefix: "foo ", suffix: " bar" },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.strategy).toBe("quote");
+    expect(result!.range.toString()).toBe("-");
+  });
+
+  it("keeps a long quote anchored when only one side of context matches", () => {
+    // 30-char quote, prefix matches verbatim, suffix is totally different.
+    // For long quotes, one strong side is enough to stay anchored as quote.
+    const longExact = "this is a thirty char chunk!!!"; // longer than the short-quote threshold
+    const container = createContainer(`<p>aa before bb ${longExact} totally rewritten</p>`);
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: longExact,
+        prefix: "aa before bb ",
+        suffix: " original context here that no longer exists",
+      },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.strategy).toBe("quote");
+    expect(result!.range.toString()).toBe(longExact);
+  });
+
+  it("keeps a quote anchored when both stored sides are empty (boundary selection)", () => {
+    // Selection touched the start/end of the article — stored prefix and
+    // suffix are both empty. Confidence can't be assessed from context;
+    // accept the match.
+    const container = createContainer("<p>single match somewhere</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "single match", prefix: "", suffix: "" },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.strategy).toBe("quote");
+    expect(result!.range.toString()).toBe("single match");
+  });
+
+  it("returns null when stored TextQuoteSelector.exact is empty", () => {
+    // A scripted/external caller could persist a selector with an empty
+    // `exact`. Without a guard, quoteBestOccurrence's `text.indexOf("", n)`
+    // loop never terminates because indexOf("") clamps at text.length
+    // instead of returning -1.
+    const container = createContainer("<p>hello world</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "", prefix: "", suffix: "" },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
+  });
+
+  it("orphans a long quote when one stored side is empty and the other side disagrees", () => {
+    // Long quote (>= SHORT_QUOTE_LEN). Empty prefix (boundary selection at
+    // article start), recorded suffix that no longer matches in the live doc.
+    // Empty side must NOT short-circuit the confidence gate to true.
+    const longExact = "this is a long passage"; // 22 chars
+    const container = createContainer(`<p>random preamble ${longExact} totally different tail</p>`);
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: longExact,
+        prefix: "",
+        suffix: " original context that no longer exists",
+      },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
+  });
+
+  it("orphans a short quote with empty stored prefix when the only recorded side disagrees", () => {
+    // Short quote, empty prefix (boundary selection), recorded suffix that
+    // matches a wrong occurrence. Without the empty-side fix, suffixOk passes
+    // and the comment anchors to the wrong "ok".
+    const container = createContainer("<p>ok suddenly unrelated</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "ok", prefix: "", suffix: " then proceed" },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
+  });
+
+  it("anchors a verbatim match even when stored context is shorter than the confidence floor", () => {
+    // Stored prefix is only 1 char (boundary or tiny-article selection); a
+    // verbatim re-anchor must succeed because the maximum achievable score
+    // (= recorded length) is what we should expect.
+    const container = createContainer("<p>X-Y</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "-", prefix: "X", suffix: "Y" },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.strategy).toBe("quote");
+    expect(result!.range.toString()).toBe("-");
+  });
+
+  it("orphans a short quote when position validates exact but stored context disagrees", () => {
+    // Original doc: "abc - def - xyz", comment on first "-" at offset 4.
+    // User reorders: "abc - xyz - def". First "-" is STILL at offset 4 and
+    // still equals stored exact "-", but the stored context ("abc ", " def - xyz")
+    // doesn't match the new surroundings. Position branch must not short-circuit
+    // the confidence floor — fall through to quote search, which then orphans.
+    const container = createContainer("<p>abc - xyz - def</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "-", prefix: "abc ", suffix: " def - xyz" },
+      { type: "TextPositionSelector", start: 4, end: 5 },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
   });
 });
 
