@@ -66,16 +66,21 @@ function findTextPosition(
  * Re-anchor stored selectors to a live DOM Range.
  *
  * Resolution order:
- *   1. TextPositionSelector — instant if the offset still points to the
- *      stored quote (validates against TextQuoteSelector.exact when present).
- *   2. TextQuoteSelector — exact substring match. Every occurrence in the
- *      document is scored against the stored prefix/suffix context; the
- *      highest-scoring occurrence wins. The position selector is a tiebreaker
- *      (closest to the original offset), not a search constraint — see N2.
- *   3. Fuzzy match via diff-match-patch — finds an approximate occurrence
- *      near the position hint when the exact substring no longer appears
- *      (typo fix, paragraph split that drops a space, etc.). Marked as
- *      `strategy: 'fuzzy'` so the UI can flag it.
+ *   1. TextPositionSelector — fast path. When a quote selector is also
+ *      present, validates that the resolved text equals the stored `exact`
+ *      AND that the surrounding context clears the confidence floor (see
+ *      isConfidentMatch). Either check failing falls through.
+ *   2. TextQuoteSelector — exact substring search with a context-confidence
+ *      check. Short quotes (`exact.length` < SHORT_QUOTE_LEN) need strong
+ *      agreement on every recorded context side; long quotes need one
+ *      strongly-agreeing recorded side. Without confidence we don't anchor
+ *      inline — `strategy: 'quote'` is reserved for matches we trust.
+ *   3. Fuzzy match via diff-match-patch — runs ONLY when the exact substring
+ *      is absent from the document (e.g. typo fix inside the quote,
+ *      paragraph split that dropped a space). When the exact text IS present
+ *      but failed the confidence gate, fuzzy would just rescue it to the
+ *      same wrong place, so we orphan instead. Successful fuzzy matches get
+ *      `strategy: 'fuzzy'` (dashed underline + "re-anchored" badge).
  */
 export function selectorsToRange(
   selectors: Selector[],
@@ -93,7 +98,28 @@ export function selectorsToRange(
     const range = positionToRange(posSelector, container);
     if (range && quoteSelector) {
       if (range.toString() === quoteSelector.exact) {
-        return { range, strategy: "position" };
+        const text = getTextContent(container);
+        const score = scoreContext(
+          text,
+          posSelector.start,
+          quoteSelector.exact.length,
+          quoteSelector.prefix,
+          quoteSelector.suffix,
+        );
+        const occ = { index: posSelector.start, ...score };
+        if (
+          isConfidentMatch(
+            occ,
+            quoteSelector.exact.length,
+            quoteSelector.prefix,
+            quoteSelector.suffix,
+          )
+        ) {
+          return { range, strategy: "position" };
+        }
+        // Position validated exact but context disagrees — fall through to the
+        // quote-search branch, which will reach the same occurrence via
+        // quoteBestOccurrence and fail the same gate (orphaning the comment).
       }
     } else if (range) {
       return { range, strategy: "position" };
@@ -101,11 +127,31 @@ export function selectorsToRange(
   }
 
   if (quoteSelector) {
-    const range = quoteToRange(quoteSelector, container, posSelector?.start);
-    if (range) return { range, strategy: "quote" };
-
-    const fuzzy = fuzzyToRange(quoteSelector, container, posSelector?.start);
-    if (fuzzy) return { range: fuzzy, strategy: "fuzzy" };
+    const occ = quoteBestOccurrence(quoteSelector, container, posSelector?.start);
+    if (occ) {
+      if (
+        isConfidentMatch(
+          occ,
+          quoteSelector.exact.length,
+          quoteSelector.prefix,
+          quoteSelector.suffix,
+        )
+      ) {
+        const range = rangeAtTextOffset(
+          container,
+          occ.index,
+          occ.index + quoteSelector.exact.length,
+        );
+        if (range) return { range, strategy: "quote" };
+      }
+      // Exact text is present but failed the confidence gate — the passage
+      // exists in a different context. Don't fuzzy-match: a weaker hit would
+      // only anchor to the wrong place.
+    } else {
+      // Exact text is gone — the passage was edited. Try a fuzzy match.
+      const fuzzy = fuzzyToRange(quoteSelector, container, posSelector?.start);
+      if (fuzzy) return { range: fuzzy, strategy: "fuzzy" };
+    }
   }
 
   return null;
@@ -129,47 +175,9 @@ function positionToRange(
   }
 }
 
-function quoteToRange(
-  selector: Extract<Selector, { type: "TextQuoteSelector" }>,
-  container: HTMLElement,
-  positionHint?: number,
-): Range | null {
-  const text = getTextContent(container);
-  const { exact, prefix, suffix } = selector;
-
-  // Collect ALL occurrences and score each by context. The position hint is a
-  // tiebreaker, not a search constraint — otherwise an occurrence earlier than
-  // the hint would be skipped (the bug uncovered by scenario N2).
-  let bestIndex = -1;
-  let bestScore = -1;
-  let bestDistance = Number.POSITIVE_INFINITY;
-
-  let index = text.indexOf(exact);
-  while (index !== -1) {
-    const score = scoreContext(text, index, exact.length, prefix, suffix);
-    const distance = positionHint === undefined ? 0 : Math.abs(index - positionHint);
-    if (score > bestScore || (score === bestScore && distance < bestDistance)) {
-      bestScore = score;
-      bestDistance = distance;
-      bestIndex = index;
-    }
-    index = text.indexOf(exact, index + 1);
-  }
-
-  if (bestIndex === -1) return null;
-
-  const start = findTextPosition(container, bestIndex);
-  const end = findTextPosition(container, bestIndex + exact.length);
-  if (!start || !end) return null;
-
-  try {
-    const range = document.createRange();
-    range.setStart(start.node, start.offset);
-    range.setEnd(end.node, end.offset);
-    return range;
-  } catch {
-    return null;
-  }
+interface ContextScore {
+  prefixScore: number;
+  suffixScore: number;
 }
 
 function scoreContext(
@@ -178,28 +186,135 @@ function scoreContext(
   length: number,
   prefix: string,
   suffix: string,
-): number {
-  let score = 0;
+): ContextScore {
+  let prefixScore = 0;
   const actualPrefix = text.slice(Math.max(0, index - prefix.length), index);
-  const actualSuffix = text.slice(index + length, index + length + suffix.length);
-
   for (let i = 0; i < Math.min(prefix.length, actualPrefix.length); i++) {
     if (prefix[prefix.length - 1 - i] === actualPrefix[actualPrefix.length - 1 - i]) {
-      score++;
+      prefixScore++;
     } else {
       break;
     }
   }
 
+  let suffixScore = 0;
+  const actualSuffix = text.slice(index + length, index + length + suffix.length);
   for (let i = 0; i < Math.min(suffix.length, actualSuffix.length); i++) {
     if (suffix[i] === actualSuffix[i]) {
-      score++;
+      suffixScore++;
     } else {
       break;
     }
   }
 
-  return score;
+  return { prefixScore, suffixScore };
+}
+
+// 4 chars rejects accidental single-space agreement (the lone-`-` case
+// scores 1 on each side because the bordering spaces happen to match)
+// while accepting a clear word boundary like "foo " (score 4).
+const MIN_CONTEXT_PER_SIDE = 4;
+
+// At ~8 chars an exact text carries enough identifying signal on its own
+// that one strong context side is sufficient; below that, the exact is
+// too common to trust without agreement on BOTH sides (`-`, `,`, `TODO`).
+const SHORT_QUOTE_LEN = 8;
+
+interface QuoteOccurrence {
+  index: number;
+  prefixScore: number;
+  suffixScore: number;
+}
+
+/**
+ * Search the live text for the best occurrence of `exact`. Returns the
+ * occurrence with the highest sum of per-side context scores (with
+ * position-hint distance as a tiebreaker) along with its per-side context
+ * scores, or null if `exact` is not present.
+ */
+function quoteBestOccurrence(
+  selector: Extract<Selector, { type: "TextQuoteSelector" }>,
+  container: HTMLElement,
+  positionHint?: number,
+): QuoteOccurrence | null {
+  const text = getTextContent(container);
+  const { exact, prefix, suffix } = selector;
+  // Empty exact would spin the loop below forever — indexOf("", n) returns n, never -1.
+  if (!exact) return null;
+
+  let best: QuoteOccurrence | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  let index = text.indexOf(exact);
+  while (index !== -1) {
+    const { prefixScore, suffixScore } = scoreContext(text, index, exact.length, prefix, suffix);
+    const distance = positionHint === undefined ? 0 : Math.abs(index - positionHint);
+    const currentSum = prefixScore + suffixScore;
+    const bestSum = best ? best.prefixScore + best.suffixScore : -1;
+    if (currentSum > bestSum || (currentSum === bestSum && distance < bestDistance)) {
+      best = { index, prefixScore, suffixScore };
+      bestDistance = distance;
+    }
+    index = text.indexOf(exact, index + 1);
+  }
+
+  return best;
+}
+
+/**
+ * Decide whether a quote occurrence has enough surrounding-context agreement
+ * to be trusted as the original passage.
+ *
+ *   - Short quotes (`exact.length` < SHORT_QUOTE_LEN): every RECORDED side
+ *     must agree to its achievable threshold. A side we didn't record is
+ *     vacuously ok — but a side we DID record cannot be brushed off.
+ *   - Long quotes (`exact.length` >= SHORT_QUOTE_LEN): at least one RECORDED
+ *     side must strongly agree. An empty side carries no evidence, so it
+ *     cannot be "the strong side."
+ *   - Both sides empty: accept unconditionally (no context to judge against).
+ *
+ * The achievable threshold for each side is
+ * `min(MIN_CONTEXT_PER_SIDE, recordedSide.length)` — a 2-char stored prefix
+ * (boundary selection, tiny article) saturates at 2 and shouldn't be held to
+ * a 4-char floor it can never reach.
+ */
+function isConfidentMatch(
+  occ: QuoteOccurrence,
+  exactLen: number,
+  prefix: string,
+  suffix: string,
+): boolean {
+  const havePrefix = prefix.length > 0;
+  const haveSuffix = suffix.length > 0;
+  if (!havePrefix && !haveSuffix) return true;
+
+  const prefixThreshold = Math.min(MIN_CONTEXT_PER_SIDE, prefix.length);
+  const suffixThreshold = Math.min(MIN_CONTEXT_PER_SIDE, suffix.length);
+
+  const prefixGood = havePrefix && occ.prefixScore >= prefixThreshold;
+  const suffixGood = haveSuffix && occ.suffixScore >= suffixThreshold;
+
+  if (exactLen < SHORT_QUOTE_LEN) {
+    const prefixOk = !havePrefix || prefixGood;
+    const suffixOk = !haveSuffix || suffixGood;
+    return prefixOk && suffixOk;
+  }
+  return prefixGood || suffixGood;
+}
+
+function rangeAtTextOffset(container: HTMLElement, start: number, end: number): Range | null {
+  const startPos = findTextPosition(container, start);
+  const endPos = findTextPosition(container, end);
+  if (!startPos || !endPos) return null;
+
+  try {
+    const range = document.createRange();
+    range.setStart(startPos.node, startPos.offset);
+    range.setEnd(endPos.node, endPos.offset);
+    return range;
+  } catch {
+    return null;
+  }
 }
 
 function fuzzyToRange(
