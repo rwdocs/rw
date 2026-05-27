@@ -119,6 +119,7 @@
 mod backend;
 mod bundle;
 mod code_block;
+mod config;
 pub mod directive;
 mod html;
 mod renderer;
@@ -128,14 +129,16 @@ mod state;
 mod status;
 pub(crate) mod tabs;
 mod util;
+mod walker;
 
 pub use backend::{AlertKind, RenderBackend};
 pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
+pub use config::TitleResolver;
 pub use html::HtmlBackend;
 /// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.
 pub use pulldown_cmark::Alignment;
-pub use renderer::{MarkdownRenderer, RenderResult, TitleResolver};
+pub use renderer::{MarkdownRenderer, RenderResult};
 /// Re-exported from [`rw_sections`] for use with
 /// [`MarkdownRenderer::with_sections`].
 ///
