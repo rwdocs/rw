@@ -15,7 +15,8 @@ use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
 use crate::directive::parser::{ParsedDirective, parse_line};
-use crate::state::{CodeBlockState, HeadingState, ImageState, TableState, TocEntry};
+use crate::scope::Scope;
+use crate::state::{HeadingAccumulator, TableState, TocEntry};
 use crate::util::heading_level_to_num;
 
 /// Output produced by [`MarkdownRenderer::render`] or [`MarkdownRenderer::render_markdown`].
@@ -152,19 +153,15 @@ enum WikilinkResolution {
 pub struct MarkdownRenderer<B: RenderBackend> {
     output: String,
     list_stack: Vec<bool>,
-    code: CodeBlockState,
     table: TableState,
-    image: ImageState,
-    heading: HeadingState,
+    heading: HeadingAccumulator,
     base_path: Option<String>,
     /// Origin prefix (with trailing slash) for files outside `source_dir` (e.g., `"docs/"`).
     /// When set, relative links starting with this prefix have it stripped
     /// before resolution, so `docs/guide.md` resolves to `/guide` instead of `/docs/guide`.
     origin_prefix: Option<String>,
-    pending_image: Option<(String, String)>,
     processors: Vec<Box<dyn CodeBlockProcessor>>,
     code_block_index: usize,
-    pending_attrs: HashMap<String, String>,
     gfm: bool,
     /// Stack of alert kinds for nested blockquotes (regular blockquote uses None).
     alert_stack: Vec<Option<AlertKind>>,
@@ -173,8 +170,6 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     /// Sections for annotating internal links.
     /// Shared via Arc because the map can be large (~500 entries) and is reused across renders.
     sections: Option<Arc<Sections>>,
-    /// Whether we are currently inside a YAML metadata block (frontmatter).
-    in_metadata_block: bool,
     /// Whether wikilink parsing and resolution is enabled.
     wikilinks: bool,
     /// Title resolver for wikilink display text.
@@ -191,6 +186,10 @@ pub struct MarkdownRenderer<B: RenderBackend> {
     /// `Event::Text` events. We coalesce them and flush via [`flush_text`]
     /// before any non-Text event (or at end of stream).
     text_buffer: String,
+    /// Stack of currently-active inline-capture scopes. Pushed/popped in
+    /// `start_tag`/`end_tag`; read by every inline event method via
+    /// `self.scopes.last_mut()` to decide where to write.
+    scopes: Vec<Scope>,
     _backend: PhantomData<B>,
 }
 
@@ -201,25 +200,21 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         Self {
             output: String::with_capacity(4096),
             list_stack: Vec::new(),
-            code: CodeBlockState::default(),
             table: TableState::default(),
-            image: ImageState::default(),
-            heading: HeadingState::new(false, B::TITLE_AS_METADATA),
+            heading: HeadingAccumulator::new(false, B::TITLE_AS_METADATA),
             base_path: None,
             origin_prefix: None,
-            pending_image: None,
             processors: Vec::new(),
             code_block_index: 0,
-            pending_attrs: HashMap::new(),
             gfm: true,
             alert_stack: Vec::new(),
             directives: None,
             sections: None,
-            in_metadata_block: false,
             wikilinks: false,
             title_resolver: None,
             skip_wikilink_text: false,
             text_buffer: String::new(),
+            scopes: Vec::new(),
             _backend: PhantomData,
         }
     }
@@ -231,7 +226,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     /// - Confluence: First H1 is extracted as title and skipped, levels shifted
     #[must_use]
     pub fn with_title_extraction(mut self) -> Self {
-        self.heading = HeadingState::new(true, B::TITLE_AS_METADATA);
+        self.heading = HeadingAccumulator::new(true, B::TITLE_AS_METADATA);
         self
     }
 
@@ -476,37 +471,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self.processors.iter().flat_map(|p| p.warnings()).cloned()
     }
 
-    /// Get the appropriate output buffer for inline content.
-    ///
-    /// Returns the heading HTML buffer when inside a heading, otherwise the
-    /// main output buffer. Use this when calling backend methods that need
-    /// a `&mut String` target.
-    fn inline_out(&mut self) -> &mut String {
-        if self.heading.is_active() {
-            self.heading.html_buffer()
-        } else {
-            &mut self.output
-        }
-    }
-
-    /// Get the buffer for inline *markup* (formatting tags like `<strong>`,
-    /// `<em>`, `<a>`).
-    ///
-    /// Returns `None` while collecting image alt text — per the
-    /// `CommonMark` spec, alt text is a plain-text projection, so callers
-    /// should skip emitting their markup entirely. Otherwise returns the same buffer as
-    /// [`inline_out`](Self::inline_out): heading HTML buffer when inside a
-    /// heading, main output buffer otherwise.
-    fn inline_markup_out(&mut self) -> Option<&mut String> {
-        if self.image.is_active() {
-            None
-        } else if self.heading.is_active() {
-            Some(self.heading.html_buffer())
-        } else {
-            Some(&mut self.output)
-        }
-    }
-
     /// Build ref data attributes for a resolved path, if applicable.
     ///
     /// Returns `None` for:
@@ -634,10 +598,12 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         // `]`. We buffer adjacent `Event::Text` content outside code blocks
         // and metadata, and flush it through `flush_text` immediately
         // before processing any non-text event.
-        let should_buffer = matches!(&event, Event::Text(_))
-            && !self.code.is_active()
-            && !self.in_metadata_block
-            && !self.skip_wikilink_text;
+        let in_code_or_metadata = matches!(
+            self.scopes.last(),
+            Some(Scope::CodeBlock { .. } | Scope::Metadata)
+        );
+        let should_buffer =
+            matches!(&event, Event::Text(_)) && !in_code_or_metadata && !self.skip_wikilink_text;
 
         if !should_buffer {
             self.flush_text_buffer();
@@ -651,19 +617,24 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                     self.skip_wikilink_text = false;
                     return;
                 }
-                if self.in_metadata_block {
+                // Short-circuit before flush_text_buffer would otherwise run
+                // the directive scanner (parse_line / dispatch_inline_named)
+                // over YAML content, polluting result.warnings and firing
+                // handler side effects. The Scope::Metadata arm of self.text
+                // only suppresses the final B::text — by then the side
+                // effects have already happened.
+                if matches!(self.scopes.last(), Some(Scope::Metadata)) {
                     return;
                 }
-                if self.code.is_active() {
+                let in_code = matches!(self.scopes.last(), Some(Scope::CodeBlock { .. }));
+                if in_code {
                     self.text(&text);
                 } else {
                     self.text_buffer.push_str(&text);
                 }
             }
             Event::Code(code) => {
-                if !self.in_metadata_block {
-                    self.inline_code(&code);
-                }
+                self.inline_code(&code);
             }
             Event::Html(html) | Event::InlineHtml(html) => self.raw_html(&html),
             Event::SoftBreak => self.soft_break(),
@@ -762,14 +733,23 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     fn start_tag(&mut self, tag: Tag<'_>) {
         match tag {
             Tag::Paragraph => {
-                if !self.code.is_active() {
+                if !matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
                     B::paragraph_start(&mut self.output);
                 }
             }
             Tag::Heading { level, .. } => {
-                // Start heading tracking. If false, we're capturing first H1 for title.
-                // Opening tag is written in end_tag after we have the ID.
-                self.heading.start_heading(heading_level_to_num(level));
+                let level_num = heading_level_to_num(level);
+                // Decide once, at start: is_skipped_title flips to false
+                // after the first H1 closes, so TagEnd::Heading would get a
+                // different answer and skip nothing (or skip the wrong
+                // heading) if we re-consulted.
+                let in_first_h1 = self.heading.is_skipped_title(level_num);
+                self.scopes.push(Scope::Heading {
+                    level: level_num,
+                    in_first_h1,
+                    toc_text: String::new(),
+                    rendered_html: String::new(),
+                });
             }
             Tag::BlockQuote(kind) => {
                 if let Some(bq_kind) = kind {
@@ -782,15 +762,18 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 }
             }
             Tag::CodeBlock(kind) => {
-                let (lang, attrs) = match kind {
+                let (language, attrs) = match kind {
                     CodeBlockKind::Fenced(ref info) if !info.is_empty() => {
                         let (lang, attrs) = parse_fence_info(info);
                         (if lang.is_empty() { None } else { Some(lang) }, attrs)
                     }
                     _ => (None, HashMap::new()),
                 };
-                self.pending_attrs = attrs;
-                self.code.start(lang);
+                self.scopes.push(Scope::CodeBlock {
+                    language,
+                    buffer: String::new(),
+                    attrs,
+                });
             }
             Tag::List(start) => {
                 self.list_stack.push(start.is_some());
@@ -801,7 +784,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             }
             Tag::FootnoteDefinition(_) | Tag::HtmlBlock => {}
             Tag::MetadataBlock(_) => {
-                self.in_metadata_block = true;
+                self.scopes.push(Scope::Metadata);
             }
             Tag::DefinitionList => {
                 B::definition_list_start(&mut self.output);
@@ -830,19 +813,13 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 B::table_cell_start(is_head, alignment, &mut self.output);
             }
             Tag::Emphasis => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::emphasis_start(out);
-                }
+                self.with_markup_buffer(B::emphasis_start);
             }
             Tag::Strong => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::strong_start(out);
-                }
+                self.with_markup_buffer(B::strong_start);
             }
             Tag::Strikethrough => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::strikethrough_start(out);
-                }
+                self.with_markup_buffer(B::strikethrough_start);
             }
             Tag::Link {
                 link_type: LinkType::WikiLink { has_pothole },
@@ -850,35 +827,29 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 ..
             } if self.wikilinks => {
                 let resolution = self.resolve_wikilink(&dest_url);
-                if let Some(out) = self.inline_markup_out() {
-                    match &resolution {
-                        WikilinkResolution::Resolved {
-                            href,
-                            section_ref,
-                            subpath,
-                            ..
-                        } => {
-                            let section_attrs = if section_ref.is_empty() {
-                                None
-                            } else {
-                                Some((section_ref.as_str(), subpath.as_str()))
-                            };
-                            B::link_start(href, section_attrs, out);
-                        }
-                        WikilinkResolution::Fragment(fragment) => {
-                            let href = format!("#{fragment}");
-                            B::link_start(&href, None, out);
-                        }
-                        WikilinkResolution::Broken { .. } => {
-                            B::broken_link_start(out);
-                        }
+                match &resolution {
+                    WikilinkResolution::Resolved {
+                        href,
+                        section_ref,
+                        subpath,
+                        ..
+                    } => {
+                        let section_attrs = (!section_ref.is_empty())
+                            .then_some((section_ref.as_str(), subpath.as_str()));
+                        self.with_markup_buffer(|out| B::link_start(href, section_attrs, out));
+                    }
+                    WikilinkResolution::Fragment(fragment) => {
+                        let href = format!("#{fragment}");
+                        self.with_markup_buffer(|out| B::link_start(&href, None, out));
+                    }
+                    WikilinkResolution::Broken { .. } => {
+                        self.with_markup_buffer(B::broken_link_start);
                     }
                 }
                 if !has_pothole {
                     let display = self.wikilink_display_text(&resolution);
                     self.skip_wikilink_text = true;
-                    let out = self.inline_out();
-                    B::text(&display, out);
+                    self.text(&display);
                 }
             }
             Tag::Link { dest_url, .. } => {
@@ -886,27 +857,23 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 let href = B::transform_link(&dest_url, self.base_path.as_deref());
                 let section_ref = self.section_ref_attrs(&href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
-                if let Some(out) = self.inline_markup_out() {
-                    B::link_start(&href, section_attrs, out);
-                }
+                self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
             }
             Tag::Image {
                 dest_url, title, ..
             } => {
-                // Start collecting alt text; image will be rendered in end_tag
-                self.image.start();
-                let dest_url = self.strip_origin(&dest_url);
-                self.pending_image = Some((dest_url.into_owned(), title.to_string()));
+                let dest_url = self.strip_origin(&dest_url).into_owned();
+                self.scopes.push(Scope::Image {
+                    alt_text: String::new(),
+                    dest_url,
+                    title: title.to_string(),
+                });
             }
             Tag::Superscript => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::superscript_start(out);
-                }
+                self.with_markup_buffer(B::superscript_start);
             }
             Tag::Subscript => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::subscript_start(out);
-                }
+                self.with_markup_buffer(B::subscript_start);
             }
         }
     }
@@ -915,17 +882,33 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     fn end_tag(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Paragraph => {
-                if !self.code.is_active() {
+                if !matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
                     B::paragraph_end(&mut self.output);
                 }
             }
             TagEnd::Heading(_level) => {
-                if self.heading.is_in_first_h1() {
-                    self.heading.complete_first_h1();
-                } else if let Some((level, id, _text, html)) = self.heading.complete_heading() {
-                    B::heading_start(level, &id, &mut self.output);
-                    self.output.push_str(html.trim());
-                    B::heading_end(level, &mut self.output);
+                if !matches!(self.scopes.last(), Some(Scope::Heading { .. })) {
+                    debug_assert!(false, "TagEnd::Heading without matching Scope::Heading");
+                    return;
+                }
+                let Some(Scope::Heading {
+                    level,
+                    in_first_h1,
+                    toc_text,
+                    rendered_html,
+                }) = self.scopes.pop()
+                else {
+                    unreachable!("peeked match guarantees pop returns Some(Scope::Heading)");
+                };
+                if in_first_h1 {
+                    self.heading.complete_first_h1(&toc_text);
+                } else {
+                    let done = self
+                        .heading
+                        .complete_heading(level, &toc_text, rendered_html);
+                    B::heading_start(done.adjusted_level, &done.id, &mut self.output);
+                    self.output.push_str(done.rendered_html.trim());
+                    B::heading_end(done.adjusted_level, &mut self.output);
                 }
             }
             TagEnd::BlockQuote(_) => match self.alert_stack.pop() {
@@ -937,15 +920,24 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 }
             },
             TagEnd::CodeBlock => {
-                let (lang, content) = self.code.end();
-                let attrs = std::mem::take(&mut self.pending_attrs);
+                if !matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
+                    debug_assert!(false, "TagEnd::CodeBlock without matching Scope::CodeBlock");
+                    return;
+                }
+                let Some(Scope::CodeBlock {
+                    language,
+                    buffer,
+                    attrs,
+                }) = self.scopes.pop()
+                else {
+                    unreachable!("peeked match guarantees pop returns Some(Scope::CodeBlock)");
+                };
                 let index = self.code_block_index;
                 self.code_block_index += 1;
 
-                // Try processors in order, fall back to normal code block rendering
-                let processed = lang.as_ref().is_some_and(|lang_str| {
+                let processed = language.as_deref().is_some_and(|lang_str| {
                     self.processors.iter_mut().any(|processor| {
-                        match processor.process(lang_str, &attrs, &content, index) {
+                        match processor.process(lang_str, &attrs, &buffer, index) {
                             ProcessResult::Placeholder(placeholder) => {
                                 self.output.push_str(&placeholder);
                                 true
@@ -960,7 +952,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 });
 
                 if !processed {
-                    B::code_block(lang.as_deref(), &content, &mut self.output);
+                    B::code_block(language.as_deref(), &buffer, &mut self.output);
                 }
             }
             TagEnd::List(ordered) => {
@@ -972,17 +964,32 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             }
             TagEnd::FootnoteDefinition | TagEnd::HtmlBlock => {}
             TagEnd::MetadataBlock(_) => {
-                self.in_metadata_block = false;
+                if !matches!(self.scopes.last(), Some(Scope::Metadata)) {
+                    debug_assert!(
+                        false,
+                        "TagEnd::MetadataBlock without matching Scope::Metadata"
+                    );
+                    return;
+                }
+                self.scopes.pop();
             }
             TagEnd::Image => {
-                // Render image with collected alt text. Route through
-                // `inline_out` so an image inside a heading lands in the
-                // heading buffer instead of escaping the `<h*>`.
-                let alt = self.image.end();
-                if let Some((src, title)) = self.pending_image.take() {
-                    let out = self.inline_out();
-                    B::image(&src, &alt, &title, out);
+                if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
+                    debug_assert!(false, "TagEnd::Image without matching Scope::Image");
+                    return;
                 }
+                let Some(Scope::Image {
+                    alt_text,
+                    dest_url,
+                    title,
+                }) = self.scopes.pop()
+                else {
+                    unreachable!("peeked match guarantees pop returns Some(Scope::Image)");
+                };
+                // Pop BEFORE emit: the image's own scope must not intercept
+                // its own B::image call — the emit needs to resolve against
+                // the parent.
+                self.with_markup_buffer(|out| B::image(&dest_url, &alt_text, &title, out));
             }
             TagEnd::DefinitionList => {
                 B::definition_list_end(&mut self.output);
@@ -1008,98 +1015,130 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
                 self.table.next_cell();
             }
             TagEnd::Emphasis => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::emphasis_end(out);
-                }
+                self.with_markup_buffer(B::emphasis_end);
             }
             TagEnd::Strong => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::strong_end(out);
-                }
+                self.with_markup_buffer(B::strong_end);
             }
             TagEnd::Strikethrough => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::strikethrough_end(out);
-                }
+                self.with_markup_buffer(B::strikethrough_end);
             }
             TagEnd::Link => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::link_end(out);
-                }
+                self.with_markup_buffer(B::link_end);
             }
             TagEnd::Superscript => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::superscript_end(out);
-                }
+                self.with_markup_buffer(B::superscript_end);
             }
             TagEnd::Subscript => {
-                if let Some(out) = self.inline_markup_out() {
-                    B::subscript_end(out);
-                }
+                self.with_markup_buffer(B::subscript_end);
             }
         }
     }
 
     fn text(&mut self, text: &str) {
-        if self.code.is_active() {
-            self.code.push_str(text);
-        } else if self.image.is_active() {
-            self.image.push_str(text);
-        } else if self.heading.is_in_first_h1() {
-            self.heading.push_text(text);
-        } else if self.heading.is_active() {
-            self.heading.push_text(text);
-            B::text(text, self.heading.html_buffer());
-        } else {
-            B::text(text, &mut self.output);
+        match self.scopes.last_mut() {
+            Some(Scope::Heading {
+                rendered_html,
+                toc_text,
+                ..
+            }) => {
+                toc_text.push_str(text);
+                B::text(text, rendered_html);
+            }
+            Some(Scope::Image { alt_text, .. }) => alt_text.push_str(text),
+            Some(Scope::CodeBlock { buffer, .. }) => buffer.push_str(text),
+            Some(Scope::Metadata) => {}
+            None => B::text(text, &mut self.output),
         }
     }
 
     fn inline_code(&mut self, code: &str) {
-        if self.image.is_active() {
-            // CommonMark alt text is plain text — append the code body
-            // without `<code>` wrapping.
-            self.image.push_str(code);
-        } else if self.heading.is_active() {
-            self.heading.push_text(code);
-            B::inline_code(code, self.heading.html_buffer());
-        } else {
-            B::inline_code(code, &mut self.output);
+        match self.scopes.last_mut() {
+            Some(Scope::Heading {
+                rendered_html,
+                toc_text,
+                ..
+            }) => {
+                toc_text.push_str(code);
+                B::inline_code(code, rendered_html);
+            }
+            // CommonMark: alt text is plain text — append code body without `<code>` wrap.
+            Some(Scope::Image { alt_text, .. }) => alt_text.push_str(code),
+            // Dormant: pulldown-cmark doesn't emit InlineCode inside a fenced code block.
+            Some(Scope::CodeBlock { .. }) => {
+                debug_assert!(false, "inline_code inside a fenced code block");
+            }
+            Some(Scope::Metadata) => {}
+            None => B::inline_code(code, &mut self.output),
         }
     }
 
     fn raw_html(&mut self, html: &str) {
-        if self.image.is_active() {
-            // CommonMark alt text is plain text — raw HTML tags are
-            // suppressed (their visible text comes through as `Text` events).
-            return;
-        }
-        if self.heading.is_active() {
-            B::raw_html(html, self.heading.html_buffer());
-        } else {
-            B::raw_html(html, &mut self.output);
+        match self.scopes.last_mut() {
+            // toc_text intentionally NOT touched: raw HTML inside a heading
+            // is rendered into the HTML body but does not contribute to the
+            // TOC entry title or the slug id.
+            Some(Scope::Heading { rendered_html, .. }) => B::raw_html(html, rendered_html),
+            // CommonMark: alt text is plain text — raw HTML tags are suppressed
+            // (their visible text comes through as Text events).
+            // Metadata: suppressed entirely.
+            Some(Scope::Image { .. } | Scope::Metadata) => {}
+            // Dormant: pulldown-cmark doesn't emit Html/InlineHtml inside fenced code.
+            Some(Scope::CodeBlock { .. }) => {
+                debug_assert!(false, "raw_html inside a fenced code block");
+            }
+            None => B::raw_html(html, &mut self.output),
         }
     }
 
     fn soft_break(&mut self) {
-        if self.code.is_active() {
-            self.code.push_newline();
-        } else if self.image.is_active() {
-            // Soft breaks inside alt text collapse to a single space.
-            self.image.push_str(" ");
-        } else if self.heading.is_active() {
-            B::soft_break(self.heading.html_buffer());
-        } else {
-            B::soft_break(&mut self.output);
+        match self.scopes.last_mut() {
+            Some(Scope::Heading { rendered_html, .. }) => B::soft_break(rendered_html),
+            // Soft breaks inside alt text collapse to a single space (CommonMark plain-text rule).
+            Some(Scope::Image { alt_text, .. }) => alt_text.push(' '),
+            Some(Scope::CodeBlock { buffer, .. }) => buffer.push('\n'),
+            Some(Scope::Metadata) => {}
+            None => B::soft_break(&mut self.output),
         }
     }
 
     fn hard_break(&mut self) {
-        if self.image.is_active() {
+        match self.scopes.last_mut() {
+            Some(Scope::Heading { rendered_html, .. }) => B::hard_break(rendered_html),
             // Hard breaks inside alt text collapse to a single space.
-            self.image.push_str(" ");
-        } else {
-            B::hard_break(&mut self.output);
+            Some(Scope::Image { alt_text, .. }) => alt_text.push(' '),
+            // Dormant: pulldown-cmark doesn't emit HardBreak inside fenced code.
+            Some(Scope::CodeBlock { .. }) => {
+                debug_assert!(false, "hard_break inside a fenced code block");
+            }
+            Some(Scope::Metadata) => {}
+            None => B::hard_break(&mut self.output),
+        }
+    }
+
+    /// Run `f` against the buffer of the currently-active markup-accepting
+    /// scope, or against `self.output` if no scope is active.
+    /// `Image` / `Metadata` are no-ops — the closure is never invoked and
+    /// the buffer is never exposed. `CodeBlock` is dormant
+    /// (`debug_assert! + drop`).
+    ///
+    /// # Invariant
+    ///
+    /// **This is the only path from inline-markup events to a `&mut String`.**
+    /// Do NOT add a `markup_buffer_mut() -> Option<&mut String>` accessor:
+    /// the closure form is what makes "alt text drops markup" and
+    /// "metadata block suppresses output" structural rather than convention.
+    /// An accessor lets callers forget to no-op those scopes and silently
+    /// leak markup into `<img alt="…">` or into the suppressed metadata
+    /// block.
+    fn with_markup_buffer(&mut self, f: impl FnOnce(&mut String)) {
+        match self.scopes.last_mut() {
+            Some(Scope::Heading { rendered_html, .. }) => f(rendered_html),
+            Some(Scope::Image { .. } | Scope::Metadata) => {}
+            Some(Scope::CodeBlock { .. }) => {
+                debug_assert!(false, "markup-gated event inside a fenced code block");
+            }
+            None => f(&mut self.output),
         }
     }
 
@@ -2000,6 +2039,100 @@ Install with apt.
         let result = renderer.render_markdown(":::tab[Test]\nContent");
 
         assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
+    }
+
+    #[test]
+    fn test_frontmatter_terminator_does_not_swallow_body() {
+        // Frontmatter must terminate at `---` and not bleed into body
+        // parsing. The stronger contract — that no directive handler runs
+        // on frontmatter content — is covered by
+        // test_frontmatter_does_not_invoke_registered_directives.
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_directives(crate::directive::DirectiveProcessor::new());
+        let result = renderer.render_markdown("---\ntitle: hello\n---\n\n# Body\n\nParagraph.\n");
+        assert!(result.html.contains("<h1"), "body heading should render");
+        assert!(
+            result.html.contains("Body"),
+            "body heading text should render"
+        );
+        assert!(
+            result.html.contains("Paragraph"),
+            "body paragraph should render"
+        );
+        assert!(
+            !result.html.contains("title:"),
+            "frontmatter keys should not appear in body"
+        );
+    }
+
+    #[test]
+    fn test_frontmatter_does_not_invoke_registered_directives() {
+        // Frontmatter text must not invoke registered directive handlers —
+        // they may have side effects (warnings, post-process replacements,
+        // I/O). The metadata short-circuit lives in process_event's Event::Text
+        // arm; flush_text would otherwise dispatch to handlers regardless of
+        // active scope.
+        use std::sync::{Arc, Mutex};
+
+        use crate::directive::{
+            DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor, InlineDirective,
+        };
+
+        struct CountingDirective {
+            calls: Arc<Mutex<usize>>,
+        }
+
+        impl InlineDirective for CountingDirective {
+            fn name(&self) -> &str {
+                "track"
+            }
+            fn process(
+                &mut self,
+                _args: DirectiveArgs,
+                _ctx: &DirectiveContext,
+            ) -> DirectiveOutput {
+                *self.calls.lock().unwrap() += 1;
+                DirectiveOutput::Html(String::new())
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(0));
+        let processor = DirectiveProcessor::new().with_inline(CountingDirective {
+            calls: Arc::clone(&calls),
+        });
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+        let _ = renderer
+            .render_markdown("---\ntitle: hit me :track[here]\n---\n\n# Body :track[here]\n");
+
+        // Exactly one invocation expected — from the body heading, not from frontmatter.
+        assert_eq!(
+            *calls.lock().unwrap(),
+            1,
+            "directive handler should be invoked once (from body), not from frontmatter"
+        );
+    }
+
+    #[test]
+    fn test_wikilink_in_heading_contributes_to_toc_and_slug() {
+        // Wikilink display text inside a heading must contribute to both the
+        // rendered HTML and the plain-text shadow used for the TOC entry
+        // title and the slug id. Otherwise `## See [[overview]]` produces a
+        // visible "See Overview" heading but a TOC entry "See" and an anchor
+        // id of "see".
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_wikilinks(true)
+            .with_sections(wikilink_sections())
+            .with_title_resolver(StaticTitleResolver);
+        let result = renderer.render_markdown("## See [[domain:billing::overview]]\n");
+
+        assert_eq!(result.toc.len(), 1);
+        assert_eq!(result.toc[0].title, "See Overview");
+        assert_eq!(result.toc[0].id, "see-overview");
+        assert!(
+            result.html.contains(r#"<h2 id="see-overview">"#),
+            "expected heading with id=see-overview, got: {}",
+            result.html
+        );
     }
 
     // section_ref integration tests

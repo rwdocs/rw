@@ -122,6 +122,7 @@ mod code_block;
 pub mod directive;
 mod html;
 mod renderer;
+mod scope;
 mod search_document;
 mod state;
 mod status;

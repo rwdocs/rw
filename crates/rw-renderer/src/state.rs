@@ -7,47 +7,6 @@ use std::collections::HashMap;
 
 use pulldown_cmark::Alignment;
 
-/// State for tracking code block rendering.
-#[derive(Default)]
-pub(crate) struct CodeBlockState {
-    /// Whether we're inside a code block.
-    active: bool,
-    /// Language of current code block (e.g., "rust", "python").
-    language: Option<String>,
-    /// Buffer for code block content.
-    buffer: String,
-}
-
-impl CodeBlockState {
-    /// Start a new code block with optional language.
-    pub fn start(&mut self, language: Option<String>) {
-        self.active = true;
-        self.language = language;
-        self.buffer.clear();
-    }
-
-    /// End the current code block and return (language, content).
-    pub fn end(&mut self) -> (Option<String>, String) {
-        self.active = false;
-        (self.language.take(), std::mem::take(&mut self.buffer))
-    }
-
-    /// Check if we're inside a code block.
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Append text to the code block buffer.
-    pub fn push_str(&mut self, text: &str) {
-        self.buffer.push_str(text);
-    }
-
-    /// Append a newline to the code block buffer.
-    pub fn push_newline(&mut self) {
-        self.buffer.push('\n');
-    }
-}
-
 /// State for tracking table rendering.
 #[derive(Default)]
 pub(crate) struct TableState {
@@ -99,39 +58,6 @@ impl TableState {
     }
 }
 
-/// State for tracking image alt text capture.
-#[derive(Default)]
-pub(crate) struct ImageState {
-    /// Whether we're inside an image tag.
-    active: bool,
-    /// Buffer for alt text.
-    alt_text: String,
-}
-
-impl ImageState {
-    /// Start capturing image alt text.
-    pub fn start(&mut self) {
-        self.active = true;
-        self.alt_text.clear();
-    }
-
-    /// End image capture and return the alt text.
-    pub fn end(&mut self) -> String {
-        self.active = false;
-        std::mem::take(&mut self.alt_text)
-    }
-
-    /// Check if we're inside an image.
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
-    /// Append text to the alt text buffer.
-    pub fn push_str(&mut self, text: &str) {
-        self.alt_text.push_str(text);
-    }
-}
-
 /// A single heading in the table of contents.
 ///
 /// Produced by [`MarkdownRenderer`](crate::MarkdownRenderer) for every heading
@@ -170,9 +96,33 @@ pub struct TocEntry {
     pub id: String,
 }
 
-/// State for tracking heading and title extraction.
-#[allow(clippy::struct_excessive_bools)]
-pub(crate) struct HeadingState {
+/// Result of completing a heading via `HeadingAccumulator::complete_heading`.
+/// Returned by-value so the caller can emit `B::heading_start` / push `html` /
+/// `B::heading_end` without holding any borrow on the accumulator.
+#[derive(Debug)]
+pub(crate) struct CompletedHeading {
+    /// Heading level after Confluence's title-shift adjustment.
+    pub adjusted_level: u8,
+    /// Slug-based anchor id, deduped via the accumulator's `id_counts`.
+    pub id: String,
+    /// Backend-formatted HTML body, ready to splice into `output` between
+    /// the heading's open and close tags. Encoding/escaping is whatever the
+    /// active `RenderBackend` produced during the inline phase.
+    pub rendered_html: String,
+}
+
+/// Persistent accumulator for heading-related output across an entire
+/// document render. Holds cross-heading state (title, TOC entries,
+/// id-counts, the "have we seen the first H1?" flag, and the config
+/// flags that govern title extraction).
+///
+/// Per-heading state (the heading's level, plain-text shadow, formatted
+/// HTML body, and the `in_first_h1` flag) lives in
+/// [`Scope::Heading`](crate::renderer::Scope) — *not* here. The
+/// accumulator is consulted at `Tag::Heading` start (to decide whether
+/// the heading is the skipped Confluence first H1) and at
+/// `TagEnd::Heading` (to capture the title and/or emit the heading).
+pub(crate) struct HeadingAccumulator {
     /// Whether to extract title from first H1.
     extract_title: bool,
     /// Whether to skip first H1 in output (Confluence mode).
@@ -181,74 +131,80 @@ pub(crate) struct HeadingState {
     title: Option<String>,
     /// Whether we've seen the first H1.
     seen_first_h1: bool,
-    /// Whether we're currently inside the first H1 (to capture its text).
-    in_first_h1: bool,
-    /// Current heading level being processed (None if not in a heading).
-    current_level: Option<u8>,
-    /// Buffer for heading plain text (for table of contents and slug).
-    text: String,
-    /// Buffer for heading HTML (with inline formatting).
-    html: String,
     /// Table of contents entries.
     toc: Vec<TocEntry>,
     /// Counter for generating unique heading IDs.
     id_counts: HashMap<String, usize>,
 }
 
-impl HeadingState {
-    /// Create a new heading state.
+impl HeadingAccumulator {
+    /// Create a new accumulator.
     ///
-    /// # Arguments
-    ///
-    /// * `extract_title` - Whether to extract title from first H1
-    /// * `title_as_metadata` - Whether to skip first H1 in output (Confluence mode)
+    /// * `extract_title` — whether to extract title from first H1
+    /// * `title_as_metadata` — whether to skip first H1 in output (Confluence mode)
     pub fn new(extract_title: bool, title_as_metadata: bool) -> Self {
         Self {
             extract_title,
             title_as_metadata,
             title: None,
             seen_first_h1: false,
-            in_first_h1: false,
-            current_level: None,
-            text: String::new(),
-            html: String::new(),
             toc: Vec::new(),
             id_counts: HashMap::new(),
         }
     }
 
-    /// Check if we're currently inside any heading (not counting skipped H1).
-    pub fn is_active(&self) -> bool {
-        self.current_level.is_some()
+    /// Whether `level` is the Confluence-mode first H1 that should be
+    /// title-extracted and skipped from output. Consulted at
+    /// `Tag::Heading` start time to set `Scope::Heading::in_first_h1`.
+    pub fn is_skipped_title(&self, level: u8) -> bool {
+        self.extract_title && self.title_as_metadata && level == 1 && !self.seen_first_h1
     }
 
-    /// Check if we're inside the first H1 being captured for title.
-    pub fn is_in_first_h1(&self) -> bool {
-        self.in_first_h1
+    /// Confluence-mode skipped first H1: capture `toc_text` as the page
+    /// title and mark `seen_first_h1`. The matching `Scope::Heading`'s
+    /// rendered HTML must be discarded by the caller — this function
+    /// emits nothing to `output`.
+    pub fn complete_first_h1(&mut self, toc_text: &str) {
+        self.title = Some(toc_text.trim().to_owned());
+        self.seen_first_h1 = true;
     }
 
-    /// Start tracking a heading.
-    ///
-    /// Returns `true` if the heading should be rendered, `false` if it should be skipped.
-    pub fn start_heading(&mut self, level: u8) -> bool {
-        // First H1 with title extraction and metadata mode - skip rendering
-        if self.extract_title && self.title_as_metadata && level == 1 && !self.seen_first_h1 {
-            self.in_first_h1 = true;
-            self.text.clear();
-            return false;
+    /// Complete a non-skipped heading: generate the id, capture the title
+    /// (HTML-mode first H1 only), push a TOC entry (unless this *is* the
+    /// title), and return the data the caller needs to emit
+    /// `<h*>` open + body + close.
+    pub fn complete_heading(
+        &mut self,
+        level: u8,
+        toc_text: &str,
+        rendered_html: String,
+    ) -> CompletedHeading {
+        let id = self.generate_id(toc_text);
+        // HTML-mode first H1: capture title (still render).
+        let is_title =
+            self.extract_title && !self.title_as_metadata && level == 1 && self.title.is_none();
+        if is_title {
+            self.title = Some(toc_text.trim().to_owned());
+            self.seen_first_h1 = true;
         }
-
-        self.current_level = Some(level);
-        self.text.clear();
-        self.html.clear();
-        true
+        let adjusted_level = self.adjusted_level(level);
+        if !is_title {
+            self.toc.push(TocEntry {
+                level: adjusted_level,
+                title: toc_text.trim().to_owned(),
+                id: id.clone(),
+            });
+        }
+        CompletedHeading {
+            adjusted_level,
+            id,
+            rendered_html,
+        }
     }
 
-    /// Get the adjusted heading level for output.
-    ///
-    /// When title extraction is enabled in metadata mode and we've seen the first H1,
-    /// all subsequent headings are leveled up (H2→H1, H3→H2, etc.).
-    pub fn adjusted_level(&self, level: u8) -> u8 {
+    /// Adjusted heading level for output: in Confluence mode after the
+    /// first H1, every level shifts up by one (H2 → H1, etc.).
+    fn adjusted_level(&self, level: u8) -> u8 {
         if self.title_as_metadata && self.seen_first_h1 && level > 1 {
             level - 1
         } else {
@@ -256,48 +212,7 @@ impl HeadingState {
         }
     }
 
-    /// Complete the first H1 and save as title.
-    pub fn complete_first_h1(&mut self) {
-        self.title = Some(self.text.trim().to_owned());
-        self.text.clear();
-        self.in_first_h1 = false;
-        self.seen_first_h1 = true;
-    }
-
-    /// Complete heading and generate table of contents entry.
-    /// Returns (level, id, text, html) or None if not in a heading.
-    pub fn complete_heading(&mut self) -> Option<(u8, String, String, String)> {
-        let level = self.current_level.take()?;
-        let text = std::mem::take(&mut self.text);
-        let html = std::mem::take(&mut self.html);
-
-        // Generate unique ID
-        let id = self.generate_id(&text);
-
-        // Extract title from first H1 (but still render it in HTML mode)
-        let is_title =
-            self.extract_title && !self.title_as_metadata && level == 1 && self.title.is_none();
-        if is_title {
-            self.title = Some(text.trim().to_owned());
-            self.seen_first_h1 = true;
-        }
-
-        // Adjusted level for output
-        let adjusted = self.adjusted_level(level);
-
-        // Add to ToC (but not the page title)
-        if !is_title {
-            self.toc.push(TocEntry {
-                level: adjusted,
-                title: text.trim().to_owned(),
-                id: id.clone(),
-            });
-        }
-
-        Some((adjusted, id, text, html))
-    }
-
-    /// Generate a unique ID for a heading.
+    /// Generate a unique slug-based id from heading plain text.
     fn generate_id(&mut self, text: &str) -> String {
         let base_id = slugify(text);
         let count = self.id_counts.entry(base_id.clone()).or_default();
@@ -307,16 +222,6 @@ impl HeadingState {
         };
         *count += 1;
         id
-    }
-
-    /// Append text to heading buffers.
-    pub fn push_text(&mut self, text: &str) {
-        self.text.push_str(text);
-    }
-
-    /// Get the heading HTML buffer reference.
-    pub fn html_buffer(&mut self) -> &mut String {
-        &mut self.html
     }
 
     /// Take the extracted title.
@@ -425,21 +330,6 @@ mod tests {
     }
 
     #[test]
-    fn test_code_block_state() {
-        let mut state = CodeBlockState::default();
-        assert!(!state.is_active());
-
-        state.start(Some("rust".to_owned()));
-        assert!(state.is_active());
-
-        state.push_str("fn main() {}");
-        let (lang, content) = state.end();
-        assert_eq!(lang, Some("rust".to_owned()));
-        assert_eq!(content, "fn main() {}");
-        assert!(!state.is_active());
-    }
-
-    #[test]
     fn test_table_state() {
         let mut state = TableState::default();
         state.start(vec![Alignment::Left, Alignment::Center, Alignment::Right]);
@@ -459,69 +349,56 @@ mod tests {
     }
 
     #[test]
-    fn test_image_state() {
-        let mut state = ImageState::default();
-        assert!(!state.is_active());
-
-        state.start();
-        assert!(state.is_active());
-
-        state.push_str("alt text");
-        let alt = state.end();
-        assert_eq!(alt, "alt text");
-        assert!(!state.is_active());
-    }
-
-    #[test]
-    fn test_heading_state_html_mode() {
+    fn test_heading_accumulator_html_mode() {
         // HTML mode: extract_title=true, title_as_metadata=false
-        // First H1 is extracted as title but still rendered
-        let mut state = HeadingState::new(true, false);
+        // First H1 is captured as title AND emitted.
+        let mut acc = HeadingAccumulator::new(true, false);
 
-        // First H1 should be rendered
-        assert!(state.start_heading(1));
-        state.push_text("My Title");
-        let result = state.complete_heading();
-        assert!(result.is_some());
-        let (level, id, text, _html) = result.unwrap();
-        assert_eq!(level, 1);
-        assert_eq!(id, "my-title");
-        assert_eq!(text, "My Title");
+        // First H1: not skipped — caller pushes Scope::Heading with in_first_h1=false
+        // and routes through complete_heading.
+        assert!(!acc.is_skipped_title(1));
+        let done = acc.complete_heading(1, "My Title", "My Title".to_owned());
+        assert_eq!(done.adjusted_level, 1);
+        assert_eq!(done.id, "my-title");
+        assert_eq!(done.rendered_html, "My Title");
 
-        // H2 should be rendered with same level
-        assert!(state.start_heading(2));
-        state.push_text("Section");
-        let result = state.complete_heading();
-        assert!(result.is_some());
-        let (level, _id, _text, _html) = result.unwrap();
-        assert_eq!(level, 2); // Not adjusted in HTML mode
+        // H2: rendered at level 2 (no shift in HTML mode).
+        let done = acc.complete_heading(2, "Section", "Section".to_owned());
+        assert_eq!(done.adjusted_level, 2);
 
-        // Check title and ToC at the end (ToC should not include the title)
-        assert_eq!(state.take_title(), Some("My Title".to_owned()));
-        assert_eq!(state.take_toc().len(), 1); // Only H2, not H1 title
+        assert_eq!(acc.take_title(), Some("My Title".to_owned()));
+        // Title is NOT in the TOC; only H2 is.
+        let toc = acc.take_toc();
+        assert_eq!(toc.len(), 1);
+        assert_eq!(toc[0].level, 2);
+        assert_eq!(toc[0].title, "Section");
+        assert_eq!(toc[0].id, "section");
     }
 
     #[test]
-    fn test_heading_state_confluence_mode() {
+    fn test_heading_accumulator_confluence_mode() {
         // Confluence mode: extract_title=true, title_as_metadata=true
-        // First H1 is extracted as title and NOT rendered, levels are shifted
-        let mut state = HeadingState::new(true, true);
+        // First H1 is title-extracted and NOT emitted; subsequent levels shift up by one.
+        let mut acc = HeadingAccumulator::new(true, true);
 
-        // First H1 should be skipped
-        assert!(!state.start_heading(1));
-        assert!(state.is_in_first_h1());
-        state.push_text("My Title");
-        state.complete_first_h1();
+        // First H1: skipped — caller pushes Scope::Heading with in_first_h1=true
+        // and routes through complete_first_h1.
+        assert!(acc.is_skipped_title(1));
+        acc.complete_first_h1("My Title");
 
-        // H2 should be adjusted to H1
-        assert!(state.start_heading(2));
-        state.push_text("Section");
-        let result = state.complete_heading();
-        assert!(result.is_some());
-        let (level, _id, _text, _html) = result.unwrap();
-        assert_eq!(level, 1); // Adjusted from H2 to H1
+        // After the skipped first H1, is_skipped_title now returns false.
+        assert!(!acc.is_skipped_title(1));
 
-        // Check title at the end
-        assert_eq!(state.take_title(), Some("My Title".to_owned()));
+        // H2 shifts to level 1.
+        let done = acc.complete_heading(2, "Section", "Section".to_owned());
+        assert_eq!(done.adjusted_level, 1);
+
+        assert_eq!(acc.take_title(), Some("My Title".to_owned()));
+        // Skipped first H1 must NOT appear in the TOC; only the level-shifted H2.
+        let toc = acc.take_toc();
+        assert_eq!(toc.len(), 1);
+        assert_eq!(toc[0].level, 1, "H2 shifts to level 1 in Confluence mode");
+        assert_eq!(toc[0].title, "Section");
+        assert_eq!(toc[0].id, "section");
     }
 }
