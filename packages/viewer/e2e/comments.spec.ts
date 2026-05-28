@@ -14,30 +14,50 @@ async function selectText(page: Page, text: string) {
   await page.evaluate((targetText) => {
     const article = document.querySelector("article");
     if (!article) throw new Error("no article");
+    const fullText = article.textContent ?? "";
+    const startInDoc = fullText.indexOf(targetText);
+    if (startInDoc === -1) throw new Error(`text "${targetText}" not found in article`);
+    const endInDoc = startInDoc + targetText.length;
+
     const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+    let offset = 0;
+    let startNode: Text | null = null;
+    let startOffset = 0;
+    let endNode: Text | null = null;
+    let endOffset = 0;
     while (walker.nextNode()) {
-      const content = walker.currentNode.textContent ?? "";
-      const idx = content.indexOf(targetText);
-      if (idx === -1) continue;
-
-      const range = document.createRange();
-      range.setStart(walker.currentNode, idx);
-      range.setEnd(walker.currentNode, idx + targetText.length);
-      const selection = window.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
-
-      const rect = range.getBoundingClientRect();
-      article.dispatchEvent(
-        new MouseEvent("mouseup", {
-          bubbles: true,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-        }),
-      );
-      return;
+      const node = walker.currentNode as Text;
+      const len = node.data.length;
+      if (!startNode && offset + len > startInDoc) {
+        startNode = node;
+        startOffset = startInDoc - offset;
+      }
+      if (startNode && offset + len >= endInDoc) {
+        endNode = node;
+        endOffset = endInDoc - offset;
+        break;
+      }
+      offset += len;
     }
-    throw new Error(`text "${targetText}" not found in article`);
+    if (!startNode || !endNode) {
+      throw new Error(`couldn't build range for "${targetText}"`);
+    }
+
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const rect = range.getBoundingClientRect();
+    article.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      }),
+    );
   }, text);
 }
 
@@ -90,13 +110,13 @@ async function clickHighlight(page: Page, text: string) {
   await page.mouse.click(clickCoords.x, clickCoords.y);
 }
 
-/** Wait for CSS Custom Highlights to be registered (comments loaded and anchored). */
+/** Wait for comment wrappers to be present in the article (comments loaded and anchored). */
 async function waitForHighlights(page: Page) {
   await expect(async () => {
-    const has = await page.evaluate(
-      () => typeof CSS !== "undefined" && "highlights" in CSS && CSS.highlights.has("rw-comments"),
+    const count = await page.evaluate(
+      () => document.querySelectorAll("article rw-annotation").length,
     );
-    expect(has).toBe(true);
+    expect(count).toBeGreaterThan(0);
   }).toPass({ timeout: 10000 });
 }
 
@@ -402,6 +422,101 @@ test.describe("Inline comments", () => {
     expect(persisted).toBeTruthy();
     expect(persisted.selectors).toHaveLength(2);
   });
+
+  test("overlapping comments render with nested wrappers and translucent backgrounds", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    // Text under test is the homepage sentence:
+    //   "Welcome to the test documentation site."
+    // Outer covers [Welcome..documentation], inner covers [to..site] — they
+    // overlap on "to the test documentation".
+    await createCommentViaUI(page, "Welcome to the test documentation", "outer");
+    await waitForHighlights(page);
+    await createCommentViaUI(page, "to the test documentation site", "inner");
+    // Wait for the *nested* wrapper to exist — `waitForHighlights` only checks
+    // that any wrapper is present, which is already true from the outer comment.
+    // Without this, the depth-2 assertion below races re-anchoring.
+    await expect(async () => {
+      const hasNested = await page.evaluate(
+        () => document.querySelector("article rw-annotation rw-annotation") !== null,
+      );
+      expect(hasNested).toBe(true);
+    }).toPass({ timeout: 10000 });
+
+    // For each substring, find the deepest <rw-annotation> whose textContent
+    // includes it, and report its nesting depth + computed background color.
+    // We search WRAPPERS rather than text nodes because wrapping splits text
+    // nodes at range boundaries — a substring like "documentation" may be in
+    // its own text node now, but the wrapper around it tells us the depth.
+    const samples = await page.evaluate(() => {
+      function depthOf(el: Element): number {
+        let depth = 0;
+        let cur: Node | null = el;
+        while (cur) {
+          if (cur instanceof Element && cur.tagName.toLowerCase() === "rw-annotation") {
+            depth++;
+          }
+          cur = cur.parentNode;
+        }
+        return depth;
+      }
+      function deepestWrapperContaining(substring: string) {
+        const all = Array.from(document.querySelectorAll("article rw-annotation"));
+        let best: { el: Element; depth: number } | null = null;
+        for (const el of all) {
+          if (!(el.textContent ?? "").includes(substring)) continue;
+          const depth = depthOf(el);
+          if (!best || depth > best.depth) best = { el, depth };
+        }
+        if (!best) return null;
+        return {
+          depth: best.depth,
+          background: window.getComputedStyle(best.el).backgroundColor,
+        };
+      }
+      return {
+        // "Welcome" sits in a text node inside the outer wrapper only.
+        outerOnly: deepestWrapperContaining("Welcome"),
+        // "the test" sits inside the inner wrapper which is nested inside
+        // the outer wrapper — depth 2.
+        overlap: deepestWrapperContaining("the test"),
+        // "site" sits in a text node inside the inner wrapper only.
+        innerOnly: deepestWrapperContaining("site"),
+      };
+    });
+
+    expect(samples.outerOnly?.depth).toBe(1);
+    expect(samples.overlap?.depth).toBe(2);
+    expect(samples.innerOnly?.depth).toBe(1);
+
+    // All wrappers must use a translucent background so nested wrappers
+    // composite to a darker yellow. If a future CSS change makes the rule
+    // opaque (alpha >= 1) or transparent (alpha == 0), the visible "darker
+    // overlap" feature regresses.
+    function alphaOf(color: string): number {
+      // Modern Chrome serializes color-mix() results in the CSS Color 4
+      // `color(srgb r g b / a)` form. Legacy browsers (and color values that
+      // resolve to legacy spaces) serialize as `rgb(r, g, b)` (implicit
+      // alpha 1) or `rgba(r, g, b, a)`. Parse both shapes.
+      if (color.startsWith("color(")) {
+        const m = color.match(/\/\s*([\d.]+)\s*\)/);
+        return m ? parseFloat(m[1]) : 1;
+      }
+      const m = color.match(/rgba?\(([^)]+)\)/);
+      if (!m) throw new Error(`unrecognized color "${color}"`);
+      const parts = m[1].split(",").map((p) => parseFloat(p.trim()));
+      return parts.length === 4 ? parts[3] : 1;
+    }
+    const outerAlpha = alphaOf(samples.outerOnly!.background);
+    const overlapAlpha = alphaOf(samples.overlap!.background);
+    expect(outerAlpha).toBeGreaterThan(0);
+    expect(outerAlpha).toBeLessThan(1);
+    expect(overlapAlpha).toBeGreaterThan(0);
+    expect(overlapAlpha).toBeLessThan(1);
+  });
 });
 
 test.describe("Page comments", () => {
@@ -577,11 +692,9 @@ test.describe("Comment anchor alignment", () => {
     await expect(sidebar.getByTestId("comment-avatar-row").first()).toBeVisible();
 
     const highlightMiddle = await page.evaluate(() => {
-      const highlights = CSS.highlights as unknown as Map<string, Highlight>;
-      const highlight = highlights.get("rw-comment-active");
-      if (!highlight) throw new Error("no active highlight");
-      const range = [...highlight][0] as Range;
-      const firstLine = range.getClientRects()[0] ?? range.getBoundingClientRect();
+      const wrapper = document.querySelector('article rw-annotation[data-active="true"]');
+      if (!wrapper) throw new Error("no active wrapper");
+      const firstLine = wrapper.getClientRects()[0] ?? wrapper.getBoundingClientRect();
       return firstLine.top + firstLine.height / 2;
     });
 
@@ -618,11 +731,9 @@ test.describe("Comment anchor alignment", () => {
     await clickHighlight(page, "code highlighting");
 
     const highlightMiddle = await page.evaluate(() => {
-      const highlights = CSS.highlights as unknown as Map<string, Highlight>;
-      const highlight = highlights.get("rw-comment-active");
-      if (!highlight) throw new Error("no active highlight");
-      const range = [...highlight][0] as Range;
-      const firstLine = range.getClientRects()[0] ?? range.getBoundingClientRect();
+      const wrapper = document.querySelector('article rw-annotation[data-active="true"]');
+      if (!wrapper) throw new Error("no active wrapper");
+      const firstLine = wrapper.getClientRects()[0] ?? wrapper.getBoundingClientRect();
       return firstLine.top + firstLine.height / 2;
     });
 

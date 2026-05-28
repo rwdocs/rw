@@ -3,6 +3,7 @@
   import { initializeTabs } from "$lib/tabs";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "$lib/anchoring";
+  import { wrapRange, unwrapAll } from "$lib/comments/highlight";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
@@ -95,15 +96,30 @@
   // Map from comment ID to its anchored Range (for click detection)
   let commentRanges = $state.raw<Map<string, Range>>(new Map());
 
-  // Apply comment highlights via CSS Custom Highlight API
+  // Apply comment highlights via <rw-annotation> DOM wrappers.
+  // Overlapping comments nest, so the box-model alpha compositing makes the
+  // overlap region a darker yellow — what the CSS Custom Highlight API
+  // can't do because it picks one color per overlapping range
+  // ("last write wins" across Highlight objects).
+  //
+  // The active comment uses CSS.highlights.rw-comment-active (next effect)
+  // because a single-range overlay doesn't need DOM mutation and shouldn't
+  // fight with the user's text selection.
   $effect(() => {
     const items = comments.items;
     const container = articleRef;
-    if (!container || typeof CSS === "undefined" || !("highlights" in CSS)) return;
+    if (!container) return;
 
-    const highlights = CSS.highlights as Map<string, Highlight>;
-    const exactRanges: Range[] = [];
-    const fuzzyRanges: Range[] = [];
+    // Drop any pending text selection — its Range may point into nodes we're
+    // about to unwrap, which would collapse the selection mid-draft. The
+    // popover follows live selection state, so this also dismisses it.
+    selectionPopover.clear();
+    // Also drop the native selection — its Range may point into text nodes
+    // unwrapAll is about to mutate, and a stray mouseup after the wrap pass
+    // would read a Range whose containers have been merged.
+    window.getSelection()?.removeAllRanges();
+    unwrapAll(container);
+
     const rangeMap = new Map<string, Range>();
     const strategyMap = new Map<string, AnchorStrategy>();
     const orphanIds = new Set<string>();
@@ -111,13 +127,20 @@
 
     for (const comment of items) {
       if (comment.selectors.length === 0) continue;
-      if (comment.status === "resolved" && comment.id !== comments.activeId) continue;
+      if (comment.status === "resolved") continue;
       const result = selectorsToRange(comment.selectors, container);
       if (result) {
-        if (result.strategy === "fuzzy") {
-          fuzzyRanges.push(result.range);
-        } else {
-          exactRanges.push(result.range);
+        const wrappers = wrapRange(result.range, {
+          commentId: comment.id,
+          strategy: result.strategy,
+        });
+        if (wrappers.length === 0) {
+          // Range resolved but contained only whitespace — treat as orphan so
+          // the comment surfaces in the page-comments timeline instead of
+          // becoming an invisible clickable region (whitespace highlight has
+          // no visible wrapper but range.getClientRects() still has bounds).
+          if (!comment.parentId) orphanIds.add(comment.id);
+          continue;
         }
         rangeMap.set(comment.id, result.range);
         strategyMap.set(comment.id, result.strategy);
@@ -150,20 +173,8 @@
     anchored.sort((a, b) => a.range.compareBoundaryPoints(Range.START_TO_START, b.range));
     comments.order = anchored.map((a) => a.id);
 
-    if (exactRanges.length > 0) {
-      highlights.set("rw-comments", new Highlight(...exactRanges));
-    } else {
-      highlights.delete("rw-comments");
-    }
-    if (fuzzyRanges.length > 0) {
-      highlights.set("rw-comments-fuzzy", new Highlight(...fuzzyRanges));
-    } else {
-      highlights.delete("rw-comments-fuzzy");
-    }
-
     return () => {
-      highlights.delete("rw-comments");
-      highlights.delete("rw-comments-fuzzy");
+      unwrapAll(container);
     };
   });
 
@@ -177,41 +188,54 @@
     comments.activeTop = getHighlightTop(activeId);
   });
 
-  // Apply active comment highlight (existing comment or pending new comment)
+  // Toggle data-active="true" on the wrappers belonging to the active comment.
+  // Cheap attribute toggle, no DOM mutation beyond setAttribute/removeAttribute.
+  // Re-runs when activeId flips (the common case) and also when items change,
+  // because the wrap effect above may have just produced fresh wrapper elements
+  // that still need the attribute applied. Resolved comments aren't wrapped
+  // (the wrap effect skips them), so activating a resolved-from-the-sidebar
+  // comment has no in-article visual — the sidebar is the indicator.
   $effect(() => {
     const activeId = comments.activeId;
+    void comments.items;
+    const container = articleRef;
+    if (!container) return;
+
+    for (const el of container.querySelectorAll("rw-annotation[data-active]")) {
+      el.removeAttribute("data-active");
+    }
+    if (!activeId) return;
+
+    const escId = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(activeId) : activeId;
+    for (const el of container.querySelectorAll(`rw-annotation[data-comment-id="${escId}"]`)) {
+      el.setAttribute("data-active", "true");
+    }
+
+    return () => {
+      for (const el of container.querySelectorAll("rw-annotation[data-active]")) {
+        el.removeAttribute("data-active");
+      }
+    };
+  });
+
+  // Pending-selection overlay — paint the user's in-progress text selection
+  // (while drafting a new comment) via the CSS Custom Highlight API. We can't
+  // wrap a draft selection in a DOM element: the user is mid-drag and DOM
+  // mutation would fight `window.getSelection()`. Stored comments take the
+  // data-active path above instead.
+  $effect(() => {
     const pending = comments.pending;
-    const items = comments.items;
     const container = articleRef;
     if (!container || typeof CSS === "undefined" || !("highlights" in CSS)) return;
 
     const highlights = CSS.highlights as Map<string, Highlight>;
 
-    // Pending new comment — highlight the selected text
-    if (pending && pending.selectors.length > 0) {
-      const result = selectorsToRange(pending.selectors, container);
-      if (result) {
-        highlights.set("rw-comment-active", new Highlight(result.range));
-      } else {
-        highlights.delete("rw-comment-active");
-      }
-      return () => {
-        highlights.delete("rw-comment-active");
-      };
-    }
-
-    if (!activeId) {
+    if (!pending || pending.selectors.length === 0) {
       highlights.delete("rw-comment-active");
       return;
     }
 
-    const active = items.find((c) => c.id === activeId);
-    if (!active || active.selectors.length === 0) {
-      highlights.delete("rw-comment-active");
-      return;
-    }
-
-    const result = selectorsToRange(active.selectors, container);
+    const result = selectorsToRange(pending.selectors, container);
     if (result) {
       highlights.set("rw-comment-active", new Highlight(result.range));
     } else {
@@ -241,34 +265,29 @@
 
   function handleMouseMove(event: MouseEvent) {
     if (!articleRef) return;
-    const desired = commentRanges.size > 0 && findCommentAtPoint(event) ? "pointer" : "";
+    const desired = findCommentAtPoint(event) ? "pointer" : "";
     if (articleRef.style.cursor !== desired) {
       articleRef.style.cursor = desired;
     }
   }
 
-  /** Find which comment (if any) contains the click point. */
+  /** Find which comment (if any) the click landed on.
+   *
+   *  Walks up from `event.target` and returns the *innermost* `<rw-annotation>`
+   *  wrapper's `data-comment-id`. Innermost is intentional: when two comments
+   *  overlap, the inner one (visually a darker yellow because of nested
+   *  alpha-compositing) becomes the topmost DOM node at that point, so
+   *  clicking the darker patch picks the more-specific thread.
+   *
+   *  Resolved-active comments don't get a wrapper (the comment-wrap effect
+   *  skips them), so clicking the active overlay over a resolved comment
+   *  returns null and won't deactivate via article click — the sidebar's
+   *  close button is the dismiss path for resolved-active.
+   */
   function findCommentAtPoint(event: MouseEvent): string | null {
-    if (!articleRef) return null;
-
-    const { clientX, clientY } = event;
-
-    for (const [id, range] of commentRanges) {
-      // getClientRects() returns one rect per line for multi-line ranges
-      const rects = range.getClientRects();
-      for (const rect of rects) {
-        if (
-          clientX >= rect.left &&
-          clientX <= rect.right &&
-          clientY >= rect.top &&
-          clientY <= rect.bottom
-        ) {
-          return id;
-        }
-      }
-    }
-
-    return null;
+    const target = event.target;
+    if (!(target instanceof Element)) return null;
+    return target.closest("rw-annotation")?.getAttribute("data-comment-id") ?? null;
   }
 
   /** Vertical offset of the anchor point for a comment's highlight, relative to
@@ -280,10 +299,23 @@
    *  end of an inline element right before a sibling code span), browsers can
    *  return a leading zero-width rect at the end of the previous line ahead of
    *  the real highlight — skipping width==0 rects avoids anchoring to that
-   *  invisible artifact. */
+   *  invisible artifact.
+   *
+   *  When `commentId` doesn't have a wrapper-backed Range (the active comment
+   *  just got resolved → wrap effect dropped its wrapper → commentRanges no
+   *  longer maps it), fall back to resolving the comment's selectors on
+   *  demand. The sidebar thread should stay anchored to the article passage
+   *  even after the in-article highlight disappears. */
   function getHighlightTop(commentId: string): number | null {
-    const range = commentRanges.get(commentId);
-    if (!range || !articleRef) return null;
+    if (!articleRef) return null;
+    let range = commentRanges.get(commentId);
+    if (!range) {
+      const comment = comments.items.find((c) => c.id === commentId);
+      if (!comment || comment.selectors.length === 0) return null;
+      const result = selectorsToRange(comment.selectors, articleRef);
+      if (!result) return null;
+      range = result.range;
+    }
     const rects = range.getClientRects();
     let firstLineRect: DOMRect | null = null;
     for (const r of rects) {
