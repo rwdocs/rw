@@ -97,3 +97,48 @@ describe("wrapRange — single text node", () => {
     expect(container.innerHTML).toBe("<p>Hello</p>");
   });
 });
+
+describe("wrapRange — crosses element boundaries", () => {
+  it("range crossing an inline tag produces one wrapper per text-node span", () => {
+    const container = createContainer("<p>Hello <em>world</em> friend</p>");
+    const range = selectText(container, "lo wor");
+    const wrappers = wrapRange(range, { commentId: "x", strategy: "quote" });
+
+    expect(wrappers).toHaveLength(2);
+    expect(wrappers[0].textContent).toBe("lo ");
+    expect(wrappers[1].textContent).toBe("wor");
+    expect(container.innerHTML).toBe(
+      '<p>Hel<rw-annotation data-comment-id="x" data-strategy="quote">lo </rw-annotation><em><rw-annotation data-comment-id="x" data-strategy="quote">wor</rw-annotation>ld</em> friend</p>',
+    );
+    // Second wrapper sits *inside* the <em> element — text styling preserved.
+    expect(wrappers[1].parentElement?.tagName.toLowerCase()).toBe("em");
+  });
+
+  it("range spanning two paragraphs produces one wrapper per paragraph", () => {
+    const container = createContainer("<p>foo bar</p><p>baz qux</p>");
+    const range = selectText(container, "bar"); // first paragraph
+    const rangeWide = document.createRange();
+    rangeWide.setStart(range.startContainer, range.startOffset);
+    // Find "baz" in the second paragraph
+    const p2 = container.querySelectorAll("p")[1];
+    const p2Text = p2.firstChild as Text;
+    rangeWide.setEnd(p2Text, 3); // up to "baz"
+
+    const wrappers = wrapRange(rangeWide, { commentId: "y", strategy: "position" });
+    expect(wrappers).toHaveLength(2);
+    expect(wrappers[0].parentElement?.tagName.toLowerCase()).toBe("p");
+    expect(wrappers[1].parentElement?.tagName.toLowerCase()).toBe("p");
+    expect(wrappers[0].textContent).toBe("bar");
+    expect(wrappers[1].textContent).toBe("baz");
+  });
+
+  it("skips whitespace-only text-node spans", () => {
+    const container = createContainer("<p>a</p>\n<p>b</p>");
+    const range = document.createRange();
+    range.setStart(container.firstChild!.firstChild!, 0);
+    range.setEnd(container.lastChild!.firstChild!, 1);
+    const wrappers = wrapRange(range, { commentId: "z", strategy: "position" });
+    expect(wrappers).toHaveLength(2);
+    expect(wrappers.every((w) => w.textContent && w.textContent.trim().length > 0)).toBe(true);
+  });
+});
