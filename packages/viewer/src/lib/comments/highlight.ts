@@ -107,21 +107,26 @@ function groupContiguousSiblings(nodes: Text[]): Text[][] {
   return spans;
 }
 
+/**
+ * Remove every `<rw-annotation>` descendant of `container`, restoring the
+ * original text-node structure. Idempotent. No-op when no wrappers exist.
+ */
 export function unwrapAll(container: HTMLElement): void {
-  // Iterate while at least one wrapper remains. We can't snapshot the
-  // NodeList up front because replacing a parent wrapper detaches its
-  // children (which may include nested wrappers) from the original
-  // querySelectorAll() result's parent, but querying fresh each loop
-  // is simpler and correct.
-  let wrapper = container.querySelector("rw-annotation");
-  while (wrapper) {
+  // querySelectorAll returns a static NodeList — snapshotting once is safe
+  // because unwrapping moves a wrapper's children up to its parent without
+  // invalidating other entries in the snapshot. Iterate in document order;
+  // nested wrappers are unwrapped from outside-in, which is correct: the
+  // outer's children (including the inner wrapper) get moved up first, then
+  // the inner gets unwrapped in turn.
+  const wrappers = container.querySelectorAll("rw-annotation");
+  if (wrappers.length === 0) return;
+  for (const wrapper of wrappers) {
     const parent = wrapper.parentNode;
-    if (!parent) break;
+    if (!parent) continue;
     while (wrapper.firstChild) {
       parent.insertBefore(wrapper.firstChild, wrapper);
     }
     parent.removeChild(wrapper);
-    wrapper = container.querySelector("rw-annotation");
   }
   container.normalize();
 }
