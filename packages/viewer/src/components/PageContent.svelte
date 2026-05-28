@@ -252,34 +252,29 @@
 
   function handleMouseMove(event: MouseEvent) {
     if (!articleRef) return;
-    const desired = commentRanges.size > 0 && findCommentAtPoint(event) ? "pointer" : "";
+    const desired = findCommentAtPoint(event) ? "pointer" : "";
     if (articleRef.style.cursor !== desired) {
       articleRef.style.cursor = desired;
     }
   }
 
-  /** Find which comment (if any) contains the click point. */
+  /** Find which comment (if any) the click landed on.
+   *
+   *  Walks up from `event.target` and returns the *innermost* `<rw-annotation>`
+   *  wrapper's `data-comment-id`. Innermost is intentional: when two comments
+   *  overlap, the inner one (visually a darker yellow because of nested
+   *  alpha-compositing) becomes the topmost DOM node at that point, so
+   *  clicking the darker patch picks the more-specific thread.
+   *
+   *  Resolved-active comments don't get a wrapper (the comment-wrap effect
+   *  skips them), so clicking the active overlay over a resolved comment
+   *  returns null and won't deactivate via article click — the sidebar's
+   *  close button is the dismiss path for resolved-active.
+   */
   function findCommentAtPoint(event: MouseEvent): string | null {
-    if (!articleRef) return null;
-
-    const { clientX, clientY } = event;
-
-    for (const [id, range] of commentRanges) {
-      // getClientRects() returns one rect per line for multi-line ranges
-      const rects = range.getClientRects();
-      for (const rect of rects) {
-        if (
-          clientX >= rect.left &&
-          clientX <= rect.right &&
-          clientY >= rect.top &&
-          clientY <= rect.bottom
-        ) {
-          return id;
-        }
-      }
-    }
-
-    return null;
+    const target = event.target;
+    if (!(target instanceof Element)) return null;
+    return target.closest("rw-annotation")?.getAttribute("data-comment-id") ?? null;
   }
 
   /** Vertical offset of the anchor point for a comment's highlight, relative to
