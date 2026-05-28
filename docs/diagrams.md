@@ -21,6 +21,17 @@ dpi = 192                       # DPI for diagrams (default: 192, retina)
 - **`include_dirs`** -- Directories to search when resolving PlantUML `!include` directives.
 - **`dpi`** -- DPI for rendered diagrams. The default of 192 produces retina-quality output.
 
+### Without `rw.toml`
+
+If your project has no `rw.toml`, set `RW_DIAGRAMS_KROKI_URL` in the environment instead:
+
+```bash
+export RW_DIAGRAMS_KROKI_URL="https://kroki.internal"
+rw serve
+```
+
+This is the recommended setup when running RW across many repositories that share a single Kroki server -- you set the variable once (dev container, CI runner, dotfiles) and individual repositories need no config. An explicit `[diagrams] kroki_url` in a project's `rw.toml` still takes precedence over the environment variable.
+
 ## Usage
 
 Use fenced code blocks with the diagram language as the identifier:

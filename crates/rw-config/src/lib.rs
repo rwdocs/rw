@@ -19,6 +19,16 @@
 //! - `confluence.access_secret`
 //! - `confluence.consumer_key`
 //! - `diagrams.kroki_url`
+//!
+//! ## Environment Variable Fallback
+//!
+//! Some fields fall back to a dedicated environment variable when no
+//! value is supplied via `rw.toml` or CLI flags:
+//!
+//! - `diagrams.kroki_url` ← `RW_DIAGRAMS_KROKI_URL`
+//!
+//! The fallback is the lowest-priority source: an `rw.toml` value or a
+//! CLI flag always wins. Empty env-var values are treated as unset.
 
 mod expand;
 
@@ -303,6 +313,10 @@ impl Config {
             config.apply_cli_settings(settings);
         }
 
+        config.apply_env_var_fallback();
+
+        config.validate()?;
+
         Ok(config)
     }
 
@@ -325,6 +339,22 @@ impl Config {
         }
         if let Some(live_reload_enabled) = settings.live_reload_enabled {
             self.live_reload.enabled = live_reload_enabled;
+        }
+    }
+
+    /// Lowest-priority source for `diagrams.kroki_url`. Empty
+    /// `RW_DIAGRAMS_KROKI_URL` is treated as unset, matching how shells export
+    /// cleared variables.
+    fn apply_env_var_fallback(&mut self) {
+        const ENV_VAR: &str = "RW_DIAGRAMS_KROKI_URL";
+
+        if self.diagrams_resolved.kroki_url.is_some() {
+            return;
+        }
+        if let Ok(value) = std::env::var(ENV_VAR)
+            && !value.is_empty()
+        {
+            self.diagrams_resolved.kroki_url = Some(value);
         }
     }
 
@@ -396,9 +426,6 @@ impl Config {
         config.resolve_paths(config_dir)?;
         config.config_path = Some(path.to_path_buf());
 
-        // Validate configuration after loading and resolution
-        config.validate()?;
-
         Ok(config)
     }
 
@@ -434,6 +461,16 @@ impl Config {
     /// Validate diagrams configuration.
     fn validate_diagrams(&self) -> Result<(), ConfigError> {
         const MAX_DPI: u32 = 1000;
+
+        // If [diagrams] is present in the TOML, kroki_url must come from
+        // somewhere — the file, a CLI flag, or RW_DIAGRAMS_KROKI_URL env var. A bare
+        // [diagrams] block with no resolved kroki_url is a user error, not
+        // silent diagrams-disabled.
+        if self.diagrams.is_some() && self.diagrams_resolved.kroki_url.is_none() {
+            return Err(ConfigError::Validation(
+                "[diagrams] section requires kroki_url (set it in rw.toml, pass --kroki-url, or export RW_DIAGRAMS_KROKI_URL)".to_owned(),
+            ));
+        }
 
         // Only validate kroki_url if set (diagram rendering enabled)
         if let Some(ref kroki_url) = self.diagrams_resolved.kroki_url {
@@ -483,9 +520,10 @@ impl Config {
         Ok(())
     }
 
-    /// Resolve relative paths to absolute paths based on config directory.
+    /// Resolve relative paths in `docs` and `diagrams` against `config_dir`.
     ///
-    /// Validates that `kroki_url` is provided when `[diagrams]` section exists.
+    /// Does not validate field presence — callers must run [`Self::validate`]
+    /// afterwards.
     fn resolve_paths(&mut self, config_dir: &Path) -> Result<(), ConfigError> {
         let resolve = |path: Option<&str>, default: &str| config_dir.join(path.unwrap_or(default));
 
@@ -497,11 +535,6 @@ impl Config {
 
         self.diagrams_resolved = match &self.diagrams {
             Some(diagrams) => {
-                let kroki_url = diagrams.kroki_url.clone().ok_or_else(|| {
-                    ConfigError::Validation(
-                        "[diagrams] section requires kroki_url to be set".to_owned(),
-                    )
-                })?;
                 let include_dirs = diagrams
                     .include_dirs
                     .iter()
@@ -509,7 +542,7 @@ impl Config {
                     .map(|d| config_dir.join(d))
                     .collect();
                 DiagramsConfig {
-                    kroki_url: Some(kroki_url),
+                    kroki_url: diagrams.kroki_url.clone(),
                     include_dirs,
                     dpi: diagrams.dpi.unwrap_or(192),
                 }
@@ -524,6 +557,51 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Serializes tests that mutate `RW_DIAGRAMS_KROKI_URL`. The process env is
+    /// shared across cargo's parallel tests, so any test that touches this
+    /// variable must hold the guard for its full duration.
+    static RW_DIAGRAMS_KROKI_URL_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// RAII helper: acquire the guard and clear `RW_DIAGRAMS_KROKI_URL` for the
+    /// duration of the test. Set the var inside the test (with `unsafe`)
+    /// after constructing this; both the guard and the unset happen on
+    /// drop, even on panic. Poisoned-mutex recovery via `into_inner`
+    /// keeps a failing test from bricking the rest of the suite.
+    struct EnvGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl EnvGuard {
+        fn new() -> Self {
+            let lock = RW_DIAGRAMS_KROKI_URL_GUARD
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD; no other thread reads
+            // or writes RW_DIAGRAMS_KROKI_URL for the duration of this guard.
+            unsafe { std::env::remove_var("RW_DIAGRAMS_KROKI_URL") };
+            Self { _lock: lock }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: still holding the mutex guard.
+            unsafe { std::env::remove_var("RW_DIAGRAMS_KROKI_URL") };
+        }
+    }
+
+    /// Make a tempdir + `rw.toml` inside it, returning the `TempDir` (drops the
+    /// directory on scope exit, including panics) plus the path to the toml.
+    fn rw_toml_tempdir(label: &str, contents: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("rw-config-test-{label}-"))
+            .tempdir()
+            .expect("create tempdir");
+        let toml_path = dir.path().join("rw.toml");
+        std::fs::write(&toml_path, contents).expect("write rw.toml");
+        (dir, toml_path)
+    }
 
     #[test]
     fn test_default_config() {
@@ -625,24 +703,6 @@ include_dirs = ["diagrams", "shared/diagrams"]
                 PathBuf::from("/project/shared/diagrams")
             ]
         );
-    }
-
-    #[test]
-    fn test_diagrams_section_requires_kroki_url() {
-        let toml = r#"
-[diagrams]
-include_dirs = ["diagrams"]
-"#;
-        let mut config: Config = toml::from_str(toml).unwrap();
-        let result = config.resolve_paths(Path::new("/project"));
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, ConfigError::Validation(_)),
-            "Expected ConfigError::Validation, got {err:?}"
-        );
-        assert!(err.to_string().contains("kroki_url"));
     }
 
     #[test]
@@ -1075,5 +1135,133 @@ host = "127.0.0.1"
         });
         // Config::validate() should pass — confluence is not eagerly validated
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_env_var_fallback_no_config_no_flag() {
+        let _guard = EnvGuard::new();
+        // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD.
+        unsafe { std::env::set_var("RW_DIAGRAMS_KROKI_URL", "https://env.example") };
+
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.apply_env_var_fallback();
+
+        assert_eq!(
+            config.diagrams_resolved.kroki_url,
+            Some("https://env.example".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_env_var_fallback_unset_means_no_diagrams() {
+        let _guard = EnvGuard::new();
+
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.apply_env_var_fallback();
+
+        assert!(config.diagrams_resolved.kroki_url.is_none());
+    }
+
+    #[test]
+    fn test_env_var_fallback_empty_treated_as_unset() {
+        let _guard = EnvGuard::new();
+        // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD.
+        unsafe { std::env::set_var("RW_DIAGRAMS_KROKI_URL", "") };
+
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.apply_env_var_fallback();
+
+        assert!(config.diagrams_resolved.kroki_url.is_none());
+    }
+
+    #[test]
+    fn test_env_var_fallback_does_not_override_existing_value() {
+        let _guard = EnvGuard::new();
+        // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD.
+        unsafe { std::env::set_var("RW_DIAGRAMS_KROKI_URL", "https://env.example") };
+
+        let mut config = Config::default_with_base(Path::new("/test"));
+        config.diagrams_resolved.kroki_url = Some("https://from-config.example".to_owned());
+        config.apply_env_var_fallback();
+
+        assert_eq!(
+            config.diagrams_resolved.kroki_url,
+            Some("https://from-config.example".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_load_uses_env_var_when_no_diagrams_in_toml() {
+        let _guard = EnvGuard::new();
+        // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD.
+        unsafe { std::env::set_var("RW_DIAGRAMS_KROKI_URL", "https://env.example") };
+
+        let (_dir, toml_path) = rw_toml_tempdir("env-only", "");
+        let config =
+            Config::load(Some(&toml_path), None).expect("load should succeed with empty rw.toml");
+        assert_eq!(
+            config.diagrams_resolved.kroki_url,
+            Some("https://env.example".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_load_cli_flag_beats_env_var() {
+        let _guard = EnvGuard::new();
+        // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD.
+        unsafe { std::env::set_var("RW_DIAGRAMS_KROKI_URL", "https://env.example") };
+
+        let (_dir, toml_path) = rw_toml_tempdir("cli-wins", "");
+        let cli = CliSettings {
+            kroki_url: Some("https://cli.example".to_owned()),
+            ..Default::default()
+        };
+        let config = Config::load(Some(&toml_path), Some(&cli)).expect("load should succeed");
+        assert_eq!(
+            config.diagrams_resolved.kroki_url,
+            Some("https://cli.example".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_load_rejects_invalid_url_from_env() {
+        let _guard = EnvGuard::new();
+        // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD.
+        unsafe { std::env::set_var("RW_DIAGRAMS_KROKI_URL", "not-a-url") };
+
+        let (_dir, toml_path) = rw_toml_tempdir("bad-env", "");
+        let err = Config::load(Some(&toml_path), None)
+            .expect_err("invalid env URL should fail validation");
+        assert!(matches!(err, ConfigError::Validation(_)));
+        let msg = err.to_string();
+        assert!(msg.contains("kroki_url"), "got error: {msg}");
+    }
+
+    #[test]
+    fn test_load_diagrams_section_without_kroki_url_no_env_errors() {
+        let _guard = EnvGuard::new();
+
+        let (_dir, toml_path) =
+            rw_toml_tempdir("diag-strict", "[diagrams]\ninclude_dirs = [\"shared\"]\n");
+        let err = Config::load(Some(&toml_path), None).expect_err("missing kroki_url should error");
+        assert!(matches!(err, ConfigError::Validation(_)));
+        let msg = err.to_string();
+        assert!(msg.contains("kroki_url"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_load_diagrams_section_without_kroki_url_filled_by_env() {
+        let _guard = EnvGuard::new();
+        // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD.
+        unsafe { std::env::set_var("RW_DIAGRAMS_KROKI_URL", "https://env.example") };
+
+        let (_dir, toml_path) =
+            rw_toml_tempdir("diag-env", "[diagrams]\ninclude_dirs = [\"shared\"]\n");
+        let config = Config::load(Some(&toml_path), None).expect("env should fill kroki_url");
+        assert_eq!(
+            config.diagrams_resolved.kroki_url,
+            Some("https://env.example".to_owned())
+        );
+        assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
     }
 }

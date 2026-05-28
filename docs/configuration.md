@@ -55,6 +55,25 @@ Supported syntax:
 Expandable fields: `server.host`, `confluence.base_url`, `confluence.access_token`,
 `confluence.access_secret`, `confluence.consumer_key`, `diagrams.kroki_url`.
 
+### `RW_DIAGRAMS_KROKI_URL` fallback
+
+If no `rw.toml` (or no `[diagrams]` section) provides `diagrams.kroki_url`, RW reads `RW_DIAGRAMS_KROKI_URL` from the environment and uses it. This lets a project render diagrams without a config file:
+
+```bash
+export RW_DIAGRAMS_KROKI_URL="https://kroki.internal"
+cd path/to/repo-without-rw-toml
+rw serve
+```
+
+Precedence (highest to lowest):
+
+1. `--kroki-url` CLI flag
+2. `[diagrams] kroki_url` in `rw.toml` (with `${VAR}` expansion if used)
+3. `RW_DIAGRAMS_KROKI_URL` environment variable
+4. (none) -- diagram code blocks render as plain text
+
+An empty value (`RW_DIAGRAMS_KROKI_URL=`) is treated as unset.
+
 ## CLI Overrides
 
 CLI options override config file values:
