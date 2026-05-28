@@ -25,5 +25,20 @@ export function wrapRange(range: Range, attrs: WrapAttrs): HTMLElement[] {
  * original text-node structure. Idempotent.
  */
 export function unwrapAll(container: HTMLElement): void {
-  void container;
+  // Iterate while at least one wrapper remains. We can't snapshot the
+  // NodeList up front because replacing a parent wrapper detaches its
+  // children (which may include nested wrappers) from the original
+  // querySelectorAll() result's parent, but querying fresh each loop
+  // is simpler and correct.
+  let wrapper = container.querySelector("rw-annotation");
+  while (wrapper) {
+    const parent = wrapper.parentNode;
+    if (!parent) break;
+    while (wrapper.firstChild) {
+      parent.insertBefore(wrapper.firstChild, wrapper);
+    }
+    parent.removeChild(wrapper);
+    wrapper = container.querySelector("rw-annotation");
+  }
+  container.normalize();
 }
