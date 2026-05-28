@@ -191,3 +191,20 @@ describe("wrapRange + rangeToSelectors interop", () => {
     expect(newSelectors).toEqual(baselineSelectors);
   });
 });
+
+describe("unwrapAll + wrapRange round trip", () => {
+  it("re-wrapping after unwrapAll reproduces the same DOM", () => {
+    const html = "<p>The quick brown fox jumps over the lazy dog</p>";
+    const a = createContainer(html);
+    const b = createContainer(html);
+
+    const wrapAttrs = { commentId: "c", strategy: "position" as const };
+    wrapRange(selectText(a, "brown fox"), wrapAttrs);
+
+    wrapRange(selectText(b, "brown fox"), wrapAttrs);
+    unwrapAll(b);
+    wrapRange(selectText(b, "brown fox"), wrapAttrs);
+
+    expect(b.innerHTML).toBe(a.innerHTML);
+  });
+});
