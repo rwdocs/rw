@@ -125,9 +125,10 @@ mod html;
 mod renderer;
 mod scope;
 mod search_document;
-mod state;
 mod status;
+mod table;
 pub(crate) mod tabs;
+mod toc;
 mod util;
 mod walker;
 
@@ -148,6 +149,7 @@ pub use renderer::{MarkdownRenderer, RenderResult};
 /// configuration.
 pub use rw_sections::Sections;
 pub use search_document::SearchDocumentBackend;
-pub use state::{TocEntry, escape_html};
 pub use status::{StatusColor, StatusDirective};
 pub use tabs::TabsDirective;
+pub use toc::TocEntry;
+pub use util::escape_html;

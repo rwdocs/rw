@@ -8,7 +8,7 @@
 //! where to write.
 //!
 //! Cross-instance accumulators (TOC entries, title, `id_counts`,
-//! `seen_first_h1`) live on [`HeadingAccumulator`](crate::state::HeadingAccumulator),
+//! `seen_first_h1`) live on [`HeadingAccumulator`](crate::toc::HeadingAccumulator),
 //! not here.
 
 use std::collections::HashMap;

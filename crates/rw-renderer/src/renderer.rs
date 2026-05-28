@@ -12,7 +12,7 @@ use crate::backend::RenderBackend;
 use crate::code_block::CodeBlockProcessor;
 use crate::config::{RenderConfig, TitleResolver};
 use crate::directive::DirectiveProcessor;
-use crate::state::TocEntry;
+use crate::toc::TocEntry;
 
 /// Output produced by [`MarkdownRenderer::render`] or [`MarkdownRenderer::render_markdown`].
 ///
