@@ -1,3 +1,13 @@
+# Standalone workspace. The root workspace at ../../Cargo.toml excludes this
+# crate (cdylib can't build for musl via `cargo --workspace`). Declaring an
+# empty [workspace] here stops cargo's upward walk from finding an ancestor
+# workspace — without it, `cargo` and `napi build` get confused when the repo
+# is checked out as a git worktree nested under another copy of the repo: the
+# upward walk finds the outer copy's Cargo.toml, which excludes us by relative
+# path but then treats us as "under its tree but not a member". See
+# rust-lang/cargo#16911 and #6745.
+[workspace]
+
 [package]
 name = "rw-napi"
 description = "NAPI native addon exposing RW core to Node.js"
