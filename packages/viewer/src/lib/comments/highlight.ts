@@ -83,8 +83,6 @@ function wholeTextNodesInRange(range: Range): Text[] {
 function nodeInRange(range: Range, node: Node): boolean {
   const nodeRange = node.ownerDocument!.createRange();
   nodeRange.selectNodeContents(node);
-  // node is in range when its start is at-or-after the range start AND
-  // its end is at-or-before the range end.
   const startsAfter = range.compareBoundaryPoints(Range.START_TO_START, nodeRange) <= 0;
   const endsBefore = range.compareBoundaryPoints(Range.END_TO_END, nodeRange) >= 0;
   nodeRange.detach();
