@@ -490,9 +490,22 @@ test.describe("Inline comments", () => {
 
     // All wrappers must use a translucent background so nested wrappers
     // composite to a darker yellow. If a future CSS change makes the rule
-    // opaque (alpha = 1), the visible "darker overlap" feature regresses.
-    expect(samples.outerOnly!.background).toMatch(/rgba?\([^)]+,\s*0?\.\d+\)/);
-    expect(samples.overlap!.background).toMatch(/rgba?\([^)]+,\s*0?\.\d+\)/);
+    // opaque (alpha >= 1) or transparent (alpha == 0), the visible "darker
+    // overlap" feature regresses.
+    function alphaOf(color: string): number {
+      // Computed style serializes as "rgb(r, g, b)" (alpha 1) or
+      // "rgba(r, g, b, a)" — parse the optional 4th component.
+      const m = color.match(/rgba?\(([^)]+)\)/);
+      if (!m) throw new Error(`unrecognized color "${color}"`);
+      const parts = m[1].split(",").map((p) => parseFloat(p.trim()));
+      return parts.length === 4 ? parts[3] : 1;
+    }
+    const outerAlpha = alphaOf(samples.outerOnly!.background);
+    const overlapAlpha = alphaOf(samples.overlap!.background);
+    expect(outerAlpha).toBeGreaterThan(0);
+    expect(outerAlpha).toBeLessThan(1);
+    expect(overlapAlpha).toBeGreaterThan(0);
+    expect(overlapAlpha).toBeLessThan(1);
   });
 });
 
