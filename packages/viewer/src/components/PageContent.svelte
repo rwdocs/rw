@@ -3,6 +3,7 @@
   import { initializeTabs } from "$lib/tabs";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "$lib/anchoring";
+  import { wrapRange, unwrapAll } from "$lib/comments/highlight";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
@@ -95,15 +96,26 @@
   // Map from comment ID to its anchored Range (for click detection)
   let commentRanges = $state.raw<Map<string, Range>>(new Map());
 
-  // Apply comment highlights via CSS Custom Highlight API
+  // Apply comment highlights via <rw-annotation> DOM wrappers.
+  // Overlapping comments nest, so the box-model alpha compositing makes the
+  // overlap region a darker yellow — what the CSS Custom Highlight API
+  // can't do because it picks one color per overlapping range
+  // ("last write wins" across Highlight objects).
+  //
+  // The active comment uses CSS.highlights.rw-comment-active (next effect)
+  // because a single-range overlay doesn't need DOM mutation and shouldn't
+  // fight with the user's text selection.
   $effect(() => {
     const items = comments.items;
     const container = articleRef;
-    if (!container || typeof CSS === "undefined" || !("highlights" in CSS)) return;
+    if (!container) return;
 
-    const highlights = CSS.highlights as Map<string, Highlight>;
-    const exactRanges: Range[] = [];
-    const fuzzyRanges: Range[] = [];
+    // Drop any pending text selection — its Range may point into nodes we're
+    // about to unwrap, which would collapse the selection mid-draft. The
+    // popover follows live selection state, so this also dismisses it.
+    selectionPopover.clear();
+    unwrapAll(container);
+
     const rangeMap = new Map<string, Range>();
     const strategyMap = new Map<string, AnchorStrategy>();
     const orphanIds = new Set<string>();
@@ -114,11 +126,7 @@
       if (comment.status === "resolved" && comment.id !== comments.activeId) continue;
       const result = selectorsToRange(comment.selectors, container);
       if (result) {
-        if (result.strategy === "fuzzy") {
-          fuzzyRanges.push(result.range);
-        } else {
-          exactRanges.push(result.range);
-        }
+        wrapRange(result.range, { commentId: comment.id, strategy: result.strategy });
         rangeMap.set(comment.id, result.range);
         strategyMap.set(comment.id, result.strategy);
         anchored.push({ id: comment.id, range: result.range });
@@ -150,20 +158,8 @@
     anchored.sort((a, b) => a.range.compareBoundaryPoints(Range.START_TO_START, b.range));
     comments.order = anchored.map((a) => a.id);
 
-    if (exactRanges.length > 0) {
-      highlights.set("rw-comments", new Highlight(...exactRanges));
-    } else {
-      highlights.delete("rw-comments");
-    }
-    if (fuzzyRanges.length > 0) {
-      highlights.set("rw-comments-fuzzy", new Highlight(...fuzzyRanges));
-    } else {
-      highlights.delete("rw-comments-fuzzy");
-    }
-
     return () => {
-      highlights.delete("rw-comments");
-      highlights.delete("rw-comments-fuzzy");
+      unwrapAll(container);
     };
   });
 
