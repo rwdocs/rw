@@ -293,18 +293,27 @@
   }
 }
 
-/* Comment highlights */
-::highlight(rw-comments) {
+/* Comment highlights — each comment range wraps its text in one or more
+ * <rw-annotation> elements. Nested wrappers alpha-composite via the CSS box
+ * model, so overlapping comments render as a darker yellow at the overlap
+ * region — what the CSS Custom Highlight API can't do because it picks one
+ * color per overlapping range across Highlight objects.
+ *
+ * data-strategy="fuzzy" marks comments anchored via the diff-match-patch
+ * fallback (exact text drifted). Lower-alpha background + dashed underline
+ * so reviewers can tell the re-anchor may have moved. */
+rw-annotation {
   background-color: var(--highlight-comment);
+  border-radius: 2px;
 }
-/* Fuzzy-anchored comments — exact text drifted, re-anchor is approximate.
- * Same yellow at lower opacity so the threading still reads as a comment,
- * with a dashed underline to signal "may have moved". */
-::highlight(rw-comments-fuzzy) {
+rw-annotation[data-strategy="fuzzy"] {
   background-color: var(--highlight-comment-fuzzy);
   text-decoration: underline dashed var(--highlight-comment-fuzzy-underline);
   text-underline-offset: 2px;
 }
+/* Active overlay — single-range highlight painted on top via the CSS Custom
+ * Highlight API. Used for the currently-active comment thread and for the
+ * in-progress text selection while drafting a new comment. */
 ::highlight(rw-comment-active) {
   background-color: var(--highlight-comment-active);
 }
