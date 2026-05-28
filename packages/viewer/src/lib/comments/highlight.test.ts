@@ -49,7 +49,9 @@ describe("unwrapAll", () => {
   });
 
   it("removes a single rw-annotation and restores text", () => {
-    const container = createContainer("<p>Hello <rw-annotation data-comment-id=\"a\">world</rw-annotation>!</p>");
+    const container = createContainer(
+      '<p>Hello <rw-annotation data-comment-id="a">world</rw-annotation>!</p>',
+    );
     unwrapAll(container);
     expect(container.innerHTML).toBe("<p>Hello world!</p>");
     expect(container.querySelectorAll("rw-annotation")).toHaveLength(0);
@@ -57,14 +59,16 @@ describe("unwrapAll", () => {
 
   it("removes nested rw-annotation elements", () => {
     const container = createContainer(
-      "<p><rw-annotation data-comment-id=\"a\">foo <rw-annotation data-comment-id=\"b\">bar</rw-annotation> baz</rw-annotation></p>",
+      '<p><rw-annotation data-comment-id="a">foo <rw-annotation data-comment-id="b">bar</rw-annotation> baz</rw-annotation></p>',
     );
     unwrapAll(container);
     expect(container.innerHTML).toBe("<p>foo bar baz</p>");
   });
 
   it("merges adjacent text nodes via normalize()", () => {
-    const container = createContainer("<p>Hello <rw-annotation data-comment-id=\"a\">world</rw-annotation>!</p>");
+    const container = createContainer(
+      '<p>Hello <rw-annotation data-comment-id="a">world</rw-annotation>!</p>',
+    );
     unwrapAll(container);
     const p = container.querySelector("p")!;
     expect(p.childNodes.length).toBe(1);
@@ -158,7 +162,9 @@ describe("wrapRange — overlapping ranges", () => {
 
     // The text inside both ranges ("brown fox") should be wrapped by BOTH
     // comments. The outer wrapper is comment "a"; the inner is comment "b".
-    const innerB = container.querySelector('rw-annotation[data-comment-id="b"] rw-annotation[data-comment-id="a"], rw-annotation[data-comment-id="a"] rw-annotation[data-comment-id="b"]');
+    const innerB = container.querySelector(
+      'rw-annotation[data-comment-id="b"] rw-annotation[data-comment-id="a"], rw-annotation[data-comment-id="a"] rw-annotation[data-comment-id="b"]',
+    );
     expect(innerB).not.toBeNull();
     expect(innerB!.textContent).toBe("brown fox");
 
