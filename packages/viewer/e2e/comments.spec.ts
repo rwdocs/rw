@@ -90,13 +90,13 @@ async function clickHighlight(page: Page, text: string) {
   await page.mouse.click(clickCoords.x, clickCoords.y);
 }
 
-/** Wait for CSS Custom Highlights to be registered (comments loaded and anchored). */
+/** Wait for comment wrappers to be present in the article (comments loaded and anchored). */
 async function waitForHighlights(page: Page) {
   await expect(async () => {
-    const has = await page.evaluate(
-      () => typeof CSS !== "undefined" && "highlights" in CSS && CSS.highlights.has("rw-comments"),
+    const count = await page.evaluate(
+      () => document.querySelectorAll("article rw-annotation").length,
     );
-    expect(has).toBe(true);
+    expect(count).toBeGreaterThan(0);
   }).toPass({ timeout: 10000 });
 }
 
