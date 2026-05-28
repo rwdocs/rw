@@ -14,30 +14,50 @@ async function selectText(page: Page, text: string) {
   await page.evaluate((targetText) => {
     const article = document.querySelector("article");
     if (!article) throw new Error("no article");
+    const fullText = article.textContent ?? "";
+    const startInDoc = fullText.indexOf(targetText);
+    if (startInDoc === -1) throw new Error(`text "${targetText}" not found in article`);
+    const endInDoc = startInDoc + targetText.length;
+
     const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+    let offset = 0;
+    let startNode: Text | null = null;
+    let startOffset = 0;
+    let endNode: Text | null = null;
+    let endOffset = 0;
     while (walker.nextNode()) {
-      const content = walker.currentNode.textContent ?? "";
-      const idx = content.indexOf(targetText);
-      if (idx === -1) continue;
-
-      const range = document.createRange();
-      range.setStart(walker.currentNode, idx);
-      range.setEnd(walker.currentNode, idx + targetText.length);
-      const selection = window.getSelection()!;
-      selection.removeAllRanges();
-      selection.addRange(range);
-
-      const rect = range.getBoundingClientRect();
-      article.dispatchEvent(
-        new MouseEvent("mouseup", {
-          bubbles: true,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-        }),
-      );
-      return;
+      const node = walker.currentNode as Text;
+      const len = node.data.length;
+      if (!startNode && offset + len > startInDoc) {
+        startNode = node;
+        startOffset = startInDoc - offset;
+      }
+      if (startNode && offset + len >= endInDoc) {
+        endNode = node;
+        endOffset = endInDoc - offset;
+        break;
+      }
+      offset += len;
     }
-    throw new Error(`text "${targetText}" not found in article`);
+    if (!startNode || !endNode) {
+      throw new Error(`couldn't build range for "${targetText}"`);
+    }
+
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const rect = range.getBoundingClientRect();
+    article.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      }),
+    );
   }, text);
 }
 
@@ -403,54 +423,68 @@ test.describe("Inline comments", () => {
     expect(persisted.selectors).toHaveLength(2);
   });
 
-  test("overlapping comments render with darker overlap region", async ({ page }) => {
+  test("overlapping comments render with nested wrappers and translucent backgrounds", async ({
+    page,
+  }) => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    // Pick a long passage so we can create two ranges that genuinely overlap
-    // without bumping into other test fixtures.
     await createCommentViaUI(page, "documentation engine with no build step", "outer");
+    await waitForHighlights(page);
     await createCommentViaUI(page, "engine with no build step. Point", "inner");
-
     await waitForHighlights(page);
 
-    // Sample background colors at three points: inside outer-only, inside the
-    // overlap (both wrappers), inside inner-only. The overlap point must be
-    // darker than either single-wrap point.
+    // For each substring, find the deepest <rw-annotation> whose textContent
+    // includes it, and report its nesting depth + computed background color.
+    // We search WRAPPERS rather than text nodes because wrapping splits text
+    // nodes at range boundaries — a substring like "documentation" may be in
+    // its own text node now, but the wrapper around it tells us the depth.
     const samples = await page.evaluate(() => {
-      function colorAt(text: string) {
-        const article = document.querySelector("article")!;
-        const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-          const idx = (walker.currentNode.textContent ?? "").indexOf(text);
-          if (idx === -1) continue;
-          // Walk up to the innermost rw-annotation containing this text node.
-          let el: Node | null = walker.currentNode;
-          while (el && (el as Element).tagName?.toLowerCase() !== "rw-annotation") {
-            el = el.parentNode;
+      function depthOf(el: Element): number {
+        let depth = 0;
+        let cur: Node | null = el;
+        while (cur) {
+          if (cur instanceof Element && cur.tagName.toLowerCase() === "rw-annotation") {
+            depth++;
           }
-          if (!el) return null;
-          // Count how many rw-annotation ancestors we're nested inside.
-          let depth = 0;
-          let cur: Node | null = el;
-          while (cur) {
-            if ((cur as Element).tagName?.toLowerCase() === "rw-annotation") depth++;
-            cur = cur.parentNode;
-          }
-          return { depth };
+          cur = cur.parentNode;
         }
-        return null;
+        return depth;
+      }
+      function deepestWrapperContaining(substring: string) {
+        const all = Array.from(document.querySelectorAll("article rw-annotation"));
+        let best: { el: Element; depth: number } | null = null;
+        for (const el of all) {
+          if (!(el.textContent ?? "").includes(substring)) continue;
+          const depth = depthOf(el);
+          if (!best || depth > best.depth) best = { el, depth };
+        }
+        if (!best) return null;
+        return {
+          depth: best.depth,
+          background: window.getComputedStyle(best.el).backgroundColor,
+        };
       }
       return {
-        outerOnly: colorAt("documentation engine"),
-        overlap: colorAt("with no build"),
-        innerOnly: colorAt(". Point"),
+        // "documentation" sits in a text node inside the outer wrapper only.
+        outerOnly: deepestWrapperContaining("documentation"),
+        // "with no build" sits inside the inner wrapper which is nested inside
+        // the outer wrapper — depth 2.
+        overlap: deepestWrapperContaining("with no build"),
+        // "Point" sits in a text node inside the inner wrapper only.
+        innerOnly: deepestWrapperContaining("Point"),
       };
     });
 
     expect(samples.outerOnly?.depth).toBe(1);
     expect(samples.overlap?.depth).toBe(2);
     expect(samples.innerOnly?.depth).toBe(1);
+
+    // All wrappers must use a translucent background so nested wrappers
+    // composite to a darker yellow. If a future CSS change makes the rule
+    // opaque (alpha = 1), the visible "darker overlap" feature regresses.
+    expect(samples.outerOnly!.background).toMatch(/rgba?\([^)]+,\s*0?\.\d+\)/);
+    expect(samples.overlap!.background).toMatch(/rgba?\([^)]+,\s*0?\.\d+\)/);
   });
 });
 
