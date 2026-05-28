@@ -142,3 +142,29 @@ describe("wrapRange — crosses element boundaries", () => {
     expect(wrappers.every((w) => w.textContent && w.textContent.trim().length > 0)).toBe(true);
   });
 });
+
+describe("wrapRange — overlapping ranges", () => {
+  it("wrapping a second range inside an existing wrapper nests cleanly", () => {
+    const container = createContainer("<p>The quick brown fox jumps over the lazy dog</p>");
+
+    // First comment: "quick brown fox"
+    const r1 = selectText(container, "quick brown fox");
+    wrapRange(r1, { commentId: "a", strategy: "position" });
+
+    // Second comment: "brown fox jumps" — overlaps with the first
+    const r2 = selectText(container, "brown fox jumps");
+    const w2 = wrapRange(r2, { commentId: "b", strategy: "position" });
+
+    // The text inside both ranges ("brown fox") should be wrapped by BOTH
+    // comments. The outer wrapper is comment "a"; the inner is comment "b".
+    const innerB = container.querySelector('rw-annotation[data-comment-id="b"] rw-annotation[data-comment-id="a"], rw-annotation[data-comment-id="a"] rw-annotation[data-comment-id="b"]');
+    expect(innerB).not.toBeNull();
+    expect(innerB!.textContent).toBe("brown fox");
+
+    // textContent of the whole container must be unchanged
+    expect(container.textContent).toBe("The quick brown fox jumps over the lazy dog");
+
+    // Comment b produces wrappers for "brown fox" (inside a) and " jumps" (outside)
+    expect(w2.map((el) => el.textContent).join("|")).toBe("brown fox| jumps");
+  });
+});
