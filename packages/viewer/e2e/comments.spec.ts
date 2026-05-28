@@ -402,6 +402,56 @@ test.describe("Inline comments", () => {
     expect(persisted).toBeTruthy();
     expect(persisted.selectors).toHaveLength(2);
   });
+
+  test("overlapping comments render with darker overlap region", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    // Pick a long passage so we can create two ranges that genuinely overlap
+    // without bumping into other test fixtures.
+    await createCommentViaUI(page, "documentation engine with no build step", "outer");
+    await createCommentViaUI(page, "engine with no build step. Point", "inner");
+
+    await waitForHighlights(page);
+
+    // Sample background colors at three points: inside outer-only, inside the
+    // overlap (both wrappers), inside inner-only. The overlap point must be
+    // darker than either single-wrap point.
+    const samples = await page.evaluate(() => {
+      function colorAt(text: string) {
+        const article = document.querySelector("article")!;
+        const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const idx = (walker.currentNode.textContent ?? "").indexOf(text);
+          if (idx === -1) continue;
+          // Walk up to the innermost rw-annotation containing this text node.
+          let el: Node | null = walker.currentNode;
+          while (el && (el as Element).tagName?.toLowerCase() !== "rw-annotation") {
+            el = el.parentNode;
+          }
+          if (!el) return null;
+          // Count how many rw-annotation ancestors we're nested inside.
+          let depth = 0;
+          let cur: Node | null = el;
+          while (cur) {
+            if ((cur as Element).tagName?.toLowerCase() === "rw-annotation") depth++;
+            cur = cur.parentNode;
+          }
+          return { depth };
+        }
+        return null;
+      }
+      return {
+        outerOnly: colorAt("documentation engine"),
+        overlap: colorAt("with no build"),
+        innerOnly: colorAt(". Point"),
+      };
+    });
+
+    expect(samples.outerOnly?.depth).toBe(1);
+    expect(samples.overlap?.depth).toBe(2);
+    expect(samples.innerOnly?.depth).toBe(1);
+  });
 });
 
 test.describe("Page comments", () => {
