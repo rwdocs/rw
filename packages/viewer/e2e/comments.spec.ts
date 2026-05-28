@@ -432,7 +432,15 @@ test.describe("Inline comments", () => {
     await createCommentViaUI(page, "documentation engine with no build step", "outer");
     await waitForHighlights(page);
     await createCommentViaUI(page, "engine with no build step. Point", "inner");
-    await waitForHighlights(page);
+    // Wait for the *nested* wrapper to exist — `waitForHighlights` only checks
+    // that any wrapper is present, which is already true from the outer comment.
+    // Without this, the depth-2 assertion below races re-anchoring.
+    await expect(async () => {
+      const hasNested = await page.evaluate(
+        () => document.querySelector("article rw-annotation rw-annotation") !== null,
+      );
+      expect(hasNested).toBe(true);
+    }).toPass({ timeout: 10000 });
 
     // For each substring, find the deepest <rw-annotation> whose textContent
     // includes it, and report its nesting depth + computed background color.
