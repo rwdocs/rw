@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { unwrapAll, wrapRange } from "./highlight";
+import { rangeToSelectors } from "$lib/anchoring";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -166,5 +167,27 @@ describe("wrapRange — overlapping ranges", () => {
 
     // Comment b produces wrappers for "brown fox" (inside a) and " jumps" (outside)
     expect(w2.map((el) => el.textContent).join("|")).toBe("brown fox| jumps");
+  });
+});
+
+describe("wrapRange + rangeToSelectors interop", () => {
+  it("creating a fresh selection crossing an existing wrapper yields the same selectors as on un-wrapped DOM", () => {
+    const html = "<p>The quick brown fox jumps over the lazy dog</p>";
+
+    // Baseline: selectors on un-wrapped DOM for "fox jumps over"
+    const baseline = createContainer(html);
+    const baselineRange = selectText(baseline, "fox jumps over");
+    const baselineSelectors = rangeToSelectors(baselineRange, baseline);
+
+    // With a pre-existing wrapper covering "brown fox jumps"
+    const wrapped = createContainer(html);
+    wrapRange(selectText(wrapped, "brown fox jumps"), {
+      commentId: "existing",
+      strategy: "position",
+    });
+    const newRange = selectText(wrapped, "fox jumps over");
+    const newSelectors = rangeToSelectors(newRange, wrapped);
+
+    expect(newSelectors).toEqual(baselineSelectors);
   });
 });
