@@ -114,6 +114,10 @@
     // about to unwrap, which would collapse the selection mid-draft. The
     // popover follows live selection state, so this also dismisses it.
     selectionPopover.clear();
+    // Also drop the native selection — its Range may point into text nodes
+    // unwrapAll is about to mutate, and a stray mouseup after the wrap pass
+    // would read a Range whose containers have been merged.
+    window.getSelection()?.removeAllRanges();
     unwrapAll(container);
 
     const rangeMap = new Map<string, Range>();
