@@ -7,7 +7,7 @@ use std::fmt::Write;
 use crate::directive::{
     ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements,
 };
-use crate::state::escape_html;
+use crate::util::escape_html;
 
 /// Metadata for a single tab within a tab group.
 #[derive(Debug, PartialEq, Eq)]

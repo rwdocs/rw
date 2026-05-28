@@ -33,7 +33,8 @@ use crate::directive::DirectiveProcessor;
 use crate::directive::parser::{ParsedDirective, parse_line};
 use crate::renderer::RenderResult;
 use crate::scope::Scope;
-use crate::state::{HeadingAccumulator, TableState};
+use crate::table::TableState;
+use crate::toc::HeadingAccumulator;
 use crate::util::heading_level_to_num;
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
