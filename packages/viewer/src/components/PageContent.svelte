@@ -123,7 +123,7 @@
 
     for (const comment of items) {
       if (comment.selectors.length === 0) continue;
-      if (comment.status === "resolved" && comment.id !== comments.activeId) continue;
+      if (comment.status === "resolved") continue;
       const result = selectorsToRange(comment.selectors, container);
       if (result) {
         wrapRange(result.range, { commentId: comment.id, strategy: result.strategy });
