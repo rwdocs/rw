@@ -122,6 +122,7 @@ mod code_block;
 mod config;
 pub mod directive;
 mod html;
+mod link;
 mod renderer;
 mod scope;
 mod search_document;
@@ -131,6 +132,7 @@ pub(crate) mod tabs;
 mod toc;
 mod util;
 mod walker;
+mod wikilink;
 
 pub use backend::{AlertKind, RenderBackend};
 pub use bundle::bundle_markdown;

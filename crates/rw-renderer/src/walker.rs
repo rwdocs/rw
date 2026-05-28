@@ -27,15 +27,17 @@ use pulldown_cmark::{CodeBlockKind, Event, LinkType, Tag, TagEnd};
 
 use crate::backend::{AlertKind, RenderBackend};
 use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
-use crate::config::{RenderConfig, WikilinkResolution};
+use crate::config::RenderConfig;
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
 use crate::directive::parser::{ParsedDirective, parse_line};
+use crate::link;
 use crate::renderer::RenderResult;
 use crate::scope::Scope;
 use crate::table::TableState;
 use crate::toc::HeadingAccumulator;
 use crate::util::heading_level_to_num;
+use crate::wikilink::{self, WikilinkResolution};
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
@@ -373,7 +375,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 dest_url,
                 ..
             } if self.cfg.wikilinks => {
-                let resolution = self.cfg.resolve_wikilink(&dest_url);
+                let resolution = wikilink::resolve(self.cfg, &dest_url);
                 match &resolution {
                     WikilinkResolution::Resolved {
                         href,
@@ -394,22 +396,22 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     }
                 }
                 if !has_pothole {
-                    let display = self.cfg.wikilink_display_text(&resolution);
+                    let display = wikilink::display_text(self.cfg, &resolution);
                     self.skip_wikilink_text = true;
                     self.text(&display);
                 }
             }
             Tag::Link { dest_url, .. } => {
-                let dest_url = self.cfg.strip_origin(&dest_url);
+                let dest_url = link::strip_origin(self.cfg, &dest_url);
                 let href = B::transform_link(&dest_url, self.cfg.base_path.as_deref());
-                let section_ref = self.cfg.section_ref_attrs(&href);
+                let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
             }
             Tag::Image {
                 dest_url, title, ..
             } => {
-                let dest_url = self.cfg.strip_origin(&dest_url).into_owned();
+                let dest_url = link::strip_origin(self.cfg, &dest_url).into_owned();
                 self.scopes.push(Scope::Image {
                     alt_text: String::new(),
                     dest_url,
