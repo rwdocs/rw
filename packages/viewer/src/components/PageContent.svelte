@@ -126,7 +126,18 @@
       if (comment.status === "resolved") continue;
       const result = selectorsToRange(comment.selectors, container);
       if (result) {
-        wrapRange(result.range, { commentId: comment.id, strategy: result.strategy });
+        const wrappers = wrapRange(result.range, {
+          commentId: comment.id,
+          strategy: result.strategy,
+        });
+        if (wrappers.length === 0) {
+          // Range resolved but contained only whitespace — treat as orphan so
+          // the comment surfaces in the page-comments timeline instead of
+          // becoming an invisible clickable region (whitespace highlight has
+          // no visible wrapper but range.getClientRects() still has bounds).
+          if (!comment.parentId) orphanIds.add(comment.id);
+          continue;
+        }
         rangeMap.set(comment.id, result.range);
         strategyMap.set(comment.id, result.strategy);
         anchored.push({ id: comment.id, range: result.range });
