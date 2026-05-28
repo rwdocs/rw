@@ -293,18 +293,30 @@
   }
 }
 
-/* Comment highlights */
-::highlight(rw-comments) {
+/* Comment highlights — each comment range wraps its text in one or more
+ * <rw-annotation> elements. Nested wrappers alpha-composite via the CSS box
+ * model, so overlapping comments render as a darker yellow at the overlap
+ * region — what the CSS Custom Highlight API can't do because it picks one
+ * color per overlapping range across Highlight objects.
+ *
+ * data-strategy="fuzzy" marks comments anchored via the diff-match-patch
+ * fallback (exact text drifted). Same yellow as exact highlights — the
+ * dashed underline is what tells reviewers the re-anchor may have moved. */
+rw-annotation {
   background-color: var(--highlight-comment);
 }
-/* Fuzzy-anchored comments — exact text drifted, re-anchor is approximate.
- * Same yellow at lower opacity so the threading still reads as a comment,
- * with a dashed underline to signal "may have moved". */
-::highlight(rw-comments-fuzzy) {
-  background-color: var(--highlight-comment-fuzzy);
+rw-annotation[data-strategy="fuzzy"] {
   text-decoration: underline dashed var(--highlight-comment-fuzzy-underline);
   text-underline-offset: 2px;
 }
+/* Active comment — stronger yellow on top of the per-comment background.
+ * Toggled by the active-toggle $effect in PageContent.svelte. */
+rw-annotation[data-active="true"] {
+  background-color: var(--highlight-comment-active);
+}
+/* In-progress text selection while drafting a new comment. Uses the CSS
+ * Custom Highlight API because the draft selection has no wrapper yet —
+ * mutating the DOM mid-drag would fight the user's selection. */
 ::highlight(rw-comment-active) {
   background-color: var(--highlight-comment-active);
 }
