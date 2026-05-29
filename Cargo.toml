@@ -33,7 +33,7 @@ base64 = "0.22"
 glob = "0.3"
 notify = "8"
 parking_lot = "0.12"
-quick-xml = "0.39"
+quick-xml = "0.40"
 thiserror = "2"
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.0"
