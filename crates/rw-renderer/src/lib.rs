@@ -73,7 +73,7 @@
 //! let result = MarkdownRenderer::<HtmlBackend>::new()
 //!     .with_title_extraction()
 //!     .with_base_path("/docs/guide")
-//!     .render_markdown(markdown, Pipeline::new());
+//!     .render(markdown, Pipeline::new());
 //!
 //! assert_eq!(result.title.as_deref(), Some("Hello"));
 //! assert!(result.html.contains("<strong>Bold</strong>"));
@@ -106,7 +106,7 @@
 //!
 //! let renderer = MarkdownRenderer::<HtmlBackend>::new();
 //! let pipeline = Pipeline::new().with_processor(MathProcessor);
-//! let result = renderer.render_markdown("```math\nx^2 + y^2 = z^2\n```", pipeline);
+//! let result = renderer.render("```math\nx^2 + y^2 = z^2\n```", pipeline);
 //! assert!(result.html.contains(r#"class="math"#));
 //! ```
 //!

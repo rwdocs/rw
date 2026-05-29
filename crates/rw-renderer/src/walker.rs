@@ -97,7 +97,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     ///    `processor.post_process(&mut html)` on each — replaces deferred
     ///    code-block placeholders with rendered output.
     /// 3. Collect code-block processor warnings (directive warnings are
-    ///    collected by the façade in `render_markdown`).
+    ///    collected by the façade in `render`).
     /// 4. Take title and toc from the heading accumulator into the
     ///    `RenderResult` struct literal.
     pub(crate) fn finish(mut self) -> RenderResult {

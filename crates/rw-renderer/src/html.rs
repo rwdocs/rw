@@ -32,7 +32,7 @@ const SVG_STOP: &str = r#"<svg class="alert-icon" viewBox="0 0 16 16" width="16"
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_base_path("/docs/guide")
-///     .render_markdown("[Setup](./setup.md#install)", Pipeline::new());
+///     .render("[Setup](./setup.md#install)", Pipeline::new());
 ///
 /// assert!(result.html.contains(r#"href="/docs/guide/setup#install""#));
 /// ```

@@ -108,7 +108,7 @@ fn default_read_file(path: &Path) -> io::Result<String> {
 ///
 /// `process` handles block-level directives (leaf and container). Inline
 /// directives are expanded later by
-/// [`MarkdownRenderer::render_markdown`](crate::MarkdownRenderer::render_markdown),
+/// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render),
 /// which scans `Event::Text` content for `:name[…]` syntax and dispatches
 /// the registered inline handlers directly into its backend — inline code
 /// spans, code blocks, and raw HTML pass through unchanged.
@@ -543,7 +543,7 @@ mod tests {
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Press :kbd[Ctrl+C] to copy.",
             Pipeline::new().with_directives(processor),
         );
@@ -579,8 +579,7 @@ mod tests {
 
         let processor = DirectiveProcessor::new().with_inline(MarkerDirective);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result =
-            renderer.render_markdown(":marker[x]", Pipeline::new().with_directives(processor));
+        let result = renderer.render(":marker[x]", Pipeline::new().with_directives(processor));
 
         assert!(
             result.html.contains(r#"<span class="marker">"#),
@@ -593,7 +592,7 @@ mod tests {
     fn test_multiple_inline_directives() {
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Press :kbd[Ctrl+C] then :kbd[Ctrl+V].",
             Pipeline::new().with_directives(processor),
         );
@@ -667,7 +666,7 @@ mod tests {
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "```\n:kbd[inside fence]\n```\n\n:kbd[outside]",
             Pipeline::new().with_directives(processor),
         );
@@ -848,7 +847,7 @@ mod tests {
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Press ::foo[x] then :kbd[Ctrl+C].",
             Pipeline::new().with_directives(processor),
         );

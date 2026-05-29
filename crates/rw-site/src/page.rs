@@ -312,7 +312,7 @@ impl PageRenderer {
         let markdown_text = self.storage.read(path)?;
         let renderer = self.create_renderer(path, page.origin.as_deref(), ctx);
         let pipeline = self.create_pipeline(ctx);
-        let result = renderer.render_markdown(&markdown_text, pipeline);
+        let result = renderer.render(&markdown_text, pipeline);
 
         self.page_bucket.set_json(
             path,
@@ -386,7 +386,7 @@ impl PageRenderer {
         // via Kroki) — so start from the directives-only base pipeline
         // and add just the search processor.
         let pipeline = Self::create_directives_pipeline().with_processor(search_processor);
-        let result = renderer.render_markdown(&markdown_text, pipeline);
+        let result = renderer.render(&markdown_text, pipeline);
 
         let title = metadata
             .as_ref()

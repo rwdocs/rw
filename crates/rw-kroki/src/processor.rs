@@ -76,8 +76,8 @@ struct ProcessorConfig {
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new();
 /// let pipeline = Pipeline::new().with_processor(processor);
 ///
-/// // render_markdown auto-calls post_process() on all processors
-/// let result = renderer.render_markdown(markdown, pipeline);
+/// // render auto-calls post_process() on all processors
+/// let result = renderer.render(markdown, pipeline);
 /// ```
 pub struct DiagramProcessor {
     /// Configuration (immutable after setup).
