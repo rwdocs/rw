@@ -3,10 +3,6 @@
 //! This module provides [`PageRenderer`] for converting `CommonMark` documents
 //! to Confluence XHTML storage format.
 //!
-//! Note: This is distinct from [`rw_site::PageRenderer`] which renders
-//! markdown to HTML for the web server. Both are "page renderers" but for
-//! different output formats.
-//!
 //! # Features
 //!
 //! - GitHub Flavored Markdown support (tables, strikethrough, task lists)

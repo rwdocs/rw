@@ -23,50 +23,20 @@ pub enum CommentPreservationError {
     Encoding(#[from] quick_xml::encoding::EncodingError),
 }
 
-/// Error from Confluence API operations.
+/// Error from `rw-confluence` operations.
+///
+/// Covers bundle-write I/O (page.xhtml, diagram PNGs) and
+/// comment-preservation parse failures. This crate does not perform HTTP
+/// or OAuth — see crate root for the scope boundary.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConfluenceError {
-    /// HTTP request failed (network error, timeout, etc).
-    #[error("HTTP request failed")]
-    HttpRequest(#[from] ureq::Error),
-
-    /// HTTP response error (server returned error status).
-    #[error("HTTP error: {status} - {body}")]
-    HttpResponse {
-        /// HTTP status code.
-        status: u16,
-        /// Response body (may contain error details).
-        body: String,
-    },
-
-    /// RSA key loading/parsing error.
-    #[error("RSA key error")]
-    RsaKey(#[from] RsaKeyError),
-
-    /// I/O error.
+    /// I/O error (creating the output directory, writing `page.xhtml` or
+    /// PNGs).
     #[error("I/O error")]
     Io(#[from] std::io::Error),
 
-    /// JSON serialization/deserialization error.
-    #[error("JSON error")]
-    Json(#[from] serde_json::Error),
-
-    /// Comment preservation error.
+    /// Comment preservation failed (parse error during marker transfer).
     #[error("comment preservation error")]
     CommentPreservation(#[from] CommentPreservationError),
-
-    /// OAuth token generation error.
-    #[error("OAuth error: {0}")]
-    OAuth(String),
-}
-
-/// RSA key loading/parsing error.
-#[derive(Debug, thiserror::Error)]
-#[error("invalid RSA key: {0}")]
-pub struct RsaKeyError(Box<dyn std::error::Error + Send + Sync>);
-
-impl RsaKeyError {
-    pub(crate) fn new(source: impl std::error::Error + Send + Sync + 'static) -> Self {
-        Self(Box::new(source))
-    }
 }

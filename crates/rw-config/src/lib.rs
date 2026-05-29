@@ -14,10 +14,6 @@
 //!
 //! Expanded fields:
 //! - `server.host`
-//! - `confluence.base_url`
-//! - `confluence.access_token`
-//! - `confluence.access_secret`
-//! - `confluence.consumer_key`
 //! - `diagrams.kroki_url`
 //!
 //! ## Environment Variable Fallback
@@ -67,14 +63,12 @@ pub struct Config {
     #[serde(default)]
     docs: DocsConfigRaw,
     /// Diagram rendering configuration (optional section).
-    /// When present, `kroki_url` is required.
+    /// `kroki_url` is optional; when absent, diagram fences fall through.
     diagrams: Option<DiagramsConfigRaw>,
     /// Live reload configuration.
     pub live_reload: LiveReloadConfig,
     /// Metadata configuration.
     pub metadata: MetadataConfig,
-    /// Confluence configuration.
-    pub confluence: Option<ConfluenceConfig>,
 
     /// Resolved docs configuration (set after loading).
     #[serde(skip)]
@@ -205,40 +199,6 @@ impl Default for MetadataConfig {
     }
 }
 
-/// Confluence configuration.
-#[derive(Debug, Deserialize)]
-pub struct ConfluenceConfig {
-    /// Confluence server base URL.
-    pub base_url: String,
-    /// OAuth access token.
-    pub access_token: String,
-    /// OAuth access token secret.
-    pub access_secret: String,
-    /// OAuth consumer key.
-    #[serde(default = "default_consumer_key")]
-    pub consumer_key: String,
-}
-
-impl ConfluenceConfig {
-    /// Validate that all required fields are properly set.
-    ///
-    /// # Errors
-    ///
-    /// Returns `ConfigError::Validation` if any field is empty or has invalid format.
-    pub fn validate(&self) -> Result<(), ConfigError> {
-        require_non_empty(&self.base_url, "confluence.base_url")?;
-        require_http_url(&self.base_url, "confluence.base_url")?;
-        require_non_empty(&self.access_token, "confluence.access_token")?;
-        require_non_empty(&self.access_secret, "confluence.access_secret")?;
-        require_non_empty(&self.consumer_key, "confluence.consumer_key")?;
-        Ok(())
-    }
-}
-
-fn default_consumer_key() -> String {
-    "rw".to_owned()
-}
-
 /// Configuration error.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -257,9 +217,9 @@ pub enum ConfigError {
     /// Environment variable error during expansion.
     #[error("Environment variable error in {field}: {message}")]
     EnvVar {
-        /// Config field path (e.g., "`confluence.access_token`").
+        /// Config field path (e.g., "`diagrams.kroki_url`").
         field: String,
-        /// Error message (e.g., "${`CONFLUENCE_TOKEN`} not set").
+        /// Error message (e.g., "${`KROKI_URL`} not set").
         message: String,
     },
 }
@@ -358,23 +318,6 @@ impl Config {
         }
     }
 
-    /// Get validated Confluence configuration.
-    ///
-    /// Returns the Confluence config if the `[confluence]` section is present
-    /// and all fields are valid. Use this instead of accessing the `confluence`
-    /// field directly when the command requires Confluence.
-    ///
-    /// # Errors
-    ///
-    /// Returns `ConfigError::Validation` if the section is missing or invalid.
-    pub fn require_confluence(&self) -> Result<&ConfluenceConfig, ConfigError> {
-        let conf = self.confluence.as_ref().ok_or_else(|| {
-            ConfigError::Validation("[confluence] section required in config".into())
-        })?;
-        conf.validate()?;
-        Ok(conf)
-    }
-
     /// Search for config file in current directory and parents.
     fn discover_config() -> Option<PathBuf> {
         let mut current = std::env::current_dir().ok()?;
@@ -403,7 +346,6 @@ impl Config {
             diagrams: None,
             live_reload: LiveReloadConfig::default(),
             metadata: MetadataConfig::default(),
-            confluence: None,
             docs_resolved: DocsConfig {
                 source_dir: base.join("docs"),
                 project_dir: base.join(".rw"),
@@ -423,7 +365,7 @@ impl Config {
         config.expand_env_vars()?;
 
         let config_dir = path.parent().unwrap_or(Path::new("."));
-        config.resolve_paths(config_dir)?;
+        config.resolve_paths(config_dir);
         config.config_path = Some(path.to_path_buf());
 
         Ok(config)
@@ -462,17 +404,8 @@ impl Config {
     fn validate_diagrams(&self) -> Result<(), ConfigError> {
         const MAX_DPI: u32 = 1000;
 
-        // If [diagrams] is present in the TOML, kroki_url must come from
-        // somewhere — the file, a CLI flag, or RW_DIAGRAMS_KROKI_URL env var. A bare
-        // [diagrams] block with no resolved kroki_url is a user error, not
-        // silent diagrams-disabled.
-        if self.diagrams.is_some() && self.diagrams_resolved.kroki_url.is_none() {
-            return Err(ConfigError::Validation(
-                "[diagrams] section requires kroki_url (set it in rw.toml, pass --kroki-url, or export RW_DIAGRAMS_KROKI_URL)".to_owned(),
-            ));
-        }
-
-        // Only validate kroki_url if set (diagram rendering enabled)
+        // `kroki_url` is optional — when absent, diagram fences render as
+        // syntax-highlighted code (matching `rw serve`'s default).
         if let Some(ref kroki_url) = self.diagrams_resolved.kroki_url {
             require_non_empty(kroki_url, "diagrams.kroki_url")?;
             require_http_url(kroki_url, "diagrams.kroki_url")?;
@@ -506,25 +439,15 @@ impl Config {
             diagrams.kroki_url = Some(expand::expand_env(url, "diagrams.kroki_url")?);
         }
 
-        // Confluence config (if present)
-        if let Some(ref mut confluence) = self.confluence {
-            confluence.base_url = expand::expand_env(&confluence.base_url, "confluence.base_url")?;
-            confluence.access_token =
-                expand::expand_env(&confluence.access_token, "confluence.access_token")?;
-            confluence.access_secret =
-                expand::expand_env(&confluence.access_secret, "confluence.access_secret")?;
-            confluence.consumer_key =
-                expand::expand_env(&confluence.consumer_key, "confluence.consumer_key")?;
-        }
-
         Ok(())
     }
 
     /// Resolve relative paths in `docs` and `diagrams` against `config_dir`.
     ///
-    /// Does not validate field presence — callers must run [`Self::validate`]
-    /// afterwards.
-    fn resolve_paths(&mut self, config_dir: &Path) -> Result<(), ConfigError> {
+    /// `[diagrams].kroki_url` is optional; downstream consumers decide how to
+    /// react when absent. Does not validate field presence — callers must run
+    /// [`Self::validate`] afterwards.
+    fn resolve_paths(&mut self, config_dir: &Path) {
         let resolve = |path: Option<&str>, default: &str| config_dir.join(path.unwrap_or(default));
 
         self.docs_resolved = DocsConfig {
@@ -549,8 +472,6 @@ impl Config {
             }
             None => DiagramsConfig::default(),
         };
-
-        Ok(())
     }
 }
 
@@ -561,22 +482,19 @@ mod tests {
     /// Serializes tests that mutate `RW_DIAGRAMS_KROKI_URL`. The process env is
     /// shared across cargo's parallel tests, so any test that touches this
     /// variable must hold the guard for its full duration.
-    static RW_DIAGRAMS_KROKI_URL_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static RW_DIAGRAMS_KROKI_URL_GUARD: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
     /// RAII helper: acquire the guard and clear `RW_DIAGRAMS_KROKI_URL` for the
     /// duration of the test. Set the var inside the test (with `unsafe`)
     /// after constructing this; both the guard and the unset happen on
-    /// drop, even on panic. Poisoned-mutex recovery via `into_inner`
-    /// keeps a failing test from bricking the rest of the suite.
+    /// drop, even on panic.
     struct EnvGuard {
-        _lock: std::sync::MutexGuard<'static, ()>,
+        _lock: parking_lot::MutexGuard<'static, ()>,
     }
 
     impl EnvGuard {
         fn new() -> Self {
-            let lock = RW_DIAGRAMS_KROKI_URL_GUARD
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let lock = RW_DIAGRAMS_KROKI_URL_GUARD.lock();
             // SAFETY: serialized via RW_DIAGRAMS_KROKI_URL_GUARD; no other thread reads
             // or writes RW_DIAGRAMS_KROKI_URL for the duration of this guard.
             unsafe { std::env::remove_var("RW_DIAGRAMS_KROKI_URL") };
@@ -640,23 +558,6 @@ port = 9000
     }
 
     #[test]
-    fn test_parse_confluence_config() {
-        let toml = r#"
-[confluence]
-base_url = "https://confluence.example.com"
-access_token = "token123"
-access_secret = "secret456"
-consumer_key = "myapp"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        let confluence = config.confluence.unwrap();
-        assert_eq!(confluence.base_url, "https://confluence.example.com");
-        assert_eq!(confluence.access_token, "token123");
-        assert_eq!(confluence.access_secret, "secret456");
-        assert_eq!(confluence.consumer_key, "myapp");
-    }
-
-    #[test]
     fn test_parse_live_reload_config() {
         let toml = r#"
 [live_reload]
@@ -682,7 +583,7 @@ kroki_url = "https://kroki.io"
 include_dirs = ["diagrams", "shared/diagrams"]
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.resolve_paths(Path::new("/project")).unwrap();
+        config.resolve_paths(Path::new("/project"));
 
         assert_eq!(
             config.docs_resolved.source_dir,
@@ -706,13 +607,48 @@ include_dirs = ["diagrams", "shared/diagrams"]
     }
 
     #[test]
+    fn test_diagrams_section_without_kroki_url_is_valid() {
+        let toml = r#"
+[diagrams]
+include_dirs = ["plantuml-includes"]
+dpi = 96
+"#;
+        let mut config: Config = toml::from_str(toml).unwrap();
+        config.resolve_paths(Path::new("/test"));
+        assert!(config.diagrams_resolved.kroki_url.is_none());
+        assert_eq!(config.diagrams_resolved.dpi, 96);
+        assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
+    }
+
+    #[test]
+    fn test_stale_confluence_section_is_silently_ignored() {
+        let toml = r#"
+[confluence]
+base_url = "https://example.com"
+access_token = "x"
+access_secret = "y"
+"#;
+        // serde silently ignores unknown top-level fields. This guards against
+        // a future hardening (e.g. `#[serde(deny_unknown_fields)]`) breaking
+        // upgrades from configs that still contain the deleted [confluence] section.
+        let mut config: Config =
+            toml::from_str(toml).expect("stale [confluence] should be silently ignored");
+        config.resolve_paths(Path::new("/test"));
+
+        // The stale section must NOT leak into resolved state.
+        assert!(config.diagrams_resolved.kroki_url.is_none());
+        assert!(config.diagrams_resolved.include_dirs.is_empty());
+        assert_eq!(config.docs_resolved.source_dir, PathBuf::from("/test/docs"));
+    }
+
+    #[test]
     fn test_no_diagrams_section_is_valid() {
         let toml = r#"
 [docs]
 source_dir = "documentation"
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.resolve_paths(Path::new("/project")).unwrap();
+        config.resolve_paths(Path::new("/project"));
 
         assert!(config.diagrams_resolved.kroki_url.is_none());
         assert!(config.diagrams_resolved.include_dirs.is_empty());
@@ -871,38 +807,6 @@ host = "${TEST_HOST}"
     }
 
     #[test]
-    fn test_expand_env_vars_confluence() {
-        // SAFETY: test runs single-threaded per test function
-        unsafe {
-            std::env::set_var("TEST_CONFLUENCE_URL", "https://confluence.test.com");
-            std::env::set_var("TEST_TOKEN", "my-token");
-            std::env::set_var("TEST_SECRET", "my-secret");
-        }
-
-        let toml = r#"
-[confluence]
-base_url = "${TEST_CONFLUENCE_URL}"
-access_token = "${TEST_TOKEN}"
-access_secret = "${TEST_SECRET}"
-consumer_key = "${TEST_CONSUMER_KEY:-rw}"
-"#;
-        let mut config: Config = toml::from_str(toml).unwrap();
-        config.expand_env_vars().unwrap();
-
-        let confluence = config.confluence.unwrap();
-        assert_eq!(confluence.base_url, "https://confluence.test.com");
-        assert_eq!(confluence.access_token, "my-token");
-        assert_eq!(confluence.access_secret, "my-secret");
-        assert_eq!(confluence.consumer_key, "rw");
-
-        unsafe {
-            std::env::remove_var("TEST_CONFLUENCE_URL");
-            std::env::remove_var("TEST_TOKEN");
-            std::env::remove_var("TEST_SECRET");
-        }
-    }
-
-    #[test]
     fn test_expand_env_vars_diagrams_kroki_url() {
         // SAFETY: test runs single-threaded per test function
         unsafe {
@@ -934,10 +838,8 @@ kroki_url = "${TEST_KROKI_URL}"
         }
 
         let toml = r#"
-[confluence]
-base_url = "${MISSING_VAR_CONFIG_TEST}"
-access_token = "token"
-access_secret = "secret"
+[diagrams]
+kroki_url = "${MISSING_VAR_CONFIG_TEST}"
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
         let result = config.expand_env_vars();
@@ -946,7 +848,7 @@ access_secret = "secret"
         let err = result.unwrap_err();
         assert!(matches!(err, ConfigError::EnvVar { .. }));
         assert!(err.to_string().contains("MISSING_VAR_CONFIG_TEST"));
-        assert!(err.to_string().contains("confluence.base_url"));
+        assert!(err.to_string().contains("diagrams.kroki_url"));
     }
 
     #[test]
@@ -978,36 +880,6 @@ host = "127.0.0.1"
                 msg.contains(s),
                 "Expected error to contain '{s}', got: {msg}"
             );
-        }
-    }
-
-    fn assert_validation_error_on_confluence(
-        config: &ConfluenceConfig,
-        expected_substrings: &[&str],
-    ) {
-        let result = config.validate();
-        assert!(result.is_err(), "Expected validation to fail");
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, ConfigError::Validation(_)),
-            "Expected ConfigError::Validation, got {err:?}"
-        );
-        let msg = err.to_string();
-        for s in expected_substrings {
-            assert!(
-                msg.contains(s),
-                "Expected error to contain '{s}', got: {msg}"
-            );
-        }
-    }
-
-    /// Create a valid Confluence config for testing.
-    fn valid_confluence_config() -> ConfluenceConfig {
-        ConfluenceConfig {
-            base_url: "https://confluence.example.com".to_owned(),
-            access_token: "token".to_owned(),
-            access_secret: "secret".to_owned(),
-            consumer_key: "rw".to_owned(),
         }
     }
 
@@ -1071,70 +943,6 @@ host = "127.0.0.1"
         let mut config = Config::default_with_base(Path::new("/test"));
         config.diagrams_resolved.dpi = 2000;
         assert_validation_error(&config, &["dpi", "1000"]);
-    }
-
-    #[test]
-    fn test_confluence_config_validate_valid() {
-        let config = valid_confluence_config();
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_confluence_config_validate_empty_token() {
-        let config = ConfluenceConfig {
-            access_token: String::new(),
-            ..valid_confluence_config()
-        };
-        assert_validation_error_on_confluence(&config, &["access_token", "empty"]);
-    }
-
-    #[test]
-    fn test_confluence_config_validate_invalid_url() {
-        let config = ConfluenceConfig {
-            base_url: "not-a-url".to_owned(),
-            ..valid_confluence_config()
-        };
-        assert_validation_error_on_confluence(&config, &["base_url", "http"]);
-    }
-
-    #[test]
-    fn test_config_require_confluence_returns_validated() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.confluence = Some(valid_confluence_config());
-        assert!(config.require_confluence().is_ok());
-    }
-
-    #[test]
-    fn test_config_require_confluence_missing_section() {
-        let config = Config::default_with_base(Path::new("/test"));
-        let err = config.require_confluence().unwrap_err();
-        assert!(matches!(err, ConfigError::Validation(_)));
-        assert!(err.to_string().contains("[confluence]"));
-    }
-
-    #[test]
-    fn test_config_require_confluence_invalid_config() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.confluence = Some(ConfluenceConfig {
-            access_token: String::new(),
-            ..valid_confluence_config()
-        });
-        let err = config.require_confluence().unwrap_err();
-        assert!(matches!(err, ConfigError::Validation(_)));
-        assert!(err.to_string().contains("access_token"));
-    }
-
-    #[test]
-    fn test_validate_passes_with_confluence_section_present_but_empty_creds() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.confluence = Some(ConfluenceConfig {
-            base_url: String::new(),
-            access_token: String::new(),
-            access_secret: String::new(),
-            consumer_key: String::new(),
-        });
-        // Config::validate() should pass — confluence is not eagerly validated
-        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -1238,15 +1046,15 @@ host = "127.0.0.1"
     }
 
     #[test]
-    fn test_load_diagrams_section_without_kroki_url_no_env_errors() {
+    fn test_load_diagrams_section_without_kroki_url_no_env_loads_ok() {
         let _guard = EnvGuard::new();
 
         let (_dir, toml_path) =
-            rw_toml_tempdir("diag-strict", "[diagrams]\ninclude_dirs = [\"shared\"]\n");
-        let err = Config::load(Some(&toml_path), None).expect_err("missing kroki_url should error");
-        assert!(matches!(err, ConfigError::Validation(_)));
-        let msg = err.to_string();
-        assert!(msg.contains("kroki_url"), "got: {msg}");
+            rw_toml_tempdir("diag-no-kroki", "[diagrams]\ninclude_dirs = [\"shared\"]\n");
+        let config =
+            Config::load(Some(&toml_path), None).expect("missing kroki_url should not error");
+        assert!(config.diagrams_resolved.kroki_url.is_none());
+        assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
     }
 
     #[test]

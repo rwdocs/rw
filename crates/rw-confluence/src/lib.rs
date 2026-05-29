@@ -1,63 +1,44 @@
-//! Confluence integration for RW.
+//! Confluence rendering for RW.
 //!
-//! This crate provides complete Confluence functionality:
-//! - [`ConfluenceClient`]: REST API client with OAuth 1.0 authentication
-//! - [`PageUpdater`]: Page update workflow with comment preservation
-//! - [`OAuthTokenGenerator`]: Three-legged OAuth flow for token generation
+//! Converts `CommonMark` markdown to Confluence storage-format XHTML and
+//! produces a publish-ready bundle on disk (page body + diagram PNGs).
+//! Optional inline-comment-marker preservation carries
+//! `<ac:inline-comment-marker>` tags from the current page's XHTML into
+//! the freshly rendered XHTML.
+//!
+//! This crate does **not** talk to the Confluence REST API. Publishing
+//! is the caller's responsibility — point `rw confluence render` (or this
+//! library) at your markdown, then upload `<out>/page.xhtml` and the
+//! PNGs in `<out>/` with the publisher of your choice.
 //!
 //! # Example
 //!
 //! ```no_run
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use std::path::Path;
-//! use rw_confluence::{ConfluenceClient, PageUpdater, UpdateConfig};
+//! use rw_confluence::{render, RenderOptions};
 //!
-//! let client = ConfluenceClient::from_config(
-//!     "https://confluence.example.com",
-//!     "consumer_key",
-//!     Path::new("private_key.pem"),
-//!     "access_token",
-//!     "access_secret",
-//! )?;
+//! let output = render(
+//!     "# Hello\n\nA paragraph.\n",
+//!     Path::new("./dist"),
+//!     RenderOptions {
+//!         extract_title: true,
+//!         prepend_toc: true,
+//!         ..RenderOptions::default()
+//!     },
+//! ).expect("render");
 //!
-//! let config = UpdateConfig {
-//!     kroki_url: Some("https://kroki.io".to_owned()),
-//!     include_dirs: vec![],
-//!     dpi: 192,
-//!     extract_title: true,
-//! };
-//! let updater = PageUpdater::new(&client, config);
-//! let result = updater.update("123", "# Title\n\nContent", Some("Update"))?;
-//! # Ok(())
-//! # }
+//! assert_eq!(output.title.as_deref(), Some("Hello"));
 //! ```
 
-// Render backend (internal)
 mod backend;
-
-// Page renderer (internal)
 mod renderer;
 mod tags;
 
-// API client
-mod client;
-pub use client::ConfluenceClient;
-
-// Comment preservation (internal, used by PageUpdater)
 mod comment_preservation;
-pub use comment_preservation::UnmatchedComment;
+pub use comment_preservation::{PreserveResult, UnmatchedComment, preserve_comments};
 
-// OAuth
-mod oauth;
-pub use oauth::{AccessToken, OAuthTokenGenerator, RequestToken};
+mod render;
+pub use render::{RenderOptions, RenderOutput, render};
 
-// Types (internal, exposed via result structs)
-mod types;
-
-// Page updater
-mod updater;
-pub use updater::{DryRunResult, PageUpdater, UpdateConfig, UpdateError, UpdateResult};
-
-// Errors
 mod error;
-pub use error::ConfluenceError;
+pub use error::{CommentPreservationError, ConfluenceError};
