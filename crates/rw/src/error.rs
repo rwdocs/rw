@@ -2,7 +2,7 @@
 
 use rw_comments::{CreateError, QuoteResolutionError, StoreError};
 use rw_config::ConfigError;
-use rw_confluence::{ConfluenceError, UpdateError};
+use rw_confluence::ConfluenceError;
 use rw_server::ServerError;
 
 /// CLI error type.
@@ -16,9 +16,6 @@ pub(crate) enum CliError {
 
     #[error("{0}")]
     Confluence(#[from] ConfluenceError),
-
-    #[error("{0}")]
-    Update(#[from] UpdateError),
 
     #[error("{0}")]
     BundlePublish(#[from] rw_storage_s3::BundlePublishError),
@@ -35,8 +32,11 @@ pub(crate) enum CliError {
     #[error(transparent)]
     QuoteResolution(#[from] QuoteResolutionError),
 
-    #[error("publish completed with {count} diagram warning(s); --strict was set")]
+    #[error("completed with {count} warning(s); --strict was set")]
     DiagramWarningsInStrictMode { count: usize },
+
+    #[error("--out - cannot stream {count} attachment(s); pass --out <dir> instead")]
+    OutStdoutHasAttachments { count: usize },
 }
 
 impl From<CreateError> for CliError {
@@ -57,6 +57,7 @@ impl CliError {
     pub(crate) fn exit_code(&self) -> i32 {
         match self {
             CliError::Validation(_)
+            | CliError::OutStdoutHasAttachments { .. }
             | CliError::Store(StoreError::InvalidParent(_))
             | CliError::QuoteResolution(
                 QuoteResolutionError::NotFound { .. } | QuoteResolutionError::Ambiguous { .. },
@@ -74,8 +75,15 @@ mod tests {
 
     #[test]
     fn diagram_warnings_in_strict_mode_exits_1() {
-        // Pin the exit code so future changes to the catch-all surface here.
         let err = CliError::DiagramWarningsInStrictMode { count: 2 };
         assert_eq!(err.exit_code(), 1);
+    }
+
+    #[test]
+    fn out_stdout_has_attachments_exits_3() {
+        let err = CliError::OutStdoutHasAttachments { count: 2 };
+        assert_eq!(err.exit_code(), 3);
+        assert!(err.to_string().contains("attachment(s)"));
+        assert!(err.to_string().contains("--out -"));
     }
 }

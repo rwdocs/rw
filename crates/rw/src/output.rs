@@ -8,7 +8,6 @@ pub(crate) struct Output {
     green: Style,
     yellow: Style,
     red: Style,
-    cyan_bold: Style,
 }
 
 impl Output {
@@ -20,7 +19,6 @@ impl Output {
             green: Style::new().green(),
             yellow: Style::new().yellow(),
             red: Style::new().red(),
-            cyan_bold: Style::new().cyan().bold(),
         }
     }
 
@@ -42,17 +40,5 @@ impl Output {
     /// Print an error message (red).
     pub(crate) fn error(&self, msg: &str) {
         let _ = self.term.write_line(&self.red.apply_to(msg).to_string());
-    }
-
-    /// Print a highlighted message (cyan bold).
-    pub(crate) fn highlight(&self, msg: &str) {
-        let _ = self
-            .term
-            .write_line(&self.cyan_bold.apply_to(msg).to_string());
-    }
-
-    /// Print a separator line.
-    pub(crate) fn separator(&self) {
-        let _ = self.term.write_line(&"=".repeat(70));
     }
 }

@@ -14,7 +14,7 @@ source_dir = "docs"      # Markdown source directory
 cache_enabled = true     # Enable/disable caching (default: true)
 
 [diagrams]
-kroki_url = "https://kroki.io"  # Required when [diagrams] section is present
+kroki_url = "https://kroki.io"  # Optional; when absent, diagrams in markdown render as syntax-highlighted code (and `rw confluence render` emits a 'diagram skipped' warning).
 include_dirs = ["."]            # PlantUML !include search paths
 dpi = 192                       # DPI for diagrams (retina)
 
@@ -24,12 +24,6 @@ watch_patterns = ["**/*.md"]    # Patterns to watch
 
 [metadata]
 name = "meta.yaml"              # Metadata file name (default: meta.yaml)
-
-[confluence]
-base_url = "https://confluence.example.com"
-access_token = "your-token"
-access_secret = "your-secret"
-consumer_key = "rw"
 ```
 
 ## Environment Variables
@@ -37,12 +31,6 @@ consumer_key = "rw"
 String configuration values support environment variable expansion:
 
 ```toml
-[confluence]
-base_url = "${CONFLUENCE_URL}"
-access_token = "${CONFLUENCE_TOKEN}"
-access_secret = "${CONFLUENCE_SECRET}"
-consumer_key = "${CONFLUENCE_CONSUMER_KEY:-rw}"  # with default value
-
 [diagrams]
 kroki_url = "${KROKI_URL:-https://kroki.io}"
 ```
@@ -52,8 +40,7 @@ Supported syntax:
 - `${VAR}` -- expands to the value of `VAR`, errors if unset
 - `${VAR:-default}` -- expands to `VAR` if set, otherwise uses `default`
 
-Expandable fields: `server.host`, `confluence.base_url`, `confluence.access_token`,
-`confluence.access_secret`, `confluence.consumer_key`, `diagrams.kroki_url`.
+Expandable fields: `server.host`, `diagrams.kroki_url`.
 
 ### `RW_DIAGRAMS_KROKI_URL` fallback
 

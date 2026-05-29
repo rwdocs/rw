@@ -37,7 +37,7 @@ use transfer::CommentMarkerTransfer;
 use crate::error::CommentPreservationError;
 
 /// Comment that could not be placed in new HTML.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnmatchedComment {
     /// Comment reference ID.
     pub ref_id: String,
@@ -47,11 +47,15 @@ pub struct UnmatchedComment {
 
 /// Result of comment preservation operation.
 #[derive(Debug)]
-pub(crate) struct PreserveResult {
+pub struct PreserveResult {
     /// HTML with preserved comment markers.
     pub html: String,
     /// Comments that could not be placed in the new HTML.
     pub unmatched_comments: Vec<UnmatchedComment>,
+    /// Non-fatal preservation warnings (e.g., parse failure → fell back to
+    /// new HTML unchanged). Structured failures like "marker could not be
+    /// placed" are surfaced via `unmatched_comments`, not here.
+    pub warnings: Vec<String>,
 }
 
 /// Preserve inline comment markers from old HTML in new HTML.
@@ -72,10 +76,11 @@ pub(crate) struct PreserveResult {
 ///
 /// `PreserveResult` containing the modified HTML and any unmatched comments.
 ///
-/// # Errors
+/// # Failure mode
 ///
-/// Returns the new HTML unchanged if parsing fails, logging the error.
-pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResult {
+/// On parse failure, returns the new HTML unchanged plus a warning in
+/// `warnings`. The error is also logged via `tracing`.
+pub fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResult {
     tracing::info!("Starting comment preservation");
     tracing::debug!(old_html_len = old_html.len(), "Old HTML length");
     tracing::debug!(new_html_len = new_html.len(), "New HTML length");
@@ -91,6 +96,7 @@ pub(crate) fn preserve_comments(old_html: &str, new_html: &str) -> PreserveResul
             PreserveResult {
                 html: new_html.to_owned(),
                 unmatched_comments: vec![],
+                warnings: vec![format!("comment preservation skipped: {e}")],
             }
         }
     }
@@ -128,6 +134,7 @@ fn try_preserve_comments(
     Ok(PreserveResult {
         html,
         unmatched_comments: transfer.into_unmatched_comments(),
+        warnings: vec![],
     })
 }
 
@@ -143,6 +150,7 @@ mod tests {
         let result = preserve_comments(old_html, new_html);
 
         assert!(result.unmatched_comments.is_empty());
+        assert!(result.warnings.is_empty());
         assert!(result.html.contains("ac:inline-comment-marker"));
         assert!(result.html.contains(r#"ac:ref="abc""#));
     }
@@ -155,6 +163,7 @@ mod tests {
         let result = preserve_comments(old_html, new_html);
 
         assert!(result.unmatched_comments.is_empty());
+        assert!(result.warnings.is_empty());
         assert!(result.html.contains("ac:inline-comment-marker"));
     }
 
@@ -166,6 +175,7 @@ mod tests {
         let result = preserve_comments(old_html, new_html);
 
         assert!(result.unmatched_comments.is_empty());
+        assert!(result.warnings.is_empty());
         assert!(result.html.contains("проверяет тип"));
         assert!(result.html.contains("ac:inline-comment-marker"));
     }
@@ -178,6 +188,7 @@ mod tests {
         let result = preserve_comments(old_html, new_html);
 
         assert!(result.unmatched_comments.is_empty());
+        assert!(result.warnings.is_empty());
         assert_eq!(result.html.matches("<ac:inline-comment-marker").count(), 2);
     }
 
@@ -191,6 +202,7 @@ mod tests {
         assert_eq!(result.unmatched_comments.len(), 1);
         assert_eq!(result.unmatched_comments[0].ref_id, "abc");
         assert_eq!(result.unmatched_comments[0].text, "original word");
+        assert!(result.warnings.is_empty());
     }
 
     #[test]
@@ -203,6 +215,7 @@ mod tests {
         assert_eq!(result.unmatched_comments.len(), 1);
         assert_eq!(result.unmatched_comments[0].ref_id, "xyz");
         assert_eq!(result.unmatched_comments[0].text, "Original sentence here");
+        assert!(result.warnings.is_empty());
     }
 
     #[test]
@@ -220,8 +233,30 @@ mod tests {
         let result = preserve_comments(old_html, new_html);
 
         assert!(result.unmatched_comments.is_empty());
+        assert!(result.warnings.is_empty());
         assert!(result.html.contains("inline-comment-marker"));
         assert!(result.html.contains(r#"ac:ref="marker-id""#));
         assert!(result.html.contains("keep-this"));
+    }
+
+    #[test]
+    fn test_preserve_comments_parse_failure_surfaces_warning() {
+        // Malformed XML that quick-xml cannot parse.
+        let old_html = "<p>unclosed paragraph";
+        let new_html = "<p>new content</p>";
+
+        let result = preserve_comments(old_html, new_html);
+
+        // Falls back to new HTML unchanged.
+        assert_eq!(result.html, new_html);
+        assert!(result.unmatched_comments.is_empty());
+
+        // The parse failure produces exactly one warning string.
+        assert_eq!(result.warnings.len(), 1, "got: {:?}", result.warnings);
+        assert!(
+            result.warnings[0].starts_with("comment preservation skipped:"),
+            "warning was: {}",
+            result.warnings[0]
+        );
     }
 }

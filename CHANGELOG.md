@@ -18,6 +18,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom section namespaces — sections can declare a `namespace` in `meta.yaml` or frontmatter (e.g. `namespace: payments`), producing section refs of the form `kind:namespace/name` that map to Backstage catalog entities outside the `default` namespace. The field inherits down the directory tree (set it once at the site root) and a subtree can override it. Namespace values are validated against the Backstage charset; an invalid value fails the site load with an error naming the offending file. Wikilinks that omit the namespace resolve within the current page's namespace.
 - `rw backstage publish` now surfaces diagram-processing warnings — broken or cyclic PlantUML `!include` paths — in yellow on stderr instead of silently discarding them. Pass `--strict` to fail the publish (non-zero exit) when any warning was emitted; bundles still upload either way, so warnings can be fixed in a follow-up commit and republished.
 - `RW_DIAGRAMS_KROKI_URL` environment variable — when set, supplies `diagrams.kroki_url` for projects without an `rw.toml` (or with an `rw.toml` that omits the field). Precedence is CLI flag > `rw.toml` value > env var, so explicit project config still wins. Lets teams roll `rw` out across many repos that share a single Kroki server by exporting the variable once (dev container, CI runner, dotfiles) instead of placing a config file in each repo.
+- `rw confluence render <markdown_file> --out <dir|->` — renders markdown
+  to a Confluence-publishable bundle (`page.xhtml` plus one PNG per
+  diagram). Title, renderer warnings, and comment markers that could not
+  be re-anchored go to stderr as plain text. Stdin optionally accepts the
+  current page's storage XHTML body for inline-comment-marker preservation;
+  without it, the command renders as a fresh page. `--out -` writes the
+  body XHTML to stdout and errors with exit 3 only if the render actually
+  produced any PNG attachments (so a doc with no diagram fences pipes
+  cleanly regardless of `--kroki-url`); `--strict` exits non-zero on any
+  warning or unmatched comment.
+
+### Removed
+
+- **Breaking:** `rw confluence update` and `rw confluence generate-tokens`
+  are removed. `rw` no longer talks to the Confluence REST API; the
+  `[confluence]` section in `rw.toml` is no longer recognized (stale
+  sections are silently ignored, not rejected — delete them from your
+  config when upgrading). Use `rw confluence render <md> --out <dir>` to
+  produce a publish-ready bundle (XHTML body + diagram PNGs), then publish
+  it with a tool of your choice. Comment preservation continues to work:
+  pipe the current page's storage XHTML body into stdin and `rw` carries
+  `<ac:inline-comment-marker>` tags through to the new XHTML.
 
 ### Changed
 

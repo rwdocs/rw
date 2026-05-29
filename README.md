@@ -17,7 +17,7 @@ Publish the same markdown to Confluence pages or embed in Backstage with native 
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
 - **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, and custom variables
-- **Confluence publishing** — update pages via REST API with OAuth authentication
+- **Confluence rendering** — produce publish-ready bundles (XHTML + diagrams) for any Confluence publishing tool
 - **Backstage integration** — embed docs with native Backstage plugins
 
 ## Quickstart
@@ -53,11 +53,6 @@ source_dir = "docs"
 
 [diagrams]
 kroki_url = "https://kroki.io"
-
-[confluence]
-base_url = "${CONFLUENCE_URL}"
-access_token = "${CONFLUENCE_TOKEN}"
-access_secret = "${CONFLUENCE_SECRET}"
 ```
 
 See the [configuration guide](docs/configuration.md) for all options.
@@ -68,15 +63,14 @@ See the [configuration guide](docs/configuration.md) for all options.
 |---------|-------------|
 | `rw serve` | Start documentation server with live reload |
 | `rw backstage publish` | Publish documentation bundles to S3 for Backstage |
-| `rw confluence update` | Publish markdown to a Confluence page |
-| `rw confluence generate-tokens` | Generate OAuth access tokens |
+| `rw confluence render` | Render markdown into a Confluence-publishable bundle (XHTML + diagrams) |
 | `rw comment` | Read and write inline comments on project docs (for scripts and LLM agents) |
 
 ## Documentation
 
 - [Configuration](docs/configuration.md)
 - [Page Metadata](docs/metadata.md)
-- [Confluence Publishing](docs/confluence.md)
+- [Confluence Rendering](docs/confluence.md)
 - [Diagram Rendering](docs/diagrams.md)
 - [Status Badges](docs/status-badges.md)
 - [Comment CLI](docs/comment-cli.md)

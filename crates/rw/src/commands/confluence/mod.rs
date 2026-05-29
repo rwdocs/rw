@@ -1,22 +1,19 @@
 //! Confluence subcommand group.
 
-mod generate_tokens;
-mod update;
+mod render;
 
 use clap::Subcommand;
 
-use generate_tokens::GenerateTokensArgs;
-use update::UpdateArgs;
+use render::RenderArgs;
 
 use crate::error::CliError;
 
-/// Confluence publishing commands.
+/// Confluence rendering commands.
 #[derive(Subcommand)]
 pub(crate) enum ConfluenceCommand {
-    /// Update a Confluence page from a markdown file.
-    Update(UpdateArgs),
-    /// Generate OAuth access tokens for Confluence.
-    GenerateTokens(GenerateTokensArgs),
+    /// Render a markdown file into a Confluence-publishable bundle
+    /// (XHTML body and diagram PNGs).
+    Render(RenderArgs),
 }
 
 impl ConfluenceCommand {
@@ -27,8 +24,7 @@ impl ConfluenceCommand {
     /// Returns an error if the subcommand fails.
     pub(crate) fn execute(self) -> Result<(), CliError> {
         match self {
-            Self::Update(args) => args.execute(),
-            Self::GenerateTokens(args) => args.execute(),
+            Self::Render(args) => args.execute(),
         }
     }
 }
