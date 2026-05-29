@@ -113,7 +113,7 @@ impl ExtractedCodeBlock {
 /// or inline HTML (for fast, self-contained transforms like YAML tables).
 ///
 /// Register processors with
-/// [`MarkdownRenderer::with_processor`](crate::MarkdownRenderer::with_processor).
+/// [`Pipeline::with_processor`](crate::Pipeline::with_processor).
 /// They are checked in registration order; the first returning a
 /// non-[`PassThrough`](ProcessResult::PassThrough) result wins.
 ///
@@ -122,7 +122,7 @@ impl ExtractedCodeBlock {
 /// completes.
 /// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render) calls
 /// `post_process` automatically.
-pub trait CodeBlockProcessor {
+pub trait CodeBlockProcessor: Send + Sync {
     /// Inspects a code block and decides how to handle it.
     ///
     /// `language` is the identifier from the fence info string (e.g.,

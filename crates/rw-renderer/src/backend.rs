@@ -23,10 +23,10 @@ use crate::escape_html;
 /// Markdown alerts render as styled callout boxes:
 ///
 /// ```
-/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
-///     .render_markdown("> [!WARNING]\n> Do not delete this file.");
+///     .render_markdown("> [!WARNING]\n> Do not delete this file.", Pipeline::new());
 ///
 /// assert!(result.html.contains(r#"class="alert alert-warning""#));
 /// assert!(result.html.contains("Do not delete this file."));

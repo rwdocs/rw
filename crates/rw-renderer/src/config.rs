@@ -41,7 +41,7 @@ use rw_sections::Sections;
 /// );
 /// assert_eq!(resolver.resolve_title("unknown/page"), None);
 /// ```
-pub trait TitleResolver {
+pub trait TitleResolver: Send + Sync {
     /// Returns the display title for a page at `path`, or `None` if unknown.
     ///
     /// `path` is an absolute path without leading slash

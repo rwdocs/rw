@@ -66,18 +66,18 @@ struct ProcessorConfig {
 ///
 /// ```no_run
 /// use rw_kroki::DiagramProcessor;
-/// use rw_renderer::{MarkdownRenderer, HtmlBackend};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 ///
 /// let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
 ///
 /// let processor = DiagramProcessor::new("https://kroki.io")
 ///     .dpi(192);
 ///
-/// let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-///     .with_processor(processor);
+/// let renderer = MarkdownRenderer::<HtmlBackend>::new();
+/// let pipeline = Pipeline::new().with_processor(processor);
 ///
 /// // render_markdown auto-calls post_process() on all processors
-/// let result = renderer.render_markdown(markdown);
+/// let result = renderer.render_markdown(markdown, pipeline);
 /// ```
 pub struct DiagramProcessor {
     /// Configuration (immutable after setup).

@@ -12,7 +12,7 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_kroki::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, StatusDirective,
+    HtmlBackend, MarkdownRenderer, Pipeline, RenderBackend, SearchDocumentBackend, StatusDirective,
     TabsDirective, TocEntry, escape_html,
 };
 use rw_sections::{Section, Sections};
@@ -310,9 +310,9 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let result = self
-            .create_renderer(path, page.origin.as_deref(), ctx)
-            .render_markdown(&markdown_text);
+        let renderer = self.create_renderer(path, page.origin.as_deref(), ctx);
+        let pipeline = self.create_pipeline(ctx);
+        let result = renderer.render_markdown(&markdown_text, pipeline);
 
         self.page_bucket.set_json(
             path,
@@ -377,13 +377,16 @@ impl PageRenderer {
             search_processor = search_processor.with_meta_include_source(Arc::clone(source));
         }
 
-        let mut renderer = Self::configure_renderer(
+        let renderer = Self::configure_renderer_settings(
             MarkdownRenderer::<SearchDocumentBackend>::new().with_title_extraction(),
             ctx,
-        )
-        .with_processor(search_processor);
-
-        let result = renderer.render_markdown(&markdown_text);
+        );
+        // Search-document rendering uses SearchDiagramProcessor (text
+        // descriptions) instead of the regular DiagramProcessor (HTML/SVG
+        // via Kroki) — so start from the directives-only base pipeline
+        // and add just the search processor.
+        let pipeline = Self::create_directives_pipeline().with_processor(search_processor);
+        let result = renderer.render_markdown(&markdown_text, pipeline);
 
         let title = metadata
             .as_ref()
@@ -414,27 +417,38 @@ impl PageRenderer {
             renderer = renderer.with_title_extraction();
         }
 
-        let renderer = Self::configure_renderer(renderer, ctx);
-
-        if let Some(processor) = self.create_diagram_processor(ctx.meta_include_source.clone()) {
-            renderer.with_processor(processor.with_sections(Arc::clone(&ctx.sections)))
-        } else {
-            renderer
-        }
+        Self::configure_renderer_settings(renderer, ctx)
     }
 
-    /// Apply common renderer configuration: GFM, directives, sections, wikilinks.
-    fn configure_renderer<B: RenderBackend>(
-        renderer: MarkdownRenderer<B>,
-        ctx: &RenderContext,
-    ) -> MarkdownRenderer<B> {
+    /// Pipeline preloaded with the directives shared by every render path
+    /// (tabs container + status inline). Callers add their own code-block
+    /// processors on top (regular `DiagramProcessor` for HTML rendering,
+    /// `SearchDiagramProcessor` for search indexing).
+    fn create_directives_pipeline() -> Pipeline {
         let directives = DirectiveProcessor::new()
             .with_container(TabsDirective::new())
             .with_inline(StatusDirective::new());
+        Pipeline::new().with_directives(directives)
+    }
 
+    /// Pipeline for HTML rendering: directives + the regular
+    /// `DiagramProcessor` (when configured).
+    fn create_pipeline(&self, ctx: &RenderContext) -> Pipeline {
+        let mut pipeline = Self::create_directives_pipeline();
+        if let Some(processor) = self.create_diagram_processor(ctx.meta_include_source.clone()) {
+            pipeline = pipeline.with_processor(processor.with_sections(Arc::clone(&ctx.sections)));
+        }
+        pipeline
+    }
+
+    /// Apply settings shared between renderer creation paths: GFM, sections,
+    /// wikilinks/title resolver.
+    fn configure_renderer_settings<B: RenderBackend>(
+        renderer: MarkdownRenderer<B>,
+        ctx: &RenderContext,
+    ) -> MarkdownRenderer<B> {
         let mut renderer = renderer
             .with_gfm(true)
-            .with_directives(directives)
             .with_sections(Arc::clone(&ctx.sections));
 
         if let Some(snapshot) = &ctx.snapshot {

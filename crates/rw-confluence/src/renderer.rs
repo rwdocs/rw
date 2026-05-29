@@ -22,7 +22,7 @@
 
 use rw_kroki::{DiagramOutput, DiagramProcessor};
 use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{MarkdownRenderer, RenderResult, StatusDirective, TocEntry};
+use rw_renderer::{MarkdownRenderer, Pipeline, RenderResult, StatusDirective, TocEntry};
 use std::path::{Path, PathBuf};
 
 use crate::backend::ConfluenceBackend;
@@ -117,19 +117,10 @@ impl PageRenderer {
         kroki_url: Option<&str>,
         output_dir: Option<&Path>,
     ) -> RenderResult {
-        let mut renderer = self.create_renderer();
+        let renderer = self.create_renderer();
+        let pipeline = self.create_pipeline(kroki_url, output_dir);
 
-        if let (Some(url), Some(dir)) = (kroki_url, output_dir) {
-            let processor = self
-                .create_diagram_processor(url)
-                .output(DiagramOutput::Files {
-                    output_dir: dir.to_path_buf(),
-                    tag_generator: confluence_tag_generator(),
-                });
-            renderer = renderer.with_processor(processor);
-        }
-
-        let result = renderer.render_markdown(markdown_text);
+        let result = renderer.render_markdown(markdown_text, pipeline);
 
         RenderResult {
             html: self.maybe_prepend_toc(result.html, &result.toc),
@@ -149,16 +140,33 @@ impl PageRenderer {
         processor
     }
 
-    /// Create a Confluence renderer with common configuration.
+    /// Build the settings-only renderer.
     fn create_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
-        let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
-        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new()
-            .with_gfm(self.gfm)
-            .with_directives(directives);
+        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new().with_gfm(self.gfm);
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }
         renderer
+    }
+
+    /// Build the per-render pipeline.
+    fn create_pipeline(
+        &self,
+        kroki_url: Option<&str>,
+        output_dir: Option<&std::path::Path>,
+    ) -> Pipeline {
+        let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
+        let mut pipeline = Pipeline::new().with_directives(directives);
+        if let (Some(url), Some(dir)) = (kroki_url, output_dir) {
+            let processor = self
+                .create_diagram_processor(url)
+                .output(DiagramOutput::Files {
+                    output_dir: dir.to_path_buf(),
+                    tag_generator: confluence_tag_generator(),
+                });
+            pipeline = pipeline.with_processor(processor);
+        }
+        pipeline
     }
 }
 
