@@ -80,7 +80,7 @@ impl fmt::Display for StatusColor {
 /// let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new();
 ///
-/// let result = renderer.render_markdown(
+/// let result = renderer.render(
 ///     ":status[On Track]{color=green}",
 ///     Pipeline::new().with_directives(processor),
 /// );
@@ -183,7 +183,7 @@ mod tests {
         let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
         renderer
-            .render_markdown(input, Pipeline::new().with_directives(processor))
+            .render(input, Pipeline::new().with_directives(processor))
             .html
     }
 

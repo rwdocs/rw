@@ -25,7 +25,7 @@ use crate::backend::AlertKind;
 ///
 /// let result = MarkdownRenderer::<SearchDocumentBackend>::new()
 ///     .with_title_extraction()
-///     .render_markdown("# Title\n\nHello **world**.", Pipeline::new());
+///     .render("# Title\n\nHello **world**.", Pipeline::new());
 ///
 /// assert_eq!(result.title.as_deref(), Some("Title"));
 /// assert_eq!(result.html.trim(), "Hello world.");
@@ -159,7 +159,7 @@ mod tests {
     fn renders_plain_text() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .with_title_extraction()
-            .render_markdown("# Title\n\nHello **world** and `code`.", Pipeline::new());
+            .render("# Title\n\nHello **world** and `code`.", Pipeline::new());
 
         assert_eq!(result.title.as_deref(), Some("Title"));
         assert_eq!(result.html.trim(), "Hello world and code.");
@@ -168,28 +168,28 @@ mod tests {
     #[test]
     fn strips_inline_formatting() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render_markdown("**bold** *italic* ~~strike~~ `code`", Pipeline::new());
+            .render("**bold** *italic* ~~strike~~ `code`", Pipeline::new());
         assert_eq!(result.html.trim(), "bold italic strike code");
     }
 
     #[test]
     fn link_keeps_display_text_drops_url() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render_markdown("[Click here](https://example.com)", Pipeline::new());
+            .render("[Click here](https://example.com)", Pipeline::new());
         assert_eq!(result.html.trim(), "Click here");
     }
 
     #[test]
     fn image_outputs_alt_text() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render_markdown("![A cute cat](cat.png)", Pipeline::new());
+            .render("![A cute cat](cat.png)", Pipeline::new());
         assert_eq!(result.html.trim(), "A cute cat");
     }
 
     #[test]
     fn table_cells_separated_by_space() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render_markdown("| A | B |\n|---|---|\n| C | D |", Pipeline::new());
+            .render("| A | B |\n|---|---|\n| C | D |", Pipeline::new());
         let text = result.html.trim();
         assert!(text.contains('A'));
         assert!(text.contains('B'));
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn list_items_separated() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render_markdown("- alpha\n- beta\n- gamma", Pipeline::new());
+            .render("- alpha\n- beta\n- gamma", Pipeline::new());
         let text = result.html.trim();
         assert!(text.contains("alpha"));
         assert!(text.contains("beta"));
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn code_block_included_as_is() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render_markdown("```python\ndef hello():\n    pass\n```", Pipeline::new());
+            .render("```python\ndef hello():\n    pass\n```", Pipeline::new());
         assert!(result.html.contains("def hello():"));
         assert!(result.html.contains("pass"));
         assert!(!result.html.contains("<code"));
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn raw_html_stripped() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render_markdown("before <b>bold</b> after", Pipeline::new());
+            .render("before <b>bold</b> after", Pipeline::new());
         assert!(result.html.contains("before"));
         assert!(result.html.contains("after"));
         assert!(!result.html.contains("<b>"));
@@ -231,7 +231,7 @@ mod tests {
     fn alert_content_included() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .with_gfm(true)
-            .render_markdown("> [!WARNING]\n> Do not delete this file.", Pipeline::new());
+            .render("> [!WARNING]\n> Do not delete this file.", Pipeline::new());
         assert!(result.html.contains("Do not delete this file."));
         assert!(!result.html.contains('<'));
     }
@@ -240,7 +240,7 @@ mod tests {
     fn headings_in_body_included_title_excluded() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .with_title_extraction()
-            .render_markdown("# Title\n\n## Section\n\nContent", Pipeline::new());
+            .render("# Title\n\n## Section\n\nContent", Pipeline::new());
         assert_eq!(result.title.as_deref(), Some("Title"));
         assert!(result.html.contains("Section"));
         assert!(result.html.contains("Content"));

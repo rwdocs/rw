@@ -116,7 +116,7 @@ impl PageRenderer {
         let renderer = self.create_renderer();
         let pipeline = self.create_pipeline(kroki_url, output_dir);
 
-        let result = renderer.render_markdown(markdown_text, pipeline);
+        let result = renderer.render(markdown_text, pipeline);
 
         RenderResult {
             html: self.maybe_prepend_toc(result.html, &result.toc),

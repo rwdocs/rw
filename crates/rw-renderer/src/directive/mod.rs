@@ -67,7 +67,7 @@
 //! let processor = DirectiveProcessor::new().with_inline(KbdDirective);
 //! let renderer = MarkdownRenderer::<HtmlBackend>::new();
 //!
-//! let result = renderer.render_markdown(
+//! let result = renderer.render(
 //!     "Press :kbd[Ctrl+C] to copy.",
 //!     Pipeline::new().with_directives(processor),
 //! );

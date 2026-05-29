@@ -15,8 +15,7 @@ use crate::directive::DirectiveProcessor;
 /// Construct one with [`Pipeline::new`] (or [`Pipeline::default`]),
 /// register extensions via [`Pipeline::with_processor`] /
 /// [`Pipeline::with_directives`], then pass it into
-/// [`MarkdownRenderer::render_markdown`](crate::MarkdownRenderer::render_markdown)
-/// or [`MarkdownRenderer::render`](crate::MarkdownRenderer::render). The
+/// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render). The
 /// render call consumes the pipeline.
 ///
 /// `Pipeline` is `Send` but not `Sync`. Directive handlers
@@ -36,7 +35,7 @@ use crate::directive::DirectiveProcessor;
 /// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 ///
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new();
-/// let result = renderer.render_markdown("Hello.", Pipeline::new());
+/// let result = renderer.render("Hello.", Pipeline::new());
 /// assert!(result.html.contains("Hello"));
 /// ```
 ///
@@ -52,7 +51,7 @@ use crate::directive::DirectiveProcessor;
 /// let pipeline = Pipeline::new().with_directives(directives);
 ///
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new();
-/// let result = renderer.render_markdown(":status[Done]{color=green}", pipeline);
+/// let result = renderer.render(":status[Done]{color=green}", pipeline);
 /// assert!(result.html.contains("status-green"));
 /// ```
 pub struct Pipeline {
@@ -198,7 +197,7 @@ mod tests {
             .with_directives(DirectiveProcessor::new().with_inline(BetaTag));
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown(":tag[x]", pipeline);
+        let result = renderer.render(":tag[x]", pipeline);
 
         assert!(
             result.html.contains("<BETA>"),

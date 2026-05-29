@@ -26,8 +26,8 @@
 //! let pipeline = Pipeline::new()
 //!     .with_processor(DiagramProcessor::new("https://kroki.io"));
 //!
-//! // render_markdown auto-calls post_process() on all processors
-//! let result = renderer.render_markdown(markdown, pipeline);
+//! // render auto-calls post_process() on all processors
+//! let result = renderer.render(markdown, pipeline);
 //! ```
 
 mod cache;

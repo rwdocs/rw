@@ -27,7 +27,7 @@ use crate::util::slugify;
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_title_extraction()
-///     .render_markdown("# Page Title\n\n## Introduction\n\n## Setup", Pipeline::new());
+///     .render("# Page Title\n\n## Introduction\n\n## Setup", Pipeline::new());
 ///
 /// assert_eq!(result.toc.len(), 2);
 /// assert_eq!(result.toc[0].title, "Introduction");

@@ -5,7 +5,6 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use pulldown_cmark::{Event, Options, Parser};
 use rw_sections::Sections;
 
 use crate::backend::RenderBackend;
@@ -13,7 +12,7 @@ use crate::config::{RenderConfig, TitleResolver};
 use crate::pipeline::Pipeline;
 use crate::toc::TocEntry;
 
-/// Output produced by [`MarkdownRenderer::render`] or [`MarkdownRenderer::render_markdown`].
+/// Output produced by [`MarkdownRenderer::render`].
 ///
 /// Contains the rendered markup, an optional page title extracted from the
 /// first H1 heading, table-of-contents entries for heading navigation, and
@@ -26,7 +25,7 @@ use crate::toc::TocEntry;
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_title_extraction()
-///     .render_markdown("# Welcome\n\nHello **world**.", Pipeline::new());
+///     .render("# Welcome\n\nHello **world**.", Pipeline::new());
 ///
 /// assert_eq!(result.title.as_deref(), Some("Welcome"));
 /// assert!(result.html.contains("<strong>world</strong>"));
@@ -57,17 +56,15 @@ pub struct RenderResult {
 /// inline formatting) are handled generically; format-specific elements are
 /// delegated to `B`.
 ///
-/// The two main entry points are:
-///
-/// - [`render_markdown`](Self::render_markdown) — accepts raw markdown and a
-///   [`Pipeline`], handles directive pre/post-processing automatically.
-/// - [`render`](Self::render) — accepts a pre-built pulldown-cmark event
-///   iterator and a [`Pipeline`] (skips directive preprocessing).
+/// The entry point is [`render`](Self::render): it accepts raw markdown and a
+/// [`Pipeline`], and runs the full pipeline — block-directive preprocessing,
+/// parse + event walk (with inline-directive expansion), and directive
+/// post-processing.
 ///
 /// # Code block processors and directives
 ///
 /// Per-render extensions (code block processors, directive processor) are
-/// bundled in a [`Pipeline`] passed to the render methods. Build a fresh
+/// bundled in a [`Pipeline`] passed to [`render`](Self::render). Build a fresh
 /// [`Pipeline`] for each render call.
 ///
 /// # Examples
@@ -79,7 +76,7 @@ pub struct RenderResult {
 ///     .with_title_extraction()
 ///     .with_base_path("/docs/guide");
 ///
-/// let result = renderer.render_markdown("# Guide\n\nSee [setup](setup.md).", Pipeline::new());
+/// let result = renderer.render("# Guide\n\nSee [setup](setup.md).", Pipeline::new());
 /// assert_eq!(result.title.as_deref(), Some("Guide"));
 /// assert!(result.html.contains(r#"href="/docs/guide/setup""#));
 /// ```
@@ -198,28 +195,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
-    /// Returns pulldown-cmark [`Options`] reflecting the current GFM and
-    /// wikilink configuration.
-    ///
-    /// Useful when constructing a parser manually for [`render`](Self::render).
-    #[must_use]
-    pub fn parser_options(&self) -> Options {
-        self.config.parser_options()
-    }
-
-    /// Creates a pulldown-cmark [`Parser`] with the renderer's current options.
-    ///
-    /// Use this with [`render`](Self::render) when you need a pre-built event
-    /// iterator (e.g., to inspect or filter events before rendering).
-    #[must_use]
-    pub fn create_parser<'a>(&self, markdown: &'a str) -> Parser<'a> {
-        self.config.create_parser(markdown)
-    }
-
     /// Renders raw markdown to the configured backend, applying the supplied
     /// [`Pipeline`]'s extensions.
     ///
-    /// This is the primary entry point. It runs the full pipeline:
+    /// This is the entry point. It runs the full pipeline:
     ///
     /// 1. **Preprocess** — expands block-level directives via
     ///    `pipeline.directives` (if `Some`).
@@ -230,9 +209,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///    replaces code-block placeholders.
     ///
     /// The supplied `Pipeline` is consumed: build a fresh one per render.
-    /// See [`MarkdownRenderer::render`] for the lower-level entry point that
-    /// accepts a pre-built pulldown-cmark iterator.
-    pub fn render_markdown(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
+    pub fn render(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
         // Phase 1: block-level directive preprocessing.
         let preprocessed = if let Some(processor) = pipeline.directives.as_mut() {
             processor.process(markdown)
@@ -266,32 +243,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
         result
     }
-
-    /// Renders pre-parsed pulldown-cmark events to the configured backend.
-    ///
-    /// Prefer [`render_markdown`](Self::render_markdown) for most use cases.
-    /// This method skips directive preprocessing (Phase 1) and post-processing
-    /// (Phase 3); inline directives are still expanded during the event walk
-    /// when `pipeline.directives` is `Some`. Useful when you've constructed
-    /// the parser yourself (e.g., with custom options) and want to feed an
-    /// arbitrary event iterator.
-    ///
-    /// Code-block-processor `post_process` hooks still fire automatically.
-    pub fn render<'a, I>(&self, events: I, mut pipeline: Pipeline) -> RenderResult
-    where
-        I: Iterator<Item = Event<'a>>,
-    {
-        let mut walker = crate::walker::Walker::<B>::new(
-            &self.config,
-            &mut pipeline.processors,
-            pipeline.directives.as_mut(),
-        );
-        for event in events {
-            walker.process_event(event);
-        }
-        walker.flush_text_buffer();
-        walker.finish()
-    }
 }
 
 impl<B: RenderBackend> Default for MarkdownRenderer<B> {
@@ -324,44 +275,33 @@ mod tests {
     use super::*;
     use crate::HtmlBackend;
     use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
-    use pulldown_cmark::{Options, Parser};
     use rw_sections::{Namespace, Section};
 
     fn render_html(markdown: &str) -> RenderResult {
-        let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
-        let parser = Parser::new_ext(markdown, options);
-        MarkdownRenderer::<HtmlBackend>::new().render(parser, Pipeline::new())
+        MarkdownRenderer::<HtmlBackend>::new().render(markdown, Pipeline::new())
     }
 
     fn render_html_with_title(markdown: &str) -> RenderResult {
-        let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
-        let parser = Parser::new_ext(markdown, options);
         MarkdownRenderer::<HtmlBackend>::new()
             .with_title_extraction()
-            .render(parser, Pipeline::new())
+            .render(markdown, Pipeline::new())
     }
 
     fn render_with_base_path(markdown: &str, base_path: &str) -> RenderResult {
-        let options = Options::ENABLE_TABLES;
-        let parser = Parser::new_ext(markdown, options);
         MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path(base_path)
-            .render(parser, Pipeline::new())
+            .render(markdown, Pipeline::new())
     }
 
     fn render_with_origin(markdown: &str, base_path: &str, origin: &str) -> RenderResult {
-        let options = Options::ENABLE_TABLES;
-        let parser = Parser::new_ext(markdown, options);
         MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path(base_path)
             .with_origin(origin)
-            .render(parser, Pipeline::new())
+            .render(markdown, Pipeline::new())
     }
 
     fn render_with_tasklists(markdown: &str) -> RenderResult {
-        let options = Options::ENABLE_TASKLISTS;
-        let parser = Parser::new_ext(markdown, options);
-        MarkdownRenderer::<HtmlBackend>::new().render(parser, Pipeline::new())
+        MarkdownRenderer::<HtmlBackend>::new().render(markdown, Pipeline::new())
     }
 
     #[test]
@@ -410,7 +350,7 @@ mod tests {
     #[test]
     fn test_note_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown("> [!NOTE]\n> This is a **note**.", Pipeline::new());
+        let result = renderer.render("> [!NOTE]\n> This is a **note**.", Pipeline::new());
         assert!(result.html.contains("alert-note"));
         assert!(result.html.contains("<strong>note</strong>"));
     }
@@ -418,7 +358,7 @@ mod tests {
     #[test]
     fn test_tip_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown("> [!TIP]\n> This is a tip.", Pipeline::new());
+        let result = renderer.render("> [!TIP]\n> This is a tip.", Pipeline::new());
         assert!(result.html.contains("alert-tip"));
         assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
@@ -426,8 +366,7 @@ mod tests {
     #[test]
     fn test_important_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result =
-            renderer.render_markdown("> [!IMPORTANT]\n> Critical information.", Pipeline::new());
+        let result = renderer.render("> [!IMPORTANT]\n> Critical information.", Pipeline::new());
         assert!(result.html.contains("alert-important"));
         assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
@@ -435,7 +374,7 @@ mod tests {
     #[test]
     fn test_warning_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown("> [!WARNING]\n> Be careful!", Pipeline::new());
+        let result = renderer.render("> [!WARNING]\n> Be careful!", Pipeline::new());
         assert!(result.html.contains("alert-warning"));
         assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
@@ -443,8 +382,7 @@ mod tests {
     #[test]
     fn test_caution_alert() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result =
-            renderer.render_markdown("> [!CAUTION]\n> Dangerous operation.", Pipeline::new());
+        let result = renderer.render("> [!CAUTION]\n> Dangerous operation.", Pipeline::new());
         assert!(result.html.contains("alert-caution"));
         assert!(result.html.contains(r#"<svg class="alert-icon""#));
     }
@@ -452,7 +390,7 @@ mod tests {
     #[test]
     fn test_alert_with_list() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "> [!WARNING]\n> Be careful:\n> - Item 1\n> - Item 2",
             Pipeline::new(),
         );
@@ -464,7 +402,7 @@ mod tests {
     #[test]
     fn test_regular_blockquote_unchanged() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown("> Just a regular quote", Pipeline::new());
+        let result = renderer.render("> Just a regular quote", Pipeline::new());
         assert!(result.html.contains("<blockquote>"));
         assert!(!result.html.contains("alert"));
     }
@@ -702,9 +640,8 @@ mod tests {
 
     #[test]
     fn test_default_renderer() {
-        let parser = Parser::new("Hello");
         let renderer = MarkdownRenderer::<HtmlBackend>::default();
-        let result = renderer.render(parser, Pipeline::new());
+        let result = renderer.render("Hello", Pipeline::new());
         assert_eq!(result.html, "<p>Hello</p>");
     }
 
@@ -769,9 +706,8 @@ mod tests {
     #[test]
     fn test_processor_passthrough() {
         let markdown = "```rust\nfn main() {}\n```";
-        let parser = Parser::new(markdown);
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            parser,
+            markdown,
             Pipeline::new().with_processor(PlaceholderProcessor::new()),
         );
 
@@ -783,9 +719,8 @@ mod tests {
     #[test]
     fn test_processor_placeholder() {
         let markdown = "```diagram\nA -> B\n```";
-        let parser = Parser::new(markdown);
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            parser,
+            markdown,
             Pipeline::new().with_processor(PlaceholderProcessor::new()),
         );
 
@@ -796,9 +731,8 @@ mod tests {
     #[test]
     fn test_processor_inline() {
         let markdown = "```inline-test\ncontent\n```";
-        let parser = Parser::new(markdown);
         let result = MarkdownRenderer::<HtmlBackend>::new()
-            .render(parser, Pipeline::new().with_processor(InlineProcessor));
+            .render(markdown, Pipeline::new().with_processor(InlineProcessor));
 
         assert!(result.html.contains(r#"<div class="inline">content"#));
         assert!(!result.html.contains("<pre>"));
@@ -807,9 +741,8 @@ mod tests {
     #[test]
     fn test_processor_with_attrs() {
         let markdown = "```diagram format=png theme=dark\nA -> B\n```";
-        let parser = Parser::new(markdown);
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            parser,
+            markdown,
             Pipeline::new().with_processor(PlaceholderProcessor::new()),
         );
 
@@ -820,9 +753,8 @@ mod tests {
     fn test_multiple_processors() {
         let markdown =
             "```diagram\nA -> B\n```\n\n```inline-test\nhello\n```\n\n```rust\nfn main() {}\n```";
-        let parser = Parser::new(markdown);
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            parser,
+            markdown,
             Pipeline::new()
                 .with_processor(PlaceholderProcessor::new())
                 .with_processor(InlineProcessor),
@@ -839,9 +771,8 @@ mod tests {
     #[test]
     fn test_processor_multiple_code_blocks() {
         let markdown = "```diagram\nA -> B\n```\n\n```diagram\nC -> D\n```";
-        let parser = Parser::new(markdown);
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            parser,
+            markdown,
             Pipeline::new().with_processor(PlaceholderProcessor::new()),
         );
 
@@ -852,9 +783,8 @@ mod tests {
     #[test]
     fn test_processor_code_block_without_language() {
         let markdown = "```\nplain text\n```";
-        let parser = Parser::new(markdown);
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            parser,
+            markdown,
             Pipeline::new().with_processor(PlaceholderProcessor::new()),
         );
 
@@ -892,9 +822,8 @@ mod tests {
     #[test]
     fn test_render_result_includes_warnings() {
         let markdown = "Hello";
-        let parser = Parser::new(markdown);
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            parser,
+            markdown,
             Pipeline::new().with_processor(WarningProcessor::new(vec![
                 "warning 1".into(),
                 "warning 2".into(),
@@ -913,9 +842,9 @@ mod tests {
     }
 
     #[test]
-    fn test_render_markdown_convenience() {
+    fn test_render_convenience() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown("# Hello\n\n**World**", Pipeline::new());
+        let result = renderer.render("# Hello\n\n**World**", Pipeline::new());
         assert!(result.html.contains("<h1"));
         assert!(result.html.contains("<strong>World</strong>"));
     }
@@ -923,45 +852,16 @@ mod tests {
     #[test]
     fn test_gfm_enabled_by_default() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown("| A | B |\n|---|---|\n| 1 | 2 |", Pipeline::new());
+        let result = renderer.render("| A | B |\n|---|---|\n| 1 | 2 |", Pipeline::new());
         assert!(result.html.contains("<table>"));
     }
 
     #[test]
     fn test_gfm_disabled() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new().with_gfm(false);
-        let result = renderer.render_markdown("| A | B |\n|---|---|\n| 1 | 2 |", Pipeline::new());
+        let result = renderer.render("| A | B |\n|---|---|\n| 1 | 2 |", Pipeline::new());
         // Tables not rendered when GFM disabled
         assert!(!result.html.contains("<table>"));
-    }
-
-    #[test]
-    fn test_parser_options_with_gfm() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let options = renderer.parser_options();
-        assert!(options.contains(Options::ENABLE_TABLES));
-        assert!(options.contains(Options::ENABLE_STRIKETHROUGH));
-        assert!(options.contains(Options::ENABLE_TASKLISTS));
-        assert!(options.contains(Options::ENABLE_GFM));
-    }
-
-    #[test]
-    fn test_parser_options_without_gfm() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new().with_gfm(false);
-        let options = renderer.parser_options();
-        assert!(!options.contains(Options::ENABLE_TABLES));
-        assert!(!options.contains(Options::ENABLE_STRIKETHROUGH));
-        assert!(!options.contains(Options::ENABLE_TASKLISTS));
-        assert!(!options.contains(Options::ENABLE_GFM));
-    }
-
-    #[test]
-    fn test_create_parser() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let parser = renderer.create_parser("# Hello");
-        let events: Vec<_> = parser.collect();
-        // Should produce heading events
-        assert!(!events.is_empty());
     }
 
     // Directive integration tests
@@ -975,7 +875,7 @@ mod tests {
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             r":::tab[macOS]
 Install with Homebrew.
 :::tab[Linux]
@@ -1014,7 +914,7 @@ Install with apt.
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Press :kbd[Ctrl+C] to copy.",
             Pipeline::new().with_directives(processor),
         );
@@ -1043,7 +943,7 @@ Install with apt.
         let processor = DirectiveProcessor::new().with_inline(KbdDirective);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Note: press :kbd[Ctrl+C] to copy.",
             Pipeline::new().with_directives(processor),
         );
@@ -1076,7 +976,7 @@ Install with apt.
         let processor = DirectiveProcessor::new().with_inline(KbdDirective);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Use `:kbd[Ctrl+C]` to copy.",
             Pipeline::new().with_directives(processor),
         );
@@ -1114,7 +1014,7 @@ Install with apt.
         let processor = DirectiveProcessor::new().with_inline(KbdDirective);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Use :kbd[Ctrl+C] not `:kbd[Esc]`.",
             Pipeline::new().with_directives(processor),
         );
@@ -1152,7 +1052,7 @@ Install with apt.
         let processor = DirectiveProcessor::new().with_inline(KbdDirective);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "paragraph\n\n    :kbd[X]\n",
             Pipeline::new().with_directives(processor),
         );
@@ -1185,7 +1085,7 @@ Install with apt.
         let processor = DirectiveProcessor::new().with_inline(KbdDirective);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Plain `code` no directive.",
             Pipeline::new().with_directives(processor),
         );
@@ -1205,7 +1105,7 @@ Install with apt.
         let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "Billing is :status[On Track]{color=green} this quarter.",
             Pipeline::new().with_directives(processor),
         );
@@ -1229,7 +1129,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
         // Unclosed tabs should produce warning
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             ":::tab[Test]\nContent",
             Pipeline::new().with_directives(processor),
         );
@@ -1244,7 +1144,7 @@ Install with apt.
         // on frontmatter content — is covered by
         // test_frontmatter_does_not_invoke_registered_directives.
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "---\ntitle: hello\n---\n\n# Body\n\nParagraph.\n",
             Pipeline::new().with_directives(crate::directive::DirectiveProcessor::new()),
         );
@@ -1299,7 +1199,7 @@ Install with apt.
             calls: Arc::clone(&calls),
         });
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let _ = renderer.render_markdown(
+        let _ = renderer.render(
             "---\ntitle: hit me :track[here]\n---\n\n# Body :track[here]\n",
             Pipeline::new().with_directives(processor),
         );
@@ -1323,8 +1223,7 @@ Install with apt.
             .with_wikilinks(true)
             .with_sections(wikilink_sections())
             .with_title_resolver(StaticTitleResolver);
-        let result =
-            renderer.render_markdown("## See [[domain:billing::overview]]\n", Pipeline::new());
+        let result = renderer.render("## See [[domain:billing::overview]]\n", Pipeline::new());
 
         assert_eq!(result.toc.len(), 1);
         assert_eq!(result.toc[0].title, "See Overview");
@@ -1361,7 +1260,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/billing/systems/pay/api".to_owned())
             .with_sections(Arc::clone(&sections));
-        let result = renderer.render_markdown("[Billing](../../../overview.md)", Pipeline::new());
+        let result = renderer.render("[Billing](../../../overview.md)", Pipeline::new());
         // Link resolves to /domains/billing/overview, which is in domain:default/billing (different section)
         assert!(
             result
@@ -1386,7 +1285,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/billing/overview".to_owned())
             .with_sections(Arc::clone(&sections));
-        let result = renderer.render_markdown("[Use Cases](./use-cases.md)", Pipeline::new());
+        let result = renderer.render("[Use Cases](./use-cases.md)", Pipeline::new());
         // Link resolves within same section — data attributes ARE present
         assert!(
             result
@@ -1413,7 +1312,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/billing".to_owned())
             .with_sections(sections);
-        let result = renderer.render_markdown("[Google](https://google.com)", Pipeline::new());
+        let result = renderer.render("[Google](https://google.com)", Pipeline::new());
         assert!(!result.html.contains("data-section-ref"));
         assert!(result.html.contains(r#"href="https://google.com""#));
     }
@@ -1431,7 +1330,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/search/overview".to_owned())
             .with_sections(Arc::clone(&sections));
-        let result = renderer.render_markdown(
+        let result = renderer.render(
             "[Billing API](../../billing/api.md#endpoints)",
             Pipeline::new(),
         );
@@ -1461,7 +1360,7 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new()
             .with_base_path("/domains/search".to_owned())
             .with_sections(Arc::clone(&sections));
-        let result = renderer.render_markdown("[Billing](../billing/index.md)", Pipeline::new());
+        let result = renderer.render("[Billing](../billing/index.md)", Pipeline::new());
         // Link resolves to /domains/billing (exact section root)
         assert!(
             result
@@ -1476,7 +1375,7 @@ Install with apt.
     fn section_ref_no_attributes_without_sections_configured() {
         let renderer =
             MarkdownRenderer::<HtmlBackend>::new().with_base_path("/domains/billing".to_owned());
-        let result = renderer.render_markdown("[Use Cases](./use-cases.md)", Pipeline::new());
+        let result = renderer.render("[Use Cases](./use-cases.md)", Pipeline::new());
         // No sections configured — no data attributes
         assert!(!result.html.contains("data-section-ref"));
         assert!(result.html.contains(r#"href="/domains/billing/use-cases""#));
@@ -1520,24 +1419,20 @@ Install with apt.
     }
 
     fn render_wikilink(markdown: &str) -> RenderResult {
-        let options = Options::ENABLE_WIKILINKS | Options::ENABLE_TABLES;
-        let parser = Parser::new_ext(markdown, options);
         MarkdownRenderer::<HtmlBackend>::new()
             .with_wikilinks(true)
             .with_sections(wikilink_sections())
             .with_title_resolver(StaticTitleResolver)
-            .render(parser, Pipeline::new())
+            .render(markdown, Pipeline::new())
     }
 
     fn render_wikilink_with_base(markdown: &str, base: &str) -> RenderResult {
-        let options = Options::ENABLE_WIKILINKS | Options::ENABLE_TABLES;
-        let parser = Parser::new_ext(markdown, options);
         MarkdownRenderer::<HtmlBackend>::new()
             .with_wikilinks(true)
             .with_sections(wikilink_sections())
             .with_base_path(base)
             .with_title_resolver(StaticTitleResolver)
-            .render(parser, Pipeline::new())
+            .render(markdown, Pipeline::new())
     }
 
     #[test]
@@ -1722,7 +1617,7 @@ Install with apt.
     fn frontmatter_does_not_appear_in_rendered_output() {
         let markdown = "---\ntitle: My Page\nauthor: Alice\n---\n\n# Hello\n\nSome content.";
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render_markdown(markdown, Pipeline::new());
+        let result = renderer.render(markdown, Pipeline::new());
         // Frontmatter should not appear as an <hr> or paragraph
         assert!(
             !result.html.contains("<hr"),
@@ -1754,7 +1649,7 @@ Install with apt.
 
     /// Reused renderer must reset per-render state — HTML mode heading IDs.
     ///
-    /// Pre-refactor, calling `render_markdown` twice on the same renderer
+    /// Pre-refactor, calling `render` twice on the same renderer
     /// would carry `HeadingAccumulator::id_counts` across the boundary, so
     /// the second render's heading IDs got "-1" suffixes. The fix is
     /// structural: each render constructs a fresh `Walker` (and fresh
@@ -1764,8 +1659,8 @@ Install with apt.
         let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
         let md = "# My Title\n\n## Section\n\nbody";
 
-        let r1 = renderer.render_markdown(md, Pipeline::new());
-        let r2 = renderer.render_markdown(md, Pipeline::new());
+        let r1 = renderer.render(md, Pipeline::new());
+        let r2 = renderer.render(md, Pipeline::new());
 
         assert_eq!(r1.title, r2.title, "title must match across renders");
         assert_eq!(r1.toc, r2.toc, "TOC must match across renders");
@@ -1805,8 +1700,8 @@ Install with apt.
         let renderer = MarkdownRenderer::<SearchDocumentBackend>::new().with_title_extraction();
         let md = "# Page Title\n\nbody content";
 
-        let r1 = renderer.render_markdown(md, Pipeline::new());
-        let r2 = renderer.render_markdown(md, Pipeline::new());
+        let r1 = renderer.render(md, Pipeline::new());
+        let r2 = renderer.render(md, Pipeline::new());
 
         // Full HTML equality catches body-level per-render state leaks
         // beyond the title-extraction bug.
@@ -1853,8 +1748,8 @@ Install with apt.
         let md = "```a\nfirst\n```\n\n```b\nsecond\n```";
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let r1 = renderer.render_markdown(md, Pipeline::new().with_processor(CountingProcessor));
-        let r2 = renderer.render_markdown(md, Pipeline::new().with_processor(CountingProcessor));
+        let r1 = renderer.render(md, Pipeline::new().with_processor(CountingProcessor));
+        let r2 = renderer.render(md, Pipeline::new().with_processor(CountingProcessor));
 
         // Full HTML equality catches per-render state leaks beyond the
         // code-block-index bug (e.g., list_stack, alert_stack, text_buffer).
@@ -1949,7 +1844,7 @@ Install with apt.
         // which doesn't implement UnwindSafe by default — we explicitly accept
         // that risk because the whole point of this test is to verify recovery.
         let panicked = catch_unwind(AssertUnwindSafe(|| {
-            renderer.render_markdown(
+            renderer.render(
                 "# Boom\n\n```explode\n```",
                 Pipeline::new()
                     .with_processor(ExplodingProcessor)
@@ -1959,7 +1854,7 @@ Install with apt.
         assert!(panicked.is_err(), "exploding processor must panic");
 
         // Second render must work cleanly and produce a coherent result.
-        let r = renderer.render_markdown(
+        let r = renderer.render(
             "# Page\n\n```safe\n```\n\n## Section",
             Pipeline::new().with_processor(SafeProcessor),
         );
@@ -2001,8 +1896,8 @@ Install with apt.
         // exercises the skip_wikilink_text path identically.
         let md = "Body with a [[target]] link inside.";
 
-        let r1 = renderer.render_markdown(md, Pipeline::new());
-        let r2 = renderer.render_markdown(md, Pipeline::new());
+        let r1 = renderer.render(md, Pipeline::new());
+        let r2 = renderer.render(md, Pipeline::new());
 
         assert_eq!(
             r1.html, r2.html,
@@ -2021,10 +1916,8 @@ Install with apt.
         let r1 = Arc::clone(&renderer);
         let r2 = Arc::clone(&renderer);
 
-        let t1 =
-            thread::spawn(move || r1.render_markdown("# Thread One\n\nHello.", Pipeline::new()));
-        let t2 =
-            thread::spawn(move || r2.render_markdown("# Thread Two\n\nWorld.", Pipeline::new()));
+        let t1 = thread::spawn(move || r1.render("# Thread One\n\nHello.", Pipeline::new()));
+        let t2 = thread::spawn(move || r2.render("# Thread Two\n\nWorld.", Pipeline::new()));
 
         let res1 = t1.join().expect("thread 1 panicked");
         let res2 = t2.join().expect("thread 2 panicked");
@@ -2052,8 +1945,8 @@ Install with apt.
                 .with_directives(DirectiveProcessor::new().with_container(TabsDirective::new()))
         };
 
-        let r1 = renderer.render_markdown(md, make_pipeline());
-        let r2 = renderer.render_markdown(md, make_pipeline());
+        let r1 = renderer.render(md, make_pipeline());
+        let r2 = renderer.render(md, make_pipeline());
 
         // Each render emits exactly one warning. If processor state leaked
         // across renders (the pre-refactor bug), r2 would see r1's warning
