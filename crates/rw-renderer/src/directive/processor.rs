@@ -254,8 +254,16 @@ impl DirectiveProcessor {
             }
         }
 
-        // Check for unclosed containers
-        self.finalize();
+        // Check for unclosed containers — only at the top level. Recursive
+        // calls (depth > 0) process expanded/included content and share the
+        // parent's `active_containers` stack; finalizing there would drain the
+        // parent's still-open containers, emitting spurious "unclosed" warnings
+        // and dropping their `end()` dispatch. Containers left open inside
+        // included content remain on the shared stack and are caught by the
+        // top-level finalize (or closed by a later outer `:::`).
+        if depth == 0 {
+            self.finalize();
+        }
 
         output
     }
@@ -852,5 +860,139 @@ mod tests {
         );
         // The mid-line `::foo[x]` is literal text — no leaf expansion mid-paragraph
         assert!(result.html.contains("::foo[x]"), "got: {}", result.html);
+    }
+
+    #[test]
+    fn container_survives_nested_markdown_directive() {
+        // Regression: a leaf directive returning `DirectiveOutput::Markdown`
+        // inside an open container is processed via a recursive
+        // `process_with_depth` call. That recursion must NOT drain the parent's
+        // `active_containers` stack, so the container's `end()` still fires and
+        // no spurious "unclosed"/"stray" warnings are emitted.
+        struct MarkdownInclude;
+
+        impl LeafDirective for MarkdownInclude {
+            fn name(&self) -> &'static str {
+                "include"
+            }
+
+            fn process(
+                &mut self,
+                _args: DirectiveArgs,
+                _ctx: &DirectiveContext,
+            ) -> DirectiveOutput {
+                DirectiveOutput::markdown("included body")
+            }
+        }
+
+        let mut processor = DirectiveProcessor::new()
+            .with_container(TestNote)
+            .with_leaf(MarkdownInclude);
+
+        let output = processor.process(":::note[Title]\n::include[frag]\n:::");
+        let warnings = processor.warnings();
+
+        assert!(
+            output.contains(r#"<div class="note" data-title="Title">"#),
+            "container start must render; got: {output}"
+        );
+        assert!(
+            output.contains("included body"),
+            "nested markdown directive output must render; got: {output}"
+        );
+        assert_eq!(
+            output.matches("</div>").count(),
+            1,
+            "container end() must fire exactly once (no drop, no double-close); got: {output}"
+        );
+        assert!(
+            warnings.is_empty(),
+            "no spurious unclosed/stray warnings; got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn container_start_returning_markdown_still_closes() {
+        // A container whose `start()` returns `DirectiveOutput::Markdown` is a
+        // different recursion entry than the leaf path: it pushes its name and
+        // recurses on the expanded markdown. The container's `end()` must still
+        // fire on the outer `:::` and no spurious warnings appear.
+        struct MarkdownWrap;
+
+        impl ContainerDirective for MarkdownWrap {
+            fn name(&self) -> &'static str {
+                "wrap"
+            }
+
+            fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
+                DirectiveOutput::markdown("expanded start")
+            }
+
+            fn end(&mut self, _line: usize) -> Option<String> {
+                Some("<!--wrap-end-->".to_owned())
+            }
+        }
+
+        let mut processor = DirectiveProcessor::new().with_container(MarkdownWrap);
+
+        let output = processor.process(":::wrap\nbody\n:::");
+        let warnings = processor.warnings();
+
+        assert!(
+            output.contains("expanded start"),
+            "expanded start markdown must render; got: {output}"
+        );
+        assert!(
+            output.contains("body"),
+            "container body must render; got: {output}"
+        );
+        assert!(
+            output.contains("<!--wrap-end-->"),
+            "container end() must fire; got: {output}"
+        );
+        assert!(
+            warnings.is_empty(),
+            "no spurious unclosed/stray warnings; got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn unclosed_container_inside_included_markdown_warns_at_top_level() {
+        // Forward-correctness (not a revert guard for the depth==0 fix — the
+        // old recursive finalize emitted the same warning, just from the wrong
+        // frame). This locks in that a container left open inside expanded /
+        // included markdown is still reported: it must remain on the shared
+        // stack for the top-level finalize rather than being cleared at the end
+        // of the recursive call. A leaf expanding to an unclosed `:::note` must
+        // still produce the "unclosed container" warning.
+        struct OpensContainer;
+
+        impl LeafDirective for OpensContainer {
+            fn name(&self) -> &'static str {
+                "open"
+            }
+
+            fn process(
+                &mut self,
+                _args: DirectiveArgs,
+                _ctx: &DirectiveContext,
+            ) -> DirectiveOutput {
+                DirectiveOutput::markdown(":::note[Opened]\nunclosed body")
+            }
+        }
+
+        let mut processor = DirectiveProcessor::new()
+            .with_container(TestNote)
+            .with_leaf(OpensContainer);
+
+        let _output = processor.process("::open[x]");
+        let warnings = processor.warnings();
+
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("unclosed") && w.contains("note")),
+            "unclosed container inside included markdown must still warn; got: {warnings:?}"
+        );
     }
 }
