@@ -19,14 +19,15 @@
 //!
 //! ```no_run
 //! use rw_kroki::DiagramProcessor;
-//! use rw_renderer::{MarkdownRenderer, HtmlBackend};
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 //!
 //! let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
-//! let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+//! let renderer = MarkdownRenderer::<HtmlBackend>::new();
+//! let pipeline = Pipeline::new()
 //!     .with_processor(DiagramProcessor::new("https://kroki.io"));
 //!
 //! // render_markdown auto-calls post_process() on all processors
-//! let result = renderer.render_markdown(markdown);
+//! let result = renderer.render_markdown(markdown, pipeline);
 //! ```
 
 mod cache;

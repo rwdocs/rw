@@ -474,7 +474,7 @@ impl DirectiveProcessor {
 mod tests {
     use super::*;
     use crate::directive::DirectiveArgs;
-    use crate::{HtmlBackend, MarkdownRenderer};
+    use crate::{HtmlBackend, MarkdownRenderer, Pipeline};
 
     // Test inline directive
     struct TestKbd;
@@ -534,8 +534,11 @@ mod tests {
         // `MarkdownRenderer` pipeline so the wiring runs end-to-end.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
-        let result = renderer.render_markdown("Press :kbd[Ctrl+C] to copy.");
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown(
+            "Press :kbd[Ctrl+C] to copy.",
+            Pipeline::new().with_directives(processor),
+        );
 
         assert!(
             result.html.contains("<kbd>Ctrl+C</kbd>"),
@@ -567,8 +570,9 @@ mod tests {
         }
 
         let processor = DirectiveProcessor::new().with_inline(MarkerDirective);
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
-        let result = renderer.render_markdown(":marker[x]");
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result =
+            renderer.render_markdown(":marker[x]", Pipeline::new().with_directives(processor));
 
         assert!(
             result.html.contains(r#"<span class="marker">"#),
@@ -580,8 +584,11 @@ mod tests {
     #[test]
     fn test_multiple_inline_directives() {
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
-        let result = renderer.render_markdown("Press :kbd[Ctrl+C] then :kbd[Ctrl+V].");
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown(
+            "Press :kbd[Ctrl+C] then :kbd[Ctrl+V].",
+            Pipeline::new().with_directives(processor),
+        );
 
         assert!(
             result.html.contains("<kbd>Ctrl+C</kbd>"),
@@ -651,8 +658,11 @@ mod tests {
         // inline syntax at all.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
-        let result = renderer.render_markdown("```\n:kbd[inside fence]\n```\n\n:kbd[outside]");
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown(
+            "```\n:kbd[inside fence]\n```\n\n:kbd[outside]",
+            Pipeline::new().with_directives(processor),
+        );
 
         assert!(
             result.html.contains(":kbd[inside fence]"),
@@ -829,8 +839,11 @@ mod tests {
         // happens in `transform_events`, not in `process`.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
-        let result = renderer.render_markdown("Press ::foo[x] then :kbd[Ctrl+C].");
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render_markdown(
+            "Press ::foo[x] then :kbd[Ctrl+C].",
+            Pipeline::new().with_directives(processor),
+        );
 
         assert!(
             result.html.contains("<kbd>Ctrl+C</kbd>"),

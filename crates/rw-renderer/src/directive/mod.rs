@@ -49,7 +49,7 @@
 //! [`MarkdownRenderer`](crate::MarkdownRenderer) pipeline:
 //!
 //! ```
-//! use rw_renderer::{HtmlBackend, MarkdownRenderer};
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 //! use rw_renderer::directive::{
 //!     DirectiveProcessor, DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective,
 //! };
@@ -65,9 +65,12 @@
 //! }
 //!
 //! let processor = DirectiveProcessor::new().with_inline(KbdDirective);
-//! let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+//! let renderer = MarkdownRenderer::<HtmlBackend>::new();
 //!
-//! let result = renderer.render_markdown("Press :kbd[Ctrl+C] to copy.");
+//! let result = renderer.render_markdown(
+//!     "Press :kbd[Ctrl+C] to copy.",
+//!     Pipeline::new().with_directives(processor),
+//! );
 //! assert!(result.html.contains("<kbd>Ctrl+C</kbd>"));
 //! ```
 

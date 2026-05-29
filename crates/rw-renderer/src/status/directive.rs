@@ -74,13 +74,16 @@ impl fmt::Display for StatusColor {
 /// # Example
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, StatusDirective};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline, StatusDirective};
 /// use rw_renderer::directive::DirectiveProcessor;
 ///
 /// let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
-/// let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
+/// let renderer = MarkdownRenderer::<HtmlBackend>::new();
 ///
-/// let result = renderer.render_markdown(":status[On Track]{color=green}");
+/// let result = renderer.render_markdown(
+///     ":status[On Track]{color=green}",
+///     Pipeline::new().with_directives(processor),
+/// );
 /// assert!(result.html.contains(r#"<span class="status status-green">On Track</span>"#));
 /// ```
 #[derive(Debug, Default)]
@@ -130,7 +133,7 @@ impl InlineDirective for StatusDirective {
 mod tests {
     use super::*;
     use crate::directive::DirectiveProcessor;
-    use crate::{HtmlBackend, MarkdownRenderer};
+    use crate::{HtmlBackend, MarkdownRenderer, Pipeline};
 
     #[test]
     fn test_from_known_colors() {
@@ -178,8 +181,10 @@ mod tests {
     /// HTML as a substring.
     fn render(input: &str) -> String {
         let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
-        let mut renderer = MarkdownRenderer::<HtmlBackend>::new().with_directives(processor);
-        renderer.render_markdown(input).html
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        renderer
+            .render_markdown(input, Pipeline::new().with_directives(processor))
+            .html
     }
 
     #[test]

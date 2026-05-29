@@ -67,13 +67,13 @@
 //! Render markdown to HTML:
 //!
 //! ```
-//! use rw_renderer::{MarkdownRenderer, HtmlBackend};
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 //!
 //! let markdown = "# Hello\n\n**Bold** text with a [link](other.md).";
 //! let result = MarkdownRenderer::<HtmlBackend>::new()
 //!     .with_title_extraction()
 //!     .with_base_path("/docs/guide")
-//!     .render_markdown(markdown);
+//!     .render_markdown(markdown, Pipeline::new());
 //!
 //! assert_eq!(result.title.as_deref(), Some("Hello"));
 //! assert!(result.html.contains("<strong>Bold</strong>"));
@@ -84,7 +84,7 @@
 //!
 //! ```
 //! use std::collections::HashMap;
-//! use rw_renderer::{CodeBlockProcessor, HtmlBackend, MarkdownRenderer, ProcessResult};
+//! use rw_renderer::{CodeBlockProcessor, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult};
 //!
 //! struct MathProcessor;
 //!
@@ -104,10 +104,9 @@
 //!     }
 //! }
 //!
-//! let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
-//!     .with_processor(MathProcessor);
-//!
-//! let result = renderer.render_markdown("```math\nx^2 + y^2 = z^2\n```");
+//! let renderer = MarkdownRenderer::<HtmlBackend>::new();
+//! let pipeline = Pipeline::new().with_processor(MathProcessor);
+//! let result = renderer.render_markdown("```math\nx^2 + y^2 = z^2\n```", pipeline);
 //! assert!(result.html.contains(r#"class="math"#));
 //! ```
 //!
@@ -123,6 +122,7 @@ mod config;
 pub mod directive;
 mod html;
 mod link;
+mod pipeline;
 mod renderer;
 mod scope;
 mod search_document;
@@ -139,6 +139,7 @@ pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use config::TitleResolver;
 pub use html::HtmlBackend;
+pub use pipeline::Pipeline;
 /// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.
 pub use pulldown_cmark::Alignment;
 pub use renderer::{MarkdownRenderer, RenderResult};
