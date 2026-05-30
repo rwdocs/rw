@@ -456,6 +456,7 @@ impl Site {
             sections: Arc::clone(&snapshot.sections),
             meta_include_source: Some(Arc::clone(snapshot) as Arc<dyn MetaIncludeSource>),
             snapshot: Some(Arc::clone(snapshot)),
+            resolution_fingerprint: snapshot.state.resolution_fingerprint(),
         }
     }
 
@@ -1488,6 +1489,57 @@ mod tests {
         assert_eq!(nav.items[0].path, "getting-started");
         assert_eq!(nav.items[1].path, "config");
         assert_eq!(nav.items[2].path, "advanced"); // unlisted
+    }
+
+    #[test]
+    fn test_render_cache_busts_when_referenced_page_title_changes() {
+        use std::fs;
+
+        use rw_storage_fs::FsStorage;
+
+        let dir = tempfile::tempdir().unwrap();
+        let docs = dir.path().join("docs");
+        fs::create_dir_all(&docs).unwrap();
+
+        // Page A links to section B via a wikilink; the rendered display text
+        // is B's title, resolved from the live snapshot.
+        fs::write(docs.join("index.md"), "# Home").unwrap();
+        fs::write(docs.join("a.md"), "# A\n\nSee [[domain:b]].").unwrap();
+        // B is a section (kind: domain) with an H1 title.
+        fs::write(docs.join("b.md"), "---\nkind: domain\n---\n\n# Old Title").unwrap();
+
+        // Persistent cache so the page render is actually cached between calls.
+        let cache: Arc<dyn rw_cache::Cache> =
+            Arc::new(rw_cache::FileCache::new(dir.path().join("cache"), "1.0.0"));
+        let config = PageRendererConfig {
+            extract_title: true,
+            ..Default::default()
+        };
+        let site = Site::new(Arc::new(FsStorage::new(docs.clone())), cache, config);
+
+        // First render: cache miss, display text is B's current title.
+        let r1 = site.render("a").unwrap();
+        assert!(!r1.from_cache);
+        assert!(r1.html.contains("Old Title"), "r1 html: {}", r1.html);
+
+        // Second render, no changes: cache hit (proves caching is active).
+        let r2 = site.render("a").unwrap();
+        assert!(
+            r2.from_cache,
+            "A should be cached on an unchanged re-render"
+        );
+
+        // Change B's title only; A's own source file is untouched.
+        fs::write(docs.join("b.md"), "---\nkind: domain\n---\n\n# New Title").unwrap();
+        // Trigger a reload as the file-watcher handler would.
+        site.invalidate();
+
+        // A must re-render (cache busted by the resolution fingerprint) and
+        // show B's new title — not the stale cached "Old Title".
+        let r3 = site.render("a").unwrap();
+        assert!(!r3.from_cache, "A should re-render after B's title changed");
+        assert!(r3.html.contains("New Title"), "r3 html: {}", r3.html);
+        assert!(!r3.html.contains("Old Title"), "r3 html: {}", r3.html);
     }
 
     #[test]
