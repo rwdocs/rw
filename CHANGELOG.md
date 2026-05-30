@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (`rw-renderer` Rust API):** GitHub Flavored Markdown (tables, strikethrough, task lists, and `[!NOTE]`-style alerts) is now always enabled and the `MarkdownRenderer::with_gfm` builder method has been removed. GFM was already on in every shipped `rw` code path, so no end-user `rw` behavior changes; only downstream crates that called `with_gfm(false)` to opt out need to migrate — there is no longer a way to disable GFM.
 - Minimum supported Rust version raised to 1.96 — downstream crates embedding `rw-renderer` (or any other `rw-*` crate) now need a 1.96+ toolchain to build
 - Page outline (TOC) sidebar widened from 240px to 320px so that opening a comment no longer narrows the article or shifts text sideways; the sidebar now appears at viewport widths ≥ 1304px instead of ≥ 1224px (narrower viewports get the floating "On this page" popover as before)
 - Page modification times (`lastModified` in API responses) now reflect the git commit time instead of the filesystem modification time — timestamps remain stable across `git checkout`, `git pull`, and branch switching

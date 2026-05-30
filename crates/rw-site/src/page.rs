@@ -450,15 +450,13 @@ impl PageRenderer {
         pipeline
     }
 
-    /// Apply settings shared between renderer creation paths: GFM, sections,
+    /// Apply settings shared between renderer creation paths: sections,
     /// wikilinks/title resolver.
     fn configure_renderer_settings<B: RenderBackend>(
         renderer: MarkdownRenderer<B>,
         ctx: &RenderContext,
     ) -> MarkdownRenderer<B> {
-        let mut renderer = renderer
-            .with_gfm(true)
-            .with_sections(Arc::clone(&ctx.sections));
+        let mut renderer = renderer.with_sections(Arc::clone(&ctx.sections));
 
         if let Some(snapshot) = &ctx.snapshot {
             renderer = renderer

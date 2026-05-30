@@ -1,7 +1,7 @@
 //! Settings for [`MarkdownRenderer`](crate::MarkdownRenderer).
 //!
 //! [`RenderConfig`] holds the configuration the renderer was built with —
-//! base paths, GFM/wikilink flags, sections, title resolver. It is non-generic
+//! base paths, the wikilink flag, sections, title resolver. It is non-generic
 //! on purpose: none of the read-only helpers reference the backend type `B`.
 //! Settings live for the lifetime of the renderer; per-render scratch state
 //! lives on `Walker` and is freshly constructed for every call.
@@ -66,8 +66,6 @@ pub(crate) struct RenderConfig {
     /// Origin prefix (with trailing slash) for files outside `source_dir`.
     /// Set by [`with_origin`](crate::MarkdownRenderer::with_origin).
     pub(crate) origin_prefix: Option<String>,
-    /// GFM features (tables, strikethrough, tasklists) enabled.
-    pub(crate) gfm: bool,
     /// `[[wikilink]]` parsing enabled.
     pub(crate) wikilinks: bool,
     /// Extract title from first H1.
@@ -79,12 +77,11 @@ pub(crate) struct RenderConfig {
 }
 
 impl RenderConfig {
-    /// Defaults: GFM on, no wikilinks, no title extraction.
+    /// Defaults: no wikilinks, no title extraction.
     pub(crate) fn new() -> Self {
         Self {
             base_path: None,
             origin_prefix: None,
-            gfm: true,
             wikilinks: false,
             extract_title: false,
             sections: None,
@@ -92,17 +89,15 @@ impl RenderConfig {
         }
     }
 
-    /// Returns pulldown-cmark `Options` reflecting the current GFM and
-    /// wikilink configuration.
+    /// Returns pulldown-cmark `Options`: the always-on GFM features and
+    /// metadata blocks, plus wikilinks when configured.
     #[must_use]
     pub(crate) fn parser_options(&self) -> Options {
-        let mut opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS;
-        if self.gfm {
-            opts |= Options::ENABLE_TABLES
-                | Options::ENABLE_STRIKETHROUGH
-                | Options::ENABLE_TASKLISTS
-                | Options::ENABLE_GFM;
-        }
+        let mut opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+            | Options::ENABLE_TABLES
+            | Options::ENABLE_STRIKETHROUGH
+            | Options::ENABLE_TASKLISTS
+            | Options::ENABLE_GFM;
         if self.wikilinks {
             opts |= Options::ENABLE_WIKILINKS;
         }
@@ -134,19 +129,6 @@ mod tests {
         assert!(opts.contains(Options::ENABLE_GFM));
         assert!(opts.contains(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS));
         assert!(!opts.contains(Options::ENABLE_WIKILINKS));
-    }
-
-    #[test]
-    fn parser_options_disables_gfm_when_flag_off() {
-        let mut c = cfg();
-        c.gfm = false;
-        let opts = c.parser_options();
-        assert!(!opts.contains(Options::ENABLE_TABLES));
-        assert!(!opts.contains(Options::ENABLE_STRIKETHROUGH));
-        assert!(!opts.contains(Options::ENABLE_TASKLISTS));
-        assert!(!opts.contains(Options::ENABLE_GFM));
-        // Metadata blocks always on, independent of GFM.
-        assert!(opts.contains(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS));
     }
 
     #[test]

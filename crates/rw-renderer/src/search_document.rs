@@ -230,7 +230,6 @@ mod tests {
     #[test]
     fn alert_content_included() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .with_gfm(true)
             .render("> [!WARNING]\n> Do not delete this file.", Pipeline::new());
         assert!(result.html.contains("Do not delete this file."));
         assert!(!result.html.contains('<'));
