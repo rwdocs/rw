@@ -125,6 +125,7 @@ mod tests {
     use rw_renderer::ProcessResult;
 
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn strips_plantuml_boilerplate() {
@@ -148,7 +149,7 @@ mod tests {
     fn non_diagram_passes_through() {
         let mut processor = SearchDiagramProcessor::new(vec![]);
         let result = processor.process("python", &HashMap::new(), "def hello(): pass", 0);
-        assert!(matches!(result, ProcessResult::PassThrough));
+        assert_matches!(result, ProcessResult::PassThrough);
     }
 
     #[test]

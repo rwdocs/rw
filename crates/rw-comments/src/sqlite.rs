@@ -279,6 +279,7 @@ mod tests {
     use crate::model::{
         Author, CommentFilter, CommentStatus, CreateComment, Selector, UpdateComment,
     };
+    use std::assert_matches;
 
     async fn store() -> SqliteCommentStore {
         SqliteCommentStore::open_memory().await.unwrap()
@@ -408,7 +409,7 @@ mod tests {
         let store = store().await;
         let result = store.get(Uuid::new_v4()).await;
 
-        assert!(matches!(result, Err(StoreError::NotFound(_))));
+        assert_matches!(result, Err(StoreError::NotFound(_)));
     }
 
     #[tokio::test]

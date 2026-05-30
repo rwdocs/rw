@@ -745,6 +745,7 @@ impl Storage for FsStorage {
 mod tests {
     use super::*;
     use rw_storage::StorageErrorKind;
+    use std::assert_matches;
 
     fn assert_send_sync<T: Send + Sync>() {}
 
@@ -1448,7 +1449,7 @@ mod tests {
         assert!(event.is_some(), "Expected to receive event");
         let event = event.unwrap();
         assert_eq!(event.path, "existing");
-        assert!(matches!(event.kind, StorageEventKind::Modified { .. }));
+        assert_matches!(event.kind, StorageEventKind::Modified { .. });
     }
 
     #[test]
@@ -1533,10 +1534,7 @@ mod tests {
         // Should receive only one modified event
         let event = rx.try_recv();
         assert!(event.is_some(), "Expected to receive event");
-        assert!(matches!(
-            event.unwrap().kind,
-            StorageEventKind::Modified { .. }
-        ));
+        assert_matches!(event.unwrap().kind, StorageEventKind::Modified { .. });
 
         // No more events
         let event = rx.try_recv();

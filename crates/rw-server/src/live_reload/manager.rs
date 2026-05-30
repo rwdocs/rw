@@ -155,6 +155,7 @@ impl LiveReloadManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     use rw_site::PageRendererConfig;
     use rw_storage::{MockStorage, StorageErrorKind, StorageEvent};
@@ -225,7 +226,7 @@ mod tests {
         let event = rx
             .try_recv()
             .expect("Created should broadcast Structure even when reload would fail");
-        assert!(matches!(event.event_type, ReloadEventType::Structure));
+        assert_matches!(event.event_type, ReloadEventType::Structure);
         assert_eq!(event.path, "/foo");
         assert!(
             rx.try_recv().is_err(),
@@ -262,7 +263,7 @@ mod tests {
         );
 
         let event = rx.try_recv().expect("Created should broadcast Structure");
-        assert!(matches!(event.event_type, ReloadEventType::Structure));
+        assert_matches!(event.event_type, ReloadEventType::Structure);
         assert_eq!(event.path, "/foo");
         assert!(
             rx.try_recv().is_err(),

@@ -123,6 +123,7 @@ impl DirectiveOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn test_html() {
@@ -146,6 +147,6 @@ mod tests {
     fn test_html_from_string() {
         let s = String::from("<div>content</div>");
         let output = DirectiveOutput::html(s);
-        assert!(matches!(output, DirectiveOutput::Html(_)));
+        assert_matches!(output, DirectiveOutput::Html(_));
     }
 }

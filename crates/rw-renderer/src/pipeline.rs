@@ -175,7 +175,7 @@ mod tests {
                 _args: DirectiveArgs,
                 _ctx: &DirectiveContext,
             ) -> DirectiveOutput {
-                DirectiveOutput::html("<ALPHA>".to_string())
+                DirectiveOutput::html("<ALPHA>")
             }
         }
         struct BetaTag;
@@ -188,7 +188,7 @@ mod tests {
                 _args: DirectiveArgs,
                 _ctx: &DirectiveContext,
             ) -> DirectiveOutput {
-                DirectiveOutput::html("<BETA>".to_string())
+                DirectiveOutput::html("<BETA>")
             }
         }
 

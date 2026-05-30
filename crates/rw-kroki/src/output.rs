@@ -104,6 +104,7 @@ impl std::fmt::Debug for DiagramOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     fn img_tag_generator(prefix: &str) -> TagGenerator {
         let prefix = prefix.to_owned();
@@ -163,7 +164,7 @@ mod tests {
     #[test]
     fn test_diagram_output_default() {
         let output = DiagramOutput::default();
-        assert!(matches!(output, DiagramOutput::Inline));
+        assert_matches!(output, DiagramOutput::Inline);
     }
 
     #[test]

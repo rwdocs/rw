@@ -575,6 +575,7 @@ mod tests {
 
     use super::*;
     use crate::page::RenderError;
+    use std::assert_matches;
 
     fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = PageRendererConfig::default();
@@ -880,7 +881,7 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         let result = site.render("nonexistent");
-        assert!(matches!(result, Err(RenderError::PageNotFound(_))));
+        assert_matches!(result, Err(RenderError::PageNotFound(_)));
     }
 
     #[test]
@@ -1293,7 +1294,7 @@ mod tests {
         let site = create_site_with_storage(storage);
 
         let result = site.render("test");
-        assert!(matches!(result, Err(RenderError::Storage(_))));
+        assert_matches!(result, Err(RenderError::Storage(_)));
     }
 
     #[test]
