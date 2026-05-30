@@ -9,6 +9,7 @@
 //! [`ScopeInfo`]) that the frontend consumes.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use rw_cache::{CacheBucket, CacheBucketExt};
@@ -107,6 +108,12 @@ pub struct SiteState {
     sections_by_name: HashMap<String, Vec<usize>>,
     subtree_has_content: Vec<bool>,
     root_namespace: Namespace,
+    /// Hash of the cross-page inputs that page rendering resolves from this
+    /// state (page title/description/`has_content`, the sections map, and the
+    /// root namespace). Folded into the page render cache etag so that changing
+    /// one page busts the rendered-HTML cache of pages that reference it.
+    /// Recomputed in [`SiteState::new`]; never serialized.
+    resolution_fingerprint: u64,
 }
 
 /// Compute which pages have markdown content in their subtree.
@@ -134,6 +141,58 @@ fn compute_subtree_has_content(
     }
 
     subtree_has_content
+}
+
+/// Hash the `SiteState` inputs that cross-page rendering reads.
+///
+/// Covers wikilink display text + heading-anchor IDs (page titles),
+/// section-ref link attributes (the sections map), and C4 meta-include entity
+/// info (page title/description/`has_content` + section kind/namespace/name).
+/// Deliberately excludes `Page::origin` (read only when rendering the page that
+/// owns it — to set that page's own link-resolution base — never read about a
+/// page by another page's render, so it is not a cross-page input) and
+/// `Page::pages` (navigation ordering, not page-body output).
+///
+/// `Section` is hashed whole, so any future field is auto-included — adding a
+/// field to `Section` widens the page-cache invalidation surface (a deliberate
+/// fail-safe toward over-invalidation rather than a silent stale-cache
+/// omission).
+///
+/// The fingerprint ends up in the on-disk page-cache etag, so it must be stable
+/// across process restarts. In the current stdlib [`DefaultHasher::new`] uses a
+/// fixed seed (unlike [`std::collections::hash_map::RandomState`], which is
+/// randomized per process), so identical inputs hash identically in every run of
+/// the same binary — an implementation detail we rely on, not a documented
+/// guarantee. That is fine: were it ever randomized, or simply changed across
+/// Rust-stdlib versions, the only effect is a one-time cold cache miss (a safe
+/// re-render, never stale data), and a crate version bump wipes the cache anyway.
+fn compute_resolution_fingerprint(
+    pages: &[Page],
+    sections: &HashMap<String, Section>,
+    root_namespace: &Namespace,
+) -> u64 {
+    let mut page_entries: Vec<(&str, &str, Option<&str>, bool)> = pages
+        .iter()
+        .map(|p| {
+            (
+                p.path.as_str(),
+                p.title.as_str(),
+                p.description.as_deref(),
+                p.has_content,
+            )
+        })
+        .collect();
+    page_entries.sort_by_key(|t| t.0);
+
+    let mut section_entries: Vec<(&str, &Section)> =
+        sections.iter().map(|(k, v)| (k.as_str(), v)).collect();
+    section_entries.sort_by_key(|t| t.0);
+
+    let mut hasher = DefaultHasher::new();
+    page_entries.hash(&mut hasher);
+    section_entries.hash(&mut hasher);
+    root_namespace.hash(&mut hasher);
+    hasher.finish()
 }
 
 impl SiteState {
@@ -169,6 +228,9 @@ impl SiteState {
             }
         }
 
+        let resolution_fingerprint =
+            compute_resolution_fingerprint(&pages, &sections, &root_namespace);
+
         Self {
             pages,
             children,
@@ -179,6 +241,7 @@ impl SiteState {
             sections_by_name,
             subtree_has_content,
             root_namespace,
+            resolution_fingerprint,
         }
     }
 
@@ -485,6 +548,14 @@ impl SiteState {
 
         Arc::new(Sections::new(map))
     }
+
+    /// Returns the resolution fingerprint — a hash of the cross-page inputs
+    /// that page rendering resolves from this state. Used as part of the page
+    /// render cache etag so cross-page changes invalidate stale renders.
+    #[must_use]
+    pub(crate) fn resolution_fingerprint(&self) -> u64 {
+        self.resolution_fingerprint
+    }
 }
 
 impl Navigation {
@@ -670,6 +741,10 @@ impl SiteStateBuilder {
 }
 
 /// Borrowed view of cached site state for serialization (zero-copy).
+///
+/// NOTE: `SiteState::resolution_fingerprint` is intentionally NOT part of this
+/// struct — it is recomputed in `SiteState::new` on every load (including cache
+/// reload) to avoid a serialized value desyncing from the data.
 #[derive(Serialize)]
 struct CachedSiteStateRef<'a> {
     pages: &'a [Page],
@@ -2598,5 +2673,178 @@ mod tests {
         let guides_nav = &nav.items[0];
         assert_eq!(guides_nav.children[0].path, "guides/getting-started");
         assert_eq!(guides_nav.children[1].path, "guides/advanced");
+    }
+
+    // ---- resolution fingerprint ----
+
+    fn fp_page(path: &str, title: &str, desc: Option<&str>, has_content: bool) -> Page {
+        Page {
+            title: title.to_owned(),
+            path: path.to_owned(),
+            has_content,
+            description: desc.map(str::to_owned),
+            origin: None,
+            pages: None,
+        }
+    }
+
+    /// Build a single-root-page state and return its fingerprint.
+    fn fp_one(page: Page, kind: Option<&str>, ns: Namespace) -> u64 {
+        let mut b = SiteStateBuilder::new();
+        b.add_page(page, None, kind, ns);
+        b.build().resolution_fingerprint()
+    }
+
+    #[test]
+    fn fingerprint_changes_on_title() {
+        let a = fp_one(
+            fp_page("g", "Guide", None, true),
+            None,
+            Namespace::default(),
+        );
+        let b = fp_one(
+            fp_page("g", "Guide X", None, true),
+            None,
+            Namespace::default(),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn fingerprint_changes_on_description() {
+        let a = fp_one(
+            fp_page("g", "Guide", None, true),
+            None,
+            Namespace::default(),
+        );
+        let b = fp_one(
+            fp_page("g", "Guide", Some("d"), true),
+            None,
+            Namespace::default(),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn fingerprint_changes_on_has_content() {
+        let a = fp_one(
+            fp_page("g", "Guide", None, true),
+            None,
+            Namespace::default(),
+        );
+        let b = fp_one(
+            fp_page("g", "Guide", None, false),
+            None,
+            Namespace::default(),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn fingerprint_changes_on_section_kind_flip() {
+        // The C4 get_entity path resolves an !include entity via
+        // `.find(|(_, s)| s.kind == entity_type)`, so a kind change re-targets
+        // which entity a diagram include resolves to.
+        let a = fp_one(
+            fp_page("billing", "Billing", None, true),
+            Some("domain"),
+            Namespace::default(),
+        );
+        let b = fp_one(
+            fp_page("billing", "Billing", None, true),
+            Some("system"),
+            Namespace::default(),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn fingerprint_changes_on_section_namespace() {
+        let a = fp_one(
+            fp_page("billing", "Billing", None, true),
+            Some("domain"),
+            Namespace::default(),
+        );
+        let b = fp_one(
+            fp_page("billing", "Billing", None, true),
+            Some("domain"),
+            "payments".parse().unwrap(),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn fingerprint_changes_on_root_namespace() {
+        // No pages and no explicit sections, so `root_namespace` is the only
+        // differing input — directly guards the `root_namespace.hash(...)` line
+        // (the other tests vary the namespace via a section instead).
+        let make = |ns: Namespace| {
+            SiteStateBuilder::new()
+                .root_namespace(ns)
+                .build()
+                .resolution_fingerprint()
+        };
+        assert_ne!(
+            make(Namespace::default()),
+            make("payments".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn fingerprint_stable_across_excluded_fields() {
+        // `origin` and `pages` are excluded from the fingerprint.
+        let base = fp_one(
+            fp_page("g", "Guide", None, true),
+            None,
+            Namespace::default(),
+        );
+
+        let mut p_origin = fp_page("g", "Guide", None, true);
+        p_origin.origin = Some("docs".to_owned());
+        let with_origin = fp_one(p_origin, None, Namespace::default());
+
+        let mut p_pages = fp_page("g", "Guide", None, true);
+        p_pages.pages = Some(vec!["x".to_owned()]);
+        let with_pages = fp_one(p_pages, None, Namespace::default());
+
+        assert_eq!(base, with_origin);
+        assert_eq!(base, with_pages);
+    }
+
+    #[test]
+    fn fingerprint_changes_on_path() {
+        let a = fp_one(
+            fp_page("g", "Guide", None, true),
+            None,
+            Namespace::default(),
+        );
+        let b = fp_one(
+            fp_page("h", "Guide", None, true),
+            None,
+            Namespace::default(),
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn fingerprint_stable_across_structure_cache_rebuild() {
+        let mut b = SiteStateBuilder::new();
+        b.add_page(
+            fp_page("billing", "Billing", Some("desc"), true),
+            None,
+            Some("domain"),
+            Namespace::default(),
+        );
+        let state = b.build();
+
+        // Round-trip through the on-disk structure-cache representation.
+        let json = serde_json::to_string(&CachedSiteStateRef::from(&state)).unwrap();
+        let cached: CachedSiteState = serde_json::from_str(&json).unwrap();
+        let rebuilt: SiteState = cached.into();
+
+        assert_eq!(
+            state.resolution_fingerprint(),
+            rebuilt.resolution_fingerprint()
+        );
     }
 }

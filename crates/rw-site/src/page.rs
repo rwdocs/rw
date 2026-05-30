@@ -30,6 +30,10 @@ pub(crate) struct RenderContext {
     pub(crate) sections: Arc<Sections>,
     pub(crate) meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
     pub(crate) snapshot: Option<Arc<SiteSnapshot>>,
+    /// Fingerprint of cross-page inputs from the snapshot, folded into the page
+    /// cache etag. `0` when there is no snapshot (e.g. `RenderContext::default()`),
+    /// which yields a stable per-mtime key.
+    pub(crate) resolution_fingerprint: u64,
 }
 
 /// Controls how [`Site`](crate::Site) renders markdown pages.
@@ -293,7 +297,12 @@ impl PageRenderer {
 
         let metadata = self.load_metadata(path);
 
-        let etag = source_mtime.to_string();
+        // Etag combines the page's own source mtime with the snapshot's
+        // resolution fingerprint, so a cross-page change (another page's
+        // title/description/section that this render resolves) invalidates the
+        // cached HTML even though this page's own file is unchanged. `mtime`
+        // (f64) never contains ':' and the fingerprint is decimal digits.
+        let etag = format!("{source_mtime}:{}", ctx.resolution_fingerprint);
 
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
             return Ok(PageRenderResult {

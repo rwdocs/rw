@@ -83,7 +83,7 @@ pub use namespace::{InvalidNamespace, Namespace};
 /// assert_eq!(section.to_string(), "domain:default/billing");
 /// # Ok::<(), rw_sections::ParseSectionError>(())
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Section {
     /// Freeform label classifying this section (e.g., `"domain"`, `"system"`).
