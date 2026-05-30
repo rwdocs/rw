@@ -84,6 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - YAML frontmatter values that contain `:name[...]`-shaped text (e.g., `description: 'See :status[Done] for details'`) no longer trigger spurious "unknown inline directive" warnings or invoke registered directive handlers. Previously such patterns were scanned for inline directives during text-buffer flushing inside the metadata block, polluting `result.warnings` and firing handler side effects even though the rendered HTML correctly suppressed the directive output.
 - A transient panic inside `rw serve` (most realistically inside `storage.scan()` during a reload) no longer permanently bricks the server. Axum's per-request panic catch returned 500 for that one request, but `Site`'s internal `reload_lock` stayed poisoned and every later request panicked too — recovery required restarting the process. Subsequent reads now resume on the previous snapshot and the next reload trigger is honored normally. Internal caches in `FsStorage`, `S3Storage`, and the file-watcher debouncer got the same treatment so a panic in any of them no longer turns into a permanent secondary brick on the recovery path.
 - New files created under `docs/` while `rw serve` is running now reliably show up in the navigation sidebar without a manual browser refresh. The live-reload Created handler used to re-check `has_page` *after* invalidating, racing the just-triggered reload — when the post-event scan failed transiently (or hadn't yet picked up the file because of atomic-write timing on slow disks) the check would answer against the pre-event snapshot, drop the broadcast, and the sidebar would stay out of date until the next event arrived or the page was refreshed.
+- Heading anchor IDs are now guaranteed unique within a page. Previously a
+  heading whose slug coincided with another heading's auto-numbered suffix
+  (e.g. headings `Foo`, `Foo 1`, `Foo` all on one page) could emit two elements
+  with the same `id`, breaking in-page anchor links and TOC navigation; and a
+  heading containing no slug characters (e.g. `## ???`) produced an empty
+  `id=""`. Such headings now fall back to a `section` base and always receive a
+  distinct numeric suffix.
 
 ## [0.1.24] - 2026-04-10
 

@@ -3,10 +3,10 @@
 //! [`TocEntry`] is the public output type collected in
 //! [`RenderResult::toc`](crate::RenderResult::toc).
 //! [`HeadingAccumulator`] is walker-private scratch that tracks
-//! cross-heading state (title, TOC entries, id-counts, and the
+//! cross-heading state (title, TOC entries, id de-duplication state, and the
 //! "have we seen the first H1?" flag) across an entire document render.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::util::slugify;
 
@@ -44,7 +44,9 @@ pub struct TocEntry {
     /// Plain-text heading content (inline formatting stripped).
     pub title: String,
     /// Slug-based anchor ID, matching the `id` attribute on the rendered heading.
-    /// Duplicate headings get a numeric suffix (e.g., `setup`, `setup-1`).
+    /// Guaranteed unique within the document: duplicate or colliding headings get
+    /// a numeric suffix (e.g., `setup`, `setup-1`), and headings with no slug
+    /// characters fall back to `section`.
     pub id: String,
 }
 
@@ -55,7 +57,8 @@ pub struct TocEntry {
 pub(crate) struct CompletedHeading {
     /// Heading level after Confluence's title-shift adjustment.
     pub adjusted_level: u8,
-    /// Slug-based anchor id, deduped via the accumulator's `id_counts`.
+    /// Slug-based anchor id, deduped to be unique within the document via the
+    /// accumulator's `used_ids`.
     pub id: String,
     /// Backend-formatted HTML body, ready to splice into `output` between
     /// the heading's open and close tags. Encoding/escaping is whatever the
@@ -85,8 +88,15 @@ pub(crate) struct HeadingAccumulator {
     seen_first_h1: bool,
     /// Table of contents entries.
     toc: Vec<TocEntry>,
-    /// Counter for generating unique heading IDs.
+    /// Starting-suffix hint per base slug, so repeated headings don't rescan
+    /// `base-1, base-2, …` from scratch each time. Uniqueness is enforced by
+    /// `used_ids`, not by this counter alone.
     id_counts: HashMap<String, usize>,
+    /// Every id already emitted in this render. A generated candidate is
+    /// retried with a higher suffix until it is absent here, guaranteeing
+    /// globally unique ids even when a synthesized `{base}-{n}` coincides
+    /// with another heading's slug.
+    used_ids: HashSet<String>,
 }
 
 impl HeadingAccumulator {
@@ -102,6 +112,7 @@ impl HeadingAccumulator {
             seen_first_h1: false,
             toc: Vec::new(),
             id_counts: HashMap::new(),
+            used_ids: HashSet::new(),
         }
     }
 
@@ -165,15 +176,29 @@ impl HeadingAccumulator {
     }
 
     /// Generate a unique slug-based id from heading plain text.
+    ///
+    /// Headings with no slug characters fall back to the base `section`.
+    /// The returned id is guaranteed not to equal any id previously returned
+    /// for this document: a numeric suffix is bumped until the candidate is
+    /// unused, even when it would collide with another heading's slug.
     fn generate_id(&mut self, text: &str) -> String {
-        let base_id = slugify(text);
-        let count = self.id_counts.entry(base_id.clone()).or_default();
-        let id = match *count {
-            0 => base_id,
-            n => format!("{base_id}-{n}"),
+        let mut base = slugify(text);
+        if base.is_empty() {
+            "section".clone_into(&mut base);
+        }
+        let mut n = self.id_counts.get(&base).copied().unwrap_or(0);
+        let mut candidate = if n == 0 {
+            base.clone()
+        } else {
+            format!("{base}-{n}")
         };
-        *count += 1;
-        id
+        while self.used_ids.contains(&candidate) {
+            n += 1;
+            candidate = format!("{base}-{n}");
+        }
+        self.id_counts.insert(base, n + 1);
+        self.used_ids.insert(candidate.clone());
+        candidate
     }
 
     /// Take the extracted title.
@@ -243,5 +268,65 @@ mod tests {
         assert_eq!(toc[0].level, 1, "H2 shifts to level 1 in Confluence mode");
         assert_eq!(toc[0].title, "Section");
         assert_eq!(toc[0].id, "section");
+    }
+
+    #[test]
+    fn test_generate_id_suffix_collision_is_unique() {
+        // "Foo 1" slugifies to "foo-1", which must NOT collide with the
+        // second "Foo" (which would otherwise also become "foo-1").
+        let mut acc = HeadingAccumulator::new(false, false);
+        let a = acc.complete_heading(2, "Foo", "Foo".to_owned());
+        let b = acc.complete_heading(2, "Foo 1", "Foo 1".to_owned());
+        let c = acc.complete_heading(2, "Foo", "Foo".to_owned());
+        assert_eq!(a.id, "foo");
+        assert_eq!(b.id, "foo-1");
+        assert_eq!(c.id, "foo-2", "second 'Foo' must not reuse 'foo-1'");
+    }
+
+    #[test]
+    fn test_generate_id_empty_slug_falls_back_to_section() {
+        // Headings with no slug characters must not produce empty ids.
+        let mut acc = HeadingAccumulator::new(false, false);
+        let a = acc.complete_heading(2, "???", "???".to_owned());
+        let b = acc.complete_heading(2, "!!!", "!!!".to_owned());
+        assert_eq!(a.id, "section");
+        assert_eq!(b.id, "section-1");
+    }
+
+    #[test]
+    fn test_generate_id_empty_slug_yields_to_real_section_heading() {
+        // A real "Section" heading claims "section"; the no-slug heading
+        // is suffixed (document order: real heading first here).
+        let mut acc = HeadingAccumulator::new(false, false);
+        let a = acc.complete_heading(2, "Section", "Section".to_owned());
+        let b = acc.complete_heading(2, "???", "???".to_owned());
+        assert_eq!(a.id, "section");
+        assert_eq!(b.id, "section-1");
+    }
+
+    #[test]
+    fn test_generate_id_real_slug_collides_with_section_fallback() {
+        // A real heading slugging to "section-1" must not be reused by the
+        // empty-slug fallback's "section" + "-1" suffix.
+        let mut acc = HeadingAccumulator::new(false, false);
+        let a = acc.complete_heading(2, "Section 1", "Section 1".to_owned());
+        let b = acc.complete_heading(2, "???", "???".to_owned());
+        let c = acc.complete_heading(2, "???", "???".to_owned());
+        assert_eq!(a.id, "section-1");
+        assert_eq!(b.id, "section");
+        assert_eq!(
+            c.id, "section-2",
+            "fallback must skip the taken 'section-1'"
+        );
+    }
+
+    #[test]
+    fn test_generate_id_repeated_headings_increment_via_hint() {
+        // Four identical headings increment monotonically (id_counts hint path).
+        let mut acc = HeadingAccumulator::new(false, false);
+        let ids: Vec<String> = (0..4)
+            .map(|_| acc.complete_heading(2, "Setup", "Setup".to_owned()).id)
+            .collect();
+        assert_eq!(ids, ["setup", "setup-1", "setup-2", "setup-3"]);
     }
 }
