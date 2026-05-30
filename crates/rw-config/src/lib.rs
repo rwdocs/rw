@@ -478,6 +478,7 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     /// Serializes tests that mutate `RW_DIAGRAMS_KROKI_URL`. The process env is
     /// shared across cargo's parallel tests, so any test that touches this
@@ -846,7 +847,7 @@ kroki_url = "${MISSING_VAR_CONFIG_TEST}"
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, ConfigError::EnvVar { .. }));
+        assert_matches!(err, ConfigError::EnvVar { .. });
         assert!(err.to_string().contains("MISSING_VAR_CONFIG_TEST"));
         assert!(err.to_string().contains("diagrams.kroki_url"));
     }
@@ -1040,7 +1041,7 @@ host = "127.0.0.1"
         let (_dir, toml_path) = rw_toml_tempdir("bad-env", "");
         let err = Config::load(Some(&toml_path), None)
             .expect_err("invalid env URL should fail validation");
-        assert!(matches!(err, ConfigError::Validation(_)));
+        assert_matches!(err, ConfigError::Validation(_));
         let msg = err.to_string();
         assert!(msg.contains("kroki_url"), "got error: {msg}");
     }

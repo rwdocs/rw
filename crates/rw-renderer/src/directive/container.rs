@@ -91,6 +91,7 @@ pub trait ContainerDirective: Send {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
     use std::path::Path;
 
     struct TestNote;
@@ -163,7 +164,7 @@ mod tests {
         let args = DirectiveArgs::parse("Important", "");
         let output = note.start(args, &ctx);
 
-        assert!(matches!(output, DirectiveOutput::Html(s) if s.contains("Important")));
+        assert_matches!(output, DirectiveOutput::Html(s) if s.contains("Important"));
     }
 
     #[test]
@@ -187,7 +188,7 @@ mod tests {
         // Start directive
         let args = DirectiveArgs::parse("Click to expand", "");
         let start_output = details.start(args, &ctx);
-        assert!(matches!(start_output, DirectiveOutput::Html(s) if s.contains("Click to expand")));
+        assert_matches!(start_output, DirectiveOutput::Html(s) if s.contains("Click to expand"));
 
         // End directive
         let end_output = details.end(10);

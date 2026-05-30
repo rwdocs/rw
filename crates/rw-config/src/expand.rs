@@ -43,6 +43,7 @@ struct LookupError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn test_expand_simple_var() {
@@ -89,7 +90,7 @@ mod tests {
         let result = expand_env("${MISSING_VAR_TEST}", "test.field");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, ConfigError::EnvVar { .. }));
+        assert_matches!(err, ConfigError::EnvVar { .. });
         assert!(err.to_string().contains("MISSING_VAR_TEST"));
         assert!(err.to_string().contains("test.field"));
     }

@@ -417,6 +417,7 @@ impl Storage for MockStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     fn assert_send_sync<T: Send + Sync>() {}
 
@@ -633,7 +634,7 @@ mod tests {
         assert!(event.is_some());
         let event = event.unwrap();
         assert_eq!(event.path, "guide");
-        assert!(matches!(event.kind, StorageEventKind::Modified { .. }));
+        assert_matches!(event.kind, StorageEventKind::Modified { .. });
     }
 
     #[test]
@@ -666,7 +667,7 @@ mod tests {
         assert_eq!(events[0].kind, StorageEventKind::Created);
 
         assert_eq!(events[1].path, "b");
-        assert!(matches!(events[1].kind, StorageEventKind::Modified { .. }));
+        assert_matches!(events[1].kind, StorageEventKind::Modified { .. });
 
         assert_eq!(events[2].path, "c");
         assert_eq!(events[2].kind, StorageEventKind::Removed);

@@ -43,6 +43,7 @@ pub(crate) fn section_ref_attrs(cfg: &RenderConfig, href: &str) -> Option<(Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     fn cfg() -> RenderConfig {
         RenderConfig::new()
@@ -53,7 +54,7 @@ mod tests {
         let c = cfg();
         let result = strip_origin(&c, "docs/guide.md");
         assert_eq!(result, "docs/guide.md");
-        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_matches!(result, Cow::Borrowed(_));
     }
 
     #[test]
@@ -62,7 +63,7 @@ mod tests {
         c.origin_prefix = Some("docs/".to_owned());
         let result = strip_origin(&c, "docs/guide.md");
         assert_eq!(result, "guide.md");
-        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_matches!(result, Cow::Borrowed(_));
     }
 
     #[test]
@@ -71,7 +72,7 @@ mod tests {
         c.origin_prefix = Some("docs/".to_owned());
         let result = strip_origin(&c, "other/page.md");
         assert_eq!(result, "other/page.md");
-        assert!(matches!(result, Cow::Borrowed(_)));
+        assert_matches!(result, Cow::Borrowed(_));
     }
 
     #[test]

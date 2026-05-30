@@ -78,6 +78,7 @@ pub trait LeafDirective: Send {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
     use std::path::Path;
 
     struct TestYoutube;
@@ -158,7 +159,7 @@ mod tests {
         let args = DirectiveArgs::parse("dQw4w9WgXcQ", "");
         let output = youtube.process(args, &ctx);
 
-        assert!(matches!(output, DirectiveOutput::Html(s) if s.contains("dQw4w9WgXcQ")));
+        assert_matches!(output, DirectiveOutput::Html(s) if s.contains("dQw4w9WgXcQ"));
     }
 
     #[test]

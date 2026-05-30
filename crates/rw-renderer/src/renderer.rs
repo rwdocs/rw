@@ -1170,18 +1170,19 @@ Install with apt.
         // I/O). The metadata short-circuit lives in process_event's Event::Text
         // arm; flush_text would otherwise dispatch to handlers regardless of
         // active scope.
-        use std::sync::{Arc, Mutex};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         use crate::directive::{
             DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor, InlineDirective,
         };
 
         struct CountingDirective {
-            calls: Arc<Mutex<usize>>,
+            calls: Arc<AtomicUsize>,
         }
 
         impl InlineDirective for CountingDirective {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "track"
             }
             fn process(
@@ -1189,12 +1190,12 @@ Install with apt.
                 _args: DirectiveArgs,
                 _ctx: &DirectiveContext,
             ) -> DirectiveOutput {
-                *self.calls.lock().unwrap() += 1;
+                self.calls.fetch_add(1, Ordering::Relaxed);
                 DirectiveOutput::Html(String::new())
             }
         }
 
-        let calls = Arc::new(Mutex::new(0));
+        let calls = Arc::new(AtomicUsize::new(0));
         let processor = DirectiveProcessor::new().with_inline(CountingDirective {
             calls: Arc::clone(&calls),
         });
@@ -1206,7 +1207,7 @@ Install with apt.
 
         // Exactly one invocation expected — from the body heading, not from frontmatter.
         assert_eq!(
-            *calls.lock().unwrap(),
+            calls.load(Ordering::Relaxed),
             1,
             "directive handler should be invoked once (from body), not from frontmatter"
         );
@@ -1684,7 +1685,7 @@ Install with apt.
     }
 
     /// Reused renderer must reset per-render state — `TITLE_AS_METADATA = true`
-    /// backends (Confluence, SearchDocument).
+    /// backends (Confluence, `SearchDocument`).
     ///
     /// Pre-refactor, `HeadingAccumulator::seen_first_h1` stayed true across
     /// renders, so the second render's first H1 was no longer recognized
@@ -1815,7 +1816,7 @@ Install with apt.
                 _source: &str,
                 _index: usize,
             ) -> ProcessResult {
-                assert!(language != "explode", "intentional panic for test",);
+                assert!(language != "explode", "intentional panic for test");
                 ProcessResult::PassThrough
             }
         }

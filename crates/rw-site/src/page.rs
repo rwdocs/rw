@@ -515,6 +515,7 @@ mod tests {
     use rw_storage::MockStorage;
 
     use super::*;
+    use std::assert_matches;
 
     fn create_renderer(storage: MockStorage) -> PageRenderer {
         let config = PageRendererConfig::default();
@@ -578,7 +579,7 @@ mod tests {
         let page = make_page("Missing", "missing", true);
         let result = renderer.render("missing", &page, vec![], &RenderContext::default());
 
-        assert!(matches!(result, Err(RenderError::FileNotFound(_))));
+        assert_matches!(result, Err(RenderError::FileNotFound(_)));
     }
 
     #[test]
@@ -742,7 +743,7 @@ mod tests {
         let page = make_page("Missing", "missing", true);
         let result = renderer.render_search_document("missing", &page, &RenderContext::default());
 
-        assert!(matches!(result, Err(RenderError::FileNotFound(_))));
+        assert_matches!(result, Err(RenderError::FileNotFound(_)));
     }
 
     #[test]

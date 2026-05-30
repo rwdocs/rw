@@ -32,6 +32,7 @@ pub(crate) fn resolve_author(
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+    use std::assert_matches;
 
     #[test]
     fn both_set_returns_author() {
@@ -53,17 +54,17 @@ mod tests {
 
     #[test]
     fn id_without_name_is_error() {
-        assert!(matches!(
+        assert_matches!(
             resolve_author(Some("local:claude-code"), None),
             Err(CliError::Validation(_))
-        ));
+        );
     }
 
     #[test]
     fn name_without_id_is_error() {
-        assert!(matches!(
+        assert_matches!(
             resolve_author(None, Some("Claude Code")),
             Err(CliError::Validation(_))
-        ));
+        );
     }
 }

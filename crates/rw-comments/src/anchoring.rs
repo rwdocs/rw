@@ -108,6 +108,7 @@ mod tests {
     use rw_storage::MockStorage;
 
     use super::*;
+    use std::assert_matches;
 
     fn seeded_site(path: &str, markdown: &str) -> Site {
         let storage = Arc::new(
@@ -155,7 +156,7 @@ mod tests {
         let site = seeded_site("guide", "# Guide\n\nSome body text.\n");
 
         let err = resolve_quote(&site, "guide", "missing quote").unwrap_err();
-        assert!(matches!(err, QuoteResolutionError::NotFound { .. }));
+        assert_matches!(err, QuoteResolutionError::NotFound { .. });
     }
 
     #[test]
@@ -174,7 +175,7 @@ mod tests {
         let site = seeded_site("guide", "# Guide\n");
 
         let err = resolve_quote(&site, "nope", "anything").unwrap_err();
-        assert!(matches!(err, QuoteResolutionError::DocumentNotFound { .. }));
+        assert_matches!(err, QuoteResolutionError::DocumentNotFound { .. });
     }
 
     #[test]
@@ -198,7 +199,7 @@ mod tests {
         let site = seeded_site("guide", "This is **bold** text.\n");
 
         let err = resolve_quote(&site, "guide", "**bold**").unwrap_err();
-        assert!(matches!(err, QuoteResolutionError::NotFound { .. }));
+        assert_matches!(err, QuoteResolutionError::NotFound { .. });
     }
 
     #[test]
