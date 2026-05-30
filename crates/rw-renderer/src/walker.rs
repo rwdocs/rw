@@ -30,7 +30,10 @@ use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
 use crate::config::RenderConfig;
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
-use crate::directive::parser::{ParsedDirective, parse_line};
+use crate::directive::parser::{
+    ParsedDirective, parse_container_line, parse_leaf_line, parse_line,
+};
+use crate::directive::processor::BlockDispatch;
 use crate::link;
 use crate::renderer::RenderResult;
 use crate::scope::Scope;
@@ -38,6 +41,21 @@ use crate::table::TableState;
 use crate::toc::HeadingAccumulator;
 use crate::util::heading_level_to_num;
 use crate::wikilink::{self, WikilinkResolution};
+
+/// Lifecycle of a paragraph's `<p>`/`</p>` emission.
+///
+/// `Tag::Paragraph` defers the `<p>` (we may discover the paragraph is a
+/// block-directive delimiter, which emits no `<p>`); the `<p>` is committed —
+/// or skipped under the `CodeBlock` guard — on the first non-text content.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ParagraphState {
+    /// No paragraph open.
+    None,
+    /// `Tag::Paragraph` seen; `<p>` deferred until we know it's not a directive.
+    Deferred,
+    /// `<p>` emitted; `</p>` owed at `TagEnd::Paragraph`.
+    Open,
+}
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
@@ -52,6 +70,12 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     skip_wikilink_text: bool,
     text_buffer: String,
     scopes: Vec<Scope>,
+    /// Lifecycle of the current paragraph's `<p>`/`</p>` emission.
+    paragraph: ParagraphState,
+    /// Current depth of `DirectiveOutput::Markdown` reparse recursion.
+    block_depth: usize,
+    /// Cached `max_include_depth` from the directive processor (or 10).
+    block_depth_limit: usize,
     _backend: PhantomData<B>,
 }
 
@@ -65,6 +89,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         processors: &'r mut [Box<dyn CodeBlockProcessor>],
         directives: Option<&'r mut DirectiveProcessor>,
     ) -> Self {
+        let block_depth_limit = directives
+            .as_deref()
+            .map_or(10, DirectiveProcessor::max_include_depth);
         Self {
             cfg,
             processors,
@@ -82,6 +109,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             skip_wikilink_text: false,
             text_buffer: String::new(),
             scopes: Vec::new(),
+            paragraph: ParagraphState::None,
+            block_depth: 0,
+            block_depth_limit,
             _backend: PhantomData,
         }
     }
@@ -134,7 +164,27 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn process_event(&mut self, event: Event<'_>) {
+        // Block-directive paragraph deferral: a paragraph whose entire text is a
+        // `:::`/`::` delimiter emits no <p>/</p>. Decide at End(Paragraph); commit
+        // the <p> on the first non-text content.
+        if self.paragraph == ParagraphState::Deferred {
+            if matches!(&event, Event::End(TagEnd::Paragraph)) {
+                self.finish_pending_paragraph();
+                return;
+            }
+            let still_buffering = matches!(&event, Event::Text(_))
+                && !matches!(
+                    self.scopes.last(),
+                    Some(Scope::CodeBlock { .. } | Scope::Metadata)
+                )
+                && !self.skip_wikilink_text;
+            if !still_buffering {
+                self.commit_paragraph();
+            }
+        }
+
         // Inline-directive expansion needs to see a full `:name[content]`
         // span, but pulldown-cmark splits text at delimiters like `[` and
         // `]`. We buffer adjacent `Event::Text` content outside code blocks
@@ -219,6 +269,15 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
             let matched = &remaining[start..end];
 
+            // `parse_line` only yields inline directives; block delimiters are
+            // handled in `finish_pending_paragraph` during the event walk, so
+            // anything non-inline is emitted verbatim.
+            let ParsedDirective::Inline { name, args } = directive else {
+                self.text(matched);
+                remaining = &remaining[end..];
+                continue;
+            };
+
             // Tightly-scoped processor borrow: dispatch and capture the name
             // before relinquishing the borrow so we can call self.text /
             // self.raw_html below.
@@ -229,31 +288,24 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             // raw_html doesn't touch self.directives, so holding the directives
             // borrow across the call would fail. The outcome must be owned data,
             // not a borrow.
-            let outcome: Option<(DirectiveOutput, String)> = match directive {
-                ParsedDirective::Inline { name, args } => {
-                    let processor = self
-                        .directives
-                        .as_deref_mut()
-                        .expect("checked above: directives is Some");
-                    let output = processor.dispatch_inline_named(&name, args);
-                    Some((output, name))
-                }
-                // Block-level directives shouldn't reach here (the line
-                // preprocessor consumed them), but defensively pass them
-                // through verbatim.
-                _ => None,
+            let output = {
+                let processor = self
+                    .directives
+                    .as_deref_mut()
+                    .expect("checked above: directives is Some");
+                processor.dispatch_inline_named(&name, args)
             };
 
-            match outcome {
-                Some((DirectiveOutput::Html(html), _)) => {
+            match output {
+                DirectiveOutput::Html(html) => {
                     self.raw_html(&html);
                 }
-                Some((DirectiveOutput::Marker { open, body, close }, _)) => {
+                DirectiveOutput::Marker { open, body, close } => {
                     self.raw_html(&open);
                     self.text(&body);
                     self.raw_html(&close);
                 }
-                Some((DirectiveOutput::Markdown(md), name)) => {
+                DirectiveOutput::Markdown(md) => {
                     if let Some(p) = self.directives.as_deref_mut() {
                         p.push_warning(format!(
                             "inline directive ':{name}' returned Markdown; emitted as raw HTML (re-parsing of inline-directive Markdown output is not supported)"
@@ -261,15 +313,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     }
                     self.raw_html(&md);
                 }
-                Some((DirectiveOutput::Skip, name)) => {
+                DirectiveOutput::Skip => {
                     if let Some(p) = self.directives.as_deref_mut() {
                         p.push_warning(format!(
                             "unknown inline directive ':{name}' — no handler registered (or handler returned Skip)"
                         ));
                     }
-                    self.text(matched);
-                }
-                None => {
                     self.text(matched);
                 }
             }
@@ -278,13 +327,118 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
     }
 
+    /// Emit the deferred `<p>` (respecting the dormant `CodeBlock` guard) and
+    /// mark the paragraph open so `TagEnd::Paragraph` emits `</p>`. Under the
+    /// `CodeBlock` guard the `<p>` is skipped and the state falls back to
+    /// `None`.
+    fn commit_paragraph(&mut self) {
+        if matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
+            self.paragraph = ParagraphState::None;
+        } else {
+            B::paragraph_start(&mut self.output);
+            self.paragraph = ParagraphState::Open;
+        }
+    }
+
+    /// Called at `End(Paragraph)` while the paragraph is still pending (text
+    /// only). If the coalesced buffer is a block-directive delimiter, dispatch
+    /// it (no `<p>`); otherwise render an ordinary paragraph.
+    fn finish_pending_paragraph(&mut self) {
+        self.paragraph = ParagraphState::None;
+        let text = std::mem::take(&mut self.text_buffer);
+
+        // First-byte early-out: only a paragraph whose trimmed text starts with
+        // `:` can be a block directive, so skip both parsers (which already
+        // reject non-`:` input) for the common prose case.
+        if self.directives.is_some()
+            && text.trim_start().starts_with(':')
+            && let Some(parsed) = parse_container_line(&text).or_else(|| parse_leaf_line(&text))
+        {
+            self.handle_block_directive(parsed);
+            return;
+        }
+
+        self.emit_text_paragraph(&text);
+    }
+
+    /// Render `text` as an ordinary paragraph: emit `<p>`, flush the text
+    /// through inline-directive expansion, then `</p>`.
+    fn emit_text_paragraph(&mut self, text: &str) {
+        self.commit_paragraph();
+        self.flush_text(text);
+        if self.paragraph == ParagraphState::Open {
+            self.paragraph = ParagraphState::None;
+            B::paragraph_end(&mut self.output);
+        }
+    }
+
+    /// Dispatch a recognized block directive through the processor and render
+    /// the result. Pattern-B borrow discipline: the `&mut self.directives`
+    /// reborrow is dropped (owned `BlockDispatch` returned) before any
+    /// `raw_html`/`text`/`process_event` call.
+    fn handle_block_directive(&mut self, parsed: ParsedDirective) {
+        let dispatch = {
+            let processor = self
+                .directives
+                .as_deref_mut()
+                .expect("checked above: directives is Some");
+            processor.dispatch_block(parsed)
+        };
+        match dispatch {
+            BlockDispatch::Html(html) => self.raw_html(&html),
+            BlockDispatch::Marker { open, body, close } => {
+                self.raw_html(&open);
+                self.text(&body);
+                self.raw_html(&close);
+            }
+            BlockDispatch::Markdown(md) => self.reparse_block_markdown(&md),
+            BlockDispatch::PassThrough(text) => self.emit_text_paragraph(&text),
+        }
+    }
+
+    /// Re-parse a block directive's `Markdown` output in context, feeding the
+    /// nested events back through `self.process_event`. Saves/restores the
+    /// paragraph state around the loop (belt-and-suspenders) and enforces the
+    /// include-depth limit.
+    fn reparse_block_markdown(&mut self, md: &str) {
+        if self.block_depth >= self.block_depth_limit {
+            if let Some(p) = self.directives.as_deref_mut() {
+                p.push_warning(format!(
+                    "Maximum include depth ({}) exceeded",
+                    self.block_depth_limit
+                ));
+            }
+            return;
+        }
+        self.block_depth += 1;
+
+        let saved_paragraph = self.paragraph;
+        let saved_buffer = std::mem::take(&mut self.text_buffer);
+        self.paragraph = ParagraphState::None;
+
+        // The parser borrows only `md` (a `&str` that outlives the loop), not
+        // `self`, so the nested events can stream straight through
+        // `process_event` without being materialized first.
+        for event in self.cfg.create_parser(md) {
+            self.process_event(event);
+        }
+        self.flush_text_buffer();
+
+        self.text_buffer = saved_buffer;
+        self.paragraph = saved_paragraph;
+        self.block_depth -= 1;
+    }
+
     #[allow(clippy::too_many_lines)]
     fn start_tag(&mut self, tag: Tag<'_>) {
         match tag {
             Tag::Paragraph => {
-                if !matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
-                    B::paragraph_start(&mut self.output);
-                }
+                // Defer the <p>: see process_event's pending-paragraph block.
+                debug_assert!(
+                    self.paragraph == ParagraphState::None,
+                    "nested pending paragraph"
+                );
+                self.paragraph = ParagraphState::Deferred;
             }
             Tag::Heading { level, .. } => {
                 let level_num = heading_level_to_num(level);
@@ -431,7 +585,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn end_tag(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Paragraph => {
-                if !matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
+                if self.paragraph == ParagraphState::Open {
+                    self.paragraph = ParagraphState::None;
                     B::paragraph_end(&mut self.output);
                 }
             }

@@ -200,26 +200,19 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// This is the entry point. It runs the full pipeline:
     ///
-    /// 1. **Preprocess** — expands block-level directives via
-    ///    `pipeline.directives` (if `Some`).
-    /// 2. **Parse & render** — feeds the (preprocessed) markdown through
-    ///    pulldown-cmark and the backend; inline directives expand during
-    ///    the event walk.
-    /// 3. **Post-process** — transforms intermediate directive elements and
-    ///    replaces code-block placeholders.
+    /// 1. **Parse & walk** — feeds raw markdown through pulldown-cmark and the
+    ///    backend. Block directives (leaf `::name`, container `:::name … :::`)
+    ///    are recognized in the event walk, and inline directives (`:name[…]`)
+    ///    expand during text flush — there is no separate line-based
+    ///    preprocessing pass.
+    /// 2. **Finalize & post-process** — reports unclosed containers, transforms
+    ///    intermediate directive markers, and replaces code-block placeholders.
     ///
     /// The supplied `Pipeline` is consumed: build a fresh one per render.
     pub fn render(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
-        // Phase 1: block-level directive preprocessing.
-        let preprocessed = if let Some(processor) = pipeline.directives.as_mut() {
-            processor.process(markdown)
-        } else {
-            markdown.to_owned()
-        };
-
-        // Phase 2: parse and walk. Inline-directive expansion happens inside
-        // the walker (see `Walker::flush_text`), so there's no second parse.
-        let parser = self.config.create_parser(&preprocessed);
+        // Parse raw markdown directly — block directives are now recognized in
+        // the event walk (see `Walker`), inline directives during text flush.
+        let parser = self.config.create_parser(markdown);
         let mut result = {
             let mut walker = crate::walker::Walker::<B>::new(
                 &self.config,
@@ -233,10 +226,8 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             walker.finish()
         };
 
-        // Phase 3: post-process directive markers if a directive processor
-        // is configured. Code-block-processor warnings already landed on
-        // `result.warnings` inside `walker.finish()`.
         if let Some(processor) = pipeline.directives.as_mut() {
+            processor.finalize();
             processor.post_process(&mut result.html);
             result.warnings.extend(processor.warnings());
         }
@@ -875,11 +866,17 @@ mod tests {
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
+        // Block directives are blank-line separated: each `:::` delimiter is
+        // its own paragraph so pulldown-cmark emits it standalone.
         let result = renderer.render(
             r":::tab[macOS]
+
 Install with Homebrew.
+
 :::tab[Linux]
+
 Install with apt.
+
 :::",
             Pipeline::new().with_directives(processor),
         );
@@ -1128,9 +1125,10 @@ Install with apt.
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        // Unclosed tabs should produce warning
+        // Unclosed tabs should produce warning. Block directives are blank-line
+        // separated, so the `:::tab` delimiter stands alone as its own paragraph.
         let result = renderer.render(
-            ":::tab[Test]\nContent",
+            ":::tab[Test]\n\nContent",
             Pipeline::new().with_directives(processor),
         );
 
@@ -1935,8 +1933,9 @@ Install with apt.
         use crate::directive::DirectiveProcessor;
 
         // Markdown with an unclosed :::tab container — emits one warning per
-        // render via DirectiveProcessor::finalize.
-        let md = ":::tab[A]\nbody";
+        // render via DirectiveProcessor::finalize. Block directives are
+        // blank-line separated, so the `:::tab` delimiter stands alone.
+        let md = ":::tab[A]\n\nbody";
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 

@@ -1,13 +1,13 @@
 //! Directive processor for `CommonMark` directives.
 //!
-//! Handles preprocessing (before pulldown-cmark) and post-processing (after rendering).
+//! Registries for inline/leaf/container handlers, dispatched during the
+//! pulldown-cmark event walk, plus post-processing (after rendering) of
+//! intermediate markers.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::tabs::FenceTracker;
-
-use super::parser::{ParsedDirective, parse_container_line, parse_leaf_line};
+use super::parser::ParsedDirective;
 use super::{
     ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective,
     LeafDirective, Replacements,
@@ -15,6 +15,29 @@ use super::{
 
 /// Type alias for the file reading callback function.
 pub type ReadFileFn = dyn Fn(&Path) -> io::Result<String> + Send;
+
+/// Result of dispatching a parsed block directive (leaf or container) for the
+/// walker to render. Distinct from [`DirectiveOutput`] because it adds a
+/// `PassThrough` variant carrying the byte-exact literal source an unhandled
+/// directive reconstructs to, so an unrecognized or declined directive renders
+/// as its original text rather than disappearing.
+#[derive(Debug)]
+pub(crate) enum BlockDispatch {
+    /// Emit verbatim via the backend's `raw_html`. An empty string emits nothing
+    /// (a container `end()` that returns `None`, or a popped container whose
+    /// handler is no longer registered).
+    Html(String),
+    /// A marker triple — `raw_html(open) + text(body) + raw_html(close)`.
+    Marker {
+        open: String,
+        body: String,
+        close: String,
+    },
+    /// Markdown that the walker must re-parse in context.
+    Markdown(String),
+    /// Literal text the walker renders as an ordinary paragraph (`<p>…</p>`).
+    PassThrough(String),
+}
 
 /// Configuration for the directive processor.
 pub struct DirectiveProcessorConfig {
@@ -101,17 +124,17 @@ fn default_read_file(path: &Path) -> io::Result<String> {
 
 /// Processor for `CommonMark` directives.
 ///
-/// Handles both preprocessing (before pulldown-cmark) and post-processing
-/// (after rendering) of directive syntax.
+/// Dispatches directive handlers during the pulldown-cmark event walk and
+/// post-processes intermediate markers after rendering.
 ///
 /// # Example
 ///
-/// `process` handles block-level directives (leaf and container). Inline
-/// directives are expanded later by
-/// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render),
-/// which scans `Event::Text` content for `:name[…]` syntax and dispatches
-/// the registered inline handlers directly into its backend — inline code
-/// spans, code blocks, and raw HTML pass through unchanged.
+/// Register handlers, then drive them through
+/// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render): block
+/// directives (leaf and container) expand during the pulldown-cmark event
+/// walk, and inline directives (`:name[…]`) expand from `Event::Text`
+/// content — inline code spans, code blocks, and raw HTML pass through
+/// unchanged.
 ///
 /// ```
 /// use rw_renderer::directive::{
@@ -127,18 +150,15 @@ fn default_read_file(path: &Path) -> io::Result<String> {
 ///     }
 /// }
 ///
-/// let mut processor = DirectiveProcessor::new()
+/// // Block directives expand during `MarkdownRenderer::render`.
+/// let processor = DirectiveProcessor::new()
 ///     .with_leaf(YouTube);
-///
-/// let output = processor.process("::youtube[dQw4w9WgXcQ]");
-/// assert!(output.contains("<iframe"));
 /// ```
 pub struct DirectiveProcessor {
     config: DirectiveProcessorConfig,
     inline_handlers: Vec<Box<dyn InlineDirective>>,
     leaf_handlers: Vec<Box<dyn LeafDirective>>,
     container_handlers: Vec<Box<dyn ContainerDirective>>,
-    fence: FenceTracker,
     /// Stack of active container directive names for dispatching `end()` calls.
     active_containers: Vec<String>,
     warnings: Vec<String>,
@@ -165,7 +185,6 @@ impl DirectiveProcessor {
             inline_handlers: Vec::new(),
             leaf_handlers: Vec::new(),
             container_handlers: Vec::new(),
-            fence: FenceTracker::new(),
             active_containers: Vec::new(),
             warnings: Vec::new(),
         }
@@ -221,181 +240,82 @@ impl DirectiveProcessor {
         self
     }
 
-    /// Preprocess markdown, converting directives to intermediate HTML or expanding includes.
-    ///
-    /// When a directive returns [`DirectiveOutput::Markdown`], the returned content
-    /// is recursively processed (up to `max_include_depth` levels).
-    #[must_use]
-    pub fn process(&mut self, input: &str) -> String {
-        self.process_with_depth(input, 0)
+    /// Maximum recursive include depth, surfaced to the walker (which now owns
+    /// the recursion for `DirectiveOutput::Markdown`).
+    pub(crate) fn max_include_depth(&self) -> usize {
+        self.config.max_include_depth
     }
 
-    fn process_with_depth(&mut self, input: &str, depth: usize) -> String {
-        if depth > self.config.max_include_depth {
-            self.warnings.push(format!(
-                "Maximum include depth ({}) exceeded",
-                self.config.max_include_depth
-            ));
-            return input.to_owned();
-        }
-
-        let mut output = String::with_capacity(input.len());
-        let lines: Vec<&str> = input.lines().collect();
-        let line_count = lines.len();
-
-        for (idx, line) in lines.iter().enumerate() {
-            let line_num = idx + 1;
-            let processed = self.process_line(line, line_num, depth);
-            output.push_str(&processed);
-
-            // Preserve line endings
-            if idx < line_count - 1 || input.ends_with('\n') {
-                output.push('\n');
-            }
-        }
-
-        // Check for unclosed containers — only at the top level. Recursive
-        // calls (depth > 0) process expanded/included content and share the
-        // parent's `active_containers` stack; finalizing there would drain the
-        // parent's still-open containers, emitting spurious "unclosed" warnings
-        // and dropping their `end()` dispatch. Containers left open inside
-        // included content remain on the shared stack and are caught by the
-        // top-level finalize (or closed by a later outer `:::`).
-        if depth == 0 {
-            self.finalize();
-        }
-
-        output
-    }
-
-    fn process_line(&mut self, line: &str, line_num: usize, depth: usize) -> String {
-        // Update fence state
-        self.fence.update(line);
-
-        // Skip directive processing inside code fences
-        if self.fence.in_fence() {
-            return line.to_owned();
-        }
-
-        // 1. Container directive — takes the whole line (:::name)
-        if let Some(directive) = parse_container_line(line) {
-            return self.dispatch_container(directive, line_num, depth);
-        }
-
-        // 2. Leaf directive — takes the whole line (::name)
-        if let Some(directive) = parse_leaf_line(line) {
-            return self.dispatch_leaf(directive, line_num, depth);
-        }
-
-        // 3. Inline directives (`:name[…]`) are expanded in
-        //    [`transform_events`](Self::transform_events) during the
-        //    pulldown-cmark event-stream phase, where code spans, code
-        //    blocks, and raw HTML are visible. Pass through unchanged here.
-        line.to_owned()
-    }
-
-    fn dispatch_container(
-        &mut self,
-        directive: ParsedDirective,
-        line_num: usize,
-        depth: usize,
-    ) -> String {
+    /// Dispatch a parsed block directive (leaf or container): invoke the
+    /// registered handler, perform the `active_containers` push/pop and warning
+    /// bookkeeping, and return owned [`BlockDispatch`] data for the walker to
+    /// render. `ctx.line()` is always `0` — block directives carry no line
+    /// number (no shipped handler reads it).
+    pub(crate) fn dispatch_block(&mut self, directive: ParsedDirective) -> BlockDispatch {
         match directive {
             ParsedDirective::ContainerStart { name, args, .. } => {
-                // Find handler index for this directive
-                let handler_idx = self
+                let Some(idx) = self
                     .container_handlers
                     .iter()
-                    .position(|h| h.name() == name);
-
-                if let Some(idx) = handler_idx {
-                    let syntax = args.to_syntax();
-                    let ctx = self.config.create_context(line_num);
-                    let output = self.container_handlers[idx].start(args, &ctx);
-
-                    match output {
-                        DirectiveOutput::Html(html) => {
-                            self.active_containers.push(name);
-                            html
-                        }
-                        DirectiveOutput::Marker { open, body, close } => {
-                            // Container directives are block-level; treat a
-                            // marker triple as a single HTML run so the
-                            // wrapping container stays well-formed.
-                            self.active_containers.push(name);
-                            format!("{open}{body}{close}")
-                        }
-                        DirectiveOutput::Markdown(md) => {
-                            self.active_containers.push(name);
-                            self.process_with_depth(&md, depth + 1)
-                        }
-                        DirectiveOutput::Skip => {
-                            // Handler declined, pass through with original syntax
-                            format!(":::{name}{syntax}")
-                        }
+                    .position(|h| h.name() == name)
+                else {
+                    return BlockDispatch::PassThrough(format!(":::{name}{}", args.to_syntax()));
+                };
+                let syntax = args.to_syntax();
+                let ctx = self.config.create_context(0);
+                match self.container_handlers[idx].start(args, &ctx) {
+                    DirectiveOutput::Html(html) => {
+                        self.active_containers.push(name);
+                        BlockDispatch::Html(html)
                     }
-                } else {
-                    // No handler, pass through unchanged with original syntax
-                    format!(":::{name}{}", args.to_syntax())
+                    DirectiveOutput::Marker { open, body, close } => {
+                        self.active_containers.push(name);
+                        BlockDispatch::Marker { open, body, close }
+                    }
+                    DirectiveOutput::Markdown(md) => {
+                        self.active_containers.push(name);
+                        BlockDispatch::Markdown(md)
+                    }
+                    DirectiveOutput::Skip => {
+                        BlockDispatch::PassThrough(format!(":::{name}{syntax}"))
+                    }
                 }
             }
             ParsedDirective::ContainerEnd { colon_count } => {
                 if let Some(name) = self.active_containers.pop() {
-                    // Find handler index and call end
-                    let handler_idx = self
+                    let html = self
                         .container_handlers
                         .iter()
-                        .position(|h| h.name() == name);
-
-                    if let Some(idx) = handler_idx {
-                        self.container_handlers[idx]
-                            .end(line_num)
-                            .unwrap_or_default()
-                    } else {
-                        String::new()
-                    }
+                        .position(|h| h.name() == name)
+                        .and_then(|idx| self.container_handlers[idx].end(0))
+                        .unwrap_or_default();
+                    BlockDispatch::Html(html)
                 } else {
-                    // Stray closing
-                    self.warnings.push(format!(
-                        "line {line_num}: stray ::: with no opening directive"
-                    ));
-                    ":".repeat(colon_count)
+                    self.warnings
+                        .push("stray ::: with no opening directive".to_owned());
+                    BlockDispatch::PassThrough(":".repeat(colon_count))
                 }
             }
-            _ => unreachable!("dispatch_container only handles container directives"),
-        }
-    }
-
-    fn dispatch_leaf(
-        &mut self,
-        directive: ParsedDirective,
-        line_num: usize,
-        depth: usize,
-    ) -> String {
-        match directive {
             ParsedDirective::Leaf { name, args } => {
-                let handler_idx = self.leaf_handlers.iter().position(|h| h.name() == name);
-
-                if let Some(idx) = handler_idx {
-                    let syntax = args.to_syntax();
-                    let ctx = self.config.create_context(line_num);
-                    let output = self.leaf_handlers[idx].process(args, &ctx);
-                    match output {
-                        DirectiveOutput::Html(html) => html,
-                        DirectiveOutput::Marker { open, body, close } => {
-                            // Leaf directives are block-level; emit the
-                            // marker triple as a single HTML run.
-                            format!("{open}{body}{close}")
-                        }
-                        DirectiveOutput::Markdown(md) => self.process_with_depth(&md, depth + 1),
-                        DirectiveOutput::Skip => format!("::{name}{syntax}"),
+                let Some(idx) = self.leaf_handlers.iter().position(|h| h.name() == name) else {
+                    return BlockDispatch::PassThrough(format!("::{name}{}", args.to_syntax()));
+                };
+                let syntax = args.to_syntax();
+                let ctx = self.config.create_context(0);
+                match self.leaf_handlers[idx].process(args, &ctx) {
+                    DirectiveOutput::Html(html) => BlockDispatch::Html(html),
+                    DirectiveOutput::Marker { open, body, close } => {
+                        BlockDispatch::Marker { open, body, close }
                     }
-                } else {
-                    // No handler — pass through verbatim
-                    format!("::{name}{}", args.to_syntax())
+                    DirectiveOutput::Markdown(md) => BlockDispatch::Markdown(md),
+                    DirectiveOutput::Skip => {
+                        BlockDispatch::PassThrough(format!("::{name}{syntax}"))
+                    }
                 }
             }
-            _ => unreachable!("dispatch_leaf only handles leaf directives"),
+            ParsedDirective::Inline { .. } => {
+                unreachable!("dispatch_block only handles block (leaf/container) directives")
+            }
         }
     }
 
@@ -420,7 +340,7 @@ impl DirectiveProcessor {
         self.inline_handlers[idx].process(args, &ctx)
     }
 
-    fn finalize(&mut self) {
+    pub(crate) fn finalize(&mut self) {
         for name in self.active_containers.drain(..) {
             self.warnings.push(format!(
                 "unclosed container directive :::{name} (missing closing :::)"
@@ -610,53 +530,6 @@ mod tests {
     }
 
     #[test]
-    fn test_leaf_directive() {
-        let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
-
-        let output = processor.process("::youtube[dQw4w9WgXcQ]");
-        assert!(output.contains("dQw4w9WgXcQ"));
-    }
-
-    #[test]
-    fn test_container_directive() {
-        let mut processor = DirectiveProcessor::new().with_container(TestNote);
-
-        let output = processor.process(":::note[Important]\nContent here\n:::");
-        assert!(output.contains(r#"<div class="note" data-title="Important">"#));
-        assert!(output.contains("Content here"));
-        assert!(output.contains("</div>"));
-    }
-
-    #[test]
-    fn test_unknown_directive_passthrough() {
-        let mut processor = DirectiveProcessor::new();
-
-        let output = processor.process(":unknown[content]");
-        assert_eq!(output, ":unknown[content]");
-    }
-
-    #[test]
-    fn test_unknown_container_passthrough() {
-        let mut processor = DirectiveProcessor::new();
-
-        // Without brackets
-        let output = processor.process(":::unknown\nContent\n:::");
-        assert!(output.contains(":::unknown"));
-
-        // With bracket syntax - should preserve content
-        let mut processor2 = DirectiveProcessor::new();
-        let output2 = processor2.process(":::unknown[content]\nBody\n:::");
-        assert!(output2.contains(":::unknown[content]"));
-
-        // With bracket syntax and attributes - should preserve both
-        let mut processor3 = DirectiveProcessor::new();
-        let output3 = processor3.process(":::unknown[Important]{#note-1 .highlight}\nBody\n:::");
-        assert!(output3.contains(":::unknown[Important]"));
-        assert!(output3.contains("#note-1"));
-        assert!(output3.contains(".highlight"));
-    }
-
-    #[test]
     fn test_code_fence_skipping() {
         // End-to-end: a fenced code block should preserve inline directive
         // syntax literally, while the same directive on a regular paragraph
@@ -684,67 +557,6 @@ mod tests {
     }
 
     #[test]
-    fn test_unclosed_container_warning() {
-        let mut processor = DirectiveProcessor::new().with_container(TestNote);
-
-        let _output = processor.process(":::note\nContent");
-        let warnings = processor.warnings();
-
-        assert!(warnings.iter().any(|w| w.contains("unclosed")));
-    }
-
-    #[test]
-    fn test_stray_close_warning() {
-        let mut processor = DirectiveProcessor::new();
-
-        let output = processor.process(":::");
-        let warnings = processor.warnings();
-
-        assert!(warnings.iter().any(|w| w.contains("stray")));
-        assert_eq!(output.trim(), ":::");
-    }
-
-    #[test]
-    fn test_nested_containers() {
-        struct TestDetails {
-            depth: usize,
-        }
-
-        impl ContainerDirective for TestDetails {
-            fn name(&self) -> &'static str {
-                "details"
-            }
-
-            fn start(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                self.depth += 1;
-                DirectiveOutput::html(format!(
-                    "<details data-depth=\"{}\"><summary>{}</summary>",
-                    self.depth,
-                    if args.content().is_empty() {
-                        "Details"
-                    } else {
-                        args.content()
-                    }
-                ))
-            }
-
-            fn end(&mut self, _line: usize) -> Option<String> {
-                self.depth -= 1;
-                Some("</details>".to_owned())
-            }
-        }
-
-        let mut processor = DirectiveProcessor::new().with_container(TestDetails { depth: 0 });
-
-        let input = ":::details[Outer]\n:::details[Inner]\n:::\n:::";
-        let output = processor.process(input);
-
-        assert!(output.contains(r#"data-depth="1""#));
-        assert!(output.contains(r#"data-depth="2""#));
-        assert_eq!(output.matches("</details>").count(), 2);
-    }
-
-    #[test]
     fn test_config_builder() {
         let config = DirectiveProcessorConfig::new()
             .with_base_dir("/docs")
@@ -754,88 +566,6 @@ mod tests {
         assert_eq!(config.base_dir, PathBuf::from("/docs"));
         assert_eq!(config.source_path, Some(PathBuf::from("/docs/guide.md")));
         assert_eq!(config.max_include_depth, 5);
-    }
-
-    #[test]
-    fn test_include_depth_limit() {
-        struct TestInclude;
-
-        impl LeafDirective for TestInclude {
-            fn name(&self) -> &'static str {
-                "include"
-            }
-
-            fn process(
-                &mut self,
-                _args: DirectiveArgs,
-                _ctx: &DirectiveContext,
-            ) -> DirectiveOutput {
-                // Return markdown that includes itself (infinite recursion)
-                DirectiveOutput::markdown("::include[self]")
-            }
-        }
-
-        let config = DirectiveProcessorConfig::new().with_max_include_depth(3);
-        let mut processor = DirectiveProcessor::with_config(config).with_leaf(TestInclude);
-
-        let _output = processor.process("::include[start]");
-        let warnings = processor.warnings();
-
-        assert!(warnings.iter().any(|w| w.contains("Maximum include depth")));
-    }
-
-    #[test]
-    fn leaf_in_paragraph_is_not_expanded() {
-        // A leaf directive token inside a paragraph must NOT be expanded
-        let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
-
-        let input = "Press ::youtube[x] now.";
-        let output = processor.process(input);
-
-        // The line is not a standalone leaf directive, so it passes through verbatim
-        assert_eq!(output, input);
-    }
-
-    #[test]
-    fn leaf_with_leading_whitespace_is_expanded() {
-        // A leaf directive with leading whitespace on an otherwise-empty line IS expanded
-        let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
-
-        let output = processor.process("  ::youtube[dQw4w9WgXcQ]");
-        assert!(
-            output.contains("dQw4w9WgXcQ"),
-            "leaf directive with leading whitespace should be expanded"
-        );
-        assert!(
-            output.contains("<iframe"),
-            "leaf directive output should contain iframe"
-        );
-    }
-
-    #[test]
-    fn container_takes_precedence_over_leaf() {
-        // A :::note line routes to the container handler, not the leaf path
-        let mut processor = DirectiveProcessor::new().with_container(TestNote);
-
-        let output = processor.process(":::note[Important]\nContent here\n:::");
-        assert!(
-            output.contains(r#"<div class="note""#),
-            "container handler must fire, not leaf"
-        );
-        assert!(output.contains("Content here"));
-        assert!(output.contains("</div>"));
-    }
-
-    #[test]
-    fn unknown_leaf_passes_through_verbatim() {
-        // An unregistered leaf on a full line is passed through with attrs preserved
-        let mut processor = DirectiveProcessor::new();
-
-        let output = processor.process("::unknown[content]{#id .cls}");
-        assert!(output.contains("::unknown"), "name must be preserved");
-        assert!(output.contains("[content]"), "content must be preserved");
-        assert!(output.contains("#id"), "id attr must be preserved");
-        assert!(output.contains(".cls"), "class attr must be preserved");
     }
 
     #[test]
@@ -862,113 +592,92 @@ mod tests {
     }
 
     #[test]
-    fn container_survives_nested_markdown_directive() {
-        // Regression: a leaf directive returning `DirectiveOutput::Markdown`
-        // inside an open container is processed via a recursive
-        // `process_with_depth` call. That recursion must NOT drain the parent's
-        // `active_containers` stack, so the container's `end()` still fires and
-        // no spurious "unclosed"/"stray" warnings are emitted.
-        struct MarkdownInclude;
+    fn dispatch_block_container_start_and_end() {
+        use crate::directive::parser::parse_container_line;
 
-        impl LeafDirective for MarkdownInclude {
-            fn name(&self) -> &'static str {
-                "include"
-            }
+        let mut processor = DirectiveProcessor::new().with_container(TestNote);
 
-            fn process(
-                &mut self,
-                _args: DirectiveArgs,
-                _ctx: &DirectiveContext,
-            ) -> DirectiveOutput {
-                DirectiveOutput::markdown("included body")
+        let start = parse_container_line(":::note[Important]").unwrap();
+        match processor.dispatch_block(start) {
+            BlockDispatch::Html(html) => {
+                assert!(html.contains(r#"<div class="note" data-title="Important">"#));
             }
+            other => panic!("expected Html, got {other:?}"),
         }
 
-        let mut processor = DirectiveProcessor::new()
-            .with_container(TestNote)
-            .with_leaf(MarkdownInclude);
-
-        let output = processor.process(":::note[Title]\n::include[frag]\n:::");
-        let warnings = processor.warnings();
-
-        assert!(
-            output.contains(r#"<div class="note" data-title="Title">"#),
-            "container start must render; got: {output}"
-        );
-        assert!(
-            output.contains("included body"),
-            "nested markdown directive output must render; got: {output}"
-        );
-        assert_eq!(
-            output.matches("</div>").count(),
-            1,
-            "container end() must fire exactly once (no drop, no double-close); got: {output}"
-        );
-        assert!(
-            warnings.is_empty(),
-            "no spurious unclosed/stray warnings; got: {warnings:?}"
-        );
+        let end = parse_container_line(":::").unwrap();
+        match processor.dispatch_block(end) {
+            BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
+            other => panic!("expected Html, got {other:?}"),
+        }
     }
 
     #[test]
-    fn container_start_returning_markdown_still_closes() {
-        // A container whose `start()` returns `DirectiveOutput::Markdown` is a
-        // different recursion entry than the leaf path: it pushes its name and
-        // recurses on the expanded markdown. The container's `end()` must still
-        // fire on the outer `:::` and no spurious warnings appear.
-        struct MarkdownWrap;
+    fn dispatch_block_unregistered_and_stray_passthrough() {
+        let mut processor = DirectiveProcessor::new();
 
-        impl ContainerDirective for MarkdownWrap {
+        let unreg = crate::directive::parser::parse_container_line(":::foo[x]{.c}").unwrap();
+        match processor.dispatch_block(unreg) {
+            BlockDispatch::PassThrough(s) => {
+                assert!(s.starts_with(":::foo[x]"), "got {s}");
+                assert!(s.contains(".c"), "got {s}");
+            }
+            other => panic!("expected PassThrough, got {other:?}"),
+        }
+
+        let stray = crate::directive::parser::parse_container_line("::::").unwrap();
+        match processor.dispatch_block(stray) {
+            BlockDispatch::PassThrough(s) => assert_eq!(s, "::::"),
+            other => panic!("expected PassThrough, got {other:?}"),
+        }
+        assert!(processor.warnings().iter().any(|w| w.contains("stray")));
+    }
+
+    #[test]
+    fn dispatch_block_leaf_html_and_unregistered() {
+        let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
+
+        let leaf = crate::directive::parser::parse_leaf_line("::youtube[abc]").unwrap();
+        match processor.dispatch_block(leaf) {
+            BlockDispatch::Html(html) => assert!(html.contains("abc")),
+            other => panic!("expected Html, got {other:?}"),
+        }
+
+        let unreg = crate::directive::parser::parse_leaf_line("::missing[y]").unwrap();
+        match processor.dispatch_block(unreg) {
+            BlockDispatch::PassThrough(s) => assert!(s.starts_with("::missing[y]"), "got {s}"),
+            other => panic!("expected PassThrough, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dispatch_block_marker_and_markdown() {
+        // A container whose start() returns Markdown must surface as
+        // BlockDispatch::Markdown AND push onto active_containers (so the
+        // following end() fires the handler's `end()`).
+        struct MarkdownContainer;
+
+        impl ContainerDirective for MarkdownContainer {
             fn name(&self) -> &'static str {
-                "wrap"
+                "mdwrap"
             }
 
             fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                DirectiveOutput::markdown("expanded start")
+                DirectiveOutput::markdown("expanded body")
             }
 
             fn end(&mut self, _line: usize) -> Option<String> {
-                Some("<!--wrap-end-->".to_owned())
+                Some("<!--mdwrap-end-->".to_owned())
             }
         }
 
-        let mut processor = DirectiveProcessor::new().with_container(MarkdownWrap);
+        // A leaf whose process() returns a Marker triple must surface as
+        // BlockDispatch::Marker with all three fields intact.
+        struct MarkerLeaf;
 
-        let output = processor.process(":::wrap\nbody\n:::");
-        let warnings = processor.warnings();
-
-        assert!(
-            output.contains("expanded start"),
-            "expanded start markdown must render; got: {output}"
-        );
-        assert!(
-            output.contains("body"),
-            "container body must render; got: {output}"
-        );
-        assert!(
-            output.contains("<!--wrap-end-->"),
-            "container end() must fire; got: {output}"
-        );
-        assert!(
-            warnings.is_empty(),
-            "no spurious unclosed/stray warnings; got: {warnings:?}"
-        );
-    }
-
-    #[test]
-    fn unclosed_container_inside_included_markdown_warns_at_top_level() {
-        // Forward-correctness (not a revert guard for the depth==0 fix — the
-        // old recursive finalize emitted the same warning, just from the wrong
-        // frame). This locks in that a container left open inside expanded /
-        // included markdown is still reported: it must remain on the shared
-        // stack for the top-level finalize rather than being cleared at the end
-        // of the recursive call. A leaf expanding to an unclosed `:::note` must
-        // still produce the "unclosed container" warning.
-        struct OpensContainer;
-
-        impl LeafDirective for OpensContainer {
+        impl LeafDirective for MarkerLeaf {
             fn name(&self) -> &'static str {
-                "open"
+                "marker"
             }
 
             fn process(
@@ -976,22 +685,40 @@ mod tests {
                 _args: DirectiveArgs,
                 _ctx: &DirectiveContext,
             ) -> DirectiveOutput {
-                DirectiveOutput::markdown(":::note[Opened]\nunclosed body")
+                DirectiveOutput::Marker {
+                    open: "<open>".to_owned(),
+                    body: "the body".to_owned(),
+                    close: "</close>".to_owned(),
+                }
             }
         }
 
         let mut processor = DirectiveProcessor::new()
-            .with_container(TestNote)
-            .with_leaf(OpensContainer);
+            .with_container(MarkdownContainer)
+            .with_leaf(MarkerLeaf);
 
-        let _output = processor.process("::open[x]");
-        let warnings = processor.warnings();
+        let start = crate::directive::parser::parse_container_line(":::mdwrap").unwrap();
+        match processor.dispatch_block(start) {
+            BlockDispatch::Markdown(md) => assert_eq!(md, "expanded body"),
+            other => panic!("expected Markdown, got {other:?}"),
+        }
 
-        assert!(
-            warnings
-                .iter()
-                .any(|w| w.contains("unclosed") && w.contains("note")),
-            "unclosed container inside included markdown must still warn; got: {warnings:?}"
-        );
+        // Proves the container name was pushed: the closing ::: pops it and
+        // dispatches the handler's end().
+        let end = crate::directive::parser::parse_container_line(":::").unwrap();
+        match processor.dispatch_block(end) {
+            BlockDispatch::Html(html) => assert_eq!(html, "<!--mdwrap-end-->"),
+            other => panic!("expected Html from container end(), got {other:?}"),
+        }
+
+        let leaf = crate::directive::parser::parse_leaf_line("::marker[x]").unwrap();
+        match processor.dispatch_block(leaf) {
+            BlockDispatch::Marker { open, body, close } => {
+                assert_eq!(open, "<open>");
+                assert_eq!(body, "the body");
+                assert_eq!(close, "</close>");
+            }
+            other => panic!("expected Marker, got {other:?}"),
+        }
     }
 }

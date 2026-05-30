@@ -6,18 +6,20 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 
 /// Handler for leaf directives: `::name[content]{attrs}`
 ///
-/// Leaf directives are block-level. The handler is invoked only when
-/// `::name[…]{…}` occupies an entire line (leading/trailing whitespace
-/// permitted). A `::name` token inside a paragraph or list item is treated as
-/// literal text and passed through to the markdown parser.
+/// Leaf directives are block-level. The handler is invoked during the
+/// pulldown-cmark event walk, when `::name[…]{…}` is recognized as its own
+/// blank-line-separated paragraph (leading/trailing whitespace permitted). A
+/// `::name` token that shares a paragraph with other text, or one indented into
+/// a code block, is treated as literal text and left to the markdown parser.
 ///
-/// They can return markdown (for `::include`) or HTML (for `::youtube`).
+/// They can return markdown (for `::include`, which is re-parsed in context) or
+/// HTML (for `::youtube`).
 ///
-/// # Two-Phase Processing
+/// # Post-Processing
 ///
 /// Leaf directives support post-processing via [`post_process`](Self::post_process).
-/// During preprocessing, return intermediate HTML that will be transformed
-/// during post-processing.
+/// During the event walk, return intermediate HTML that is then transformed
+/// during the post-processing pass after rendering.
 ///
 /// # Thread Safety
 ///

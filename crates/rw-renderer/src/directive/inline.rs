@@ -7,13 +7,15 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 /// Handler for inline directives: `:name[content]{attrs}`
 ///
 /// Inline directives appear within text flow and produce inline HTML elements.
-/// They are processed during the preprocessing phase before pulldown-cmark parsing.
+/// They are expanded during the pulldown-cmark event walk — as the renderer
+/// flushes text (`flush_text`) it scans `Event::Text` content for `:name[…]`
+/// syntax and dispatches to the handler; there is no separate pre-pass.
 ///
-/// # Two-Phase Processing
+/// # Post-Processing
 ///
 /// Inline directives support post-processing via [`post_process`](Self::post_process).
-/// During preprocessing, return intermediate HTML that will be transformed
-/// during post-processing.
+/// During the event walk, return intermediate HTML that is then transformed
+/// during the post-processing pass.
 ///
 /// # Thread Safety
 ///

@@ -8,16 +8,20 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 ///
 /// Container directives wrap arbitrary content and have start/end phases.
 /// Handlers manage their own nesting state internally (e.g., via a stack).
+/// The `:::name` opening and the closing `:::` must each be their own
+/// blank-line-separated paragraph; a delimiter that is not is left literal.
 ///
-/// # Two-Phase Processing
+/// # Processing
 ///
-/// Container directives are processed in two phases:
+/// Container handlers are invoked during the pulldown-cmark event walk and then
+/// reconciled by a post-processing pass:
 ///
-/// 1. **Preprocessing**: [`start`](Self::start) and [`end`](Self::end) are called
-///    to emit intermediate HTML that passes through pulldown-cmark
+/// 1. **Event walk**: when the opening and closing delimiter paragraphs are
+///    recognized, [`start`](Self::start) and [`end`](Self::end) are called to
+///    emit intermediate HTML around the wrapped content
 ///
-/// 2. **Post-processing**: [`post_process`](Self::post_process) transforms
-///    intermediate elements to final HTML
+/// 2. **Post-processing**: [`post_process`](Self::post_process) transforms the
+///    intermediate elements into final HTML after rendering
 ///
 /// # Thread Safety
 ///
