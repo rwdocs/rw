@@ -33,7 +33,6 @@ const TOC_MACRO: &str = r#"<ac:structured-macro ac:name="toc" ac:schema-version=
 /// different output formats.
 #[derive(Debug)]
 pub(crate) struct PageRenderer {
-    gfm: bool,
     prepend_toc: bool,
     extract_title: bool,
     include_dirs: Vec<PathBuf>,
@@ -51,7 +50,6 @@ impl PageRenderer {
     #[must_use]
     pub(crate) fn new() -> Self {
         Self {
-            gfm: true,
             prepend_toc: false,
             extract_title: false,
             include_dirs: Vec::new(),
@@ -138,7 +136,7 @@ impl PageRenderer {
 
     /// Build the settings-only renderer.
     fn create_renderer(&self) -> MarkdownRenderer<ConfluenceBackend> {
-        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new().with_gfm(self.gfm);
+        let mut renderer = MarkdownRenderer::<ConfluenceBackend>::new();
         if self.extract_title {
             renderer = renderer.with_title_extraction();
         }

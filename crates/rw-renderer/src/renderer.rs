@@ -86,7 +86,8 @@ pub struct MarkdownRenderer<B: RenderBackend> {
 }
 
 impl<B: RenderBackend> MarkdownRenderer<B> {
-    /// Create a new renderer with GFM enabled by default.
+    /// Create a new renderer. GFM features (tables, strikethrough, task
+    /// lists, alerts) are always enabled.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -125,18 +126,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         let mut prefix = origin.into();
         prefix.push('/');
         self.config.origin_prefix = Some(prefix);
-        self
-    }
-
-    /// Enable or disable GitHub Flavored Markdown features.
-    ///
-    /// GFM is enabled by default. When enabled, the parser supports:
-    /// - Tables
-    /// - Strikethrough (`~~text~~`)
-    /// - Task lists (`- [ ] item`)
-    #[must_use]
-    pub fn with_gfm(mut self, enabled: bool) -> Self {
-        self.config.gfm = enabled;
         self
     }
 
@@ -850,18 +839,10 @@ mod tests {
     }
 
     #[test]
-    fn test_gfm_enabled_by_default() {
+    fn test_gfm_tables_always_rendered() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render("| A | B |\n|---|---|\n| 1 | 2 |", Pipeline::new());
         assert!(result.html.contains("<table>"));
-    }
-
-    #[test]
-    fn test_gfm_disabled() {
-        let renderer = MarkdownRenderer::<HtmlBackend>::new().with_gfm(false);
-        let result = renderer.render("| A | B |\n|---|---|\n| 1 | 2 |", Pipeline::new());
-        // Tables not rendered when GFM disabled
-        assert!(!result.html.contains("<table>"));
     }
 
     // Directive integration tests
