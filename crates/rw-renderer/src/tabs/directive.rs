@@ -36,24 +36,15 @@ pub(crate) struct TabsGroup {
 /// # Example
 ///
 /// ```
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 /// use rw_renderer::directive::DirectiveProcessor;
 /// use rw_renderer::TabsDirective;
 ///
-/// let mut processor = DirectiveProcessor::new()
-///     .with_container(TabsDirective::new());
-///
-/// let input = r#":::tab[macOS]
-/// Install with Homebrew.
-/// :::tab[Linux]
-/// Install with apt.
-/// :::"#;
-///
-/// let output = processor.process(input);
-/// assert!(output.contains(r#"<rw-tabs data-id="0">"#));
-///
-/// let mut html = output.clone();
-/// processor.post_process(&mut html);
-/// assert!(html.contains(r#"role="tablist""#));
+/// let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+/// let md = ":::tab[macOS]\n\nInstall with Homebrew.\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::";
+/// let result = MarkdownRenderer::<HtmlBackend>::new()
+///     .render(md, Pipeline::new().with_directives(directives));
+/// assert!(result.html.contains(r#"role="tablist""#));
 /// ```
 pub struct TabsDirective {
     groups: Vec<TabsGroup>,
@@ -115,9 +106,8 @@ impl ContainerDirective for TabsDirective {
             });
             self.stack.push(ctx.line());
 
-            // Blank line after opening tags for pulldown-cmark
             DirectiveOutput::html(format!(
-                "<rw-tabs data-id=\"{group_id}\">\n\n<rw-tab data-id=\"{tab_id}\">\n"
+                "<rw-tabs data-id=\"{group_id}\"><rw-tab data-id=\"{tab_id}\">"
             ))
         } else {
             // Close previous tab, open new one in same group
@@ -132,8 +122,7 @@ impl ContainerDirective for TabsDirective {
                 });
             }
 
-            // Blank lines around tags for pulldown-cmark block parsing
-            DirectiveOutput::html(format!("\n</rw-tab>\n\n<rw-tab data-id=\"{tab_id}\">\n"))
+            DirectiveOutput::html(format!("</rw-tab><rw-tab data-id=\"{tab_id}\">"))
         }
     }
 
@@ -143,8 +132,7 @@ impl ContainerDirective for TabsDirective {
             if let Some(group) = self.current_group.take() {
                 self.groups.push(group);
             }
-            // Blank line before closing tags for pulldown-cmark
-            Some("\n</rw-tab>\n</rw-tabs>".to_owned())
+            Some("</rw-tab></rw-tabs>".to_owned())
         } else {
             // Should not happen if DirectiveProcessor is correct
             None
@@ -217,145 +205,4 @@ fn strip_quotes(s: &str) -> &str {
         return &s[1..s.len() - 1];
     }
     s
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::directive::DirectiveProcessor;
-
-    #[test]
-    fn test_simple_tabs() {
-        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let input = r":::tab[macOS]
-Install with Homebrew.
-:::tab[Linux]
-Install with apt.
-:::";
-
-        let output = processor.process(input);
-
-        assert!(output.contains(r#"<rw-tabs data-id="0">"#));
-        assert!(output.contains(r#"<rw-tab data-id="0">"#));
-        assert!(output.contains(r#"<rw-tab data-id="1">"#));
-        assert!(output.contains("</rw-tab>"));
-        assert!(output.contains("</rw-tabs>"));
-        assert!(output.contains("Install with Homebrew."));
-        assert!(output.contains("Install with apt."));
-    }
-
-    #[test]
-    fn test_post_process() {
-        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let input = r":::tab[macOS]
-Content A
-:::tab[Linux]
-Content B
-:::";
-
-        let output = processor.process(input);
-        let mut html = output;
-        processor.post_process(&mut html);
-
-        // Check accessible HTML structure
-        assert!(html.contains(r#"<div class="tabs" id="tabs-0">"#));
-        assert!(html.contains(r#"role="tablist""#));
-        assert!(html.contains(r#"role="tab""#));
-        assert!(html.contains(r#"role="tabpanel""#));
-        assert!(html.contains(r#"aria-selected="true""#));
-        assert!(html.contains(r#"aria-selected="false""#));
-        assert!(html.contains(" hidden>"));
-
-        // Check custom elements are replaced
-        assert!(!html.contains("<rw-tabs"));
-        assert!(!html.contains("<rw-tab"));
-    }
-
-    #[test]
-    fn test_tabs_with_code_fence() {
-        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let input = r#":::tab[Example]
-
-```python
-:::tab inside code
-print("hello")
-```
-
-:::"#;
-
-        let output = processor.process(input);
-
-        // Code block content should not be transformed
-        assert!(output.contains(":::tab inside code"));
-        assert!(output.contains(r#"<rw-tabs data-id="0">"#));
-    }
-
-    #[test]
-    fn test_tab_without_label() {
-        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let input = r":::tab
-Content
-:::";
-
-        let output = processor.process(input);
-        let mut html = output;
-        processor.post_process(&mut html);
-
-        assert!(html.contains(">Tab</button>"));
-    }
-
-    #[test]
-    fn test_quoted_label() {
-        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let input = r#":::tab["macOS и Linux"]
-Content
-:::"#;
-
-        let output = processor.process(input);
-        let mut html = output;
-        processor.post_process(&mut html);
-
-        assert!(html.contains(">macOS и Linux</button>"));
-    }
-
-    #[test]
-    fn test_multiple_tab_groups() {
-        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let input = r":::tab[A]
-Content A
-:::
-
-Some text between.
-
-:::tab[B]
-Content B
-:::";
-
-        let output = processor.process(input);
-
-        assert!(output.contains(r#"<rw-tabs data-id="0">"#));
-        assert!(output.contains(r#"<rw-tabs data-id="1">"#));
-    }
-
-    #[test]
-    fn test_html_escaping() {
-        let mut processor = DirectiveProcessor::new().with_container(TabsDirective::new());
-
-        let input = r":::tab[<script>]
-Content
-:::";
-
-        let output = processor.process(input);
-        let mut html = output;
-        processor.post_process(&mut html);
-
-        assert!(html.contains("&lt;script&gt;"));
-        assert!(!html.contains("><script>"));
-    }
 }

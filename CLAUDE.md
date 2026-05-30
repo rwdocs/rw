@@ -108,8 +108,7 @@ crates/
 │       │   └── processor.rs  # DirectiveProcessor coordination
 │       ├── tabs/             # Tabbed content blocks
 │       │   ├── mod.rs        # Module exports
-│       │   ├── directive.rs  # TabsDirective (ContainerDirective impl)
-│       │   └── fence.rs      # FenceTracker for code fence state
+│       │   └── directive.rs  # TabsDirective (ContainerDirective impl)
 │       └── util.rs           # heading_level_to_num()
 │
 ├── rw-confluence/         # Confluence integration

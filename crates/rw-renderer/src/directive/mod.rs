@@ -14,24 +14,29 @@
 //!
 //! # Architecture
 //!
-//! Processing is split into two phases because pulldown-cmark does not
-//! understand directive syntax natively:
+//! Directives are recognized during the pulldown-cmark event walk — there is
+//! no separate pre-pass over the source text. As the renderer iterates the
+//! event stream it dispatches each directive type to its handler, then a final
+//! post-processing pass rewrites intermediate markers into final HTML:
 //!
-//! 1. **Preprocessing** ([`DirectiveProcessor::process`]) — runs before
-//!    pulldown-cmark parsing. Converts directives to intermediate HTML
-//!    elements (e.g., `<rw-tabs>`) that pass through the parser unchanged,
-//!    or expands `::include` directives into raw markdown for recursive
-//!    processing.
+//! - **Inline directives** are expanded while flushing text: the renderer scans
+//!   `Event::Text` content for `:name[…]` syntax and dispatches handlers
+//!   directly into its backend. Inline code spans, code blocks, and raw HTML
+//!   pass through unchanged.
 //!
-//! 2. **Post-processing** ([`DirectiveProcessor::post_process`]) — runs
-//!    after rendering. Transforms intermediate elements to final accessible
-//!    HTML using the [`Replacements`] collector for efficient single-pass
-//!    string replacement.
+//! - **Leaf and container directives** are recognized when their delimiter
+//!   paragraph appears in the event stream (`::name` for a leaf, `:::name` …
+//!   `:::` for a container). Because they ride the event walk, they respect
+//!   markdown block structure — a delimiter indented into a code block or
+//!   inside a fenced block is left literal, and each delimiter must stand as
+//!   its own blank-line-separated paragraph. Handlers emit intermediate HTML
+//!   elements (e.g. `<rw-tabs>`), or, for `::include`-style leaves, expand into
+//!   raw markdown that is re-parsed in context.
 //!
-//! Inline directives are expanded by the renderer itself: as it iterates the
-//! pulldown-cmark event stream it scans `Event::Text` content for
-//! `:name[…]` syntax and dispatches handlers directly into its backend.
-//! Inline code spans, code blocks, and raw HTML pass through unchanged.
+//! - **Post-processing** ([`DirectiveProcessor::post_process`]) runs after
+//!   rendering. It transforms the intermediate elements into final accessible
+//!   HTML using the [`Replacements`] collector for efficient single-pass
+//!   string replacement.
 //!
 //! # Path Resolution Sandbox
 //!
@@ -81,7 +86,7 @@ mod inline;
 mod leaf;
 mod output;
 pub(crate) mod parser;
-mod processor;
+pub(crate) mod processor;
 mod replacements;
 
 pub use args::DirectiveArgs;
