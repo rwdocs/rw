@@ -263,17 +263,27 @@ impl DirectiveProcessor {
                 };
                 let syntax = args.to_syntax();
                 let ctx = self.config.create_context(0);
-                match self.container_handlers[idx].start(args, &ctx) {
+                let output = self.container_handlers[idx].start(args, &ctx);
+                // Read before the match: do NOT move this into the arms or after
+                // any other handler call — it reflects only the latest start().
+                let opened = self.container_handlers[idx].opened_scope();
+                match output {
                     DirectiveOutput::Html(html) => {
-                        self.active_containers.push(name);
+                        if opened {
+                            self.active_containers.push(name);
+                        }
                         BlockDispatch::Html(html)
                     }
                     DirectiveOutput::Marker { open, body, close } => {
-                        self.active_containers.push(name);
+                        if opened {
+                            self.active_containers.push(name);
+                        }
                         BlockDispatch::Marker { open, body, close }
                     }
                     DirectiveOutput::Markdown(md) => {
-                        self.active_containers.push(name);
+                        if opened {
+                            self.active_containers.push(name);
+                        }
                         BlockDispatch::Markdown(md)
                     }
                     DirectiveOutput::Skip => {
@@ -720,5 +730,91 @@ mod tests {
             }
             other => panic!("expected Marker, got {other:?}"),
         }
+    }
+
+    // Continuation-style container: the first `:::mock` opens a new scope; each
+    // subsequent `:::mock` only continues the already-open scope (reporting
+    // `opened_scope() == false`), so a single `:::` closes the whole thing.
+    // Mirrors how `TabsDirective` shares one closing `:::` across many `:::tab`.
+    struct MockContinuation {
+        depth: usize,
+        last_start_opened: bool,
+    }
+
+    impl MockContinuation {
+        fn new() -> Self {
+            Self {
+                depth: 0,
+                last_start_opened: false,
+            }
+        }
+    }
+
+    impl ContainerDirective for MockContinuation {
+        fn name(&self) -> &'static str {
+            "mock"
+        }
+
+        fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
+            if self.depth == 0 {
+                self.depth = 1;
+                self.last_start_opened = true;
+                DirectiveOutput::html("<mock>")
+            } else {
+                self.last_start_opened = false;
+                DirectiveOutput::html("<mock-continue>")
+            }
+        }
+
+        fn end(&mut self, _line: usize) -> Option<String> {
+            self.depth = 0;
+            Some("</mock>".to_owned())
+        }
+
+        fn opened_scope(&self) -> bool {
+            self.last_start_opened
+        }
+    }
+
+    #[test]
+    fn continuation_container_closed_emits_no_unclosed_warning() {
+        let mut processor = DirectiveProcessor::new().with_container(MockContinuation::new());
+
+        let open_a = crate::directive::parser::parse_container_line(":::mock[A]").unwrap();
+        let _ = processor.dispatch_block(open_a);
+        let open_b = crate::directive::parser::parse_container_line(":::mock[B]").unwrap();
+        let _ = processor.dispatch_block(open_b);
+        let end = crate::directive::parser::parse_container_line(":::").unwrap();
+        let _ = processor.dispatch_block(end);
+
+        processor.finalize();
+
+        assert!(
+            !processor.warnings().iter().any(|w| w.contains("unclosed")),
+            "got: {:?}",
+            processor.warnings(),
+        );
+    }
+
+    #[test]
+    fn continuation_container_unclosed_emits_one_unclosed_warning() {
+        let mut processor = DirectiveProcessor::new().with_container(MockContinuation::new());
+
+        let open_a = crate::directive::parser::parse_container_line(":::mock[A]").unwrap();
+        let _ = processor.dispatch_block(open_a);
+        // Second opener CONTINUES the scope (opened_scope() == false). Without
+        // the fix this would push a second entry and finalize() would warn
+        // twice; the single genuinely-open scope must yield exactly one warning.
+        let open_b = crate::directive::parser::parse_container_line(":::mock[B]").unwrap();
+        let _ = processor.dispatch_block(open_b);
+
+        processor.finalize();
+
+        let unclosed: Vec<_> = processor
+            .warnings()
+            .into_iter()
+            .filter(|w| w.contains("unclosed"))
+            .collect();
+        assert_eq!(unclosed.len(), 1, "got: {unclosed:?}");
     }
 }
