@@ -77,6 +77,17 @@ pub trait ContainerDirective: Send {
     /// the processor or the handler's state management.
     fn end(&mut self, line: usize) -> Option<String>;
 
+    /// Whether the most recent `start()` opened a NEW scope that a later `:::`
+    /// must close. Default `true`. Continuation-style handlers (e.g. tabs, where
+    /// several `:::tab` openers share one closing `:::`) return `false` when
+    /// `start()` merely continued an already-open scope.
+    ///
+    /// Queried by the processor immediately after `start()`, so it reflects only
+    /// the most recent call.
+    fn opened_scope(&self) -> bool {
+        true
+    }
+
     /// Register string replacements to apply after rendering.
     ///
     /// All replacements are collected and applied in a single pass.

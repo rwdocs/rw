@@ -73,7 +73,7 @@ fn delimiter_then_bold_commits_as_normal_paragraph() {
 }
 
 #[test]
-fn multi_tab_group_renders_and_warns_unclosed() {
+fn multi_tab_group_renders_without_spurious_warning() {
     let md = ":::tab[A]\n\nContent A\n\n:::tab[B]\n\nContent B\n\n:::";
     let result = render_tabs(md);
     assert!(
@@ -86,14 +86,60 @@ fn multi_tab_group_renders_and_warns_unclosed() {
     assert!(result.html.contains("Content A"), "got: {}", result.html);
     assert!(result.html.contains("Content B"), "got: {}", result.html);
     assert!(!result.html.contains("<rw-tab"), "got: {}", result.html);
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn three_tab_group_renders_without_spurious_warning() {
+    let md = ":::tab[A]\n\nContent A\n\n:::tab[B]\n\nContent B\n\n:::tab[C]\n\nContent C\n\n:::";
+    let result = render_tabs(md);
     assert!(
-        result
-            .warnings
-            .iter()
-            .any(|w| w.contains("unclosed") && w.contains("tab")),
-        "got: {:?}",
-        result.warnings,
+        result.html.contains(r#"role="tablist""#),
+        "got: {}",
+        result.html
     );
+    assert!(result.html.contains(">A</button>"), "got: {}", result.html);
+    assert!(result.html.contains(">B</button>"), "got: {}", result.html);
+    assert!(result.html.contains(">C</button>"), "got: {}", result.html);
+    assert!(result.html.contains("Content A"), "got: {}", result.html);
+    assert!(result.html.contains("Content B"), "got: {}", result.html);
+    assert!(result.html.contains("Content C"), "got: {}", result.html);
+    assert!(!result.html.contains("<rw-tab"), "got: {}", result.html);
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn unclosed_multi_tab_group_warns_exactly_once() {
+    // Two tab openers, NO final ::: — the group is genuinely unclosed and must
+    // produce exactly one "unclosed" warning, not one per extra tab.
+    let md = ":::tab[A]\n\nContent A\n\n:::tab[B]\n\nContent B";
+    let result = render_tabs(md);
+    let unclosed: Vec<_> = result
+        .warnings
+        .iter()
+        .filter(|w| w.contains("unclosed"))
+        .collect();
+    assert_eq!(unclosed.len(), 1, "got: {:?}", result.warnings);
+}
+
+#[test]
+fn two_separate_closed_tab_groups_emit_no_warnings() {
+    // Two independent closed groups in one document. The second group's first
+    // `:::tab` must re-open a fresh scope (group state resets after the first
+    // group closes), not be treated as a continuation. Pre-fix this emitted two
+    // spurious "unclosed" warnings.
+    let md = ":::tab[A]\n\nx\n\n:::tab[B]\n\ny\n\n:::\n\n\
+              between\n\n\
+              :::tab[C]\n\nz\n\n:::tab[D]\n\nw\n\n:::";
+    let result = render_tabs(md);
+    assert_eq!(
+        result.html.matches(r#"role="tablist""#).count(),
+        2,
+        "got: {}",
+        result.html
+    );
+    assert!(result.html.contains("between"), "got: {}", result.html);
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
 #[test]

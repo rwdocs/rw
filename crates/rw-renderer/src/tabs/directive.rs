@@ -51,8 +51,16 @@ pub struct TabsDirective {
     current_group: Option<TabsGroup>,
     next_group_id: usize,
     next_tab_id: usize,
-    /// Stack to track nested tabs (`group_start_line`).
+    /// Whether a tab group is currently open, as a 0-or-1 entry holding the
+    /// group's start line. Tabs do not nest: the first `:::tab` pushes, every
+    /// subsequent `:::tab` continues the same group without pushing, and the
+    /// single closing `:::` pops. So this never grows past depth 1 and cannot,
+    /// on its own, distinguish "opened a new group" from "continued one" —
+    /// `last_start_opened` carries that distinction.
     stack: Vec<usize>,
+    /// Whether the most recent `start()` opened a new tab group (vs. continued
+    /// an existing one with another `:::tab`). Read by `opened_scope()`.
+    last_start_opened: bool,
     warnings: Vec<String>,
 }
 
@@ -66,6 +74,7 @@ impl TabsDirective {
             next_group_id: 0,
             next_tab_id: 0,
             stack: Vec::new(),
+            last_start_opened: false,
             warnings: Vec::new(),
         }
     }
@@ -105,6 +114,7 @@ impl ContainerDirective for TabsDirective {
                 }],
             });
             self.stack.push(ctx.line());
+            self.last_start_opened = true;
 
             DirectiveOutput::html(format!(
                 "<rw-tabs data-id=\"{group_id}\"><rw-tab data-id=\"{tab_id}\">"
@@ -122,8 +132,14 @@ impl ContainerDirective for TabsDirective {
                 });
             }
 
+            self.last_start_opened = false;
+
             DirectiveOutput::html(format!("</rw-tab><rw-tab data-id=\"{tab_id}\">"))
         }
+    }
+
+    fn opened_scope(&self) -> bool {
+        self.last_start_opened
     }
 
     fn end(&mut self, _line: usize) -> Option<String> {
