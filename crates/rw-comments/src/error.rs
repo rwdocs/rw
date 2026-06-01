@@ -13,6 +13,12 @@ pub enum StoreError {
     /// Parent id is missing, resolved, or belongs to a different document.
     #[error("invalid parent comment: {0}")]
     InvalidParent(String),
+    /// The on-disk schema is newer than this binary understands — the DB was
+    /// written by a future version of `rw`. Downgrade is not supported.
+    #[error(
+        "comments database schema is at version {db}, but this binary supports up to {binary}; downgrade is not supported"
+    )]
+    IncompatibleSchema { db: i64, binary: i64 },
     /// Database operation failed.
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
