@@ -14,6 +14,65 @@ use crate::model::{
     Author, Comment, CommentFilter, CommentStatus, CreateComment, Selector, UpdateComment,
 };
 
+/// One forward migration applied inside a single transaction.
+///
+/// All `stmts` must be idempotent (`IF NOT EXISTS`, probe-then-`ADD COLUMN`,
+/// etc.) — the pre-framework upgrade path runs v1 against a DB that already
+/// has the `comments` table.
+struct Migration {
+    version: i64,
+    stmts: &'static [&'static str],
+}
+
+const MIGRATIONS: &[Migration] = &[Migration {
+    version: 1,
+    stmts: &[
+        "CREATE TABLE IF NOT EXISTS comments (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            parent_id TEXT,
+            body TEXT NOT NULL,
+            selectors TEXT NOT NULL,
+            author TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        "CREATE INDEX IF NOT EXISTS idx_comments_document_id ON comments (document_id)",
+        "CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments (parent_id)",
+        "CREATE INDEX IF NOT EXISTS idx_comments_document_status
+            ON comments (document_id, status)",
+    ],
+}];
+
+// Derived from MIGRATIONS so tests stay in sync automatically.
+// `#[cfg(test)]` only — production code derives `latest` from the `migrations`
+// parameter of `migrate_with` so it works correctly for test-only slices too.
+#[cfg(test)]
+const LATEST_SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;
+
+// Compile-time invariants on the MIGRATIONS slice:
+//   1. Non-empty — the LATEST_SCHEMA_VERSION index expression would panic otherwise.
+//   2. First version >= 1 — v=0 is silently skipped: the apply filter is
+//      `m.version > current` and a fresh DB starts at `current = 0`.
+//   3. Strictly monotonic — out-of-order versions mis-classify a legitimate DB
+//      as IncompatibleSchema and apply migrations in slice order, not version order.
+const _: () = {
+    assert!(!MIGRATIONS.is_empty(), "MIGRATIONS must not be empty",);
+    assert!(
+        MIGRATIONS[0].version >= 1,
+        "MIGRATIONS[0].version must be >= 1 (v=0 would be silently skipped by the apply filter)",
+    );
+    let mut i = 1;
+    while i < MIGRATIONS.len() {
+        assert!(
+            MIGRATIONS[i].version > MIGRATIONS[i - 1].version,
+            "MIGRATIONS must be strictly monotonic in version",
+        );
+        i += 1;
+    }
+};
+
 pub struct SqliteCommentStore {
     pool: SqlitePool,
 }
@@ -69,37 +128,66 @@ impl SqliteCommentStore {
     }
 
     async fn migrate(pool: &SqlitePool) -> Result<(), StoreError> {
+        Self::migrate_with(pool, MIGRATIONS).await
+    }
+
+    async fn migrate_with(pool: &SqlitePool, migrations: &[Migration]) -> Result<(), StoreError> {
+        // Do NOT call this while holding another transaction on a pool with
+        // `max_connections = 1` (e.g. `open_memory()`): it would deadlock at
+        // `pool.begin_with` — the call waits for the outer connection to be
+        // released, which can't happen until the outer transaction commits.
+
+        let latest = migrations.last().map_or(0, |m| m.version);
+
+        // Created outside the BEGIN IMMEDIATE below so it's visible to a
+        // concurrent migrator that arrives after this point and tries to read
+        // MAX(version). SQLite serializes DDL, so two racing CREATE TABLE IF
+        // NOT EXISTS calls are safe: one wins the schema-cookie bump, the
+        // other no-ops. If the transaction below rolls back, the empty table
+        // is harmless — the next call sees current = 0 and retries.
         query(
-            "CREATE TABLE IF NOT EXISTS comments (
-                id TEXT PRIMARY KEY,
-                document_id TEXT NOT NULL,
-                parent_id TEXT,
-                body TEXT NOT NULL,
-                selectors TEXT NOT NULL,
-                author TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+            "CREATE TABLE IF NOT EXISTS schema_versions (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
             )",
         )
         .execute(pool)
         .await?;
 
-        query("CREATE INDEX IF NOT EXISTS idx_comments_document_id ON comments (document_id)")
-            .execute(pool)
-            .await?;
+        // BEGIN IMMEDIATE serializes concurrent migrators: the second waits
+        // here until the first commits, then re-reads MAX and sees the
+        // version already applied, skipping it cleanly. Without it, two
+        // callers can both read MAX=0, both apply v1 DDL (idempotent), then
+        // both INSERT version=1 → PRIMARY KEY collision.
+        // The `Transaction` drop rolls back automatically on any error path.
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
 
-        query("CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments (parent_id)")
-            .execute(pool)
-            .await?;
+        let current: i64 = query("SELECT COALESCE(MAX(version), 0) AS v FROM schema_versions")
+            .fetch_one(&mut *tx)
+            .await?
+            .get("v");
 
-        query(
-            "CREATE INDEX IF NOT EXISTS idx_comments_document_status
-             ON comments (document_id, status)",
-        )
-        .execute(pool)
-        .await?;
+        // Refuse to open a DB written by a newer binary: any future migration
+        // we don't know about has already shipped data we may misread.
+        if current > latest {
+            return Err(StoreError::IncompatibleSchema {
+                db: current,
+                binary: latest,
+            });
+        }
 
+        for migration in migrations.iter().filter(|m| m.version > current) {
+            for stmt in migration.stmts {
+                query(stmt).execute(&mut *tx).await?;
+            }
+            query("INSERT INTO schema_versions (version, applied_at) VALUES (?, ?)")
+                .bind(migration.version)
+                .bind(Utc::now().to_rfc3339())
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -455,5 +543,222 @@ mod tests {
     fn default_path_joins_project_dir() {
         let p = SqliteCommentStore::default_path(Path::new("/proj/.rw"));
         assert_eq!(p, PathBuf::from("/proj/.rw/comments/sqlite.db"));
+    }
+
+    #[tokio::test]
+    async fn migrate_records_latest_version_on_fresh_db() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let v: i64 = query("SELECT COALESCE(MAX(version), 0) AS v FROM schema_versions")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap()
+            .get("v");
+        assert_eq!(v, LATEST_SCHEMA_VERSION);
+    }
+
+    #[tokio::test]
+    async fn migrate_is_idempotent_on_reopen() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        // Re-run on the same pool — already fully migrated, so no duplicate
+        // rows should appear in schema_versions.
+        SqliteCommentStore::migrate(&store.pool).await.unwrap();
+        let versions: Vec<i64> = query("SELECT version FROM schema_versions ORDER BY version")
+            .fetch_all(&store.pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| r.get::<i64, _>("version"))
+            .collect();
+        // Check exact sequence [1, 2, ..., LATEST_SCHEMA_VERSION] not just length.
+        // Catches gaps like [1, 3] pretending to be valid.
+        assert_eq!(
+            versions,
+            (1..=LATEST_SCHEMA_VERSION).collect::<Vec<_>>(),
+            "version sequence must be contiguous from 1 to LATEST_SCHEMA_VERSION"
+        );
+    }
+
+    #[tokio::test]
+    async fn migrate_refuses_db_with_newer_schema() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        // Simulate a future binary having written a higher version.
+        query("INSERT INTO schema_versions (version, applied_at) VALUES (?, ?)")
+            .bind(LATEST_SCHEMA_VERSION + 1)
+            .bind("2999-01-01T00:00:00Z")
+            .execute(&store.pool)
+            .await
+            .unwrap();
+        let err = SqliteCommentStore::migrate(&store.pool).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                StoreError::IncompatibleSchema { db, binary }
+                if db == LATEST_SCHEMA_VERSION + 1 && binary == LATEST_SCHEMA_VERSION
+            ),
+            "expected IncompatibleSchema {{ db: {}, binary: {} }}, got: {err:?}",
+            LATEST_SCHEMA_VERSION + 1,
+            LATEST_SCHEMA_VERSION,
+        );
+    }
+
+    #[tokio::test]
+    async fn migrate_upgrades_pre_framework_db() {
+        // Simulate a DB written by a pre-framework `rw` binary: the
+        // `comments` table and its indexes exist on disk, but
+        // `schema_versions` does not. Verify `SqliteCommentStore::open()`
+        // lands it at LATEST_SCHEMA_VERSION cleanly with no data loss.
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("sqlite.db");
+
+        // Pre-seed the file using the same pool config as production so the
+        // test exercises the multi-connection acquire path (max_connections
+        // = 4, WAL, synchronous = Normal, busy_timeout = 5s).
+        let pre_opts = SqliteConnectOptions::new()
+            .filename(&db_path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(Duration::from_secs(5));
+        let pre_pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(pre_opts)
+            .await
+            .unwrap();
+
+        // Mirror exactly what the pre-framework `migrate()` did: the v1 DDL
+        // statements, without `schema_versions`.
+        for stmt in &[
+            "CREATE TABLE IF NOT EXISTS comments (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                parent_id TEXT,
+                body TEXT NOT NULL,
+                selectors TEXT NOT NULL,
+                author TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            "CREATE INDEX IF NOT EXISTS idx_comments_document_id ON comments (document_id)",
+            "CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments (parent_id)",
+            "CREATE INDEX IF NOT EXISTS idx_comments_document_status
+                ON comments (document_id, status)",
+        ] {
+            query(stmt).execute(&pre_pool).await.unwrap();
+        }
+
+        // Seed a row so the assertions below actually prove the migration
+        // didn't drop+recreate the table. Without seeding, COUNT would be 0
+        // either way (data preserved OR table dropped+recreated) and the
+        // test would silently pass even on destruction.
+        query(
+            "INSERT INTO comments
+                 (id, document_id, parent_id, body, selectors, author, status, created_at, updated_at)
+             VALUES
+                 (?, ?, NULL, ?, '[]', '{\"id\":\"local:human\",\"name\":\"You\"}', 'open', ?, ?)",
+        )
+        .bind("00000000-0000-0000-0000-000000000001")
+        .bind("docs/test.md")
+        .bind("pre-framework comment body")
+        .bind("2025-01-01T00:00:00Z")
+        .bind("2025-01-01T00:00:00Z")
+        .execute(&pre_pool)
+        .await
+        .unwrap();
+
+        // Pool::Drop alone only marks-closed synchronously; it does NOT await
+        // the sqlite worker thread's actual close. Without the explicit
+        // close().await the next SqliteCommentStore::open(&path) can race a
+        // still-live background worker.
+        pre_pool.close().await;
+        drop(pre_pool);
+
+        let store = SqliteCommentStore::open(&db_path).await.unwrap();
+
+        let v: i64 = query("SELECT COALESCE(MAX(version), 0) AS v FROM schema_versions")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap()
+            .get("v");
+        assert_eq!(v, LATEST_SCHEMA_VERSION);
+
+        // Verify the pre-seeded row survived migration — proves migrate()
+        // didn't drop+recreate the table.
+        let count: i64 = query("SELECT COUNT(*) AS c FROM comments")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap()
+            .get("c");
+        assert_eq!(count, 1, "pre-framework comments must survive migration");
+        let body: String = query("SELECT body FROM comments LIMIT 1")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap()
+            .get("body");
+        assert_eq!(body, "pre-framework comment body");
+
+        // Same close-then-drop dance as pre_pool above: SqliteCommentStore
+        // holds a SqlitePool internally, and we want its worker thread done
+        // with the WAL files before TempDir cleans the directory.
+        store.pool.close().await;
+        drop(store);
+    }
+
+    #[tokio::test]
+    async fn migrate_rolls_back_on_failed_statement() {
+        // Synthetic migration: one DDL that succeeds, then an invalid SQL
+        // statement that errors. With RAII Transaction-on-Drop, the first
+        // DDL must NOT persist after the second's failure rolls the txn back.
+        const BAD_MIGRATIONS: &[Migration] = &[Migration {
+            version: 1,
+            stmts: &[
+                "CREATE TABLE rollback_probe (id INTEGER PRIMARY KEY)",
+                "this is not valid sql",
+            ],
+        }];
+
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        // Clear the schema_versions row written by the production migrate()
+        // that ran during open(), so migrate_with sees current = 0 and
+        // actually tries to apply BAD_MIGRATIONS. Leaving the production
+        // `comments` table around is fine — BAD_MIGRATIONS doesn't touch
+        // it, and the rollback assertions below are about rollback_probe.
+        query("DELETE FROM schema_versions")
+            .execute(&store.pool)
+            .await
+            .unwrap();
+
+        let err = SqliteCommentStore::migrate_with(&store.pool, BAD_MIGRATIONS)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, StoreError::Sqlx(_)),
+            "expected StoreError::Sqlx wrapping the SQL parse error, got: {err:?}"
+        );
+
+        // schema_versions still exists (created pre-txn) but contains zero
+        // rows: the INSERT inside the txn was rolled back.
+        let count: i64 = query("SELECT COUNT(*) AS c FROM schema_versions")
+            .fetch_one(&store.pool)
+            .await
+            .unwrap()
+            .get("c");
+        assert_eq!(count, 0, "schema_versions must be empty after rollback");
+
+        // rollback_probe must NOT exist in the schema — the CREATE TABLE
+        // inside the transaction was rolled back. Query sqlite_master
+        // directly rather than catching an error string from a SELECT on
+        // the (absent) table, which would rely on SQLite's error wording.
+        let table_exists: bool = query(
+            "SELECT COUNT(*) > 0 AS e FROM sqlite_master WHERE type='table' AND name='rollback_probe'",
+        )
+        .fetch_one(&store.pool)
+        .await
+        .unwrap()
+        .get::<bool, _>("e");
+        assert!(
+            !table_exists,
+            "rollback_probe table must not exist after rollback"
+        );
     }
 }

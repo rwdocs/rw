@@ -86,4 +86,13 @@ mod tests {
         assert!(err.to_string().contains("attachment(s)"));
         assert!(err.to_string().contains("--out -"));
     }
+
+    #[test]
+    fn incompatible_schema_exits_1() {
+        // Raised when SqliteCommentStore::open() refuses a DB written by a newer
+        // binary. Ensure a future exit_code arm doesn't change it to something
+        // other than 1 (unexpected error).
+        let err = CliError::Store(StoreError::IncompatibleSchema { db: 2, binary: 1 });
+        assert_eq!(err.exit_code(), 1);
+    }
 }

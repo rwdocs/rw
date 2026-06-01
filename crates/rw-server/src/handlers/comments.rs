@@ -118,6 +118,13 @@ mod tests {
             )),
             StatusCode::INTERNAL_SERVER_ERROR,
         );
+        // Raised only at store-open time, before any handler runs; handlers
+        // never see it in production. Ensure a future arm doesn't change the
+        // status code if IncompatibleSchema is ever plumbed through a handler.
+        assert_eq!(
+            from_store(StoreError::IncompatibleSchema { db: 2, binary: 1 }),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        );
         assert_eq!(
             from_create(CreateError::Store(StoreError::NotFound(Uuid::nil()))),
             StatusCode::NOT_FOUND,
