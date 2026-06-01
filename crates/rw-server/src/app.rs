@@ -34,7 +34,9 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/_api/comments/{id}",
-            get(handlers::comments::get_comment).patch(handlers::comments::update_comment),
+            get(handlers::comments::get_comment)
+                .patch(handlers::comments::update_comment)
+                .delete(handlers::comments::delete_comment),
         );
 
     // WebSocket for live reload

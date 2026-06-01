@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   produced any PNG attachments (so a doc with no diagram fences pipes
   cleanly regardless of `--kroki-url`); `--strict` exits non-zero on any
   warning or unmatched comment.
+- Delete replies from the browser. Each reply in a comment thread has a Delete button; clicking it immediately marks the reply as deleted on the server (`deletedAt` set on the row, never destructively removed) but keeps the reply visible on the page in a muted, struck-through state with a Restore button — so a misclick can be undone in the same session without confirmation prompts. Top-level comments are not deletable; use Resolve instead. Reload, navigation, or any other comment refetch hides deleted replies. The HTTP API gains `DELETE /_api/comments/{id}` (returns the soft-deleted row, idempotent on repeat), a `deletedAt` timestamp field on every comment (omitted when the row is live), and `canDelete` / `canRestore` flags, letting backends serving the viewer (e.g. a future Backstage plugin) enforce per-user permissions.
 
 ### Removed
 

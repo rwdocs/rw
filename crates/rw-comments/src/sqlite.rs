@@ -24,26 +24,33 @@ struct Migration {
     stmts: &'static [&'static str],
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    stmts: &[
-        "CREATE TABLE IF NOT EXISTS comments (
-            id TEXT PRIMARY KEY,
-            document_id TEXT NOT NULL,
-            parent_id TEXT,
-            body TEXT NOT NULL,
-            selectors TEXT NOT NULL,
-            author TEXT NOT NULL,
-            status TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )",
-        "CREATE INDEX IF NOT EXISTS idx_comments_document_id ON comments (document_id)",
-        "CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments (parent_id)",
-        "CREATE INDEX IF NOT EXISTS idx_comments_document_status
-            ON comments (document_id, status)",
-    ],
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        stmts: &[
+            "CREATE TABLE IF NOT EXISTS comments (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                parent_id TEXT,
+                body TEXT NOT NULL,
+                selectors TEXT NOT NULL,
+                author TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            "CREATE INDEX IF NOT EXISTS idx_comments_document_id ON comments (document_id)",
+            "CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments (parent_id)",
+            "CREATE INDEX IF NOT EXISTS idx_comments_document_status
+                ON comments (document_id, status)",
+        ],
+    },
+    Migration {
+        // Soft-delete signal: a nullable `deleted_at` timestamp column.
+        version: 2,
+        stmts: &["ALTER TABLE comments ADD COLUMN deleted_at TEXT"],
+    },
+];
 
 // Derived from MIGRATIONS so tests stay in sync automatically.
 // `#[cfg(test)]` only — production code derives `latest` from the `migrations`
@@ -58,7 +65,7 @@ const LATEST_SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;
 //   3. Strictly monotonic — out-of-order versions mis-classify a legitimate DB
 //      as IncompatibleSchema and apply migrations in slice order, not version order.
 const _: () = {
-    assert!(!MIGRATIONS.is_empty(), "MIGRATIONS must not be empty",);
+    assert!(!MIGRATIONS.is_empty(), "MIGRATIONS must not be empty");
     assert!(
         MIGRATIONS[0].version >= 1,
         "MIGRATIONS[0].version must be >= 1 (v=0 would be silently skipped by the apply filter)",
@@ -207,6 +214,8 @@ impl SqliteCommentStore {
         let status_str: String = row.get("status");
         let status: CommentStatus = status_str.parse()?;
 
+        let deleted_at: Option<String> = row.get("deleted_at");
+
         Ok(Comment {
             id,
             document_id: row.get("document_id"),
@@ -217,6 +226,7 @@ impl SqliteCommentStore {
             status,
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
+            deleted_at,
         })
     }
 
@@ -282,23 +292,31 @@ impl SqliteCommentStore {
             status: CommentStatus::Open,
             created_at: now.clone(),
             updated_at: now,
+            deleted_at: None,
         })
     }
 
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if no comment with `id` exists.
+    /// Returns [`StoreError::NotFound`] if no comment with `id` exists, or if it
+    /// exists but has been soft-deleted (rows with `deleted_at IS NOT NULL` are
+    /// always hidden).
     pub async fn get(&self, id: Uuid) -> Result<Comment, StoreError> {
-        let row = query("SELECT * FROM comments WHERE id = ?")
-            .bind(id.to_string())
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or(StoreError::NotFound(id))?;
+        let row = query(
+            "SELECT * FROM comments
+             WHERE id = ?1
+               AND deleted_at IS NULL",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(StoreError::NotFound(id))?;
 
         Self::row_to_comment(&row)
     }
 
-    /// List comments matching the given filter criteria.
+    /// List comments matching the given filter criteria. Soft-deleted rows
+    /// (`deleted_at IS NOT NULL`) are always excluded.
     pub async fn list(&self, filter: CommentFilter) -> Result<Vec<Comment>, StoreError> {
         let parent_id_str = filter.parent_id.map(|id| id.to_string());
         let top_level_only = filter.parent_id.is_none() && filter.top_level_only;
@@ -309,6 +327,7 @@ impl SqliteCommentStore {
                AND (?2 IS NULL OR status = ?2)
                AND (?3 IS NULL OR parent_id = ?3)
                AND (?4 = 0 OR parent_id IS NULL)
+               AND deleted_at IS NULL
              ORDER BY created_at ASC",
         )
         .bind(filter.document_id.as_deref())
@@ -324,9 +343,18 @@ impl SqliteCommentStore {
     /// Update a comment's fields and return the updated comment. Unset fields
     /// in `input` are left unchanged.
     ///
+    /// Soft-deleted rows (`deleted_at IS NOT NULL`) are treated as absent: any
+    /// update that targets such a row returns [`StoreError::NotFound`] —
+    /// *except* the restore case, where the caller sets `status` to
+    /// [`CommentStatus::Open`]. Restore clears `deleted_at` and sets
+    /// `status='open'` atomically. In this model only replies can be deleted
+    /// (top-level comments use Resolve), so restore has no parent-state
+    /// preconditions: top-level parents are never deleted.
+    ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if no comment with `id` exists.
+    /// - [`StoreError::NotFound`] if no comment with `id` exists, or if it
+    ///   exists and is soft-deleted and the caller did not request restore.
     pub async fn update(&self, id: Uuid, input: UpdateComment) -> Result<Comment, StoreError> {
         let now = Utc::now().to_rfc3339();
         let selectors_json = input
@@ -335,13 +363,41 @@ impl SqliteCommentStore {
             .map(serde_json::to_string)
             .transpose()?;
 
+        // Restore branch: only triggered when caller asks for Open AND the row
+        // is currently deleted. Try the guarded restore UPDATE first; on empty
+        // RETURNING, fall through to the non-restore UPDATE below.
+        if matches!(input.status, Some(CommentStatus::Open)) {
+            let row = query(
+                "UPDATE comments AS c
+                    SET status = 'open',
+                        deleted_at = NULL,
+                        updated_at = ?2
+                  WHERE c.id = ?1
+                    AND c.deleted_at IS NOT NULL
+                RETURNING *",
+            )
+            .bind(id.to_string())
+            .bind(&now)
+            .fetch_optional(&self.pool)
+            .await?;
+
+            if let Some(row) = row {
+                return Self::row_to_comment(&row);
+            }
+            // Empty RETURNING → row is either missing or already live; the
+            // non-restore UPDATE below handles both (NotFound for missing,
+            // no-op set-to-open for already-live).
+        }
+
+        // Non-restore branch: existing UPDATE plus `deleted_at IS NULL` guard.
         let row = query(
-            "UPDATE comments
+            "UPDATE comments AS c
                 SET body = COALESCE(?, body),
                     status = COALESCE(?, status),
                     selectors = COALESCE(?, selectors),
                     updated_at = ?
-              WHERE id = ?
+              WHERE c.id = ?
+                AND c.deleted_at IS NULL
           RETURNING *",
         )
         .bind(input.body.as_deref())
@@ -354,6 +410,73 @@ impl SqliteCommentStore {
         .ok_or(StoreError::NotFound(id))?;
 
         Self::row_to_comment(&row)
+    }
+
+    /// Soft-delete a reply by stamping `deleted_at`.
+    ///
+    /// Top-level comments (those without a `parent_id`) are never deletable in
+    /// this model — use Resolve instead. Attempting to delete a top-level row
+    /// returns [`StoreError::NotFound`] (we treat "you tried to delete an
+    /// undeletable row" as "no deletable row matched"). `status` is left
+    /// untouched — the canonical deleted signal is `deleted_at IS NOT NULL`.
+    ///
+    /// Returns the resulting comment. Idempotent: deleting an already-deleted
+    /// reply returns the existing soft-deleted row without bumping
+    /// `updated_at`.
+    ///
+    /// # Errors
+    ///
+    /// - [`StoreError::NotFound`] if no comment with `id` exists, or if the
+    ///   row exists but is a top-level comment (which can't be deleted).
+    pub async fn delete_comment(&self, id: Uuid) -> Result<Comment, StoreError> {
+        let now = Utc::now().to_rfc3339();
+
+        // Hot path: guarded single statement. Only operates on rows that
+        // currently have a parent (i.e. are replies) and are not already
+        // soft-deleted.
+        let hot = query(
+            "UPDATE comments AS c
+                SET deleted_at = ?2,
+                    updated_at = ?2
+              WHERE c.id = ?1
+                AND c.deleted_at IS NULL
+                AND c.parent_id IS NOT NULL
+            RETURNING *",
+        )
+        .bind(id.to_string())
+        .bind(&now)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = hot {
+            return Self::row_to_comment(&row);
+        }
+
+        // Cold path: hot-path UPDATE returned no row. Classify why via a
+        // best-effort SELECT — under WAL with multiple pool connections a
+        // concurrent writer could change the row between UPDATE and SELECT,
+        // but the only ambiguity is missing-row vs. concurrent-flip, both of
+        // which map to NotFound.
+        let diag = query("SELECT * FROM comments WHERE id = ?1")
+            .bind(id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let Some(row) = diag else {
+            return Err(StoreError::NotFound(id));
+        };
+        let parent_id_str: Option<String> = row.get("parent_id");
+        let already_deleted = row.get::<Option<String>, _>("deleted_at").is_some();
+
+        // Idempotent re-DELETE of a reply — return existing row without
+        // bumping updated_at.
+        if already_deleted && parent_id_str.is_some() {
+            return Self::row_to_comment(&row);
+        }
+
+        // Top-level row (parent_id IS NULL) → not deletable, surface as NotFound.
+        // Or a concurrent flip on a live reply → also NotFound.
+        Err(StoreError::NotFound(id))
     }
 }
 
@@ -545,6 +668,138 @@ mod tests {
         assert_eq!(p, PathBuf::from("/proj/.rw/comments/sqlite.db"));
     }
 
+    #[test]
+    fn store_error_not_found_and_invalid_parent_display_clearly() {
+        let id = Uuid::new_v4();
+        let a = StoreError::NotFound(id);
+        assert!(
+            a.to_string().contains("comment not found"),
+            "NotFound display = {a}"
+        );
+        let b = StoreError::InvalidParent("bad parent".to_owned());
+        assert!(
+            b.to_string().contains("invalid parent"),
+            "InvalidParent display = {b}"
+        );
+    }
+
+    /// Helper: create a parent + reply pair on the same document and return both.
+    async fn parent_and_reply(store: &SqliteCommentStore, doc: &str) -> (Comment, Comment) {
+        let parent = store.create(seed(doc, "p")).await.unwrap();
+        let reply = store
+            .create(CreateComment {
+                document_id: doc.into(),
+                parent_id: Some(parent.id),
+                author: None,
+                body: "r".into(),
+                selectors: vec![],
+            })
+            .await
+            .unwrap();
+        (parent, reply)
+    }
+
+    #[tokio::test]
+    async fn delete_reply_success() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let (_, reply) = parent_and_reply(&store, "a.md").await;
+        let deleted = store.delete_comment(reply.id).await.unwrap();
+        assert!(deleted.deleted_at.is_some());
+        assert!(deleted.updated_at >= reply.updated_at);
+        // `status` is intentionally left untouched — the signal is now
+        // `deleted_at IS NOT NULL`.
+        assert_eq!(deleted.status, CommentStatus::Open);
+    }
+
+    #[tokio::test]
+    async fn delete_missing_is_not_found() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let err = store.delete_comment(Uuid::new_v4()).await.unwrap_err();
+        assert_matches!(err, StoreError::NotFound(_));
+    }
+
+    #[tokio::test]
+    async fn delete_top_level_is_not_found() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let parent = store.create(seed("a.md", "p")).await.unwrap();
+        let err = store.delete_comment(parent.id).await.unwrap_err();
+        assert_matches!(err, StoreError::NotFound(_));
+        // parent row stays open
+        let still = store.get(parent.id).await.unwrap();
+        assert_eq!(still.status, CommentStatus::Open);
+    }
+
+    #[tokio::test]
+    async fn delete_already_deleted_reply_is_idempotent_with_unchanged_updated_at() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let (_, reply) = parent_and_reply(&store, "a.md").await;
+        let first = store.delete_comment(reply.id).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        let second = store.delete_comment(reply.id).await.unwrap();
+        assert_eq!(first.updated_at, second.updated_at);
+        assert!(second.deleted_at.is_some());
+        assert_eq!(first.deleted_at, second.deleted_at);
+    }
+
+    #[tokio::test]
+    async fn restore_reply_via_update_to_open_succeeds() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let (_, reply) = parent_and_reply(&store, "a.md").await;
+        let _ = store.delete_comment(reply.id).await.unwrap();
+        let restored = store
+            .update(
+                reply.id,
+                UpdateComment {
+                    body: None,
+                    status: Some(CommentStatus::Open),
+                    selectors: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(restored.status, CommentStatus::Open);
+        assert!(restored.deleted_at.is_none());
+        assert!(restored.updated_at > reply.updated_at);
+    }
+
+    #[tokio::test]
+    async fn update_resolve_on_deleted_reply_returns_not_found() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let (_, reply) = parent_and_reply(&store, "a.md").await;
+        let _ = store.delete_comment(reply.id).await.unwrap();
+        let err = store
+            .update(
+                reply.id,
+                UpdateComment {
+                    body: None,
+                    status: Some(CommentStatus::Resolved),
+                    selectors: None,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_matches!(err, StoreError::NotFound(_));
+    }
+
+    #[tokio::test]
+    async fn update_body_on_deleted_reply_returns_not_found() {
+        let store = SqliteCommentStore::open_memory().await.unwrap();
+        let (_, reply) = parent_and_reply(&store, "a.md").await;
+        let _ = store.delete_comment(reply.id).await.unwrap();
+        let err = store
+            .update(
+                reply.id,
+                UpdateComment {
+                    body: Some("new".into()),
+                    status: None,
+                    selectors: None,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_matches!(err, StoreError::NotFound(_));
+    }
+
     #[tokio::test]
     async fn migrate_records_latest_version_on_fresh_db() {
         let store = SqliteCommentStore::open_memory().await.unwrap();
@@ -589,15 +844,10 @@ mod tests {
             .await
             .unwrap();
         let err = SqliteCommentStore::migrate(&store.pool).await.unwrap_err();
-        assert!(
-            matches!(
-                err,
-                StoreError::IncompatibleSchema { db, binary }
-                if db == LATEST_SCHEMA_VERSION + 1 && binary == LATEST_SCHEMA_VERSION
-            ),
-            "expected IncompatibleSchema {{ db: {}, binary: {} }}, got: {err:?}",
-            LATEST_SCHEMA_VERSION + 1,
-            LATEST_SCHEMA_VERSION,
+        assert_matches!(
+            err,
+            StoreError::IncompatibleSchema { db, binary }
+            if db == LATEST_SCHEMA_VERSION + 1 && binary == LATEST_SCHEMA_VERSION
         );
     }
 
@@ -731,10 +981,7 @@ mod tests {
         let err = SqliteCommentStore::migrate_with(&store.pool, BAD_MIGRATIONS)
             .await
             .unwrap_err();
-        assert!(
-            matches!(err, StoreError::Sqlx(_)),
-            "expected StoreError::Sqlx wrapping the SQL parse error, got: {err:?}"
-        );
+        assert_matches!(err, StoreError::Sqlx(_));
 
         // schema_versions still exists (created pre-txn) but contains zero
         // rows: the INSERT inside the txn was rolled back.

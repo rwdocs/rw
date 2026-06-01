@@ -82,6 +82,11 @@ impl FromStr for CommentStatus {
 }
 
 /// A comment attached to a document.
+///
+/// Soft-deletion is signalled by `deleted_at` being `Some(timestamp)`; live
+/// rows have `deleted_at: None`. `status` only ever carries `Open` /
+/// `Resolved` — the previous `Deleted` variant has been folded into the
+/// `deleted_at` column.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Comment {
@@ -95,6 +100,8 @@ pub struct Comment {
     pub status: CommentStatus,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<String>,
 }
 
 /// Input for creating a new comment at the storage layer. Selectors are
@@ -126,6 +133,11 @@ pub struct NewComment {
 }
 
 /// Input for updating an existing comment.
+///
+/// `status` carries [`CommentStatus`] directly — soft-delete and restore go
+/// through `SqliteCommentStore::delete_comment` and the implicit restore branch
+/// of `update` (when `status: Some(Open)` targets a row with
+/// `deleted_at IS NOT NULL`).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateComment {
@@ -145,4 +157,33 @@ pub struct CommentFilter {
     pub parent_id: Option<Uuid>,
     #[serde(default)]
     pub top_level_only: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn comment_status_round_trips_through_as_str_and_from_str() {
+        for status in [CommentStatus::Open, CommentStatus::Resolved] {
+            let s = status.as_str();
+            let parsed: CommentStatus = s.parse().unwrap();
+            assert_eq!(parsed, status);
+        }
+    }
+
+    #[test]
+    fn comment_status_rejects_deleted_via_serde() {
+        let err = serde_json::from_str::<CommentStatus>("\"deleted\"");
+        assert!(
+            err.is_err(),
+            "deserializing 'deleted' as CommentStatus must fail"
+        );
+    }
+
+    #[test]
+    fn comment_status_from_str_rejects_deleted() {
+        let err = "deleted".parse::<CommentStatus>();
+        assert!(err.is_err(), "FromStr must reject 'deleted'");
+    }
 }

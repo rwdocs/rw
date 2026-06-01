@@ -218,7 +218,7 @@ crates/
         ├── handlers/         # API endpoints (config, pages, navigation, comments)
         ├── live_reload/      # File watching and WebSocket broadcasting
         ├── static_files.rs   # Static file serving with SPA fallback
-        └── testing.rs        # TestServer harness (feature = "test-utils")
+        └── testing.rs        # TestServer harness (cfg(test) only)
 
 packages/
 ├── viewer/                # @rwdocs/viewer — Svelte 5 SPA (Vite + Tailwind)

@@ -80,7 +80,14 @@ export class Comments {
 
   create = async (input: CreateCommentRequest) => {
     const comment = await this.apiClient.create(input);
-    this.items = [...this.items, comment];
+    if (this.documentId === comment.documentId) {
+      // Append the newly-created row. `canDelete` / `canRestore` are purely
+      // row-local (depend only on this row's status + parentId), so siblings
+      // don't need re-projection.
+      this.items = [...this.items, comment];
+    }
+    // If response.documentId !== this.documentId, the user navigated away;
+    // don't touch this.items to avoid polluting the new document's view.
     return comment;
   };
 
@@ -92,6 +99,26 @@ export class Comments {
   reopen = async (id: string) => {
     const updated = await this.apiClient.update(id, { status: "open" });
     this.items = this.items.map((c) => (c.id === id ? updated : c));
+  };
+
+  delete = async (id: string) => {
+    const deleted = await this.apiClient.delete(id);
+    if (this.documentId === deleted.documentId) {
+      // Replace the row with its deleted projection. Keep it visible in-session
+      // so the user can restore it; reload will hide it (server filters deleted).
+      this.items = this.items.map((c) => (c.id === id ? deleted : c));
+    }
+    // If response.documentId !== this.documentId, the user navigated away;
+    // don't touch this.items to avoid polluting the new document's view.
+  };
+
+  restore = async (id: string) => {
+    const restored = await this.apiClient.update(id, { status: "open" });
+    if (this.documentId === restored.documentId) {
+      this.items = this.items.map((c) => (c.id === id ? restored : c));
+    }
+    // If response.documentId !== this.documentId, the user navigated away;
+    // don't touch this.items to avoid polluting the new document's view.
   };
 
   get threads(): Comment[] {

@@ -423,6 +423,75 @@ test.describe("Inline comments", () => {
     expect(persisted.selectors).toHaveLength(2);
   });
 
+  test("top-level comments never show a Delete button", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+    await createCommentViaUI(page, "code highlighting", "Top-level only resolves");
+
+    const sidebar = page.getByRole("complementary", { name: "Comments" });
+    await expect(sidebar.getByText("Top-level only resolves")).toBeVisible();
+
+    // Top-level uses Resolve (not Delete) in this model.
+    await expect(sidebar.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+    await expect(sidebar.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
+  });
+
+  test("delete a reply and restore in session", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    // Create parent + a reply
+    await createCommentViaUI(page, "code highlighting", "Parent thread");
+    const sidebar = page.getByRole("complementary", { name: "Comments" });
+    const replyTextarea = sidebar.getByPlaceholder("Write a reply...");
+    await replyTextarea.fill("Mistaken reply");
+    await replyTextarea.press("Meta+Enter");
+    await expect(sidebar.getByText("Mistaken reply")).toBeVisible();
+
+    // Only the reply has a Delete button (top-level is never deletable).
+    await expect(sidebar.getByRole("button", { name: "Delete", exact: true })).toHaveCount(1);
+    await sidebar.getByRole("button", { name: "Delete", exact: true }).click();
+
+    // Deleted reply swaps Delete for Restore.
+    await expect(sidebar.getByRole("button", { name: "Restore", exact: true })).toHaveCount(1);
+    await expect(sidebar.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
+
+    // Restore — Delete returns, Restore disappears.
+    await sidebar.getByRole("button", { name: "Restore", exact: true }).click();
+    await expect(sidebar.getByRole("button", { name: "Delete", exact: true })).toHaveCount(1);
+    await expect(sidebar.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
+  });
+
+  test("delete a reply and reload — reply is gone", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+    await createCommentViaUI(page, "code highlighting", "Parent of vanishing reply");
+
+    const sidebar = page.getByRole("complementary", { name: "Comments" });
+    const replyTextarea = sidebar.getByPlaceholder("Write a reply...");
+    await replyTextarea.fill("Vanish after reload");
+    await replyTextarea.press("Meta+Enter");
+    await expect(sidebar.getByText("Vanish after reload")).toBeVisible();
+
+    await sidebar.getByRole("button", { name: "Delete", exact: true }).click();
+    // Confirm the soft-delete landed: Restore button now exists in the row.
+    await expect(sidebar.getByRole("button", { name: "Restore", exact: true })).toHaveCount(1);
+
+    // Reload — the server filters out deleted comments by default, so the
+    // reply body should be gone after refetch.
+    await page.reload();
+    await page.getByRole("article").waitFor();
+
+    await expect(page.getByText("Vanish after reload")).toBeHidden();
+    // The API should not return the deleted reply either.
+    const list = await page.evaluate(async () => {
+      const res = await fetch("/_api/comments?documentId=");
+      return res.json();
+    });
+    const found = (list as { body: string }[]).find((c) => c.body === "Vanish after reload");
+    expect(found).toBeUndefined();
+  });
+
   test("overlapping comments render with nested wrappers and translucent backgrounds", async ({
     page,
   }) => {

@@ -22,6 +22,11 @@ export interface Comment {
   status: CommentStatus;
   createdAt: string;
   updatedAt: string;
+  /** Soft-delete timestamp. Set when the comment was deleted; omitted on live
+   *  rows. The canonical "is deleted" signal is `deletedAt != null`. */
+  deletedAt?: string | null;
+  canDelete: boolean;
+  canRestore: boolean;
 }
 
 export interface CreateCommentRequest {
@@ -33,6 +38,6 @@ export interface CreateCommentRequest {
 
 export interface UpdateCommentRequest {
   body?: string;
-  status?: CommentStatus;
+  status?: "open" | "resolved";
   selectors?: Selector[];
 }

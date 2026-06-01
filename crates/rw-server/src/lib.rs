@@ -60,6 +60,8 @@ mod live_reload;
 mod middleware;
 mod state;
 mod static_files;
+#[cfg(test)]
+mod testing;
 
 pub use error::ServerError;
 
