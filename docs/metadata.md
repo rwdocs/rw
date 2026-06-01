@@ -1,11 +1,12 @@
 # Page Metadata
 
-Pages can have metadata defined in two ways:
+Pages can have metadata defined in three ways:
 
 1. **Frontmatter** — YAML block at the top of a markdown file, delimited by `---`
-2. **Sidecar file** — `meta.yaml` in the same directory as `index.md`
+2. **Directory sidecar** — `meta.yaml` in a directory, applying to that directory's page
+3. **Named sidecar** — `<name>.meta.yaml`, applying to the page at `<name>` (a sibling `<name>.md`, or a content-less entity with no markdown)
 
-When both exist, frontmatter values override meta.yaml. Variables (`vars`) are deep-merged at the key level.
+When both a markdown file and its sidecar exist, frontmatter values override the sidecar. Variables (`vars`) are deep-merged at the key level.
 
 ## Examples
 
@@ -105,6 +106,38 @@ Metadata is inherited from parent directories:
 - `namespace` -- inherited (child can override)
 - `pages` -- never inherited
 - `vars` -- deep merged (child values override parent keys)
+
+## Named sidecar files (`<name>.meta.yaml`)
+
+A `<name>.meta.yaml` file declares metadata for the page at `<name>`, the same
+way `<name>.md` declares content there. Two uses:
+
+- **Content-less entities** — register a Backstage component or system that
+  exists only to build catalog relations, without creating a subfolder:
+
+  ```
+  systems/
+    payments.meta.yaml   # kind: component — no subfolder, no markdown
+    billing.meta.yaml
+  ```
+
+- **Sidecar for a standalone page** — attach metadata to an existing
+  `guide.md` by placing `guide.meta.yaml` beside it.
+
+The suffix follows the configured metadata filename: with the default it is
+`<name>.meta.yaml`; if you configure a custom filename such as `config.yml`, the
+named form is `<name>.config.yml`.
+
+Named sidecars are **leaf-only**: unlike a directory `meta.yaml`, a
+`<name>.meta.yaml` does not cascade `vars` to any descendant pages.
+
+**Precedence.** If both a directory `meta.yaml` and a sibling `<name>.meta.yaml`
+resolve to the same page, the directory form wins.
+
+**`index.<meta_filename>`.** A file named `index.meta.yaml` is treated as the
+directory's metadata (identical to a plain `meta.yaml` in that directory), not as
+a named sidecar for a page called `index`. It is honored but logs a warning
+suggesting you rename it to `meta.yaml`.
 
 ## Virtual Pages
 

@@ -119,30 +119,57 @@ impl Scanner {
     }
 
     /// Group source files into document references by `url_path`.
+    ///
+    /// Metadata collisions on one url path are resolved deterministically by
+    /// `MetaRank` (lower wins: canonical bare form, then the `index.` variant,
+    /// then a sibling), so the chosen `meta_path` matches `meta()`'s resolution.
     fn group_into_documents(files: Vec<SourceFile>) -> Vec<DocumentRef> {
+        use crate::source::MetaRank;
+
         let mut docs: HashMap<String, DocumentRef> = HashMap::new();
+        // Rank of the metadata file currently stored in each DocumentRef.
+        let mut meta_rank: HashMap<String, MetaRank> = HashMap::new();
 
         for file in files {
             let doc = docs
                 .entry(file.url_path.clone())
                 .or_insert_with(|| DocumentRef {
-                    url_path: file.url_path,
+                    url_path: file.url_path.clone(),
                     content_path: None,
                     meta_path: None,
                 });
 
-            let (target, kind_name) = match file.kind {
-                SourceKind::Content => (&mut doc.content_path, "content"),
-                SourceKind::Metadata => (&mut doc.meta_path, "metadata"),
-            };
-
-            if target.is_some() {
-                tracing::warn!(
-                    url_path = %doc.url_path,
-                    "Multiple {kind_name} files for same url_path, using last"
-                );
+            match file.kind {
+                SourceKind::Content => {
+                    if doc.content_path.is_some() {
+                        tracing::warn!(
+                            url_path = %doc.url_path,
+                            "Multiple content files for same url_path, using last"
+                        );
+                    }
+                    doc.content_path = Some(file.path);
+                }
+                SourceKind::Metadata => {
+                    // Content files have meta_rank None; metadata always Some.
+                    let incoming = file.meta_rank.unwrap_or(MetaRank::Sibling);
+                    match meta_rank.get(&doc.url_path).copied() {
+                        None => {
+                            doc.meta_path = Some(file.path);
+                            meta_rank.insert(doc.url_path.clone(), incoming);
+                        }
+                        Some(stored) => {
+                            tracing::warn!(
+                                url_path = %doc.url_path,
+                                "Multiple metadata files for same url_path, using highest precedence"
+                            );
+                            if incoming < stored {
+                                doc.meta_path = Some(file.path);
+                                meta_rank.insert(doc.url_path.clone(), incoming);
+                            }
+                        }
+                    }
+                }
             }
-            *target = Some(file.path);
         }
 
         docs.into_values().collect()
@@ -383,6 +410,107 @@ mod tests {
         assert_eq!(refs[0].url_path, "");
         assert!(refs[0].content_path.is_none());
         assert!(refs[0].meta_path.is_some());
+    }
+
+    #[test]
+    fn test_scan_sidecar_and_md_merge() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("payments.md"), "# Payments").unwrap();
+        fs::write(
+            temp_dir.path().join("payments.meta.yaml"),
+            "kind: component",
+        )
+        .unwrap();
+
+        let scanner = Scanner::new(temp_dir.path(), "meta.yaml");
+        let refs = scanner.scan();
+
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].url_path, "payments");
+        assert!(
+            refs[0]
+                .content_path
+                .as_ref()
+                .unwrap()
+                .ends_with("payments.md")
+        );
+        assert!(
+            refs[0]
+                .meta_path
+                .as_ref()
+                .unwrap()
+                .ends_with("payments.meta.yaml")
+        );
+    }
+
+    #[test]
+    fn test_scan_content_less_sidecar() {
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("payments.meta.yaml"),
+            "kind: component",
+        )
+        .unwrap();
+
+        let scanner = Scanner::new(temp_dir.path(), "meta.yaml");
+        let refs = scanner.scan();
+
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].url_path, "payments");
+        assert!(refs[0].content_path.is_none());
+        assert!(
+            refs[0]
+                .meta_path
+                .as_ref()
+                .unwrap()
+                .ends_with("payments.meta.yaml")
+        );
+    }
+
+    #[test]
+    fn test_scan_bare_meta_wins_over_index_variant() {
+        let temp_dir = create_test_dir();
+        let dir = temp_dir.path().join("dir");
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("meta.yaml"), "kind: domain").unwrap();
+        fs::write(dir.join("index.meta.yaml"), "kind: ignored").unwrap();
+
+        let scanner = Scanner::new(temp_dir.path(), "meta.yaml");
+        let refs = scanner.scan();
+
+        let dir_ref = refs.iter().find(|r| r.url_path == "dir").unwrap();
+        assert!(
+            dir_ref.meta_path.as_ref().unwrap().ends_with("meta.yaml"),
+            "canonical bare meta.yaml must win over index.meta.yaml regardless of walk order"
+        );
+        assert!(
+            !dir_ref
+                .meta_path
+                .as_ref()
+                .unwrap()
+                .ends_with("index.meta.yaml")
+        );
+    }
+
+    #[test]
+    fn test_scan_index_variant_alone_is_directory_meta() {
+        let temp_dir = create_test_dir();
+        let dir = temp_dir.path().join("dir");
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("index.meta.yaml"), "kind: domain").unwrap();
+
+        let scanner = Scanner::new(temp_dir.path(), "meta.yaml");
+        let refs = scanner.scan();
+
+        let dir_ref = refs.iter().find(|r| r.url_path == "dir").unwrap();
+        assert!(dir_ref.content_path.is_none());
+        assert!(
+            dir_ref
+                .meta_path
+                .as_ref()
+                .unwrap()
+                .ends_with("index.meta.yaml")
+        );
     }
 
     #[test]
