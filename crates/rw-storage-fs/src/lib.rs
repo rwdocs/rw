@@ -50,7 +50,7 @@ use rw_storage::{
     StorageEventKind, StorageEventReceiver, WatchHandle,
 };
 use scanner::{DocumentRef, Scanner};
-use source::file_path_to_url;
+use source::{Classification, classify_relpath, file_path_to_url};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -123,7 +123,8 @@ const DEFAULT_META_FILENAME: &str = "meta.yaml";
 impl FsStorage {
     /// Create a new filesystem storage.
     ///
-    /// Watches `**/*.md` and `meta.yaml` files for changes.
+    /// Watches `**/*.md`, `meta.yaml`, and `*.meta.yaml` (named sidecar / index
+    /// form) files for changes.
     ///
     /// # Arguments
     ///
@@ -135,7 +136,7 @@ impl FsStorage {
 
     /// Create a new filesystem storage with a custom metadata filename.
     ///
-    /// Watches `**/*.md` and `**/{meta_filename}` files for changes.
+    /// Watches `**/*.md`, `**/{meta_filename}`, and `**/*.{meta_filename}` files for changes.
     ///
     /// # Arguments
     ///
@@ -146,6 +147,7 @@ impl FsStorage {
         let watch_patterns = vec![
             Pattern::new("**/*.md").expect("invalid glob pattern"),
             Pattern::new(&format!("**/{meta_filename}")).expect("invalid glob pattern"),
+            Pattern::new(&format!("**/*.{meta_filename}")).expect("invalid glob pattern"),
         ];
 
         let scanner = Scanner::new(&source_dir, meta_filename);
@@ -214,21 +216,43 @@ impl FsStorage {
         file_path.exists().then_some(file_path)
     }
 
-    /// Resolve URL path to metadata file path.
+    /// Resolve a directory's metadata file (directory form).
     ///
-    /// Metadata is always in a directory's meta.yaml file:
-    /// - `""` → `meta.yaml`
-    /// - `"domain"` → `domain/meta.yaml`
-    ///
-    /// Returns `None` if no metadata file exists.
-    fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
-        let meta_path = if url_path.is_empty() {
-            self.source_dir.join(&self.meta_filename)
+    /// Two candidates in precedence order: the canonical
+    /// `<dir>/<meta_filename>`, then the `<dir>/index.<meta_filename>` variant.
+    /// Returns `None` if neither exists.
+    fn resolve_dir_meta(&self, url_path: &str) -> Option<PathBuf> {
+        let dir = if url_path.is_empty() {
+            self.source_dir.clone()
         } else {
-            self.source_dir
-                .join(format!("{url_path}/{}", self.meta_filename))
+            self.source_dir.join(url_path)
         };
-        meta_path.exists().then_some(meta_path)
+
+        let canonical = dir.join(&self.meta_filename);
+        if canonical.exists() {
+            return Some(canonical);
+        }
+
+        let index_variant = dir.join(format!("index.{}", self.meta_filename));
+        index_variant.exists().then_some(index_variant)
+    }
+
+    /// Resolve a page's own metadata file (leaf query).
+    ///
+    /// Directory form first (see [`Self::resolve_dir_meta`]), then the sibling
+    /// `<url_path>.<meta_filename>`. The canonical directory form wins when
+    /// multiple exist. The root (`""`) has no sibling form.
+    fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
+        if let Some(dir_meta) = self.resolve_dir_meta(url_path) {
+            return Some(dir_meta);
+        }
+        if url_path.is_empty() {
+            return None;
+        }
+        let sibling = self
+            .source_dir
+            .join(format!("{url_path}.{}", self.meta_filename));
+        sibling.exists().then_some(sibling)
     }
 
     /// Build a `Document` from a `DocumentRef`.
@@ -392,17 +416,35 @@ impl FsStorage {
     }
 }
 
+/// Read the first existing metadata file for a url path, in resolution order:
+/// `<dir>/<meta_filename>`, `<dir>/index.<meta_filename>`, then the sibling
+/// `<url_path>.<meta_filename>`. Mirrors `FsStorage::resolve_meta`.
+fn read_meta_yaml(source_dir: &Path, url_path: &str, meta_filename: &str) -> Option<String> {
+    let dir = if url_path.is_empty() {
+        source_dir.to_path_buf()
+    } else {
+        source_dir.join(url_path)
+    };
+
+    let mut candidates = vec![
+        dir.join(meta_filename),
+        dir.join(format!("index.{meta_filename}")),
+    ];
+    if !url_path.is_empty() {
+        candidates.push(source_dir.join(format!("{url_path}.{meta_filename}")));
+    }
+
+    candidates
+        .into_iter()
+        .find_map(|p| fs::read_to_string(p).ok())
+}
+
 /// Resolve metadata for a URL path from filesystem.
 ///
 /// Uses `Meta::resolve()` to extract title and pages from markdown and meta.yaml.
 /// Used by the watch drain thread to populate `StorageEventKind::Modified`.
 fn resolve_meta(source_dir: &Path, url_path: &str, meta_filename: &str) -> Meta {
-    let meta_path = if url_path.is_empty() {
-        source_dir.join(meta_filename)
-    } else {
-        source_dir.join(format!("{url_path}/{meta_filename}"))
-    };
-    let meta_yaml = fs::read_to_string(&meta_path).ok();
+    let meta_yaml = read_meta_yaml(source_dir, url_path, meta_filename);
 
     let md_paths = if url_path.is_empty() {
         vec![source_dir.join("index.md")]
@@ -443,6 +485,19 @@ fn resolve_meta(source_dir: &Path, url_path: &str, meta_filename: &str) -> Meta 
     )
 }
 
+/// Whether a path (relative to `source_dir`) has any dot-prefixed component.
+///
+/// Mirrors the scanner's hidden-file filtering (the `ignore` walker's
+/// `.hidden(true)`), so the watch path does not emit events for files the scan
+/// ignores — e.g. a hidden `.meta.yaml`, which would otherwise map to a phantom
+/// `.meta` url path and trigger a spurious reload.
+fn is_hidden_rel_path(rel_path: &std::path::Path) -> bool {
+    rel_path.components().any(|c| {
+        matches!(c, std::path::Component::Normal(name)
+            if name.to_string_lossy().starts_with('.'))
+    })
+}
+
 /// Convert a debounced file-system event into a [`StorageEvent`].
 ///
 /// Resolves the file path to a URL path and populates the event kind with
@@ -457,15 +512,8 @@ fn to_storage_event(
             .file_name()
             .map(|f| f.to_string_lossy())
             .unwrap_or_default();
-        if *filename == *meta_filename {
-            // meta.yaml -> parent directory URL path
-            rel_path
-                .parent()
-                .map(|p| p.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_default()
-        } else {
-            file_path_to_url(rel_path)
-        }
+        classify_relpath(rel_path, &filename, meta_filename)
+            .map_or_else(|| file_path_to_url(rel_path), Classification::into_url_path)
     } else {
         // Outside source_dir (e.g., README.md) -> root
         String::new()
@@ -598,6 +646,13 @@ impl Storage for FsStorage {
                             continue;
                         };
 
+                        // Mirror the scanner's hidden-file filtering so a hidden
+                        // file (e.g. `.meta.yaml`) never produces an event the
+                        // scan would not.
+                        if is_hidden_rel_path(rel_path) {
+                            continue;
+                        }
+
                         // Directory events (e.g., renames) signal structural
                         // changes that must trigger a rescan.
                         let matches_pattern = patterns.is_empty()
@@ -683,7 +738,14 @@ impl Storage for FsStorage {
         let mut has_own_meta = false;
 
         for ancestor in &ancestors {
-            let Some(meta_path) = self.resolve_meta(ancestor) else {
+            // Leaf may use its sibling `<name>.<meta_filename>`; ancestors use
+            // the directory form only, so a sibling never cascades downward.
+            let resolved = if ancestor == path {
+                self.resolve_meta(ancestor)
+            } else {
+                self.resolve_dir_meta(ancestor)
+            };
+            let Some(meta_path) = resolved else {
                 continue;
             };
 
@@ -756,6 +818,160 @@ mod tests {
 
     fn create_test_dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
+    }
+
+    #[test]
+    fn test_sidecar_combines_metadata_and_content() {
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("guide.md"), "# Original H1\n\nBody.").unwrap();
+        fs::write(
+            temp_dir.path().join("guide.meta.yaml"),
+            "title: Sidecar Title\nkind: guide",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+
+        let doc = docs.iter().find(|d| d.path == "guide").unwrap();
+        assert!(doc.has_content);
+        assert_eq!(doc.title, "Sidecar Title"); // sidecar wins over H1
+        assert_eq!(doc.page_kind, Some("guide".to_owned()));
+
+        // Content still served from the .md file.
+        assert_eq!(storage.read("guide").unwrap(), "# Original H1\n\nBody.");
+    }
+
+    #[test]
+    fn test_meta_directory_wins_over_sibling_on_collision() {
+        let temp_dir = create_test_dir();
+        // Directory form for url path "foo".
+        let foo_dir = temp_dir.path().join("foo");
+        fs::create_dir(&foo_dir).unwrap();
+        fs::write(foo_dir.join("meta.yaml"), "title: Directory Foo").unwrap();
+        // Sibling form for the same url path "foo".
+        fs::write(temp_dir.path().join("foo.meta.yaml"), "title: Sibling Foo").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let meta = storage.meta("foo").unwrap().unwrap();
+        assert_eq!(meta.title, Some("Directory Foo".to_owned()));
+    }
+
+    #[test]
+    fn test_index_variant_alone_titles_directory() {
+        let temp_dir = create_test_dir();
+        let dir = temp_dir.path().join("my-domain");
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("index.meta.yaml"), "kind: domain").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+
+        let doc = docs.iter().find(|d| d.path == "my-domain").unwrap();
+        assert!(!doc.has_content);
+        assert_eq!(doc.title, "My Domain"); // titlecased directory name
+        assert_eq!(doc.page_kind, Some("domain".to_owned()));
+    }
+
+    #[test]
+    fn test_meta_sibling_leaf_own_metadata() {
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("payments.meta.yaml"),
+            "title: Payments Service\nkind: component\nvars:\n  team: billing",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let meta = storage.meta("payments").unwrap().unwrap();
+
+        assert_eq!(meta.title, Some("Payments Service".to_owned()));
+        assert_eq!(meta.page_kind, Some("component".to_owned()));
+        assert_eq!(meta.vars.get("team"), Some(&serde_json::json!("billing")));
+    }
+
+    #[test]
+    fn test_meta_sibling_does_not_cascade_to_descendants() {
+        let temp_dir = create_test_dir();
+        // Sibling meta at url path "foo" with a var.
+        fs::write(temp_dir.path().join("foo.meta.yaml"), "vars:\n  a: 1").unwrap();
+        // A real nested page under directory "foo".
+        let foo_dir = temp_dir.path().join("foo");
+        fs::create_dir(&foo_dir).unwrap();
+        fs::write(foo_dir.join("bar.md"), "# Bar").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let meta = storage.meta("foo/bar").unwrap();
+
+        // The sibling foo.meta.yaml must NOT cascade `a` into foo/bar: either
+        // foo/bar resolves to no metadata at all, or its metadata lacks `a`.
+        let cascaded = meta.is_some_and(|m| m.vars.contains_key("a"));
+        assert!(
+            !cascaded,
+            "sibling meta is leaf-only and must not cascade vars to descendants"
+        );
+    }
+
+    #[test]
+    fn test_meta_index_variant_cascades_like_directory() {
+        let temp_dir = create_test_dir();
+        let dir = temp_dir.path().join("dir");
+        fs::create_dir(&dir).unwrap();
+        // Directory metadata via the index.meta.yaml variant.
+        fs::write(dir.join("index.meta.yaml"), "vars:\n  a: 1").unwrap();
+        fs::write(dir.join("child.md"), "# Child").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let meta = storage.meta("dir/child").unwrap().unwrap();
+
+        // index.meta.yaml is directory metadata, so `a` cascades to dir/child.
+        assert_eq!(meta.vars.get("a"), Some(&serde_json::json!(1)));
+    }
+
+    #[test]
+    fn test_exists_for_content_less_sibling() {
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("payments.meta.yaml"),
+            "kind: component",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        assert!(storage.exists("payments"));
+    }
+
+    #[test]
+    fn test_scan_content_less_sibling_virtual_page() {
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("payments.meta.yaml"),
+            "kind: component\nnamespace: billing",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+
+        let doc = docs.iter().find(|d| d.path == "payments").unwrap();
+        assert!(!doc.has_content);
+        assert_eq!(doc.title, "Payments"); // titlecased from url segment
+        assert_eq!(doc.page_kind, Some("component".to_owned()));
+        assert_eq!(doc.namespace, Some("billing".to_owned()));
+    }
+
+    #[test]
+    fn test_resolve_dir_meta_prefers_bare_over_index() {
+        let temp_dir = create_test_dir();
+        let dir = temp_dir.path().join("dir");
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("meta.yaml"), "kind: domain").unwrap();
+        fs::write(dir.join("index.meta.yaml"), "kind: ignored").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let resolved = storage.resolve_dir_meta("dir").unwrap();
+        assert!(resolved.ends_with("meta.yaml"));
+        assert!(!resolved.ends_with("index.meta.yaml"));
     }
 
     #[test]
@@ -1818,5 +2034,80 @@ mod tests {
             msg.contains("meta.yaml"),
             "error should name meta.yaml: {msg}"
         );
+    }
+
+    #[test]
+    fn test_to_storage_event_named_sibling_routes_to_sibling_path() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let source_dir = Path::new("/docs");
+        let event = DebouncedEvent {
+            path: PathBuf::from("/docs/systems/payments.meta.yaml"),
+            kind: RawEventKind::Removed,
+        };
+        let storage_event = to_storage_event(&event, source_dir, "meta.yaml");
+        assert_eq!(storage_event.path, "systems/payments");
+    }
+
+    #[test]
+    fn test_to_storage_event_index_variant_routes_to_directory() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let source_dir = Path::new("/docs");
+        let event = DebouncedEvent {
+            path: PathBuf::from("/docs/dir/index.meta.yaml"),
+            kind: RawEventKind::Removed,
+        };
+        let storage_event = to_storage_event(&event, source_dir, "meta.yaml");
+        assert_eq!(storage_event.path, "dir"); // NOT "dir/index"
+    }
+
+    #[test]
+    fn test_to_storage_event_bare_meta_routes_to_directory() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let source_dir = Path::new("/docs");
+        let event = DebouncedEvent {
+            path: PathBuf::from("/docs/dir/meta.yaml"),
+            kind: RawEventKind::Removed,
+        };
+        let storage_event = to_storage_event(&event, source_dir, "meta.yaml");
+        assert_eq!(storage_event.path, "dir");
+    }
+
+    #[test]
+    fn test_modified_event_carries_sibling_title() {
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("payments.meta.yaml"),
+            "title: Payments Service",
+        )
+        .unwrap();
+
+        let event = DebouncedEvent {
+            path: temp_dir.path().join("payments.meta.yaml"),
+            kind: RawEventKind::Modified,
+        };
+        let storage_event = to_storage_event(&event, temp_dir.path(), "meta.yaml");
+        assert_eq!(storage_event.path, "payments");
+        match storage_event.kind {
+            StorageEventKind::Modified { title, .. } => {
+                assert_eq!(title, "Payments Service");
+            }
+            other => panic!("expected Modified, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_is_hidden_rel_path() {
+        use std::path::Path;
+        assert!(is_hidden_rel_path(Path::new(".meta.yaml")));
+        assert!(is_hidden_rel_path(Path::new("dir/.hidden.md")));
+        assert!(is_hidden_rel_path(Path::new(".rw/cache/x")));
+        assert!(!is_hidden_rel_path(Path::new("dir/visible.md")));
+        assert!(!is_hidden_rel_path(Path::new("payments.meta.yaml")));
+        assert!(!is_hidden_rel_path(Path::new("")));
     }
 }
