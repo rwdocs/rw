@@ -10,9 +10,13 @@ pub enum StoreError {
     /// No comment exists with the requested id.
     #[error("comment not found: {0}")]
     NotFound(Uuid),
-    /// Parent id is missing, resolved, or belongs to a different document.
+    /// Parent comment does not exist or belongs to a different document.
     #[error("invalid parent comment: {0}")]
     InvalidParent(String),
+    /// HTTP layer rejected a list-filter combination that bypasses
+    /// server-side gates (e.g. `?status=deleted`).
+    #[error("invalid filter: {0}")]
+    InvalidFilter(String),
     /// The on-disk schema is newer than this binary understands — the DB was
     /// written by a future version of `rw`. Downgrade is not supported.
     #[error(

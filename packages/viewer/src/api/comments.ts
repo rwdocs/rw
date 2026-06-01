@@ -4,6 +4,7 @@ export interface CommentApiClient {
   list(documentId: string, options?: { signal?: AbortSignal }): Promise<Comment[]>;
   create(input: CreateCommentRequest): Promise<Comment>;
   update(id: string, input: UpdateCommentRequest): Promise<Comment>;
+  delete(id: string): Promise<Comment>;
 }
 
 export function createCommentApiClient(
@@ -45,6 +46,16 @@ export function createCommentApiClient(
       });
       if (!response.ok) {
         throw new Error(`Failed to update comment: ${response.status}`);
+      }
+      return response.json();
+    },
+
+    async delete(id: string): Promise<Comment> {
+      const response = await doFetch(`${base}/comments/${id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to delete comment: ${response.status}`);
       }
       return response.json();
     },

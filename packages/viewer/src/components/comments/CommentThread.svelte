@@ -20,6 +20,8 @@
     onResolve: (id: string) => void;
     onReopen: (id: string) => void;
     onReply: (parentId: string, body: string) => Promise<void>;
+    onDelete: (id: string) => Promise<void>;
+    onRestore: (id: string) => Promise<void>;
     onClose?: () => void;
     /** Navigation between threads (optional). */
     nav?: { index: number; total: number; onPrev: () => void; onNext: () => void };
@@ -38,6 +40,8 @@
     onResolve,
     onReopen,
     onReply,
+    onDelete,
+    onRestore,
     onClose,
     nav,
     onAnchor,
@@ -156,7 +160,11 @@
   {/if}
 
   <!-- Main comment -->
-  <div class={{ "opacity-60": comment.status === "resolved" }}>
+  <div
+    class={{
+      "opacity-60": comment.status === "resolved",
+    }}
+  >
     <div
       bind:this={avatarRowRef}
       data-testid="comment-avatar-row"
@@ -208,7 +216,7 @@
         >
           Resolve
         </button>
-      {:else}
+      {:else if comment.status === "resolved"}
         <button
           type="button"
           onclick={() => onReopen(comment.id)}
@@ -234,7 +242,7 @@
       "
     >
       {#each replies as reply (reply.id)}
-        <div class="px-3 py-2">
+        <div class="px-3 py-2 {reply.deletedAt != null ? 'opacity-60' : ''}">
           <div class="mb-1 flex items-center gap-2">
             <Avatar
               variant={avatarVariant(reply.author)}
@@ -249,9 +257,45 @@
               {formatRelativeTime(new Date(reply.createdAt))}
             </span>
           </div>
-          <p class="text-sm text-gray-900 dark:text-neutral-100">
+          <p
+            class="
+              text-sm text-gray-900
+              dark:text-neutral-100
+              {reply.deletedAt != null ? 'line-through' : ''}
+            "
+          >
             {reply.body}
           </p>
+          <div class="mt-1 flex items-center gap-2">
+            {#if reply.deletedAt != null && reply.canRestore}
+              <button
+                type="button"
+                onclick={() => onRestore(reply.id)}
+                class="
+                  cursor-pointer text-xs text-gray-500 transition-colors
+                  hover:text-gray-900
+                  dark:text-neutral-400
+                  dark:hover:text-neutral-100
+                "
+              >
+                Restore
+              </button>
+            {/if}
+            {#if reply.deletedAt == null && reply.canDelete}
+              <button
+                type="button"
+                onclick={() => onDelete(reply.id)}
+                class="
+                  cursor-pointer text-xs text-gray-500 transition-colors
+                  hover:text-red-600
+                  dark:text-neutral-400
+                  dark:hover:text-red-400
+                "
+              >
+                Delete
+              </button>
+            {/if}
+          </div>
         </div>
       {/each}
     </div>

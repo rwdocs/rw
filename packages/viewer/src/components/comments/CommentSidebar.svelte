@@ -79,6 +79,22 @@
     }
   }
 
+  async function handleDelete(id: string) {
+    try {
+      await comments.delete(id);
+    } catch (e) {
+      comments.error = e instanceof Error ? e.message : "Failed to delete comment";
+    }
+  }
+
+  async function handleRestore(id: string) {
+    try {
+      await comments.restore(id);
+    } catch (e) {
+      comments.error = e instanceof Error ? e.message : "Failed to restore comment";
+    }
+  }
+
   async function handleReply(parentId: string, body: string) {
     const thread = comments.threads.find((t) => t.id === parentId);
     if (!thread) return;
@@ -148,6 +164,8 @@
       onResolve={handleResolve}
       onReopen={handleReopen}
       onReply={handleReply}
+      onDelete={handleDelete}
+      onRestore={handleRestore}
       onClose={() => {
         comments.activeId = null;
       }}

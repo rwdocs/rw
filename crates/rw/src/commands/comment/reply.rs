@@ -31,6 +31,8 @@ pub(crate) async fn run(ctx: &Context, args: ReplyArgs) -> Result<(), CliError> 
 
     let author =
         identity::resolve_author(author.author_id.as_deref(), author.author_name.as_deref())?;
+    // Top-level comments are never deletable in this model, so the parent is
+    // either present (live or resolved — both replyable) or NotFound.
     let parent = ctx.store.get(parent_id).await?;
 
     let reply = ctx
