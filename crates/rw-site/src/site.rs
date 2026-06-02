@@ -141,8 +141,11 @@ pub struct Site {
     reload_lock: Mutex<()>,
     /// Current site snapshot (atomically swappable).
     current_snapshot: RwLock<Arc<SiteSnapshot>>,
-    /// Cache validity flag.
-    cache_valid: AtomicBool,
+    /// The `generation` value that the currently-installed snapshot satisfies.
+    /// The cache is fresh iff `loaded_generation == generation`. Initialized to
+    /// `u64::MAX` (a sentinel meaning "never loaded") so the fast path always
+    /// misses until the first successful load stamps a real generation.
+    loaded_generation: AtomicU64,
     /// Whether the site has successfully loaded at least once.
     has_loaded: AtomicBool,
     /// Page rendering pipeline.
@@ -175,7 +178,7 @@ impl Site {
             generation: AtomicU64::new(0),
             reload_lock: Mutex::new(()),
             current_snapshot: RwLock::new(initial_snapshot),
-            cache_valid: AtomicBool::new(false),
+            loaded_generation: AtomicU64::new(u64::MAX),
             has_loaded: AtomicBool::new(false),
             renderer,
         }
@@ -282,41 +285,53 @@ impl Site {
 
     /// Returns the current snapshot, reloading from storage if stale.
     ///
-    /// Uses a double-checked locking pattern: the fast path (cache valid)
-    /// requires only an atomic load and an `RwLock` read; the slow path
-    /// acquires a `Mutex` to serialize reloads.
+    /// Validity is derived, not stored: the installed snapshot is fresh iff
+    /// `loaded_generation == generation`. The fast path is two atomic loads;
+    /// the slow path serializes reloads behind `reload_lock`.
     ///
-    /// On the **initial** load, storage errors propagate to the caller so
-    /// that misconfigured storage is surfaced immediately. On subsequent
-    /// reloads, errors are logged and the previous snapshot is kept. The
-    /// cache flag is normally restored so later reads serve that snapshot
-    /// via the fast path instead of repeatedly retrying an unreachable
-    /// backend — unless an [`invalidate`](Self::invalidate) raced with
-    /// the failing scan, in which case the next reader retries instead of
-    /// swallowing that signal.
+    /// On the **initial** load, storage errors propagate to the caller so that
+    /// misconfigured storage is surfaced immediately (and `loaded_generation`
+    /// stays at its sentinel, so the next reader retries). On subsequent
+    /// reloads, a scan error is logged and the previous snapshot is kept; the
+    /// snapshot is re-stamped to `pre_scan` so later reads ride the fast path
+    /// instead of hot-looping an unreachable backend — unless an
+    /// [`invalidate`](Self::invalidate) raced the failing scan, in which case
+    /// `generation` has already moved past `pre_scan` and the next reader
+    /// retries instead of swallowing the signal.
+    ///
+    /// Because a reloader only ever stamps `loaded_generation` to the
+    /// `generation` it observed *before* scanning, an `invalidate()` that races
+    /// an in-flight scan can never be swallowed: it bumps `generation` past
+    /// `pre_scan`, leaving `loaded_generation != generation`.
     ///
     /// # Errors
     ///
     /// Returns [`StorageError`] if the initial site load fails.
     pub(crate) fn reload_if_needed(&self) -> Result<Arc<SiteSnapshot>, StorageError> {
-        // Fast path: cache valid
-        if self.cache_valid.load(Ordering::Acquire) {
+        // Fast path: the installed snapshot already satisfies the latest
+        // generation. The two loads are not atomic together, but that only ever
+        // produces a benign spurious slow-path entry: a false *fresh* verdict is
+        // impossible because `loaded_generation` is only ever stamped to a
+        // `generation` value observed before a scan, so equality means the
+        // snapshot genuinely satisfies that generation.
+        if self.loaded_generation.load(Ordering::Acquire) == self.generation.load(Ordering::Acquire)
+        {
             return Ok(self.snapshot());
         }
 
-        // Slow path: acquire reload lock.
+        // Slow path: serialize reloads.
         let _guard = self.reload_lock.lock();
 
-        // Double-check after acquiring lock
-        if self.cache_valid.load(Ordering::Acquire) {
+        // Capture the generation this reload will satisfy, then double-check.
+        let pre_scan = self.generation.load(Ordering::Acquire);
+        if self.loaded_generation.load(Ordering::Acquire) == pre_scan {
             return Ok(self.snapshot());
         }
 
         let has_loaded = self.has_loaded.load(Ordering::Acquire);
-        let pre_scan_generation = self.generation.load(Ordering::Acquire);
-        let etag = pre_scan_generation.to_string();
+        let etag = pre_scan.to_string();
 
-        // Load state: skip bucket cache on initial load to verify storage connectivity
+        // Load state: skip bucket cache on initial load to verify storage connectivity.
         let state = if has_loaded {
             if let Some(cached) = SiteState::from_cache(self.site_bucket.as_ref(), &etag) {
                 cached
@@ -328,19 +343,12 @@ impl Site {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Failed to reload site from storage, keeping stale data");
-                        // Restore the fast path so subsequent reads return the
-                        // stale snapshot immediately. Without this, every read
-                        // would re-enter the slow path, serialize on the reload
-                        // mutex, and re-call the unreachable backend.
-                        //
-                        // Only restore it if no `invalidate()` raced with us
-                        // during the (potentially long) failing scan. If the
-                        // generation changed, an invalidate is pending and the
-                        // next reader must retry — otherwise we'd swallow that
-                        // signal and serve stale data even after recovery.
-                        if self.generation.load(Ordering::Acquire) == pre_scan_generation {
-                            self.cache_valid.store(true, Ordering::Release);
-                        }
+                        // Re-stamp the stale snapshot so subsequent reads ride
+                        // the fast path. If an invalidate raced this failing
+                        // scan, `generation` already moved past `pre_scan`, so
+                        // `loaded_generation != generation` and the next reader
+                        // retries instead of swallowing the signal.
+                        self.loaded_generation.store(pre_scan, Ordering::Release);
                         return Ok(self.snapshot());
                     }
                 }
@@ -355,7 +363,13 @@ impl Site {
         let snapshot = Arc::new(SiteSnapshot { state, sections });
 
         *self.current_snapshot.write() = Arc::clone(&snapshot);
-        self.cache_valid.store(true, Ordering::Release);
+        // Stamp the generation this snapshot satisfies. If an invalidate raced
+        // the scan, `generation > pre_scan` already, so `loaded_generation !=
+        // generation` and the next reader re-scans — the invalidate is never
+        // lost. The snapshot itself is published by the `current_snapshot`
+        // RwLock above; this Release store only governs the freshness verdict,
+        // pairing with the fast-path Acquire load of `loaded_generation`.
+        self.loaded_generation.store(pre_scan, Ordering::Release);
         self.has_loaded.store(true, Ordering::Release);
 
         Ok(snapshot)
@@ -393,14 +407,11 @@ impl Site {
     /// Readers that already hold a snapshot are unaffected — they continue
     /// using the previous data. This method is lock-free.
     pub fn invalidate(&self) {
-        // Bump generation BEFORE clearing the cache flag. The failure branch
-        // of `reload_if_needed` uses the generation as a "was an invalidate
-        // pending?" probe; if we cleared cache_valid first, a concurrent
-        // failing reload could observe the unchanged generation and restore
-        // cache_valid=true before our `fetch_add` lands, swallowing the
-        // invalidate signal.
+        // Monotonically bump the requested generation. Validity is derived from
+        // `loaded_generation == generation`, and a reload can only stamp
+        // `loaded_generation` to the generation it observed before scanning, so
+        // this increment can never be lost — even if it races an in-flight scan.
         self.generation.fetch_add(1, Ordering::Release);
-        self.cache_valid.store(false, Ordering::Release);
     }
 
     /// Renders a page to HTML by its URL path.
@@ -1540,6 +1551,62 @@ mod tests {
         assert!(!r3.from_cache, "A should re-render after B's title changed");
         assert!(r3.html.contains("New Title"), "r3 html: {}", r3.html);
         assert!(!r3.html.contains("Old Title"), "r3 html: {}", r3.html);
+    }
+
+    #[test]
+    fn test_invalidate_during_successful_scan_is_not_swallowed() {
+        // Regression: the success path of reload_if_needed must not blindly
+        // mark the cache valid. If an invalidate() lands *during* a successful
+        // scan, the freshly built snapshot is already stale w.r.t. that signal,
+        // so the next read must re-scan rather than ride the fast path.
+        //
+        // This is deterministic, not a threaded race: the scan_hook reenters
+        // invalidate() synchronously from inside scan() (while reload_if_needed
+        // is on the stack), reproducing the exact mid-scan ordering without
+        // timing dependence. Keep it that way — do not convert to threads.
+        use std::sync::Weak;
+
+        let storage = Arc::new(MockStorage::new().with_document("guide", "Guide"));
+        let site = Arc::new(Site::new(
+            Arc::clone(&storage) as Arc<dyn rw_storage::Storage>,
+            Arc::new(rw_cache::NullCache),
+            PageRendererConfig::default(),
+        ));
+
+        // Initial successful load: scan #1.
+        site.reload_if_needed().unwrap();
+        assert_eq!(storage.scan_count(), 1);
+
+        // Arrange: the NEXT scan fires invalidate() exactly once, mid-scan.
+        // Weak avoids a Site<->storage<->hook reference cycle.
+        let weak: Weak<Site> = Arc::downgrade(&site);
+        let fired = std::sync::atomic::AtomicBool::new(false);
+        storage.set_scan_hook(Some(Box::new(move || {
+            if !fired.swap(true, Ordering::SeqCst)
+                && let Some(site) = weak.upgrade()
+            {
+                site.invalidate();
+            }
+        })));
+
+        // Trigger the reload that the hook will invalidate mid-flight: scan #2.
+        site.invalidate();
+        site.reload_if_needed().unwrap();
+        assert_eq!(storage.scan_count(), 2);
+
+        // Clear the hook so the next scan is a normal success.
+        storage.set_scan_hook(None);
+
+        // The mid-scan invalidate must NOT have been swallowed: the next read
+        // re-scans (scan #3). On the buggy code the success path stored
+        // cache_valid=true and this read rode the fast path, leaving the count
+        // at 2.
+        site.reload_if_needed().unwrap();
+        assert_eq!(
+            storage.scan_count(),
+            3,
+            "invalidate() during a successful scan must force a re-scan"
+        );
     }
 
     #[test]

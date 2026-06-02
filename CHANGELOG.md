@@ -95,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   heading containing no slug characters (e.g. `## ???`) produced an empty
   `id=""`. Such headings now fall back to a `section` base and always receive a
   distinct numeric suffix.
+- `rw serve` no longer keeps serving stale page content after a file change that lands while a previous reload's storage scan is still running. The lazy-reload cache tracked validity in a separate flag that a finishing scan could set back to "valid", clobbering the concurrent change signal; the change was then lost until an unrelated later edit. Validity is now derived from a monotonic generation stamp, so a change can never be swallowed by an in-flight reload.
 
 ## [0.1.24] - 2026-04-10
 
