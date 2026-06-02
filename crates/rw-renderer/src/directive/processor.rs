@@ -24,8 +24,7 @@ pub type ReadFileFn = dyn Fn(&Path) -> io::Result<String> + Send;
 #[derive(Debug)]
 pub(crate) enum BlockDispatch {
     /// Emit verbatim via the backend's `raw_html`. An empty string emits nothing
-    /// (a container `end()` that returns `None`, or a popped container whose
-    /// handler is no longer registered).
+    /// (e.g. a container `end()` that returns `None`).
     Html(String),
     /// A marker triple — `raw_html(open) + text(body) + raw_html(close)`.
     Marker {
@@ -37,6 +36,19 @@ pub(crate) enum BlockDispatch {
     Markdown(String),
     /// Literal text the walker renders as an ordinary paragraph (`<p>…</p>`).
     PassThrough(String),
+}
+
+/// One entry per open container scope, recording how the matching closing
+/// `:::` should be rendered. Pushed for every `:::name` opener the user must
+/// close with its own `:::` — including unregistered or `Skip`-ing openers, so
+/// their close does not pop an enclosing registered container.
+enum ContainerFrame {
+    /// A registered handler opened a scope; call `container_handlers[idx].end()`
+    /// when the closing `:::` is reached.
+    Handled(usize),
+    /// The opening delimiter rendered literally (unregistered name, or the
+    /// handler returned `Skip`); render the closing `:::` literally too.
+    Literal,
 }
 
 /// Configuration for the directive processor.
@@ -159,8 +171,9 @@ pub struct DirectiveProcessor {
     inline_handlers: Vec<Box<dyn InlineDirective>>,
     leaf_handlers: Vec<Box<dyn LeafDirective>>,
     container_handlers: Vec<Box<dyn ContainerDirective>>,
-    /// Stack of active container directive names for dispatching `end()` calls.
-    active_containers: Vec<String>,
+    /// Stack of open container scopes (one [`ContainerFrame`] per textual
+    /// `:::name` … `:::` nesting level) used to pair closing delimiters.
+    active_containers: Vec<ContainerFrame>,
     warnings: Vec<String>,
 }
 
@@ -259,6 +272,10 @@ impl DirectiveProcessor {
                     .iter()
                     .position(|h| h.name() == name)
                 else {
+                    // Unregistered: render the opener literally and track the
+                    // scope so its closing ::: renders literally too, rather
+                    // than closing an enclosing registered container.
+                    self.active_containers.push(ContainerFrame::Literal);
                     return BlockDispatch::PassThrough(format!(":::{name}{}", args.to_syntax()));
                 };
                 let syntax = args.to_syntax();
@@ -270,42 +287,45 @@ impl DirectiveProcessor {
                 match output {
                     DirectiveOutput::Html(html) => {
                         if opened {
-                            self.active_containers.push(name);
+                            self.active_containers.push(ContainerFrame::Handled(idx));
                         }
                         BlockDispatch::Html(html)
                     }
                     DirectiveOutput::Marker { open, body, close } => {
                         if opened {
-                            self.active_containers.push(name);
+                            self.active_containers.push(ContainerFrame::Handled(idx));
                         }
                         BlockDispatch::Marker { open, body, close }
                     }
                     DirectiveOutput::Markdown(md) => {
                         if opened {
-                            self.active_containers.push(name);
+                            self.active_containers.push(ContainerFrame::Handled(idx));
                         }
                         BlockDispatch::Markdown(md)
                     }
                     DirectiveOutput::Skip => {
+                        // Handler declined: the opener renders literally, so
+                        // track a Literal scope for its matching close.
+                        self.active_containers.push(ContainerFrame::Literal);
                         BlockDispatch::PassThrough(format!(":::{name}{syntax}"))
                     }
                 }
             }
-            ParsedDirective::ContainerEnd { colon_count } => {
-                if let Some(name) = self.active_containers.pop() {
-                    let html = self
-                        .container_handlers
-                        .iter()
-                        .position(|h| h.name() == name)
-                        .and_then(|idx| self.container_handlers[idx].end(0))
-                        .unwrap_or_default();
+            ParsedDirective::ContainerEnd { colon_count } => match self.active_containers.pop() {
+                Some(ContainerFrame::Handled(idx)) => {
+                    let html = self.container_handlers[idx].end(0).unwrap_or_default();
                     BlockDispatch::Html(html)
-                } else {
+                }
+                Some(ContainerFrame::Literal) => {
+                    // Matching close for an unhandled opener — render literally.
+                    BlockDispatch::PassThrough(":".repeat(colon_count))
+                }
+                None => {
                     self.warnings
                         .push("stray ::: with no opening directive".to_owned());
                     BlockDispatch::PassThrough(":".repeat(colon_count))
                 }
-            }
+            },
             ParsedDirective::Leaf { name, args } => {
                 let Some(idx) = self.leaf_handlers.iter().position(|h| h.name() == name) else {
                     return BlockDispatch::PassThrough(format!("::{name}{}", args.to_syntax()));
@@ -351,10 +371,18 @@ impl DirectiveProcessor {
     }
 
     pub(crate) fn finalize(&mut self) {
-        for name in self.active_containers.drain(..) {
-            self.warnings.push(format!(
-                "unclosed container directive :::{name} (missing closing :::)"
-            ));
+        // mem::take avoids borrowing self.active_containers while reading
+        // self.container_handlers / pushing to self.warnings below.
+        let frames = std::mem::take(&mut self.active_containers);
+        for frame in frames {
+            if let ContainerFrame::Handled(idx) = frame {
+                let name = self.container_handlers[idx].name().to_owned();
+                self.warnings.push(format!(
+                    "unclosed container directive :::{name} (missing closing :::)"
+                ));
+            }
+            // Literal frames: the opener rendered as plain text, so there is no
+            // managed container to warn about.
         }
     }
 
@@ -623,11 +651,46 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_block_unregistered_and_stray_passthrough() {
+    fn unregistered_container_nested_in_registered_does_not_corrupt_stack() {
+        use crate::directive::parser::parse_container_line;
+        let mut processor = DirectiveProcessor::new().with_container(TestNote);
+
+        // Outer registered container opens its scope.
+        match processor.dispatch_block(parse_container_line(":::note[Important]").unwrap()) {
+            BlockDispatch::Html(html) => assert!(html.contains(r#"data-title="Important""#)),
+            other => panic!("expected Html, got {other:?}"),
+        }
+        // Inner UNREGISTERED container: rendered literally, tracked separately.
+        match processor.dispatch_block(parse_container_line(":::unknown").unwrap()) {
+            BlockDispatch::PassThrough(s) => assert!(s.starts_with(":::unknown"), "got {s}"),
+            other => panic!("expected PassThrough, got {other:?}"),
+        }
+        // First close pairs with the inner unregistered opener -> literal,
+        // it must NOT close the outer note.
+        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
+            other => panic!("expected literal PassThrough for inner close, got {other:?}"),
+        }
+        // Second close pairs with the outer note -> note.end().
+        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+            BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
+            other => panic!("expected note end() Html, got {other:?}"),
+        }
+        processor.finalize();
+        assert!(
+            processor.warnings().is_empty(),
+            "no warnings expected, got: {:?}",
+            processor.warnings()
+        );
+    }
+
+    #[test]
+    fn dispatch_block_unregistered_container_pair_passthrough() {
+        use crate::directive::parser::parse_container_line;
         let mut processor = DirectiveProcessor::new();
 
-        let unreg = crate::directive::parser::parse_container_line(":::foo[x]{.c}").unwrap();
-        match processor.dispatch_block(unreg) {
+        // Unregistered opener: rendered literally, scope tracked so its close pairs with it.
+        match processor.dispatch_block(parse_container_line(":::foo[x]{.c}").unwrap()) {
             BlockDispatch::PassThrough(s) => {
                 assert!(s.starts_with(":::foo[x]"), "got {s}");
                 assert!(s.contains(".c"), "got {s}");
@@ -635,8 +698,25 @@ mod tests {
             other => panic!("expected PassThrough, got {other:?}"),
         }
 
-        let stray = crate::directive::parser::parse_container_line("::::").unwrap();
-        match processor.dispatch_block(stray) {
+        // Its matching close renders literally and does NOT warn about a stray.
+        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
+            other => panic!("expected PassThrough, got {other:?}"),
+        }
+        assert!(
+            !processor.warnings().iter().any(|w| w.contains("stray")),
+            "unregistered open/close pair must not warn: {:?}",
+            processor.warnings()
+        );
+    }
+
+    #[test]
+    fn dispatch_block_genuine_stray_close_warns() {
+        use crate::directive::parser::parse_container_line;
+        let mut processor = DirectiveProcessor::new();
+
+        // A close with no opener on the stack is a genuine stray.
+        match processor.dispatch_block(parse_container_line("::::").unwrap()) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, "::::"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
@@ -816,5 +896,100 @@ mod tests {
             .filter(|w| w.contains("unclosed"))
             .collect();
         assert_eq!(unclosed.len(), 1, "got: {unclosed:?}");
+    }
+
+    #[test]
+    fn skip_container_nested_in_registered_does_not_corrupt_stack() {
+        use crate::directive::parser::parse_container_line;
+
+        struct SkipContainer;
+        impl ContainerDirective for SkipContainer {
+            fn name(&self) -> &'static str {
+                "skipme"
+            }
+            fn start(&mut self, _a: DirectiveArgs, _c: &DirectiveContext) -> DirectiveOutput {
+                DirectiveOutput::Skip
+            }
+            fn end(&mut self, _line: usize) -> Option<String> {
+                Some("SHOULD-NOT-APPEAR".to_owned())
+            }
+        }
+
+        let mut processor = DirectiveProcessor::new()
+            .with_container(TestNote)
+            .with_container(SkipContainer);
+
+        let _ = processor.dispatch_block(parse_container_line(":::note[T]").unwrap());
+        match processor.dispatch_block(parse_container_line(":::skipme").unwrap()) {
+            BlockDispatch::PassThrough(s) => assert!(s.starts_with(":::skipme"), "got {s}"),
+            other => panic!("expected PassThrough, got {other:?}"),
+        }
+        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
+            other => panic!("expected literal PassThrough, got {other:?}"),
+        }
+        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+            BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
+            other => panic!("expected note end(), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unclosed_unregistered_container_emits_no_warning() {
+        use crate::directive::parser::parse_container_line;
+        let mut processor = DirectiveProcessor::new();
+        let _ = processor.dispatch_block(parse_container_line(":::foo").unwrap());
+        processor.finalize();
+        assert!(
+            processor.warnings().is_empty(),
+            "unclosed unregistered container must be silent, got: {:?}",
+            processor.warnings()
+        );
+    }
+
+    #[test]
+    fn unclosed_registered_container_emits_unclosed_warning() {
+        use crate::directive::parser::parse_container_line;
+        let mut processor = DirectiveProcessor::new().with_container(TestNote);
+        let _ = processor.dispatch_block(parse_container_line(":::note").unwrap());
+        processor.finalize();
+        let unclosed: Vec<_> = processor
+            .warnings()
+            .into_iter()
+            .filter(|w| w.contains("unclosed"))
+            .collect();
+        assert_eq!(unclosed.len(), 1, "got: {unclosed:?}");
+        assert!(unclosed[0].contains("note"), "got: {unclosed:?}");
+    }
+
+    #[test]
+    fn render_unregistered_nested_in_registered_is_well_formed() {
+        let processor = DirectiveProcessor::new().with_container(TestNote);
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        // Block directives must be blank-line separated.
+        let md = ":::note[Hi]\n\n:::xyz\n\ninner\n\n:::\n\n:::\n";
+        let result = renderer.render(md, Pipeline::new().with_directives(processor));
+
+        assert_eq!(
+            result.html.matches(r#"<div class="note""#).count(),
+            1,
+            "html: {}",
+            result.html
+        );
+        assert_eq!(
+            result.html.matches("</div>").count(),
+            1,
+            "html: {}",
+            result.html
+        );
+        assert!(result.html.contains(":::xyz"), "html: {}", result.html);
+        assert!(
+            !result
+                .warnings
+                .iter()
+                .any(|w| w.contains("stray") || w.contains("unclosed")),
+            "warnings: {:?}",
+            result.warnings
+        );
     }
 }

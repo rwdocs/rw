@@ -236,7 +236,9 @@ fn container_inside_loose_list_is_recognized() {
 }
 
 #[test]
-fn unregistered_container_renders_literally_with_stray_close_warning() {
+fn unregistered_container_renders_literally_no_warning() {
+    // An unregistered :::foo … ::: pair must not produce a "stray" warning —
+    // the closing ::: is matched with its own opener, not treated as unpaired.
     let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
     let result = MarkdownRenderer::<HtmlBackend>::new().render(
         ":::foo[x]\n\nBody.\n\n:::",
@@ -249,8 +251,8 @@ fn unregistered_container_renders_literally_with_stray_close_warning() {
     );
     assert!(result.html.contains("<p>:::</p>"), "got: {}", result.html);
     assert!(
-        result.warnings.iter().any(|w| w.contains("stray")),
-        "got: {:?}",
+        result.warnings.is_empty(),
+        "unregistered open/close pair must not warn; got: {:?}",
         result.warnings
     );
 }
