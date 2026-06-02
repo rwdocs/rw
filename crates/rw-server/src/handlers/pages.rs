@@ -127,9 +127,14 @@ fn get_page_impl(
 ) -> Result<impl IntoResponse, HandlerError> {
     // Render the page using unified Site API (path is already without leading slash)
     let result = state.site.render(&path).map_err(|e| match e {
-        rw_site::RenderError::PageNotFound(p) => HandlerError::PageNotFound(p),
+        // A page known to the navigation tree but whose source file is missing
+        // from storage (FileNotFound — e.g. deleted under a stale snapshot) is a
+        // not-found, not a server error; map it to 404 like an unknown page.
+        rw_site::RenderError::PageNotFound(p) | rw_site::RenderError::FileNotFound(p) => {
+            HandlerError::PageNotFound(p)
+        }
         rw_site::RenderError::Storage(se) => HandlerError::Storage(se),
-        other => HandlerError::Render(other),
+        e @ rw_site::RenderError::Io(_) => HandlerError::Render(e),
     })?;
 
     // Log warnings in verbose mode
@@ -224,6 +229,49 @@ fn compute_etag(version: &str, content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use axum::http::StatusCode;
+    use rw_storage::MockStorage;
+
+    use crate::testing::TestServer;
+
+    #[tokio::test]
+    async fn test_page_in_tree_with_missing_source_returns_404() {
+        // Regression: a page present in the site structure (returned by
+        // `scan()`) but whose source file is missing from storage yields
+        // `RenderError::FileNotFound`, which must map to 404 — not 500.
+        // `with_document` registers the page in the tree but sets no mtime, so
+        // `storage.mtime()` returns NotFound during render.
+        let storage = MockStorage::new().with_document("ghost", "Ghost");
+        let server = TestServer::with_storage(storage).await;
+
+        let resp = server.get("/_api/pages/ghost").await;
+
+        assert_eq!(resp.status, StatusCode::NOT_FOUND, "body: {}", resp.text());
+    }
+
+    #[tokio::test]
+    async fn test_unknown_page_returns_404() {
+        // A path absent from the tree raises PageNotFound (distinct from the
+        // FileNotFound case above), which must also be 404.
+        let server = TestServer::with_storage(MockStorage::new()).await;
+
+        let resp = server.get("/_api/pages/does-not-exist").await;
+
+        assert_eq!(resp.status, StatusCode::NOT_FOUND, "body: {}", resp.text());
+    }
+
+    #[tokio::test]
+    async fn test_normal_page_returns_200() {
+        let storage = MockStorage::new()
+            .with_file("guide", "Guide", "# Guide\n\nContent.")
+            .with_mtime("guide", 1000.0);
+        let server = TestServer::with_storage(storage).await;
+
+        let resp = server.get("/_api/pages/guide").await;
+
+        assert_eq!(resp.status, StatusCode::OK, "body: {}", resp.text());
+    }
 
     #[test]
     fn test_compute_etag_includes_version() {

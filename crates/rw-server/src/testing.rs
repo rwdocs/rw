@@ -25,7 +25,9 @@ use crate::app;
 use crate::state::AppState;
 
 /// Test-only HTTP harness: wraps the production router around an in-memory
-/// comment store and an empty mock site. Each call routes a single request
+/// comment store and a `MockStorage`-backed site (empty via
+/// [`with_comments`](Self::with_comments), or populated via
+/// [`with_storage`](Self::with_storage)). Each call routes a single request
 /// through the full axum stack via `oneshot`.
 pub(crate) struct TestServer {
     router: Router,
@@ -35,9 +37,18 @@ impl TestServer {
     /// Build a server backed by an in-memory `SqliteCommentStore` and an empty
     /// `MockStorage`-backed `Site`.
     pub(crate) async fn with_comments() -> Self {
-        let storage = Arc::new(MockStorage::new());
+        Self::build(MockStorage::new()).await
+    }
+
+    /// Build a server whose `Site` is backed by the given populated
+    /// `MockStorage`, for exercising the page-rendering handlers.
+    pub(crate) async fn with_storage(storage: MockStorage) -> Self {
+        Self::build(storage).await
+    }
+
+    async fn build(storage: MockStorage) -> Self {
         let site = Arc::new(Site::new(
-            storage,
+            Arc::new(storage),
             Arc::new(NullCache),
             PageRendererConfig::default(),
         ));
