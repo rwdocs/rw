@@ -13,6 +13,22 @@ use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHa
 use crate::metadata::Metadata;
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
+/// A one-shot/repeatable hook invoked inside a *successful* `scan()`.
+///
+/// Wrapped in a newtype with a manual `Debug` impl so `MockStorage` can keep
+/// `#[derive(Debug)]` (a boxed closure is not `Debug`). The closure is
+/// `Send + Sync` so `MockStorage` stays `Send + Sync`.
+#[derive(Default)]
+struct ScanHook(Option<Box<dyn FnMut() + Send + Sync>>);
+
+impl std::fmt::Debug for ScanHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ScanHook")
+            .field(&self.0.as_ref().map(|_| "<hook>"))
+            .finish()
+    }
+}
+
 /// Mock storage for testing.
 ///
 /// Stores documents and content in memory. Use the builder methods
@@ -51,6 +67,8 @@ pub struct MockStorage {
     event_sender: RwLock<Option<mpsc::Sender<StorageEvent>>>,
     /// Number of times `scan()` has been called (including failed calls).
     scan_count: AtomicUsize,
+    /// Optional hook run inside a successful `scan()` (test injection point).
+    scan_hook: RwLock<ScanHook>,
 }
 
 impl Default for MockStorage {
@@ -65,6 +83,7 @@ impl Default for MockStorage {
             has_changed: RwLock::new(None),
             event_sender: RwLock::new(None),
             scan_count: AtomicUsize::new(0),
+            scan_hook: RwLock::new(ScanHook::default()),
         }
     }
 }
@@ -300,6 +319,17 @@ impl MockStorage {
         *self.has_changed.write() = value;
     }
 
+    /// Install (or clear with `None`) a hook invoked inside a successful
+    /// `scan()`, after the panic/error checks pass and before documents are
+    /// read. Used to simulate an `invalidate()` racing an in-flight scan.
+    ///
+    /// The hook must not call back into this `MockStorage` — the `scan_hook`
+    /// write lock is held for the duration of the call (`parking_lot::RwLock`
+    /// is not reentrant), so re-entering would deadlock.
+    pub fn set_scan_hook(&self, hook: Option<Box<dyn FnMut() + Send + Sync>>) {
+        self.scan_hook.write().0 = hook;
+    }
+
     /// Emit a storage event.
     ///
     /// Only works if `watch()` has been called first.
@@ -346,6 +376,9 @@ impl Storage for MockStorage {
         );
         if let Some(kind) = self.scan_error.read().as_ref() {
             return Err(StorageError::new(*kind).with_backend("Mock"));
+        }
+        if let Some(hook) = self.scan_hook.write().0.as_mut() {
+            hook();
         }
         let guard = self.documents.read();
         Ok(guard
@@ -691,6 +724,38 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.kind, StorageErrorKind::Unavailable);
         assert_eq!(err.backend, Some("Mock"));
+    }
+
+    #[test]
+    fn test_scan_hook_fires_on_successful_scan() {
+        use std::sync::Arc;
+
+        let storage = MockStorage::new().with_document("guide", "Guide");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_in_hook = Arc::clone(&calls);
+        storage.set_scan_hook(Some(Box::new(move || {
+            calls_in_hook.fetch_add(1, Ordering::Relaxed);
+        })));
+
+        storage.scan().unwrap();
+        storage.scan().unwrap();
+
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn test_scan_hook_not_fired_on_error() {
+        use std::sync::Arc;
+
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_in_hook = Arc::clone(&calls);
+        storage.set_scan_hook(Some(Box::new(move || {
+            calls_in_hook.fetch_add(1, Ordering::Relaxed);
+        })));
+
+        assert!(storage.scan().is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
     }
 
     #[test]
