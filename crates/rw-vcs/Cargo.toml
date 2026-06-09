@@ -10,7 +10,7 @@ description = "Git-aware file metadata for RW documentation engine"
 workspace = true
 
 [dependencies]
-gix = { version = "0.83", default-features = false, features = ["sha1", "revision", "status", "parallel"] }
+gix = { version = "0.84", default-features = false, features = ["sha1", "revision", "status", "parallel"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
