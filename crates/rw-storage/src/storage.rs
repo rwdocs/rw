@@ -82,25 +82,41 @@ pub enum StorageErrorKind {
     Other,
 }
 
-/// Retry guidance (from `OpenDAL`).
-#[derive(Debug, PartialEq, Eq, Default)]
-pub enum ErrorStatus {
-    /// Don't retry (config error, not found, invalid path).
-    #[default]
-    Permanent,
-    /// Retry immediately (timeout, connection reset).
-    Temporary,
-    /// Retry with backoff (rate limited, service unavailable).
-    Persistent,
+impl std::fmt::Display for StorageErrorKind {
+    /// Human-readable label for the category. Mirrors [`std::io::ErrorKind`],
+    /// which is `Display` but deliberately not an `Error` — this is a `Copy`
+    /// category tag (used as a value, e.g. injected by the mock storage), not a
+    /// failure value with a cause.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            StorageErrorKind::NotFound => "Not found",
+            StorageErrorKind::PermissionDenied => "Permission denied",
+            StorageErrorKind::AlreadyExists => "Already exists",
+            StorageErrorKind::InvalidPath => "Invalid path",
+            StorageErrorKind::Unavailable => "Unavailable",
+            StorageErrorKind::RateLimited => "Rate limited",
+            StorageErrorKind::Timeout => "Timeout",
+            StorageErrorKind::Other => "Error",
+        };
+        f.write_str(label)
+    }
 }
 
-/// Storage error with semantic kind and backend-specific source.
+/// Storage error with a semantic [`kind`](Self::kind) and a backend-specific
+/// source.
+///
+/// Deliberately modeled on [`std::io::Error`]: an opaque struct carrying a
+/// `Copy` category ([`StorageErrorKind`]), optional path/backend context, and a
+/// type-erased `Box<dyn Error>` source. The `Display`/`Error` impls are
+/// hand-written rather than derived via `thiserror` because the rendered form
+/// is conditional on three independently-optional parts (the `[backend]`
+/// prefix, the `: source`, and the ` (path: …)` suffix), which a static
+/// `#[error("…")]` template cannot express. The crate's tagged-union errors
+/// (e.g. [`MetadataError`](crate::MetadataError)) do use `thiserror`.
 #[derive(Debug)]
 pub struct StorageError {
     /// Semantic error category.
     pub kind: StorageErrorKind,
-    /// Retry guidance.
-    pub status: ErrorStatus,
     /// Path context (if applicable).
     pub path: Option<PathBuf>,
     /// Backend identifier (e.g., "Fs", "Mock").
@@ -114,7 +130,6 @@ impl StorageError {
     pub fn new(kind: StorageErrorKind) -> Self {
         Self {
             kind,
-            status: ErrorStatus::Permanent,
             path: None,
             backend: None,
             source: None,
@@ -132,13 +147,6 @@ impl StorageError {
     #[must_use]
     pub fn with_backend(mut self, backend: &'static str) -> Self {
         self.backend = Some(backend);
-        self
-    }
-
-    /// Set retry status.
-    #[must_use]
-    pub fn with_status(mut self, status: ErrorStatus) -> Self {
-        self.status = status;
         self
     }
 
@@ -167,12 +175,6 @@ impl StorageError {
         msg
     }
 
-    /// Downcast the source error to a concrete type.
-    #[must_use]
-    pub fn downcast_source<E: std::error::Error + 'static>(&self) -> Option<&E> {
-        self.source.as_ref()?.downcast_ref()
-    }
-
     /// Create a not found error with path.
     #[must_use]
     pub fn not_found(path: impl Into<PathBuf>) -> Self {
@@ -189,11 +191,7 @@ impl StorageError {
             std::io::ErrorKind::TimedOut => StorageErrorKind::Timeout,
             _ => StorageErrorKind::Other,
         };
-        let status = match err.kind() {
-            std::io::ErrorKind::TimedOut => ErrorStatus::Temporary,
-            _ => ErrorStatus::Permanent,
-        };
-        let mut error = Self::new(kind).with_status(status).with_source(err);
+        let mut error = Self::new(kind).with_source(err);
         if let Some(p) = path {
             error = error.with_path(p);
         }
@@ -202,24 +200,15 @@ impl StorageError {
 }
 
 impl std::fmt::Display for StorageError {
+    /// Renders `"[Backend] Kind: source (path: …)"`, delegating the kind label
+    /// to [`StorageErrorKind`]'s `Display`. See [`StorageError`] for why this is
+    /// hand-written rather than `thiserror`-derived.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Format: "[Backend] Kind: message (path: /foo/bar)"
         if let Some(backend) = self.backend {
             write!(f, "[{backend}] ")?;
         }
 
-        let kind_str = match self.kind {
-            StorageErrorKind::NotFound => "Not found",
-            StorageErrorKind::PermissionDenied => "Permission denied",
-            StorageErrorKind::AlreadyExists => "Already exists",
-            StorageErrorKind::InvalidPath => "Invalid path",
-            StorageErrorKind::Unavailable => "Unavailable",
-            StorageErrorKind::RateLimited => "Rate limited",
-            StorageErrorKind::Timeout => "Timeout",
-            StorageErrorKind::Other => "Error",
-        };
-
-        write!(f, "{kind_str}")?;
+        write!(f, "{}", self.kind)?;
 
         if let Some(source) = &self.source {
             write!(f, ": {source}")?;
@@ -442,7 +431,6 @@ mod tests {
         let err = StorageError::new(StorageErrorKind::NotFound);
 
         assert_eq!(err.kind, StorageErrorKind::NotFound);
-        assert_eq!(err.status, ErrorStatus::Permanent);
         assert!(err.path.as_deref().is_none());
         assert!(err.backend.is_none());
     }
@@ -462,18 +450,11 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_error_with_status() {
-        let err = StorageError::new(StorageErrorKind::Timeout).with_status(ErrorStatus::Temporary);
-
-        assert_eq!(err.status, ErrorStatus::Temporary);
-    }
-
-    #[test]
     fn test_storage_error_with_source() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err = StorageError::new(StorageErrorKind::NotFound).with_source(io_err);
 
-        assert!(err.downcast_source::<std::io::Error>().is_some());
+        assert!(std::error::Error::source(&err).is_some());
     }
 
     #[test]
@@ -490,7 +471,6 @@ mod tests {
         let err = StorageError::io(io_err, Some(PathBuf::from("/foo/bar")));
 
         assert_eq!(err.kind, StorageErrorKind::NotFound);
-        assert_eq!(err.status, ErrorStatus::Permanent);
         assert_eq!(err.path.as_deref(), Some(Path::new("/foo/bar")));
     }
 
@@ -508,7 +488,15 @@ mod tests {
         let err = StorageError::io(io_err, None);
 
         assert_eq!(err.kind, StorageErrorKind::Timeout);
-        assert_eq!(err.status, ErrorStatus::Temporary);
+    }
+
+    #[test]
+    fn test_storage_error_io_unmapped_kind_falls_back_to_other() {
+        // Any io::ErrorKind without an explicit arm in io() maps to Other.
+        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
+        let err = StorageError::io(io_err, None);
+
+        assert_eq!(err.kind, StorageErrorKind::Other);
     }
 
     #[test]
@@ -553,8 +541,23 @@ mod tests {
     }
 
     #[test]
-    fn test_error_status_default() {
-        let status = ErrorStatus::default();
-        assert_eq!(status, ErrorStatus::Permanent);
+    fn test_storage_error_kind_display_labels() {
+        // StorageErrorKind::Display is the single source of truth for the
+        // user-visible error vocabulary (StorageError::Display delegates to it),
+        // so lock every label.
+        assert_eq!(StorageErrorKind::NotFound.to_string(), "Not found");
+        assert_eq!(
+            StorageErrorKind::PermissionDenied.to_string(),
+            "Permission denied"
+        );
+        assert_eq!(
+            StorageErrorKind::AlreadyExists.to_string(),
+            "Already exists"
+        );
+        assert_eq!(StorageErrorKind::InvalidPath.to_string(), "Invalid path");
+        assert_eq!(StorageErrorKind::Unavailable.to_string(), "Unavailable");
+        assert_eq!(StorageErrorKind::RateLimited.to_string(), "Rate limited");
+        assert_eq!(StorageErrorKind::Timeout.to_string(), "Timeout");
+        assert_eq!(StorageErrorKind::Other.to_string(), "Error");
     }
 }
