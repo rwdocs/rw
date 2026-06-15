@@ -139,7 +139,7 @@ impl fmt::Display for Section {
 ///
 /// The expected format is `"kind:namespace/name"` where `kind`, `namespace`,
 /// and `name` are all non-empty. When the namespace segment is present but
-/// fails [`validate_namespace`], the underlying [`InvalidNamespace`] is
+/// fails `validate_namespace`, the underlying [`InvalidNamespace`] is
 /// carried as the cause (accessible via [`std::error::Error::source`] and
 /// surfaced in the [`Display`](fmt::Display) output).
 ///
@@ -155,30 +155,21 @@ impl fmt::Display for Section {
 /// let err = "domain:bad value/billing".parse::<Section>().unwrap_err();
 /// assert!(err.to_string().contains("bad value"));
 /// ```
-#[derive(Debug, Default)]
-pub struct ParseSectionError(Option<InvalidNamespace>);
+#[derive(Debug, Default, thiserror::Error)]
+pub enum ParseSectionError {
+    /// The ref string did not match the `kind:namespace/name` shape, or its
+    /// kind or name segment was empty. An empty *namespace* segment is reported
+    /// as [`Namespace`](Self::Namespace) instead, since it fails the namespace
+    /// charset check.
+    #[default]
+    #[error("invalid section ref: expected \"kind:namespace/name\"")]
+    Format,
 
-impl fmt::Display for ParseSectionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Some(e) => write!(f, "invalid section ref: {e}"),
-            None => f.write_str("invalid section ref: expected \"kind:namespace/name\""),
-        }
-    }
-}
-
-impl std::error::Error for ParseSectionError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0
-            .as_ref()
-            .map(|e| e as &(dyn std::error::Error + 'static))
-    }
-}
-
-impl From<InvalidNamespace> for ParseSectionError {
-    fn from(e: InvalidNamespace) -> Self {
-        Self(Some(e))
-    }
+    /// The namespace segment was present but failed `validate_namespace` (this
+    /// includes an empty namespace); the underlying [`InvalidNamespace`] is
+    /// carried as the cause (accessible via [`std::error::Error::source`]).
+    #[error("invalid section ref: {0}")]
+    Namespace(#[from] InvalidNamespace),
 }
 
 impl FromStr for Section {
@@ -771,6 +762,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_error_default_is_format_variant() {
+        let err = ParseSectionError::default();
+        assert!(matches!(err, ParseSectionError::Format));
+        assert_eq!(
+            err.to_string(),
+            "invalid section ref: expected \"kind:namespace/name\""
+        );
+        // The shape failure has no underlying cause.
+        assert!(std::error::Error::source(&err).is_none());
+    }
+
+    #[test]
     fn find_by_ref_exact_match() {
         let sections = billing();
         let path = sections.find_by_ref("domain:default/billing");
@@ -913,16 +916,36 @@ mod tests {
 
     #[test]
     fn section_from_str_rejects_malformed() {
-        assert!("".parse::<Section>().is_err());
-        assert!("domain".parse::<Section>().is_err());
-        assert!("domain:billing".parse::<Section>().is_err()); // no '/'
-        assert!(":default/billing".parse::<Section>().is_err()); // empty kind
-        assert!("domain:/billing".parse::<Section>().is_err()); // empty namespace
-        assert!("domain:default/".parse::<Section>().is_err()); // empty name
+        // Shape failures (no ':' / no '/') and empty kind or name all map to
+        // the generic Format variant.
+        let parse = |s: &str| s.parse::<Section>().unwrap_err();
+        assert!(matches!(parse(""), ParseSectionError::Format));
+        assert!(matches!(parse("domain"), ParseSectionError::Format)); // no ':'
+        assert!(matches!(parse("domain:billing"), ParseSectionError::Format)); // no '/'
+        assert!(matches!(
+            parse(":default/billing"),
+            ParseSectionError::Format
+        )); // empty kind
+        assert!(matches!(
+            parse("domain:default/"),
+            ParseSectionError::Format
+        )); // empty name
+
+        // An empty namespace fails the charset check, so it is reported as the
+        // Namespace variant rather than Format.
+        assert!(matches!(
+            parse("domain:/billing"),
+            ParseSectionError::Namespace(_)
+        ));
+
         // Structurally complete but namespace fails the Backstage charset —
         // must propagate InvalidNamespace as the source rather than the
         // generic "expected kind:namespace/name" message.
-        let err = "domain:bad value/billing".parse::<Section>().unwrap_err();
+        let err = parse("domain:bad value/billing");
+        assert!(
+            matches!(err, ParseSectionError::Namespace(_)),
+            "charset failure should map to the Namespace variant: {err}"
+        );
         assert!(
             err.to_string().contains("bad value"),
             "namespace error should surface the bad value: {err}"
