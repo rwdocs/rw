@@ -7,6 +7,7 @@
 # path but then treats us as "under its tree but not a member". See
 # rust-lang/cargo#16911 and #6745.
 [workspace]
+resolver = "3"
 
 [package]
 name = "rw-napi"
