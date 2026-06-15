@@ -13,7 +13,7 @@ use std::str::FromStr;
 /// A validated section namespace (Backstage catalog namespace charset).
 ///
 /// Constructing a [`Namespace`] guarantees the inner value satisfies
-/// [`validate_namespace`]: 1–63 characters, starts and ends with an ASCII
+/// `validate_namespace`: 1–63 characters, starts and ends with an ASCII
 /// letter or digit, and otherwise contains only ASCII letters, digits, `-`,
 /// `_`, or `.`. Build one via [`FromStr`] (`"payments".parse::<Namespace>()`),
 /// [`TryFrom<String>`], or [`Default`] for `"default"`.
@@ -90,29 +90,19 @@ impl PartialEq<&str> for Namespace {
     }
 }
 
-/// Error returned by [`validate_namespace`] for a malformed namespace value.
+/// Error returned by `validate_namespace` for a malformed namespace value.
 ///
 /// A valid namespace is 1–63 characters, starts and ends with an ASCII letter
 /// or digit, and otherwise contains only ASCII letters, digits, `-`, `_`, or
 /// `.` — the same charset Backstage allows for catalog namespaces.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "invalid namespace {namespace:?}: must be 1-63 characters, start and end \
+     with a letter or digit, and contain only letters, digits, '-', '_', or '.'"
+)]
 pub struct InvalidNamespace {
     namespace: String,
 }
-
-impl fmt::Display for InvalidNamespace {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "invalid namespace {:?}: must be 1-63 characters, start and end \
-             with a letter or digit, and contain only letters, digits, \
-             '-', '_', or '.'",
-            self.namespace
-        )
-    }
-}
-
-impl std::error::Error for InvalidNamespace {}
 
 /// Validate a string against the Backstage namespace charset.
 ///
