@@ -185,7 +185,7 @@ impl SqliteCommentStore {
 
         for migration in migrations.iter().filter(|m| m.version > current) {
             for stmt in migration.stmts {
-                query(stmt).execute(&mut *tx).await?;
+                query(*stmt).execute(&mut *tx).await?;
             }
             query("INSERT INTO schema_versions (version, applied_at) VALUES (?, ?)")
                 .bind(migration.version)
@@ -894,7 +894,7 @@ mod tests {
             "CREATE INDEX IF NOT EXISTS idx_comments_document_status
                 ON comments (document_id, status)",
         ] {
-            query(stmt).execute(&pre_pool).await.unwrap();
+            query(*stmt).execute(&pre_pool).await.unwrap();
         }
 
         // Seed a row so the assertions below actually prove the migration
