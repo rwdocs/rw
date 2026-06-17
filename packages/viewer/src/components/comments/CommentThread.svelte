@@ -3,6 +3,7 @@
   import Avatar from "$lib/ui/primitives/Avatar.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
+  import Quote from "$lib/ui/primitives/Quote.svelte";
   import { formatRelativeTime } from "$lib/ui/hooks/formatRelativeTime";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import CommentForm from "./CommentForm.svelte";
@@ -31,6 +32,11 @@
     /** True when the comment was anchored via fuzzy matching — the original
      *  passage no longer appears verbatim, so the highlight may be approximate. */
     fuzzy?: boolean;
+    /** Quote of the original passage, shown between the author row and the
+     *  comment body for orphaned page comments whose anchor text no longer
+     *  appears on the page. Absent for inline (anchored) threads and native
+     *  page comments. */
+    quote?: { prefix?: string; exact: string; suffix?: string } | null;
   }
 
   let {
@@ -46,6 +52,7 @@
     nav,
     onAnchor,
     fuzzy = false,
+    quote = null,
   }: Props = $props();
 
   let outerRef: HTMLDivElement | undefined = $state();
@@ -77,6 +84,7 @@
 
 <div
   bind:this={outerRef}
+  data-testid="comment-thread"
   class="
     overflow-hidden rounded-md border px-3 pt-3 transition-colors
     {active
@@ -193,7 +201,18 @@
         {formatRelativeTime(new Date(comment.createdAt))}
       </span>
     </div>
+    {#if quote}
+      <Quote
+        data-testid="orphan-quote"
+        title="This comment was attached to a passage that no longer appears on the page."
+        class="mb-2"
+        prefix={quote.prefix}
+        exact={quote.exact}
+        suffix={quote.suffix}
+      />
+    {/if}
     <p
+      data-testid="comment-body"
       class="
         text-sm text-gray-900
         dark:text-neutral-100

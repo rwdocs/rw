@@ -723,6 +723,25 @@ test.describe("Page comments", () => {
     await expect(quote).toContainText("a sentence that definitely is not on this page");
     await expect(quote).toContainText("context after");
 
+    // The quote sits inside the comment card, between the author row and the
+    // body — scoped to the card, not the page-comments section.
+    const card = section.getByTestId("comment-thread");
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId("orphan-quote")).toBeVisible();
+    await expect(card).toContainText("This paragraph needs a rewrite");
+
+    // The quote must come before the comment body in document order, so it
+    // reads as the opening of the first comment message, not a trailer.
+    const quoteBeforeBody = await card.evaluate((cardEl) => {
+      const q = cardEl.querySelector('[data-testid="orphan-quote"]');
+      const body = cardEl.querySelector('[data-testid="comment-body"]');
+      if (!q || !body) {
+        throw new Error("expected both orphan-quote and comment-body inside the card");
+      }
+      return Boolean(q.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    expect(quoteBeforeBody).toBe(true);
+
     // The orphan must not inflate the inline sidebar's prev/next counter.
     // Create a real inline comment and check that the sidebar counter is 1/1.
     await createCommentViaUI(page, "code highlighting", "Real inline");
