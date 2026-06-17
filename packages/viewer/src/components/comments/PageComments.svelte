@@ -4,7 +4,6 @@
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
-  import Quote from "$lib/ui/primitives/Quote.svelte";
 
   const { comments, page } = getRwContext();
 
@@ -101,28 +100,17 @@
     <div class="mb-6 space-y-4">
       {#each visibleThreads as thread (thread.id)}
         {@const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
-        <div>
-          {#if quote}
-            <Quote
-              data-testid="orphan-quote"
-              title="This comment was attached to a passage that no longer appears on the page."
-              class="mb-2"
-              prefix={quote.prefix}
-              exact={quote.exact}
-              suffix={quote.suffix}
-            />
-          {/if}
-          <CommentThread
-            comment={thread}
-            replies={comments.replies(thread.id)}
-            active={false}
-            onResolve={handleResolve}
-            onReopen={handleReopen}
-            onReply={handleReply}
-            onDelete={handleDelete}
-            onRestore={handleRestore}
-          />
-        </div>
+        <CommentThread
+          comment={thread}
+          {quote}
+          replies={comments.replies(thread.id)}
+          active={false}
+          onResolve={handleResolve}
+          onReopen={handleReopen}
+          onReply={handleReply}
+          onDelete={handleDelete}
+          onRestore={handleRestore}
+        />
       {/each}
     </div>
   {/if}
