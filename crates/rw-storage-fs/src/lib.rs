@@ -37,7 +37,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 
 use glob::Pattern;
-use notify::{RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
 use rw_meta::Meta;
 use rw_sections::Namespace;
@@ -537,6 +537,41 @@ fn to_storage_event(
     }
 }
 
+/// Try to start watching `source_dir` recursively once it exists.
+///
+/// Used by the watch drain thread to "upgrade" a README-only project (where
+/// `source_dir` did not exist at startup) to a full recursive watch as soon as
+/// the directory is created. Returns `true` once the recursive watch is active.
+///
+/// On success it records a synthetic `Created` event for `source_dir`: the
+/// freshly created directory and its contents predate the recursive watch, and
+/// notify does not replay a `Created` for the watch root, so without it the
+/// initial content would never trigger a rescan. Errors are swallowed: a
+/// directory created then removed between the check and the watch call (TOCTOU),
+/// or a transient watch failure, simply leaves the watch inactive to be retried
+/// on the next drain tick; the caller logs a one-time warning if it persists.
+///
+/// Returns `false` without side effects when `source_dir` is not a directory
+/// (the guard is `is_dir()`, not `exists()` — see the call site in `watch`).
+fn try_upgrade_recursive_watch(
+    watcher: &parking_lot::Mutex<RecommendedWatcher>,
+    debouncer: &EventDebouncer,
+    source_dir: &Path,
+) -> bool {
+    if !source_dir.is_dir() {
+        return false;
+    }
+
+    let mut guard = watcher.lock();
+    if guard.watch(source_dir, RecursiveMode::Recursive).is_ok() {
+        drop(guard);
+        debouncer.record(source_dir.to_path_buf(), RawEventKind::Created);
+        true
+    } else {
+        false
+    }
+}
+
 impl Storage for FsStorage {
     fn scan(&self) -> Result<Vec<Document>, StorageError> {
         let t0 = Instant::now();
@@ -673,13 +708,23 @@ impl Storage for FsStorage {
                     .with_source(e)
             })?;
 
-        watcher
-            .watch(&self.source_dir, RecursiveMode::Recursive)
-            .map_err(|e| {
-                StorageError::new(StorageErrorKind::Other)
-                    .with_backend(BACKEND)
-                    .with_source(e)
-            })?;
+        // Only watch source_dir if it is a directory. A README-only project
+        // (no docs/) must still start; the drain thread upgrades to a recursive
+        // watch if docs/ appears later. README edits are handled by the README
+        // watcher. `is_dir()` (not `exists()`) matches the upgrade helper: a
+        // non-directory at the path must not abort the watch with a hard error.
+        let mut recursive_active = if self.source_dir.is_dir() {
+            watcher
+                .watch(&self.source_dir, RecursiveMode::Recursive)
+                .map_err(|e| {
+                    StorageError::new(StorageErrorKind::Other)
+                        .with_backend(BACKEND)
+                        .with_source(e)
+                })?;
+            true
+        } else {
+            false
+        };
 
         // Keep watcher alive in Arc
         let watcher = std::sync::Arc::new(parking_lot::Mutex::new(watcher));
@@ -696,9 +741,13 @@ impl Storage for FsStorage {
         let source_dir_for_drain = self.source_dir.clone();
         let meta_filename_for_drain = self.meta_filename.clone();
         std::thread::spawn(move || {
-            // Keep watcher references alive in this thread
-            let _watcher_guard = watcher;
+            // Own the watcher in this thread; the drain loop also locks it to
+            // upgrade to a recursive watch once source_dir appears.
+            let watcher_guard = watcher;
             let _readme_watcher_guard = readme_watcher;
+            // Whether a persistent recursive-watch upgrade failure was logged
+            // already, so the warning is emitted at most once (not every tick).
+            let mut upgrade_warned = false;
 
             loop {
                 // Check for shutdown signal (blocking until timeout or signal)
@@ -706,6 +755,30 @@ impl Storage for FsStorage {
                     // Shutdown signaled or handle dropped
                     Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {} // Continue draining
+                }
+
+                // If source_dir did not exist at startup, keep polling until it
+                // appears, then upgrade to a recursive watch. The poll runs every
+                // tick regardless of file-system events, so creation is always
+                // detected.
+                if !recursive_active {
+                    recursive_active = try_upgrade_recursive_watch(
+                        &watcher_guard,
+                        &debouncer,
+                        &source_dir_for_drain,
+                    );
+                    // The directory exists but the watch could not be started
+                    // (e.g. permissions, or the inotify watch limit): warn once
+                    // so the broken live-reload is not silent. The poll keeps
+                    // retrying every tick, so this may yet recover.
+                    if !recursive_active && source_dir_for_drain.is_dir() && !upgrade_warned {
+                        tracing::warn!(
+                            dir = %source_dir_for_drain.display(),
+                            "failed to start recursive watch on source directory; \
+                             retrying every poll — live reload may lag for it"
+                        );
+                        upgrade_warned = true;
+                    }
                 }
 
                 for event in debouncer.drain_ready() {
@@ -1605,6 +1678,108 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[test]
+    fn test_watch_succeeds_when_source_dir_missing() {
+        // A README-only project: source_dir (docs/) does not exist.
+        let temp_dir = create_test_dir();
+        let missing = temp_dir.path().join("docs");
+        assert!(!missing.exists());
+
+        let storage = FsStorage::new(missing);
+        // watch() must not fail just because docs/ is absent.
+        assert!(storage.watch().is_ok());
+    }
+
+    #[test]
+    fn test_watch_succeeds_with_relative_missing_source_dir() {
+        // Relative source_dir whose parent() is the empty path must not error.
+        // Assert only Ok — do not depend on any README.md in the test's cwd.
+        let storage = FsStorage::new(PathBuf::from("nonexistent-docs-rw-test"));
+        assert!(storage.watch().is_ok());
+    }
+
+    #[test]
+    fn test_scan_injects_readme_when_docs_missing() {
+        // source_dir (docs/) absent, README.md present in its parent.
+        let temp_dir = create_test_dir();
+        fs::write(temp_dir.path().join("README.md"), "# Atlas").unwrap();
+        let missing = temp_dir.path().join("docs");
+
+        let storage = FsStorage::new(missing);
+        let docs = storage.scan().unwrap();
+
+        let home = docs.iter().find(|d| d.path.is_empty());
+        assert!(home.is_some(), "README.md should be injected as homepage");
+        assert_eq!(home.unwrap().title, "Atlas");
+    }
+
+    #[test]
+    fn test_try_upgrade_recursive_watch_when_dir_absent() {
+        // Helper returns false and records nothing when the dir does not exist.
+        let temp_dir = create_test_dir();
+        let missing = temp_dir.path().join("docs");
+
+        let watcher = parking_lot::Mutex::new(
+            notify::recommended_watcher(|_res: Result<notify::Event, notify::Error>| {}).unwrap(),
+        );
+        // Zero debounce window so any recorded event would be immediately drainable.
+        let debouncer = EventDebouncer::new(Duration::from_millis(0));
+
+        assert!(!try_upgrade_recursive_watch(&watcher, &debouncer, &missing));
+        assert!(
+            debouncer.drain_ready().is_empty(),
+            "no event should be recorded when dir is absent"
+        );
+    }
+
+    #[test]
+    fn test_try_upgrade_recursive_watch_when_path_is_file() {
+        // A non-directory at the source path must not flip the upgrade to active:
+        // the helper guards on is_dir(), not exists(), so a file created at the
+        // path (possibly before the real directory replaces it) records nothing.
+        let temp_dir = create_test_dir();
+        let file_path = temp_dir.path().join("docs");
+        fs::write(&file_path, "not a directory").unwrap();
+
+        let watcher = parking_lot::Mutex::new(
+            notify::recommended_watcher(|_res: Result<notify::Event, notify::Error>| {}).unwrap(),
+        );
+        let debouncer = EventDebouncer::new(Duration::from_millis(0));
+
+        assert!(!try_upgrade_recursive_watch(
+            &watcher, &debouncer, &file_path
+        ));
+        assert!(
+            debouncer.drain_ready().is_empty(),
+            "no event should be recorded when the path is a file, not a directory"
+        );
+    }
+
+    #[test]
+    fn test_try_upgrade_recursive_watch_when_dir_present() {
+        // Helper returns true and records a synthetic Created once the dir exists.
+        let temp_dir = create_test_dir();
+        let docs = temp_dir.path().join("docs");
+        fs::create_dir(&docs).unwrap();
+
+        let watcher = parking_lot::Mutex::new(
+            notify::recommended_watcher(|_res: Result<notify::Event, notify::Error>| {}).unwrap(),
+        );
+        // Zero debounce window so the synthetic event is immediately drainable.
+        let debouncer = EventDebouncer::new(Duration::from_millis(0));
+
+        assert!(try_upgrade_recursive_watch(&watcher, &debouncer, &docs));
+
+        let events = debouncer.drain_ready();
+        assert_eq!(
+            events.len(),
+            1,
+            "expected one synthetic event, got: {events:?}"
+        );
+        assert_eq!(events[0].path, docs);
+        assert_eq!(events[0].kind, RawEventKind::Created);
+    }
+
     // Note: File watching tests are ignored because they're timing-sensitive and can be flaky
     // in test environments. The implementation follows the same pattern as LiveReloadManager
     // which works correctly in production.
@@ -1639,6 +1814,35 @@ mod tests {
         assert!(
             new_event.is_some(),
             "Expected event for 'new', got: {events:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "timing-sensitive, can be flaky in test environments"]
+    fn test_watch_detects_docs_dir_created_after_start() {
+        // Start watching a project whose docs/ does not exist yet.
+        let temp_dir = create_test_dir();
+        let docs = temp_dir.path().join("docs");
+        assert!(!docs.exists());
+
+        let storage = FsStorage::new(docs.clone());
+        let (rx, _handle) = storage.watch().unwrap();
+
+        // Create docs/ and a page inside it.
+        std::thread::sleep(Duration::from_millis(100));
+        fs::create_dir(&docs).unwrap();
+        fs::write(docs.join("guide.md"), "# Guide").unwrap();
+
+        // Wait for the 50ms poll to upgrade + the debounce window to drain.
+        std::thread::sleep(Duration::from_millis(500));
+
+        // Assert the page *inside* the newly created docs/ is observed — not just
+        // the synthetic root Created event. This proves the recursive watch was
+        // actually started on the new directory, which is the point of the fix.
+        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv()).collect();
+        assert!(
+            events.iter().any(|e| e.path == "guide"),
+            "expected an event for the page inside the new docs/, got: {events:?}"
         );
     }
 
