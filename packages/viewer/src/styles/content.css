@@ -299,15 +299,20 @@
  * region — what the CSS Custom Highlight API can't do because it picks one
  * color per overlapping range across Highlight objects.
  *
+ * Every comment carries an underline; the line style is the differentiator.
+ * Exact anchors (data-strategy "position"/"quote") get a solid underline.
  * data-strategy="fuzzy" marks comments anchored via the diff-match-patch
- * fallback (exact text drifted). Same yellow as exact highlights — the
- * dashed underline is what tells reviewers the re-anchor may have moved. */
+ * fallback (exact text drifted) and switches to a dashed underline — same
+ * yellow, so the dash pattern is what tells reviewers the re-anchor may have
+ * moved. Nested annotations share the 2px offset, so overlapping underlines
+ * coincide into one line. */
 rw-annotation {
   background-color: var(--highlight-comment);
+  text-decoration: underline solid var(--highlight-comment-underline);
+  text-underline-offset: 2px;
 }
 rw-annotation[data-strategy="fuzzy"] {
-  text-decoration: underline dashed var(--highlight-comment-fuzzy-underline);
-  text-underline-offset: 2px;
+  text-decoration: underline dashed var(--highlight-comment-underline);
 }
 /* Active comment — stronger yellow on top of the per-comment background.
  * Toggled by the active-toggle $effect in PageContent.svelte. */
