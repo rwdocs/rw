@@ -600,16 +600,51 @@ test.describe("Page comments", () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    const section = page.getByRole("region", { name: "Page comments" });
+    const section = page.getByRole("region", { name: "Comments" });
     await expect(section).toBeVisible();
     await expect(section.getByPlaceholder("Write a comment...")).toBeVisible();
+  });
+
+  test("page comments section shows a Comments heading", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    const section = page.getByRole("region", { name: "Comments" });
+    await expect(section.getByRole("heading", { name: "Comments" })).toBeVisible();
+
+    // beforeEach resolves all comments, so the section starts empty:
+    // the count badge is hidden when there are no visible threads.
+    await expect(section.getByLabel(/^\d+ comments?$/)).toHaveCount(0);
+  });
+
+  test("comment count badge reflects the number of page comments", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    const section = page.getByRole("region", { name: "Comments" });
+    await section.getByPlaceholder("Write a comment...").fill("First counted comment");
+    await section.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(section).toContainText("First counted comment");
+
+    const countBadge = section.getByLabel(/^\d+ comments?$/);
+    await expect(countBadge).toHaveText("1");
+    await expect(countBadge).toHaveAccessibleName("1 comment");
+
+    // A second comment proves the count is dynamic and exercises the plural
+    // label branch ("comments" vs the singular "comment" above).
+    await section.getByPlaceholder("Write a comment...").fill("Second counted comment");
+    await section.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(section).toContainText("Second counted comment");
+
+    await expect(countBadge).toHaveText("2");
+    await expect(countBadge).toHaveAccessibleName("2 comments");
   });
 
   test("creating a page comment via the form", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    const section = page.getByRole("region", { name: "Page comments" });
+    const section = page.getByRole("region", { name: "Comments" });
     await section.getByPlaceholder("Write a comment...").fill("A page-level comment");
     await section.getByRole("button", { name: "Comment", exact: true }).click();
 
@@ -633,7 +668,7 @@ test.describe("Page comments", () => {
     await page.getByRole("article").waitFor();
 
     // Create a page comment
-    const section = page.getByRole("region", { name: "Page comments" });
+    const section = page.getByRole("region", { name: "Comments" });
     await section.getByPlaceholder("Write a comment...").fill("Top-level page comment");
     await section.getByRole("button", { name: "Comment", exact: true }).click();
     await expect(section).toContainText("Top-level page comment");
@@ -667,7 +702,7 @@ test.describe("Page comments", () => {
     await page.getByRole("article").waitFor();
 
     // Create a page comment
-    const section = page.getByRole("region", { name: "Page comments" });
+    const section = page.getByRole("region", { name: "Comments" });
     await section.getByPlaceholder("Write a comment...").fill("Comment to resolve");
     await section.getByRole("button", { name: "Comment", exact: true }).click();
     await expect(section).toContainText("Comment to resolve");
@@ -712,7 +747,7 @@ test.describe("Page comments", () => {
     await page.goto("/");
     await page.getByRole("article").waitFor();
 
-    const section = page.getByRole("region", { name: "Page comments" });
+    const section = page.getByRole("region", { name: "Comments" });
     await expect(section).toContainText("This paragraph needs a rewrite");
 
     // Quote context is shown with the stored exact text and its surrounding

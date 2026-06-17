@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The page-comments block now leads with a labeled "Comments" header and a count badge instead of appearing as bare threads below a horizontal line, so the discussion zone reads as a deliberate section. The count badge shows the number of open page-level (and orphaned-inline) threads and is hidden when there are none.
 - Orphaned inline comments shown in the page-comments timeline now render their original-passage quote inside the first comment message (between the author and the comment text) instead of as a detached block above the comment card, so the quote reads as part of the comment that refers to it.
 - Single-page sites (only `index.md`, or a `README.md` homepage) no longer show an empty navigation sidebar. When there are no other pages to navigate to, the desktop sidebar, the mobile hamburger button, and the mobile navigation drawer are all hidden, leaving a clean centered article. Sites with a "back to home" link (a section page that simply has no child pages) keep their sidebar.
 - The comments database (`.rw/comments/sqlite.db`) gains a versioned schema (`schema_versions` table). On startup, the binary applies any pending forward migrations idempotently. If the DB is at a schema version newer than the binary supports (e.g. you ran a newer `rw` and then tried to start an older one), startup fails cleanly with an "incompatible schema" error instead of corrupting reads — downgrades are not supported across schema versions.
