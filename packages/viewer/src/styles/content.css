@@ -304,15 +304,36 @@
  * data-strategy="fuzzy" marks comments anchored via the diff-match-patch
  * fallback (exact text drifted) and switches to a dashed underline — same
  * yellow, so the dash pattern is what tells reviewers the re-anchor may have
- * moved. Nested annotations share the 2px offset, so overlapping underlines
- * coincide into one line. */
+ * moved.
+ *
+ * The line is a background gradient pinned to background-position bottom so it
+ * sits flush with the bottom edge of the highlight box at any font size. Do NOT
+ * switch it back to text-decoration / text-underline-offset: those are
+ * baseline-relative, so the line drifts mid-box on larger headings and cuts
+ * through descenders. box-decoration-break: clone is required so each wrapped
+ * line fragment paints its own full background — without it the default "slice"
+ * model leaves the bottom line off every wrapped line but one. Nested
+ * annotations each pin their line to the shared box bottom, so overlapping
+ * underlines coincide into one line. */
 rw-annotation {
   background-color: var(--highlight-comment);
-  text-decoration: underline solid var(--highlight-comment-underline);
-  text-underline-offset: 2px;
+  background-image: linear-gradient(
+    var(--highlight-comment-underline),
+    var(--highlight-comment-underline)
+  );
+  background-repeat: no-repeat;
+  background-position: bottom;
+  background-size: 100% 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 rw-annotation[data-strategy="fuzzy"] {
-  text-decoration: underline dashed var(--highlight-comment-underline);
+  /* Dashed equivalent: a horizontal repeating gradient at the box bottom. */
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--highlight-comment-underline) 0 4px,
+    transparent 4px 7px
+  );
 }
 /* Active comment — stronger yellow on top of the per-comment background.
  * Toggled by the active-toggle $effect in PageContent.svelte. */
