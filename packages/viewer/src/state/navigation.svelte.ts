@@ -45,6 +45,13 @@ export class Navigation {
     this.apiClient = apiClient;
   }
 
+  /** True when the navigation tree has loaded but contains no items and has no
+   *  parent-scope back-link — i.e. there is nothing to navigate to. */
+  get isEmpty(): boolean {
+    const tree = this.tree;
+    return tree !== null && tree.items.length === 0 && !tree.parentScope;
+  }
+
   /** Configure section ref resolution for nav item path rewriting. */
   setSectionRefResolver(resolver: SectionRefResolver) {
     this.sectionRefResolver = resolver;
