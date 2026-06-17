@@ -1,0 +1,11 @@
+# Test configuration for the single-page (empty navigation) E2E test
+[server]
+host = "127.0.0.1"
+port = 8083
+
+[docs]
+source_dir = "single"
+cache_enabled = false
+
+[live_reload]
+enabled = false

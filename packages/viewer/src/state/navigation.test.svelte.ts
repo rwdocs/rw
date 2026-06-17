@@ -345,3 +345,35 @@ describe("navigation store", () => {
     });
   });
 });
+
+describe("Navigation.isEmpty", () => {
+  it("is false before the tree loads (tree is null)", () => {
+    const nav = new Navigation(createMockApiClient());
+    expect(nav.isEmpty).toBe(false);
+  });
+
+  it("is true when items is empty and there is no parentScope", () => {
+    const nav = new Navigation(createMockApiClient());
+    nav.tree = { items: [] };
+    expect(nav.isEmpty).toBe(true);
+  });
+
+  it("is false when items is non-empty", () => {
+    const nav = new Navigation(createMockApiClient());
+    nav.tree = { items: [{ title: "Guide", path: "/guide" }] };
+    expect(nav.isEmpty).toBe(false);
+  });
+
+  it("is false for a childless section that still has a back-link", () => {
+    const nav = new Navigation(createMockApiClient());
+    nav.tree = {
+      items: [],
+      parentScope: {
+        path: "/",
+        title: "Home",
+        section: { kind: "section", namespace: "default", name: "root" },
+      },
+    };
+    expect(nav.isEmpty).toBe(false);
+  });
+});

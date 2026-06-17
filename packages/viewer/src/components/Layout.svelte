@@ -30,6 +30,13 @@
   );
   let tocIds = $derived(tocEntries.map((entry) => entry.id));
 
+  let navEmpty = $derived(navigation.isEmpty);
+  // Keep the header mounted while the page is still loading: page data — and
+  // thus the TOC — arrives just after navigation resolves, so hiding eagerly
+  // would flash the header out and back in. Once loaded, an empty-nav site
+  // keeps it only when there is a TOC to host.
+  let showMobileHeader = $derived(!navEmpty || page.loading || tocEntries.length > 0);
+
   const activeHeading = useActiveHeading(() => tocIds);
 
   function onTocNavigate(id: string) {
@@ -84,37 +91,49 @@
 >
   <LoadingBar loading={page.loading} />
   <!-- Mobile Drawer (before header so the sticky anchor covers it in flow mode) -->
-  <MobileDrawer open={ui.mobileMenuOpen} onClose={ui.closeMobileMenu} error={navigation.error} />
+  {#if !navEmpty}
+    <MobileDrawer open={ui.mobileMenuOpen} onClose={ui.closeMobileMenu} error={navigation.error} />
+  {/if}
 
   <!-- Mobile Header -->
-  <header
-    aria-label="Mobile header"
-    class="
-      layout-mobile-header sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white
-      px-4 py-2
-      dark:border-neutral-700 dark:bg-neutral-800
-    "
-  >
-    <IconButton onclick={ui.openMobileMenu} aria-label="Open menu" class="mr-2 shrink-0">
-      <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-      </svg>
-    </IconButton>
-    {#if page.data}
-      <div class="min-w-0 flex-1">
-        <Breadcrumbs breadcrumbs={page.data.breadcrumbs} resolveHref={resolveCrumbHref} compact />
-      </div>
-      {#if tocEntries.length > 0}
-        <div class="ml-2 shrink-0">
-          <TocPopover
-            toc={tocEntries}
-            activeId={activeHeading.activeId}
-            onNavigate={onTocNavigate}
-          />
-        </div>
+  {#if showMobileHeader}
+    <header
+      aria-label="Mobile header"
+      class="
+        layout-mobile-header sticky top-0 z-30 flex items-center border-b border-gray-200 bg-white
+        px-4 py-2
+        dark:border-neutral-700 dark:bg-neutral-800
+      "
+    >
+      {#if !navEmpty}
+        <IconButton onclick={ui.openMobileMenu} aria-label="Open menu" class="mr-2 shrink-0">
+          <svg
+            class="size-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2.5"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </IconButton>
       {/if}
-    {/if}
-  </header>
+      {#if page.data}
+        <div class="min-w-0 flex-1">
+          <Breadcrumbs breadcrumbs={page.data.breadcrumbs} resolveHref={resolveCrumbHref} compact />
+        </div>
+        {#if tocEntries.length > 0}
+          <div class="ml-2 shrink-0">
+            <TocPopover
+              toc={tocEntries}
+              activeId={activeHeading.activeId}
+              onNavigate={onTocNavigate}
+            />
+          </div>
+        {/if}
+      {/if}
+    </header>
+  {/if}
   <div
     class="
       layout-root flex h-full flex-col bg-white text-gray-900
@@ -122,29 +141,31 @@
     "
   >
     <!-- Navigation Sidebar (Desktop) -->
-    <aside
-      aria-label="Sidebar"
-      class="
-        layout-sidebar hidden h-full w-[280px] shrink-0 overflow-y-auto border-r border-gray-200
-        dark:border-neutral-700
-      "
-    >
-      <div class="px-4 pt-6 pb-4">
-        <a href={homeHref} class="mb-7 flex min-h-8 items-center pl-[6px]">
-          <span class="text-xl font-semibold uppercase"
-            ><span class="text-gray-900 dark:text-neutral-100">R</span><span
-              class="text-gray-400 dark:text-neutral-500">W</span
-            ></span
-          >
-        </a>
-        {#if navigation.error}
-          <Alert intent="danger" class="mb-4">
-            Failed to load navigation: {navigation.error}
-          </Alert>
-        {/if}
-        <NavigationSidebar />
-      </div>
-    </aside>
+    {#if !navEmpty}
+      <aside
+        aria-label="Sidebar"
+        class="
+          layout-sidebar hidden h-full w-[280px] shrink-0 overflow-y-auto border-r border-gray-200
+          dark:border-neutral-700
+        "
+      >
+        <div class="px-4 pt-6 pb-4">
+          <a href={homeHref} class="mb-7 flex min-h-8 items-center pl-[6px]">
+            <span class="text-xl font-semibold uppercase"
+              ><span class="text-gray-900 dark:text-neutral-100">R</span><span
+                class="text-gray-400 dark:text-neutral-500">W</span
+              ></span
+            >
+          </a>
+          {#if navigation.error}
+            <Alert intent="danger" class="mb-4">
+              Failed to load navigation: {navigation.error}
+            </Alert>
+          {/if}
+          <NavigationSidebar />
+        </div>
+      </aside>
+    {/if}
 
     <!-- Main Content + ToC Container -->
     <div class="layout-content-area min-w-0" data-testid="content-area">

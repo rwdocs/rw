@@ -15,12 +15,17 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: "embedded-*.spec.ts",
+      testIgnore: ["embedded-*.spec.ts", "empty-nav.spec.ts"],
     },
     {
       name: "chromium-embedded",
       use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:8082" },
       testMatch: "embedded-*.spec.ts",
+    },
+    {
+      name: "chromium-single",
+      use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:8083" },
+      testMatch: "empty-nav.spec.ts",
     },
   ],
   webServer: [
@@ -35,6 +40,13 @@ export default defineConfig({
       command:
         "./target/debug/rw serve --embedded -c packages/viewer/e2e/fixtures/rw-embedded.toml",
       url: "http://127.0.0.1:8082",
+      cwd: "../..",
+      reuseExistingServer: !process.env.CI,
+      timeout: 30000,
+    },
+    {
+      command: "./target/debug/rw serve -c packages/viewer/e2e/fixtures/rw-single.toml",
+      url: "http://127.0.0.1:8083",
       cwd: "../..",
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
