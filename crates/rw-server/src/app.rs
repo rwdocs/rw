@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 use tower::ServiceBuilder;
 
 use crate::handlers;
@@ -37,6 +37,10 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
             get(handlers::comments::get_comment)
                 .patch(handlers::comments::update_comment)
                 .delete(handlers::comments::delete_comment),
+        )
+        .route(
+            "/_api/_internal/events",
+            post(handlers::internal::post_event),
         );
 
     // WebSocket for live reload

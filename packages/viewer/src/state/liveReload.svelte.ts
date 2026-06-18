@@ -1,10 +1,10 @@
 import { extractDocPath } from "./router.svelte";
 import type { Router } from "./router.svelte";
 
-interface ReloadMessage {
-  type: "content" | "structure";
-  path: string;
-}
+type ReloadMessage =
+  | { type: "content"; path: string }
+  | { type: "structure"; path: string }
+  | { type: "comments" };
 
 export class LiveReload {
   connected = $state(false);
@@ -15,6 +15,7 @@ export class LiveReload {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private onReloadCallback: ((path: string) => void) | null = null;
   private onStructureReloadCallback: (() => void) | null = null;
+  private onCommentsReloadCallback: (() => void) | null = null;
 
   constructor(deps: { router: Router }) {
     this.router = deps.router;
@@ -42,6 +43,15 @@ export class LiveReload {
     return () => {
       if (this.onStructureReloadCallback === callback) {
         this.onStructureReloadCallback = null;
+      }
+    };
+  };
+
+  onCommentsReload = (callback: () => void): (() => void) => {
+    this.onCommentsReloadCallback = callback;
+    return () => {
+      if (this.onCommentsReloadCallback === callback) {
+        this.onCommentsReloadCallback = null;
       }
     };
   };
@@ -82,6 +92,8 @@ export class LiveReload {
           this.handleContentReload(message.path);
         } else if (message.type === "structure") {
           this.handleStructureReload();
+        } else if (message.type === "comments") {
+          this.handleCommentsReload();
         }
       } catch (e) {
         if (import.meta.env.DEV) {
@@ -109,6 +121,13 @@ export class LiveReload {
     }
 
     this.onStructureReloadCallback?.();
+  }
+
+  private handleCommentsReload() {
+    if (import.meta.env.DEV) {
+      console.log("[LiveReload] Comments changed");
+    }
+    this.onCommentsReloadCallback?.();
   }
 
   private shouldReload(currentPath: string, changedPath: string): boolean {

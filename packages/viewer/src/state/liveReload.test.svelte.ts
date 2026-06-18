@@ -350,6 +350,59 @@ describe("liveReload store", () => {
     });
   });
 
+  describe("onCommentsReload callback", () => {
+    it("calls onCommentsReload callback on comments message", async () => {
+      const liveReload = createStore();
+      liveReload.start();
+      mockWebSocketInstances[0].simulateOpen();
+      const callback = vi.fn();
+      liveReload.onCommentsReload(callback);
+
+      mockWebSocketInstances[0].simulateMessage({ type: "comments" });
+
+      await vi.runAllTimersAsync();
+
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns unsubscribe function", async () => {
+      const callback = vi.fn();
+
+      const liveReload = createStore();
+      liveReload.start();
+      mockWebSocketInstances[0].simulateOpen();
+      const unsubscribe = liveReload.onCommentsReload(callback);
+
+      unsubscribe();
+
+      mockWebSocketInstances[0].simulateMessage({ type: "comments" });
+
+      await vi.runAllTimersAsync();
+
+      expect(callback).not.toHaveBeenCalled();
+    });
+
+    it("unsubscribe does not clear a subsequently registered callback", async () => {
+      const callback1 = vi.fn();
+      const callback2 = vi.fn();
+
+      const liveReload = createStore();
+      liveReload.start();
+      mockWebSocketInstances[0].simulateOpen();
+
+      const unsubscribe1 = liveReload.onCommentsReload(callback1);
+      liveReload.onCommentsReload(callback2);
+
+      unsubscribe1();
+
+      mockWebSocketInstances[0].simulateMessage({ type: "comments" });
+
+      await vi.runAllTimersAsync();
+
+      expect(callback2).toHaveBeenCalled();
+    });
+  });
+
   describe("stop()", () => {
     it("closes WebSocket connection", () => {
       const liveReload = createStore();

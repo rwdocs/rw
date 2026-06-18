@@ -139,6 +139,7 @@ pub(crate) async fn create_comment(
     Json(input): Json<NewComment>,
 ) -> Result<(StatusCode, Json<CommentResponse>), CommentApiError> {
     let comment = rw_comments::create_comment(&state.comment_store, &state.site, input).await?;
+    state.notify_comments_changed();
     Ok((StatusCode::CREATED, Json(CommentResponse::project(comment))))
 }
 
@@ -158,6 +159,7 @@ pub(crate) async fn update_comment(
     Json(input): Json<UpdateCommentRequest>,
 ) -> Result<Json<CommentResponse>, CommentApiError> {
     let updated = state.comment_store.update(id, input.into()).await?;
+    state.notify_comments_changed();
     Ok(Json(CommentResponse::project(updated)))
 }
 
@@ -167,6 +169,7 @@ pub(crate) async fn delete_comment(
     Path(id): Path<Uuid>,
 ) -> Result<Json<CommentResponse>, CommentApiError> {
     let deleted = state.comment_store.delete_comment(id).await?;
+    state.notify_comments_changed();
     Ok(Json(CommentResponse::project(deleted)))
 }
 
@@ -176,6 +179,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::live_reload::ReloadEvent;
     use crate::testing::TestServer;
 
     /// Pull a UUID out of a freshly-created comment's JSON body.
@@ -374,6 +378,54 @@ mod tests {
         assert!(
             parent_row.get("can_restore").is_none(),
             "snake_case must not leak: {parent_row}"
+        );
+    }
+
+    #[tokio::test]
+    async fn creating_a_comment_broadcasts_comments_event() {
+        let server = TestServer::with_live_reload().await;
+        let mut rx = server.subscribe_reload();
+        let _ = server.create_comment("a.md", "hello").await;
+        assert!(
+            matches!(rx.try_recv(), Ok(ReloadEvent::Comments)),
+            "create should broadcast a Comments event",
+        );
+    }
+
+    #[tokio::test]
+    async fn resolving_a_comment_broadcasts_comments_event() {
+        let server = TestServer::with_live_reload().await;
+        let created = server.create_comment("a.md", "hello").await;
+        // Subscribe after create so we observe only the resolve broadcast.
+        let mut rx = server.subscribe_reload();
+        let resp = server
+            .patch_json(
+                &format!("/_api/comments/{}", id_of(&created)),
+                serde_json::json!({"status": "resolved"}),
+            )
+            .await;
+        assert_eq!(resp.status, StatusCode::OK);
+        assert!(
+            matches!(rx.try_recv(), Ok(ReloadEvent::Comments)),
+            "update should broadcast a Comments event",
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_a_reply_broadcasts_comments_event() {
+        let server = TestServer::with_live_reload().await;
+        let mut rx = server.subscribe_reload();
+        let parent = server.create_comment("a.md", "p").await;
+        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+        // Drain the create events; subscribe-fresh would miss them, so clear here.
+        while rx.try_recv().is_ok() {}
+        let resp = server
+            .delete(&format!("/_api/comments/{}", id_of(&reply)))
+            .await;
+        assert_eq!(resp.status, StatusCode::OK);
+        assert!(
+            matches!(rx.try_recv(), Ok(ReloadEvent::Comments)),
+            "delete should broadcast a Comments event",
         );
     }
 
