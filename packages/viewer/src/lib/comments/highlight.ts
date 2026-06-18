@@ -8,6 +8,16 @@ export interface WrapAttrs {
 const WHITESPACE_ONLY = /^\s*$/;
 
 /**
+ * Escape a comment id for use in a CSS attribute selector, with a fallback for
+ * environments lacking `CSS.escape` (older runtimes, some test DOMs). Shared by
+ * every site that looks up an annotation/card by `data-comment-id` /
+ * `data-thread-id`.
+ */
+export function escapeId(id: string): string {
+  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id;
+}
+
+/**
  * Wrap a Range's text in one or more `<rw-annotation>` elements. Splits text
  * nodes at the range boundaries. A range that crosses tag boundaries (e.g.
  * `Hello <em>world</em>` covering `lo wor`) produces multiple wrappers — one
