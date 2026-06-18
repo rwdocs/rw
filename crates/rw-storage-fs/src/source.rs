@@ -67,7 +67,10 @@ pub(crate) fn classify_relpath(
     filename: &str,
     meta_filename: &str,
 ) -> Option<Classification> {
-    if filename.ends_with(".md") {
+    if Path::new(filename)
+        .extension()
+        .is_some_and(|ext| ext == "md")
+    {
         return Some(Classification::Content {
             url_path: file_path_to_url(rel_path),
         });
