@@ -94,6 +94,9 @@ impl From<UpdateCommentRequest> for UpdateComment {
 pub(crate) struct CommentResponse {
     #[serde(flatten)]
     comment: Comment,
+    /// Server-rendered HTML of `comment.body` (restricted markdown). The raw
+    /// `body` remains the source of truth; this is additive for display.
+    body_html: String,
     can_delete: bool,
     can_restore: bool,
 }
@@ -106,8 +109,10 @@ impl CommentResponse {
     fn project(comment: Comment) -> Self {
         let can_delete = comment.deleted_at.is_none() && comment.parent_id.is_some();
         let can_restore = comment.deleted_at.is_some();
+        let body_html = rw_renderer::render_comment_body(&comment.body);
         Self {
             comment,
+            body_html,
             can_delete,
             can_restore,
         }
@@ -443,6 +448,21 @@ mod tests {
             from_create(CreateError::BothQuoteAndSelectors),
             StatusCode::BAD_REQUEST,
         );
+    }
+
+    #[tokio::test]
+    async fn comment_response_includes_rendered_body_html() {
+        let server = TestServer::with_comments().await;
+        let created = server
+            .create_comment("a.md", "First para.\n\nSecond para.")
+            .await;
+        // bodyHtml renders the markdown: two paragraphs stay separate.
+        let body_html = created["bodyHtml"]
+            .as_str()
+            .unwrap_or_else(|| panic!("response missing `bodyHtml`: {created}"));
+        assert_eq!(body_html.matches("<p>").count(), 2, "got: {body_html}");
+        // raw body is preserved unchanged (source of truth).
+        assert_eq!(created["body"], "First para.\n\nSecond para.");
     }
 
     #[test]

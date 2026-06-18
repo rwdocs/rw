@@ -211,16 +211,19 @@
         suffix={quote.suffix}
       />
     {/if}
-    <p
+    <div
       data-testid="comment-body"
       class="
-        text-sm text-gray-900
+        comment-body text-sm text-gray-900
         dark:text-neutral-100
         {comment.status === 'resolved' ? 'line-through' : ''}
       "
     >
-      {comment.body}
-    </p>
+      <!-- `!= null`, not truthy: an empty string is a body that rendered to
+           nothing (show nothing); only a missing field — a backend that didn't
+           render server-side — falls back to the plain-text body. -->
+      {#if comment.bodyHtml != null}{@html comment.bodyHtml}{:else}{comment.body}{/if}
+    </div>
     <div class="my-2 flex items-center gap-2">
       {#if comment.status === "open"}
         <button
@@ -276,15 +279,15 @@
               {formatRelativeTime(new Date(reply.createdAt))}
             </span>
           </div>
-          <p
+          <div
             class="
-              text-sm text-gray-900
+              comment-body text-sm text-gray-900
               dark:text-neutral-100
               {reply.deletedAt != null ? 'line-through' : ''}
             "
           >
-            {reply.body}
-          </p>
+            {#if reply.bodyHtml != null}{@html reply.bodyHtml}{:else}{reply.body}{/if}
+          </div>
           <div class="mt-1 flex items-center gap-2">
             {#if reply.deletedAt != null && reply.canRestore}
               <button
@@ -332,3 +335,48 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .comment-body :global(p) {
+    margin: 0;
+  }
+  .comment-body :global(p + p),
+  .comment-body :global(ul + p),
+  .comment-body :global(ol + p),
+  .comment-body :global(blockquote + p),
+  .comment-body :global(pre + p),
+  .comment-body :global(ul),
+  .comment-body :global(ol),
+  .comment-body :global(blockquote),
+  .comment-body :global(pre) {
+    margin-top: 0.5rem;
+  }
+  .comment-body :global(ul),
+  .comment-body :global(ol) {
+    padding-left: 1.25rem;
+  }
+  .comment-body :global(ul) {
+    list-style: disc;
+  }
+  .comment-body :global(ol) {
+    list-style: decimal;
+  }
+  .comment-body :global(pre) {
+    overflow-x: auto;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    /* Neutral translucent gray reads on both light and dark card backgrounds. */
+    background: rgb(128 128 128 / 0.15);
+  }
+  .comment-body :global(code) {
+    overflow-wrap: anywhere;
+  }
+  .comment-body :global(blockquote) {
+    padding-left: 0.75rem;
+    border-left: 2px solid currentColor;
+    opacity: 0.85;
+  }
+  .comment-body :global(a) {
+    text-decoration: underline;
+  }
+</style>

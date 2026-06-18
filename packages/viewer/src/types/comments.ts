@@ -18,6 +18,10 @@ export interface Comment {
   parentId?: string;
   author: Author;
   body: string;
+  /** Server-rendered HTML of `body` (restricted markdown). Safe to inject.
+   *  Optional: a backend that doesn't render comments server-side may omit it,
+   *  in which case the viewer falls back to the plain-text `body`. */
+  bodyHtml?: string;
   selectors: Selector[];
   status: CommentStatus;
   createdAt: string;
