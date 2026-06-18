@@ -23,6 +23,7 @@ rw-meta = { path = "crates/rw-meta" }
 rw-renderer = { path = "crates/rw-renderer" }
 rw-sections = { path = "crates/rw-sections" }
 rw-server = { path = "crates/rw-server" }
+rw-server-info = { path = "crates/rw-server-info" }
 rw-site = { path = "crates/rw-site" }
 rw-storage = { path = "crates/rw-storage" }
 rw-storage-fs = { path = "crates/rw-storage-fs" }

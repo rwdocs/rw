@@ -53,6 +53,11 @@ pub struct CliSettings {
 /// Configuration filename to search for.
 const CONFIG_FILENAME: &str = "rw.toml";
 
+/// Name of the per-project state directory. Everything RW writes for a project
+/// — the cache, the comments DB, and the server-info file — lives under it, so
+/// the resolved `project_dir` is the single source for all of those paths.
+pub const PROJECT_DIR_NAME: &str = ".rw";
+
 /// Application configuration.
 #[derive(Debug, Deserialize)]
 #[serde(default)]
@@ -348,7 +353,7 @@ impl Config {
             metadata: MetadataConfig::default(),
             docs_resolved: DocsConfig {
                 source_dir: base.join("docs"),
-                project_dir: base.join(".rw"),
+                project_dir: base.join(PROJECT_DIR_NAME),
                 cache_enabled: true,
             },
             diagrams_resolved: DiagramsConfig::default(),
@@ -452,7 +457,7 @@ impl Config {
 
         self.docs_resolved = DocsConfig {
             source_dir: resolve(self.docs.source_dir.as_deref(), "docs"),
-            project_dir: config_dir.join(".rw"),
+            project_dir: config_dir.join(PROJECT_DIR_NAME),
             cache_enabled: self.docs.cache_enabled.unwrap_or(true),
         };
 

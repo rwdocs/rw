@@ -4189,6 +4189,7 @@ dependencies = [
  "rw-config",
  "rw-embedded-preview",
  "rw-renderer",
+ "rw-server-info",
  "rw-site",
  "rw-storage",
  "rw-storage-fs",
@@ -4201,6 +4202,18 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "rw-server-info"
+version = "0.1.24"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
  "uuid",
 ]
 

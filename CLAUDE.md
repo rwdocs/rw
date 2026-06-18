@@ -212,6 +212,10 @@ crates/
 │   └── src/
 │       └── lib.rs            # Config, CliSettings, MetadataConfig, ConfigError
 │
+├── rw-server-info/        # Runtime server-info file (.rw/server.json)
+│   └── src/
+│       └── lib.rs            # ServerInfo write/read/is_running + cleanup guard
+│
 └── rw-server/             # Native HTTP server (axum)
     └── src/
         ├── lib.rs            # Server configuration and entry point
