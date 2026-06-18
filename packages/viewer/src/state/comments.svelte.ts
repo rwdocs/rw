@@ -1,6 +1,7 @@
 import type { AnchorStrategy } from "$lib/anchoring";
 import type { CommentApiClient } from "../api/comments";
 import type { Comment, CreateCommentRequest, Selector } from "../types/comments";
+import { resolveNavTarget, sortByOrder } from "$lib/comments/navigation";
 
 /** A new comment being drafted — selectors are captured, awaiting body text. */
 export interface PendingComment {
@@ -36,6 +37,16 @@ export class Comments {
   pending = $state<PendingComment | null>(null);
   /** Vertical offset for the pending comment form. */
   pendingTop = $state<number | null>(null);
+  /** Bumped on every programmatic comment navigation (n/p). Rendering
+   *  components watch it to scroll the now-active comment into view; a plain
+   *  `activeId` change (e.g. clicking a highlight) must not trigger that
+   *  scroll, so the bare id isn't enough of a signal.
+   *
+   *  Strictly monotonic for the lifetime of the instance — never reset (not
+   *  even by `clear()`). Consumers detect a navigation by comparing against the
+   *  last value they handled; resetting this counter could make a new value
+   *  collide with a stale "last handled" value and silently skip one scroll. */
+  navSeq = $state(0);
 
   private apiClient: CommentApiClient;
   private abortController: AbortController | null = null;
@@ -144,6 +155,50 @@ export class Comments {
     );
   }
 
+  /** True when the active thread is an inline (anchored) thread — the only case
+   *  that should show the right-margin comment sidebar. Page/orphaned comments
+   *  can also become `activeId` (keyboard navigation targets them), but they are
+   *  shown in the bottom timeline, not the sidebar. */
+  get activeIsInline(): boolean {
+    return this.activeId != null && this.inlineThreads.some((t) => t.id === this.activeId);
+  }
+
+  /** All open top-level threads in review order: inline threads in document
+   *  order (live DOM rank from `order`) followed by page-level + orphaned
+   *  threads by creation time — matching the order `PageComments` renders them.
+   *  Resolved threads are excluded. */
+  get navigable(): string[] {
+    const inline = sortByOrder(
+      this.inlineThreads.filter((t) => t.status !== "resolved"),
+      this.order,
+    ).map((t) => t.id);
+    const page = this.pageThreads
+      .filter((t) => t.status !== "resolved")
+      .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((t) => t.id);
+    return [...inline, ...page];
+  }
+
+  /** Move the active comment one step (with wrap-around), or enter from idle
+   *  (next → first, prev → last). Returns the new position for announcement, or
+   *  null when there are no navigable comments.
+   *
+   *  An arrow-function field (like `load`/`create`/`resolve` above) so `this`
+   *  stays bound when it is passed as a callback — e.g. Layout hands
+   *  `comments.navigate` to the keyboard hook. Converting it to a method would
+   *  break that call site. */
+  navigate = (
+    direction: "next" | "prev",
+  ): { index: number; total: number; author: string } | null => {
+    const list = this.navigable;
+    const target = resolveNavTarget(list, this.activeId, direction);
+    if (target == null) return null;
+    this.activeId = target;
+    this.navSeq++;
+    const author = this.items.find((c) => c.id === target)?.author.name ?? "";
+    return { index: list.indexOf(target), total: list.length, author };
+  };
+
   replies(parentId: string): Comment[] {
     return this.items.filter((c) => c.parentId === parentId);
   }
@@ -159,6 +214,9 @@ export class Comments {
     this.error = null;
     this.activeId = null;
     this.activeTop = null;
+    // navSeq is intentionally NOT reset here — see its declaration. It must stay
+    // monotonic so a navigation after clear() can never collide with a value a
+    // consumer already handled.
     this.order = [];
     this.anchorStrategies = new Map();
     this.orphanIds = new Set();

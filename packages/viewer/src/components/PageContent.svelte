@@ -3,13 +3,14 @@
   import { initializeTabs } from "$lib/tabs";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "$lib/anchoring";
-  import { wrapRange, unwrapAll } from "$lib/comments/highlight";
+  import { wrapRange, unwrapAll, escapeId } from "$lib/comments/highlight";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
   import Popover from "$lib/ui/primitives/Popover.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
+  import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
@@ -218,7 +219,7 @@
     }
     if (!activeId) return;
 
-    const escId = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(activeId) : activeId;
+    const escId = escapeId(activeId);
     for (const el of container.querySelectorAll(`rw-annotation[data-comment-id="${escId}"]`)) {
       el.setAttribute("data-active", "true");
     }
@@ -229,6 +230,16 @@
       }
     };
   });
+
+  // Scroll the active inline highlight into view on keyboard navigation.
+  useScrollIntoViewOnNav(
+    () => comments.navSeq,
+    () => {
+      const activeId = comments.activeId;
+      if (!activeId || !articleRef) return null;
+      return articleRef.querySelector(`rw-annotation[data-comment-id="${escapeId(activeId)}"]`);
+    },
+  );
 
   // Pending-selection overlay — paint the user's in-progress text selection
   // (while drafting a new comment) via the CSS Custom Highlight API. We can't

@@ -12,6 +12,7 @@
   import CommentSidebar from "./comments/CommentSidebar.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import { useActiveHeading } from "$lib/ui/hooks/useActiveHeading.svelte";
+  import { useCommentNavigation } from "$lib/ui/hooks/useCommentNavigation.svelte";
 
   interface Props {
     children: Snippet;
@@ -38,6 +39,10 @@
   let showMobileHeader = $derived(!navEmpty || page.loading || tocEntries.length > 0);
 
   const activeHeading = useActiveHeading(() => tocIds);
+  const commentNav = useCommentNavigation({
+    navigable: () => comments.navigable,
+    navigate: comments.navigate,
+  });
 
   function onTocNavigate(id: string) {
     const element = document.getElementById(id);
@@ -87,9 +92,10 @@
 <div
   class="layout-container"
   data-testid="viewer-root"
-  data-comments-active={comments.activeId || comments.pending ? "" : undefined}
+  data-comments-active={comments.activeIsInline || comments.pending ? "" : undefined}
 >
   <LoadingBar loading={page.loading} />
+  <div class="sr-only" role="status" aria-live="polite">{commentNav.announcement}</div>
   <!-- Mobile Drawer (before header so the sticky anchor covers it in flow mode) -->
   {#if !navEmpty}
     <MobileDrawer open={ui.mobileMenuOpen} onClose={ui.closeMobileMenu} error={navigation.error} />
@@ -194,7 +200,7 @@
           </main>
 
           <!-- Right Sidebar: Comments (when active or drafting) or Table of Contents -->
-          {#if comments.activeId || comments.pending}
+          {#if comments.activeIsInline || comments.pending}
             <aside aria-label="Comments" class="layout-comments hidden w-[320px] shrink-0">
               <div class="pl-8">
                 <CommentSidebar />

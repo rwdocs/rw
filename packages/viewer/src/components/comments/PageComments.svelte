@@ -6,6 +6,8 @@
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
+  import { escapeId } from "$lib/comments/highlight";
+  import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
 
   const { comments, page } = getRwContext();
 
@@ -18,6 +20,7 @@
   // open + resolved) rather than `pageThreads`, because resolved inline-anchored
   // threads are never flagged `orphaned` and so never appear in `pageThreads`.
   let showResolved = $state(false);
+  let sectionRef: HTMLElement | undefined = $state();
   const resolvedListId = `${headingId}-resolved`;
 
   const byCreatedAt = (a: Comment, b: Comment) => a.createdAt.localeCompare(b.createdAt);
@@ -35,6 +38,18 @@
   const hasThreads = $derived(visibleThreads.length > 0);
   const countLabel = $derived(
     `${visibleThreads.length} ${visibleThreads.length === 1 ? "comment" : "comments"}`,
+  );
+
+  // Scroll the active page/orphaned comment into view on keyboard navigation.
+  // The findTarget thunk returns null when the active comment is an inline
+  // highlight (handled by PageContent) rather than one of this section's cards.
+  useScrollIntoViewOnNav(
+    () => comments.navSeq,
+    () => {
+      const activeId = comments.activeId;
+      if (!activeId || !visibleThreads.some((t) => t.id === activeId)) return null;
+      return sectionRef?.querySelector(`[data-thread-id="${escapeId(activeId)}"]`);
+    },
   );
 
   function findQuote(
@@ -111,6 +126,7 @@
 </script>
 
 <section
+  bind:this={sectionRef}
   aria-labelledby={headingId}
   class="mt-12 border-t border-gray-200 pt-8 dark:border-neutral-700"
 >
@@ -150,7 +166,10 @@
   {#if hasThreads}
     <div class="mb-6 space-y-4">
       {#each visibleThreads as thread (thread.id)}
-        {@render threadCard(thread)}
+        <!-- Wrapper carries data-thread-id as the scroll target for keyboard nav. -->
+        <div data-thread-id={thread.id}>
+          {@render threadCard(thread)}
+        </div>
       {/each}
     </div>
   {/if}

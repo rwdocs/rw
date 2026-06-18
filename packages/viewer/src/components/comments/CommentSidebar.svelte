@@ -1,10 +1,10 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { Comment } from "../../types/comments";
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
+  import { sortByOrder } from "$lib/comments/navigation";
 
   const { comments } = getRwContext();
 
@@ -23,14 +23,12 @@
    *  position coordinate systems. Threads not present in `order` (e.g. not
    *  yet anchored) are placed last in creation order.
    *  Resolved threads are hidden unless one is the currently active thread. */
-  const orderedThreads = $derived.by(() => {
-    const filtered = comments.inlineThreads.filter(
-      (t) => t.status !== "resolved" || t.id === comments.activeId,
-    );
-    const rank = new Map(comments.order.map((id, i) => [id, i]));
-    const indexOf = (t: Comment) => rank.get(t.id) ?? Infinity;
-    return filtered.toSorted((a, b) => indexOf(a) - indexOf(b));
-  });
+  const orderedThreads = $derived(
+    sortByOrder(
+      comments.inlineThreads.filter((t) => t.status !== "resolved" || t.id === comments.activeId),
+      comments.order,
+    ),
+  );
 
   const activeThread = $derived(orderedThreads.find((t) => t.id === comments.activeId));
   const activeIndex = $derived(orderedThreads.findIndex((t) => t.id === comments.activeId));
