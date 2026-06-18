@@ -219,7 +219,7 @@ crates/
 └── rw-server/             # Native HTTP server (axum)
     └── src/
         ├── lib.rs            # Server configuration and entry point
-        ├── handlers/         # API endpoints (config, pages, navigation, comments)
+        ├── handlers/         # API endpoints (config, pages, navigation, comments, internal notify)
         ├── live_reload/      # File watching and WebSocket broadcasting
         ├── static_files.rs   # Static file serving with SPA fallback
         └── testing.rs        # TestServer harness (cfg(test) only)

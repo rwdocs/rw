@@ -45,7 +45,7 @@ export class Comments {
     this.apiClient = apiClient;
   }
 
-  load = async (documentId: string) => {
+  load = async (documentId: string, opts?: { silent?: boolean }) => {
     if (!this.enabled) return;
     if (this.abortController) {
       this.abortController.abort();
@@ -58,7 +58,10 @@ export class Comments {
       this.clearPending();
       this.documentId = documentId;
     }
-    this.loading = true;
+    const silent = opts?.silent ?? false;
+    if (!silent) {
+      this.loading = true;
+    }
     this.error = null;
     try {
       const items = await this.apiClient.list(documentId, { signal });
@@ -69,10 +72,11 @@ export class Comments {
       this.error = e instanceof Error ? e.message : "Failed to load comments";
       this.items = [];
     } finally {
+      // Clear even when silent: a silent winner that aborted a non-silent
+      // in-flight load must still clear `loading`. The identity check ensures
+      // only the current (non-superseded) invocation touches shared state.
       if (this.abortController?.signal === signal) {
         this.abortController = null;
-      }
-      if (!signal.aborted) {
         this.loading = false;
       }
     }

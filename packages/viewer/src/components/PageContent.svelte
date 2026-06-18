@@ -13,10 +13,12 @@
   import PageComments from "./comments/PageComments.svelte";
 
   const ctx = getRwContext();
-  const { page, router, comments } = ctx;
+  const { page, router, comments, liveReload } = ctx;
 
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
+
+  const docId = $derived(page.data ? page.data.meta.path.replace(/^\//, "") : null);
 
   const articleSize = useElementSize(() => articleRef ?? null);
 
@@ -85,12 +87,22 @@
   // On initial load, config may not have arrived yet — reading
   // comments.enabled ensures the effect re-runs when it flips to true.
   $effect(() => {
-    if (page.data && comments.enabled) {
-      const docId = page.data.meta.path.replace(/^\//, "");
+    if (page.data && comments.enabled && docId !== null) {
       comments.load(docId);
     } else if (!page.data) {
       comments.clear();
     }
+  });
+
+  // Refetch comments live when the server signals a comment changed (via the
+  // `rw comment` CLI or another browser tab). Silent so no spinner flashes;
+  // any in-progress draft is preserved (same documentId → pending untouched).
+  $effect(() => {
+    return liveReload.onCommentsReload(() => {
+      if (page.data && comments.enabled && docId !== null) {
+        comments.load(docId, { silent: true });
+      }
+    });
   });
 
   // Map from comment ID to its anchored Range (for click detection)
@@ -348,11 +360,10 @@
 
   function handleAddComment() {
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !articleRef || !page.data) return;
+    if (!selection || selection.isCollapsed || !articleRef || !page.data || docId === null) return;
 
     const range = selection.getRangeAt(0);
     const selectors = rangeToSelectors(range, articleRef);
-    const docId = page.data.meta.path.replace(/^\//, "");
 
     comments.pending = { documentId: docId, selectors };
     comments.activeId = null;

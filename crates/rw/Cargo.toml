@@ -37,8 +37,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rw-comments = { workspace = true }
+rw-server-info = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+ureq = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

@@ -12,26 +12,20 @@ use rw_storage::{Storage, StorageEventKind, WatchHandle};
 
 use crate::handlers::to_url_path;
 
-/// Type of reload event sent to WebSocket clients.
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum ReloadEventType {
-    /// Only page content changed (no navigation impact).
-    Content,
-    /// Site structure changed (new/removed/renamed pages).
-    Structure,
-}
-
-/// Event sent to connected WebSocket clients when files change.
+/// Event sent to connected WebSocket clients.
 ///
-/// Clone is required by `tokio::sync::broadcast` which delivers a copy to each subscriber.
+/// Clone is required by `tokio::sync::broadcast` which delivers a copy to
+/// each subscriber.
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct ReloadEvent {
-    /// Event type.
-    #[serde(rename = "type")]
-    event_type: ReloadEventType,
-    /// Documentation path that changed.
-    path: String,
+#[serde(tag = "type", rename_all = "lowercase")]
+pub(crate) enum ReloadEvent {
+    /// Only page content changed (no navigation impact).
+    Content { path: String },
+    /// Site structure changed (new/removed/renamed pages).
+    Structure { path: String },
+    /// A comment on some page changed; every viewer refetches its own
+    /// current page's comments. Carries no path — it is a generic signal.
+    Comments,
 }
 
 /// Manages file watching and broadcasting reload events.
@@ -102,8 +96,7 @@ impl LiveReloadManager {
 
                 // If page is known, always send content event
                 if old_title.is_some() {
-                    let _ = broadcaster.send(ReloadEvent {
-                        event_type: ReloadEventType::Content,
+                    let _ = broadcaster.send(ReloadEvent::Content {
                         path: url_path.clone(),
                     });
                 }
@@ -112,10 +105,7 @@ impl LiveReloadManager {
                 let pages_changed = old_pages.as_ref() != new_pages.as_ref();
                 if title_changed || pages_changed {
                     site.invalidate();
-                    let _ = broadcaster.send(ReloadEvent {
-                        event_type: ReloadEventType::Structure,
-                        path: url_path,
-                    });
+                    let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
                 }
             }
             StorageEventKind::Created => {
@@ -127,19 +117,13 @@ impl LiveReloadManager {
                 // snapshot — silently dropping the broadcast. See
                 // issue #407 and the `created_broadcasts_*` tests below.
                 site.invalidate();
-                let _ = broadcaster.send(ReloadEvent {
-                    event_type: ReloadEventType::Structure,
-                    path: url_path,
-                });
+                let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
             }
             StorageEventKind::Removed => {
                 let known = site.has_page(&event.path).unwrap_or(false);
                 site.invalidate();
                 if known {
-                    let _ = broadcaster.send(ReloadEvent {
-                        event_type: ReloadEventType::Structure,
-                        path: url_path,
-                    });
+                    let _ = broadcaster.send(ReloadEvent::Structure { path: url_path });
                 }
             }
         }
@@ -149,6 +133,13 @@ impl LiveReloadManager {
     #[must_use]
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<ReloadEvent> {
         self.broadcaster.subscribe()
+    }
+
+    /// Broadcast a generic "comments changed" event. Every connected viewer
+    /// refetches its own current page's comments. A send error means no
+    /// subscribers are connected, which is fine — ignore it.
+    pub(crate) fn notify_comments_changed(&self) {
+        let _ = self.broadcaster.send(ReloadEvent::Comments);
     }
 }
 
@@ -162,28 +153,43 @@ mod tests {
 
     #[test]
     fn test_content_event_serialization() {
-        let event = ReloadEvent {
-            event_type: ReloadEventType::Content,
+        let event = ReloadEvent::Content {
             path: "/guide".to_owned(),
         };
-
         let json = serde_json::to_value(&event).unwrap();
-
         assert_eq!(json["type"], "content");
         assert_eq!(json["path"], "/guide");
     }
 
     #[test]
     fn test_structure_event_serialization() {
-        let event = ReloadEvent {
-            event_type: ReloadEventType::Structure,
+        let event = ReloadEvent::Structure {
             path: "/guide".to_owned(),
         };
-
         let json = serde_json::to_value(&event).unwrap();
-
         assert_eq!(json["type"], "structure");
         assert_eq!(json["path"], "/guide");
+    }
+
+    #[test]
+    fn test_comments_event_serialization() {
+        let event = ReloadEvent::Comments;
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "comments");
+        assert!(
+            json.get("path").is_none(),
+            "comments event must not carry a path: {json}"
+        );
+    }
+
+    #[test]
+    fn notify_comments_changed_broadcasts_comments_event() {
+        let storage = Arc::new(MockStorage::new());
+        let site = loaded_site(&storage);
+        let (tx, mut rx) = broadcast::channel(8);
+        let manager = LiveReloadManager::new(site, tx);
+        manager.notify_comments_changed();
+        assert_matches!(rx.try_recv().unwrap(), ReloadEvent::Comments);
     }
 
     // Returns a `Site` with `has_loaded=true`, so any subsequent
@@ -226,8 +232,7 @@ mod tests {
         let event = rx
             .try_recv()
             .expect("Created should broadcast Structure even when reload would fail");
-        assert_matches!(event.event_type, ReloadEventType::Structure);
-        assert_eq!(event.path, "/foo");
+        assert_matches!(event, ReloadEvent::Structure { ref path } if path == "/foo");
         assert!(
             rx.try_recv().is_err(),
             "Created should produce exactly one Structure broadcast",
@@ -263,8 +268,7 @@ mod tests {
         );
 
         let event = rx.try_recv().expect("Created should broadcast Structure");
-        assert_matches!(event.event_type, ReloadEventType::Structure);
-        assert_eq!(event.path, "/foo");
+        assert_matches!(event, ReloadEvent::Structure { ref path } if path == "/foo");
         assert!(
             rx.try_recv().is_err(),
             "Created should produce exactly one Structure broadcast",

@@ -182,12 +182,32 @@ pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
 
     let comment_store = Arc::new(SqliteCommentStore::open(&config.comments_db).await?);
 
+    // Bind first so the server-info file (and the in-memory notify token that
+    // guards the internal endpoint) reflect the actually-bound address.
+    let addr = SocketAddr::from_str(&format!("{}:{}", config.host, config.port))?;
+    tracing::info!(address = %addr, "Starting server");
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    // Build the server-info struct once from the bound address. Its token is
+    // both written to `.rw/server.json` and held in `AppState` so the internal
+    // notify endpoint can authenticate the CLI. If the bound address can't be
+    // read, there is no token and the endpoint stays disabled (404).
+    let server_info = match listener.local_addr() {
+        Ok(bound) => Some(ServerInfo::new(bound, config.version.clone())),
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to read bound address for server info file");
+            None
+        }
+    };
+    let notify_token = server_info.as_ref().map(|info| info.token.clone());
+
     let state = Arc::new(AppState {
         site,
         live_reload,
         verbose: config.verbose,
         version: config.version.clone(),
         comment_store,
+        notify_token,
         #[cfg(feature = "embedded-preview")]
         embedded_preview: config.embedded_preview,
     });
@@ -195,31 +215,15 @@ pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
     // Create router
     let app = app::create_router(state);
 
-    // Bind and run server
-    let addr = SocketAddr::from_str(&format!("{}:{}", config.host, config.port))?;
-    tracing::info!(address = %addr, "Starting server");
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-
     // Write the runtime server-info file (non-fatal: an unwritable .rw should
-    // not stop serving). The guard removes the file when `run_server` returns
-    // (graceful shutdown unwinds the stack).
-    let _info_guard = match listener.local_addr() {
-        Ok(bound) => {
-            let info = ServerInfo::new(bound, config.version.clone());
-            match info.write(&config.project_dir) {
-                Ok(guard) => Some(guard),
-                Err(err) => {
-                    tracing::warn!(error = %err, "failed to write server info file");
-                    None
-                }
-            }
-        }
+    // not stop serving). The guard removes the file when `run_server` returns.
+    let _info_guard = server_info.and_then(|info| match info.write(&config.project_dir) {
+        Ok(guard) => Some(guard),
         Err(err) => {
-            tracing::warn!(error = %err, "failed to read bound address for server info file");
+            tracing::warn!(error = %err, "failed to write server info file");
             None
         }
-    };
+    });
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

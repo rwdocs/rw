@@ -1,6 +1,6 @@
 # `rw comment` CLI
 
-Read and write comments in a project's `.rw/comments/sqlite.db` from scripts and LLM agents (Claude Code, Cursor, etc.). The CLI opens the SQLite store directly — `rw serve` can be running or not; both processes can safely share the database (SQLite WAL).
+Read and write comments in a project's `.rw/comments/sqlite.db` from scripts and LLM agents (Claude Code, Cursor, etc.). The CLI opens the SQLite store directly — `rw serve` can be running or not; both processes can safely share the database (SQLite WAL). When `rw serve` is running, `add`, `reply`, and `resolve` send it a best-effort notification so any browser viewing the affected page refreshes its comments automatically. If no server is running, the comment is still written and the notify is skipped.
 
 ## Subcommands
 
