@@ -1,10 +1,11 @@
 <script lang="ts">
-  import type { Selector } from "../../types/comments";
+  import type { Comment, Selector } from "../../types/comments";
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
+  import Chevron from "$lib/ui/primitives/Chevron.svelte";
 
   const { comments, page } = getRwContext();
 
@@ -12,10 +13,23 @@
   // the heading id that labels the section (matches Popover/Menu primitives).
   const headingId = $props.id();
 
+  // Local-only UI state: the resolved comments are an occasional lookup, kept
+  // collapsed by default. Sourced from `comments.threads` (all top-level,
+  // open + resolved) rather than `pageThreads`, because resolved inline-anchored
+  // threads are never flagged `orphaned` and so never appear in `pageThreads`.
+  let showResolved = $state(false);
+  const resolvedListId = `${headingId}-resolved`;
+
+  const byCreatedAt = (a: Comment, b: Comment) => a.createdAt.localeCompare(b.createdAt);
+
+  const resolvedThreads = $derived(
+    comments.threads.filter((t) => t.status === "resolved").toSorted(byCreatedAt),
+  );
+  const hasResolved = $derived(resolvedThreads.length > 0);
+  const resolvedToggleLabel = $derived(showResolved ? "Hide resolved" : "Show resolved");
+
   const visibleThreads = $derived(
-    comments.pageThreads
-      .filter((t) => t.status !== "resolved")
-      .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    comments.pageThreads.filter((t) => t.status !== "resolved").toSorted(byCreatedAt),
   );
 
   const hasThreads = $derived(visibleThreads.length > 0);
@@ -117,24 +131,65 @@
     </Alert>
   {/if}
 
+  {#snippet threadCard(thread: Comment, quoteTitle?: string)}
+    {@const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
+    <CommentThread
+      comment={thread}
+      {quote}
+      {quoteTitle}
+      replies={comments.replies(thread.id)}
+      active={false}
+      onResolve={handleResolve}
+      onReopen={handleReopen}
+      onReply={handleReply}
+      onDelete={handleDelete}
+      onRestore={handleRestore}
+    />
+  {/snippet}
+
   {#if hasThreads}
     <div class="mb-6 space-y-4">
       {#each visibleThreads as thread (thread.id)}
-        {@const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
-        <CommentThread
-          comment={thread}
-          {quote}
-          replies={comments.replies(thread.id)}
-          active={false}
-          onResolve={handleResolve}
-          onReopen={handleReopen}
-          onReply={handleReply}
-          onDelete={handleDelete}
-          onRestore={handleRestore}
-        />
+        {@render threadCard(thread)}
       {/each}
     </div>
   {/if}
 
   <CommentForm onSubmit={handleNewComment} placeholder="Write a comment..." />
+
+  {#if hasResolved}
+    <div class="mt-6 mb-6">
+      <button
+        type="button"
+        onclick={() => (showResolved = !showResolved)}
+        aria-expanded={showResolved}
+        aria-controls={resolvedListId}
+        class="
+          flex cursor-pointer items-center gap-1 text-sm text-gray-500 transition-colors
+          hover:text-gray-900
+          dark:text-neutral-400
+          dark:hover:text-neutral-100
+        "
+      >
+        <Chevron
+          direction={showResolved ? "down" : "right"}
+          size="md"
+          class="transition-transform"
+          aria-hidden="true"
+        />
+        {resolvedToggleLabel}
+        <Badge intent="neutral" size="md">{resolvedThreads.length}</Badge>
+      </button>
+
+      <!-- Container stays in the DOM even when collapsed so the button's
+           aria-controls target always resolves; only its contents are gated. -->
+      <div id={resolvedListId} class="mt-4 space-y-4">
+        {#if showResolved}
+          {#each resolvedThreads as thread (thread.id)}
+            {@render threadCard(thread, "The passage this comment was attached to.")}
+          {/each}
+        {/if}
+      </div>
+    </div>
+  {/if}
 </section>

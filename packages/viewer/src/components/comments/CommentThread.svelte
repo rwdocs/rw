@@ -33,10 +33,15 @@
      *  passage no longer appears verbatim, so the highlight may be approximate. */
     fuzzy?: boolean;
     /** Quote of the original passage, shown between the author row and the
-     *  comment body for orphaned page comments whose anchor text no longer
-     *  appears on the page. Absent for inline (anchored) threads and native
-     *  page comments. */
+     *  comment body. Populated for orphaned page comments and for resolved
+     *  threads surfaced in the page-comments block (inline or page-level).
+     *  Absent for open inline threads that are actively anchored in the
+     *  document and for native page comments. */
     quote?: { prefix?: string; exact: string; suffix?: string } | null;
+    /** `title` attribute for the rendered quote. Defaults to the orphaned-page
+     *  message; the resolved-comments list overrides it with a neutral string
+     *  because a resolved thread's passage usually still appears on the page. */
+    quoteTitle?: string;
   }
 
   let {
@@ -53,6 +58,7 @@
     onAnchor,
     fuzzy = false,
     quote = null,
+    quoteTitle = "This comment was attached to a passage that no longer appears on the page.",
   }: Props = $props();
 
   let outerRef: HTMLDivElement | undefined = $state();
@@ -204,7 +210,7 @@
     {#if quote}
       <Quote
         data-testid="orphan-quote"
-        title="This comment was attached to a passage that no longer appears on the page."
+        title={quoteTitle}
         class="mb-2"
         prefix={quote.prefix}
         exact={quote.exact}
@@ -213,11 +219,7 @@
     {/if}
     <div
       data-testid="comment-body"
-      class="
-        comment-body text-sm text-gray-900
-        dark:text-neutral-100
-        {comment.status === 'resolved' ? 'line-through' : ''}
-      "
+      class="comment-body text-sm text-gray-900 dark:text-neutral-100"
     >
       <!-- `!= null`, not truthy: an empty string is a body that rendered to
            nothing (show nothing); only a missing field — a backend that didn't
@@ -262,6 +264,7 @@
         -mx-3 divide-y divide-gray-200 border-t border-gray-200 bg-gray-50
         dark:divide-neutral-700 dark:border-neutral-700 dark:bg-neutral-900/50
       "
+      class:opacity-60={comment.status === "resolved"}
     >
       {#each replies as reply (reply.id)}
         <div class="px-3 py-2 {reply.deletedAt != null ? 'opacity-60' : ''}">
