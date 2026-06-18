@@ -158,7 +158,7 @@
   <CommentForm onSubmit={handleNewComment} placeholder="Write a comment..." />
 
   {#if hasResolved}
-    <div class="mt-6 mb-6">
+    <div class="my-6">
       <button
         type="button"
         onclick={() => (showResolved = !showResolved)}

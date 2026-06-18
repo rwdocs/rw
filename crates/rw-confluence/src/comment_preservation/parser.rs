@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::io::BufRead;
 
+use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
@@ -215,7 +216,7 @@ impl ConfluenceXmlParser {
                 continue;
             }
 
-            let value = attr.unescape_value().map_or_else(
+            let value = attr.normalized_value(XmlVersion::Implicit1_0).map_or_else(
                 |_| String::from_utf8_lossy(&attr.value).into_owned(),
                 std::borrow::Cow::into_owned,
             );
