@@ -697,6 +697,23 @@ test.describe("Page comments", () => {
     expect(parent.selectors).toHaveLength(0);
   });
 
+  test("comment body renders markdown paragraphs", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    // Create a comment whose body has two blank-line-separated paragraphs.
+    const section = page.getByRole("region", { name: "Comments" });
+    await section.getByPlaceholder("Write a comment...").fill("First para.\n\nSecond para.");
+    await section.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(section).toContainText("First para.");
+
+    const body = section.getByTestId("comment-body");
+    // Two <p> elements render (the run-on bug is fixed), not one text node.
+    await expect(body.locator("p")).toHaveCount(2);
+    await expect(body).toContainText("First para.");
+    await expect(body).toContainText("Second para.");
+  });
+
   test("resolving a page comment hides it", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("article").waitFor();

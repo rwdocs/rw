@@ -136,7 +136,10 @@ export default defineConfig([
       },
     },
     rules: {
-      "better-tailwindcss/no-unknown-classes": ["error", { ignore: ["layout-*", "drawer-flow-*"] }],
+      "better-tailwindcss/no-unknown-classes": [
+        "error",
+        { ignore: ["layout-*", "drawer-flow-*", "comment-body"] },
+      ],
       "better-tailwindcss/enforce-consistent-line-wrapping": [
         "warn",
         { printWidth: 100, strictness: "loose", preferSingleLine: true },
