@@ -731,6 +731,150 @@ test.describe("Page comments", () => {
     await expect(section.getByText("Comment to resolve")).not.toBeVisible();
   });
 
+  test("resolved page comment can be revealed via the Show resolved toggle", async ({ page }) => {
+    const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const body = `Resolved then revealed ${unique}`;
+
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    const section = page.getByRole("region", { name: "Comments" });
+    await section.getByPlaceholder("Write a comment...").fill(body);
+    await section.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(section).toContainText(body);
+
+    // Resolve it — it leaves the open list.
+    await section.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(section.getByText(body)).toBeHidden();
+
+    // The disclosure offers to reveal the resolved comments, collapsed by default.
+    const toggle = section.getByRole("button", { name: /Show resolved\s*\d+/ });
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // Expanding reveals the resolved comment and flips the label.
+    await toggle.click();
+    await expect(section.getByRole("button", { name: "Hide resolved" })).toBeVisible();
+    await expect(section.getByText(body)).toBeVisible();
+  });
+
+  test("reopening from the resolved list returns the comment to the open list", async ({
+    page,
+  }) => {
+    const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const body = `Reopen me from resolved ${unique}`;
+
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    const section = page.getByRole("region", { name: "Comments" });
+    await section.getByPlaceholder("Write a comment...").fill(body);
+    await section.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(section).toContainText(body);
+    await section.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(section.getByText(body)).toBeHidden();
+
+    // Reveal the resolved list and reopen the specific thread.
+    await section.getByRole("button", { name: /Show resolved\s*\d+/ }).click();
+    const thread = section.getByTestId("comment-thread").filter({ hasText: body });
+    await thread.getByRole("button", { name: "Reopen", exact: true }).click();
+
+    // It returns to the open list: the thread now renders in its open state,
+    // offering Resolve (not Reopen). This proves the status actually flipped and
+    // the thread left the resolved disclosure — not merely that its text is still
+    // visible in the (still-expanded) resolved list.
+    const reopened = section.getByTestId("comment-thread").filter({ hasText: body });
+    await expect(reopened).toBeVisible();
+    await expect(reopened.getByRole("button", { name: "Resolve", exact: true })).toBeVisible();
+    await expect(reopened.getByRole("button", { name: "Reopen", exact: true })).toHaveCount(0);
+  });
+
+  test("no resolved comments means no Show resolved toggle", async ({ page }) => {
+    // A sub-page that no other test posts comments to, so it has zero resolved.
+    await page.goto("/api/endpoints");
+    await page.getByRole("article").waitFor();
+
+    const section = page.getByRole("region", { name: "Comments" });
+    await expect(section).toBeVisible();
+    await expect(section.getByRole("button", { name: /Show resolved/ })).toHaveCount(0);
+    await expect(section.getByRole("button", { name: "Hide resolved" })).toHaveCount(0);
+  });
+
+  test("resolved comment quote uses a neutral, accurate tooltip", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    const section = page.getByRole("region", { name: "Comments" });
+
+    // Create an inline-anchored comment via the API whose passage still exists,
+    // then resolve it, so it appears in the resolved list with a quote.
+    // Use a unique body to avoid false matches from prior test runs.
+    // "code highlighting" appears in the fixture index.md bullet list and is
+    // verified anchorable by the existing UI tests that select it directly.
+    const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const body = `Anchored and resolved ${unique}`;
+    await page.evaluate(async (commentBody) => {
+      const create = await fetch("/_api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentId: "",
+          body: commentBody,
+          quote: "code highlighting",
+        }),
+      });
+      const created = await create.json();
+      await fetch(`/_api/comments/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "resolved" }),
+      });
+    }, body);
+    await page.reload();
+    await page.getByRole("article").waitFor();
+
+    await section.getByRole("button", { name: /Show resolved\s*\d+/ }).click();
+    const thread = section.getByTestId("comment-thread").filter({ hasText: body });
+    const quote = thread.getByTestId("orphan-quote");
+    await expect(quote).toBeVisible();
+    await expect(quote).toHaveAttribute("title", "The passage this comment was attached to.");
+  });
+
+  test("resolved inline comment leaves no highlight in the article", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("article").waitFor();
+
+    // Anchor a comment to live article text, then resolve it. Per the design,
+    // resolved comments surface only in the bottom page-comments block — never as
+    // an article highlight. The beforeEach resolves all comments first, so the
+    // article starts with zero highlights; this comment must not add one.
+    const unique = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const body = `Resolved no highlight ${unique}`;
+    await page.evaluate(async (commentBody) => {
+      const create = await fetch("/_api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentId: "", body: commentBody, quote: "code highlighting" }),
+      });
+      const created = await create.json();
+      await fetch(`/_api/comments/${created.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "resolved" }),
+      });
+    }, body);
+    await page.reload();
+    await page.getByRole("article").waitFor();
+
+    // The resolved comment is reachable in the bottom block...
+    const section = page.getByRole("region", { name: "Comments" });
+    await section.getByRole("button", { name: /Show resolved\s*\d+/ }).click();
+    await expect(section.getByTestId("comment-thread").filter({ hasText: body })).toBeVisible();
+
+    // ...but its passage carries no <rw-annotation> highlight in the article body.
+    await expect(page.getByRole("article").locator("rw-annotation")).toHaveCount(0);
+  });
+
   test("inline comment whose passage is gone surfaces in the page comments timeline", async ({
     page,
   }) => {

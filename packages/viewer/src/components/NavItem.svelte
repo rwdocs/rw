@@ -2,6 +2,7 @@
   import { getRwContext } from "$lib/context";
   import type { NavItem } from "../types";
   import Button from "$lib/ui/primitives/Button.svelte";
+  import Chevron from "$lib/ui/primitives/Chevron.svelte";
   import NavTree from "./NavTree.svelte";
 
   interface Props {
@@ -36,20 +37,7 @@
         class="mr-0.5"
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
-        <svg
-          class="
-            size-3.5 transition-transform
-            {isExpanded ? 'rotate-90' : `rotate-0`}"
-          fill="currentColor"
-          viewBox="0 0 20 20"
-        >
-          <!-- svelte-ignore component_name_lowercase -->
-          <path
-            fill-rule="evenodd"
-            d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-            clip-rule="evenodd"
-          />
-        </svg>
+        <Chevron direction={isExpanded ? "down" : "right"} class="transition-transform" />
       </Button>
     {:else}
       <!-- Spacer matches expand button: w-5 (20px) + mr-0.5 (2px) = 22px -->

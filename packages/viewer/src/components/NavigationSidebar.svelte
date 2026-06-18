@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getRwContext } from "$lib/context";
   import Alert from "$lib/ui/primitives/Alert.svelte";
+  import Chevron from "$lib/ui/primitives/Chevron.svelte";
   import NavTree from "./NavTree.svelte";
 
   const { navigation, router } = getRwContext();
@@ -26,13 +27,7 @@
           "
         >
           <span class="flex w-[22px] items-center justify-center">
-            <svg class="size-3.5 rotate-180" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fill-rule="evenodd"
-                d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                clip-rule="evenodd"
-              />
-            </svg>
+            <Chevron direction="left" />
           </span>
           <span class="px-1.5">{backLink.title}</span>
         </a>
