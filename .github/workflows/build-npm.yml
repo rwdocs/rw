@@ -90,7 +90,7 @@ jobs:
         with:
           image: ${{ matrix.image }}
           options: -v ${{ github.workspace }}:/workspace -w /workspace
-          run: node -e "const c = require('./packages/core'); console.log('OK', Object.keys(c))"
+          run: node --test packages/core/test/render-comment-body.test.mjs
 
   build-viewer:
     name: Build viewer library

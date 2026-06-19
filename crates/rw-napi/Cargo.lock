@@ -3282,6 +3282,7 @@ dependencies = [
  "rw-cache",
  "rw-cache-s3",
  "rw-config",
+ "rw-renderer",
  "rw-site",
  "rw-storage",
  "rw-storage-fs",
