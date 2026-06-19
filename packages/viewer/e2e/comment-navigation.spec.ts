@@ -120,7 +120,12 @@ function liveRegion(page: Page) {
  *  with all DB-persisted comments loaded and inline highlights anchored. This
  *  mirrors how a reviewer actually arrives: open the page, then press a key. */
 async function reloadIdle(page: Page) {
-  await page.reload();
+  // Reach a true idle state. Creating/opening a comment leaves a #comment-<id>
+  // hash in the URL (the deep-link feature mirrors the active thread), and a bare
+  // reload would re-activate that thread on load. Bounce through about:blank so
+  // the page reloads at the bare path with no hash and no active comment.
+  await page.goto("about:blank");
+  await page.goto(PAGE_PATH);
   await page.getByRole("article").waitFor();
   await page.getByRole("region", { name: "Comments" }).waitFor();
   await waitForHighlights(page);

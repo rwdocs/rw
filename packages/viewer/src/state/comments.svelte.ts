@@ -18,6 +18,15 @@ export class Comments {
   activeId = $state<string | null>(null);
   /** Vertical offset of the active highlight relative to the content area. */
   activeTop = $state<number | null>(null);
+  /** Comment currently targeted by a `#comment-<id>` deep link. Owned by
+   *  PageContent's inbound effect (sets/clears it as the hash moves); also reset
+   *  to null by load() and clear() on document change. Drives the page-thread
+   *  tint in PageComments. */
+  linkedId = $state<string | null>(null);
+  /** Open/closed state of the page-comments "Show resolved" disclosure. Set true
+   *  by the inbound deep-link effect when a resolved thread is the target, and
+   *  toggled by the disclosure button; reset on navigation. */
+  resolvedExpanded = $state(false);
   /** Inline thread ids in current document order (by resolved DOM Range).
    *  Written by PageContent whenever highlights re-anchor; consumed by the
    *  sidebar to order prev/next navigation. Stored positions are stale when
@@ -66,6 +75,8 @@ export class Comments {
 
     if (documentId !== this.documentId) {
       this.activeId = null;
+      this.linkedId = null;
+      this.resolvedExpanded = false;
       this.clearPending();
       this.documentId = documentId;
     }
@@ -213,6 +224,8 @@ export class Comments {
     this.loading = false;
     this.error = null;
     this.activeId = null;
+    this.linkedId = null;
+    this.resolvedExpanded = false;
     this.activeTop = null;
     // navSeq is intentionally NOT reset here — see its declaration. It must stay
     // monotonic so a navigation after clear() can never collide with a value a

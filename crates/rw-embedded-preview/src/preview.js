@@ -24,7 +24,7 @@ const currentInstance = mountRw(root, {
   apiBaseUrl: "/_api",
   embedded: true,
   colorScheme: themes[themeIndex],
-  initialPath: window.location.pathname || "/",
+  initialPath: (window.location.pathname || "/") + window.location.hash,
   onNavigate: (path) => {
     window.history.pushState({}, "", path);
   },
@@ -44,5 +44,5 @@ themeBtn.addEventListener("click", () => {
 
 // Handle browser back/forward
 window.addEventListener("popstate", () => {
-  currentInstance.navigateTo(window.location.pathname || "/");
+  currentInstance.navigateTo((window.location.pathname || "/") + window.location.hash);
 });

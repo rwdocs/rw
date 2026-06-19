@@ -1,9 +1,17 @@
 <script lang="ts">
+  import { tick, untrack } from "svelte";
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "$lib/anchoring";
   import { wrapRange, unwrapAll, escapeId } from "$lib/comments/highlight";
+  import {
+    buildCommentHash,
+    parseCommentHash,
+    isCommentHash,
+    classifyCommentTarget,
+    type CommentTargetKind,
+  } from "$lib/comments/deeplink";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
@@ -70,18 +78,103 @@
     );
   });
 
-  // Scroll to hash target when content loads or hash changes
+  // Scroll heading anchors when content loads or the hash changes. A hash that
+  // matches a known loaded comment is handled by the inbound deep-link effect
+  // below, so bail before the getElementById lookup for those. A heading slug
+  // that merely starts with `comment-` (e.g. `## Comment guidelines` →
+  // `#comment-guidelines`) is not a known comment id, so it still scrolls here.
+  //
+  // The comment-id membership check reads `comments.items` with `untrack` so this
+  // effect depends only on the hash / page / article ref — not on the comment
+  // list. Otherwise loading, creating, or resolving a comment would re-run it and
+  // re-scroll a heading the reader has already scrolled past.
   $effect(() => {
     const currentHash = router.hash;
+    if (
+      isCommentHash(
+        currentHash,
+        untrack(() => comments.items.map((c) => c.id)),
+      )
+    )
+      return;
     if (page.data && articleRef && currentHash) {
       const target = document.getElementById(currentHash);
       if (target) {
-        // Use requestAnimationFrame to ensure DOM is fully rendered
         requestAnimationFrame(() => {
           target.scrollIntoView({ behavior: "auto" });
         });
       }
     }
+  });
+
+  // Inbound comment deep-link (#comment-<id>). Driven by router.hash — the same
+  // dependency as heading deep-linking, so it works in embedded mode too, as long
+  // as the host passes the full path+hash to navigateTo (the preview shell does).
+  // Scrolls with scrollIntoView only. Dedups on comments.linkedId: acts once per
+  // target and re-acts when the hash moves to a different comment; later
+  // comment-state changes (loads, re-anchors) don't re-scroll.
+  $effect(() => {
+    const id = parseCommentHash(router.hash);
+
+    if (!id) {
+      if (comments.linkedId) comments.linkedId = null;
+      return;
+    }
+
+    // Re-run as comments load / re-anchor.
+    void comments.items;
+    void comments.order;
+
+    if (comments.linkedId === id) return; // already landed on this target
+
+    const comment = comments.items.find((c) => c.id === id);
+    const kind = classifyCommentTarget(comment, comments.order.includes(id));
+    if (kind === "missing") return; // not loaded yet, or deleted — wait / no-op
+
+    if (kind === "resolved") comments.resolvedExpanded = true;
+    // Mark the landed comment active (inline opens the sidebar; page/orphan just
+    // carries the tint). This also makes keyboard nav (n/p) continue from here,
+    // and the tint follows the active comment as the reader steps through.
+    // Resolved is left out: a resolved inline thread would wrongly open the sidebar.
+    if (kind === "inline" || kind === "page") comments.activeId = id;
+
+    const hashAtDispatch = router.hash;
+    void tick().then(() => {
+      if (router.hash !== hashAtDispatch) return; // hash changed mid-await
+      if (comments.linkedId === id) return; // already landed (a racing tick won)
+      if (revealCommentTarget(id, kind)) {
+        comments.linkedId = id;
+      }
+    });
+  });
+
+  // Outbound: mirror the open inline thread into the address bar (standalone
+  // only). Uses replaceState — opening a thread is not history navigation, so
+  // Back/Forward does not step through opened threads. Writes window.location
+  // directly (not router.hash): replaceState does not fire popstate, and the
+  // router only updates router.hash from popstate, so this write stays invisible
+  // to the inbound effect. Writing router.hash (or comments.linkedId) here would
+  // instead form a dual-writer loop with that effect.
+  let mirroredHash: string | null = null;
+  $effect(() => {
+    if (router.embedded) return;
+    const activeId = comments.activeId;
+
+    if (activeId) {
+      const hash = buildCommentHash(activeId);
+      if (window.location.hash.slice(1) !== hash) {
+        history.replaceState(null, "", `#${hash}`);
+      }
+      mirroredHash = hash;
+      return;
+    }
+
+    // Closed: clear the hash only if the URL still shows the thread we mirrored
+    // (don't clobber a heading hash the user navigated to in the meantime).
+    if (mirroredHash && window.location.hash.slice(1) === mirroredHash) {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+    mirroredHash = null;
   });
 
   // Load comments when page data changes or comments become enabled.
@@ -350,6 +443,28 @@
     firstLineRect ??= range.getBoundingClientRect();
     const articleRect = articleRef.getBoundingClientRect();
     return firstLineRect.top + firstLineRect.height / 2 - articleRect.top;
+  }
+
+  /** Scroll the deep-link target into view and move focus. Returns whether a
+   *  target element was found (false means "not in the DOM yet" — the inbound
+   *  effect will retry on the next comment-state change). Uses only
+   *  scrollIntoView so it works whether window or a host element is the scroller.
+   *  Inline focus is delegated to CommentSidebar (it owns its card). */
+  function revealCommentTarget(id: string, kind: CommentTargetKind): boolean {
+    if (kind === "inline") {
+      const el = articleRef?.querySelector(`rw-annotation[data-comment-id="${escapeId(id)}"]`);
+      if (!el) return false;
+      // Center (not start) — matches keyboard nav, and leaves room above the
+      // passage for the sidebar thread, which pins its header to the highlight.
+      el.scrollIntoView({ behavior: "auto", block: "center" });
+      return true;
+    }
+    // page / resolved: the timeline thread wrapper carries id="comment-<id>".
+    const el = document.getElementById(buildCommentHash(id));
+    if (!(el instanceof HTMLElement)) return false;
+    el.scrollIntoView({ behavior: "auto", block: "start" });
+    el.focus({ preventScroll: true });
+    return true;
   }
 
   $effect(() => {
