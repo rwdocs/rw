@@ -7,6 +7,8 @@
   import { formatRelativeTime } from "$lib/ui/hooks/formatRelativeTime";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import CommentForm from "./CommentForm.svelte";
+  import { getRwContext } from "$lib/context";
+  import { buildCommentHash } from "$lib/comments/deeplink";
 
   function avatarVariant(author: Author): "person" | "ai" | "initials" {
     if (author.id === "local:ai") return "ai";
@@ -42,6 +44,14 @@
      *  message; the resolved-comments list overrides it with a neutral string
      *  because a resolved thread's passage usually still appears on the page. */
     quoteTitle?: string;
+    /** DOM id for the card (e.g. `comment-<uuid>`) so a deep link can scroll to
+     *  it; when set the card also becomes focusable (`tabindex="-1"`). */
+    domId?: string;
+    /** Value for `data-thread-id`, the scroll target keyboard navigation uses. */
+    threadId?: string;
+    /** Amber tint marking the current page comment — the active one (deep-link
+     *  landing or keyboard-nav target), so the marker follows n/p navigation. */
+    linked?: boolean;
   }
 
   let {
@@ -59,7 +69,24 @@
     fuzzy = false,
     quote = null,
     quoteTitle = "This comment was attached to a passage that no longer appears on the page.",
+    domId,
+    threadId,
+    linked = false,
   }: Props = $props();
+
+  const { router } = getRwContext();
+  let copied = $state(false);
+
+  async function copyLink() {
+    const url = `${window.location.origin}${window.location.pathname}#${buildCommentHash(comment.id)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {
+      // Clipboard blocked (insecure context / permissions) — no-op.
+    }
+  }
 
   let outerRef: HTMLDivElement | undefined = $state();
   let avatarRowRef: HTMLDivElement | undefined = $state();
@@ -88,11 +115,18 @@
   });
 </script>
 
+<!-- tabindex is -1 (or absent): a deep link focuses the card programmatically;
+     it is never placed in the tab order. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   bind:this={outerRef}
   data-testid="comment-thread"
+  id={domId}
+  tabindex={domId != null ? -1 : undefined}
+  data-thread-id={threadId}
+  data-linked={linked ? "true" : undefined}
   class="
-    overflow-hidden rounded-md border px-3 pt-3 transition-colors
+    thread-card overflow-hidden rounded-md border px-3 pt-3 transition-colors
     {active
     ? 'border-gray-200 bg-white dark:border-neutral-700 dark:bg-neutral-800'
     : `
@@ -203,9 +237,51 @@
           re-anchored
         </Badge>
       {/if}
-      <span class="ml-auto text-xs text-gray-400 dark:text-neutral-500">
-        {formatRelativeTime(new Date(comment.createdAt))}
-      </span>
+      <div class="ml-auto flex items-center gap-2">
+        {#if !router.embedded}
+          <button
+            type="button"
+            onclick={copyLink}
+            aria-label="Copy link"
+            title={copied ? "Copied" : "Copy link to this comment"}
+            class="
+              cursor-pointer text-gray-400 transition-colors
+              hover:text-gray-700
+              dark:text-neutral-500
+              dark:hover:text-neutral-200
+            "
+          >
+            {#if copied}
+              <svg
+                class="size-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            {:else}
+              <svg
+                class="size-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 11-5.656-5.656l1.5-1.5m6.656-1.328a4 4 0 010-5.656l3-3a4 4 0 115.656 5.656l-1.5 1.5"
+                />
+              </svg>
+            {/if}
+          </button>
+        {/if}
+        <span class="text-xs text-gray-400 dark:text-neutral-500">
+          {formatRelativeTime(new Date(comment.createdAt))}
+        </span>
+      </div>
     </div>
     {#if quote}
       <Quote
@@ -340,6 +416,18 @@
 </div>
 
 <style>
+  /* Clear the sticky header when a deep link scrolls this card into view (same
+     offset headings use, inherited from .layout-root). outline:none because the
+     card is focused programmatically on landing; the tint below is the marker. */
+  .thread-card {
+    scroll-margin-top: var(--scroll-anchor-offset, 1.5rem);
+    outline: none;
+  }
+  /* Persistent tint while this thread is the active deep-link target. */
+  .thread-card[data-linked="true"] {
+    box-shadow: 0 0 0 2px rgb(250 204 21 / 0.9);
+  }
+
   .comment-body :global(p) {
     margin: 0;
   }

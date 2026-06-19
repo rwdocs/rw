@@ -6,30 +6,37 @@
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
+  import { buildCommentHash } from "$lib/comments/deeplink";
   import { escapeId } from "$lib/comments/highlight";
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
 
   const { comments, page } = getRwContext();
 
   // Unique per instance so two embedded viewers on one page don't collide on
-  // the heading id that labels the section (matches Popover/Menu primitives).
+  // the heading id that labels the section and the resolved-list aria-controls target.
   const headingId = $props.id();
 
-  // Local-only UI state: the resolved comments are an occasional lookup, kept
-  // collapsed by default. Sourced from `comments.threads` (all top-level,
-  // open + resolved) rather than `pageThreads`, because resolved inline-anchored
-  // threads are never flagged `orphaned` and so never appear in `pageThreads`.
-  let showResolved = $state(false);
+  // Captured for keyboard-nav scroll: useScrollIntoViewOnNav finds the active
+  // page/orphaned comment card within this section.
   let sectionRef: HTMLElement | undefined = $state();
   const resolvedListId = `${headingId}-resolved`;
 
+  // Resolved disclosure: driven by the shared store so a deep link to a resolved
+  // thread can force it open (comments.resolvedExpanded). The toggle button
+  // writes the same field.
+  const resolvedToggleLabel = $derived(
+    comments.resolvedExpanded ? "Hide resolved" : "Show resolved",
+  );
+
   const byCreatedAt = (a: Comment, b: Comment) => a.createdAt.localeCompare(b.createdAt);
 
+  // Sourced from `comments.threads` (all top-level), not `pageThreads`: resolved
+  // inline-anchored threads are never flagged orphaned, so they never appear in
+  // `pageThreads`. Both the open list and this resolved list need them.
   const resolvedThreads = $derived(
     comments.threads.filter((t) => t.status === "resolved").toSorted(byCreatedAt),
   );
   const hasResolved = $derived(resolvedThreads.length > 0);
-  const resolvedToggleLabel = $derived(showResolved ? "Hide resolved" : "Show resolved");
 
   const visibleThreads = $derived(
     comments.pageThreads.filter((t) => t.status !== "resolved").toSorted(byCreatedAt),
@@ -149,10 +156,16 @@
 
   {#snippet threadCard(thread: Comment, quoteTitle?: string)}
     {@const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
+    <!-- The card carries its own targeting: domId (deep-link scroll/focus),
+         threadId (data-thread-id, keyboard-nav target), and linked (the tint). -->
     <CommentThread
       comment={thread}
       {quote}
       {quoteTitle}
+      domId={buildCommentHash(thread.id)}
+      threadId={thread.id}
+      linked={thread.id === comments.activeId ||
+        (comments.activeId == null && thread.id === comments.linkedId)}
       replies={comments.replies(thread.id)}
       active={false}
       onResolve={handleResolve}
@@ -166,10 +179,7 @@
   {#if hasThreads}
     <div class="mb-6 space-y-4">
       {#each visibleThreads as thread (thread.id)}
-        <!-- Wrapper carries data-thread-id as the scroll target for keyboard nav. -->
-        <div data-thread-id={thread.id}>
-          {@render threadCard(thread)}
-        </div>
+        {@render threadCard(thread)}
       {/each}
     </div>
   {/if}
@@ -180,8 +190,8 @@
     <div class="my-6">
       <button
         type="button"
-        onclick={() => (showResolved = !showResolved)}
-        aria-expanded={showResolved}
+        onclick={() => (comments.resolvedExpanded = !comments.resolvedExpanded)}
+        aria-expanded={comments.resolvedExpanded}
         aria-controls={resolvedListId}
         class="
           flex cursor-pointer items-center gap-1 text-sm text-gray-500 transition-colors
@@ -191,7 +201,7 @@
         "
       >
         <Chevron
-          direction={showResolved ? "down" : "right"}
+          direction={comments.resolvedExpanded ? "down" : "right"}
           size="md"
           class="transition-transform"
           aria-hidden="true"
@@ -200,10 +210,11 @@
         <Badge intent="neutral" size="md">{resolvedThreads.length}</Badge>
       </button>
 
-      <!-- Container stays in the DOM even when collapsed so the button's
-           aria-controls target always resolves; only its contents are gated. -->
+      <!-- id stays in the DOM whenever the toggle button is rendered — the
+           button's aria-controls target must resolve even while collapsed; only
+           the list contents below are gated on resolvedExpanded. -->
       <div id={resolvedListId} class="mt-4 space-y-4">
-        {#if showResolved}
+        {#if comments.resolvedExpanded}
           {#each resolvedThreads as thread (thread.id)}
             {@render threadCard(thread, "The passage this comment was attached to.")}
           {/each}

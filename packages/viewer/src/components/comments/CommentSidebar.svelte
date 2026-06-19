@@ -5,15 +5,52 @@
   import CommentForm from "./CommentForm.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import { sortByOrder } from "$lib/comments/navigation";
+  import { escapeId } from "$lib/comments/highlight";
 
   const { comments } = getRwContext();
 
   let threadAnchor = $state<number | null>(null);
   let pendingAnchor = $state<number | null>(null);
+  let cardRef = $state<HTMLDivElement | undefined>();
+  // The deep-link target we've already moved focus to. Focus is a one-shot
+  // landing action: re-entering the same target later via keyboard nav (n/p)
+  // must NOT steal focus again. Reset when the deep-link target clears.
+  let focusedFor: string | null = null;
 
   // Stale offset would otherwise flash on the next pending form's first paint.
   $effect(() => {
     if (!comments.pending) pendingAnchor = null;
+  });
+
+  // When an inline thread was opened by a deep link, move focus to its card so
+  // keyboard / screen-reader users land on it — once, when it first becomes the
+  // active target. If the card is hidden (narrow widths where the comments aside
+  // is display:none), fall back to focusing the in-article highlight.
+  // focus({ preventScroll }) so we don't fight the PageContent scroll that
+  // already positioned the passage.
+  $effect(() => {
+    const id = comments.activeId;
+    const linked = comments.linkedId;
+    if (linked == null) {
+      focusedFor = null;
+      return;
+    }
+    if (id !== linked || focusedFor === linked) return;
+    focusedFor = linked;
+    void tick().then(() => {
+      if (comments.activeId !== id) return;
+      if (cardRef && cardRef.offsetParent !== null) {
+        cardRef.focus({ preventScroll: true });
+        return;
+      }
+      const ann = document.querySelector<HTMLElement>(
+        `article rw-annotation[data-comment-id="${escapeId(id)}"]`,
+      );
+      if (ann) {
+        ann.tabIndex = -1;
+        ann.focus({ preventScroll: true });
+      }
+    });
   });
 
   /** Threads sorted by current document position (live DOM range order from
@@ -152,8 +189,11 @@
   </div>
 {:else if activeThread}
   <div
+    bind:this={cardRef}
+    tabindex="-1"
     style:padding-top="{Math.max(0, (comments.activeTop ?? 0) - (threadAnchor ?? 0))}px"
     style:visibility={threadAnchor === null ? "hidden" : "visible"}
+    class="outline-none"
   >
     <CommentThread
       comment={activeThread}
