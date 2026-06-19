@@ -51,6 +51,18 @@ export interface PageResponse {
   content: string
 }
 
+/**
+ * Render a comment's markdown to safe, restricted HTML.
+ *
+ * Produces the same `bodyHtml` the bundled viewer expects, so a host that
+ * stores its own comments (for example a Backstage backend plugin) can render
+ * comment bodies identically to `rw serve`. Pure and stateless — no `RwSite`
+ * instance is required. Raw HTML is escaped, headings are demoted, tables
+ * flattened, images dropped, and links keep their `href` only for
+ * `http`/`https`/`mailto` schemes. Blank input renders to an empty string.
+ */
+export declare function renderCommentBody(markdown: string): Promise<string>
+
 export interface S3Config {
   bucket: string
   entity: string

@@ -27,6 +27,7 @@ napi-derive = "3"
 rw-cache = { path = "../rw-cache" }
 rw-cache-s3 = { path = "../rw-cache-s3" }
 rw-config = { path = "../rw-config" }
+rw-renderer = { path = "../rw-renderer" }
 rw-site = { path = "../rw-site" }
 rw-storage = { path = "../rw-storage" }
 rw-storage-fs = { path = "../rw-storage-fs" }

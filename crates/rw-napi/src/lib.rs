@@ -245,6 +245,22 @@ impl RwSite {
     }
 }
 
+/// Render a comment's markdown to safe, restricted HTML.
+///
+/// Produces the same `bodyHtml` the bundled viewer expects, so a host that
+/// stores its own comments (for example a Backstage backend plugin) can render
+/// comment bodies identically to `rw serve`. Pure and stateless — no `RwSite`
+/// instance is required. Raw HTML is escaped, headings are demoted, tables
+/// flattened, images dropped, and links keep their `href` only for
+/// `http`/`https`/`mailto` schemes. Blank input renders to an empty string.
+#[napi]
+#[allow(clippy::needless_pass_by_value)]
+pub async fn render_comment_body(markdown: String) -> Result<String> {
+    tokio::task::spawn_blocking(move || rw_renderer::render_comment_body(&markdown))
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))
+}
+
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let result = site
         .render(path)
