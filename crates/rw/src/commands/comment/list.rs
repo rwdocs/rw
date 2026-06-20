@@ -2,6 +2,7 @@ use clap::Args;
 use rw_comments::{CommentFilter, CommentStatus};
 use uuid::Uuid;
 
+use super::context::{build_site, document_key, document_url_path};
 use super::{Context, OutputArgs, format};
 use crate::error::CliError;
 
@@ -10,7 +11,8 @@ pub(crate) struct ListArgs {
     #[command(flatten)]
     pub output: OutputArgs,
 
-    /// Filter by document id.
+    /// Filter by page: a URL path ("billing/overview") or the markdown source
+    /// file, with or without the docs prefix ("docs/billing/overview.md" or "billing/overview.md").
     #[arg(long)]
     pub document: Option<String>,
 
@@ -50,8 +52,16 @@ pub(crate) async fn run(ctx: &Context, args: ListArgs) -> Result<(), CliError> {
         parent,
     } = args;
 
+    let document_id = match document {
+        Some(d) => Some(document_key(
+            &build_site(&ctx.config),
+            &document_url_path(&ctx.config, &d)?,
+        )?),
+        None => None,
+    };
+
     let mut filter = CommentFilter {
-        document_id: document,
+        document_id,
         status: status.as_store_filter(),
         ..CommentFilter::default()
     };

@@ -30,6 +30,9 @@ pub(crate) enum CliError {
     Store(#[from] StoreError),
 
     #[error(transparent)]
+    Storage(#[from] rw_storage::StorageError),
+
+    #[error(transparent)]
     QuoteResolution(#[from] QuoteResolutionError),
 
     #[error("completed with {count} warning(s); --strict was set")]

@@ -13,6 +13,7 @@
     type CommentTargetKind,
   } from "$lib/comments/deeplink";
   import { isNewlyOrphaned } from "$lib/comments/navigation";
+  import { documentIdFor } from "$lib/comments/documentId";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
@@ -28,7 +29,7 @@
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
 
-  const docId = $derived(page.data ? page.data.meta.path.replace(/^\//, "") : null);
+  const docId = $derived(page.data ? documentIdFor(page.data.meta) : null);
 
   const articleSize = useElementSize(() => articleRef ?? null);
 

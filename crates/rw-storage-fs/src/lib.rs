@@ -31,8 +31,9 @@ mod scanner;
 mod source;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf, absolute};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -50,7 +51,7 @@ use rw_storage::{
     StorageEventKind, StorageEventReceiver, WatchHandle,
 };
 use scanner::{DocumentRef, Scanner};
-use source::{Classification, classify_relpath, file_path_to_url};
+use source::{Classification, SourceFile, SourceKind, classify_relpath, file_path_to_url};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -374,6 +375,69 @@ impl FsStorage {
         }
 
         meta
+    }
+
+    /// URL paths of the existing page(s) a markdown source file could refer to.
+    ///
+    /// Accepts the path relative to the project root (with the `source_dir`
+    /// prefix, e.g. `docs/guide.md`), relative to `source_dir` (e.g. `guide.md`),
+    /// or absolute, plus the README homepage. Returns one entry normally, several
+    /// when the input is ambiguous (distinct existing pages), or none when it
+    /// names no page. Uses [`SourceFile::classify`] — the scanner's own routine —
+    /// so the url path matches the live site exactly.
+    #[must_use]
+    pub fn url_paths_for_source(&self, file_path: &Path) -> Vec<String> {
+        let mut urls: Vec<String> = Vec::new();
+        let mut push = |u: String| {
+            if !urls.contains(&u) {
+                urls.push(u);
+            }
+        };
+
+        // README homepage maps to the root url — but only when it is actually
+        // the served homepage. `resolve_content("")` applies the same
+        // index.md-then-README precedence the scanner uses, so a project with a
+        // real `docs/index.md` (which shadows the README) does not map README.md
+        // to the root here.
+        if let Some(readme) = &self.readme_path
+            && (file_path == Path::new("README.md")
+                || absolute(file_path).ok() == absolute(readme).ok())
+            && self.resolve_content("").as_deref() == Some(readme.as_path())
+        {
+            push(String::new());
+        }
+
+        let mut rels: Vec<PathBuf> = Vec::new();
+        if file_path.is_absolute() {
+            if let Ok(rel) = file_path.strip_prefix(&self.source_dir) {
+                rels.push(rel.to_path_buf());
+            }
+        } else {
+            rels.push(file_path.to_path_buf());
+            if let Some(name) = self.source_dir.file_name()
+                && let Ok(stripped) = file_path.strip_prefix(name)
+            {
+                rels.push(stripped.to_path_buf());
+            }
+        }
+
+        for rel in rels {
+            let file = self.source_dir.join(&rel);
+            if !file.is_file() {
+                continue;
+            }
+            let Some(name) = file.file_name().map(OsStr::to_os_string) else {
+                continue;
+            };
+            if let Some(sf) =
+                SourceFile::classify(file, &name, &self.source_dir, &self.meta_filename)
+                && sf.kind == SourceKind::Content
+            {
+                push(sf.url_path);
+            }
+        }
+
+        urls
     }
 
     /// Set up a file watcher for README.md (outside `source_dir`).
@@ -2313,5 +2377,171 @@ mod tests {
         assert!(!is_hidden_rel_path(Path::new("dir/visible.md")));
         assert!(!is_hidden_rel_path(Path::new("payments.meta.yaml")));
         assert!(!is_hidden_rel_path(Path::new("")));
+    }
+
+    // --- url_paths_for_source ---
+
+    /// Create a test project: `<tmp>/README.md`, `<tmp>/docs/` with several pages.
+    /// Storage source_dir is `<tmp>/docs`.
+    fn make_url_paths_storage() -> (tempfile::TempDir, FsStorage) {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(docs.join("billing")).unwrap();
+
+        // content files
+        fs::write(docs.join("index.md"), "# Home").unwrap();
+        fs::write(docs.join("guide.md"), "# Guide").unwrap();
+        fs::write(docs.join("billing/index.md"), "# Billing").unwrap();
+        fs::write(docs.join("billing/overview.md"), "# Overview").unwrap();
+        // metadata file (should never appear in output)
+        fs::write(docs.join("meta.yaml"), "title: Site").unwrap();
+        // README.md in parent (homepage fallback)
+        fs::write(root.join("README.md"), "# README Home").unwrap();
+        // a file completely outside source_dir
+        fs::create_dir_all(root.join("elsewhere")).unwrap();
+        fs::write(root.join("elsewhere/x.md"), "# X").unwrap();
+
+        let storage = FsStorage::new(docs);
+        (tmp, storage)
+    }
+
+    #[test]
+    fn url_paths_for_source_dir_relative_index() {
+        let (_tmp, storage) = make_url_paths_storage();
+        // source_dir-relative: "index.md" → root page
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("index.md")),
+            vec![String::new()]
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_dir_relative_nested() {
+        let (_tmp, storage) = make_url_paths_storage();
+        // source_dir-relative nested: "billing/overview.md"
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("billing/overview.md")),
+            vec!["billing/overview".to_owned()]
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_project_root_relative_index() {
+        let (_tmp, storage) = make_url_paths_storage();
+        // project-root-relative (prefixed): "docs/index.md" → root page
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("docs/index.md")),
+            vec![String::new()]
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_project_root_relative_nested() {
+        let (_tmp, storage) = make_url_paths_storage();
+        // project-root-relative nested: "docs/billing/overview.md"
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("docs/billing/overview.md")),
+            vec!["billing/overview".to_owned()]
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_absolute_under_source_dir() {
+        let (tmp, storage) = make_url_paths_storage();
+        // absolute path under source_dir
+        let abs = tmp.path().join("docs/guide.md");
+        assert_eq!(storage.url_paths_for_source(&abs), vec!["guide".to_owned()]);
+    }
+
+    #[test]
+    fn url_paths_for_source_nested_index_md() {
+        let (_tmp, storage) = make_url_paths_storage();
+        // "docs/billing/index.md" → "billing"
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("docs/billing/index.md")),
+            vec!["billing".to_owned()]
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_readme_homepage_when_no_index() {
+        // No docs/index.md: the parent README.md IS the served homepage → root.
+        let tmp = tempfile::tempdir().unwrap();
+        let docs = tmp.path().join("docs");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(docs.join("guide.md"), "# Guide").unwrap();
+        fs::write(tmp.path().join("README.md"), "# Home").unwrap();
+        let storage = FsStorage::new(docs);
+        assert_eq!(
+            storage.url_paths_for_source(Path::new("README.md")),
+            vec![String::new()]
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_readme_shadowed_by_index_is_empty() {
+        // docs/index.md is the homepage, so the parent README.md is not a served
+        // page — it must NOT be mapped to the root url.
+        let (_tmp, storage) = make_url_paths_storage();
+        assert!(
+            storage
+                .url_paths_for_source(Path::new("README.md"))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_meta_yaml_is_empty() {
+        let (_tmp, storage) = make_url_paths_storage();
+        // metadata file → no pages
+        assert!(
+            storage
+                .url_paths_for_source(Path::new("meta.yaml"))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_nonexistent_is_empty() {
+        let (_tmp, storage) = make_url_paths_storage();
+        assert!(
+            storage
+                .url_paths_for_source(Path::new("nope.md"))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn url_paths_for_source_outside_source_dir_is_empty() {
+        let (tmp, storage) = make_url_paths_storage();
+        let p = tmp.path().join("elsewhere/x.md");
+        assert!(storage.url_paths_for_source(&p).is_empty());
+    }
+
+    #[test]
+    fn url_paths_for_source_ambiguity_returns_both() {
+        // When both "docs/guide.md" (source_dir-relative → page "docs/guide") and
+        // the prefix-stripped "guide.md" (→ page "guide") exist, the input
+        // "docs/guide.md" is ambiguous and returns both interpretations.
+        let (tmp, storage) = make_url_paths_storage();
+        let docs = tmp.path().join("docs");
+
+        // Create docs/docs/guide.md so the verbatim "docs/guide.md" path is also
+        // a real source_dir-relative file mapping to page "docs/guide".
+        fs::create_dir_all(docs.join("docs")).unwrap();
+        fs::write(docs.join("docs/guide.md"), "# Docs Guide").unwrap();
+
+        let mut got = storage.url_paths_for_source(Path::new("docs/guide.md"));
+        got.sort();
+        assert_eq!(got.len(), 2, "expected 2 interpretations, got: {got:?}");
+        assert!(
+            got.contains(&"guide".to_owned()),
+            "missing 'guide' in {got:?}"
+        );
+        assert!(
+            got.contains(&"docs/guide".to_owned()),
+            "missing 'docs/guide' in {got:?}"
+        );
     }
 }
