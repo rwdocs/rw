@@ -97,6 +97,16 @@ impl RenderBackend for HtmlBackend {
         .unwrap();
     }
 
+    fn table_start(out: &mut String) {
+        out.push_str(
+            r#"<div class="table-wrap" role="group" tabindex="0" aria-label="Table"><table>"#,
+        );
+    }
+
+    fn table_end(out: &mut String) {
+        out.push_str("</tbody></table></div>");
+    }
+
     fn transform_link<'a>(url: &'a str, base_path: Option<&str>) -> Cow<'a, str> {
         match base_path {
             Some(base) => Cow::Owned(resolve_link(url, base)),

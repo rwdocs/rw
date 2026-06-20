@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Wide tables no longer collapse their short-content columns to a sliver (a single word breaking one or two characters per line). Columns now take their natural widths, and a table that is genuinely wider than the page scrolls horizontally inside its own box — keyboard-focusable and announced to screen readers — instead of being clipped.
 - A comment whose save failed (e.g. `rw serve` was down or unreachable) no longer loses the text you typed. The composer keeps your draft, its button changes to **Retry**, and a toast explains the save failed and that your draft is kept — instead of silently clearing the box.
 - Fixed `n`/`p` comment navigation getting stuck on orphaned comments (inline comments whose anchored text was later edited away). They now highlight when selected, and navigation continues to the next comment.
 - Fixed `n`/`p` comment navigation centering page-comment threads with many replies, which pushed the first comment off the top of the screen. Long page-comment threads now scroll so their first comment is visible, matching how the shareable `#comment-<id>` deep links already behaved.
