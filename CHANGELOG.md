@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Embedding hosts can supply their own comment backend via `mountRw({ comments })` — an injected `CommentApiClient` (`list`/`create`/`update`/`delete`, plus optional `subscribe` for live refresh). When present, comments are enabled implicitly (no `/config` round-trip) and fully decoupled from the docs `apiBaseUrl`, so a host can serve comments at any URL shape and transport. When omitted, the viewer builds today's HTTP client against `{apiBaseUrl}/comments` and reads `commentsEnabled` from `/config` — unchanged. `CommentApiClient`, `Comment`, `CreateCommentRequest`, and `UpdateCommentRequest` are now exported from `@rwdocs/viewer`.
+- Comments carry a `canResolve` capability flag (alongside `canDelete`/`canRestore`) so a host's permission model decides whether the Resolve/Reopen affordance appears. `rw serve` sets it true for top-level comments and false for replies, matching current behaviour.
 - Embedding hosts can supply a notification sink via `mountRw({ onNotify })`; the viewer routes transient notifications (e.g. a failed comment save) through the host's own toast/alert system. Standalone `rw serve` falls back to a built-in toaster.
 
 ### Fixed

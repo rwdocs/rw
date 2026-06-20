@@ -67,6 +67,20 @@ export class Comments {
     this.notify = notify;
   }
 
+  /** True when the underlying client provides its own live-refresh transport. */
+  get canSubscribe(): boolean {
+    return typeof this.apiClient.subscribe === "function";
+  }
+
+  /** Subscribe to live comment changes for `documentId` via the client's own
+   *  transport. Call only when `canSubscribe` is true; returns the client's
+   *  unsubscribe handle (safe to return directly from a Svelte `$effect`). The
+   *  `| undefined` covers the no-`subscribe` client, where callers use the
+   *  live-reload WebSocket instead. */
+  subscribe(documentId: string, onChange: () => void): (() => void) | undefined {
+    return this.apiClient.subscribe?.(documentId, onChange);
+  }
+
   load = async (documentId: string, opts?: { silent?: boolean }) => {
     if (!this.enabled) return;
     if (this.abortController) {
@@ -111,9 +125,9 @@ export class Comments {
   create = async (input: CreateCommentRequest) => {
     const comment = await this.apiClient.create(input);
     if (this.documentId === comment.documentId) {
-      // Append the newly-created row. `canDelete` / `canRestore` are purely
-      // row-local (depend only on this row's status + parentId), so siblings
-      // don't need re-projection.
+      // Append the new row directly: every per-row capability flag depends only
+      // on this row's own status + parentId + deletedAt, so no sibling needs
+      // re-projection.
       this.items = [...this.items, comment];
     }
     // If response.documentId !== this.documentId, the user navigated away;

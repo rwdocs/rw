@@ -31,6 +31,11 @@ export interface Comment {
   deletedAt?: string | null;
   canDelete: boolean;
   canRestore: boolean;
+  /** Whether the viewer should offer the Resolve/Reopen affordance for this
+   *  comment. Server-driven (like `canDelete`/`canRestore`): the host decides,
+   *  the viewer renders. The default `rw serve` backend sets this true for
+   *  top-level comments and false for replies. */
+  canResolve: boolean;
 }
 
 export interface CreateCommentRequest {
