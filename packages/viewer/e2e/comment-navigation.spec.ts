@@ -75,6 +75,36 @@ async function createPageComment(page: Page, body: string) {
   await section.getByRole("button", { name: "Comment", exact: true }).click();
 }
 
+/** Create a top-level comment whose stored selectors cannot anchor to the
+ *  current document — the viewer treats it as an orphaned inline comment and
+ *  surfaces it in the page-comments timeline. Returns the new comment id. */
+async function createOrphanComment(page: Page, documentId: string, body: string): Promise<string> {
+  return page.evaluate(
+    async ({ docId, text }) => {
+      const res = await fetch("/_api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentId: docId,
+          body: text,
+          selectors: [
+            {
+              type: "TextQuoteSelector",
+              exact: "a passage that is definitely not present anywhere on this page",
+              prefix: "",
+              suffix: "",
+            },
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error(`failed to create orphan comment: ${res.status}`);
+      const created = await res.json();
+      return created.id as string;
+    },
+    { docId: documentId, text: body },
+  );
+}
+
 async function resolveAllComments(page: Page, documentId: string) {
   await page.evaluate(async (docId) => {
     const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
@@ -174,6 +204,61 @@ test.describe("Comment keyboard navigation", () => {
 
     await page.keyboard.press("n"); // wraps → inline (1 of 2)
     await expect(liveRegion(page)).toContainText("Comment 1 of 2");
+    expect(await activeHighlightId(page)).toBe(firstActive);
+  });
+
+  test("n steps onto orphaned-inline comments, highlighting each and advancing", async ({
+    page,
+  }) => {
+    // One anchored inline thread + two orphaned-inline threads (stored selectors
+    // that no longer match any text — what a content edit looks like to the
+    // viewer). Orphans render in the page-comments timeline and are valid n/p
+    // targets; they must highlight and let navigation continue.
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    // Created in order, so orphan A sorts before orphan B in the timeline (open
+    // page/orphan threads order by createdAt) and thus in n/p order after the
+    // inline thread.
+    await createOrphanComment(page, PAGE_DOC_ID, "orphan A body");
+    await createOrphanComment(page, PAGE_DOC_ID, "orphan B body");
+    await reloadIdle(page);
+
+    // Locate each timeline card by its unique body text (the cards carry the
+    // semantic data-testid; data-linked is the tint state with no role/text
+    // equivalent, so it's asserted as an attribute on the located card).
+    const section = page.getByRole("region", { name: "Comments" });
+    const orphanACard = section.getByTestId("comment-thread").filter({ hasText: "orphan A body" });
+    const orphanBCard = section.getByTestId("comment-thread").filter({ hasText: "orphan B body" });
+    await expect(orphanACard).toBeVisible();
+    await expect(orphanBCard).toBeVisible();
+    // Baseline: nothing is tinted before navigation, so the data-linked checks
+    // below are differential (they'd fail if the tint were applied uncondi-
+    // tionally rather than following the active comment).
+    await expect(orphanACard).not.toHaveAttribute("data-linked", "true");
+    await expect(orphanBCard).not.toHaveAttribute("data-linked", "true");
+
+    // idle → inline (1 of 3)
+    await page.keyboard.press("n");
+    await expect(liveRegion(page)).toContainText("Comment 1 of 3");
+    const firstActive = await activeHighlightId(page);
+    expect(firstActive).not.toBeNull();
+
+    // → first orphan (2 of 3): no inline highlight, but the timeline card is tinted.
+    await page.keyboard.press("n");
+    await expect(liveRegion(page)).toContainText("Comment 2 of 3");
+    expect(await activeHighlightId(page)).toBeNull();
+    await expect(orphanACard).toHaveAttribute("data-linked", "true");
+
+    // → second orphan (3 of 3): stepping onto an orphan keeps it active, so
+    // navigation advances to the next thread instead of re-entering from idle,
+    // and the tint moves from orphan A to orphan B.
+    await page.keyboard.press("n");
+    await expect(liveRegion(page)).toContainText("Comment 3 of 3");
+    await expect(orphanBCard).toHaveAttribute("data-linked", "true");
+    await expect(orphanACard).not.toHaveAttribute("data-linked", "true");
+
+    // wraps → inline (1 of 3)
+    await page.keyboard.press("n");
+    await expect(liveRegion(page)).toContainText("Comment 1 of 3");
     expect(await activeHighlightId(page)).toBe(firstActive);
   });
 

@@ -12,6 +12,7 @@
     classifyCommentTarget,
     type CommentTargetKind,
   } from "$lib/comments/deeplink";
+  import { isNewlyOrphaned } from "$lib/comments/navigation";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
@@ -264,15 +265,6 @@
     comments.anchorStrategies = strategyMap;
     comments.orphanIds = orphanIds;
 
-    // If the active thread just lost its anchor (e.g. live-reload rewrote the
-    // page and the passage is gone), drop activeId — the sidebar filters out
-    // orphans, so activeThread would resolve to undefined and leave the panel
-    // open but empty. Clearing sends focus back to the main view; the orphan
-    // is still reachable from the page comments timeline.
-    if (comments.activeId && orphanIds.has(comments.activeId)) {
-      comments.activeId = null;
-    }
-
     // Order inline threads by their live DOM position, not by stored
     // TextPositionSelector.start — stored positions reflect the document
     // as it was at comment creation time and are stale after edits.
@@ -282,6 +274,26 @@
     return () => {
       unwrapAll(container);
     };
+  });
+
+  // De-activate a thread that *spontaneously* lost its anchor (e.g. live-reload
+  // rewrote the page and the active passage is gone): the sidebar filters out
+  // orphans, so the open panel would otherwise resolve to nothing. Only a
+  // genuine non-orphan → orphan transition clears activeId — navigating *onto*
+  // an already-orphaned comment (it lives in the page-comments timeline and is
+  // a valid n/p target) keeps it active so it highlights and stepping continues.
+  // Must stay separate from the wrap effect above: that effect reads activeId,
+  // so folding this in would re-wrap the article DOM on every n/p keypress.
+  // `prevOrphans` is a deliberately non-reactive local: this effect re-runs on
+  // orphanIds / activeId changes, not on its own bookkeeping write.
+  let prevOrphans = new Set<string>();
+  $effect(() => {
+    const orphans = comments.orphanIds;
+    const activeId = comments.activeId;
+    if (isNewlyOrphaned(activeId, orphans, prevOrphans)) {
+      comments.activeId = null;
+    }
+    prevOrphans = orphans;
   });
 
   $effect(() => {

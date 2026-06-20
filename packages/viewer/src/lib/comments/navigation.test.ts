@@ -1,6 +1,6 @@
 // packages/viewer/src/lib/comments/navigation.test.ts
 import { describe, it, expect } from "vitest";
-import { resolveNavTarget, sortByOrder } from "./navigation";
+import { resolveNavTarget, sortByOrder, isNewlyOrphaned } from "./navigation";
 
 describe("resolveNavTarget", () => {
   const list = ["a", "b", "c"];
@@ -57,5 +57,29 @@ describe("sortByOrder", () => {
     const items = [{ id: "b" }, { id: "a" }];
     sortByOrder(items, ["a", "b"]);
     expect(items.map((i) => i.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("isNewlyOrphaned", () => {
+  it("returns false when there is no active comment", () => {
+    expect(isNewlyOrphaned(null, new Set(["a"]), new Set())).toBe(false);
+  });
+
+  it("returns true when the active comment just became an orphan", () => {
+    // Was anchored last pass (not in prev), now orphaned (in current).
+    expect(isNewlyOrphaned("a", new Set(["a"]), new Set())).toBe(true);
+  });
+
+  it("returns false when the active comment was already an orphan", () => {
+    // Navigating onto an existing orphan is not a transition.
+    expect(isNewlyOrphaned("a", new Set(["a"]), new Set(["a"]))).toBe(false);
+  });
+
+  it("returns false when the active comment is not an orphan now", () => {
+    expect(isNewlyOrphaned("a", new Set(["b"]), new Set(["b"]))).toBe(false);
+  });
+
+  it("returns false when an orphan re-anchored (left the current set)", () => {
+    expect(isNewlyOrphaned("a", new Set(), new Set(["a"]))).toBe(false);
   });
 });
