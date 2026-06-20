@@ -1,7 +1,9 @@
 /**
- * Scroll a target element into view (centered) whenever a monotonic navigation
- * counter changes. Used to bring the active comment into view on keyboard
- * navigation.
+ * Scroll a target element into view whenever a monotonic navigation counter
+ * changes. Used to bring the active comment into view on keyboard navigation.
+ * `block` is forwarded to `scrollIntoView` and defaults to `"center"`; pass
+ * `"start"` when the target can be taller than the viewport and its top must
+ * stay visible.
  *
  * The counter — not the active id — is the trigger, so activating a comment by
  * other means (e.g. clicking its highlight, which changes the active id but not
@@ -17,12 +19,13 @@
 export function useScrollIntoViewOnNav(
   seq: () => number,
   findTarget: () => Element | null | undefined,
+  block: ScrollLogicalPosition = "center",
 ): void {
   let lastSeq = -1;
   $effect(() => {
     const current = seq();
     if (current === lastSeq) return;
     lastSeq = current;
-    findTarget()?.scrollIntoView({ behavior: "auto", block: "center" });
+    findTarget()?.scrollIntoView({ behavior: "auto", block });
   });
 }

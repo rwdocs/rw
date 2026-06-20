@@ -50,6 +50,9 @@
   // Scroll the active page/orphaned comment into view on keyboard navigation.
   // The findTarget thunk returns null when the active comment is an inline
   // highlight (handled by PageContent) rather than one of this section's cards.
+  // Top-align ("start", not the default "center"): a thread card holds the root
+  // comment plus every reply, so centering a card taller than the viewport
+  // pushes the root off-screen above; top-aligning keeps the root visible.
   useScrollIntoViewOnNav(
     () => comments.navSeq,
     () => {
@@ -57,6 +60,7 @@
       if (!activeId || !visibleThreads.some((t) => t.id === activeId)) return null;
       return sectionRef?.querySelector(`[data-thread-id="${escapeId(activeId)}"]`);
     },
+    "start",
   );
 
   function findQuote(
