@@ -6,6 +6,7 @@ import type { Navigation } from "../state/navigation.svelte";
 import type { LiveReload } from "../state/liveReload.svelte";
 import type { Ui } from "../state/ui.svelte";
 import type { Comments } from "../state/comments.svelte";
+import type { NotifyFn } from "../types/notify";
 
 export interface RwContext {
   apiClient: ApiClient;
@@ -15,6 +16,7 @@ export interface RwContext {
   liveReload: LiveReload;
   ui: Ui;
   comments: Comments;
+  notify: NotifyFn;
   resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
 }
 

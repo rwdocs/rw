@@ -70,8 +70,8 @@
       onclick={onDismiss}
       aria-label="Dismiss"
       class="
-        -m-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm
-        text-current opacity-70 transition-opacity
+        -mt-0.5 -mr-1 inline-flex size-6 shrink-0 cursor-pointer items-center justify-center
+        rounded-sm text-current opacity-70 transition-opacity
         hover:opacity-100
         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current
       "

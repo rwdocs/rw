@@ -3,14 +3,14 @@
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
-  import Alert from "$lib/ui/primitives/Alert.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
   import { buildCommentHash } from "$lib/comments/deeplink";
   import { escapeId } from "$lib/comments/highlight";
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
+  import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
 
-  const { comments, page } = getRwContext();
+  const { comments, page, notify } = getRwContext();
 
   // Unique per instance so two embedded viewers on one page don't collide on
   // the heading id that labels the section and the resolved-list aria-controls target.
@@ -78,7 +78,10 @@
     try {
       await comments.resolve(id);
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to resolve comment";
+      notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to resolve comment",
+      });
     }
   }
 
@@ -86,7 +89,10 @@
     try {
       await comments.reopen(id);
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to reopen comment";
+      notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to reopen comment",
+      });
     }
   }
 
@@ -94,7 +100,10 @@
     try {
       await comments.delete(id);
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to delete comment";
+      notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to delete comment",
+      });
     }
   }
 
@@ -102,7 +111,10 @@
     try {
       await comments.restore(id);
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to restore comment";
+      notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to restore comment",
+      });
     }
   }
 
@@ -117,7 +129,8 @@
         selectors: [],
       });
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to add reply";
+      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
+      throw e;
     }
   }
 
@@ -131,7 +144,8 @@
         selectors: [],
       });
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to create comment";
+      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
+      throw e;
     }
   }
 </script>
@@ -151,12 +165,6 @@
       </Badge>
     {/if}
   </div>
-
-  {#if comments.error}
-    <Alert intent="danger" dismissible onDismiss={() => (comments.error = null)} class="mb-4">
-      {comments.error}
-    </Alert>
-  {/if}
 
   {#snippet threadCard(thread: Comment, quoteTitle?: string)}
     {@const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}

@@ -3,11 +3,11 @@
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
-  import Alert from "$lib/ui/primitives/Alert.svelte";
   import { sortByOrder } from "$lib/comments/navigation";
   import { escapeId } from "$lib/comments/highlight";
+  import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
 
-  const { comments } = getRwContext();
+  const { comments, notify } = getRwContext();
 
   let threadAnchor = $state<number | null>(null);
   let pendingAnchor = $state<number | null>(null);
@@ -102,7 +102,10 @@
     try {
       await comments.resolve(id);
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to resolve comment";
+      notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to resolve comment",
+      });
     }
   }
 
@@ -110,7 +113,10 @@
     try {
       await comments.reopen(id);
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to reopen comment";
+      notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to reopen comment",
+      });
     }
   }
 
@@ -118,7 +124,10 @@
     try {
       await comments.delete(id);
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to delete comment";
+      notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to delete comment",
+      });
     }
   }
 
@@ -126,7 +135,10 @@
     try {
       await comments.restore(id);
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to restore comment";
+      notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to restore comment",
+      });
     }
   }
 
@@ -141,7 +153,8 @@
         selectors: [],
       });
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to add reply";
+      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
+      throw e;
     }
   }
 
@@ -158,7 +171,8 @@
       comments.clearPending();
       comments.activeId = created.id;
     } catch (e) {
-      comments.error = e instanceof Error ? e.message : "Failed to create comment";
+      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
+      throw e;
     }
   }
 
@@ -166,12 +180,6 @@
     comments.clearPending();
   }
 </script>
-
-{#if comments.error}
-  <Alert intent="danger" dismissible onDismiss={() => (comments.error = null)} class="mb-2">
-    {comments.error}
-  </Alert>
-{/if}
 
 {#if comments.pending}
   <div

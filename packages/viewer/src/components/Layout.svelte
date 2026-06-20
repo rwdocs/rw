@@ -11,6 +11,7 @@
   import LoadingBar from "$lib/ui/primitives/LoadingBar.svelte";
   import CommentSidebar from "./comments/CommentSidebar.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
+  import Toaster from "./Toaster.svelte";
   import { useActiveHeading } from "$lib/ui/hooks/useActiveHeading.svelte";
   import { useCommentNavigation } from "$lib/ui/hooks/useCommentNavigation.svelte";
 
@@ -95,6 +96,7 @@
   data-comments-active={comments.activeIsInline || comments.pending ? "" : undefined}
 >
   <LoadingBar loading={page.loading} />
+  <Toaster />
   <div class="sr-only" role="status" aria-live="polite">{commentNav.announcement}</div>
   <!-- Mobile Drawer (before header so the sticky anchor covers it in flow mode) -->
   {#if !navEmpty}

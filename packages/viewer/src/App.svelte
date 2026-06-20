@@ -8,6 +8,8 @@
   import { LiveReload } from "./state/liveReload.svelte";
   import { Ui } from "./state/ui.svelte";
   import { Comments } from "./state/comments.svelte";
+  import { createNotify } from "./lib/notify";
+  import type { NotifyFn } from "./types/notify";
   import { setRwContext } from "./lib/context";
   import type { ConfigResponse } from "./types";
   import Layout from "./components/Layout.svelte";
@@ -32,6 +34,8 @@
     exposeGoto?: (goto: (path: string) => void) => void;
     /** Resolve section refs to base URLs for cross-entity navigation. */
     resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
+    /** Host-supplied notification sink; falls back to the built-in toaster. */
+    onNotify?: NotifyFn;
   }
 
   let {
@@ -43,6 +47,7 @@
     fetchFn,
     exposeGoto,
     resolveSectionRefs,
+    onNotify,
   }: Props = $props();
 
   const apiClient = createApiClient(
@@ -72,7 +77,11 @@
     untrack(() => apiBaseUrl),
     untrack(() => fetchFn),
   );
-  const comments = new Comments(commentApiClient);
+  const notify = createNotify(
+    ui,
+    untrack(() => onNotify),
+  );
+  const comments = new Comments(commentApiClient, notify);
 
   // Close menus and expand navigation on any path change
   let previousPath = router.path;
@@ -107,6 +116,7 @@
     liveReload,
     ui,
     comments,
+    notify,
     resolveSectionRefs: untrack(() => resolveSectionRefs),
   });
 

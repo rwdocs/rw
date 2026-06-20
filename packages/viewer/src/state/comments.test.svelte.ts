@@ -46,7 +46,7 @@ describe("Comments.load", () => {
       update: vi.fn(),
       delete: vi.fn(),
     } as unknown as CommentApiClient;
-    const comments = new Comments(client);
+    const comments = new Comments(client, () => {});
     comments.enabled = true;
     const p1 = comments.load("a.md"); // non-silent → loading=true, stays pending
     expect(comments.loading).toBe(true);
@@ -57,7 +57,7 @@ describe("Comments.load", () => {
   });
 
   it("does not toggle loading when silent", async () => {
-    const comments = new Comments(makeClient());
+    const comments = new Comments(makeClient(), () => {});
     comments.enabled = true;
     const states: boolean[] = [];
     // Sample loading right after kicking off a silent load.
@@ -69,7 +69,7 @@ describe("Comments.load", () => {
   });
 
   it("sets loading during a non-silent load", async () => {
-    const comments = new Comments(makeClient());
+    const comments = new Comments(makeClient(), () => {});
     comments.enabled = true;
     const p = comments.load("a.md");
     expect(comments.loading).toBe(true);
@@ -78,7 +78,7 @@ describe("Comments.load", () => {
   });
 
   it("preserves a pending draft on a silent refetch of the same document", async () => {
-    const comments = new Comments(makeClient());
+    const comments = new Comments(makeClient(), () => {});
     comments.enabled = true;
     await comments.load("a.md");
     comments.pending = { documentId: "a.md", selectors: [] };
@@ -91,7 +91,7 @@ describe("Comments navigation", () => {
   let comments: Comments;
 
   beforeEach(() => {
-    comments = new Comments({} as CommentApiClient);
+    comments = new Comments({} as CommentApiClient, () => {});
   });
 
   it("orders navigable: inline (by order rank) then page comments (by createdAt)", () => {
