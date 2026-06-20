@@ -1,12 +1,7 @@
-use std::sync::Arc;
-
 use clap::Args;
-use rw_cache::NullCache;
-use rw_comments::{NewComment, create_comment};
-use rw_config::Config;
-use rw_site::{PageRendererConfig, Site};
-use rw_storage_fs::FsStorage;
+use rw_comments::{NewComment, create_comment, resolve_quote};
 
+use super::context::{build_site, document_key, document_url_path};
 use super::{AuthorArgs, Context, OutputArgs, format, identity};
 use crate::error::CliError;
 
@@ -18,8 +13,8 @@ pub(crate) struct AddArgs {
     #[command(flatten)]
     pub author: AuthorArgs,
 
-    /// Document id (URL path without leading slash, e.g. "guide" or
-    /// "domain/billing/overview").
+    /// Page to comment on: a URL path ("billing/overview") or the markdown source
+    /// file, with or without the docs prefix ("docs/billing/overview.md" or "billing/overview.md").
     #[arg(long)]
     pub document: String,
 
@@ -44,14 +39,26 @@ pub(crate) async fn run(ctx: &Context, args: AddArgs) -> Result<(), CliError> {
     let author =
         identity::resolve_author(author.author_id.as_deref(), author.author_name.as_deref())?;
     let site = build_site(&ctx.config);
+    // `--document` may be a URL path or a source file path (…/foo.md); resolve
+    // to the page's URL path, then key on (sectionRef, subpath).
+    let document = document_url_path(&ctx.config, &document)?;
+    let document_id = document_key(&site, &document)?;
+
+    // Resolve the quote against the page URL path (the composite key is not a
+    // renderable path), then store under the composite key — mirroring the
+    // browser, which sends pre-resolved selectors.
+    let selectors = match &quote {
+        Some(q) => Some(resolve_quote(&site, &document, q)?),
+        None => None,
+    };
 
     let input = NewComment {
-        document_id: document,
+        document_id,
         parent_id: None,
         author,
         body,
-        selectors: None,
-        quote,
+        selectors,
+        quote: None,
     };
 
     let comment = create_comment(&ctx.store, &site, input).await?;
@@ -71,19 +78,4 @@ pub(crate) async fn run(ctx: &Context, args: AddArgs) -> Result<(), CliError> {
     super::notify::notify_server(&ctx.config.docs_resolved.project_dir);
 
     Ok(())
-}
-
-fn build_site(config: &Config) -> Site {
-    let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::with_meta_filename(
-        config.docs_resolved.source_dir.clone(),
-        &config.metadata.name,
-    ));
-    let cache: Arc<dyn rw_cache::Cache> = Arc::new(NullCache);
-    let renderer_config = PageRendererConfig {
-        kroki_url: config.diagrams_resolved.kroki_url.clone(),
-        include_dirs: config.diagrams_resolved.include_dirs.clone(),
-        dpi: config.diagrams_resolved.dpi,
-        ..PageRendererConfig::default()
-    };
-    Site::new(storage, cache, renderer_config)
 }

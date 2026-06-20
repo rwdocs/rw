@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import { resolveDocumentId } from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -10,7 +11,7 @@ test.describe.configure({ mode: "serial" });
 // file's resolveAll close the other's in-flight comments. The intro line of
 // this page is the passage we anchor inline comments to.
 const PAGE_PATH = "/getting-started/configuration";
-const PAGE_DOC_ID = "getting-started/configuration";
+const PAGE_URL = "getting-started/configuration";
 const ANCHOR_TEXT = "configure the platform";
 
 /** Select a text range inside the article and trigger the selection popover. */
@@ -180,7 +181,8 @@ async function reloadIdle(page: Page) {
 test.describe("Comment keyboard navigation", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(PAGE_PATH);
-    await resolveAllComments(page, PAGE_DOC_ID);
+    const docId = await resolveDocumentId(page, PAGE_URL);
+    await resolveAllComments(page, docId);
     await page.reload();
     await page.getByRole("article").waitFor();
     // The page-comments <section> only mounts once the config request has
@@ -234,8 +236,9 @@ test.describe("Comment keyboard navigation", () => {
     // Created in order, so orphan A sorts before orphan B in the timeline (open
     // page/orphan threads order by createdAt) and thus in n/p order after the
     // inline thread.
-    await createOrphanComment(page, PAGE_DOC_ID, "orphan A body");
-    await createOrphanComment(page, PAGE_DOC_ID, "orphan B body");
+    const docId = await resolveDocumentId(page, PAGE_URL);
+    await createOrphanComment(page, docId, "orphan A body");
+    await createOrphanComment(page, docId, "orphan B body");
     await reloadIdle(page);
 
     // Locate each timeline card by its unique body text (the cards carry the
@@ -315,7 +318,8 @@ test.describe("Comment keyboard navigation", () => {
     // second nav target rather than from idle.
     await createInlineComment(page, ANCHOR_TEXT, "inline anchor");
     // 15 reply rows comfortably exceed the 800px viewport while keeping setup light.
-    await createPageCommentWithReplies(page, PAGE_DOC_ID, "tall thread root", 15);
+    const docId = await resolveDocumentId(page, PAGE_URL);
+    await createPageCommentWithReplies(page, docId, "tall thread root", 15);
     await reloadIdle(page);
 
     await page.keyboard.press("n"); // idle → inline (1 of 2)

@@ -6,6 +6,7 @@
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
   import { buildCommentHash } from "$lib/comments/deeplink";
+  import { documentIdFor } from "$lib/comments/documentId";
   import { escapeId } from "$lib/comments/highlight";
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
   import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
@@ -136,7 +137,7 @@
 
   async function handleNewComment(body: string) {
     if (!page.data) return;
-    const documentId = page.data.meta.path.replace(/^\//, "");
+    const documentId = documentIdFor(page.data.meta);
     try {
       await comments.create({
         documentId,

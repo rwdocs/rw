@@ -1,18 +1,20 @@
 import { test, expect, Page } from "@playwright/test";
+import { resolveDocumentId } from "./comment-helpers";
 
-// Runs on its own page (documentId "billing/invoices") so it never shares the
-// comment DB rows with comments.spec.ts ("") or comment-deeplink.spec.ts
-// ("getting-started") — the embedded and standalone servers share one DB.
-const DOC = "billing/invoices";
+// Runs on its own page (documentId for "billing/invoices") so it never shares
+// the comment DB rows with comments.spec.ts or comment-deeplink.spec.ts — the
+// embedded and standalone servers share one DB.
+const DOC_URL = "billing/invoices";
 const DOC_PATH = "/billing/invoices";
 
 test.describe.configure({ mode: "serial" });
 
 async function resolveAllComments(page: Page) {
-  const open = await page.evaluate(async (doc) => {
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(doc)}&status=open`);
+  const doc = await resolveDocumentId(page, DOC_URL);
+  const open = await page.evaluate(async (docId) => {
+    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
     return res.json();
-  }, DOC);
+  }, doc);
   for (const c of open) {
     await page.evaluate(async (id) => {
       await fetch(`/_api/comments/${id}`, {
@@ -25,6 +27,7 @@ async function resolveAllComments(page: Page) {
 }
 
 async function createPageComment(page: Page, body: string) {
+  const doc = await resolveDocumentId(page, DOC_URL);
   return page.evaluate(
     async ({ body, doc }) => {
       const res = await fetch("/_api/comments", {
@@ -34,7 +37,7 @@ async function createPageComment(page: Page, body: string) {
       });
       return (await res.json()).id as string;
     },
-    { body, doc: DOC },
+    { body, doc },
   );
 }
 

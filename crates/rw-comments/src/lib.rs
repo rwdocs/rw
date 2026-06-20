@@ -7,7 +7,7 @@ mod html_text;
 mod model;
 mod sqlite;
 
-pub use anchoring::QuoteResolutionError;
+pub use anchoring::{QuoteResolutionError, resolve_quote};
 pub use creation::create_comment;
 pub use error::{CreateError, StoreError};
 pub use model::{

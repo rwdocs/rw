@@ -1,19 +1,21 @@
 import { test, expect, Page } from "@playwright/test";
+import { resolveDocumentId } from "./comment-helpers";
 
-// Runs on its own page (documentId "getting-started") rather than the homepage,
-// so it never shares the comment DB with comments.spec.ts (documentId "") — the
-// two specs can run in parallel without racing on the same rows.
-const DOC = "getting-started";
+// Runs on its own page (documentId for "getting-started") rather than the
+// homepage, so it never shares the comment DB with comments.spec.ts — the two
+// specs can run in parallel without racing on the same rows.
+const DOC_URL = "getting-started";
 const DOC_PATH = "/getting-started";
 const QUOTE = "Configure your environment";
 
 test.describe.configure({ mode: "serial" });
 
 async function resolveAllComments(page: Page) {
-  const open = await page.evaluate(async (doc) => {
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(doc)}&status=open`);
+  const doc = await resolveDocumentId(page, DOC_URL);
+  const open = await page.evaluate(async (docId) => {
+    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
     return res.json();
-  }, DOC);
+  }, doc);
   for (const c of open) {
     await page.evaluate(async (id) => {
       await fetch(`/_api/comments/${id}`, {
@@ -26,6 +28,7 @@ async function resolveAllComments(page: Page) {
 }
 
 async function createPageComment(page: Page, body: string) {
+  const doc = await resolveDocumentId(page, DOC_URL);
   return page.evaluate(
     async ({ body, doc }) => {
       const res = await fetch("/_api/comments", {
@@ -35,11 +38,12 @@ async function createPageComment(page: Page, body: string) {
       });
       return (await res.json()).id as string;
     },
-    { body, doc: DOC },
+    { body, doc },
   );
 }
 
 async function createInlineComment(page: Page, body: string, quote: string) {
+  const doc = await resolveDocumentId(page, DOC_URL);
   return page.evaluate(
     async ({ body, quote, doc }) => {
       const res = await fetch("/_api/comments", {
@@ -49,7 +53,7 @@ async function createInlineComment(page: Page, body: string, quote: string) {
       });
       return (await res.json()).id as string;
     },
-    { body, quote, doc: DOC },
+    { body, quote, doc },
   );
 }
 

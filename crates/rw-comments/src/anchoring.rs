@@ -31,7 +31,7 @@ pub enum QuoteResolutionError {
 /// the viewer's `rangeToSelectors` (32 chars on either side).
 const CONTEXT_CHARS: usize = 32;
 
-/// Resolve a quote string into a pair of selectors by rendering the page's
+/// Resolve a quote string into a pair of selectors by rendering `page_path`'s
 /// textContent and locating the quote inside it.
 ///
 /// Returns a two-element vector: a [`Selector::TextQuoteSelector`] with
@@ -43,19 +43,19 @@ const CONTEXT_CHARS: usize = 32;
 ///
 /// Returns [`QuoteResolutionError`] when the document is missing, the quote
 /// does not match, matches more than once, or rendering fails.
-pub(crate) fn resolve_quote(
+pub fn resolve_quote(
     site: &Site,
-    document_id: &str,
+    page_path: &str,
     quote: &str,
 ) -> Result<Vec<Selector>, QuoteResolutionError> {
-    let result = site.render(document_id).map_err(|err| match err {
+    let result = site.render(page_path).map_err(|err| match err {
         RenderError::PageNotFound(_) | RenderError::FileNotFound(_) => {
             QuoteResolutionError::DocumentNotFound {
-                document_id: document_id.to_owned(),
+                document_id: page_path.to_owned(),
             }
         }
         other => QuoteResolutionError::RenderFailed {
-            document_id: document_id.to_owned(),
+            document_id: page_path.to_owned(),
             reason: other.to_string(),
         },
     })?;
@@ -66,12 +66,12 @@ pub(crate) fn resolve_quote(
     let byte_start = occurrences
         .next()
         .ok_or_else(|| QuoteResolutionError::NotFound {
-            document_id: document_id.to_owned(),
+            document_id: page_path.to_owned(),
         })?
         .0;
     if occurrences.next().is_some() {
         return Err(QuoteResolutionError::Ambiguous {
-            document_id: document_id.to_owned(),
+            document_id: page_path.to_owned(),
             count: 2 + occurrences.count(),
         });
     }
