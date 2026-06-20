@@ -520,12 +520,23 @@ impl SiteState {
         Some(self.root_scope_info())
     }
 
-    /// Build a `ScopeInfo` for the implicit root section.
+    /// Build a `ScopeInfo` for the root section.
+    ///
+    /// Prefers an explicit root section registered at the empty scope path
+    /// (when the root page declares a `kind`), falling back to the implicit
+    /// `Section::root` otherwise. This keeps the navigation API's root scope
+    /// consistent with the page API's [`get_section_ref`](Self::get_section_ref),
+    /// which already resolves the root via the sections map.
     fn root_scope_info(&self) -> ScopeInfo {
+        let section = self
+            .sections
+            .get("")
+            .cloned()
+            .unwrap_or_else(|| Section::root(self.root_namespace.clone()));
         ScopeInfo {
             path: "/".to_owned(),
             title: self.page_title_or("", "Home"),
-            section: Section::root(self.root_namespace.clone()),
+            section,
         }
     }
 
@@ -1542,6 +1553,129 @@ mod tests {
         let billing = nav.items.iter().find(|i| i.title == "Billing").unwrap();
         assert!(billing.children.is_empty());
         assert_eq!(billing.section.as_ref().unwrap().kind, "domain");
+    }
+
+    #[test]
+    fn test_navigation_root_scope_honors_explicit_root_kind() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("component"),
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let nav = site.navigation("");
+
+        // The root page declared `kind: component`, so the navigation scope
+        // must report the explicit root section — not the synthetic one — and
+        // agree with the page API's section_ref for the same root path.
+        let scope = nav.scope.as_ref().unwrap();
+        assert_eq!(scope.section.kind, "component");
+        assert_eq!(scope.section.name, Section::ROOT_NAME);
+        assert_eq!(scope.section.to_string(), site.get_section_ref(""));
+        assert_eq!(scope.section.to_string(), "component:default/root");
+    }
+
+    #[test]
+    fn test_navigation_parent_scope_honors_explicit_root_kind() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("component"),
+            Namespace::default(),
+        );
+        let billing_idx = builder.add_page(
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root_idx),
+            Some("domain"),
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(billing_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let nav = site.navigation("billing");
+
+        // The top-level "billing" section's parent is the root. Since the root
+        // declared `kind: component`, the back-navigation parent scope must
+        // carry that kind rather than the synthetic `section` kind.
+        let parent = nav.parent_scope.as_ref().unwrap();
+        assert_eq!(parent.path, "/");
+        assert_eq!(parent.section.kind, "component");
+        assert_eq!(parent.section.name, Section::ROOT_NAME);
+    }
+
+    #[test]
+    fn test_navigation_root_scope_falls_back_to_synthetic_root() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let nav = site.navigation("");
+
+        // No root kind declared: the scope still reports the synthetic root,
+        // unchanged from prior behavior.
+        let scope = nav.scope.as_ref().unwrap();
+        assert_eq!(scope.section, Section::root(Namespace::default()));
     }
 
     #[test]
