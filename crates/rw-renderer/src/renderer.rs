@@ -525,6 +525,23 @@ mod tests {
     }
 
     #[test]
+    fn test_html_table_has_scroll_wrapper() {
+        let result = render_html("| A | B |\n|---|---|\n| 1 | 2 |");
+        assert!(
+            result.html.contains(
+                r#"<div class="table-wrap" role="group" tabindex="0" aria-label="Table"><table>"#
+            ),
+            "missing scroll wrapper, got: {}",
+            result.html,
+        );
+        assert!(
+            result.html.contains("</tbody></table></div>"),
+            "missing wrapper close, got: {}",
+            result.html,
+        );
+    }
+
+    #[test]
     fn test_html_link_with_base_path() {
         let result = render_with_base_path("[Link](./page.md)", "/base/path");
         assert!(result.html.contains(r#"href="/base/path/page""#));

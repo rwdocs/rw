@@ -6,13 +6,16 @@
     scroll-margin-top: var(--scroll-anchor-offset, 1.5rem);
   }
 
-  /* Wrap long unbreakable tokens (URLs, UUIDs, hashes, file paths) so they
-     don't force horizontal scrolling. Table cells are width-constrained, so
-     they break anywhere; body text only breaks when a token would otherwise
-     overflow, preserving normal word-break behavior. Inline <code> inherits
-     overflow-wrap from its parent. <pre> blocks scroll horizontally. */
+  /* Long unbreakable tokens (URLs, UUIDs, hashes, file paths) in table cells
+     break to avoid overflow, but break-word (unlike anywhere) keeps each
+     column's natural min-width — its longest word — so short-label columns no
+     longer collapse to a sliver. A table that is still wider than its container
+     scrolls inside its own .table-wrap box (see @layer utilities below) instead
+     of being clipped. Body text only breaks when a token would otherwise
+     overflow. Inline <code> inherits overflow-wrap from its parent. <pre> blocks
+     scroll horizontally. */
   .prose :where(td, th) {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 
   .prose :where(p, li) {
@@ -307,6 +310,50 @@
        left border already marks the quote, so a second text tone isn't needed.
        `--tw-prose-body` auto-swaps to the inverted value in dark mode. */
     color: var(--tw-prose-body);
+  }
+}
+
+/* Horizontal scroll container the HTML renderer wraps around every table
+   (HtmlBackend::table_start), so a table wider than the content area scrolls in
+   its own box instead of being clipped (the content area uses overflow-x: clip).
+   The wrapper carries the vertical margin, not the inner table: overflow-x: auto
+   makes the wrapper a block formatting context, so a margin left on the inner
+   table would be trapped inside the scroll box instead of spacing the table from
+   its surroundings. 2em matches the typography plugin's default table margin
+   (`margin-top`/`margin-bottom: 2em`). These rules must be in @layer utilities,
+   not components: the plugin's table rules live in @layer utilities, and layer
+   order makes any utilities rule beat any components rule regardless of
+   specificity — so from components our reset would lose outright. In the same
+   layer, ordinary specificity decides, and `.prose .table-wrap > table` (0,2,1)
+   beats the plugin's `:where(table)` margin (0,1,0). The blockquote reset above
+   lives in utilities for the same layer-necessity reason. */
+@layer utilities {
+  .prose .table-wrap {
+    margin-block: 2em;
+    overflow-x: auto;
+  }
+
+  .prose .table-wrap > table {
+    margin-block: 0;
+  }
+
+  /* The wrapper now carries the table's margin, so it must also honor the
+     margin-collapse resets a bare table obeyed under the typography plugin: no
+     top gap immediately after a heading, and none at the page's first/last
+     block. The plugin's resets are `:where(...)` at specificity (0,1,0); our
+     `.table-wrap` rule above is (0,2,0) and would otherwise win and reintroduce
+     the gap, so these companions need matching/higher specificity. The heading
+     set mirrors the plugin exactly (h2–h4). */
+  .prose :where(h2, h3, h4) + .table-wrap {
+    margin-top: 0;
+  }
+
+  .prose > .table-wrap:first-child {
+    margin-top: 0;
+  }
+
+  .prose > .table-wrap:last-child {
+    margin-bottom: 0;
   }
 }
 
