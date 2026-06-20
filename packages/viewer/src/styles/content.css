@@ -293,6 +293,23 @@
   }
 }
 
+/* Reset Tailwind Typography's blockquote styling to upright, normal-weight body
+   text with no decorative quotation marks (`quotes: none` makes the plugin's
+   open-quote/close-quote pseudo-elements render nothing); the left border is
+   kept. Must be @layer utilities (not components) to win the cascade against the
+   plugin's own utilities-layer blockquote rule. */
+@layer utilities {
+  .prose blockquote {
+    font-style: normal;
+    font-weight: 400;
+    quotes: none;
+    /* Match body text rather than the plugin's darker `--tw-prose-quotes`: the
+       left border already marks the quote, so a second text tone isn't needed.
+       `--tw-prose-body` auto-swaps to the inverted value in dark mode. */
+    color: var(--tw-prose-body);
+  }
+}
+
 /* Comment highlights — each comment range wraps its text in one or more
  * <rw-annotation> elements. Nested wrappers alpha-composite via the CSS box
  * model, so overlapping comments render as a darker yellow at the overlap

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed `n`/`p` comment navigation getting stuck on orphaned comments (inline comments whose anchored text was later edited away). They now highlight when selected, and navigation continues to the next comment.
+- Markdown blockquotes are restyled for readability — upright (no italics), normal-weight body text with no decorative quotation marks, set off by the left border alone. Long multi-line quotes are much easier to read.
 
 ## [0.1.25] - 2026-06-19
 
