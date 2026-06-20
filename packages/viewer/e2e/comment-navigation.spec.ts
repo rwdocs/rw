@@ -75,34 +75,50 @@ async function createPageComment(page: Page, body: string) {
   await section.getByRole("button", { name: "Comment", exact: true }).click();
 }
 
+/** POST a comment to the REST API from the browser context. Returns its id. */
+async function postComment(page: Page, payload: Record<string, unknown>): Promise<string> {
+  return page.evaluate(async (body) => {
+    const res = await fetch("/_api/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`create comment failed: ${res.status}`);
+    return (await res.json()).id as string;
+  }, payload);
+}
+
+/** Create a page-level comment (no selectors → no anchor) with `replyCount`
+ *  replies. Returns the root comment id. */
+async function createPageCommentWithReplies(
+  page: Page,
+  documentId: string,
+  body: string,
+  replyCount: number,
+): Promise<string> {
+  const rootId = await postComment(page, { documentId, body });
+  for (let i = 0; i < replyCount; i++) {
+    await postComment(page, { documentId, parentId: rootId, body: `reply number ${i + 1}` });
+  }
+  return rootId;
+}
+
 /** Create a top-level comment whose stored selectors cannot anchor to the
  *  current document — the viewer treats it as an orphaned inline comment and
  *  surfaces it in the page-comments timeline. Returns the new comment id. */
 async function createOrphanComment(page: Page, documentId: string, body: string): Promise<string> {
-  return page.evaluate(
-    async ({ docId, text }) => {
-      const res = await fetch("/_api/comments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          documentId: docId,
-          body: text,
-          selectors: [
-            {
-              type: "TextQuoteSelector",
-              exact: "a passage that is definitely not present anywhere on this page",
-              prefix: "",
-              suffix: "",
-            },
-          ],
-        }),
-      });
-      if (!res.ok) throw new Error(`failed to create orphan comment: ${res.status}`);
-      const created = await res.json();
-      return created.id as string;
-    },
-    { docId: documentId, text: body },
-  );
+  return postComment(page, {
+    documentId,
+    body,
+    selectors: [
+      {
+        type: "TextQuoteSelector",
+        exact: "a passage that is definitely not present anywhere on this page",
+        prefix: "",
+        suffix: "",
+      },
+    ],
+  });
 }
 
 async function resolveAllComments(page: Page, documentId: string) {
@@ -287,5 +303,41 @@ test.describe("Comment keyboard navigation", () => {
     await expect(textarea).toHaveValue("nano notes");
     expect(await activeHighlightId(page)).toBeNull();
     await expect(liveRegion(page)).toHaveText("");
+  });
+
+  test("n top-aligns a tall page comment so its root stays visible", async ({ page }) => {
+    // A page comment with many replies renders a thread card taller than the
+    // 800px viewport. Centering such a card pushes the root comment off-screen
+    // above, so navigation must top-align (block: "start") to keep it visible.
+    //
+    // An inline comment is created first so an in-article highlight exists (the
+    // idle-reload helper waits for one) and so the page comment is reached as the
+    // second nav target rather than from idle.
+    await createInlineComment(page, ANCHOR_TEXT, "inline anchor");
+    // 15 reply rows comfortably exceed the 800px viewport while keeping setup light.
+    await createPageCommentWithReplies(page, PAGE_DOC_ID, "tall thread root", 15);
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // idle → inline (1 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 1 of 2");
+    await page.keyboard.press("n"); // → page comment (2 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 2 of 2");
+    // The page comment is not an inline highlight, so nothing is active in-article.
+    expect(await activeHighlightId(page)).toBeNull();
+
+    const threadCard = page.getByTestId("comment-thread").filter({ hasText: "tall thread root" });
+    // The card is taller than the viewport, so it must really exceed it for this
+    // test to exercise top-vs-center alignment at all.
+    const cardHeight = await threadCard.evaluate((el) => el.getBoundingClientRect().height);
+    expect(cardHeight).toBeGreaterThan(800);
+
+    // The thread card carries the root author/body at its top. With top-alignment
+    // the root row is within the viewport; with centering it is scrolled above it.
+    await expect(threadCard.getByTestId("comment-avatar-row").first()).toBeInViewport();
+
+    // Tighter guard: the card's top edge is at/below the viewport top (not negative),
+    // which is the precise symptom — centering yields a negative top for a tall card.
+    const cardTop = await threadCard.evaluate((el) => el.getBoundingClientRect().top);
+    expect(cardTop).toBeGreaterThanOrEqual(0);
   });
 });

@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe("useScrollIntoViewOnNav", () => {
-  it("scrolls the target into view (centered) each time the counter changes", () => {
+  it("scrolls the target into view (centered by default) each time the counter changes", () => {
     const target = { scrollIntoView: vi.fn() };
     let bump!: () => void;
 
@@ -30,6 +30,23 @@ describe("useScrollIntoViewOnNav", () => {
     bump();
     flushSync();
     expect(target.scrollIntoView).toHaveBeenCalledTimes(2);
+  });
+
+  it("forwards an explicit block alignment to scrollIntoView", () => {
+    const target = { scrollIntoView: vi.fn() };
+
+    teardown = $effect.root(() => {
+      const seq = $state(0);
+      useScrollIntoViewOnNav(
+        () => seq,
+        () => target as unknown as Element,
+        "start",
+      );
+    });
+    flushSync();
+
+    expect(target.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(target.scrollIntoView).toHaveBeenLastCalledWith({ behavior: "auto", block: "start" });
   });
 
   it("does not scroll when an unrelated reactive value changes but the counter does not", () => {
