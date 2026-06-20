@@ -47,7 +47,9 @@
 //! # Feature flags
 //!
 //! - **`serde`** — derives `serde::Serialize` and `serde::Deserialize` on
-//!   [`Section`] for JSON API responses and cache storage.
+//!   [`Section`], and a transparent `serde::Serialize` on [`Sections`] (it
+//!   serializes as its bare scope-path → section map), for JSON API responses
+//!   and cache storage.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -280,6 +282,7 @@ pub struct SectionPath<'s, 'h> {
 /// assert_eq!(path, Some("domains/billing"));
 /// ```
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(transparent))]
 pub struct Sections {
     map: HashMap<String, Section>,
 }
@@ -307,6 +310,28 @@ impl Sections {
     /// ```
     #[must_use]
     pub fn new(map: HashMap<String, Section>) -> Self {
+        Self { map }
+    }
+
+    /// Creates a [`Sections`] that always resolves.
+    ///
+    /// If `map` has no entry at the empty scope path, inserts the implicit
+    /// root section (`section:<root_namespace>/root`) so [`find`](Self::find)
+    /// returns a match for *every* path — a page outside any explicit section
+    /// resolves to the root rather than `None`. An explicit root already in
+    /// `map` is kept.
+    ///
+    /// This is the constructor rw uses for the live site: both the section-ref
+    /// API and the renderer's link annotation rely on `find` being total.
+    /// [`new`](Self::new) builds a map without that guarantee, for tests and
+    /// any caller that wants a rootless map.
+    #[must_use]
+    pub fn with_implicit_root(
+        mut map: HashMap<String, Section>,
+        root_namespace: Namespace,
+    ) -> Self {
+        map.entry(String::new())
+            .or_insert_with(|| Section::root(root_namespace));
         Self { map }
     }
 
@@ -341,6 +366,23 @@ impl Sections {
     #[must_use]
     pub fn get(&self, path: &str) -> Option<&Section> {
         self.map.get(path)
+    }
+
+    /// Returns an iterator over the `(scope path, section)` entries, in
+    /// arbitrary order.
+    ///
+    /// For a single lookup use [`get`](Self::get) (exact) or
+    /// [`find`](Self::find) (deepest prefix). Reach for this only when you
+    /// need to visit every entry, e.g. building a secondary index.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Section)> {
+        self.map
+            .iter()
+            .map(|(path, section)| (path.as_str(), section))
+    }
+
+    /// Returns an iterator over the scope paths (map keys), in arbitrary order.
+    pub fn paths(&self) -> impl Iterator<Item = &str> {
+        self.map.keys().map(String::as_str)
     }
 
     /// Finds the deepest section whose scope path is a prefix of `href`.
@@ -1027,6 +1069,17 @@ mod tests {
         assert_eq!(
             t.to_section_ref("default").unwrap(),
             "domain:default/billing"
+        );
+    }
+
+    #[test]
+    fn iter_yields_all_entries() {
+        let sections = billing();
+        let entries: Vec<_> = sections.iter().collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0],
+            ("domains/billing", sections.get("domains/billing").unwrap())
         );
     }
 }

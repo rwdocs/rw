@@ -104,7 +104,7 @@ pub struct SiteState {
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
     path_index: HashMap<String, usize>,
-    sections: HashMap<String, Section>,
+    sections: Arc<Sections>,
     sections_by_name: HashMap<String, Vec<usize>>,
     subtree_has_content: Vec<bool>,
     root_namespace: Namespace,
@@ -168,7 +168,7 @@ fn compute_subtree_has_content(
 /// re-render, never stale data), and a crate version bump wipes the cache anyway.
 fn compute_resolution_fingerprint(
     pages: &[Page],
-    sections: &HashMap<String, Section>,
+    sections: &Sections,
     root_namespace: &Namespace,
 ) -> u64 {
     let mut page_entries: Vec<(&str, &str, Option<&str>, bool)> = pages
@@ -184,8 +184,7 @@ fn compute_resolution_fingerprint(
         .collect();
     page_entries.sort_by_key(|t| t.0);
 
-    let mut section_entries: Vec<(&str, &Section)> =
-        sections.iter().map(|(k, v)| (k.as_str(), v)).collect();
+    let mut section_entries: Vec<(&str, &Section)> = sections.iter().collect();
     section_entries.sort_by_key(|t| t.0);
 
     let mut hasher = DefaultHasher::new();
@@ -216,10 +215,20 @@ impl SiteState {
             .collect();
         let subtree_has_content = compute_subtree_has_content(&pages, &children, &roots);
 
-        // Build name-based section index (key = raw directory name, last path segment)
+        let sections = Arc::new(Sections::with_implicit_root(
+            sections,
+            root_namespace.clone(),
+        ));
+
+        // Index sections by directory name (the last path segment). Skip the
+        // synthetic "" root: its last segment is "", which no C4 `!include`
+        // entity name can match, so indexing it would add a phantom entry.
         let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();
-        for path in sections.keys() {
-            if let Some(&idx) = path_index.get(path.as_str()) {
+        for path in sections.paths() {
+            if path.is_empty() {
+                continue;
+            }
+            if let Some(&idx) = path_index.get(path) {
                 let dir_name = last_segment(path);
                 sections_by_name
                     .entry(dir_name.to_owned())
@@ -437,31 +446,22 @@ impl SiteState {
         }
     }
 
-    /// Returns the [section ref](crate#sections-and-scoped-navigation) for
-    /// the section containing `page_path`.
+    /// Returns the [section ref](crate#sections-and-scoped-navigation) of the
+    /// nearest section enclosing `page_path`.
     ///
-    /// Walks up the path hierarchy to find the nearest ancestor that is a
-    /// section root. Falls back to the implicit root section
-    /// (`"section:<root_namespace>/root"`) when no explicit section is found.
+    /// Matches the deepest section whose scope path is a prefix of `page_path`,
+    /// and always returns a valid ref: the implicit root section covers any
+    /// path with no explicit section ancestor.
     #[must_use]
     pub fn get_section_ref(&self, page_path: &str) -> String {
-        if let Some(section) = self.sections.get(page_path) {
-            return section.to_string();
-        }
-
-        let mut current = page_path;
-        while let Some((parent, _)) = current.rsplit_once('/') {
-            if let Some(section) = self.sections.get(parent) {
-                return section.to_string();
-            }
-            current = parent;
-        }
-
-        if let Some(section) = self.sections.get("") {
-            return section.to_string();
-        }
-
-        Section::root(self.root_namespace.clone()).to_string()
+        self.sections
+            .find(page_path)
+            // The "" root in the map makes `find` always match; this fallback
+            // is unreachable in practice but avoids an unwrap.
+            .map_or_else(
+                || Section::root(self.root_namespace.clone()).to_string(),
+                |sp| sp.section.to_string(),
+            )
     }
 
     /// Build [`NavItem`] but stop recursion at section boundaries.
@@ -529,24 +529,13 @@ impl SiteState {
         }
     }
 
-    /// Builds a [`Sections`] map from this state's section index.
+    /// Returns the sections map for this site state.
     ///
-    /// The resulting map always contains at least a root entry so that
-    /// embedded consumers always have a section ref to resolve. Maps
-    /// section root URL paths to [`Section`] structs.
+    /// The map always contains at least the implicit root entry (`""`), so
+    /// [`Sections::find`] returns a match for any page path.
     #[must_use]
-    pub fn build_sections(&self) -> Arc<Sections> {
-        let mut map: HashMap<String, Section> = self
-            .sections
-            .iter()
-            .map(|(path, section)| (path.clone(), section.clone()))
-            .collect();
-
-        // Insert implicit root section if no explicit section exists at root
-        map.entry(String::new())
-            .or_insert_with(|| Section::root(self.root_namespace.clone()));
-
-        Arc::new(Sections::new(map))
+    pub fn sections(&self) -> &Arc<Sections> {
+        &self.sections
     }
 
     /// Returns the resolution fingerprint — a hash of the cross-page inputs
@@ -751,7 +740,7 @@ struct CachedSiteStateRef<'a> {
     children: &'a [Vec<usize>],
     parents: &'a [Option<usize>],
     roots: &'a [usize],
-    sections: &'a HashMap<String, Section>,
+    sections: &'a Sections,
     root_namespace: &'a Namespace,
 }
 
@@ -2102,7 +2091,7 @@ mod tests {
     // Implicit root section tests
 
     #[test]
-    fn test_build_sections_implicit_root_when_no_sections() {
+    fn sections_contains_implicit_root_when_none_declared() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             Page {
@@ -2128,7 +2117,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let sections = site.build_sections();
+        let sections = site.sections();
 
         // Should have implicit root section
         let root = sections
@@ -2138,7 +2127,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_sections_no_implicit_root_when_explicit_root_exists() {
+    fn sections_preserves_explicit_root_over_implicit_one() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             Page {
@@ -2153,7 +2142,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let sections = site.build_sections();
+        let sections = site.sections();
 
         let root = sections
             .get("")
@@ -2163,7 +2152,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_sections_implicit_root_with_nested_sections() {
+    fn sections_contains_implicit_root_alongside_nested_sections() {
         let mut builder = SiteStateBuilder::new();
         let root_idx = builder.add_page(
             Page {
@@ -2189,7 +2178,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let sections = site.build_sections();
+        let sections = site.sections();
 
         // Should have both implicit root and explicit nested section
         let root = sections
@@ -2205,7 +2194,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_sections_find_by_ref_implicit_root() {
+    fn sections_find_by_ref_resolves_implicit_root() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             Page {
@@ -2220,7 +2209,7 @@ mod tests {
         );
         let site = builder.build();
 
-        let sections = site.build_sections();
+        let sections = site.sections();
 
         let root_ref = Section::root(Namespace::default()).to_string();
         assert_eq!(sections.find_by_ref(&root_ref), Some(""));
@@ -2845,6 +2834,43 @@ mod tests {
         assert_eq!(
             state.resolution_fingerprint(),
             rebuilt.resolution_fingerprint()
+        );
+    }
+
+    #[test]
+    fn explicit_root_section_survives_cache_roundtrip() {
+        // A root page declared with a section kind registers an explicit "" root.
+        // Reloading from cache must keep it: `new`'s implicit-root insert
+        // (`entry("").or_insert_with`) must not replace it with the synthetic
+        // `section:default/root`. (`fingerprint_stable_across_structure_cache_rebuild`
+        // already covers the no-explicit-root case.)
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("component"),
+            Namespace::default(),
+        );
+        let fresh = builder.build();
+
+        let json = serde_json::to_string(&CachedSiteStateRef::from(&fresh)).unwrap();
+        let cached: CachedSiteState = serde_json::from_str(&json).unwrap();
+        let reloaded: SiteState = cached.into();
+
+        // The explicit root (kind "component") is preserved, not overwritten by
+        // the synthetic root (kind "section").
+        let root = reloaded.sections().get("").expect("root section present");
+        assert_eq!(root.kind, "component");
+        assert_eq!(root.name, Section::ROOT_NAME);
+        // The fingerprint also stays stable across the round-trip.
+        assert_eq!(
+            fresh.resolution_fingerprint(),
+            reloaded.resolution_fingerprint()
         );
     }
 }

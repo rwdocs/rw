@@ -40,7 +40,6 @@ fn url_depth(path: &str) -> usize {
 /// include resolution using the state's name-based section index.
 pub(crate) struct SiteSnapshot {
     pub(crate) state: SiteState,
-    pub(crate) sections: Arc<Sections>,
 }
 
 impl MetaIncludeSource for SiteSnapshot {
@@ -167,7 +166,6 @@ impl Site {
         let initial_state = SiteStateBuilder::new().build();
         let initial_snapshot = Arc::new(SiteSnapshot {
             state: initial_state,
-            sections: Arc::new(Sections::default()),
         });
         let site_bucket = cache.bucket("site");
         let renderer = PageRenderer::new(Arc::clone(&storage), cache, config);
@@ -203,10 +201,10 @@ impl Site {
     pub fn navigation(&self, section_ref: Option<&str>) -> Result<Navigation, StorageError> {
         let snapshot = self.reload_if_needed()?;
         let scope_path = section_ref
-            .and_then(|r| snapshot.sections.find_by_ref(r).map(str::to_owned))
+            .and_then(|r| snapshot.state.sections().find_by_ref(r).map(str::to_owned))
             .unwrap_or_default();
         let mut nav = snapshot.state.navigation(&scope_path);
-        nav.apply_sections(&snapshot.sections);
+        nav.apply_sections(snapshot.state.sections());
         Ok(nav)
     }
 
@@ -217,7 +215,7 @@ impl Site {
     /// Returns [`StorageError`] if the initial site load fails.
     pub fn sections(&self) -> Result<Arc<Sections>, StorageError> {
         let snapshot = self.reload_if_needed()?;
-        Ok(Arc::clone(&snapshot.sections))
+        Ok(Arc::clone(snapshot.state.sections()))
     }
 
     /// Returns the [section ref](crate#sections-and-scoped-navigation) for
@@ -359,8 +357,7 @@ impl Site {
             state
         };
 
-        let sections = state.build_sections();
-        let snapshot = Arc::new(SiteSnapshot { state, sections });
+        let snapshot = Arc::new(SiteSnapshot { state });
 
         *self.current_snapshot.write() = Arc::clone(&snapshot);
         // Stamp the generation this snapshot satisfies. If an invalidate raced
@@ -464,7 +461,7 @@ impl Site {
 
     fn render_context(snapshot: &Arc<SiteSnapshot>) -> RenderContext {
         RenderContext {
-            sections: Arc::clone(&snapshot.sections),
+            sections: Arc::clone(snapshot.state.sections()),
             meta_include_source: Some(Arc::clone(snapshot) as Arc<dyn MetaIncludeSource>),
             snapshot: Some(Arc::clone(snapshot)),
             resolution_fingerprint: snapshot.state.resolution_fingerprint(),
