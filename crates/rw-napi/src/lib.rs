@@ -269,8 +269,8 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
     let last_modified: DateTime<Utc> = source_mtime.into();
     let last_modified = last_modified.to_rfc3339();
-    let section_ref = site
-        .get_section_ref(path)
+    let (section_ref, subpath) = site
+        .section_location(path)
         .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
 
     let (description, page_kind, vars) = if let Some(ref meta) = result.metadata {
@@ -301,6 +301,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
             page_kind,
             vars,
             section_ref,
+            subpath,
         },
         breadcrumbs: result
             .breadcrumbs

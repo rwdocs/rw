@@ -218,18 +218,19 @@ impl Site {
         Ok(Arc::clone(snapshot.state.sections()))
     }
 
-    /// Returns the [section ref](crate#sections-and-scoped-navigation) for
-    /// the section that contains `page_path`.
+    /// Returns `(section_ref, subpath)` for the section that contains
+    /// `page_path`.
     ///
-    /// Walks up the path hierarchy to find the nearest section ancestor.
-    /// Falls back to the implicit root section (`"section:default/root"`)
-    /// when no explicit section is found.
+    /// `subpath` is the page path relative to its section root (empty for the
+    /// section root itself, the full path for pages outside any explicit
+    /// section). Computed in the same walk as the section ref, so the two are
+    /// always consistent. See [`SiteState::section_location`].
     ///
     /// # Errors
     ///
     /// Returns [`StorageError`] if the initial site load fails.
-    pub fn get_section_ref(&self, page_path: &str) -> Result<String, StorageError> {
-        Ok(self.reload_if_needed()?.state.get_section_ref(page_path))
+    pub fn section_location(&self, page_path: &str) -> Result<(String, String), StorageError> {
+        Ok(self.reload_if_needed()?.state.section_location(page_path))
     }
 
     /// Returns `true` if a page exists at `path` in the site structure.
@@ -1469,11 +1470,11 @@ mod tests {
         let snapshot = site.reload_if_needed().unwrap();
 
         assert_eq!(
-            snapshot.state.get_section_ref("billing"),
+            snapshot.state.section_location("billing").0,
             "domain:payments/billing"
         );
         assert_eq!(
-            snapshot.state.get_section_ref("billing/payments-api"),
+            snapshot.state.section_location("billing/payments-api").0,
             "system:payments/payments-api"
         );
     }

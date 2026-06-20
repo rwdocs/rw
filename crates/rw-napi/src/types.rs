@@ -85,6 +85,9 @@ pub struct PageMetaResponse {
     pub vars: Option<Value>,
     #[napi(js_name = "sectionRef")]
     pub section_ref: String,
+    /// Page path relative to its section root. Stable across whole-section
+    /// moves, so embedding hosts can key comments on `(sectionRef, subpath)`.
+    pub subpath: String,
 }
 
 #[napi(object)]

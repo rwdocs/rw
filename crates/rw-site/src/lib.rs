@@ -39,7 +39,7 @@
 //! Every site has an implicit **root section** with kind `"section"` and
 //! name `"root"` (ref `"section:default/root"`). It is used as the scope
 //! when no explicit section is defined at the site root, and as the
-//! fallback for [`Site::get_section_ref`] when a page has no section
+//! fallback for [`Site::section_location`] when a page has no section
 //! ancestor.
 //!
 //! See [`Section`] and [`Sections`] (re-exported from [`rw_sections`]) for

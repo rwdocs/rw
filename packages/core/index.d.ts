@@ -42,6 +42,11 @@ export interface PageMetaResponse {
   kind?: string
   vars?: any
   sectionRef: string
+  /**
+   * Page path relative to its section root. Stable across whole-section
+   * moves, so embedding hosts can key comments on `(sectionRef, subpath)`.
+   */
+  subpath: string
 }
 
 export interface PageResponse {

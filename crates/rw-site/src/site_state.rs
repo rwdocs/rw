@@ -446,21 +446,28 @@ impl SiteState {
         }
     }
 
-    /// Returns the [section ref](crate#sections-and-scoped-navigation) of the
-    /// nearest section enclosing `page_path`.
+    /// Returns `(section_ref, subpath)` for the section enclosing `page_path`.
     ///
-    /// Matches the deepest section whose scope path is a prefix of `page_path`,
-    /// and always returns a valid ref: the implicit root section covers any
-    /// path with no explicit section ancestor.
+    /// `section_ref` is the [section ref](crate#sections-and-scoped-navigation)
+    /// of the nearest section whose scope path is a prefix of `page_path`;
+    /// `subpath` is `page_path` relative to that section's root (empty for the
+    /// section's own root page, the full path when only the implicit root
+    /// matches). Both come from a single [`Sections::find`] lookup, so they are
+    /// always mutually consistent.
     #[must_use]
-    pub fn get_section_ref(&self, page_path: &str) -> String {
+    pub fn section_location(&self, page_path: &str) -> (String, String) {
         self.sections
             .find(page_path)
             // The "" root in the map makes `find` always match; this fallback
             // is unreachable in practice but avoids an unwrap.
             .map_or_else(
-                || Section::root(self.root_namespace.clone()).to_string(),
-                |sp| sp.section.to_string(),
+                || {
+                    (
+                        Section::root(self.root_namespace.clone()).to_string(),
+                        page_path.to_owned(),
+                    )
+                },
+                |sp| (sp.section.to_string(), sp.path.to_owned()),
             )
     }
 
@@ -525,7 +532,7 @@ impl SiteState {
     /// Prefers an explicit root section registered at the empty scope path
     /// (when the root page declares a `kind`), falling back to the implicit
     /// `Section::root` otherwise. This keeps the navigation API's root scope
-    /// consistent with the page API's [`get_section_ref`](Self::get_section_ref),
+    /// consistent with the page API's [`section_location`](Self::section_location),
     /// which already resolves the root via the sections map.
     fn root_scope_info(&self) -> ScopeInfo {
         let section = self
@@ -1590,7 +1597,7 @@ mod tests {
         let scope = nav.scope.as_ref().unwrap();
         assert_eq!(scope.section.kind, "component");
         assert_eq!(scope.section.name, Section::ROOT_NAME);
-        assert_eq!(scope.section.to_string(), site.get_section_ref(""));
+        assert_eq!(scope.section.to_string(), site.section_location("").0);
         assert_eq!(scope.section.to_string(), "component:default/root");
     }
 
@@ -1868,7 +1875,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_section_ref_page_is_section() {
+    fn test_section_location_page_is_section() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             Page {
@@ -1883,13 +1890,14 @@ mod tests {
         );
         let site = builder.build();
 
-        let section_ref = site.get_section_ref("billing");
+        let (section_ref, subpath) = site.section_location("billing");
 
         assert_eq!(section_ref, "domain:default/billing");
+        assert_eq!(subpath, "");
     }
 
     #[test]
-    fn test_get_section_ref_page_inside_section() {
+    fn test_section_location_page_inside_section() {
         let mut builder = SiteStateBuilder::new();
         let billing_idx = builder.add_page(
             Page {
@@ -1915,13 +1923,14 @@ mod tests {
         );
         let site = builder.build();
 
-        let section_ref = site.get_section_ref("billing/payments");
+        let (section_ref, subpath) = site.section_location("billing/payments");
 
         assert_eq!(section_ref, "domain:default/billing");
+        assert_eq!(subpath, "payments");
     }
 
     #[test]
-    fn test_get_section_ref_page_deeply_nested() {
+    fn test_section_location_page_deeply_nested() {
         let mut builder = SiteStateBuilder::new();
         let billing_idx = builder.add_page(
             Page {
@@ -1958,13 +1967,16 @@ mod tests {
         );
         let site = builder.build();
 
-        // API page should belong to the payments section (nearest ancestor)
-        let section_ref = site.get_section_ref("billing/payments/api");
+        // API page belongs to the nearest ancestor section (payments); subpath is
+        // relative to THAT section, not the outer billing domain.
+        let (section_ref, subpath) = site.section_location("billing/payments/api");
+
         assert_eq!(section_ref, "system:default/payments");
+        assert_eq!(subpath, "api");
     }
 
     #[test]
-    fn test_get_section_ref_page_not_in_section() {
+    fn test_section_location_page_not_in_section() {
         let mut builder = SiteStateBuilder::new();
         builder.add_page(
             Page {
@@ -1979,10 +1991,95 @@ mod tests {
         );
         let site = builder.build();
 
-        let section_ref = site.get_section_ref("guide");
+        let (section_ref, subpath) = site.section_location("guide");
 
-        // Falls back to implicit root section
+        // Falls back to implicit root section; subpath is the full page path.
         assert_eq!(section_ref, Section::root(Namespace::default()).to_string());
+        assert_eq!(subpath, "guide");
+    }
+
+    #[test]
+    fn test_section_location_root_index_page() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        // Empty page path: implicit root, and "full page path" == "" == empty subpath.
+        let (section_ref, subpath) = site.section_location("");
+
+        assert_eq!(section_ref, Section::root(Namespace::default()).to_string());
+        assert_eq!(subpath, "");
+    }
+
+    #[test]
+    fn test_section_location_multi_segment_page_not_in_section() {
+        let mut builder = SiteStateBuilder::new();
+        let guide_idx = builder.add_page(
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Overview".to_owned(),
+                path: "guide/overview".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(guide_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let (section_ref, subpath) = site.section_location("guide/overview");
+
+        // Implicit-root fallback returns the *full* multi-segment path (with the
+        // separator), not just the last segment — the case the single-segment and
+        // root-index tests can't distinguish.
+        assert_eq!(section_ref, Section::root(Namespace::default()).to_string());
+        assert_eq!(subpath, "guide/overview");
+    }
+
+    #[test]
+    fn test_section_location_root_is_named_section() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("domain"),
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        // Root index page that is itself an explicit section: the direct-match
+        // arm (page_path == section scope "") returns an empty subpath, not the
+        // implicit-root fallback.
+        let (section_ref, subpath) = site.section_location("");
+
+        assert_eq!(section_ref, "domain:default/root");
+        assert_eq!(subpath, "");
     }
 
     #[test]
@@ -2397,7 +2494,10 @@ mod tests {
             "payments".parse().unwrap(),
         );
         let site = builder.build();
-        assert_eq!(site.get_section_ref("billing"), "domain:payments/billing");
+        assert_eq!(
+            site.section_location("billing").0,
+            "domain:payments/billing"
+        );
     }
 
     #[test]
