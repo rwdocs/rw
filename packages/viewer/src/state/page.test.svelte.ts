@@ -11,6 +11,7 @@ const mockPageResponse: PageResponse = {
     sourceFile: "test.md",
     lastModified: "2025-01-01T00:00:00Z",
     sectionRef: "section:default/root",
+    subpath: "test",
   },
   breadcrumbs: [{ title: "Home", path: "/" }],
   toc: [{ level: 2, title: "Section", id: "section" }],

@@ -56,6 +56,8 @@ struct PageMeta {
     vars: Option<serde_json::Value>,
     /// Section ref for this page's section.
     section_ref: String,
+    /// Page path relative to its section root (stable across section moves).
+    subpath: String,
 }
 
 /// Breadcrumb item for serialization.
@@ -174,8 +176,7 @@ fn get_page_impl(
         (None, None, None)
     };
 
-    // Get section ref for this page's section
-    let section_ref = state.site.get_section_ref(&path)?;
+    let (section_ref, subpath) = state.site.section_location(&path)?;
 
     let response = PageResponse {
         meta: PageMeta {
@@ -191,6 +192,7 @@ fn get_page_impl(
             page_kind,
             vars,
             section_ref,
+            subpath,
         },
         breadcrumbs: result
             .breadcrumbs
@@ -310,6 +312,7 @@ mod tests {
             page_kind: None,
             vars: None,
             section_ref: "section:default/root".to_owned(),
+            subpath: "guide".to_owned(),
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -319,6 +322,7 @@ mod tests {
         assert_eq!(json["sourceFile"], "/docs/guide.md");
         assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
         assert_eq!(json["sectionRef"], "section:default/root");
+        assert_eq!(json["subpath"], "guide");
         // description, kind, and vars should be omitted when None
         assert!(json.get("description").is_none());
         assert!(json.get("kind").is_none());
@@ -339,6 +343,9 @@ mod tests {
             page_kind: Some("domain".to_owned()),
             vars: Some(serde_json::to_value(vars).unwrap()),
             section_ref: "domain:default/domain".to_owned(),
+            // This page IS the section root (path == section scope), so its
+            // section-relative subpath is the empty string.
+            subpath: String::new(),
         };
 
         let json = serde_json::to_value(&meta).unwrap();
@@ -348,5 +355,6 @@ mod tests {
         assert_eq!(json["kind"], "domain");
         assert_eq!(json["vars"]["owner"], "team-a");
         assert_eq!(json["sectionRef"], "domain:default/domain");
+        assert_eq!(json["subpath"], "");
     }
 }

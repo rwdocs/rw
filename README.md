@@ -74,6 +74,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 - [Diagram Rendering](docs/diagrams.md)
 - [Status Badges](docs/status-badges.md)
 - [Comment CLI](docs/comment-cli.md)
+- [Embedding](docs/embedding.md)
 
 ## License
 

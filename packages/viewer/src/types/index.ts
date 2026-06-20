@@ -59,6 +59,12 @@ export interface PageMeta {
   vars?: Record<string, unknown>;
   /** Section ref for this page's section (e.g., "domain:default/billing"). */
   sectionRef: string;
+  /**
+   * Page path relative to its section root. Stable across whole-section moves
+   * (unlike `path`), so embedding hosts can key comments on
+   * `(sectionRef, subpath)`.
+   */
+  subpath: string;
 }
 
 /** Breadcrumb navigation item */
