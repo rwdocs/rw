@@ -2,6 +2,7 @@ import "./app.css";
 import App from "./App.svelte";
 import { mount, unmount } from "svelte";
 import type { NotifyFn } from "./types/notify";
+import type { CommentApiClient } from "./api/comments";
 
 export interface MountOptions {
   /** API base URL (host-supplied — e.g. `/api/rw` when proxied by a Backstage
@@ -32,6 +33,11 @@ export interface MountOptions {
    *  host's own toast/alert system. When omitted, the viewer renders its own
    *  built-in toaster. Intent is one of `info`/`success`/`warning`/`error`. */
   onNotify?: NotifyFn;
+  /** Host-supplied comment client. When present, comments are enabled and all
+   *  reads/writes (and optional live refresh) route through it — any URL shape or
+   *  transport, decoupled from `apiBaseUrl`. When absent, the viewer builds the
+   *  default HTTP client and reads `commentsEnabled` from `/config`. */
+  comments?: CommentApiClient;
 }
 
 export interface RwInstance {
@@ -92,6 +98,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       onNavigate: options.onNavigate,
       resolveSectionRefs: options.resolveSectionRefs,
       onNotify: options.onNotify,
+      comments: options.comments,
       exposeGoto: (goto: (path: string) => void) => {
         gotoFn = goto;
       },
@@ -110,3 +117,13 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
     setColorScheme: (scheme: "light" | "dark" | "auto") => applyColorScheme(scheme),
   };
 }
+
+export type { CommentApiClient } from "./api/comments";
+export type {
+  Comment,
+  CreateCommentRequest,
+  UpdateCommentRequest,
+  Author,
+  Selector,
+  CommentStatus,
+} from "./types/comments";

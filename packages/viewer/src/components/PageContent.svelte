@@ -189,13 +189,34 @@
     }
   });
 
-  // Refetch comments live when the server signals a comment changed (via the
-  // `rw comment` CLI or another browser tab). Silent so no spinner flashes;
-  // any in-progress draft is preserved (same documentId → pending untouched).
+  // Live refresh. Prefer the comment client's own transport when it provides
+  // one (injected hosts); otherwise fall back to the live-reload WebSocket.
+  //
+  // Two separate effects, not one branch: the WebSocket subscriber must register
+  // exactly once at mount and stay registered across navigation. `comments.canSubscribe`
+  // reads `apiClient.subscribe` — a plain field fixed for the instance's life, so
+  // Svelte never tracks it and this effect runs once; the callback closes over
+  // `docId` and reads its latest value each time it fires. Do NOT make
+  // `canSubscribe` reactive here: that would tear down and re-register the
+  // WebSocket listener on every page change.
   $effect(() => {
+    if (comments.canSubscribe) return;
     return liveReload.onCommentsReload(() => {
       if (page.data && comments.enabled && docId !== null) {
         comments.load(docId, { silent: true });
+      }
+    });
+  });
+
+  // The client's own transport is per-document, so re-subscribe whenever `docId`
+  // changes (read reactively here). Capture it into `id` first: by the time the
+  // onChange callback fires, the outer `docId` may have advanced to a new page.
+  $effect(() => {
+    if (!comments.canSubscribe || docId === null) return;
+    const id = docId;
+    return comments.subscribe(id, () => {
+      if (page.data && comments.enabled) {
+        comments.load(id, { silent: true });
       }
     });
   });

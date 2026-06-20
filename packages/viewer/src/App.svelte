@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { createApiClient } from "./api/client";
-  import { createCommentApiClient } from "./api/comments";
+  import { selectCommentClient } from "./lib/comments/client";
+  import type { CommentApiClient } from "./api/comments";
   import { Router } from "./state/router.svelte";
   import { Page as PageState } from "./state/page.svelte";
   import { Navigation } from "./state/navigation.svelte";
@@ -36,6 +37,10 @@
     resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
     /** Host-supplied notification sink; falls back to the built-in toaster. */
     onNotify?: NotifyFn;
+    /** Host-supplied comment client. When present, comments are enabled and all
+     *  reads/writes (and optional live refresh) route through it, decoupled from
+     *  `apiBaseUrl`. When absent, the viewer builds the default HTTP client. */
+    comments?: CommentApiClient;
   }
 
   let {
@@ -48,6 +53,8 @@
     exposeGoto,
     resolveSectionRefs,
     onNotify,
+    // Renamed to avoid shadowing the local `comments` state created below.
+    comments: injectedComments,
   }: Props = $props();
 
   const apiClient = createApiClient(
@@ -73,7 +80,8 @@
   }
   const liveReload = new LiveReload({ router });
   const ui = new Ui();
-  const commentApiClient = createCommentApiClient(
+  const { client: commentApiClient, enabled: commentsEnabledByInjection } = selectCommentClient(
+    untrack(() => injectedComments),
     untrack(() => apiBaseUrl),
     untrack(() => fetchFn),
   );
@@ -82,6 +90,7 @@
     untrack(() => onNotify),
   );
   const comments = new Comments(commentApiClient, notify);
+  comments.enabled = commentsEnabledByInjection;
 
   // Close menus and expand navigation on any path change
   let previousPath = router.path;
@@ -167,7 +176,7 @@
         liveReload.start();
       }
 
-      if (config.commentsEnabled) {
+      if (!commentsEnabledByInjection && config.commentsEnabled) {
         comments.enabled = true;
       }
     })();

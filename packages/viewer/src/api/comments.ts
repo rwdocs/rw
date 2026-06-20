@@ -5,6 +5,10 @@ export interface CommentApiClient {
   create(input: CreateCommentRequest): Promise<Comment>;
   update(id: string, input: UpdateCommentRequest): Promise<Comment>;
   delete(id: string): Promise<Comment>;
+  /** Optional host-driven live refresh. Called with the current document id and
+   *  a callback to invoke when its comments change; returns an unsubscribe
+   *  handle. When absent, the viewer falls back to the live-reload WebSocket. */
+  subscribe?(documentId: string, onChange: () => void): () => void;
 }
 
 export function createCommentApiClient(

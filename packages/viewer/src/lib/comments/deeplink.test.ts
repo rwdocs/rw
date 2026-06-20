@@ -19,6 +19,7 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
     updatedAt: "2026-01-01T00:00:00Z",
     canDelete: false,
     canRestore: false,
+    canResolve: false,
     ...overrides,
   };
 }

@@ -303,7 +303,7 @@
       {#if comment.bodyHtml != null}{@html comment.bodyHtml}{:else}{comment.body}{/if}
     </div>
     <div class="my-2 flex items-center gap-2">
-      {#if comment.status === "open"}
+      {#if comment.canResolve && comment.status === "open"}
         <button
           type="button"
           onclick={() => onResolve(comment.id)}
@@ -316,7 +316,7 @@
         >
           Resolve
         </button>
-      {:else if comment.status === "resolved"}
+      {:else if comment.canResolve && comment.status === "resolved"}
         <button
           type="button"
           onclick={() => onReopen(comment.id)}

@@ -23,6 +23,7 @@ function mkComment(over: Partial<Comment> & { id: string }): Comment {
     updatedAt: "2026-01-01T00:00:00Z",
     canDelete: false,
     canRestore: false,
+    canResolve: false,
     ...over,
   };
 }
@@ -168,5 +169,39 @@ describe("Comments navigation", () => {
     // active thread (e.g. clicked from the resolved list), and the sidebar must
     // render it — so activeIsInline does not filter by status.
     expect(comments.activeIsInline).toBe(true);
+  });
+});
+
+describe("Comments.subscribe facade", () => {
+  it("delegates to the client and returns its unsubscribe handle", () => {
+    const unsub = vi.fn();
+    const subscribe = vi.fn().mockReturnValue(unsub);
+    const client = {
+      list: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      subscribe,
+    } as unknown as CommentApiClient;
+    const comments = new Comments(client, vi.fn());
+
+    expect(comments.canSubscribe).toBe(true);
+    const onChange = () => {};
+    const ret = comments.subscribe("doc-1", onChange);
+    expect(subscribe).toHaveBeenCalledWith("doc-1", onChange);
+    expect(ret).toBe(unsub);
+  });
+
+  it("reports canSubscribe=false and returns undefined when the client has no subscribe", () => {
+    const client = {
+      list: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as CommentApiClient;
+    const comments = new Comments(client, vi.fn());
+
+    expect(comments.canSubscribe).toBe(false);
+    expect(comments.subscribe("doc-1", () => {})).toBeUndefined();
   });
 });

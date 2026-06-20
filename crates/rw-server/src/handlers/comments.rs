@@ -99,22 +99,29 @@ pub(crate) struct CommentResponse {
     body_html: String,
     can_delete: bool,
     can_restore: bool,
+    can_resolve: bool,
 }
 
 impl CommentResponse {
     /// Project a `Comment` into the wire shape with derived `canDelete` /
-    /// `canRestore` flags. In this model only replies are deletable
-    /// (`parent_id IS NOT NULL`); top-level comments use Resolve. Restore is
-    /// always allowed on any deleted row.
+    /// `canRestore` / `canResolve` flags. In this model only replies are
+    /// deletable (`parent_id IS NOT NULL`); top-level comments use Resolve.
+    /// Restore is always allowed on any deleted row.
     fn project(comment: Comment) -> Self {
         let can_delete = comment.deleted_at.is_none() && comment.parent_id.is_some();
         let can_restore = comment.deleted_at.is_some();
+        // Top-level comments are resolvable; replies use Delete, never Resolve.
+        // The `deleted_at` guard enforces a live invariant: Resolve and Restore
+        // must never both be offered on one row (Restore shows for any deleted
+        // row via `can_restore`), so a deleted row is never resolvable.
+        let can_resolve = comment.parent_id.is_none() && comment.deleted_at.is_none();
         let body_html = rw_renderer::render_comment_body(&comment.body);
         Self {
             comment,
             body_html,
             can_delete,
             can_restore,
+            can_resolve,
         }
     }
 }
@@ -517,6 +524,18 @@ mod tests {
         assert_eq!(created["body"], "First para.\n\nSecond para.");
     }
 
+    #[tokio::test]
+    async fn project_sets_can_resolve_for_top_level_only() {
+        let server = TestServer::with_comments().await;
+        let parent = server.create_comment("a.md", "p").await;
+        let reply = server.create_reply("a.md", id_of(&parent), "r").await;
+
+        // Top-level comment: resolvable.
+        assert_eq!(parent["canResolve"], true);
+        // Reply: not resolvable (replies use Delete, never Resolve).
+        assert_eq!(reply["canResolve"], false);
+    }
+
     #[test]
     fn comment_response_predicates() {
         use rw_comments::{Author, CommentStatus, Selector};
@@ -540,18 +559,23 @@ mod tests {
             }
         }
 
-        // Top-level open → not deletable (top-level uses Resolve), not restorable.
+        // Top-level open → not deletable (top-level uses Resolve), not
+        // restorable, and resolvable.
         let r = CommentResponse::project(comment(CommentStatus::Open, None, None));
         assert!(!r.can_delete);
         assert!(!r.can_restore);
+        assert!(r.can_resolve);
 
-        // Reply open → deletable, not restorable.
+        // Reply open → deletable, not restorable, not resolvable (replies use
+        // Delete, never Resolve).
         let r = CommentResponse::project(comment(CommentStatus::Open, Some(Uuid::new_v4()), None));
         assert!(r.can_delete);
         assert!(!r.can_restore);
+        assert!(!r.can_resolve);
 
-        // Deleted reply → not deletable (already deleted), restorable.
-        // `status` is whatever it was when the row was deleted (typically Open).
+        // Deleted reply → not deletable (already deleted), restorable, not
+        // resolvable. `status` is whatever it was when the row was deleted
+        // (typically Open).
         let r = CommentResponse::project(comment(
             CommentStatus::Open,
             Some(Uuid::new_v4()),
@@ -559,11 +583,21 @@ mod tests {
         ));
         assert!(!r.can_delete);
         assert!(r.can_restore);
+        assert!(!r.can_resolve);
 
-        // Top-level resolved → not deletable, not restorable.
+        // Deleted top-level → restorable but NOT resolvable: Resolve and Restore
+        // must never both be offered on one row. (Unreachable via the REST API
+        // today, but the projection must still hold the invariant.)
+        let r = CommentResponse::project(comment(CommentStatus::Open, None, Some("t".into())));
+        assert!(r.can_restore);
+        assert!(!r.can_resolve);
+
+        // Top-level resolved → not deletable, not restorable, still resolvable
+        // (the affordance toggles to Reopen).
         let r = CommentResponse::project(comment(CommentStatus::Resolved, None, None));
         assert!(!r.can_delete);
         assert!(!r.can_restore);
+        assert!(r.can_resolve);
 
         // Wire shape uses camelCase
         let r = CommentResponse::project(comment(CommentStatus::Open, Some(Uuid::new_v4()), None));
@@ -577,12 +611,20 @@ mod tests {
             "wire field must be camelCase: {json}"
         );
         assert!(
+            json.get("canResolve").is_some(),
+            "wire field must be camelCase: {json}"
+        );
+        assert!(
             json.get("can_delete").is_none(),
             "snake_case must not leak: {json}"
         );
         assert!(
             json.get("can_restore").is_none(),
             "snake_case can_restore must not leak"
+        );
+        assert!(
+            json.get("can_resolve").is_none(),
+            "snake_case can_resolve must not leak"
         );
     }
 }
