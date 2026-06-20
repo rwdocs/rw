@@ -1,6 +1,7 @@
 import "./app.css";
 import App from "./App.svelte";
 import { mount, unmount } from "svelte";
+import type { NotifyFn } from "./types/notify";
 
 export interface MountOptions {
   /** API base URL (host-supplied — e.g. `/api/rw` when proxied by a Backstage
@@ -27,6 +28,10 @@ export interface MountOptions {
    *  each page render with unique ref strings (e.g., "system:default/payment-gateway").
    *  Returns a map of ref → base URL. */
   resolveSectionRefs?: (refs: string[]) => Promise<Record<string, string>>;
+  /** Surface a transient notification (e.g. a failed comment save) through the
+   *  host's own toast/alert system. When omitted, the viewer renders its own
+   *  built-in toaster. Intent is one of `info`/`success`/`warning`/`error`. */
+  onNotify?: NotifyFn;
 }
 
 export interface RwInstance {
@@ -86,6 +91,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       fetchFn: options.fetchFn,
       onNavigate: options.onNavigate,
       resolveSectionRefs: options.resolveSectionRefs,
+      onNotify: options.onNotify,
       exposeGoto: (goto: (path: string) => void) => {
         gotoFn = goto;
       },

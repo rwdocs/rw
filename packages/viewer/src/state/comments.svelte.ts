@@ -2,6 +2,7 @@ import type { AnchorStrategy } from "$lib/anchoring";
 import type { CommentApiClient } from "../api/comments";
 import type { Comment, CreateCommentRequest, Selector } from "../types/comments";
 import { resolveNavTarget, sortByOrder } from "$lib/comments/navigation";
+import type { NotifyFn } from "../types/notify";
 
 /** A new comment being drafted — selectors are captured, awaiting body text. */
 export interface PendingComment {
@@ -14,7 +15,6 @@ export class Comments {
   enabled = $state(false);
   items = $state.raw<Comment[]>([]);
   loading = $state(false);
-  error = $state<string | null>(null);
   activeId = $state<string | null>(null);
   /** Vertical offset of the active highlight relative to the content area. */
   activeTop = $state<number | null>(null);
@@ -60,9 +60,11 @@ export class Comments {
   private apiClient: CommentApiClient;
   private abortController: AbortController | null = null;
   private documentId: string | null = null;
+  private notify: NotifyFn;
 
-  constructor(apiClient: CommentApiClient) {
+  constructor(apiClient: CommentApiClient, notify: NotifyFn) {
     this.apiClient = apiClient;
+    this.notify = notify;
   }
 
   load = async (documentId: string, opts?: { silent?: boolean }) => {
@@ -84,14 +86,16 @@ export class Comments {
     if (!silent) {
       this.loading = true;
     }
-    this.error = null;
     try {
       const items = await this.apiClient.list(documentId, { signal });
       if (signal.aborted) return;
       this.items = items;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
-      this.error = e instanceof Error ? e.message : "Failed to load comments";
+      this.notify({
+        intent: "error",
+        message: e instanceof Error ? e.message : "Failed to load comments",
+      });
       this.items = [];
     } finally {
       // Clear even when silent: a silent winner that aborted a non-silent
@@ -222,7 +226,6 @@ export class Comments {
   clear = () => {
     this.items = [];
     this.loading = false;
-    this.error = null;
     this.activeId = null;
     this.linkedId = null;
     this.resolvedExpanded = false;

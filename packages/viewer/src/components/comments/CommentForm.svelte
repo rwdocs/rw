@@ -3,6 +3,9 @@
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
 
   interface Props {
+    /** Submit the composed body. To preserve the draft on failure, the handler
+     *  must call notify() and then rethrow — CommentForm swallows the rejection,
+     *  keeps the text, and shows Retry. Resolving clears the textarea. */
     onSubmit: (body: string) => Promise<void>;
     onCancel?: () => void;
     placeholder?: string;
@@ -33,6 +36,7 @@
 
   let body = $state("");
   let submitting = $state(false);
+  let failed = $state(false);
   let focused = $state(false);
   let textareaRef: HTMLTextAreaElement | undefined = $state();
   let formRef: HTMLFormElement | undefined = $state();
@@ -90,9 +94,15 @@
   async function submit() {
     if (!body.trim() || submitting) return;
     submitting = true;
+    failed = false;
     try {
       await onSubmit(body.trim());
       body = "";
+    } catch {
+      // onSubmit callers rethrow only after calling notify(); swallowing the
+      // rejection here keeps this end-of-chain form free of unhandled rejections
+      // and flips to Retry without clearing the draft.
+      failed = true;
     } finally {
       submitting = false;
     }
@@ -125,6 +135,7 @@
     bind:this={textareaRef}
     bind:value={body}
     onkeydown={handleKeydown}
+    oninput={() => (failed = false)}
     {@attach autoGrowTextarea}
     {@attach autofocusTextarea}
     {placeholder}
@@ -142,8 +153,13 @@
       {#if onCancel}
         <Button variant="ghost" onclick={onCancel}>Cancel</Button>
       {/if}
-      <Button type="submit" variant="primary" disabled={!body.trim()} loading={submitting}>
-        Comment
+      <Button
+        type="submit"
+        variant={failed ? "danger" : "primary"}
+        disabled={!body.trim()}
+        loading={submitting}
+      >
+        {failed ? "Retry" : "Comment"}
       </Button>
     </div>
   {/if}
