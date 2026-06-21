@@ -213,6 +213,34 @@ describe("page store", () => {
       await firstLoad;
     });
 
+    it("ignores a superseded non-abort rejection (does not clobber fresh state)", async () => {
+      const page = new Page(mockApiClient);
+
+      // First load hangs until we explicitly reject it.
+      let rejectFirst: (e: Error) => void;
+      const firstPromise = new Promise<PageResponse>((_, reject) => {
+        rejectFirst = reject;
+      });
+      mockFetchPage.mockReturnValueOnce(firstPromise);
+      const firstLoad = page.load("first");
+
+      // Second load supersedes the first (aborting it) and resolves successfully.
+      mockFetchPage.mockResolvedValueOnce(mockPageResponse);
+      await page.load("second");
+      expect(page.data).toEqual(mockPageResponse);
+      expect(page.error).toBeNull();
+
+      // The superseded first load now rejects with a PLAIN Error (not AbortError).
+      rejectFirst!(new Error("network blip"));
+      await firstLoad;
+
+      // The winning load's state must be intact.
+      expect(page.data).toEqual(mockPageResponse);
+      expect(page.loading).toBe(false);
+      expect(page.error).toBeNull();
+      expect(page.notFound).toBe(false);
+    });
+
     it("preserves previous data during new load for smooth transitions", async () => {
       const page = new Page(mockApiClient);
 

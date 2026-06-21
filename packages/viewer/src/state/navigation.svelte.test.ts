@@ -208,6 +208,37 @@ describe("navigation store", () => {
       // Should still be loading since we didn't complete
       expect(navigation.loading).toBe(true);
     });
+
+    it("ignores a superseded non-abort rejection (does not flip sidebar into error)", async () => {
+      let rejectFirst: (e: Error) => void;
+      const firstPromise = new Promise<NavigationTree>((_, reject) => {
+        rejectFirst = reject;
+      });
+      const secondTree: NavigationTree = {
+        items: [{ path: "/second", title: "Second", children: [] }],
+      };
+
+      mockFetchNavigation
+        .mockImplementationOnce(() => firstPromise)
+        .mockResolvedValueOnce(secondTree);
+
+      const navigation = new Navigation(mockApiClient);
+
+      // First load hangs; second supersedes it (aborting it) and succeeds.
+      const firstLoad = navigation.loadSection("first");
+      await navigation.loadSection("second");
+      expect(navigation.tree).toEqual(secondTree);
+      expect(navigation.error).toBeNull();
+
+      // The superseded first nav now rejects with a PLAIN Error (not AbortError).
+      rejectFirst!(new Error("network blip"));
+      await firstLoad;
+
+      // The winning load's state must be intact — no error, no spurious loading.
+      expect(navigation.tree).toEqual(secondTree);
+      expect(navigation.error).toBeNull();
+      expect(navigation.loading).toBe(false);
+    });
   });
 
   describe("toggle", () => {
