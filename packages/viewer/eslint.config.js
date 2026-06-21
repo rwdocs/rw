@@ -64,9 +64,9 @@ const boundariesConfig = {
       { type: "api", pattern: "src/api/**" },
       { type: "types", pattern: "src/types/**" },
       // Top-level entry points wire everything together.
-      { type: "entry", pattern: "src/{App.svelte,embed.ts,index.ts,main.ts}", mode: "file" },
+      { type: "entry", pattern: "src/{App.svelte,embed.ts,main.ts}", mode: "file" },
     ],
-    "boundaries/ignore": ["src/**/*.test.ts", "src/**/*.test.svelte.ts", "src/**/__fixtures__/**"],
+    "boundaries/ignore": ["src/**/*.test.ts", "src/**/__fixtures__/**"],
     "boundaries/include": ["src/**/*.{ts,svelte,svelte.ts}"],
     "import/resolver": {
       typescript: { project: "./tsconfig.json" },

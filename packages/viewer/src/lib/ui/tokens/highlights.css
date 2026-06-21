@@ -1,9 +1,9 @@
 /*
- * Comment-highlight tokens. Consumed via var() from content.css.
+ * Highlight tokens. Consumed via var() from content.css.
  */
 :root {
-  --highlight-comment: color-mix(in srgb, var(--color-yellow-400) 25%, transparent);
-  --highlight-comment-border: color-mix(in srgb, var(--color-yellow-500) 60%, transparent);
-  --highlight-comment-underline: color-mix(in srgb, var(--color-yellow-700) 70%, transparent);
-  --highlight-comment-active: color-mix(in srgb, var(--color-yellow-400) 50%, transparent);
+  --rw-highlight: color-mix(in srgb, var(--color-yellow-400) 25%, transparent);
+  --rw-highlight-border: color-mix(in srgb, var(--color-yellow-500) 60%, transparent);
+  --rw-highlight-underline: color-mix(in srgb, var(--color-yellow-700) 70%, transparent);
+  --rw-highlight-active: color-mix(in srgb, var(--color-yellow-400) 50%, transparent);
 }

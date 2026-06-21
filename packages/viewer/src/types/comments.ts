@@ -47,6 +47,6 @@ export interface CreateCommentRequest {
 
 export interface UpdateCommentRequest {
   body?: string;
-  status?: "open" | "resolved";
+  status?: CommentStatus;
   selectors?: Selector[];
 }
