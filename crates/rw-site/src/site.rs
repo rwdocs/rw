@@ -233,6 +233,23 @@ impl Site {
         Ok(self.reload_if_needed()?.state.section_location(page_path))
     }
 
+    /// Inverse of [`section_location`](Self::section_location): the page URL
+    /// path for a `(section_ref, subpath)` pair, or `None` if no section has
+    /// that ref.
+    ///
+    /// Like `section_location`, this triggers a reload on the first call so an
+    /// explicit section's ref resolves even when nothing has loaded the site
+    /// yet — the empty initial snapshot carries only the implicit root, so a
+    /// snapshot-only read would miss every explicit section and wrongly return
+    /// `None`. A reload failure falls back to the current snapshot; a caller
+    /// that follows this with [`render`](Self::render) surfaces the real
+    /// storage error there.
+    #[must_use]
+    pub fn page_path_for(&self, section_ref: &str, subpath: &str) -> Option<String> {
+        let snapshot = self.reload_if_needed().unwrap_or_else(|_| self.snapshot());
+        snapshot.state.page_path_for(section_ref, subpath)
+    }
+
     /// Returns `true` if a page exists at `path` in the site structure.
     ///
     /// # Errors

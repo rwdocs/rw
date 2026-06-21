@@ -471,6 +471,26 @@ impl SiteState {
             )
     }
 
+    /// Inverse of [`section_location`](Self::section_location): the page URL
+    /// path for a `(section_ref, subpath)` pair, or `None` if no section has
+    /// that ref.
+    ///
+    /// Reconstructs the path `section_location` would have split into this
+    /// pair, in the same no-leading-slash form [`render`](crate::Site::render)
+    /// expects.
+    #[must_use]
+    pub fn page_path_for(&self, section_ref: &str, subpath: &str) -> Option<String> {
+        // The implicit-root ref (`section:<ns>/root`) reverse-maps here only
+        // because the section map is built with `Sections::with_implicit_root`,
+        // which inserts the `""` scope entry that `find_by_ref` matches.
+        let scope = self.sections.find_by_ref(section_ref)?;
+        Some(match (scope.is_empty(), subpath.is_empty()) {
+            (true, _) => subpath.to_owned(),
+            (false, true) => scope.to_owned(),
+            (false, false) => format!("{scope}/{subpath}"),
+        })
+    }
+
     /// Build [`NavItem`] but stop recursion at section boundaries.
     ///
     /// Sections become leaf nodes - they don't include their children.
@@ -3106,5 +3126,163 @@ mod tests {
             fresh.resolution_fingerprint(),
             reloaded.resolution_fingerprint()
         );
+    }
+
+    #[test]
+    fn page_path_for_inverts_section_root_page() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("domain"),
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let (section_ref, subpath) = site.section_location("billing");
+        assert_eq!(
+            site.page_path_for(&section_ref, &subpath),
+            Some("billing".to_owned())
+        );
+    }
+
+    #[test]
+    fn page_path_for_inverts_page_inside_section() {
+        let mut builder = SiteStateBuilder::new();
+        let billing_idx = builder.add_page(
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("domain"),
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(billing_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let (section_ref, subpath) = site.section_location("billing/payments");
+        assert_eq!(
+            site.page_path_for(&section_ref, &subpath),
+            Some("billing/payments".to_owned())
+        );
+    }
+
+    #[test]
+    fn page_path_for_inverts_deeply_nested_page() {
+        let mut builder = SiteStateBuilder::new();
+        let billing_idx = builder.add_page(
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("domain"),
+            Namespace::default(),
+        );
+        let payments_idx = builder.add_page(
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(billing_idx),
+            Some("system"),
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "API".to_owned(),
+                path: "billing/payments/api".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(payments_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let (section_ref, subpath) = site.section_location("billing/payments/api");
+        assert_eq!(
+            site.page_path_for(&section_ref, &subpath),
+            Some("billing/payments/api".to_owned())
+        );
+    }
+
+    #[test]
+    fn page_path_for_inverts_page_not_in_section() {
+        // Load-bearing case: a page in no explicit section keys on the IMPLICIT
+        // root ref. It round-trips only because `SiteStateBuilder::build` (like
+        // the live site) constructs the map with `Sections::with_implicit_root`,
+        // so `find_by_ref("section:default/root")` resolves to the "" scope.
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let (section_ref, subpath) = site.section_location("guide");
+        assert_eq!(
+            site.page_path_for(&section_ref, &subpath),
+            Some("guide".to_owned())
+        );
+    }
+
+    #[test]
+    fn page_path_for_inverts_root_index_page() {
+        let mut builder = SiteStateBuilder::new();
+        builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let (section_ref, subpath) = site.section_location("");
+        assert_eq!(
+            site.page_path_for(&section_ref, &subpath),
+            Some(String::new())
+        );
+    }
+
+    #[test]
+    fn page_path_for_unknown_ref_is_none() {
+        let site = SiteStateBuilder::new().build();
+        assert_eq!(site.page_path_for("domain:default/nope", "api"), None);
     }
 }
