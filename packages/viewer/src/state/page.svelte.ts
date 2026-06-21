@@ -62,6 +62,20 @@ export class Page {
       if (e instanceof DOMException && e.name === "AbortError") {
         return;
       }
+      if (options?.silent) {
+        // Silent (background/live-reload) refresh failed: keep the
+        // last-known-good page on screen instead of blanking it — data,
+        // error, and notFound are intentionally left untouched.
+        if (import.meta.env.DEV) {
+          console.warn("[rw] silent page refresh failed; keeping current page:", e);
+        }
+        // A silent refresh can supersede an in-flight *non-silent* load that
+        // set loading=true; clear that spinner so it doesn't stick.
+        if (this.abortController?.signal === signal) {
+          this.loading = false;
+        }
+        return;
+      }
       if (e instanceof NotFoundError) {
         this.data = null;
         this.loading = false;

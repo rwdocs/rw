@@ -106,6 +106,15 @@ export class Comments {
       this.items = items;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
+      if (silent) {
+        // Silent (live-reload/subscribe) refresh failed: keep the rendered
+        // comments and do not raise a toast the user never triggered. A
+        // transient blip is recovered on the next successful reload.
+        if (import.meta.env.DEV) {
+          console.warn("[rw] silent comments refresh failed; keeping current comments:", e);
+        }
+        return;
+      }
       this.notify({
         intent: "error",
         message: e instanceof Error ? e.message : "Failed to load comments",
