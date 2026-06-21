@@ -62,6 +62,10 @@ export class Page {
       if (e instanceof DOMException && e.name === "AbortError") {
         return;
       }
+      // A superseded load (a newer load() aborted this one) must not write
+      // state, even when its fetch/resolver rejects with a plain Error rather
+      // than an AbortError. Mirrors the success-path guards above.
+      if (signal.aborted) return;
       if (options?.silent) {
         // Silent (background/live-reload) refresh failed: keep the
         // last-known-good page on screen instead of blanking it — data,
