@@ -293,6 +293,65 @@ describe("page store", () => {
       expect(page.loading).toBe(false);
     });
 
+    it("preserves data and stays error-free when a silent load rejects (generic)", async () => {
+      const page = new Page(mockApiClient);
+
+      // First load succeeds.
+      mockFetchPage.mockResolvedValue(mockPageResponse);
+      await page.load("first");
+      const originalData = page.data;
+
+      // Silent reload rejects with a transient error.
+      mockFetchPage.mockRejectedValueOnce(new Error("network down"));
+      await page.load("first", { silent: true });
+
+      // Last-known-good content is kept; no visible error/notFound.
+      expect(page.data).toBe(originalData);
+      expect(page.error).toBeNull();
+      expect(page.notFound).toBe(false);
+      expect(page.loading).toBe(false);
+    });
+
+    it("clears the spinner when a silent load supersedes an in-flight non-silent load and then fails", async () => {
+      const page = new Page(mockApiClient);
+
+      // Seed last-known-good content.
+      mockFetchPage.mockResolvedValueOnce(mockPageResponse);
+      await page.load("first");
+      const originalData = page.data;
+
+      // A non-silent navigation starts and hangs → loading=true.
+      mockFetchPage.mockReturnValueOnce(new Promise<PageResponse>(() => {}));
+      page.load("second"); // not awaited — stays pending
+      expect(page.loading).toBe(true);
+
+      // A live-reload silent refresh supersedes it (aborting it), then fails.
+      mockFetchPage.mockRejectedValueOnce(new Error("server restarting"));
+      await page.load("second", { silent: true });
+
+      // Spinner cleared, last-known-good kept, no visible error.
+      expect(page.loading).toBe(false);
+      expect(page.data).toBe(originalData);
+      expect(page.error).toBeNull();
+      expect(page.notFound).toBe(false);
+    });
+
+    it("preserves data on a silent 404 (uniform behavior)", async () => {
+      const page = new Page(mockApiClient);
+
+      mockFetchPage.mockResolvedValue(mockPageResponse);
+      await page.load("first");
+      const originalData = page.data;
+
+      // Silent reload now 404s — uniform: keep the stale page, do not flip notFound.
+      mockFetchPage.mockRejectedValueOnce(new NotFoundError("missing"));
+      await page.load("first", { silent: true });
+
+      expect(page.data).toBe(originalData);
+      expect(page.notFound).toBe(false);
+      expect(page.error).toBeNull();
+    });
+
     it("does not crash when concurrent load nullifies abortController before abort check", async () => {
       const page = new Page(mockApiClient);
 

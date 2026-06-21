@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A transient failure during a live-reload background refresh no longer blanks the page. A silent refresh that fails (server restart mid-edit, a flaky proxy, a momentarily-unreachable host) now keeps the last-rendered page on screen and recovers on the next successful reload, instead of replacing it with a full-height error.
+- A transient failure during a live comment refresh no longer wipes the rendered comments or pops an error toast the user never triggered. Silent comment refreshes now keep the current comments quietly and recover on the next successful reload.
+
 ## [0.1.26] - 2026-06-21
 
 ### Added

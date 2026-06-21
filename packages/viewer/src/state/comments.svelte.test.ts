@@ -123,6 +123,71 @@ describe("Comments.load", () => {
     expect(comments.loading).toBe(false);
   });
 
+  it("keeps items and does not notify when a silent load rejects", async () => {
+    const notify = vi.fn();
+    const items = [mkComment({ id: "c1" })];
+    // First call resolves with items; second (silent) call rejects.
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(items)
+      .mockRejectedValueOnce(new Error("network down"));
+    const client = { list } as unknown as CommentApiClient;
+    const c = new Comments(client, notify);
+    c.enabled = true;
+
+    await c.load("a.md");
+    expect(c.items).toEqual(items);
+
+    await c.load("a.md", { silent: true });
+
+    // Transient blip is swallowed: items kept, no toast, spinner cleared.
+    expect(c.items).toEqual(items);
+    expect(notify).not.toHaveBeenCalled();
+    expect(c.loading).toBe(false);
+  });
+
+  it("clears the spinner when a silent load supersedes an in-flight non-silent load and then fails", async () => {
+    const notify = vi.fn();
+    const items = [mkComment({ id: "c1" })];
+    let resolveFirst: ((v: Comment[]) => void) | undefined;
+    const list = vi
+      .fn()
+      // Seed load: resolves immediately.
+      .mockResolvedValueOnce(items)
+      // Non-silent navigation: hangs indefinitely.
+      .mockImplementationOnce(
+        () =>
+          new Promise<Comment[]>((res) => {
+            resolveFirst = res;
+          }),
+      )
+      // Silent refresh: rejects.
+      .mockRejectedValueOnce(new Error("server restarting"));
+    const client = { list } as unknown as CommentApiClient;
+    const c = new Comments(client, notify);
+    c.enabled = true;
+
+    // Seed: populate items.
+    await c.load("a.md");
+    expect(c.items).toEqual(items);
+
+    // Non-silent load hangs → spinner on.
+    const p1 = c.load("a.md");
+    expect(c.loading).toBe(true);
+
+    // Silent refresh supersedes it (aborting p1) and then fails.
+    await c.load("a.md", { silent: true });
+
+    // Spinner cleared, items preserved, no toast.
+    expect(c.loading).toBe(false);
+    expect(c.items).toEqual(items);
+    expect(notify).not.toHaveBeenCalled();
+
+    // Let the dangling promise settle cleanly.
+    resolveFirst?.([]);
+    await p1.catch(() => {});
+  });
+
   it("preserves a pending draft on a silent refetch of the same document", async () => {
     const comments = new Comments(makeClient(), () => {});
     comments.enabled = true;
