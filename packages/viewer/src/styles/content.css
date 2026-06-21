@@ -380,11 +380,8 @@
  * annotations each pin their line to the shared box bottom, so overlapping
  * underlines coincide into one line. */
 rw-annotation {
-  background-color: var(--highlight-comment);
-  background-image: linear-gradient(
-    var(--highlight-comment-underline),
-    var(--highlight-comment-underline)
-  );
+  background-color: var(--rw-highlight);
+  background-image: linear-gradient(var(--rw-highlight-underline), var(--rw-highlight-underline));
   background-repeat: no-repeat;
   background-position: bottom;
   background-size: 100% 2px;
@@ -395,18 +392,18 @@ rw-annotation[data-strategy="fuzzy"] {
   /* Dashed equivalent: a horizontal repeating gradient at the box bottom. */
   background-image: repeating-linear-gradient(
     to right,
-    var(--highlight-comment-underline) 0 4px,
+    var(--rw-highlight-underline) 0 4px,
     transparent 4px 7px
   );
 }
 /* Active comment — stronger yellow on top of the per-comment background.
  * Toggled by the active-toggle $effect in PageContent.svelte. */
 rw-annotation[data-active="true"] {
-  background-color: var(--highlight-comment-active);
+  background-color: var(--rw-highlight-active);
 }
 /* In-progress text selection while drafting a new comment. Uses the CSS
  * Custom Highlight API because the draft selection has no wrapper yet —
  * mutating the DOM mid-drag would fight the user's selection. */
 ::highlight(rw-comment-active) {
-  background-color: var(--highlight-comment-active);
+  background-color: var(--rw-highlight-active);
 }

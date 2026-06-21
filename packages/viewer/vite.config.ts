@@ -32,17 +32,12 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["src/**/*.test.ts", "src/**/*.test.svelte.ts"],
+    include: ["src/**/*.test.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
       include: ["src/**/*.ts", "src/**/*.svelte"],
-      exclude: [
-        "src/**/*.test.ts",
-        "src/**/*.test.svelte.ts",
-        "src/**/__fixtures__/**",
-        "src/main.ts",
-      ],
+      exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**", "src/main.ts"],
     },
   },
 });

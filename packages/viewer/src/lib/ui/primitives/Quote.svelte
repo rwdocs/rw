@@ -18,11 +18,11 @@
 <blockquote
   {...rest}
   class="
-    border-l-2 border-(--highlight-comment-border) pl-3 text-sm text-fg-muted italic
+    border-l-2 border-(--rw-highlight-border) pl-3 text-sm text-fg-muted italic
     {extraClass}
   "
 >
   {#if prefix}<span class="opacity-70">…{prefix}</span>{/if}<mark
-    class="rounded-sm bg-(--highlight-comment) px-0.5 text-inherit not-italic">{exact}</mark
+    class="rounded-sm bg-(--rw-highlight) px-0.5 text-inherit not-italic">{exact}</mark
   >{#if suffix}<span class="opacity-70">{suffix}…</span>{/if}
 </blockquote>
