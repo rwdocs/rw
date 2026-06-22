@@ -146,12 +146,20 @@ export class Comments {
 
   resolve = async (id: string) => {
     const updated = await this.apiClient.update(id, { status: "resolved" });
-    this.items = this.items.map((c) => (c.id === id ? updated : c));
+    if (this.documentId === updated.documentId) {
+      this.items = this.items.map((c) => (c.id === id ? updated : c));
+    }
+    // If response.documentId !== this.documentId, the user navigated away;
+    // don't touch this.items to avoid polluting the new document's view.
   };
 
   reopen = async (id: string) => {
     const updated = await this.apiClient.update(id, { status: "open" });
-    this.items = this.items.map((c) => (c.id === id ? updated : c));
+    if (this.documentId === updated.documentId) {
+      this.items = this.items.map((c) => (c.id === id ? updated : c));
+    }
+    // If response.documentId !== this.documentId, the user navigated away;
+    // don't touch this.items to avoid polluting the new document's view.
   };
 
   delete = async (id: string) => {
@@ -247,6 +255,12 @@ export class Comments {
   };
 
   clear = () => {
+    // Abort any in-flight load so a list() resolving after clear() hits load()'s
+    // `signal.aborted` guard instead of repopulating the just-cleared list with
+    // the previous document's comments — e.g. when navigating to a page that
+    // shows no comments and never re-triggers a load.
+    this.abortController?.abort();
+    this.abortController = null;
     this.items = [];
     this.loading = false;
     this.activeId = null;
