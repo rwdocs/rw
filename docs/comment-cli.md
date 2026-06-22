@@ -63,7 +63,7 @@ New comments carry an `author` stamp. Resolution order:
 
 1. `--author-id` and `--author-name` flags on the subcommand.
 2. `$RW_COMMENT_AUTHOR_ID` and `$RW_COMMENT_AUTHOR_NAME` env vars.
-3. If both are unset, the CLI writes the comment with the default identity `{ id: "local:human", name: "You" }`. (This is the same default `rw serve` uses when the browser writes a comment — viewer and CLI stay aligned.)
+3. If both are unset, the CLI writes the comment with the default identity `{ id: "local:ai", name: "AI" }` — the `rw comment` CLI's primary user is an LLM agent, so an unattributed comment is stamped as AI (a sparkles avatar in the browser) rather than as a human. (Browser-authored comments via `rw serve` still default to `{ id: "local:human", name: "You" }`.)
 
 Set both or neither — a partial identity (e.g. id without name) is rejected before the request leaves the CLI.
 

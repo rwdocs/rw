@@ -40,7 +40,7 @@ pub(crate) async fn run(ctx: &Context, args: ReplyArgs) -> Result<(), CliError> 
         .create(CreateComment {
             document_id: parent.document_id.clone(),
             parent_id: Some(parent.id),
-            author,
+            author: Some(author),
             body,
             selectors: Vec::new(),
         })
