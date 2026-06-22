@@ -34,6 +34,16 @@ describe("IconButton", () => {
     expect(onclick).toHaveBeenCalledTimes(1);
   });
 
+  it("defaults to type=button so it never submits an enclosing form", () => {
+    const { getByRole } = render(Harness, { "aria-label": "X" });
+    expect(getByRole("button").getAttribute("type")).toBe("button");
+  });
+
+  it("lets callers override the button type", () => {
+    const { getByRole } = render(Harness, { "aria-label": "X", type: "submit" });
+    expect(getByRole("button").getAttribute("type")).toBe("submit");
+  });
+
   it("forwards extra attributes (e.g. Popover controlProps)", () => {
     const { getByRole } = render(Harness, {
       "aria-label": "X",

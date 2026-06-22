@@ -15,6 +15,9 @@
   let {
     "aria-label": ariaLabel,
     active = false,
+    // Default to "button": a bare HTML <button> defaults to type="submit" and
+    // would accidentally submit any form it's nested in. Callers can override.
+    type = "button",
     class: extraClass = "",
     children,
     ...rest
@@ -23,6 +26,7 @@
 
 <button
   {...rest}
+  {type}
   class="
     flex size-8 cursor-pointer items-center justify-center rounded-sm border border-border-default
     bg-bg-raised text-fg-muted
