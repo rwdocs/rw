@@ -46,6 +46,11 @@ export class Comments {
   pending = $state<PendingComment | null>(null);
   /** Vertical offset for the pending comment form. */
   pendingTop = $state<number | null>(null);
+  /** Per-thread reply drafts, keyed by thread (top-level comment) id. Lives on
+   *  the store so a draft survives the inline sidebar remounting CommentThread
+   *  (and its CommentForm) on every thread switch, and so the same thread shows
+   *  the same draft on whichever surface renders it. Reset on document change. */
+  replyDrafts = $state<Record<string, string>>({});
   /** Bumped on every programmatic comment navigation (n/p). Rendering
    *  components watch it to scroll the now-active comment into view; a plain
    *  `activeId` change (e.g. clicking a highlight) must not trigger that
@@ -99,6 +104,7 @@ export class Comments {
       this.linkedId = null;
       this.resolvedExpanded = false;
       this.clearPending();
+      this.replyDrafts = {};
       this.documentId = documentId;
     }
     const silent = opts?.silent ?? false;
@@ -278,6 +284,18 @@ export class Comments {
     this.pendingTop = null;
   };
 
+  /** Persist a thread's reply draft (keyed by thread id). An empty body deletes
+   *  the entry instead of storing "", so replyDrafts never accumulates empty
+   *  slots from a freshly-seeded or just-submitted thread. Arrow field so `this`
+   *  stays bound when passed as a callback. */
+  setReplyDraft = (threadId: string, body: string) => {
+    if (body) {
+      this.replyDrafts[threadId] = body;
+    } else {
+      delete this.replyDrafts[threadId];
+    }
+  };
+
   clear = () => {
     // Abort any in-flight load so a list() resolving after clear() hits load()'s
     // `signal.aborted` guard instead of repopulating the just-cleared list with
@@ -298,6 +316,7 @@ export class Comments {
     this.anchorStrategies = new Map();
     this.orphanIds = new Set();
     this.documentId = null;
+    this.replyDrafts = {};
     this.clearPending();
   };
 }

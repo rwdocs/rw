@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { Author, Comment } from "../../types/comments";
   import Avatar from "$lib/ui/primitives/Avatar.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
@@ -51,6 +52,15 @@
     /** Amber tint marking the current page comment — the active one (deep-link
      *  landing or keyboard-nav target), so the marker follows n/p navigation. */
     linked?: boolean;
+    /** Initial reply-draft text for this thread, read once when the component
+     *  mounts (e.g. the parent surface's per-thread draft from the comments
+     *  store). Later changes to this prop are ignored — the live draft lives in
+     *  local state and is reported back via `onReplyDraftChange`. */
+    initialReplyDraft?: string;
+    /** Called whenever this thread's reply draft changes, with this thread's id
+     *  and the new body, so the parent surface can persist it (keyed by thread
+     *  id). */
+    onReplyDraftChange?: (threadId: string, body: string) => void;
   }
 
   let {
@@ -71,9 +81,23 @@
     domId,
     threadId,
     linked = false,
+    initialReplyDraft = "",
+    onReplyDraftChange,
   }: Props = $props();
 
   let copied = $state(false);
+
+  // Reply draft buffered in local state: seeded once from initialReplyDraft,
+  // then owned here and reported back via onReplyDraftChange. The id is captured
+  // once so the write always targets this thread. Each surface gives a thread
+  // its own instance (the sidebar remounts via {#key}, the page list keys its
+  // {#each}), so writing the live draft straight into the parent's store member
+  // instead would let a thread switch flush this draft into the next slot.
+  const draftThreadId = untrack(() => comment.id);
+  let replyDraft = $state(untrack(() => initialReplyDraft));
+  $effect(() => {
+    onReplyDraftChange?.(draftThreadId, replyDraft);
+  });
 
   async function copyLink() {
     const url = `${window.location.origin}${window.location.pathname}#${buildCommentHash(comment.id)}`;
@@ -406,7 +430,7 @@
         dark:border-neutral-700 dark:bg-neutral-900/50
       "
     >
-      <CommentForm onSubmit={handleReply} placeholder="Write a reply..." />
+      <CommentForm bind:value={replyDraft} onSubmit={handleReply} placeholder="Write a reply..." />
     </div>
   {/if}
 </div>

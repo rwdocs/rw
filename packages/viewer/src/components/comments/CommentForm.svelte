@@ -22,6 +22,10 @@
      *  border/padding directly on the form so anchor measurements naturally
      *  include those offsets. */
     outerClass?: string;
+    /** Draft text. Bindable so a caller can persist/restore the draft (e.g. the
+     *  per-thread reply draft kept in the comments store). Omitted ⇒ the form
+     *  manages its own text, unchanged from before. */
+    value?: string;
   }
 
   let {
@@ -32,9 +36,9 @@
     pinActions = false,
     onAnchor,
     outerClass = "",
+    value = $bindable(""),
   }: Props = $props();
 
-  let body = $state("");
   let submitting = $state(false);
   let failed = $state(false);
   let focused = $state(false);
@@ -44,7 +48,7 @@
   const formSize = useElementSize(() => formRef ?? null);
   const textareaSize = useElementSize(() => textareaRef ?? null);
 
-  let showActions = $derived(pinActions || focused || body.trim().length > 0);
+  let showActions = $derived(pinActions || focused || value.trim().length > 0);
 
   // Auto-focus the textarea on mount. Deferred to rAF so the parent's
   // visibility-hidden-until-measured wrapper (CommentSidebar) has flipped to
@@ -81,23 +85,23 @@
     }
   }
 
-  // Grow the textarea to fit its content. Reads `body` so it re-runs on every
+  // Grow the textarea to fit its content. Reads `value` so it re-runs on every
   // change — including programmatic resets after submit, which don't fire
   // `oninput` and would otherwise leave the textarea stuck at its previous
   // grown height.
   function autoGrowTextarea(ta: HTMLTextAreaElement) {
-    void body;
+    void value;
     ta.style.height = "auto";
     ta.style.height = `${ta.scrollHeight}px`;
   }
 
   async function submit() {
-    if (!body.trim() || submitting) return;
+    if (!value.trim() || submitting) return;
     submitting = true;
     failed = false;
     try {
-      await onSubmit(body.trim());
-      body = "";
+      await onSubmit(value.trim());
+      value = "";
     } catch {
       // onSubmit callers rethrow only after calling notify(); swallowing the
       // rejection here keeps this end-of-chain form free of unhandled rejections
@@ -137,7 +141,7 @@
 >
   <textarea
     bind:this={textareaRef}
-    bind:value={body}
+    bind:value
     onkeydown={handleKeydown}
     oninput={() => (failed = false)}
     {@attach autoGrowTextarea}
@@ -160,7 +164,7 @@
       <Button
         type="submit"
         variant={failed ? "danger" : "primary"}
-        disabled={!body.trim()}
+        disabled={!value.trim()}
         loading={submitting}
       >
         {failed ? "Retry" : "Comment"}

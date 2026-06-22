@@ -13,6 +13,17 @@ async function fillDraft(textarea: HTMLElement, value: string) {
   await fireEvent.input(textarea, { target: { value } });
 }
 
+describe("CommentForm bindable value", () => {
+  it("renders the textarea seeded from the value prop", () => {
+    const { getByPlaceholderText } = render(CommentForm, {
+      onSubmit: vi.fn().mockResolvedValue(undefined),
+      value: "restored draft",
+    });
+    const ta = getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement;
+    expect(ta.value).toBe("restored draft");
+  });
+});
+
 describe("CommentForm keep-on-failure", () => {
   it("keeps the text and shows Retry when onSubmit rejects", async () => {
     const onSubmit = vi.fn().mockRejectedValue(new Error("server down"));
