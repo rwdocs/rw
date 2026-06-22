@@ -17,7 +17,7 @@
   import { documentIdFor } from "$lib/comments/documentId";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
-  import Button from "$lib/ui/primitives/Button.svelte";
+  import IconButton from "$lib/ui/primitives/IconButton.svelte";
   import Popover from "$lib/ui/primitives/Popover.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
@@ -578,21 +578,20 @@
     {#if comments.enabled && selectionPopover.pos}
       <!--
         Free-mode Popover anchored above the current selection.
-        `-translate-x-1/2 -translate-y-full` centers the panel above the anchor
-        point; the 8px gap is folded into `y` so the primitive's style stays
-        generic. `selectionPopover.pos` is article-relative.
+        `-translate-x-1/2` centers the icon button horizontally over the anchor;
+        `-translate-y-full` raises it so its bottom edge sits at the anchor, and
+        the 8px gap is folded into `y` so the primitive's style stays generic.
+        `selectionPopover.pos` is article-relative. Visual chrome (shadow, bg,
+        border) lives on the IconButton, so the Popover carries positioning only.
       -->
       <Popover
         open
         strategy="absolute"
         x={selectionPopover.pos.x}
         y={selectionPopover.pos.y - 8}
-        class="
-          -translate-x-1/2 -translate-y-full rounded-lg border border-gray-200 bg-white shadow-lg
-          dark:border-neutral-600 dark:bg-neutral-700
-        "
+        class="-translate-x-1/2 -translate-y-full"
       >
-        <Button variant="ghost" onclick={handleAddComment}>
+        <IconButton aria-label="Add comment" class="shadow-lg" onclick={handleAddComment}>
           <svg
             class="size-4"
             fill="none"
@@ -606,8 +605,7 @@
               d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
             />
           </svg>
-          Add comment
-        </Button>
+        </IconButton>
       </Popover>
     {/if}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

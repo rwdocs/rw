@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Press `r` while a comment thread is active (highlighted with `n`/`p`) to move keyboard focus straight into that thread's reply box — no mouse needed. Works for both the inline margin thread and page-timeline/orphaned threads, scrolls the reply box into view on long threads, and announces the move to screen readers. The existing reply shortcuts still apply: Cmd/Ctrl+Enter submits and Escape releases the box so `n`/`p` resume. `r` is ignored while you're already typing, when no thread is active, or on a resolved thread.
 
+### Changed
+
+- The "Add comment" button that appears when you select text in a doc is now icon-only (a speech-bubble icon) instead of icon + "Add comment" text, for a more compact popover. The button keeps its "Add comment" accessible name, so screen readers and keyboard users are unaffected.
+
 ### Fixed
 
 - Comment highlighting no longer re-walks and re-wraps the entire article on every comment action (resolve, reply, reopen) or background live-refresh — only the changed highlight is updated. On long pages with many comments this removes a visible hitch, and a background refresh no longer wipes an in-progress text selection unless the change overlaps the selected text.
