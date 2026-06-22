@@ -27,6 +27,19 @@ function isEditable(el: EventTarget | null): boolean {
  *  specific overlay/form. */
 export function useCommentNavigation(deps: CommentNavigationDeps): CommentNavigation {
   let announcement = $state("");
+  // A polite live region only re-announces when its text node *changes*, but
+  // navigate() wraps around: stepping on a single-comment page (or onto a thread
+  // by the same author at the same index) returns the same position, so the
+  // human-readable string is byte-identical and the screen reader stays silent.
+  // Toggle an invisible marker on the end of each announcement so the text node
+  // always differs and the move is re-announced. We use U+200B (zero-width
+  // space): unlike a trailing normal or non-breaking space — which screen
+  // readers' text normalization strips as trailing whitespace (both have the
+  // Unicode White_Space property), leaving an identical announced string and
+  // defeating the re-announce — U+200B is not White_Space, so it survives, yet
+  // NVDA/JAWS/VoiceOver don't pronounce it at default verbosity. A per-instance
+  // toggle (no shared module state) keeps the hook self-contained.
+  let marked = false;
 
   $effect(() => {
     function onKeydown(e: KeyboardEvent) {
@@ -46,7 +59,11 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
         // Omit "by <author>" when the author name is blank, so the live region
         // never announces a dangling "Comment 1 of 2 by ".
         const by = result.author ? ` by ${result.author}` : "";
-        announcement = `Comment ${result.index + 1} of ${result.total}${by}`;
+        // Read the marker, then flip it: the first announcement is unmarked, so
+        // an isolated press still produces the plain "Comment N of M by X".
+        const mark = marked ? "\u200B" : "";
+        marked = !marked;
+        announcement = `Comment ${result.index + 1} of ${result.total}${by}${mark}`;
       }
     }
     window.addEventListener("keydown", onKeydown);

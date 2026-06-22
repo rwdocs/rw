@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A transient failure during a live comment refresh no longer wipes the rendered comments or pops an error toast the user never triggered. Silent comment refreshes now keep the current comments quietly and recover on the next successful reload.
 - A documentation page or the navigation sidebar no longer briefly shows a transient error (or blanks) when you navigate quickly between pages and a now-superseded request fails with a non-abort error. The superseded request's failure is dropped instead of overwriting the page you actually landed on.
 - The mobile navigation drawer is now a proper modal dialog for assistive tech and keyboard users: it exposes `role="dialog"`/`aria-modal`, moves focus into the drawer on open and restores it to the menu button on close, traps Tab within the drawer, and marks the page behind it `inert` so screen readers no longer read the obscured content.
+- Stepping through comments with `n`/`p` is now re-announced to screen readers even when the move lands on the same position — e.g. wrapping around on a page with a single open comment, where the position text is identical each press. Previously the polite live region's text was unchanged, so NVDA/JAWS/VoiceOver stayed silent despite the move.
 
 ## [0.1.26] - 2026-06-21
 
