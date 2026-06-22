@@ -66,6 +66,54 @@ describe("useCommentNavigation", () => {
     expect(nav.announcement).toBe("Comment 2 of 3");
   });
 
+  it("re-announces an identical position by changing the live-region text node", () => {
+    // A polite live region only re-announces when its text node *changes*.
+    // navigate() wraps around, so on a single-comment page (or onto a thread by
+    // the same author at the same index) every press returns identical
+    // {index, total, author} — a byte-identical string the screen reader would
+    // ignore. The announcement must still change so it re-announces. See #542.
+    const d = deps({ navigate: vi.fn(() => ({ index: 0, total: 1, author: "Mike" })) });
+    const nav = mount(d);
+
+    press("n");
+    const first = nav.announcement;
+    press("n");
+    const second = nav.announcement;
+
+    // The text node differs (so the SR speaks again)...
+    expect(second).not.toBe(first);
+    // ...but the spoken text (zero-width marker stripped) is unchanged.
+    const spoken = (s: string) => s.replace(/\u200B/g, "");
+    expect(spoken(first)).toBe("Comment 1 of 1 by Mike");
+    expect(spoken(second)).toBe(spoken(first));
+
+    // Each further press re-announces (text node changes) without the marker
+    // ever stacking: the spoken text stays put and the raw string never grows
+    // by more than the single zero-width marker.
+    press("n");
+    const third = nav.announcement;
+    expect(third).not.toBe(second);
+    expect(spoken(third)).toBe("Comment 1 of 1 by Mike");
+    expect(third.length).toBeLessThanOrEqual(first.length + 1);
+  });
+
+  it("keeps the spoken text clean when stepping between distinct positions", () => {
+    // When consecutive positions genuinely differ the visible string already
+    // changes, so re-announcement never depended on the marker. Assert the
+    // marker never corrupts the spoken text on that normal path.
+    const navigate = vi
+      .fn<CommentNavigationDeps["navigate"]>()
+      .mockReturnValueOnce({ index: 0, total: 2, author: "Ann" })
+      .mockReturnValueOnce({ index: 1, total: 2, author: "Bob" });
+    const nav = mount(deps({ navigate }));
+    const spoken = (s: string) => s.replace(/\u200B/g, "");
+
+    press("n");
+    expect(spoken(nav.announcement)).toBe("Comment 1 of 2 by Ann");
+    press("n");
+    expect(spoken(nav.announcement)).toBe("Comment 2 of 2 by Bob");
+  });
+
   it("lets modifier combinations through to the browser", () => {
     const d = deps();
     mount(d);
