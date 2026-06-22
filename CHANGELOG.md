@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `rw comment` CLI now stamps comments it creates with the AI identity (`{ id: "local:ai", name: "AI" }`, a sparkles avatar in the viewer) by default, instead of the human `{ id: "local:human", name: "You" }`. The CLI's primary user is an LLM agent, so unattributed agent comments are now visually distinct from a human reviewer's own comments in the browser. Set `RW_COMMENT_AUTHOR_ID`/`RW_COMMENT_AUTHOR_NAME` (or `--author-id`/`--author-name`) to override. Browser-authored comments via `rw serve` are unchanged (still `local:human`).
 - The "Add comment" button that appears when you select text in a doc is now icon-only (a speech-bubble icon) instead of icon + "Add comment" text, for a more compact popover. The button keeps its "Add comment" accessible name, so screen readers and keyboard users are unaffected.
 
 ### Fixed

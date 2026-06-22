@@ -25,6 +25,20 @@ impl Author {
             avatar_url: None,
         }
     }
+
+    /// The identity stamped on comments created through the `rw comment` CLI
+    /// when the caller supplies no author. The CLI's primary user is an LLM
+    /// agent, so its default is AI — rendered with a sparkles avatar in the
+    /// viewer — rather than [`Author::local_human`], which remains the default
+    /// for browser-authored comments.
+    #[must_use]
+    pub fn local_ai() -> Self {
+        Self {
+            id: "local:ai".to_owned(),
+            name: "AI".to_owned(),
+            avatar_url: None,
+        }
+    }
 }
 
 /// A selector that identifies a text range within a document.

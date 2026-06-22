@@ -55,7 +55,7 @@ pub(crate) async fn run(ctx: &Context, args: AddArgs) -> Result<(), CliError> {
     let input = NewComment {
         document_id,
         parent_id: None,
-        author,
+        author: Some(author),
         body,
         selectors,
         quote: None,
