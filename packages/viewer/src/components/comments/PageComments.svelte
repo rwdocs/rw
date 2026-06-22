@@ -1,11 +1,13 @@
 <script lang="ts">
   import type { Comment, Selector } from "../../types/comments";
+  import { tick } from "svelte";
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
   import { buildCommentHash } from "$lib/comments/deeplink";
+  import { restoreFocusToThread } from "$lib/comments/focus";
   import { documentIdFor } from "$lib/comments/documentId";
   import { escapeId } from "$lib/comments/highlight";
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
@@ -133,13 +135,17 @@
       notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
       throw e;
     }
+    // Reply succeeded: focus the parent thread card so n/p navigation resumes.
+    await tick();
+    restoreFocusToThread(document.getElementById(buildCommentHash(parentId)));
   }
 
   async function handleNewComment(body: string) {
     if (!page.data) return;
     const documentId = documentIdFor(page.data.meta);
+    let created: Comment;
     try {
-      await comments.create({
+      created = await comments.create({
         documentId,
         body,
         selectors: [],
@@ -148,6 +154,10 @@
       notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
       throw e;
     }
+    // New comment succeeded: focus its freshly-rendered card so n/p navigation
+    // resumes (the bottom form stays mounted and would otherwise keep focus).
+    await tick();
+    restoreFocusToThread(document.getElementById(buildCommentHash(created.id)));
   }
 </script>
 
