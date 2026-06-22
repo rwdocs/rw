@@ -14,7 +14,7 @@
 {:else if navigation.error}
   <Alert intent="danger">{navigation.error}</Alert>
 {:else if navigation.tree}
-  <nav>
+  <nav aria-label="Documentation">
     {#if navigation.tree.scope && backLink}
       <div class="mb-5">
         <a

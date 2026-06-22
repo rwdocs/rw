@@ -193,4 +193,22 @@ test.describe("Navigation", () => {
     await expect(aside.getByRole("link", { name: "Plugin Development" })).toBeVisible();
     await expect(aside.getByRole("link", { name: "Advanced Topics" })).toBeVisible();
   });
+
+  test("active nav link exposes aria-current=page", async ({ page }) => {
+    await page.goto("/getting-started/installation");
+
+    const aside = page.getByRole("complementary", { name: "Sidebar" });
+    const active = aside.getByRole("link", { name: "Installation" });
+    await expect(active).toHaveAttribute("aria-current", "page");
+
+    // A non-active leaf sibling under the same section must not carry it,
+    // confirming aria-current marks only the current page, not the whole branch.
+    const inactive = aside.getByRole("link", { name: "Configuration" });
+    await expect(inactive).not.toHaveAttribute("aria-current", "page");
+  });
+
+  test("desktop nav landmark has an accessible name", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("navigation", { name: "Documentation" })).toBeVisible();
+  });
 });

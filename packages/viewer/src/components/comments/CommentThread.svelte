@@ -298,6 +298,13 @@
             </svg>
           {/if}
         </button>
+        <!-- A polite atomic live region (equivalent to role="status", but
+             without the role) announces the copy. Using the bare live region
+             avoids adding a second status landmark to the page alongside the
+             page-level comment-navigation status region. -->
+        <span class="sr-only" aria-live="polite" aria-atomic="true">
+          {copied ? "Link copied" : ""}
+        </span>
         <span class="text-xs text-gray-400 dark:text-neutral-500">
           {formatRelativeTime(new Date(comment.createdAt))}
         </span>
