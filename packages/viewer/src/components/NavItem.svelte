@@ -46,6 +46,7 @@
 
     <a
       href={item.href ?? router.prefixPath(item.path)}
+      aria-current={isActive ? "page" : undefined}
       class="
         flex-1 rounded-sm p-1.5 text-sm transition-colors
         {isActive

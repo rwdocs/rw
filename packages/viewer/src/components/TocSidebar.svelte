@@ -21,6 +21,7 @@
       <li class={{ "ml-3": entry.level === 3 }}>
         <a
           href="#{entry.id}"
+          aria-current={activeId === entry.id ? "true" : undefined}
           onclick={(e) => {
             e.preventDefault();
             onNavigate(entry.id);

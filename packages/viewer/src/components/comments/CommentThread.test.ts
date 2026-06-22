@@ -1,12 +1,20 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { MockResizeObserver } from "$lib/ui/hooks/__fixtures__/resize-observer-mock";
 
 import CommentThread from "./CommentThread.svelte";
 import type { Comment } from "../../types/comments";
 
-beforeAll(() => {
+// Re-stub ResizeObserver per test so the afterEach teardown (which restores any
+// globals a test stubbed, e.g. navigator in the copy-link test) cannot leave a
+// later test without it.
+beforeEach(() => {
   vi.stubGlobal("ResizeObserver", MockResizeObserver);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 function mkComment(over: Partial<Comment> & { id: string }): Comment {
@@ -125,6 +133,42 @@ describe("CommentThread copy-link button", () => {
   it("renders the copy-link button", () => {
     const { getByRole } = renderThread({ id: "1" });
     expect(getByRole("button", { name: "Copy link" })).toBeTruthy();
+  });
+});
+
+describe("CommentThread copy-link announcement", () => {
+  it("announces the copy in a polite live region, then clears it after the reset", async () => {
+    // Fake timers make the 1500ms auto-reset deterministic and let us assert the
+    // region returns to empty (so it won't keep announcing on the next focus).
+    vi.useFakeTimers();
+    try {
+      // copyLink() only touches navigator.clipboard.writeText, so stub just that
+      // surface. (A {...navigator} spread would drop navigator's prototype getters
+      // and yield a degraded object.) The afterEach restores it.
+      vi.stubGlobal("navigator", {
+        clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+      });
+      const { getByRole, container } = renderThread({ id: "1" });
+
+      const status = container.querySelector<HTMLElement>('[aria-live="polite"]')!;
+      expect(status).not.toBeNull();
+      expect(status.getAttribute("aria-atomic")).toBe("true");
+      expect(status.textContent?.trim()).toBe("");
+
+      await fireEvent.click(getByRole("button", { name: "Copy link" }));
+      // copyLink awaits the (immediately-resolved) clipboard write before setting
+      // copied=true; advancing fake timers flushes that microtask, then tick()
+      // flushes Svelte's DOM update.
+      await vi.advanceTimersByTimeAsync(0);
+      await tick();
+      expect(status.textContent?.trim()).toBe("Link copied");
+
+      await vi.advanceTimersByTimeAsync(1500);
+      await tick();
+      expect(status.textContent?.trim()).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
