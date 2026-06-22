@@ -64,6 +64,18 @@ pub struct ScopeInfoResponse {
 }
 
 #[napi(object)]
+pub struct SectionEntryResponse {
+    /// Canonical section ref (`kind:namespace/name`). Named `sectionRef` in JS
+    /// to match `PageMeta.sectionRef`.
+    #[napi(js_name = "sectionRef")]
+    pub section_ref: String,
+    /// Scope path, no leading slash (`""` for the root section).
+    pub path: String,
+    /// Ancestor section refs, nearest-first with the root last; excludes self.
+    pub ancestors: Vec<String>,
+}
+
+#[napi(object)]
 pub struct NavigationResponse {
     pub items: Vec<NavItemResponse>,
     pub scope: Option<ScopeInfoResponse>,

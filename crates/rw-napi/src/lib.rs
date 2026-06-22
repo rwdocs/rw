@@ -11,15 +11,15 @@ use napi_derive::napi;
 use rw_cache::{Cache, NullCache};
 use rw_cache_s3::S3Cache;
 use rw_config::Config;
-use rw_site::{NavItem, PageRendererConfig, ScopeInfo, Site};
+use rw_site::{NavItem, PageRendererConfig, ScopeInfo, SectionEntry, Site};
 use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
 use rw_storage_s3::{S3Config, S3Storage};
 
 use crate::types::{
     BreadcrumbResponse, DiagramsConfig, NavItemResponse, NavigationResponse, PageMetaResponse,
-    PageResponse, ScopeInfoResponse, SearchDocumentResponse, SectionResponse, SiteConfig,
-    TocEntryResponse,
+    PageResponse, ScopeInfoResponse, SearchDocumentResponse, SectionEntryResponse, SectionResponse,
+    SiteConfig, TocEntryResponse,
 };
 
 /// Shared tokio runtime for all S3-backed storage instances.
@@ -199,6 +199,26 @@ impl RwSite {
                 scope: nav.scope.map(convert_scope_info),
                 parent_scope: nav.parent_scope.map(convert_scope_info),
             })
+        })
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
+    }
+
+    #[napi]
+    pub async fn list_sections(&self) -> Result<Vec<SectionEntryResponse>> {
+        let site = Arc::clone(&self.site);
+        tokio::task::spawn_blocking(move || {
+            let sections = site
+                .list_sections()
+                .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
+            Ok(sections
+                .into_iter()
+                .map(|s: SectionEntry| SectionEntryResponse {
+                    section_ref: s.section_ref,
+                    path: s.path,
+                    ancestors: s.ancestors,
+                })
+                .collect())
         })
         .await
         .map_err(|e| napi::Error::from_reason(e.to_string()))?

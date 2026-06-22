@@ -118,7 +118,7 @@ pub use rw_sections::SectionPath;
 pub use rw_sections::Sections;
 
 pub use site::Site;
-pub use site_state::{NavItem, Navigation, ScopeInfo};
+pub use site_state::{NavItem, Navigation, ScopeInfo, SectionEntry};
 
 /// A heading entry for building a table-of-contents sidebar.
 ///

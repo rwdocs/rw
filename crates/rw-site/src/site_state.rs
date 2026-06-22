@@ -45,6 +45,24 @@ pub struct NavItem {
     pub children: Vec<NavItem>,
 }
 
+/// A single section in the flat hierarchy, as returned by
+/// [`SiteState::list_sections`].
+///
+/// Unlike [`NavItem`], which is scoped (nested sections appear as childless
+/// leaves), every section in the site appears here once — with its canonical
+/// ref, scope path, title, and full ancestry — so a consumer can build a
+/// nearest-ancestor roll-up in one pass without per-section round trips.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SectionEntry {
+    /// Canonical section ref (`kind:namespace/name`).
+    pub section_ref: String,
+    /// Scope path, no leading slash (`""` for the root section).
+    pub path: String,
+    /// Ancestor section refs, nearest-first with the root section last;
+    /// excludes the section itself. Empty for the root section.
+    pub ancestors: Vec<String>,
+}
+
 /// Describes which [section](crate#sections-and-scoped-navigation) the
 /// navigation sidebar is currently showing.
 ///
@@ -469,6 +487,62 @@ impl SiteState {
                 },
                 |sp| (sp.section.to_string(), sp.path.to_owned()),
             )
+    }
+
+    /// Returns every section in the site as a flat list, sorted by scope path
+    /// (the root section's empty path sorts first).
+    ///
+    /// Includes the implicit or explicit root section. Each entry carries the
+    /// canonical ref, scope path, and full ancestry — see
+    /// [`SectionEntry`]. This is the unscoped counterpart to
+    /// [`navigation`](Self::navigation): it never hides nested sections behind a
+    /// scope, so the whole hierarchy is available in one call.
+    #[must_use]
+    pub fn list_sections(&self) -> Vec<SectionEntry> {
+        let mut entries: Vec<SectionEntry> = self
+            .sections
+            .iter()
+            .map(|(path, section)| SectionEntry {
+                section_ref: section.to_string(),
+                path: path.to_owned(),
+                ancestors: self.section_ancestors(path),
+            })
+            .collect();
+        // Scope paths are unique map keys, so stability is irrelevant.
+        entries.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+        entries
+    }
+
+    /// Returns the ancestor section refs for the section at `path`, nearest-first
+    /// with the root section last, excluding the section itself.
+    ///
+    /// Walks parent paths (`rsplit_once('/')`) collecting any registered section,
+    /// then appends the universal root section (always present via
+    /// [`Sections::with_implicit_root`]). The root section itself has no
+    /// ancestors. Mirrors the prefix walk in
+    /// [`find_parent_section`](Self::find_parent_section), which returns only the
+    /// nearest parent.
+    fn section_ancestors(&self, path: &str) -> Vec<String> {
+        if path.is_empty() {
+            return Vec::new();
+        }
+
+        let mut ancestors = Vec::new();
+        let mut current = path;
+        while let Some((parent, _)) = current.rsplit_once('/') {
+            if let Some(section) = self.sections.get(parent) {
+                ancestors.push(section.to_string());
+            }
+            current = parent;
+        }
+
+        // The universal root ancestor. The loop above never yields `parent == ""`
+        // (a top-level path has no '/'), so this cannot double-count.
+        if let Some(root) = self.sections.get("") {
+            ancestors.push(root.to_string());
+        }
+
+        ancestors
     }
 
     /// Inverse of [`section_location`](Self::section_location): the page URL
@@ -2039,6 +2113,228 @@ mod tests {
 
         assert_eq!(section_ref, Section::root(Namespace::default()).to_string());
         assert_eq!(subpath, "");
+    }
+
+    // list_sections tests
+
+    fn nested_sections_site() -> SiteState {
+        // root (no kind) -> billing (domain) -> payments (system) -> api (page)
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        let billing_idx = builder.add_page(
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root_idx),
+            Some("domain"),
+            Namespace::default(),
+        );
+        let payments_idx = builder.add_page(
+            Page {
+                title: "Payments".to_owned(),
+                path: "billing/payments".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(billing_idx),
+            Some("system"),
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "API".to_owned(),
+                path: "billing/payments/api".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(payments_idx),
+            None,
+            Namespace::default(),
+        );
+        builder.build()
+    }
+
+    #[test]
+    fn list_sections_includes_root_and_all_sections_sorted_by_path() {
+        let site = nested_sections_site();
+        let entries = site.list_sections();
+
+        // root + billing + payments
+        let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths, vec!["", "billing", "billing/payments"]);
+
+        let refs: Vec<&str> = entries.iter().map(|e| e.section_ref.as_str()).collect();
+        assert_eq!(
+            refs,
+            vec![
+                "section:default/root",
+                "domain:default/billing",
+                "system:default/payments"
+            ]
+        );
+    }
+
+    #[test]
+    fn list_sections_root_entry_has_no_ancestors() {
+        let site = nested_sections_site();
+        let entries = site.list_sections();
+        let root = entries.iter().find(|e| e.path.is_empty()).unwrap();
+        assert_eq!(root.section_ref, "section:default/root");
+        assert!(root.ancestors.is_empty());
+    }
+
+    #[test]
+    fn list_sections_ancestors_are_nearest_first_root_last() {
+        let site = nested_sections_site();
+        let entries = site.list_sections();
+
+        let billing = entries.iter().find(|e| e.path == "billing").unwrap();
+        assert_eq!(billing.ancestors, vec!["section:default/root".to_owned()]);
+
+        let payments = entries
+            .iter()
+            .find(|e| e.path == "billing/payments")
+            .unwrap();
+        assert_eq!(
+            payments.ancestors,
+            vec![
+                "domain:default/billing".to_owned(),
+                "section:default/root".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn list_sections_ancestry_skips_non_section_intermediate() {
+        // billing (domain) -> sub (plain directory, NOT a section) -> deep
+        // (system). deep's ancestry must skip the non-section "sub" and be
+        // [billing, root] — exercising the sections.get(parent) skip branch.
+        let mut builder = SiteStateBuilder::new();
+        let billing_idx = builder.add_page(
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("domain"),
+            Namespace::default(),
+        );
+        let sub_idx = builder.add_page(
+            Page {
+                title: "Sub".to_owned(),
+                path: "billing/sub".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(billing_idx),
+            None, // no kind -> not a section
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Deep".to_owned(),
+                path: "billing/sub/deep".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(sub_idx),
+            Some("system"),
+            Namespace::default(),
+        );
+        let site = builder.build();
+        let entries = site.list_sections();
+
+        let deep = entries
+            .iter()
+            .find(|e| e.path == "billing/sub/deep")
+            .unwrap();
+        assert_eq!(deep.section_ref, "system:default/deep");
+        assert_eq!(
+            deep.ancestors,
+            vec![
+                "domain:default/billing".to_owned(),
+                "section:default/root".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn list_sections_root_ref_honors_custom_root_namespace() {
+        // A site whose root declares `namespace: payments` yields
+        // `section:payments/root`, not a hardcoded-default `section:default/root`.
+        // list_sections and section_location must agree, so a consumer can key
+        // root-level pages off one canonical ref instead of a brittle constant.
+        // (issue #567 follow-up.)
+        let mut builder = SiteStateBuilder::new().root_namespace("payments".parse().unwrap());
+        builder.add_page(
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            "payments".parse().unwrap(),
+        );
+        let site = builder.build();
+        let entries = site.list_sections();
+
+        let root = entries.iter().find(|e| e.path.is_empty()).unwrap();
+        assert_eq!(root.section_ref, "section:payments/root");
+        // section_location of a root-level page resolves to the same custom-ns root.
+        assert_eq!(site.section_location("guide").0, "section:payments/root");
+    }
+
+    #[test]
+    fn list_sections_honors_explicit_root_kind() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            Some("component"),
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Billing".to_owned(),
+                path: "billing".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root_idx),
+            Some("domain"),
+            Namespace::default(),
+        );
+        let site = builder.build();
+        let entries = site.list_sections();
+
+        let root = entries.iter().find(|e| e.path.is_empty()).unwrap();
+        assert_eq!(root.section_ref, "component:default/root");
+
+        // The explicit root is still the universal ancestor of top-level sections.
+        let billing = entries.iter().find(|e| e.path == "billing").unwrap();
+        assert_eq!(billing.ancestors, vec!["component:default/root".to_owned()]);
     }
 
     #[test]
