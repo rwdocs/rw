@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Inline-comment threads are now reachable on narrow windows and phones. Below the width where the right-margin comment column is hidden, tapping a highlighted passage opens its thread in a popover anchored to the highlight (with replies, resolve, and delete), and selecting text → "Add comment" opens the draft box there too — previously both silently did nothing because the only thread surface was the hidden margin column. Escape or tapping away dismisses it; `n`/`p` navigation and tapping another highlight move the popover to that comment.
 - Press `r` while a comment thread is active (highlighted with `n`/`p`) to move keyboard focus straight into that thread's reply box — no mouse needed. Works for both the inline margin thread and page-timeline/orphaned threads, scrolls the reply box into view on long threads, and announces the move to screen readers. The existing reply shortcuts still apply: Cmd/Ctrl+Enter submits and Escape releases the box so `n`/`p` resume. `r` is ignored while you're already typing, when no thread is active, or on a resolved thread.
 
 ### Changed
@@ -28,7 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A reply draft typed into one comment thread no longer appears in every other thread. Drafts are now scoped to the thread they were written in: switching threads (with `n`/`p` or the prev/next buttons) shows each thread's own draft, an untouched thread stays empty, and returning to a thread restores the draft you left there. Drafts clear on submit and when you navigate to another page.
 - Comments from the previous page no longer briefly reappear after navigating to a page that shows none (e.g. Home): a now-superseded comment fetch that resolves after you've navigated away is dropped instead of repopulating the just-cleared list. Resolving or reopening a comment while a navigation is in flight likewise no longer writes the change into the next page's comment view.
 - Accessibility: the active navigation link and the active "On this page" outline entry now expose `aria-current`, so screen readers announce which page and heading you're on (previously conveyed by color alone); copying a comment's share link is announced via a polite live region rather than only swapping the button icon; and the desktop navigation landmark now carries an accessible name ("Documentation"), distinct from the breadcrumb, table-of-contents, and mobile-navigation landmarks.
-- Inline-comment threads are now reachable on narrow windows and phones. Below the width where the right-margin comment column is hidden, tapping a highlighted passage opens its thread in a popover anchored to the highlight (with replies, resolve, and delete), and selecting text → "Add comment" opens the draft box there too — previously both silently did nothing because the only thread surface was the hidden margin column. Escape or tapping away dismisses it; `n`/`p` navigation and tapping another highlight move the popover to that comment.
 
 ## [0.1.26] - 2026-06-21
 
