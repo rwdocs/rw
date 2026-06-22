@@ -12,7 +12,7 @@ resolver = "3"
 [package]
 name = "rw-napi"
 description = "NAPI native addon exposing RW core to Node.js"
-version = "0.1.26"
+version = "0.1.27"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT OR Apache-2.0"
