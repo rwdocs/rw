@@ -13,6 +13,15 @@
   const { comments, notify } = getRwContext();
   const actions = createCommentActions(comments, notify);
 
+  interface Props {
+    /** When true (margin column), pin each thread/draft to its highlight's
+     *  vertical position with padding-top. When false (popover), render with no
+     *  padding — the Popover positions the panel itself. */
+    pin?: boolean;
+  }
+
+  let { pin = true }: Props = $props();
+
   let threadAnchor = $state<number | null>(null);
   let pendingAnchor = $state<number | null>(null);
   let cardRef = $state<HTMLDivElement | undefined>();
@@ -59,9 +68,10 @@
 
   // Move focus into the active inline thread's reply box when the user presses
   // `r` (store bumps replyFocusSeq). Baseline captured at creation so the first
-  // effect run — which is not an `r` press — does not steal focus. The sidebar
-  // only mounts for an active inline thread (or a pending draft, which doesn't
-  // bump the counter), so the single reply form under cardRef is the target.
+  // effect run — which is not an `r` press — does not steal focus. This panel
+  // (whether in the wide margin aside or the narrow CommentPopover) only mounts
+  // for an active inline thread (or a pending draft, which doesn't bump the
+  // counter), so the single reply form under cardRef is the target.
   let lastReplyFocusSeq = comments.replyFocusSeq;
   $effect(() => {
     const seq = comments.replyFocusSeq;
@@ -157,8 +167,10 @@
 
 {#if comments.pending}
   <div
-    style:padding-top="{Math.max(0, (comments.pendingTop ?? 0) - (pendingAnchor ?? 0))}px"
-    style:visibility={pendingAnchor === null ? "hidden" : "visible"}
+    style:padding-top={pin
+      ? `${Math.max(0, (comments.pendingTop ?? 0) - (pendingAnchor ?? 0))}px`
+      : undefined}
+    style:visibility={pin && pendingAnchor === null ? "hidden" : "visible"}
   >
     <CommentForm
       onSubmit={handleNewCommentSubmit}
@@ -173,8 +185,10 @@
   <div
     bind:this={cardRef}
     tabindex="-1"
-    style:padding-top="{Math.max(0, (comments.activeTop ?? 0) - (threadAnchor ?? 0))}px"
-    style:visibility={threadAnchor === null ? "hidden" : "visible"}
+    style:padding-top={pin
+      ? `${Math.max(0, (comments.activeTop ?? 0) - (threadAnchor ?? 0))}px`
+      : undefined}
+    style:visibility={pin && threadAnchor === null ? "hidden" : "visible"}
     class="outline-none"
   >
     <!-- Remount per thread so each switch re-seeds the reply draft from the

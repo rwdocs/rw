@@ -18,6 +18,11 @@ export class Comments {
   activeId = $state<string | null>(null);
   /** Vertical offset of the active highlight relative to the content area. */
   activeTop = $state<number | null>(null);
+  /** Article-relative left edge for the narrow-screen comment popover, clamped so
+   *  the fixed-width popover stays on screen while centering on the active
+   *  highlight. Null when no inline thread is active. Only the popover reads it;
+   *  the wide sidebar ignores it. */
+  activeLeft = $state<number | null>(null);
   /** Comment currently targeted by a `#comment-<id>` deep link. Owned by
    *  PageContent's inbound effect (sets/clears it as the hash moves); also reset
    *  to null by load() and clear() on document change. Drives the page-thread
@@ -46,6 +51,9 @@ export class Comments {
   pending = $state<PendingComment | null>(null);
   /** Vertical offset for the pending comment form. */
   pendingTop = $state<number | null>(null);
+  /** Article-relative left edge for the pending draft in the narrow popover
+   *  (see {@link activeLeft}). Null when no draft is pending. */
+  pendingLeft = $state<number | null>(null);
   /** Per-thread reply drafts, keyed by thread (top-level comment) id. Lives on
    *  the store so a draft survives the inline sidebar remounting CommentThread
    *  (and its CommentForm) on every thread switch, and so the same thread shows
@@ -220,6 +228,15 @@ export class Comments {
     return this.activeId != null && this.inlineThreads.some((t) => t.id === this.activeId);
   }
 
+  /** True when an inline thread is active or a new-comment draft is pending — i.e.
+   *  the right-margin aside (wide) / CommentPopover (narrow) should be shown. The
+   *  single source for that predicate, used by Layout's `data-comments-active`
+   *  attribute, the aside `{#if}`, and the popover's `show`, so the three can't
+   *  drift apart. */
+  get inlineSurfaceActive(): boolean {
+    return this.activeIsInline || this.pending != null;
+  }
+
   /** All open top-level threads in review order: inline threads in document
    *  order (live DOM rank from `order`) followed by page-level + orphaned
    *  threads by creation time — matching the order `PageComments` renders them.
@@ -282,6 +299,7 @@ export class Comments {
   clearPending = () => {
     this.pending = null;
     this.pendingTop = null;
+    this.pendingLeft = null;
   };
 
   /** Persist a thread's reply draft (keyed by thread id). An empty body deletes
@@ -309,6 +327,7 @@ export class Comments {
     this.linkedId = null;
     this.resolvedExpanded = false;
     this.activeTop = null;
+    this.activeLeft = null;
     // navSeq is intentionally NOT reset here — see its declaration. It must stay
     // monotonic so a navigation after clear() can never collide with a value a
     // consumer already handled.

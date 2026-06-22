@@ -151,7 +151,7 @@ export function reconcileHighlights(
   // Range objects created before the mutation — including the ranges stored above
   // for comments that share a text node with a freshly wrapped one. Rebuild the
   // stored ranges from the final DOM so commentRanges holds valid, non-collapsed
-  // ranges (consumed by getHighlightTop). textContent is unchanged by wrapping, so
+  // ranges (consumed by getHighlightAnchor). textContent is unchanged by wrapping, so
   // re-anchoring resolves the same spans with live post-mutation nodes. Only needed
   // when the DOM actually changed.
   if (mutated) {

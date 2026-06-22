@@ -15,6 +15,7 @@
   } from "$lib/comments/deeplink";
   import { isNewlyOrphaned } from "$lib/comments/navigation";
   import { documentIdFor } from "$lib/comments/documentId";
+  import { clampPopoverLeft } from "$lib/comments/popoverAnchor";
   import LoadingSkeleton from "$lib/ui/primitives/LoadingSkeleton.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
@@ -23,6 +24,7 @@
   import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
   import PageComments from "./comments/PageComments.svelte";
+  import CommentPopover from "./comments/CommentPopover.svelte";
 
   const ctx = getRwContext();
   const { page, router, comments, liveReload } = ctx;
@@ -333,10 +335,13 @@
     const activeId = comments.activeId;
     if (!activeId || !articleRef) {
       comments.activeTop = null;
+      comments.activeLeft = null;
       return;
     }
     void articleSize.version;
-    comments.activeTop = getHighlightTop(activeId);
+    const anchor = getHighlightAnchor(activeId);
+    comments.activeTop = anchor?.top ?? null;
+    comments.activeLeft = anchor ? clampPopoverLeft(anchor.centerX, articleRef.clientWidth) : null;
   });
 
   // Toggle data-active="true" on the wrappers belonging to the active comment.
@@ -451,10 +456,11 @@
     return target.closest("rw-annotation")?.getAttribute("data-comment-id") ?? null;
   }
 
-  /** Vertical offset of the anchor point for a comment's highlight, relative to
-   *  the article element. The anchor point is the vertical middle of the first
-   *  line of highlighted text — multi-line highlights still anchor to the first
-   *  line, which is where the reader's eye lands.
+  /** Anchor point for a comment's highlight, relative to the article element:
+   *  `top` is the vertical middle of the first line of highlighted text, `centerX`
+   *  its horizontal middle. Multi-line highlights still anchor to the first line,
+   *  which is where the reader's eye lands. `top` drives the sidebar thread's
+   *  vertical pinning; `centerX` drives the narrow popover's horizontal centering.
    *
    *  When the range's start sits at the boundary between two text nodes (e.g.
    *  end of an inline element right before a sibling code span), browsers can
@@ -467,7 +473,7 @@
    *  longer maps it), fall back to resolving the comment's selectors on
    *  demand. The sidebar thread should stay anchored to the article passage
    *  even after the in-article highlight disappears. */
-  function getHighlightTop(commentId: string): number | null {
+  function getHighlightAnchor(commentId: string): { top: number; centerX: number } | null {
     if (!articleRef) return null;
     let range = commentRanges.get(commentId);
     if (!range) {
@@ -487,14 +493,17 @@
     }
     firstLineRect ??= range.getBoundingClientRect();
     const articleRect = articleRef.getBoundingClientRect();
-    return firstLineRect.top + firstLineRect.height / 2 - articleRect.top;
+    return {
+      top: firstLineRect.top + firstLineRect.height / 2 - articleRect.top,
+      centerX: firstLineRect.left + firstLineRect.width / 2 - articleRect.left,
+    };
   }
 
   /** Scroll the deep-link target into view and move focus. Returns whether a
    *  target element was found (false means "not in the DOM yet" — the inbound
    *  effect will retry on the next comment-state change). Uses only
    *  scrollIntoView so it works whether window or a host element is the scroller.
-   *  Inline focus is delegated to CommentSidebar (it owns its card). */
+   *  Inline focus is delegated to CommentPanel (it owns its card). */
   function revealCommentTarget(id: string, kind: CommentTargetKind): boolean {
     if (kind === "inline") {
       const el = articleRef?.querySelector(`rw-annotation[data-comment-id="${escapeId(id)}"]`);
@@ -517,6 +526,7 @@
     const container = articleRef;
     if (!pending || !container || pending.selectors.length === 0) {
       comments.pendingTop = null;
+      comments.pendingLeft = null;
       return;
     }
     void articleSize.version;
@@ -526,6 +536,10 @@
       const rangeRect = result.range.getBoundingClientRect();
       const articleRect = container.getBoundingClientRect();
       comments.pendingTop = rangeRect.top - articleRect.top;
+      comments.pendingLeft = clampPopoverLeft(
+        rangeRect.left + rangeRect.width / 2 - articleRect.left,
+        container.clientWidth,
+      );
     }
   });
 
@@ -575,6 +589,9 @@
     highlighted text via the compositor, with no JS repositioning on scroll.
   -->
   <div class="relative">
+    {#if comments.enabled}
+      <CommentPopover />
+    {/if}
     {#if comments.enabled && selectionPopover.pos}
       <!--
         Free-mode Popover anchored above the current selection.

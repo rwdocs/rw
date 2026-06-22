@@ -9,11 +9,13 @@
   import MobileDrawer from "./MobileDrawer.svelte";
   import IconButton from "$lib/ui/primitives/IconButton.svelte";
   import LoadingBar from "$lib/ui/primitives/LoadingBar.svelte";
-  import CommentSidebar from "./comments/CommentSidebar.svelte";
+  import CommentPanel from "./comments/CommentPanel.svelte";
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Toaster from "./Toaster.svelte";
   import { useActiveHeading } from "$lib/ui/hooks/useActiveHeading.svelte";
   import { useCommentNavigation } from "$lib/ui/hooks/useCommentNavigation.svelte";
+  import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
+  import { isLayoutNarrow } from "$lib/ui/breakpoints";
 
   interface Props {
     children: Snippet;
@@ -44,6 +46,16 @@
     navigable: () => comments.navigable,
     navigate: comments.navigate,
     requestReplyFocus: comments.focusReply,
+  });
+
+  // The layout's breakpoints are CSS container queries (for embedded mode), so
+  // JS has no inherent knowledge of the 952px comments breakpoint. Measure the
+  // container (the pattern Breadcrumbs already uses) to drive ui.narrow, which
+  // chooses the in-flow comments aside (wide) vs the CommentPopover (narrow).
+  let layoutContainerEl = $state<HTMLDivElement>();
+  const layoutSize = useElementSize(() => layoutContainerEl ?? null);
+  $effect(() => {
+    ui.narrow = isLayoutNarrow(layoutSize.width);
   });
 
   function onTocNavigate(id: string) {
@@ -92,9 +104,10 @@
 </script>
 
 <div
+  bind:this={layoutContainerEl}
   class="layout-container"
   data-testid="viewer-root"
-  data-comments-active={comments.activeIsInline || comments.pending ? "" : undefined}
+  data-comments-active={comments.inlineSurfaceActive ? "" : undefined}
 >
   <LoadingBar loading={page.loading} />
   <Toaster />
@@ -210,10 +223,10 @@
           </main>
 
           <!-- Right Sidebar: Comments (when active or drafting) or Table of Contents -->
-          {#if comments.activeIsInline || comments.pending}
+          {#if comments.inlineSurfaceActive && !ui.narrow}
             <aside aria-label="Comments" class="layout-comments hidden w-[320px] shrink-0">
               <div class="pl-8">
-                <CommentSidebar />
+                <CommentPanel />
               </div>
             </aside>
           {:else if page.data && tocEntries.length > 0}
@@ -329,7 +342,9 @@
 
   /* When comments are active, prioritize comments over nav sidebar.
      At medium widths: show comments, hide nav.
-     At wider widths: show both. */
+     At wider widths: show both.
+     NOTE: 952px mirrors COMMENTS_BREAKPOINT_PX in $lib/ui/breakpoints — keep in
+     sync; below it the CommentPopover replaces this aside. */
   @container (min-width: 952px) {
     :global([data-comments-active]) .layout-sidebar {
       display: none;

@@ -51,9 +51,10 @@
   let showActions = $derived(pinActions || focused || value.trim().length > 0);
 
   // Auto-focus the textarea on mount. Deferred to rAF so the parent's
-  // visibility-hidden-until-measured wrapper (CommentSidebar) has flipped to
-  // visible before we focus — focus() on a visibility:hidden element is a spec
-  // no-op.
+  // visibility-hidden-until-measured wrapper (CommentPanel's pinned margin-column
+  // mode) has flipped to visible before we focus — focus() on a visibility:hidden
+  // element is a spec no-op. (In the popover, pin=false, the wrapper is visible
+  // from first paint, so the rAF is harmless there.)
   function autofocusTextarea(ta: HTMLTextAreaElement) {
     if (!autofocus) return;
     const id = requestAnimationFrame(() => ta.focus({ preventScroll: true }));
