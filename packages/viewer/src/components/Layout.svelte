@@ -142,11 +142,18 @@
       {/if}
     </header>
   {/if}
+  <!-- While the mobile drawer is open it's a modal; inert the obscured page
+       body so it leaves the tab order and the a11y tree. The header is left
+       live because it hosts the hamburger: on close, trapFocus's cleanup
+       restores focus to it, and `.focus()` is a no-op on an inert element, so
+       inerting the header would drop focus to <body> instead. -->
   <div
+    data-testid="layout-root"
     class="
       layout-root flex h-full flex-col bg-white text-gray-900
       dark:bg-neutral-800 dark:text-neutral-100
     "
+    inert={ui.mobileMenuOpen}
   >
     <!-- Navigation Sidebar (Desktop) -->
     {#if !navEmpty}

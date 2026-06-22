@@ -26,7 +26,7 @@ test.describe("Mobile Navigation", () => {
     await page.getByRole("button", { name: "Open menu" }).click();
 
     // Mobile drawer should appear
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
     await expect(drawer).toBeVisible();
 
     // Should show navigation items
@@ -40,7 +40,7 @@ test.describe("Mobile Navigation", () => {
     // Open drawer
     await page.getByRole("button", { name: "Open menu" }).click();
 
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
     await expect(drawer).toBeVisible();
 
     // Expand Getting Started
@@ -64,7 +64,7 @@ test.describe("Mobile Navigation", () => {
     // Open drawer
     await page.getByRole("button", { name: "Open menu" }).click();
 
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
     await expect(drawer).toBeVisible();
 
     // Press escape
@@ -80,7 +80,7 @@ test.describe("Mobile Navigation", () => {
     // Open drawer
     await page.getByRole("button", { name: "Open menu" }).click();
 
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
     await expect(drawer).toBeVisible();
 
     // Click outside the drawer on the backdrop overlay
@@ -128,7 +128,7 @@ test.describe("Mobile Navigation", () => {
 
     // Open drawer and navigate
     await page.getByRole("button", { name: "Open menu" }).click();
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
 
     // Expand Getting Started
     const gsLink = drawer.getByRole("link", { name: "Getting Started" });
@@ -142,7 +142,7 @@ test.describe("Mobile Navigation", () => {
     // Navigate to another page
     await page.getByRole("button", { name: "Open menu" }).click();
     await page
-      .getByRole("complementary", { name: "Mobile navigation" })
+      .getByRole("dialog", { name: "Mobile navigation" })
       .getByRole("link", { name: "API Reference" })
       .click();
 
@@ -226,5 +226,95 @@ test.describe("Mobile Navigation", () => {
     expect(headerBox).not.toBeNull();
     expect(headingBox).not.toBeNull();
     expect(headingBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
+  });
+
+  test("moves focus into the drawer when opened", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Open menu" }).click();
+
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
+    await expect(drawer).toBeVisible();
+    // Focus lands on the dialog panel itself so screen readers announce it.
+    await expect(drawer).toBeFocused();
+  });
+
+  test("traps Tab within the drawer", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Open menu" }).click();
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
+    await expect(drawer).toBeFocused();
+
+    // First Tab moves from the panel to its first interactive control — the
+    // "RW" home link — confirming Tab enters the drawer at the start of its
+    // focusable list rather than escaping.
+    await page.keyboard.press("Tab");
+    await expect(drawer.getByRole("link", { name: "RW" })).toBeFocused();
+
+    // Shift+Tab from the first control wraps backwards to a different focusable
+    // inside the drawer (the last one), so focus leaves the home link but never
+    // leaves the dialog.
+    await page.keyboard.press("Shift+Tab");
+    await expect(drawer.getByRole("link", { name: "RW" })).not.toBeFocused();
+    await expect(drawer.locator(":focus")).toHaveCount(1);
+  });
+
+  test("restores focus to the hamburger when closed with Escape", async ({ page }) => {
+    await page.goto("/");
+
+    const hamburger = page.getByRole("button", { name: "Open menu" });
+    await hamburger.click();
+
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
+    await expect(drawer).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden();
+    await expect(hamburger).toBeFocused();
+  });
+
+  test("restores focus to the hamburger when closed via the backdrop", async ({ page }) => {
+    await page.goto("/");
+
+    const hamburger = page.getByRole("button", { name: "Open menu" });
+    await hamburger.click();
+
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
+    await expect(drawer).toBeVisible();
+
+    // Click the backdrop to the right of the 280px panel.
+    const drawerBox = await drawer.boundingBox();
+    expect(drawerBox).not.toBeNull();
+    await page.mouse.click(drawerBox!.x + drawerBox!.width + 50, drawerBox!.y + 100);
+
+    await expect(drawer).toBeHidden();
+    await expect(hamburger).toBeFocused();
+  });
+
+  test("inerts the page body behind the open drawer", async ({ page }) => {
+    await page.goto("/");
+
+    // A link in the main article is focusable before the drawer opens.
+    const articleLink = page.getByRole("article").getByRole("link").first();
+    await expect(articleLink).toBeVisible();
+
+    // Before opening, the page body is not inert.
+    const layoutRoot = page.getByTestId("layout-root");
+    await expect(layoutRoot).not.toHaveAttribute("inert", /.*/);
+
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await expect(page.getByRole("dialog", { name: "Mobile navigation" })).toBeVisible();
+
+    // While open, the page body carries `inert`, which removes it from the tab
+    // order and the a11y tree. Verify the attribute is applied and that focus
+    // genuinely cannot enter the body: focusing a link inside it is a no-op
+    // because inert elements are not focusable.
+    await expect(layoutRoot).toHaveAttribute("inert", /.*/);
+    const focusEnteredBody = await articleLink.evaluate((el) => {
+      (el as HTMLElement).focus();
+      return el.contains(document.activeElement);
+    });
+    expect(focusEnteredBody).toBe(false);
   });
 });

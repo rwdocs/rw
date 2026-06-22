@@ -4,6 +4,7 @@
   import Alert from "$lib/ui/primitives/Alert.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
   import { dismissible } from "$lib/ui/hooks/dismissible";
+  import { trapFocus } from "$lib/ui/hooks/trapFocus";
 
   interface Props {
     open: boolean;
@@ -17,7 +18,12 @@
 
   let drawerEl: HTMLElement | undefined = $state();
 
-  // Skip Escape in embedded mode to avoid interfering with host app.
+  // Escape / outside-click dismissal. Skipped in embedded mode to avoid
+  // interfering with the host app — there the in-drawer Close button is the
+  // dismiss affordance. Either way, closing unmounts the panel below, which
+  // tears down its trapFocus attachment; that cleanup is what restores focus
+  // to the trigger, so dismissal here intentionally owns only "close", not
+  // focus restoration.
   $effect(() => {
     if (router.embedded) return;
     return dismissible(open, drawerEl, onClose);
@@ -28,7 +34,14 @@
   <div bind:this={drawerEl} class="drawer-flow-anchor">
     <button type="button" class="drawer-flow-backdrop" onclick={onClose} aria-label="Close menu"
     ></button>
-    <aside aria-label="Mobile navigation" class="drawer-flow-panel">
+    <div
+      aria-label="Mobile navigation"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      class="drawer-flow-panel"
+      {@attach trapFocus}
+    >
       <div
         data-testid="mobile-drawer-panel"
         class="h-dvh overflow-y-auto bg-white shadow-xl dark:bg-neutral-800"
@@ -64,7 +77,7 @@
           <NavigationSidebar />
         </div>
       </div>
-    </aside>
+    </div>
   </div>
 {/if}
 
