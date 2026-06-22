@@ -3,8 +3,9 @@
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
-  import { rangeToSelectors, selectorsToRange, type AnchorStrategy } from "$lib/anchoring";
-  import { wrapRange, unwrapAll, escapeId } from "$lib/comments/highlight";
+  import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
+  import { escapeId } from "$lib/comments/highlight";
+  import { reconcileHighlights } from "$lib/comments/reconcile";
   import {
     buildCommentHash,
     parseCommentHash,
@@ -40,10 +41,15 @@
   // Drop any in-flight selection when the article content changes (live reload,
   // navigation). The cached Range's start/end nodes get detached, so its rect
   // collapses to zero and would briefly jump the popover to the top-left
-  // corner before anything else dismissed it.
+  // corner before anything else dismissed it. Also drop the native selection:
+  // the reconcile effect only clears it when a wrap/unwrap overlaps it, so a
+  // content swap (which detaches the selection's nodes) must clear it here, or a
+  // later mouseup could read a Range whose containers are gone and open the
+  // composer on empty selectors.
   $effect(() => {
     void page.data;
     selectionPopover.clear();
+    window.getSelection()?.removeAllRanges();
   });
 
   // Delay skeleton appearance so fast page loads don't flash it.
@@ -258,77 +264,49 @@
   // Map from comment ID to its anchored Range (for click detection)
   let commentRanges = $state.raw<Map<string, Range>>(new Map());
 
-  // Apply comment highlights via <rw-annotation> DOM wrappers.
-  // Overlapping comments nest, so the box-model alpha compositing makes the
-  // overlap region a darker yellow — what the CSS Custom Highlight API
-  // can't do because it picks one color per overlapping range
-  // ("last write wins" across Highlight objects).
-  //
-  // The active comment uses CSS.highlights.rw-comment-active (next effect)
-  // because a single-range overlay doesn't need DOM mutation and shouldn't
-  // fight with the user's text selection.
+  // Reconcile comment highlights to the current open/anchored set. The
+  // <rw-annotation> DOM is the wrapped-set ledger, so this mutates only what
+  // changed (resolve unwraps one; create/reopen wraps one) instead of tearing
+  // the whole article down and rebuilding it on every comment mutation. A
+  // navigation / live-reload re-render leaves zero wrappers, so the same pass
+  // re-anchors everything. The user's text selection is preserved unless a
+  // wrap/unwrap actually overlaps it. Overlapping comments nest so the
+  // box-model alpha compositing produces a darker highlight where they overlap;
+  // the active comment uses CSS.highlights.rw-comment-active (next effect)
+  // because a single-range overlay doesn't need DOM mutation.
   $effect(() => {
     const items = comments.items;
     const container = articleRef;
     if (!container) return;
 
-    // Drop any pending text selection — its Range may point into nodes we're
-    // about to unwrap, which would collapse the selection mid-draft. The
-    // popover follows live selection state, so this also dismisses it.
-    selectionPopover.clear();
-    // Also drop the native selection — its Range may point into text nodes
-    // unwrapAll is about to mutate, and a stray mouseup after the wrap pass
-    // would read a Range whose containers have been merged.
-    window.getSelection()?.removeAllRanges();
-    unwrapAll(container);
+    const sel = window.getSelection();
+    const selectionRange = sel && sel.rangeCount > 0 && !sel.isCollapsed ? sel.getRangeAt(0) : null;
 
-    const rangeMap = new Map<string, Range>();
-    const strategyMap = new Map<string, AnchorStrategy>();
-    const orphanIds = new Set<string>();
-    const anchored: { id: string; range: Range }[] = [];
+    const desired = items
+      .filter((c) => c.status !== "resolved" && c.selectors.length > 0)
+      .map((c) => ({ id: c.id, selectors: c.selectors, parentId: c.parentId }));
 
-    for (const comment of items) {
-      if (comment.selectors.length === 0) continue;
-      if (comment.status === "resolved") continue;
-      const result = selectorsToRange(comment.selectors, container);
-      if (result) {
-        const wrappers = wrapRange(result.range, {
-          commentId: comment.id,
-          strategy: result.strategy,
-        });
-        if (wrappers.length === 0) {
-          // Range resolved but contained only whitespace — treat as orphan so
-          // the comment surfaces in the page-comments timeline instead of
-          // becoming an invisible clickable region (whitespace highlight has
-          // no visible wrapper but range.getClientRects() still has bounds).
-          if (!comment.parentId) orphanIds.add(comment.id);
-          continue;
-        }
-        rangeMap.set(comment.id, result.range);
-        strategyMap.set(comment.id, result.strategy);
-        anchored.push({ id: comment.id, range: result.range });
-      } else if (!comment.parentId) {
-        // Top-level inline comment whose stored selectors no longer resolve —
-        // surface it in the page comments timeline below the article instead
-        // of silently dropping it. Replies are kept with whichever parent they
-        // belong to, so only top-level threads get promoted.
-        orphanIds.add(comment.id);
-      }
+    const result = reconcileHighlights(container, desired, selectionRange);
+
+    commentRanges = result.ranges;
+    comments.anchorStrategies = result.strategies;
+    comments.orphanIds = result.orphanIds;
+    comments.order = result.order;
+
+    if (result.touchesSelection) {
+      // A wrap/unwrap mutated text nodes the selection points into; drop it so a
+      // later mouseup can't read a Range over merged/split containers.
+      selectionPopover.clear();
+      window.getSelection()?.removeAllRanges();
     }
 
-    commentRanges = rangeMap;
-    comments.anchorStrategies = strategyMap;
-    comments.orphanIds = orphanIds;
-
-    // Order inline threads by their live DOM position, not by stored
-    // TextPositionSelector.start — stored positions reflect the document
-    // as it was at comment creation time and are stale after edits.
-    anchored.sort((a, b) => a.range.compareBoundaryPoints(Range.START_TO_START, b.range));
-    comments.order = anchored.map((a) => a.id);
-
-    return () => {
-      unwrapAll(container);
-    };
+    // No cleanup that unwraps: a Svelte effect cleanup runs before EVERY re-run,
+    // so unwrapping here would strip all highlights before each reconcile —
+    // turning every comment mutation back into a full teardown + rebuild (and
+    // collapsing overlapping comments, since they'd all be re-wrapped in one
+    // pass). reconcile reads the live DOM as its ledger and removes only what a
+    // change drops; on navigation / unmount the wrappers vanish with the
+    // replaced/destroyed article subtree, so there is nothing to clean up.
   });
 
   // De-activate a thread that *spontaneously* lost its anchor (e.g. live-reload

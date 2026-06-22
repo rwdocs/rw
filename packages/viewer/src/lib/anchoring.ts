@@ -20,6 +20,57 @@ function getTextContent(container: HTMLElement): string {
   return container.textContent ?? "";
 }
 
+export interface TextIndex {
+  /** Full concatenated text content of the container, in document order. */
+  text: string;
+  /** Map a character offset in `text` to a live text node + local offset. */
+  locate(offset: number): { node: Text; offset: number } | null;
+}
+
+/**
+ * Walk the container's text nodes ONCE, recording each node and its cumulative
+ * start offset, and concatenate the full text. `locate` then binary-searches the
+ * cumulative offsets instead of re-walking per call. A pass that anchors many
+ * comments builds this once and reuses it for every comment.
+ */
+export function buildTextIndex(container: HTMLElement): TextIndex {
+  const nodes: Text[] = [];
+  const starts: number[] = []; // starts[i] = cumulative text offset where nodes[i] begins
+  let text = "";
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    starts.push(text.length);
+    nodes.push(node);
+    text += node.data;
+  }
+
+  function locate(offset: number): { node: Text; offset: number } | null {
+    if (offset < 0 || offset > text.length || nodes.length === 0) return null;
+    // Find the last node whose start is strictly less than offset (binary search).
+    // At a node boundary (starts[i] === offset) this returns the earlier node
+    // with local offset === node.length rather than the next node at offset 0 —
+    // both are valid Range endpoints, but anchoring to the earlier node's end
+    // avoids crossing into a following sibling span and producing an unexpected
+    // boundary.
+    let lo = 0;
+    let hi = nodes.length - 1;
+    let idx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (starts[mid] < offset) {
+        idx = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return { node: nodes[idx], offset: offset - starts[idx] };
+  }
+
+  return { text, locate };
+}
+
 /**
  * Convert a DOM Range to an array of selectors for storage.
  * Creates TextQuoteSelector (robust) + TextPositionSelector (fast).
@@ -44,26 +95,8 @@ export function rangeToSelectors(range: Range, container: HTMLElement): Selector
   ];
 }
 
-function findTextPosition(
-  container: HTMLElement,
-  targetOffset: number,
-): { node: Text; offset: number } | null {
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-  let currentOffset = 0;
-
-  while (walker.nextNode()) {
-    const node = walker.currentNode as Text;
-    const nodeLength = node.textContent?.length ?? 0;
-    if (currentOffset + nodeLength >= targetOffset) {
-      return { node, offset: targetOffset - currentOffset };
-    }
-    currentOffset += nodeLength;
-  }
-  return null;
-}
-
 /**
- * Re-anchor stored selectors to a live DOM Range.
+ * Re-anchor stored selectors to a live DOM Range using a pre-built TextIndex.
  *
  * Resolution order:
  *   1. TextPositionSelector — fast path. When a quote selector is also
@@ -82,10 +115,7 @@ function findTextPosition(
  *      same wrong place, so we orphan instead. Successful fuzzy matches get
  *      `strategy: 'fuzzy'` (dashed underline + "re-anchored" badge).
  */
-export function selectorsToRange(
-  selectors: Selector[],
-  container: HTMLElement,
-): AnchorResult | null {
+export function selectorsToRangeIn(selectors: Selector[], index: TextIndex): AnchorResult | null {
   const posSelector = selectors.find(
     (s): s is Extract<Selector, { type: "TextPositionSelector" }> =>
       s.type === "TextPositionSelector",
@@ -95,12 +125,11 @@ export function selectorsToRange(
   );
 
   if (posSelector) {
-    const range = positionToRange(posSelector, container);
+    const range = positionToRange(posSelector, index);
     if (range && quoteSelector) {
       if (range.toString() === quoteSelector.exact) {
-        const text = getTextContent(container);
         const score = scoreContext(
-          text,
+          index.text,
           posSelector.start,
           quoteSelector.exact.length,
           quoteSelector.prefix,
@@ -127,7 +156,7 @@ export function selectorsToRange(
   }
 
   if (quoteSelector) {
-    const occ = quoteBestOccurrence(quoteSelector, container, posSelector?.start);
+    const occ = quoteBestOccurrence(quoteSelector, index, posSelector?.start);
     if (occ) {
       if (
         isConfidentMatch(
@@ -137,11 +166,7 @@ export function selectorsToRange(
           quoteSelector.suffix,
         )
       ) {
-        const range = rangeAtTextOffset(
-          container,
-          occ.index,
-          occ.index + quoteSelector.exact.length,
-        );
+        const range = rangeAtTextOffset(index, occ.index, occ.index + quoteSelector.exact.length);
         if (range) return { range, strategy: "quote" };
       }
       // Exact text is present but failed the confidence gate — the passage
@@ -149,7 +174,7 @@ export function selectorsToRange(
       // only anchor to the wrong place.
     } else {
       // Exact text is gone — the passage was edited. Try a fuzzy match.
-      const fuzzy = fuzzyToRange(quoteSelector, container, posSelector?.start);
+      const fuzzy = fuzzyToRange(quoteSelector, index, posSelector?.start);
       if (fuzzy) return { range: fuzzy, strategy: "fuzzy" };
     }
   }
@@ -157,12 +182,26 @@ export function selectorsToRange(
   return null;
 }
 
+/**
+ * Re-anchor stored selectors to a live DOM Range.
+ *
+ * Builds a TextIndex from `container` and delegates to `selectorsToRangeIn`.
+ * When anchoring many comments against the same container, prefer building
+ * one TextIndex with `buildTextIndex` and calling `selectorsToRangeIn` directly.
+ */
+export function selectorsToRange(
+  selectors: Selector[],
+  container: HTMLElement,
+): AnchorResult | null {
+  return selectorsToRangeIn(selectors, buildTextIndex(container));
+}
+
 function positionToRange(
   selector: Extract<Selector, { type: "TextPositionSelector" }>,
-  container: HTMLElement,
+  index: TextIndex,
 ): Range | null {
-  const start = findTextPosition(container, selector.start);
-  const end = findTextPosition(container, selector.end);
+  const start = index.locate(selector.start);
+  const end = index.locate(selector.end);
   if (!start || !end) return null;
 
   try {
@@ -234,10 +273,9 @@ interface QuoteOccurrence {
  */
 function quoteBestOccurrence(
   selector: Extract<Selector, { type: "TextQuoteSelector" }>,
-  container: HTMLElement,
+  index: TextIndex,
   positionHint?: number,
 ): QuoteOccurrence | null {
-  const text = getTextContent(container);
   const { exact, prefix, suffix } = selector;
   // Empty exact would spin the loop below forever — indexOf("", n) returns n, never -1.
   if (!exact) return null;
@@ -245,17 +283,17 @@ function quoteBestOccurrence(
   let best: QuoteOccurrence | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
 
-  let index = text.indexOf(exact);
-  while (index !== -1) {
-    const { prefixScore, suffixScore } = scoreContext(text, index, exact.length, prefix, suffix);
-    const distance = positionHint === undefined ? 0 : Math.abs(index - positionHint);
+  let i = index.text.indexOf(exact);
+  while (i !== -1) {
+    const { prefixScore, suffixScore } = scoreContext(index.text, i, exact.length, prefix, suffix);
+    const distance = positionHint === undefined ? 0 : Math.abs(i - positionHint);
     const currentSum = prefixScore + suffixScore;
     const bestSum = best ? best.prefixScore + best.suffixScore : -1;
     if (currentSum > bestSum || (currentSum === bestSum && distance < bestDistance)) {
-      best = { index, prefixScore, suffixScore };
+      best = { index: i, prefixScore, suffixScore };
       bestDistance = distance;
     }
-    index = text.indexOf(exact, index + 1);
+    i = index.text.indexOf(exact, i + 1);
   }
 
   return best;
@@ -302,9 +340,9 @@ function isConfidentMatch(
   return prefixGood || suffixGood;
 }
 
-function rangeAtTextOffset(container: HTMLElement, start: number, end: number): Range | null {
-  const startPos = findTextPosition(container, start);
-  const endPos = findTextPosition(container, end);
+function rangeAtTextOffset(index: TextIndex, start: number, end: number): Range | null {
+  const startPos = index.locate(start);
+  const endPos = index.locate(end);
   if (!startPos || !endPos) return null;
 
   try {
@@ -319,17 +357,16 @@ function rangeAtTextOffset(container: HTMLElement, start: number, end: number): 
 
 function fuzzyToRange(
   selector: Extract<Selector, { type: "TextQuoteSelector" }>,
-  container: HTMLElement,
+  index: TextIndex,
   positionHint?: number,
 ): Range | null {
-  const text = getTextContent(container);
   const pattern = selector.exact;
-  if (!pattern || !text) return null;
+  if (!pattern || !index.text) return null;
 
   // diff-match-patch's match_main works in chunks of 32 chars internally; for
   // longer patterns it splits and stitches. Anything longer than the document
   // can't match; bail early.
-  if (pattern.length > text.length) return null;
+  if (pattern.length > index.text.length) return null;
 
   const dmp = new diff_match_patch();
   dmp.Match_Threshold = FUZZY_THRESHOLD;
@@ -342,21 +379,21 @@ function fuzzyToRange(
   // exceeds Match_MaxBits (default 32) and no exact substring equals it at the
   // hinted offset. Treat that as "no fuzzy match" instead of letting the
   // exception bubble up and break the caller's anchoring pass.
-  let index: number;
+  let matchIndex: number;
   try {
-    index = dmp.match_main(text, pattern, expectedLoc);
+    matchIndex = dmp.match_main(index.text, pattern, expectedLoc);
   } catch {
     return null;
   }
-  if (index === -1) return null;
+  if (matchIndex === -1) return null;
 
   // diff-match-patch returns a starting index but not a length — it found a
   // region "similar to" the pattern. The actual matched substring may be
   // slightly shorter or longer than `pattern.length`. Anchor to a window of
-  // exactly `pattern.length` starting at `index`; this is what Hypothesis
+  // exactly `pattern.length` starting at `matchIndex`; this is what Hypothesis
   // does and gives a reasonable visible highlight in practice.
-  const start = findTextPosition(container, index);
-  const end = findTextPosition(container, Math.min(index + pattern.length, text.length));
+  const start = index.locate(matchIndex);
+  const end = index.locate(Math.min(matchIndex + pattern.length, index.text.length));
   if (!start || !end) return null;
 
   try {
