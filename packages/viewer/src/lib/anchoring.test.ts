@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { rangeToSelectors, selectorsToRange } from "./anchoring";
+import {
+  rangeToSelectors,
+  selectorsToRange,
+  buildTextIndex,
+  selectorsToRangeIn,
+} from "./anchoring";
 import type { Selector } from "../types/comments";
 
 afterEach(() => {
@@ -39,6 +44,48 @@ function selectText(container: HTMLElement, text: string): Range {
   }
   return range;
 }
+
+describe("buildTextIndex", () => {
+  it("concatenates text content across nodes and elements", () => {
+    const container = createContainer("<p>Hello <b>brave</b> world</p>");
+    const index = buildTextIndex(container);
+    expect(index.text).toBe("Hello brave world");
+  });
+
+  it("locate() maps an offset to the right text node and local offset", () => {
+    const container = createContainer("<p>Hello <b>brave</b> world</p>");
+    const index = buildTextIndex(container);
+    // offset 8 falls inside "brave" (H-e-l-l-o-space=6, then b=6,r=7,a=8)
+    const at = index.locate(8)!;
+    expect(at.node.data).toBe("brave");
+    expect(at.offset).toBe(2);
+  });
+
+  it("locate() at a node boundary returns the end of the previous node", () => {
+    const container = createContainer("<p>ab</p><p>cd</p>");
+    const index = buildTextIndex(container);
+    // offset 2 is the boundary between "ab" (0..2) and "cd" (2..4)
+    const at = index.locate(2)!;
+    expect(at.node.data).toBe("ab");
+    expect(at.offset).toBe(2);
+  });
+
+  it("locate() returns null for an offset past the end", () => {
+    const container = createContainer("<p>abc</p>");
+    const index = buildTextIndex(container);
+    expect(index.locate(99)).toBeNull();
+  });
+
+  it("locate(0) maps to the start of the first text node", () => {
+    // Offset 0 is the boundary the binary search must return as {firstNode, 0};
+    // it relies on idx initializing to 0, so pin it down explicitly — a comment
+    // whose quote starts at the very beginning of the article anchors here.
+    const container = createContainer("<p>Hello <b>brave</b> world</p>");
+    const at = buildTextIndex(container).locate(0)!;
+    expect(at.node.data).toBe("Hello ");
+    expect(at.offset).toBe(0);
+  });
+});
 
 describe("rangeToSelectors", () => {
   it("returns empty array for collapsed selection", () => {
@@ -498,5 +545,39 @@ describe("roundtrip", () => {
     const result = selectorsToRange(selectors, container);
     expect(result).not.toBeNull();
     expect(result!.range.toString()).toBe("code and emphasis");
+  });
+});
+
+describe("selectorsToRangeIn", () => {
+  it("matches the container-based selectorsToRange on a position anchor", () => {
+    const container = createContainer("<p>The quick brown fox</p>");
+    const selectors: Selector[] = [
+      { type: "TextQuoteSelector", exact: "brown", prefix: "The quick ", suffix: " fox" },
+      { type: "TextPositionSelector", start: 10, end: 15 },
+    ];
+    const viaContainer = selectorsToRange(selectors, container);
+    const viaIndex = selectorsToRangeIn(selectors, buildTextIndex(container));
+    expect(viaIndex!.range.toString()).toBe(viaContainer!.range.toString());
+    expect(viaIndex!.strategy).toBe(viaContainer!.strategy);
+  });
+
+  it("resolves many comments from one index and wraps each correctly", async () => {
+    const container = createContainer("<p>alpha beta gamma delta epsilon zeta</p>");
+    const index = buildTextIndex(container);
+    const words = ["alpha", "gamma", "epsilon"];
+    const ranges = words.map(
+      (w) =>
+        selectorsToRangeIn(
+          [{ type: "TextQuoteSelector", exact: w, prefix: "", suffix: "" }],
+          index,
+        )!.range,
+    );
+    // Wrap each precomputed range one by one and verify the DOM wrappers are correct.
+    const { wrapRange } = await import("./comments/highlight");
+    ranges.forEach((r, i) => wrapRange(r, { commentId: `c${i}`, strategy: "quote" }));
+    expect(container.querySelectorAll("rw-annotation")).toHaveLength(3);
+    expect([...container.querySelectorAll("rw-annotation")].map((e) => e.textContent)).toEqual(
+      words,
+    );
   });
 });

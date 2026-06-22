@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { unwrapAll, wrapRange } from "./highlight";
+import { unwrapAll, wrapRange, unwrapComment } from "./highlight";
 import { rangeToSelectors } from "$lib/anchoring";
 
 afterEach(() => {
@@ -195,6 +195,51 @@ describe("wrapRange + rangeToSelectors interop", () => {
     const newSelectors = rangeToSelectors(newRange, wrapped);
 
     expect(newSelectors).toEqual(baselineSelectors);
+  });
+});
+
+describe("unwrapComment", () => {
+  it("removes only the target id's wrappers and leaves siblings intact", () => {
+    const container = createContainer(
+      '<p><rw-annotation data-comment-id="a" data-strategy="position">foo</rw-annotation> ' +
+        '<rw-annotation data-comment-id="b" data-strategy="position">bar</rw-annotation></p>',
+    );
+    unwrapComment(container, "a");
+    expect(container.querySelectorAll('rw-annotation[data-comment-id="a"]')).toHaveLength(0);
+    expect(container.querySelectorAll('rw-annotation[data-comment-id="b"]')).toHaveLength(1);
+    expect(container.textContent).toBe("foo bar");
+  });
+
+  it("leaves a nested/overlapping wrapper of a different id intact", () => {
+    const container = createContainer(
+      '<p><rw-annotation data-comment-id="a" data-strategy="position">foo ' +
+        '<rw-annotation data-comment-id="b" data-strategy="position">bar</rw-annotation></rw-annotation></p>',
+    );
+    unwrapComment(container, "a");
+    expect(container.querySelectorAll('rw-annotation[data-comment-id="a"]')).toHaveLength(0);
+    const b = container.querySelector('rw-annotation[data-comment-id="b"]');
+    expect(b).not.toBeNull();
+    expect(b!.textContent).toBe("bar");
+    expect(container.textContent).toBe("foo bar");
+  });
+
+  it("normalizes locally so the unwrapped text becomes a single text node", () => {
+    const container = createContainer(
+      '<p>Hello <rw-annotation data-comment-id="a">world</rw-annotation>!</p>',
+    );
+    unwrapComment(container, "a");
+    const p = container.querySelector("p")!;
+    expect(p.childNodes.length).toBe(1);
+    expect(p.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+  });
+
+  it("is a no-op for an unknown id", () => {
+    const container = createContainer(
+      '<p><rw-annotation data-comment-id="a">foo</rw-annotation></p>',
+    );
+    const before = container.innerHTML;
+    unwrapComment(container, "zzz");
+    expect(container.innerHTML).toBe(before);
   });
 });
 

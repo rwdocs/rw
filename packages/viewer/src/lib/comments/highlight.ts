@@ -116,6 +116,36 @@ function groupContiguousSiblings(nodes: Text[]): Text[][] {
 }
 
 /**
+ * Remove only the `<rw-annotation>` wrappers belonging to `id`, restoring their
+ * text and merging adjacent text nodes in each affected parent. Other comments'
+ * wrappers (including ones nested inside this id's wrappers) are untouched, and
+ * the rest of the document — including any live text selection — is left intact.
+ * No-op when `id` has no wrappers.
+ */
+export function unwrapComment(container: HTMLElement, id: string): void {
+  const wrappers = container.querySelectorAll(`rw-annotation[data-comment-id="${escapeId(id)}"]`);
+  if (wrappers.length === 0) return;
+  const parents = new Set<Node>();
+  // Document order; a wrapper of this id nested in another wrapper of the SAME
+  // id can't occur (a comment never nests in itself), so outside-in vs inside-out
+  // doesn't matter here — move children up and drop each wrapper.
+  for (const wrapper of wrappers) {
+    const parent = wrapper.parentNode;
+    if (!parent) continue;
+    while (wrapper.firstChild) {
+      parent.insertBefore(wrapper.firstChild, wrapper);
+    }
+    parent.removeChild(wrapper);
+    parents.add(parent);
+  }
+  // Normalize only the parents we touched, not the whole container — keeps the
+  // mutation local so a selection elsewhere is undisturbed.
+  for (const parent of parents) {
+    (parent as Element | Text).normalize?.();
+  }
+}
+
+/**
  * Remove every `<rw-annotation>` descendant of `container`, restoring the
  * original text-node structure. Idempotent. No-op when no wrappers exist.
  */
