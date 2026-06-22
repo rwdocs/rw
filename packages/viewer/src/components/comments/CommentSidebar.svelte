@@ -8,8 +8,10 @@
   import { escapeId } from "$lib/comments/highlight";
   import { restoreFocusToThread } from "$lib/comments/focus";
   import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
+  import { createCommentActions } from "$lib/comments/actions";
 
   const { comments, notify } = getRwContext();
+  const actions = createCommentActions(comments, notify);
 
   let threadAnchor = $state<number | null>(null);
   let pendingAnchor = $state<number | null>(null);
@@ -100,64 +102,12 @@
     }
   }
 
-  async function handleResolve(id: string) {
-    try {
-      await comments.resolve(id);
-    } catch (e) {
-      notify({
-        intent: "error",
-        message: e instanceof Error ? e.message : "Failed to resolve comment",
-      });
-    }
-  }
-
-  async function handleReopen(id: string) {
-    try {
-      await comments.reopen(id);
-    } catch (e) {
-      notify({
-        intent: "error",
-        message: e instanceof Error ? e.message : "Failed to reopen comment",
-      });
-    }
-  }
-
-  async function handleDelete(id: string) {
-    try {
-      await comments.delete(id);
-    } catch (e) {
-      notify({
-        intent: "error",
-        message: e instanceof Error ? e.message : "Failed to delete comment",
-      });
-    }
-  }
-
-  async function handleRestore(id: string) {
-    try {
-      await comments.restore(id);
-    } catch (e) {
-      notify({
-        intent: "error",
-        message: e instanceof Error ? e.message : "Failed to restore comment",
-      });
-    }
-  }
-
   async function handleReply(parentId: string, body: string) {
-    const thread = comments.threads.find((t) => t.id === parentId);
-    if (!thread) return;
-    try {
-      await comments.create({
-        documentId: thread.documentId,
-        parentId,
-        body,
-        selectors: [],
-      });
-    } catch (e) {
-      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
-      throw e;
-    }
+    // Shared lookup + create + notify-and-rethrow lives in createCommentActions;
+    // the focus restoration below is the only part specific to this component,
+    // so it stays here. On failure actions.reply rethrows before this runs (the
+    // composer keeps the draft); on success we release focus.
+    await actions.reply(parentId, body);
     // Reply succeeded: release the textarea onto the (still-open) thread card so
     // n/p navigation resumes. tick() lets the new reply render first.
     await tick();
@@ -218,11 +168,11 @@
       comment={activeThread}
       replies={comments.replies(activeThread.id)}
       active={true}
-      onResolve={handleResolve}
-      onReopen={handleReopen}
+      onResolve={actions.resolve}
+      onReopen={actions.reopen}
       onReply={handleReply}
-      onDelete={handleDelete}
-      onRestore={handleRestore}
+      onDelete={actions.remove}
+      onRestore={actions.restore}
       onClose={() => {
         comments.activeId = null;
       }}

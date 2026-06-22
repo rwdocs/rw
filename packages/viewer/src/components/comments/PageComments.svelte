@@ -12,8 +12,10 @@
   import { escapeId } from "$lib/comments/highlight";
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
   import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
+  import { createCommentActions } from "$lib/comments/actions";
 
   const { comments, page, notify } = getRwContext();
+  const actions = createCommentActions(comments, notify);
 
   // Unique per instance so two embedded viewers on one page don't collide on
   // the heading id that labels the section and the resolved-list aria-controls target.
@@ -77,64 +79,12 @@
     );
   }
 
-  async function handleResolve(id: string) {
-    try {
-      await comments.resolve(id);
-    } catch (e) {
-      notify({
-        intent: "error",
-        message: e instanceof Error ? e.message : "Failed to resolve comment",
-      });
-    }
-  }
-
-  async function handleReopen(id: string) {
-    try {
-      await comments.reopen(id);
-    } catch (e) {
-      notify({
-        intent: "error",
-        message: e instanceof Error ? e.message : "Failed to reopen comment",
-      });
-    }
-  }
-
-  async function handleDelete(id: string) {
-    try {
-      await comments.delete(id);
-    } catch (e) {
-      notify({
-        intent: "error",
-        message: e instanceof Error ? e.message : "Failed to delete comment",
-      });
-    }
-  }
-
-  async function handleRestore(id: string) {
-    try {
-      await comments.restore(id);
-    } catch (e) {
-      notify({
-        intent: "error",
-        message: e instanceof Error ? e.message : "Failed to restore comment",
-      });
-    }
-  }
-
   async function handleReply(parentId: string, body: string) {
-    const thread = comments.threads.find((t) => t.id === parentId);
-    if (!thread) return;
-    try {
-      await comments.create({
-        documentId: thread.documentId,
-        parentId,
-        body,
-        selectors: [],
-      });
-    } catch (e) {
-      notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
-      throw e;
-    }
+    // Shared lookup + create + notify-and-rethrow lives in createCommentActions;
+    // the focus restoration below is the only part specific to this component,
+    // so it stays here. On failure actions.reply rethrows before this runs (the
+    // composer keeps the draft); on success we release focus.
+    await actions.reply(parentId, body);
     // Reply succeeded: focus the parent thread card so n/p navigation resumes.
     await tick();
     restoreFocusToThread(document.getElementById(buildCommentHash(parentId)));
@@ -191,11 +141,11 @@
         (comments.activeId == null && thread.id === comments.linkedId)}
       replies={comments.replies(thread.id)}
       active={false}
-      onResolve={handleResolve}
-      onReopen={handleReopen}
+      onResolve={actions.resolve}
+      onReopen={actions.reopen}
       onReply={handleReply}
-      onDelete={handleDelete}
-      onRestore={handleRestore}
+      onDelete={actions.remove}
+      onRestore={actions.restore}
     />
   {/snippet}
 

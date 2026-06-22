@@ -188,6 +188,68 @@ describe("Comments.load", () => {
     await p1.catch(() => {});
   });
 
+  it("clear() aborts the in-flight load's fetch so its AbortError is swallowed", async () => {
+    // Production-faithful: clear() calls abortController.abort(), which makes a
+    // real fetch reject with a DOMException AbortError — the load() catch's
+    // `e.name === "AbortError"` branch then returns without touching items or
+    // notifying. The mock mirrors that by rejecting when its signal aborts.
+    const notify = vi.fn();
+    const client = {
+      list: vi.fn(
+        (_documentId: string, opts?: { signal?: AbortSignal }) =>
+          new Promise<Comment[]>((_res, rej) => {
+            opts?.signal?.addEventListener("abort", () =>
+              rej(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      ),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as CommentApiClient;
+    const c = new Comments(client, notify);
+    c.enabled = true;
+
+    const p = c.load("a.md"); // in-flight, list() hangs until aborted
+    c.clear(); // user navigates to a page that shows no comments → aborts
+
+    await p;
+
+    // The cleared list stays empty and no spurious error toast fires.
+    expect(c.items).toEqual([]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("clear() drops a load that resolves after it (signal.aborted success guard)", async () => {
+    // Belt-and-suspenders: even if the request somehow resolves after clear()
+    // (rather than rejecting on abort), the `if (signal.aborted) return` guard
+    // on the success path keeps the cleared list empty.
+    let resolveList: ((v: Comment[]) => void) | undefined;
+    const items = [mkComment({ id: "c1", documentId: "a.md" })];
+    const client = {
+      list: vi.fn(
+        () =>
+          new Promise<Comment[]>((res) => {
+            resolveList = res;
+          }),
+      ),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as CommentApiClient;
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const p = c.load("a.md"); // in-flight, list() hangs
+    c.clear(); // aborts the signal
+
+    resolveList?.(items); // the original request resolves anyway
+    await p;
+
+    // The cleared list must stay empty — the superseded fetch is dropped.
+    expect(c.items).toEqual([]);
+  });
+
   it("preserves a pending draft on a silent refetch of the same document", async () => {
     const comments = new Comments(makeClient(), () => {});
     comments.enabled = true;
@@ -195,6 +257,101 @@ describe("Comments.load", () => {
     comments.pending = { documentId: "a.md", selectors: [] };
     await comments.load("a.md", { silent: true });
     expect(comments.pending).not.toBeNull();
+  });
+});
+
+describe("Comments mutation documentId guard (resolve/reopen/delete/restore)", () => {
+  it("resolve updates the row when the response documentId matches the current document", async () => {
+    const updated = mkComment({ id: "c1", documentId: "a.md", status: "resolved" });
+    const client = {
+      list: vi.fn(async () => [mkComment({ id: "c1", documentId: "a.md" })]),
+      update: vi.fn(async () => updated),
+      create: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as CommentApiClient;
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+    await c.load("a.md");
+
+    await c.resolve("c1");
+
+    expect(c.items).toEqual([updated]);
+  });
+
+  it("resolve does not touch items when the response documentId differs (user navigated away)", async () => {
+    const open = mkComment({ id: "c1", documentId: "a.md", status: "open" });
+    // update() resolves with a row keyed on a *different* document than the
+    // store currently tracks — as if navigation completed before it returned.
+    const resolvedElsewhere = mkComment({ id: "c1", documentId: "other.md", status: "resolved" });
+    const client = {
+      list: vi.fn(async () => [open]),
+      update: vi.fn(async () => resolvedElsewhere),
+      create: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as CommentApiClient;
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+    await c.load("a.md");
+
+    await c.resolve("c1");
+
+    // Guard skips the write: the a.md view keeps its original open row.
+    expect(c.items).toEqual([open]);
+  });
+
+  it("reopen does not touch items when the response documentId differs (user navigated away)", async () => {
+    const resolved = mkComment({ id: "c1", documentId: "a.md", status: "resolved" });
+    const reopenedElsewhere = mkComment({ id: "c1", documentId: "other.md", status: "open" });
+    const client = {
+      list: vi.fn(async () => [resolved]),
+      update: vi.fn(async () => reopenedElsewhere),
+      create: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as CommentApiClient;
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+    await c.load("a.md");
+
+    await c.reopen("c1");
+
+    expect(c.items).toEqual([resolved]);
+  });
+
+  it("delete does not touch items when the response documentId differs (user navigated away)", async () => {
+    const live = mkComment({ id: "c1", documentId: "a.md" });
+    // delete() reads its projection from apiClient.delete, not update.
+    const deletedElsewhere = mkComment({ id: "c1", documentId: "other.md" });
+    const client = {
+      list: vi.fn(async () => [live]),
+      delete: vi.fn(async () => deletedElsewhere),
+      update: vi.fn(),
+      create: vi.fn(),
+    } as unknown as CommentApiClient;
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+    await c.load("a.md");
+
+    await c.delete("c1");
+
+    expect(c.items).toEqual([live]);
+  });
+
+  it("restore does not touch items when the response documentId differs (user navigated away)", async () => {
+    const deleted = mkComment({ id: "c1", documentId: "a.md" });
+    const restoredElsewhere = mkComment({ id: "c1", documentId: "other.md", status: "open" });
+    const client = {
+      list: vi.fn(async () => [deleted]),
+      update: vi.fn(async () => restoredElsewhere),
+      delete: vi.fn(),
+      create: vi.fn(),
+    } as unknown as CommentApiClient;
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+    await c.load("a.md");
+
+    await c.restore("c1");
+
+    expect(c.items).toEqual([deleted]);
   });
 });
 
