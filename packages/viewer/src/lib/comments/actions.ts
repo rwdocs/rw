@@ -3,7 +3,7 @@ import type { NotifyFn } from "../../types/notify";
 import { SAVE_FAILED_MESSAGE } from "./messages";
 
 /** The five comment-mutation callbacks shared by PageComments and
- *  CommentSidebar. The four status/delete actions wrap the store call in a
+ *  CommentPanel. The four status/delete actions wrap the store call in a
  *  notify-and-swallow (the user-facing toast is the only failure surface);
  *  `reply` notifies and **rethrows** so the composer keeps the draft. */
 export interface CommentActions {
