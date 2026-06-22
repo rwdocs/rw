@@ -2,6 +2,7 @@
 /* eslint-disable */
 export declare class RwSite {
   getNavigation(sectionRef?: string | undefined | null): Promise<NavigationResponse>
+  listSections(): Promise<Array<SectionEntryResponse>>
   renderPage(path: string): Promise<PageResponse>
   renderSearchDocument(path: string): Promise<SearchDocumentResponse | null>
   reload(force?: boolean | undefined | null): Promise<boolean>
@@ -87,6 +88,18 @@ export interface ScopeInfoResponse {
 export interface SearchDocumentResponse {
   title: string
   text: string
+}
+
+export interface SectionEntryResponse {
+  /**
+   * Canonical section ref (`kind:namespace/name`). Named `sectionRef` in JS
+   * to match `PageMeta.sectionRef`.
+   */
+  sectionRef: string
+  /** Scope path, no leading slash (`""` for the root section). */
+  path: string
+  /** Ancestor section refs, nearest-first with the root last; excludes self. */
+  ancestors: Array<string>
 }
 
 export interface SectionResponse {

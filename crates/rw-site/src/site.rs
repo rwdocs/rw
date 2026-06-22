@@ -13,7 +13,7 @@ use crate::page::{
     BreadcrumbItem, Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext,
     RenderError, SearchDocument,
 };
-use crate::site_state::{Navigation, SiteState, SiteStateBuilder};
+use crate::site_state::{Navigation, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
 use rw_kroki::{EntityInfo, MetaIncludeSource};
 use rw_renderer::TitleResolver;
@@ -206,6 +206,19 @@ impl Site {
         let mut nav = snapshot.state.navigation(&scope_path);
         nav.apply_sections(snapshot.state.sections());
         Ok(nav)
+    }
+
+    /// Returns every section in the site as a flat list — the unscoped
+    /// counterpart to [`navigation`](Self::navigation). See
+    /// [`SiteState::list_sections`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails (storage
+    /// unreachable). Subsequent reload failures are logged and stale data is
+    /// returned instead.
+    pub fn list_sections(&self) -> Result<Vec<SectionEntry>, StorageError> {
+        Ok(self.reload_if_needed()?.state.list_sections())
     }
 
     /// Returns the current [`Sections`] map for cross-section link resolution.
@@ -1494,6 +1507,25 @@ mod tests {
             snapshot.state.section_location("billing/payments-api").0,
             "system:payments/payments-api"
         );
+    }
+
+    #[test]
+    fn list_sections_returns_sections_through_site() {
+        let storage = MockStorage::new()
+            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document("billing/overview", "Overview");
+        let site = create_site_with_storage(storage);
+
+        let sections = site.list_sections().expect("list_sections");
+
+        // The explicit billing section is present...
+        let billing = sections
+            .iter()
+            .find(|s| s.section_ref == "domain:default/billing")
+            .expect("billing section");
+        assert_eq!(billing.path, "billing");
+        // ...and the root section is always present.
+        assert!(sections.iter().any(|s| s.path.is_empty()));
     }
 
     #[test]
