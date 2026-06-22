@@ -33,4 +33,9 @@ test("keeps the draft and surfaces a toast + Retry when the save fails", async (
   await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
   await expect(textarea).toHaveValue(draft);
   await expect(page.getByText(SAVE_FAILED_MESSAGE)).toBeVisible();
+
+  // Focus must stay in the composer on failure: the submit handler rethrows
+  // before moving focus to a thread, so the user can immediately Retry. (A
+  // successful submit instead releases focus so n/p navigation resumes.)
+  await expect(textarea).toBeFocused();
 });

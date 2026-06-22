@@ -112,9 +112,13 @@
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       submit();
-    } else if (event.key === "Escape" && onCancel) {
+    } else if (event.key === "Escape" && !event.isComposing) {
       event.preventDefault();
-      onCancel();
+      // Leave the field so n/p comment navigation resumes; close the form too
+      // when the caller wants Escape to dismiss it. Skipped mid-IME-composition
+      // so Escape can cancel the composition instead of blurring the field.
+      textareaRef?.blur();
+      onCancel?.();
     }
   }
 

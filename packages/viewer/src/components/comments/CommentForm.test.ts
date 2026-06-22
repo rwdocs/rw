@@ -67,3 +67,54 @@ describe("CommentForm keep-on-failure", () => {
     expect(ta.value).toBe("a draft I do not want to lose");
   });
 });
+
+describe("CommentForm Escape releases focus", () => {
+  it("blurs the textarea and calls onCancel when provided", async () => {
+    const onCancel = vi.fn();
+    const { getByPlaceholderText } = render(CommentForm, {
+      onSubmit: vi.fn().mockResolvedValue(undefined),
+      onCancel,
+      pinActions: true,
+    });
+    const ta = getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement;
+    ta.focus();
+    expect(document.activeElement).toBe(ta);
+
+    await fireEvent.keyDown(ta, { key: "Escape" });
+
+    expect(document.activeElement).not.toBe(ta);
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("blurs the textarea on Escape even with no onCancel", async () => {
+    const { getByPlaceholderText } = render(CommentForm, {
+      onSubmit: vi.fn().mockResolvedValue(undefined),
+      pinActions: true,
+    });
+    const ta = getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement;
+    ta.focus();
+    expect(document.activeElement).toBe(ta);
+
+    await fireEvent.keyDown(ta, { key: "Escape" });
+
+    expect(document.activeElement).not.toBe(ta);
+  });
+
+  it("does not blur or cancel on Escape during IME composition", async () => {
+    const onCancel = vi.fn();
+    const { getByPlaceholderText } = render(CommentForm, {
+      onSubmit: vi.fn().mockResolvedValue(undefined),
+      onCancel,
+      pinActions: true,
+    });
+    const ta = getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement;
+    ta.focus();
+    expect(document.activeElement).toBe(ta);
+
+    // Escape mid-composition cancels the IME composition, not the field.
+    await fireEvent.keyDown(ta, { key: "Escape", isComposing: true });
+
+    expect(document.activeElement).toBe(ta);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+});

@@ -344,4 +344,66 @@ test.describe("Comment keyboard navigation", () => {
     const cardTop = await threadCard.evaluate((el) => el.getBoundingClientRect().top);
     expect(cardTop).toBeGreaterThanOrEqual(0);
   });
+
+  test("replying to an inline thread does not trap n/p navigation", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await createPageComment(page, "page level two");
+    await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level two");
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // idle → inline (1 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 1 of 2");
+
+    const sidebar = page.getByRole("complementary", { name: "Comments" });
+    const replyBox = sidebar.getByPlaceholder("Write a reply...");
+    await replyBox.fill("a reply body");
+    // Submit from the keyboard (Ctrl/Cmd+Enter) so focus stays in the textarea —
+    // the trap scenario. Clicking the button would move focus to the button and
+    // mask the bug.
+    await replyBox.press("ControlOrMeta+Enter");
+    await expect(sidebar).toContainText("a reply body");
+
+    // Focus left the textarea: n navigates to the next thread instead of typing.
+    // Wait for focus to actually leave the field first (auto-retrying) so the
+    // keypress can't land in the brief gap before focus moves.
+    await expect(replyBox).not.toBeFocused();
+    await page.keyboard.press("n");
+    await expect(liveRegion(page)).toContainText("Comment 2 of 2");
+  });
+
+  test("Escape leaves the reply form so n/p navigation resumes", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await createPageComment(page, "page level two");
+    await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level two");
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // idle → inline (1 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 1 of 2");
+
+    const sidebar = page.getByRole("complementary", { name: "Comments" });
+    const replyBox = sidebar.getByPlaceholder("Write a reply...");
+    await replyBox.click();
+    await replyBox.press("Escape");
+    await expect(replyBox).not.toBeFocused();
+
+    await page.keyboard.press("n"); // → page comment (2 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 2 of 2");
+  });
+
+  test("submitting a new page comment does not trap n/p navigation", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await reloadIdle(page);
+
+    const section = page.getByRole("region", { name: "Comments" });
+    const box = section.getByPlaceholder("Write a comment...");
+    await box.fill("a fresh page comment");
+    // Keyboard submit keeps focus in the textarea (the trap scenario).
+    await box.press("ControlOrMeta+Enter");
+    await expect(section).toContainText("a fresh page comment");
+
+    // Focus moved off the bottom form → n navigates (from idle to the first thread).
+    await expect(box).not.toBeFocused();
+    await page.keyboard.press("n");
+    await expect(liveRegion(page)).toContainText(/Comment 1 of \d/);
+  });
 });

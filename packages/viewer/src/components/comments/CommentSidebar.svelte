@@ -1,10 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import type { Comment } from "../../types/comments";
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
   import { sortByOrder } from "$lib/comments/navigation";
   import { escapeId } from "$lib/comments/highlight";
+  import { restoreFocusToThread } from "$lib/comments/focus";
   import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
 
   const { comments, notify } = getRwContext();
@@ -156,24 +158,33 @@
       notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
       throw e;
     }
+    // Reply succeeded: release the textarea onto the (still-open) thread card so
+    // n/p navigation resumes. tick() lets the new reply render first.
+    await tick();
+    restoreFocusToThread(cardRef);
   }
 
   async function handleNewCommentSubmit(body: string) {
     const pending = comments.pending;
     if (!pending) return;
 
+    let created: Comment;
     try {
-      const created = await comments.create({
+      created = await comments.create({
         documentId: pending.documentId,
         body,
         selectors: pending.selectors,
       });
-      comments.clearPending();
-      comments.activeId = created.id;
     } catch (e) {
       notify({ intent: "error", message: SAVE_FAILED_MESSAGE });
       throw e;
     }
+    comments.clearPending();
+    comments.activeId = created.id;
+    // Let the new thread's card mount, then move focus to it (it replaces the
+    // now-unmounted composer) so n/p navigation resumes.
+    await tick();
+    restoreFocusToThread(cardRef);
   }
 
   function handleNewCommentCancel() {
