@@ -127,7 +127,7 @@ test.describe("Embedded Layout - Mobile", () => {
     await page.goto("/");
 
     await page.getByRole("button", { name: "Open menu" }).click();
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
     await expect(drawer).toBeVisible();
 
     const panel = drawer.getByTestId("mobile-drawer-panel");
@@ -144,7 +144,7 @@ test.describe("Embedded Layout - Mobile", () => {
     expect(viewerBox).not.toBeNull();
 
     await page.getByRole("button", { name: "Open menu" }).click();
-    const drawer = page.getByRole("complementary", { name: "Mobile navigation" });
+    const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
     await expect(drawer).toBeVisible();
 
     const drawerBox = await drawer.boundingBox();
