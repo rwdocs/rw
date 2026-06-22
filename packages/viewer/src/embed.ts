@@ -36,7 +36,9 @@ export interface MountOptions {
   /** Host-supplied comment client. When present, comments are enabled and all
    *  reads/writes (and optional live refresh) route through it — any URL shape or
    *  transport, decoupled from `apiBaseUrl`. When absent, the viewer builds the
-   *  default HTTP client and reads `commentsEnabled` from `/config`. */
+   *  default HTTP client and reads `commentsEnabled` from `/config`.
+   *
+   *  Security: the host owns `bodyHtml` sanitization — see {@link CommentApiClient}. */
   comments?: CommentApiClient;
 }
 

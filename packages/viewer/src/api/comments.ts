@@ -1,5 +1,17 @@
 import type { Comment, CreateCommentRequest, UpdateCommentRequest } from "../types/comments";
 
+/**
+ * Host-supplied comment transport for `mountRw({ comments })`.
+ *
+ * **Security — the host owns sanitization.** Each returned `Comment.bodyHtml` is
+ * injected into the doc viewer as trusted HTML (`{@html}`) with no client-side
+ * sanitization. A host implementing this client MUST return `bodyHtml` already
+ * sanitized to a safe, restricted subset, or omit it to fall back to the
+ * plain-text `body`. Render bodies with `renderCommentBody` from `@rwdocs/core`
+ * to match the subset the default `rw serve` backend produces. Returning
+ * unsanitized or upstream-proxied HTML produces stored XSS in the host page's
+ * origin.
+ */
 export interface CommentApiClient {
   list(documentId: string, options?: { signal?: AbortSignal }): Promise<Comment[]>;
   create(input: CreateCommentRequest): Promise<Comment>;

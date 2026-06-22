@@ -43,3 +43,25 @@ A fully stable identity that survives section renames and intra-section moves
 would require an author-supplied front-matter `id` (or an engine-assigned durable
 slug). That is intentionally out of scope today; `(sectionRef, subpath)` is the
 cheap, high-value first step that covers the common case.
+
+## Sanitize the comment HTML you supply
+
+If your host stores its own comments and supplies them through
+`mountRw({ comments })` (an injected `CommentApiClient`), **you** are responsible
+for sanitizing each comment's `bodyHtml`. The viewer renders that field as
+**trusted HTML** — it injects it directly, with no client-side sanitization. The
+default `rw serve` backend sanitizes comment markdown to a restricted CommonMark
+subset before it ever reaches the viewer; an injected client bypasses that path
+entirely.
+
+Two safe options:
+
+- **Render with `renderCommentBody`** from `@rwdocs/core`, which produces HTML in
+  the same restricted subset the default backend uses. The Backstage backend
+  plugin already does this.
+- **Omit `bodyHtml`** and return only the plain-text `body` — the viewer renders
+  it as text, with no HTML injection.
+
+Returning unsanitized HTML — or proxying `bodyHtml` straight from an upstream
+store — lets comment authors inject scripts that execute in your page's origin
+(stored XSS).
