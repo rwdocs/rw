@@ -406,4 +406,173 @@ test.describe("Comment keyboard navigation", () => {
     await page.keyboard.press("n");
     await expect(liveRegion(page)).toContainText(/Comment 1 of \d/);
   });
+
+  test("r focuses the active inline thread's reply box", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // idle → inline (1 of 1)
+    await expect(liveRegion(page)).toContainText("Comment 1 of 1");
+
+    await page.keyboard.press("r");
+
+    const sidebar = page.getByRole("complementary", { name: "Comments" });
+    const replyBox = sidebar.getByPlaceholder("Write a reply...");
+    await expect(replyBox).toBeFocused();
+    await expect(liveRegion(page)).toContainText("Replying to comment 1 of 1");
+
+    // The focused box accepts text and the existing Cmd/Ctrl+Enter submit works.
+    await replyBox.pressSequentially("a keyboard reply");
+    await replyBox.press("ControlOrMeta+Enter");
+    await expect(sidebar).toContainText("a keyboard reply");
+  });
+
+  test("r focuses the active page-timeline thread's reply box", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline anchor"); // so reloadIdle finds a highlight
+    await createPageComment(page, "page level one");
+    await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level one");
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // → inline (1 of 2)
+    await page.keyboard.press("n"); // → page comment (2 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 2 of 2");
+
+    await page.keyboard.press("r");
+
+    const card = page.getByTestId("comment-thread").filter({ hasText: "page level one" });
+    await expect(card.getByPlaceholder("Write a reply...")).toBeFocused();
+    await expect(liveRegion(page)).toContainText("Replying to comment 2 of 2");
+  });
+
+  test("r while the reply box is focused types a literal r", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await reloadIdle(page);
+
+    await page.keyboard.press("n");
+    await page.keyboard.press("r");
+    const replyBox = page
+      .getByRole("complementary", { name: "Comments" })
+      .getByPlaceholder("Write a reply...");
+    await expect(replyBox).toBeFocused();
+
+    await page.keyboard.press("r"); // now swallowed as text input
+    await expect(replyBox).toHaveValue("r");
+  });
+
+  test("Escape after r releases the reply box so n/p resumes", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await createPageComment(page, "page level two");
+    await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level two");
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // → inline (1 of 2)
+    await page.keyboard.press("r");
+    const replyBox = page
+      .getByRole("complementary", { name: "Comments" })
+      .getByPlaceholder("Write a reply...");
+    await expect(replyBox).toBeFocused();
+
+    await replyBox.press("Escape");
+    await expect(replyBox).not.toBeFocused();
+
+    await page.keyboard.press("n"); // → page comment (2 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 2 of 2");
+  });
+
+  test("r from idle (no active thread) does nothing", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await reloadIdle(page);
+
+    await page.keyboard.press("r");
+
+    // No thread activated, no reply box focused, nothing announced.
+    await expect(page.getByPlaceholder("Write a reply...")).toHaveCount(0);
+    await expect(liveRegion(page)).toHaveText("");
+  });
+
+  test("r scrolls a long thread's reply box into view", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline anchor");
+    const docId = await resolveDocumentId(page, PAGE_URL);
+    // A tall thread whose reply box sits well below the 800px viewport fold.
+    await createPageCommentWithReplies(page, docId, "tall thread root", 15);
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // → inline (1 of 2)
+    await page.keyboard.press("n"); // → tall page comment (2 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 2 of 2");
+
+    const replyBox = page
+      .getByTestId("comment-thread")
+      .filter({ hasText: "tall thread root" })
+      .getByPlaceholder("Write a reply...");
+
+    await page.keyboard.press("r");
+
+    // The box starts below the fold (the card is taller than the 800px viewport
+    // and top-aligned by the n-nav scroll). Focus uses preventScroll, so the
+    // only thing that can bring the box into view is r's own scrollIntoView —
+    // so toBeInViewport here proves the scroll ran. (The unit test pins the
+    // exact scrollIntoView({block:"nearest"}) call.)
+    await expect(replyBox).toBeFocused();
+    await expect(replyBox).toBeInViewport();
+  });
+
+  test("r on an inline thread does not focus a page-timeline reply box", async ({ page }) => {
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await createPageComment(page, "page level three");
+    await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level three");
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // → inline (1 of 2)
+    await expect(liveRegion(page)).toContainText("Comment 1 of 2");
+    await page.keyboard.press("r");
+
+    // The inline sidebar reply box takes focus...
+    await expect(
+      page.getByRole("complementary", { name: "Comments" }).getByPlaceholder("Write a reply..."),
+    ).toBeFocused();
+    // ...and the page-timeline thread's reply box must NOT — PageComments' owner-
+    // ship guard ignores a bump whose active thread is inline.
+    await expect(
+      page
+        .getByTestId("comment-thread")
+        .filter({ hasText: "page level three" })
+        .getByPlaceholder("Write a reply..."),
+    ).not.toBeFocused();
+  });
+
+  test("activating an inline thread after r does not auto-focus its reply box", async ({
+    page,
+  }) => {
+    // Exercises the skip-first-run baseline: the sidebar mounts when an inline
+    // thread becomes active *after* replyFocusSeq was already bumped (by an
+    // earlier r on a page comment). Mounting must not steal focus — only a fresh
+    // r should.
+    await createInlineComment(page, ANCHOR_TEXT, "inline one");
+    await createPageComment(page, "page level four");
+    await expect(page.getByRole("region", { name: "Comments" })).toContainText("page level four");
+    await reloadIdle(page);
+
+    await page.keyboard.press("n"); // → inline (1 of 2)
+    await page.keyboard.press("n"); // → page comment (2 of 2)
+    const pageReplyBox = page
+      .getByTestId("comment-thread")
+      .filter({ hasText: "page level four" })
+      .getByPlaceholder("Write a reply...");
+    await page.keyboard.press("r"); // bumps replyFocusSeq, focuses the page box
+    await expect(pageReplyBox).toBeFocused();
+    await pageReplyBox.press("Escape"); // release so p navigates
+    await expect(pageReplyBox).not.toBeFocused();
+
+    await page.keyboard.press("p"); // → back to inline (1 of 2); sidebar mounts
+    await expect(liveRegion(page)).toContainText("Comment 1 of 2");
+
+    // The sidebar mounted with replyFocusSeq already > 0; its reply box must stay
+    // unfocused until the user presses r again.
+    const sidebarReplyBox = page
+      .getByRole("complementary", { name: "Comments" })
+      .getByPlaceholder("Write a reply...");
+    await expect(sidebarReplyBox).toBeVisible();
+    await expect(sidebarReplyBox).not.toBeFocused();
+  });
 });

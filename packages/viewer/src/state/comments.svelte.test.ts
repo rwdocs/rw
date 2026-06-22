@@ -437,6 +437,68 @@ describe("Comments navigation", () => {
     // render it — so activeIsInline does not filter by status.
     expect(comments.activeIsInline).toBe(true);
   });
+
+  it("focusReply bumps replyFocusSeq and returns position for an active open thread", () => {
+    comments.items = [mkComment({ id: "i1", selectors: quoteSel }), mkComment({ id: "p1" })];
+    comments.order = ["i1"];
+    comments.activeId = "p1";
+    const before = comments.replyFocusSeq;
+
+    const result = comments.focusReply();
+
+    expect(result).toEqual({ index: 1, total: 2, author: "You" });
+    expect(comments.replyFocusSeq).toBe(before + 1);
+  });
+
+  it("focusReply returns the inline thread's index (inline ordered before page comments)", () => {
+    comments.items = [mkComment({ id: "i1", selectors: quoteSel }), mkComment({ id: "p1" })];
+    comments.order = ["i1"];
+    comments.activeId = "i1";
+
+    expect(comments.focusReply()).toEqual({ index: 0, total: 2, author: "You" });
+  });
+
+  it("focusReply is a no-op when the active id points to a missing thread", () => {
+    // A background refresh can delete the active comment between the keypress and
+    // the handler; focusReply must not bump or return a position for a ghost id.
+    comments.items = [mkComment({ id: "i1", selectors: quoteSel })];
+    comments.order = ["i1"];
+    comments.activeId = "ghost";
+    const before = comments.replyFocusSeq;
+
+    expect(comments.focusReply()).toBeNull();
+    expect(comments.replyFocusSeq).toBe(before);
+  });
+
+  it("focusReply is a no-op when no thread is active", () => {
+    comments.items = [mkComment({ id: "i1", selectors: quoteSel })];
+    comments.order = ["i1"];
+    comments.activeId = null;
+    const before = comments.replyFocusSeq;
+
+    expect(comments.focusReply()).toBeNull();
+    expect(comments.replyFocusSeq).toBe(before);
+  });
+
+  it("focusReply is a no-op when the active thread is resolved", () => {
+    comments.items = [mkComment({ id: "i1", selectors: quoteSel, status: "resolved" })];
+    comments.activeId = "i1";
+    const before = comments.replyFocusSeq;
+
+    expect(comments.focusReply()).toBeNull();
+    expect(comments.replyFocusSeq).toBe(before);
+  });
+
+  it("focusReply is a no-op while a pending new comment is being drafted", () => {
+    comments.items = [mkComment({ id: "i1", selectors: quoteSel })];
+    comments.order = ["i1"];
+    comments.activeId = "i1";
+    comments.pending = { documentId: "doc", selectors: quoteSel };
+    const before = comments.replyFocusSeq;
+
+    expect(comments.focusReply()).toBeNull();
+    expect(comments.replyFocusSeq).toBe(before);
+  });
 });
 
 describe("Comments.subscribe facade", () => {

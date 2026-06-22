@@ -56,6 +56,11 @@ export class Comments {
    *  last value they handled; resetting this counter could make a new value
    *  collide with a stale "last handled" value and silently skip one scroll. */
   navSeq = $state(0);
+  /** Bumped on every `r` (focus-reply) request. The two comment render
+   *  surfaces watch it to move focus into the active thread's reply box; a bare
+   *  `activeId` change must not move focus, so — like `navSeq` — the counter is
+   *  the signal. Strictly monotonic; never reset (not even by `clear()`). */
+  replyFocusSeq = $state(0);
 
   private apiClient: CommentApiClient;
   private abortController: AbortController | null = null;
@@ -243,6 +248,25 @@ export class Comments {
     this.navSeq++;
     const author = this.items.find((c) => c.id === target)?.author.name ?? "";
     return { index: list.indexOf(target), total: list.length, author };
+  };
+
+  /** Request that the active thread's reply box take keyboard focus (the `r`
+   *  shortcut). Returns the active thread's position for announcement, or null
+   *  when there is nothing to reply to: a pending new comment is being drafted,
+   *  no thread is active, or the active thread is missing or not open (resolved
+   *  threads have no reply form). Bumps `replyFocusSeq` only on success.
+   *
+   *  An arrow-function field (like `navigate`) so `this` stays bound when Layout
+   *  hands `comments.focusReply` to the keyboard hook. */
+  focusReply = (): { index: number; total: number; author: string } | null => {
+    if (this.pending != null) return null;
+    const id = this.activeId;
+    if (id == null) return null;
+    const active = this.items.find((c) => c.id === id);
+    if (!active || active.status !== "open") return null;
+    this.replyFocusSeq++;
+    const list = this.navigable;
+    return { index: list.indexOf(id), total: list.length, author: active.author.name };
   };
 
   replies(parentId: string): Comment[] {
