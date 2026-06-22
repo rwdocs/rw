@@ -18,7 +18,13 @@ export interface Comment {
   parentId?: string;
   author: Author;
   body: string;
-  /** Server-rendered HTML of `body` (restricted markdown). Safe to inject.
+  /** Server-rendered HTML of `body`, injected into the DOM as trusted HTML
+   *  (`{@html}`) with **no** client-side sanitization. Whoever produces this
+   *  field owns sanitizing it to a safe, restricted subset. The default
+   *  `rw serve` backend does so via `renderCommentBody` (`@rwdocs/core`); a host
+   *  that supplies its own `CommentApiClient` must return sanitized HTML here.
+   *  Returning unsanitized or upstream-proxied HTML is a stored-XSS vector in
+   *  the host page's origin.
    *  Optional: a backend that doesn't render comments server-side may omit it,
    *  in which case the viewer falls back to the plain-text `body`. */
   bodyHtml?: string;
