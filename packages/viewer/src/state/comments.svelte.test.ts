@@ -51,6 +51,57 @@ describe("Comments deep-link state", () => {
   });
 });
 
+describe("Comments replyDrafts", () => {
+  it("defaults replyDrafts to an empty object", () => {
+    const c = new Comments(stubClient, () => {});
+    expect(c.replyDrafts).toEqual({});
+  });
+
+  it("clear() resets replyDrafts", () => {
+    const c = new Comments(stubClient, () => {});
+    c.replyDrafts["t1"] = "a draft";
+    c.clear();
+    expect(c.replyDrafts).toEqual({});
+  });
+
+  it("load() resets replyDrafts when the document changes", async () => {
+    const c = new Comments(makeClient([]), () => {});
+    c.enabled = true;
+    await c.load("doc-a");
+    c.replyDrafts["t1"] = "draft on doc-a";
+    await c.load("doc-b");
+    expect(c.replyDrafts).toEqual({});
+  });
+
+  it("load() keeps replyDrafts when re-loading the same document (silent refresh)", async () => {
+    const c = new Comments(makeClient([]), () => {});
+    c.enabled = true;
+    await c.load("doc-a");
+    c.replyDrafts["t1"] = "draft on doc-a";
+    await c.load("doc-a", { silent: true });
+    expect(c.replyDrafts).toEqual({ t1: "draft on doc-a" });
+  });
+
+  it("setReplyDraft stores a non-empty body keyed by thread id", () => {
+    const c = new Comments(stubClient, () => {});
+    c.setReplyDraft("t1", "hello");
+    expect(c.replyDrafts).toEqual({ t1: "hello" });
+  });
+
+  it("setReplyDraft deletes the entry when the body is empty", () => {
+    const c = new Comments(stubClient, () => {});
+    c.setReplyDraft("t1", "hello");
+    c.setReplyDraft("t1", "");
+    expect(c.replyDrafts).toEqual({});
+  });
+
+  it("setReplyDraft does not create an entry for an untouched (empty) thread", () => {
+    const c = new Comments(stubClient, () => {});
+    c.setReplyDraft("t1", "");
+    expect(c.replyDrafts).toEqual({});
+  });
+});
+
 describe("Comments load failures route through notify", () => {
   it("calls notify with an error when the list request rejects", async () => {
     const notify = vi.fn();

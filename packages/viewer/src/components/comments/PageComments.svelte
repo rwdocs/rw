@@ -163,6 +163,8 @@
       onReply={handleReply}
       onDelete={actions.remove}
       onRestore={actions.restore}
+      initialReplyDraft={comments.replyDrafts[thread.id]}
+      onReplyDraftChange={comments.setReplyDraft}
     />
   {/snippet}
 

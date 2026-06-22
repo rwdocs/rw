@@ -177,21 +177,33 @@
     style:visibility={threadAnchor === null ? "hidden" : "visible"}
     class="outline-none"
   >
-    <CommentThread
-      comment={activeThread}
-      replies={comments.replies(activeThread.id)}
-      active={true}
-      onResolve={actions.resolve}
-      onReopen={actions.reopen}
-      onReply={handleReply}
-      onDelete={actions.remove}
-      onRestore={actions.restore}
-      onClose={() => {
-        comments.activeId = null;
-      }}
-      nav={{ index: activeIndex, total: orderedThreads.length, onPrev: goToPrev, onNext: goToNext }}
-      onAnchor={(o) => (threadAnchor = o)}
-      fuzzy={comments.anchorStrategies.get(activeThread.id) === "fuzzy"}
-    />
+    <!-- Remount per thread so each switch re-seeds the reply draft from the
+         store and resets transient submit/failed state. A reused instance would
+         carry one thread's draft (and error state) into the next. -->
+    {#key activeThread.id}
+      <CommentThread
+        comment={activeThread}
+        replies={comments.replies(activeThread.id)}
+        active={true}
+        onResolve={actions.resolve}
+        onReopen={actions.reopen}
+        onReply={handleReply}
+        onDelete={actions.remove}
+        onRestore={actions.restore}
+        onClose={() => {
+          comments.activeId = null;
+        }}
+        nav={{
+          index: activeIndex,
+          total: orderedThreads.length,
+          onPrev: goToPrev,
+          onNext: goToNext,
+        }}
+        onAnchor={(o) => (threadAnchor = o)}
+        fuzzy={comments.anchorStrategies.get(activeThread.id) === "fuzzy"}
+        initialReplyDraft={comments.replyDrafts[activeThread.id]}
+        onReplyDraftChange={comments.setReplyDraft}
+      />
+    {/key}
   </div>
 {/if}
