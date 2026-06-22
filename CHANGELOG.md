@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Comment deep-linking now works when the viewer is embedded (e.g. in Backstage), matching standalone mode: every comment thread shows a "Copy link" button, stepping through comments with `n`/`p` (and opening a thread) writes a shareable `#comment-<id>` to the host page's URL, and Back/Forward or a manual hash edit re-focuses the linked comment. Previously these were silently disabled in embedded mode. Path-based host routing is unchanged — only the URL hash is touched.
 - A transient failure during a live-reload background refresh no longer blanks the page. A silent refresh that fails (server restart mid-edit, a flaky proxy, a momentarily-unreachable host) now keeps the last-rendered page on screen and recovers on the next successful reload, instead of replacing it with a full-height error.
 - A transient failure during a live comment refresh no longer wipes the rendered comments or pops an error toast the user never triggered. Silent comment refreshes now keep the current comments quietly and recover on the next successful reload.
 - A documentation page or the navigation sidebar no longer briefly shows a transient error (or blanks) when you navigate quickly between pages and a now-superseded request fails with a non-abort error. The superseded request's failure is dropped instead of overwriting the page you actually landed on.
