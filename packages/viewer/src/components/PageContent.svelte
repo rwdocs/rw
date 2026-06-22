@@ -109,12 +109,42 @@
     }
   });
 
+  // Reveal a deep-link target: classify it, set the comment state that surfaces
+  // it (resolved disclosure / active thread), then scroll+focus after the DOM
+  // settles. Marking it active also lets keyboard nav (n/p) continue from here,
+  // with the tint following the active comment as the reader steps through.
+  // Dedups on comments.linkedId so a reactive re-run (comments loading, the
+  // inbound effect firing alongside a host that also bridges popstate into
+  // router.hash) does not re-scroll a target the reader already landed on. An
+  // explicit re-navigation that *should* re-reveal the current target (the
+  // popstate handler below) clears linkedId first to opt out of this dedup.
+  // `stillCurrent` is re-checked after the await so a hash that moved mid-tick
+  // does not land on a stale target.
+  function landOnComment(id: string, stillCurrent: () => boolean): void {
+    if (comments.linkedId === id) return; // already landed on this target
+
+    const comment = comments.items.find((c) => c.id === id);
+    const kind = classifyCommentTarget(comment, comments.order.includes(id));
+    if (kind === "missing") return; // not loaded yet, or deleted — wait / no-op
+
+    if (kind === "resolved") comments.resolvedExpanded = true;
+    // Resolved is left out: a resolved inline thread would wrongly open the sidebar.
+    if (kind === "inline" || kind === "page") comments.activeId = id;
+
+    void tick().then(() => {
+      if (!stillCurrent()) return; // hash moved during the await
+      if (comments.linkedId === id) return; // already landed (a racing tick won)
+      if (revealCommentTarget(id, kind)) {
+        comments.linkedId = id;
+      }
+    });
+  }
+
   // Inbound comment deep-link (#comment-<id>). Driven by router.hash — the same
   // dependency as heading deep-linking, so it works in embedded mode too, as long
   // as the host passes the full path+hash to navigateTo (the preview shell does).
-  // Scrolls with scrollIntoView only. Dedups on comments.linkedId: acts once per
-  // target and re-acts when the hash moves to a different comment; later
-  // comment-state changes (loads, re-anchors) don't re-scroll.
+  // Re-runs as comments load / re-anchor; clears linkedId when the hash leaves a
+  // comment. The reveal itself is delegated to landOnComment.
   $effect(() => {
     const id = parseCommentHash(router.hash);
 
@@ -127,39 +157,42 @@
     void comments.items;
     void comments.order;
 
-    if (comments.linkedId === id) return; // already landed on this target
-
-    const comment = comments.items.find((c) => c.id === id);
-    const kind = classifyCommentTarget(comment, comments.order.includes(id));
-    if (kind === "missing") return; // not loaded yet, or deleted — wait / no-op
-
-    if (kind === "resolved") comments.resolvedExpanded = true;
-    // Mark the landed comment active (inline opens the sidebar; page/orphan just
-    // carries the tint). This also makes keyboard nav (n/p) continue from here,
-    // and the tint follows the active comment as the reader steps through.
-    // Resolved is left out: a resolved inline thread would wrongly open the sidebar.
-    if (kind === "inline" || kind === "page") comments.activeId = id;
-
-    const hashAtDispatch = router.hash;
-    void tick().then(() => {
-      if (router.hash !== hashAtDispatch) return; // hash changed mid-await
-      if (comments.linkedId === id) return; // already landed (a racing tick won)
-      if (revealCommentTarget(id, kind)) {
-        comments.linkedId = id;
-      }
-    });
+    landOnComment(id, () => parseCommentHash(router.hash) === id);
   });
 
-  // Outbound: mirror the open inline thread into the address bar (standalone
-  // only). Uses replaceState — opening a thread is not history navigation, so
-  // Back/Forward does not step through opened threads. Writes window.location
-  // directly (not router.hash): replaceState does not fire popstate, and the
-  // router only updates router.hash from popstate, so this write stays invisible
-  // to the inbound effect. Writing router.hash (or comments.linkedId) here would
-  // instead form a dual-writer loop with that effect.
+  // Same-session inbound for embedded mode: the router ignores popstate here (the
+  // host owns path routing), so Back/Forward and manual hash edits would not
+  // re-focus a comment. Mirror the heading popstate handler in Layout and reuse
+  // landOnComment, reading window.location.hash directly. A host that bridges
+  // popstate into router.hash makes the inbound effect fire too, but landOnComment
+  // dedups on linkedId so the two paths don't double-scroll.
+  $effect(() => {
+    if (!router.embedded) return;
+    function onPopState() {
+      const id = parseCommentHash(window.location.hash);
+      if (!id) return;
+      // A Back/Forward or manual hash edit is an explicit re-navigation: re-reveal
+      // the target even when it is already the linked comment (the heading popstate
+      // handler likewise always re-scrolls). landOnComment dedups on linkedId, so
+      // clear it for the already-linked target to allow the re-reveal.
+      if (comments.linkedId === id) comments.linkedId = null;
+      landOnComment(id, () => parseCommentHash(window.location.hash) === id);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  });
+
+  // Outbound: mirror the open inline/active thread into the address bar (both
+  // standalone and embedded). Uses replaceState — opening a thread is not history
+  // navigation, so Back/Forward does not step through opened threads. Writes
+  // window.location directly (not router.hash): replaceState does not fire
+  // popstate, and the router only updates router.hash from popstate, so this
+  // write stays invisible to the inbound effect. Writing router.hash (or
+  // comments.linkedId) here would instead form a dual-writer loop with that
+  // effect. In embedded mode this writes the host page's URL hash, which the host
+  // router ignores — a hash-only change does not touch the path it routes on.
   let mirroredHash: string | null = null;
   $effect(() => {
-    if (router.embedded) return;
     const activeId = comments.activeId;
 
     if (activeId) {

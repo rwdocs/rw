@@ -7,7 +7,6 @@
   import { formatRelativeTime } from "$lib/ui/hooks/formatRelativeTime";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
   import CommentForm from "./CommentForm.svelte";
-  import { getRwContext } from "$lib/context";
   import { buildCommentHash } from "$lib/comments/deeplink";
 
   function avatarVariant(author: Author): "person" | "ai" | "initials" {
@@ -74,7 +73,6 @@
     linked = false,
   }: Props = $props();
 
-  const { router } = getRwContext();
   let copied = $state(false);
 
   async function copyLink() {
@@ -238,46 +236,44 @@
         </Badge>
       {/if}
       <div class="ml-auto flex items-center gap-2">
-        {#if !router.embedded}
-          <button
-            type="button"
-            onclick={copyLink}
-            aria-label="Copy link"
-            title={copied ? "Copied" : "Copy link to this comment"}
-            class="
-              cursor-pointer text-gray-400 transition-colors
-              hover:text-gray-700
-              dark:text-neutral-500
-              dark:hover:text-neutral-200
-            "
-          >
-            {#if copied}
-              <svg
-                class="size-3.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            {:else}
-              <svg
-                class="size-3.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 11-5.656-5.656l1.5-1.5m6.656-1.328a4 4 0 010-5.656l3-3a4 4 0 115.656 5.656l-1.5 1.5"
-                />
-              </svg>
-            {/if}
-          </button>
-        {/if}
+        <button
+          type="button"
+          onclick={copyLink}
+          aria-label="Copy link"
+          title={copied ? "Copied" : "Copy link to this comment"}
+          class="
+            cursor-pointer text-gray-400 transition-colors
+            hover:text-gray-700
+            dark:text-neutral-500
+            dark:hover:text-neutral-200
+          "
+        >
+          {#if copied}
+            <svg
+              class="size-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          {:else}
+            <svg
+              class="size-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 11-5.656-5.656l1.5-1.5m6.656-1.328a4 4 0 010-5.656l3-3a4 4 0 115.656 5.656l-1.5 1.5"
+              />
+            </svg>
+          {/if}
+        </button>
         <span class="text-xs text-gray-400 dark:text-neutral-500">
           {formatRelativeTime(new Date(comment.createdAt))}
         </span>

@@ -2,12 +2,6 @@ import { describe, it, expect, vi, beforeAll } from "vitest";
 import { render } from "@testing-library/svelte";
 import { MockResizeObserver } from "$lib/ui/hooks/__fixtures__/resize-observer-mock";
 
-// CommentThread reads `router` from RwContext; stub it so the component renders
-// standalone without mounting the whole App.
-vi.mock("$lib/context", () => ({
-  getRwContext: () => ({ router: { embedded: true } }),
-}));
-
 import CommentThread from "./CommentThread.svelte";
 import type { Comment } from "../../types/comments";
 
@@ -46,6 +40,13 @@ function renderThread(over: Partial<Comment> & { id: string }) {
     onRestore: asyncNoop,
   });
 }
+
+describe("CommentThread copy-link button", () => {
+  it("renders the copy-link button", () => {
+    const { getByRole } = renderThread({ id: "1" });
+    expect(getByRole("button", { name: "Copy link" })).toBeTruthy();
+  });
+});
 
 describe("CommentThread canResolve gating", () => {
   it("shows Resolve when canResolve is true", () => {
