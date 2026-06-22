@@ -6,7 +6,7 @@
   import CommentForm from "./CommentForm.svelte";
   import { sortByOrder } from "$lib/comments/navigation";
   import { escapeId } from "$lib/comments/highlight";
-  import { restoreFocusToThread } from "$lib/comments/focus";
+  import { restoreFocusToThread, focusReplyTextarea } from "$lib/comments/focus";
   import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
   import { createCommentActions } from "$lib/comments/actions";
 
@@ -55,6 +55,19 @@
         ann.focus({ preventScroll: true });
       }
     });
+  });
+
+  // Move focus into the active inline thread's reply box when the user presses
+  // `r` (store bumps replyFocusSeq). Baseline captured at creation so the first
+  // effect run — which is not an `r` press — does not steal focus. The sidebar
+  // only mounts for an active inline thread (or a pending draft, which doesn't
+  // bump the counter), so the single reply form under cardRef is the target.
+  let lastReplyFocusSeq = comments.replyFocusSeq;
+  $effect(() => {
+    const seq = comments.replyFocusSeq;
+    if (seq === lastReplyFocusSeq) return;
+    lastReplyFocusSeq = seq;
+    focusReplyTextarea(cardRef?.querySelector("textarea"));
   });
 
   /** Threads sorted by current document position (live DOM range order from

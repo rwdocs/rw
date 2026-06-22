@@ -7,7 +7,7 @@
   import Badge from "$lib/ui/primitives/Badge.svelte";
   import Chevron from "$lib/ui/primitives/Chevron.svelte";
   import { buildCommentHash } from "$lib/comments/deeplink";
-  import { restoreFocusToThread } from "$lib/comments/focus";
+  import { restoreFocusToThread, focusReplyTextarea } from "$lib/comments/focus";
   import { documentIdFor } from "$lib/comments/documentId";
   import { escapeId } from "$lib/comments/highlight";
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
@@ -67,6 +67,23 @@
     },
     "start",
   );
+
+  // Move focus into the active page/orphaned thread's reply box on `r`. This
+  // section is always mounted, so guard on ownership: ignore the bump when the
+  // active thread is an inline highlight (the sidebar handles that one). The
+  // baseline prevents focusing on the effect's first run.
+  let lastReplyFocusSeq = comments.replyFocusSeq;
+  $effect(() => {
+    const seq = comments.replyFocusSeq;
+    if (seq === lastReplyFocusSeq) return;
+    lastReplyFocusSeq = seq;
+    const activeId = comments.activeId;
+    if (!activeId || !visibleThreads.some((t) => t.id === activeId)) return;
+    const textarea = sectionRef?.querySelector<HTMLTextAreaElement>(
+      `[data-thread-id="${escapeId(activeId)}"] textarea`,
+    );
+    focusReplyTextarea(textarea);
+  });
 
   function findQuote(
     selectors: Selector[],

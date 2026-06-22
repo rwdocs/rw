@@ -43,6 +43,7 @@
   const commentNav = useCommentNavigation({
     navigable: () => comments.navigable,
     navigate: comments.navigate,
+    requestReplyFocus: comments.focusReply,
   });
 
   function onTocNavigate(id: string) {

@@ -35,7 +35,12 @@ function deps(over: Partial<CommentNavigationDeps> = {}) {
     total: 2,
     author: "You",
   }));
-  return { navigable, navigate, ...over };
+  const requestReplyFocus = vi.fn<CommentNavigationDeps["requestReplyFocus"]>(() => ({
+    index: 0,
+    total: 2,
+    author: "You",
+  }));
+  return { navigable, navigate, requestReplyFocus, ...over };
 }
 
 describe("useCommentNavigation", () => {
@@ -174,6 +179,62 @@ describe("useCommentNavigation", () => {
     el.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
 
     expect(d.navigate).not.toHaveBeenCalled();
+  });
+
+  it("r calls requestReplyFocus and announces the reply position", () => {
+    const d = deps();
+    const nav = mount(d);
+
+    press("r");
+
+    expect(d.requestReplyFocus).toHaveBeenCalledOnce();
+    expect(nav.announcement).toBe("Replying to comment 1 of 2 by You");
+    // r is purely a reply trigger; it must not also navigate.
+    expect(d.navigate).not.toHaveBeenCalled();
+  });
+
+  it("consumes the event (preventDefault) on a successful r", () => {
+    const d = deps();
+    mount(d);
+
+    const event = new KeyboardEvent("keydown", { key: "r", bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("r does nothing (no announcement, no navigation) when requestReplyFocus returns null", () => {
+    const d = deps({ requestReplyFocus: vi.fn(() => null) });
+    const nav = mount(d);
+
+    press("r");
+
+    expect(d.requestReplyFocus).toHaveBeenCalledOnce();
+    expect(nav.announcement).toBe("");
+    // A null result must not fall through to the n/p navigation path.
+    expect(d.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not trigger reply-focus while focus is in a <textarea>", () => {
+    const d = deps();
+    mount(d);
+    const el = document.createElement("textarea");
+    document.body.appendChild(el);
+    el.focus();
+
+    press("r");
+
+    expect(d.requestReplyFocus).not.toHaveBeenCalled();
+  });
+
+  it("lets modifier+r through to the browser", () => {
+    const d = deps();
+    mount(d);
+
+    press("r", { metaKey: true });
+    press("r", { ctrlKey: true });
+
+    expect(d.requestReplyFocus).not.toHaveBeenCalled();
   });
 
   it("stops listening after teardown", () => {

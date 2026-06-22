@@ -4,6 +4,9 @@ export interface CommentNavigationDeps {
   /** Move the active comment one step; returns the new position to announce,
    *  or null when there is nothing to navigate. */
   navigate: (direction: "next" | "prev") => { index: number; total: number; author: string } | null;
+  /** Focus the active thread's reply box; returns the active thread's position
+   *  to announce, or null when there is nothing to reply to. */
+  requestReplyFocus: () => { index: number; total: number; author: string } | null;
 }
 
 export interface CommentNavigation {
@@ -19,12 +22,18 @@ function isEditable(el: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
 }
 
+/** " by <author>" suffix for a live-region announcement, omitted when the author
+ *  name is blank so the live region never reads a dangling "… by ". */
+function authorSuffix(author: string): string {
+  return author ? ` by ${author}` : "";
+}
+
 /** Global keyboard navigation between page comments. Mount once (in Layout).
  *  `n` -> next comment, `p` -> previous; from idle, `n` jumps to the first and
- *  `p` to the last. Dependencies are passed in (rather than read from context)
- *  so this stays a domain-agnostic kit hook, like useActiveHeading. This is the
- *  viewer's only global key handler — every other handler is scoped to a
- *  specific overlay/form. */
+ *  `p` to the last. `r` focuses the active thread's reply box. Dependencies are
+ *  passed in (rather than read from context) so this stays a domain-agnostic
+ *  kit hook, like useActiveHeading. This is the viewer's only global key
+ *  handler — every other handler is scoped to a specific overlay/form. */
 export function useCommentNavigation(deps: CommentNavigationDeps): CommentNavigation {
   let announcement = $state("");
   // A polite live region only re-announces when its text node *changes*, but
@@ -41,29 +50,46 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
   // toggle (no shared module state) keeps the hook self-contained.
   let marked = false;
 
+  // Set the live region, toggling the invisible marker so the text node always
+  // differs from the previous one and the move is re-announced even when the
+  // human-readable string repeats. The first announcement is unmarked, so an
+  // isolated press still produces the plain text.
+  function announce(text: string) {
+    const mark = marked ? "​" : "";
+    marked = !marked;
+    announcement = `${text}${mark}`;
+  }
+
   $effect(() => {
     function onKeydown(e: KeyboardEvent) {
       // Let browser/OS shortcuts (Cmd+N, Ctrl+P, …) through untouched.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key !== "n" && e.key !== "p") return;
+      if (e.key !== "n" && e.key !== "p" && e.key !== "r") return;
       // Don't hijack typing in the comment form (or any host input when
       // embedded). Check both the event target and the focused element: they
       // usually match, but can differ in embedded/cross-frame setups where the
       // keydown bubbles to a target outside the element that actually has focus.
       if (isEditable(e.target) || isEditable(document.activeElement)) return;
+
+      if (e.key === "r") {
+        // A null result (nothing to reply to) passes through untouched — no
+        // preventDefault — so the keypress isn't swallowed when there's no
+        // thread to act on.
+        const result = deps.requestReplyFocus();
+        if (!result) return;
+        e.preventDefault();
+        announce(
+          `Replying to comment ${result.index + 1} of ${result.total}${authorSuffix(result.author)}`,
+        );
+        return;
+      }
+
       if (deps.navigable().length === 0) return;
 
       e.preventDefault();
       const result = deps.navigate(e.key === "n" ? "next" : "prev");
       if (result) {
-        // Omit "by <author>" when the author name is blank, so the live region
-        // never announces a dangling "Comment 1 of 2 by ".
-        const by = result.author ? ` by ${result.author}` : "";
-        // Read the marker, then flip it: the first announcement is unmarked, so
-        // an isolated press still produces the plain "Comment N of M by X".
-        const mark = marked ? "\u200B" : "";
-        marked = !marked;
-        announcement = `Comment ${result.index + 1} of ${result.total}${by}${mark}`;
+        announce(`Comment ${result.index + 1} of ${result.total}${authorSuffix(result.author)}`);
       }
     }
     window.addEventListener("keydown", onKeydown);
