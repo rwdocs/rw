@@ -3,11 +3,14 @@ import { flushSync } from "svelte";
 import { render } from "@testing-library/svelte";
 import Harness from "./__fixtures__/AnchorOffsetHarness.svelte";
 import { MockResizeObserver, makeAnchor } from "./__fixtures__/resize-observer-mock";
+import { MockIntersectionObserver } from "./__fixtures__/intersection-observer-mock";
 
 describe("useAnchorOffset", () => {
   beforeEach(() => {
     MockResizeObserver.instances = [];
+    MockIntersectionObserver.instances = [];
     vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
   });
 
   afterEach(() => {
@@ -190,5 +193,26 @@ describe("useAnchorOffset", () => {
     expect(MockResizeObserver.instances).toHaveLength(2);
     expect(out.dataset.top).toBe("500");
     expect(out.dataset.width).toBe("30");
+  });
+
+  it("updates the rect fields when the anchor moves (content above it reflows)", () => {
+    // The anchor's own box is unchanged (no ResizeObserver fire) — it just slid
+    // down because content above it grew. observeMove must catch this.
+    let currentRect = { top: 100, left: 50, width: 100, height: 50 };
+    const el = document.createElement("div");
+    el.getBoundingClientRect = () =>
+      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+    const { getByTestId } = render(Harness, { el });
+    const out = getByTestId("anchor-offset");
+    expect(out.dataset.top).toBe("100");
+    expect(MockIntersectionObserver.instances.length).toBeGreaterThanOrEqual(1);
+
+    // Anchor slid down to 600 with no size change; the move observer fires.
+    currentRect = { top: 600, left: 50, width: 100, height: 50 };
+    MockIntersectionObserver.latest!.trigger(0.5);
+    flushSync();
+
+    expect(out.dataset.top).toBe("600");
   });
 });

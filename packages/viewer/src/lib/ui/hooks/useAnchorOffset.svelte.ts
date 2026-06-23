@@ -1,14 +1,17 @@
 import { observeElement } from "./observeElement.svelte";
+import { observeMove } from "./observeMove.svelte";
 
 /**
- * Track the viewport-relative bounding rect of an element across resizes and
- * ancestor scrolls.
+ * Track the viewport-relative bounding rect of an element across resizes,
+ * ancestor scrolls, and position changes.
  *
  * Returns a reactive object whose `top`/`left`/`width`/`height` values update
- * whenever the element resizes, the window resizes, or any scroll container
- * scrolls. Consumers read the fields inside `$derived` (or directly in markup)
- * to drive positioning — typically for popover panels that need to sit beside
- * an external anchor.
+ * whenever the element resizes, the window resizes, any scroll container
+ * scrolls, or the element *moves* (content above it reflows — web-font swap, a
+ * late image/diagram load — sliding the anchor without resizing it). Consumers
+ * read the fields inside `$derived` (or directly in markup) to drive
+ * positioning — typically for popover panels that need to sit beside an
+ * external anchor. Together these triggers mirror Floating UI's `autoUpdate`.
  *
  * The getter form lets the anchor target switch at runtime (e.g. when a parent
  * mounts a different trigger); the internal `$effect` re-subscribes whenever
@@ -36,18 +39,17 @@ export interface AnchorOffset {
 export function useAnchorOffset(getEl: () => HTMLElement | null): AnchorOffset {
   const rect = $state({ top: 0, left: 0, width: 0, height: 0, measured: false });
 
-  observeElement(
-    getEl,
-    (el) => {
-      const r = el.getBoundingClientRect();
-      rect.top = r.top;
-      rect.left = r.left;
-      rect.width = r.width;
-      rect.height = r.height;
-      rect.measured = true;
-    },
-    { trackWindow: true },
-  );
+  const measure = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    rect.top = r.top;
+    rect.left = r.left;
+    rect.width = r.width;
+    rect.height = r.height;
+    rect.measured = true;
+  };
+
+  observeElement(getEl, measure, { trackWindow: true });
+  observeMove(getEl, measure);
 
   return {
     get top() {

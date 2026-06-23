@@ -21,6 +21,7 @@
   import IconButton from "$lib/ui/primitives/IconButton.svelte";
   import Popover from "$lib/ui/primitives/Popover.svelte";
   import { useElementSize } from "$lib/ui/hooks/useElementSize.svelte";
+  import { useElementMove } from "$lib/ui/hooks/useElementMove.svelte";
   import { useSelectionPopover } from "$lib/ui/hooks/useSelectionPopover.svelte";
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
   import PageComments from "./comments/PageComments.svelte";
@@ -32,9 +33,36 @@
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
 
+  // Bumped after a deep-link reveal to force one re-measure of the thread pin.
+  // On a cold load the thread's vertical offset is first computed while the page
+  // is still settling (a web-font subset reflowing the text above the highlight),
+  // and no observer catches that promptly: the article ResizeObserver misses the
+  // load burst, and observeMove — armed while the highlight is still off-screen —
+  // only falls back to its ~1s poll. By the time landOnComment reveals the
+  // target, the reflow has settled, so re-measuring then aligns it immediately.
+  let deepLinkSettleSeq = $state(0);
+
   const docId = $derived(page.data ? documentIdFor(page.data.meta) : null);
 
   const articleSize = useElementSize(() => articleRef ?? null);
+
+  // Track the active inline highlight's position so the pinned thread re-aligns
+  // when content above it reflows (FOUT, late image/diagram load) — a move the
+  // article ResizeObserver can't see. Null when no inline thread is active or
+  // its passage isn't wrapped (resolved / orphaned), which is harmless.
+  const activeHighlightMove = useElementMove(() => {
+    // Read `items` so this re-evaluates (and observeMove re-subscribes to the
+    // fresh wrapper node) after a reconcile rebuilds the highlights — e.g. a
+    // live-reload replaces the article HTML, destroying the old wrapper while
+    // activeId/articleRef are unchanged. Mirrors the data-active effect below;
+    // querySelector alone is not reactive to that node swap.
+    void comments.items;
+    const id = comments.activeId;
+    if (!id || !articleRef) return null;
+    return articleRef.querySelector<HTMLElement>(
+      `rw-annotation[data-comment-id="${escapeId(id)}"]`,
+    );
+  });
 
   // Text-selection state for the Add-comment popover. The hook owns the
   // captured Range, the article-relative anchor point, and dismiss-on-collapse.
@@ -144,6 +172,11 @@
       if (comments.linkedId === id) return; // already landed (a racing tick won)
       if (revealCommentTarget(id, kind)) {
         comments.linkedId = id;
+        // Re-measure the pin now the target is revealed and the cold-load reflow
+        // has settled (see deepLinkSettleSeq). rAF so the scroll/layout flushes.
+        requestAnimationFrame(() => {
+          deepLinkSettleSeq++;
+        });
       }
     });
   }
@@ -338,7 +371,15 @@
       comments.activeLeft = null;
       return;
     }
+    // Recompute on article resize AND on the active highlight *moving* — the
+    // latter catches content above it reflowing (web-font swap, a late image /
+    // diagram load) which slides the highlight without changing the article's
+    // box, so the ResizeObserver alone would miss it. Also re-measure once right
+    // after a deep-link reveal, when the cold-load reflow has settled but no
+    // observer has fired yet (see deepLinkSettleSeq).
     void articleSize.version;
+    void activeHighlightMove.version;
+    void deepLinkSettleSeq;
     const anchor = getHighlightAnchor(activeId);
     comments.activeTop = anchor?.top ?? null;
     comments.activeLeft = anchor ? clampPopoverLeft(anchor.centerX, articleRef.clientWidth) : null;

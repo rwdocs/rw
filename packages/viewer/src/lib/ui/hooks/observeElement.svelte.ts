@@ -9,6 +9,10 @@
  * viewport-relative coordinates; skip it for size-only hooks, since size is
  * scroll-invariant and listening would only produce redundant work.
  *
+ * This observes the element's own box only. Position changes caused by content
+ * *above* it reflowing (which leave its box unchanged) are the job of
+ * `observeMove`; consumers that anchor to an element use both.
+ *
  * Implementation detail of `useElementSize` / `useAnchorOffset` — not exported
  * outside the hooks/ layer.
  */
