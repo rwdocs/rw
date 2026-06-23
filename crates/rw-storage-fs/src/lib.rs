@@ -301,6 +301,7 @@ impl FsStorage {
                 description: meta.description,
                 origin: None,
                 pages: meta.pages,
+                is_dir: name_lower == "index.md",
             }))
         } else if let Some(meta_path) = &doc_ref.meta_path {
             let Ok(meta_yaml) = fs::read_to_string(meta_path) else {
@@ -328,6 +329,7 @@ impl FsStorage {
                 description: meta.description,
                 origin: None,
                 pages: meta.pages,
+                is_dir: true,
             }))
         } else {
             Ok(None)
@@ -679,6 +681,7 @@ impl Storage for FsStorage {
                 description: None,
                 origin,
                 pages: None,
+                is_dir: true,
             });
         }
 
@@ -2105,9 +2108,13 @@ mod tests {
 
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
         assert_eq!(home.origin, Some("docs".to_owned()));
+        // The README homepage is the root directory page, so its relative links
+        // resolve against the root (not nested under a leaf slug).
+        assert!(home.is_dir, "README homepage URL is a directory");
 
         let guide = docs.iter().find(|d| d.path == "guide").unwrap();
         assert_eq!(guide.origin, None);
+        assert!(!guide.is_dir, "docs/guide.md is a leaf page");
     }
 
     #[test]
@@ -2543,5 +2550,28 @@ mod tests {
             got.contains(&"docs/guide".to_owned()),
             "missing 'docs/guide' in {got:?}"
         );
+    }
+
+    #[test]
+    fn test_scan_classifies_is_dir() {
+        let temp_dir = create_test_dir();
+        // Leaf page: docs/guide.md  -> URL "guide", is_dir = false.
+        fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
+        // Index page: docs/domain/index.md -> URL "domain", is_dir = true.
+        let domain = temp_dir.path().join("domain");
+        fs::create_dir(&domain).unwrap();
+        fs::write(domain.join("index.md"), "# Domain").unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+
+        let guide = docs.iter().find(|d| d.path == "guide").unwrap();
+        assert!(
+            !guide.is_dir,
+            "leaf guide.md URL is a file, not a directory"
+        );
+
+        let domain = docs.iter().find(|d| d.path == "domain").unwrap();
+        assert!(domain.is_dir, "domain/index.md URL is a directory");
     }
 }

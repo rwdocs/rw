@@ -66,6 +66,11 @@ pub(crate) struct RenderConfig {
     /// Origin prefix (with trailing slash) for files outside `source_dir`.
     /// Set by [`with_origin`](crate::MarkdownRenderer::with_origin).
     pub(crate) origin_prefix: Option<String>,
+    /// True when the current page's URL denotes a directory (`index.md` or the
+    /// root/README homepage) rather than a single file (a leaf `name.md`). Leaf
+    /// pages resolve relative links against their *containing directory*, so the
+    /// page's own URL slug is dropped from the link base. Defaults to `true`.
+    pub(crate) is_dir: bool,
     /// `[[wikilink]]` parsing enabled.
     pub(crate) wikilinks: bool,
     /// Extract title from first H1.
@@ -82,6 +87,7 @@ impl RenderConfig {
         Self {
             base_path: None,
             origin_prefix: None,
+            is_dir: true,
             wikilinks: false,
             extract_title: false,
             sections: None,

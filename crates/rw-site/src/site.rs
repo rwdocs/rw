@@ -561,6 +561,7 @@ impl Site {
                     description: doc.description.clone(),
                     origin: doc.origin.clone(),
                     pages: doc.pages.clone(),
+                    is_dir: doc.is_dir,
                 },
                 parent_idx,
                 doc.page_kind.as_deref(),
@@ -1686,5 +1687,33 @@ mod tests {
         assert_eq!(nav.items[0].path, "getting-started");
         assert_eq!(nav.items[1].path, "configuration");
         assert_eq!(nav.items[2].path, "advanced"); // unlisted, alphabetical
+    }
+
+    #[test]
+    fn test_leaf_page_relative_link_resolves_to_sibling() {
+        use rw_storage_fs::FsStorage;
+
+        let temp = tempfile::tempdir().unwrap();
+        let docs = temp.path().join("docs");
+        let specs = docs.join("specs");
+        std::fs::create_dir_all(&specs).unwrap();
+        // Two sibling leaf pages: docs/specs/notif.md and docs/specs/inbox.md.
+        std::fs::write(specs.join("notif.md"), "# Notif\n\n[inbox](./inbox.md)").unwrap();
+        std::fs::write(specs.join("inbox.md"), "# Inbox").unwrap();
+
+        let storage = FsStorage::new(docs);
+        let config = PageRendererConfig {
+            extract_title: true,
+            ..Default::default()
+        };
+        let site = Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config);
+
+        let result = site.render("specs/notif").unwrap();
+
+        assert!(
+            result.html.contains(r#"href="/specs/inbox""#),
+            "leaf sibling link should resolve to /specs/inbox, got: {}",
+            result.html
+        );
     }
 }

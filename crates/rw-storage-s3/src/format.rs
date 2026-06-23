@@ -85,6 +85,7 @@ mod tests {
                 description: None,
                 origin: None,
                 pages: None,
+                is_dir: true,
             },
             Document {
                 path: "guide".to_owned(),
@@ -95,6 +96,7 @@ mod tests {
                 description: Some("Getting started".to_owned()),
                 origin: None,
                 pages: None,
+                is_dir: true,
             },
         ]);
 
@@ -152,6 +154,7 @@ mod tests {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         };
 
         let json = serde_json::to_string(&doc).unwrap();
@@ -197,6 +200,7 @@ mod tests {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         }]);
         manifest.mtimes.insert("guide".to_owned(), 1_713_000_000.0);
 
@@ -229,6 +233,7 @@ mod tests {
                 "getting-started".to_owned(),
                 "configuration".to_owned(),
             ]),
+            is_dir: true,
         }]);
 
         let json = serde_json::to_string(&manifest).unwrap();

@@ -1209,6 +1209,7 @@ mod tests {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         };
 
         assert_eq!(page.title, "Guide");
@@ -3224,6 +3225,7 @@ mod tests {
             description: desc.map(str::to_owned),
             origin: None,
             pages: None,
+            is_dir: true,
         }
     }
 

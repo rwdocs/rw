@@ -23,6 +23,30 @@ pub(crate) fn strip_origin<'a>(cfg: &RenderConfig, url: &'a str) -> Cow<'a, str>
     Cow::Borrowed(url)
 }
 
+/// The base path for resolving relative links, corrected for the page's source
+/// shape.
+///
+/// Directory pages (`index.md`, the root/README homepage) resolve relative
+/// links against their own URL. Leaf pages (`name.md`) resolve against their
+/// *containing directory*, so the page's own final URL segment is dropped —
+/// matching `CommonMark`, where `./sibling.md` is a sibling of the source file.
+///
+/// Kept separate from [`RenderConfig::base_path`], which wikilink resolution
+/// reads unchanged; only plain-link resolution uses this corrected base.
+/// `/specs/notif` (leaf) -> `/specs`; `/guide` (leaf) -> `/`.
+pub(crate) fn link_base(cfg: &RenderConfig) -> Option<&str> {
+    let base = cfg.base_path.as_deref()?;
+    if cfg.is_dir {
+        return Some(base);
+    }
+    // Drop the page's own final URL segment, keeping the leading slash, so the
+    // result is the containing directory. A leaf at the root collapses to `/`.
+    match base.trim_end_matches('/').rsplit_once('/') {
+        Some((dir, _)) if !dir.is_empty() => Some(dir),
+        _ => Some("/"),
+    }
+}
+
 /// Build ref data attributes for a resolved path, if applicable.
 ///
 /// Returns `None` for:
@@ -73,6 +97,36 @@ mod tests {
         let result = strip_origin(&c, "other/page.md");
         assert_eq!(result, "other/page.md");
         assert_matches!(result, Cow::Borrowed(_));
+    }
+
+    #[test]
+    fn link_base_is_dir_returns_base_unchanged() {
+        let mut c = cfg();
+        c.base_path = Some("/specs/notif".to_owned());
+        c.is_dir = true;
+        assert_eq!(link_base(&c), Some("/specs/notif"));
+    }
+
+    #[test]
+    fn link_base_leaf_drops_last_segment() {
+        let mut c = cfg();
+        c.base_path = Some("/specs/notif".to_owned());
+        c.is_dir = false;
+        assert_eq!(link_base(&c), Some("/specs"));
+    }
+
+    #[test]
+    fn link_base_leaf_at_root_drops_to_root() {
+        let mut c = cfg();
+        c.base_path = Some("/guide".to_owned());
+        c.is_dir = false;
+        assert_eq!(link_base(&c), Some("/"));
+    }
+
+    #[test]
+    fn link_base_none_when_unset() {
+        let c = cfg();
+        assert_eq!(link_base(&c), None);
     }
 
     #[test]

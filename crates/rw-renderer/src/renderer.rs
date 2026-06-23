@@ -116,6 +116,21 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
         self
     }
 
+    /// Set whether the current page's URL denotes a directory (`true`, from
+    /// `index.md` or the root/README homepage) rather than a single file
+    /// (`false`, a leaf `name.md`). Defaults to `true`.
+    ///
+    /// A leaf page resolves relative links against its *containing directory*
+    /// (`CommonMark` semantics): `./sibling.md` is a sibling of the source file,
+    /// not a child of it. Setting this `false` drops the page's own URL slug
+    /// from the link base. Only affects the HTML backend's relative-link
+    /// resolution; wikilink resolution is unaffected.
+    #[must_use]
+    pub fn with_is_dir(mut self, is_dir: bool) -> Self {
+        self.config.is_dir = is_dir;
+        self
+    }
+
     /// Set the origin (source directory name) for files outside `source_dir`.
     ///
     /// When set, relative links starting with this prefix (e.g., `docs/guide.md`)
@@ -581,6 +596,75 @@ mod tests {
     fn test_origin_preserves_external_links() {
         let result = render_with_origin("[Ext](https://example.com)", "/", "docs");
         assert!(result.html.contains(r#"href="https://example.com""#));
+    }
+
+    fn render_leaf(markdown: &str, base_path: &str) -> RenderResult {
+        MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path(base_path)
+            .with_is_dir(false)
+            .render(markdown, Pipeline::new())
+    }
+
+    #[test]
+    fn test_leaf_sibling_link_resolves_against_parent_dir() {
+        let result = render_leaf("[x](./inbox.md)", "/specs/notif");
+        assert!(
+            result.html.contains(r#"href="/specs/inbox""#),
+            "Expected href=\"/specs/inbox\", got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_leaf_parent_link() {
+        let result = render_leaf("[x](../x.md)", "/specs/notif");
+        assert!(
+            result.html.contains(r#"href="/x""#),
+            "Expected href=\"/x\", got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_leaf_subdir_link() {
+        let result = render_leaf("[x](sub/y.md)", "/specs/notif");
+        assert!(
+            result.html.contains(r#"href="/specs/sub/y""#),
+            "Expected href=\"/specs/sub/y\", got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_leaf_link_with_fragment() {
+        let result = render_leaf("[x](./page.md#frag)", "/specs/notif");
+        assert!(
+            result.html.contains(r#"href="/specs/page#frag""#),
+            "Expected href=\"/specs/page#frag\", got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_leaf_root_level_sibling() {
+        // Leaf `guide.md` at docs root (URL `/guide`); sibling lives at root.
+        let result = render_leaf("[x](./sibling.md)", "/guide");
+        assert!(
+            result.html.contains(r#"href="/sibling""#),
+            "Expected href=\"/sibling\", got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn test_index_sibling_link_unchanged() {
+        // Default (is_dir = true): base is the page's own dir.
+        let result = render_with_base_path("[x](./inbox.md)", "/specs/notif");
+        assert!(
+            result.html.contains(r#"href="/specs/notif/inbox""#),
+            "Expected href=\"/specs/notif/inbox\", got: {}",
+            result.html
+        );
     }
 
     #[test]

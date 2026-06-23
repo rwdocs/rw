@@ -109,6 +109,7 @@ impl MockStorage {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         });
         self
     }
@@ -132,6 +133,7 @@ impl MockStorage {
             description: None,
             origin: None,
             pages: Some(pages),
+            is_dir: true,
         });
         self
     }
@@ -155,6 +157,7 @@ impl MockStorage {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         });
         self
     }
@@ -179,6 +182,7 @@ impl MockStorage {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         });
         self
     }
@@ -197,6 +201,7 @@ impl MockStorage {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         });
         self
     }
@@ -218,6 +223,7 @@ impl MockStorage {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         });
         self
     }
@@ -249,6 +255,7 @@ impl MockStorage {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         });
         self.contents.write().insert(path, content.into());
         self
@@ -392,6 +399,7 @@ impl Storage for MockStorage {
                 description: d.description.clone(),
                 origin: d.origin.clone(),
                 pages: d.pages.clone(),
+                is_dir: d.is_dir,
             })
             .collect())
     }
