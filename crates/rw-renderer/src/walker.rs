@@ -557,7 +557,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             }
             Tag::Link { dest_url, .. } => {
                 let dest_url = link::strip_origin(self.cfg, &dest_url);
-                let href = B::transform_link(&dest_url, self.cfg.base_path.as_deref());
+                let base = link::link_base(self.cfg);
+                let href = B::transform_link(&dest_url, base);
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Relative `.md` links from a leaf page (e.g. `[sibling](./other.md)` in `docs/specs/notif.md`) now resolve to the sibling page (`/specs/other`) instead of a non-existent path nested under the current page (`/specs/notif/other`). Links now follow standard CommonMark semantics — resolved relative to the source file's directory — for both leaf pages and `index.md` directory pages. Links from README/`index.md` homepages (including the `docs/` source-dir prefix case) are unchanged.
 - Opening an inline-comment deep link (`#comment-<id>`) no longer leaves the comment thread pinned in the wrong vertical position. The thread in the right-margin column (and the narrow-screen comment popover) could land hundreds of pixels above its highlighted passage and stay there when content above the passage reflowed *after* the thread was positioned — e.g. a web-font swap on first load, or a late-loading image or diagram. Threads now re-align whenever their highlighted passage moves, not only when the article is resized, so they track the highlight through any late layout shift. A normal click was never affected (it happens after the page has settled).
 
 ## [0.1.27] - 2026-06-22

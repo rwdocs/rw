@@ -113,6 +113,23 @@ pub struct Page {
     /// Ordered list of child page slugs for navigation ordering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pages: Option<Vec<String>>,
+    /// Whether this page's content is backed by a directory index (`index.md`
+    /// or the root/README homepage) rather than a leaf `name.md`. Controls how
+    /// the renderer resolves relative `.md` links (see
+    /// [`Document::is_dir`](rw_storage::Document)).
+    ///
+    /// Defaults to `true` when absent, for backward compatibility — see
+    /// [`default_is_dir`].
+    #[serde(default = "default_is_dir")]
+    pub is_dir: bool,
+}
+
+/// Serde default for [`Page::is_dir`]. `Page` is persisted in the
+/// structure cache (`CachedSiteState`), so an entry cached before this field
+/// existed must still deserialize; such a site had no leaf pages, so
+/// directory-style resolution preserves the links it was cached with.
+fn default_is_dir() -> bool {
+    true
 }
 
 /// One segment of the breadcrumb trail leading to a page.
@@ -319,7 +336,7 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let renderer = self.create_renderer(path, page.origin.as_deref(), ctx);
+        let renderer = self.create_renderer(path, page.origin.as_deref(), page.is_dir, ctx);
         let pipeline = self.create_pipeline(ctx);
         let result = renderer.render(&markdown_text, pipeline);
 
@@ -413,10 +430,12 @@ impl PageRenderer {
         &self,
         base_path: &str,
         origin: Option<&str>,
+        is_dir: bool,
         ctx: &RenderContext,
     ) -> MarkdownRenderer<HtmlBackend> {
-        let mut renderer =
-            MarkdownRenderer::<HtmlBackend>::new().with_base_path(format!("/{base_path}"));
+        let mut renderer = MarkdownRenderer::<HtmlBackend>::new()
+            .with_base_path(format!("/{base_path}"))
+            .with_is_dir(is_dir);
 
         if let Some(origin) = origin {
             renderer = renderer.with_origin(origin);
@@ -537,7 +556,17 @@ mod tests {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         }
+    }
+
+    #[test]
+    fn page_is_dir_defaults_true_when_absent() {
+        // A structure-cache entry (CachedSiteState) written before `is_dir`
+        // existed has no such key; it must still deserialize, defaulting to true.
+        let json = r#"{"title":"Guide","path":"guide","has_content":true}"#;
+        let page: Page = serde_json::from_str(json).unwrap();
+        assert!(page.is_dir);
     }
 
     #[test]

@@ -18,6 +18,13 @@ use std::path::PathBuf;
 use crate::event::{StorageEventReceiver, WatchHandle};
 use crate::metadata::Metadata;
 
+/// Serde default for [`Document::is_dir`]: a bundle published before this
+/// field existed has no leaf pages, so treating its pages as directories
+/// preserves the link resolution they were rendered with.
+fn default_is_dir() -> bool {
+    true
+}
+
 /// Document metadata returned by storage scan.
 ///
 /// Documents can be either real pages (with content) or virtual pages (metadata only).
@@ -58,6 +65,16 @@ pub struct Document {
     /// Ordered list of child page slugs for navigation ordering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pages: Option<Vec<String>>,
+    /// True when this page's URL denotes a directory — its content comes from a
+    /// directory index file (`index.md`, or the README homepage) — rather than a
+    /// single file (a leaf `name.md`).
+    ///
+    /// Leaf pages resolve relative links against their parent directory, so the
+    /// renderer drops the page's own URL slug from the link base. Defaults to
+    /// `true` for backward compatibility with S3 bundles published before this
+    /// field existed (preserving their directory-style resolution).
+    #[serde(default = "default_is_dir")]
+    pub is_dir: bool,
 }
 
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
@@ -348,6 +365,7 @@ mod tests {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         };
 
         assert_eq!(doc.path, "");
@@ -367,6 +385,7 @@ mod tests {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         };
 
         assert_eq!(doc.path, "guide");
@@ -386,6 +405,7 @@ mod tests {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         };
 
         assert_eq!(doc.path, "domain/billing");
@@ -404,6 +424,7 @@ mod tests {
             description: None,
             origin: None,
             pages: None,
+            is_dir: true,
         };
 
         assert_eq!(doc.path, "domains");
@@ -559,5 +580,13 @@ mod tests {
         assert_eq!(StorageErrorKind::RateLimited.to_string(), "Rate limited");
         assert_eq!(StorageErrorKind::Timeout.to_string(), "Timeout");
         assert_eq!(StorageErrorKind::Other.to_string(), "Error");
+    }
+
+    #[test]
+    fn document_is_dir_defaults_true_when_absent() {
+        // An S3 bundle published before `is_dir` existed has no such key.
+        let json = r#"{"path":"guide","title":"Guide","has_content":true}"#;
+        let doc: Document = serde_json::from_str(json).unwrap();
+        assert!(doc.is_dir);
     }
 }
