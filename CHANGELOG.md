@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Opening an inline-comment deep link (`#comment-<id>`) no longer leaves the comment thread pinned in the wrong vertical position. The thread in the right-margin column (and the narrow-screen comment popover) could land hundreds of pixels above its highlighted passage and stay there when content above the passage reflowed *after* the thread was positioned — e.g. a web-font swap on first load, or a late-loading image or diagram. Threads now re-align whenever their highlighted passage moves, not only when the article is resized, so they track the highlight through any late layout shift. A normal click was never affected (it happens after the page has settled).
+
 ## [0.1.27] - 2026-06-22
 
 ### Added
