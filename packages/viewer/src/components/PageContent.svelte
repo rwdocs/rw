@@ -64,9 +64,16 @@
     );
   });
 
-  // Text-selection state for the Add-comment popover. The hook owns the
-  // captured Range, the article-relative anchor point, and dismiss-on-collapse.
-  const selectionPopover = useSelectionPopover(() => articleRef ?? null, articleSize);
+  // Text-selection state for the Add-comment popover. The hook watches the
+  // document for selections itself — capturing on a document-level mouseup
+  // (gated on comments being enabled) and dismissing on collapse — so a
+  // selection released outside the article still opens the popover. It owns the
+  // captured Range and the article-relative anchor point.
+  const selectionPopover = useSelectionPopover(
+    () => articleRef ?? null,
+    articleSize,
+    () => comments.enabled,
+  );
 
   // Drop any in-flight selection when the article content changes (live reload,
   // navigation). The cached Range's start/end nodes get detached, so its rect
@@ -457,17 +464,16 @@
   function handleMouseUp(event: MouseEvent) {
     const selection = window.getSelection();
 
-    // If no text selected, check if click landed on a comment highlight
-    if (!selection || selection.isCollapsed) {
-      selectionPopover.clear();
+    // Non-collapsed selections are captured by the hook's document-level mouseup
+    // listener (which also catches releases outside the article), so this
+    // handler only deals with a collapsed click.
+    if (selection && !selection.isCollapsed) return;
 
-      // Toggle: click an inactive highlight to activate, click the active one to dismiss.
-      const hitId = findCommentAtPoint(event);
-      if (hitId) comments.activeId = hitId === comments.activeId ? null : hitId;
-      return;
-    }
+    selectionPopover.clear();
 
-    selectionPopover.capture(selection.getRangeAt(0));
+    // Toggle: click an inactive highlight to activate, click the active one to dismiss.
+    const hitId = findCommentAtPoint(event);
+    if (hitId) comments.activeId = hitId === comments.activeId ? null : hitId;
   }
 
   function handleMouseMove(event: MouseEvent) {
@@ -649,7 +655,17 @@
         y={selectionPopover.pos.y - 8}
         class="-translate-x-1/2 -translate-y-full"
       >
-        <IconButton aria-label="Add comment" class="shadow-lg" onclick={handleAddComment}>
+        <!--
+          preventDefault on mousedown keeps the live text selection (and focus)
+          intact when the button is pressed, so handleAddComment still reads the
+          selection on click and the popover isn't torn down between down and up.
+        -->
+        <IconButton
+          aria-label="Add comment"
+          class="shadow-lg"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={handleAddComment}
+        >
           <svg
             class="size-4"
             fill="none"
