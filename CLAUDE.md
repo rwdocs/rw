@@ -205,7 +205,7 @@ crates/
 │
 ├── rw-napi/               # Node.js native addon (napi-rs bindings, excluded from workspace)
 │   └── src/                 # Standalone crate: cdylib can't build for musl with cargo --workspace
-│       ├── lib.rs            # RwSite, create_site, render_page, get_navigation
+│       ├── lib.rs            # RwSite, create_site, render_page, get_navigation, list_sections, list_pages
 │       └── types.rs          # Napi-compatible response types
 │
 ├── rw-config/             # Configuration parsing

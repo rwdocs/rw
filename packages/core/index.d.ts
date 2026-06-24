@@ -3,6 +3,7 @@
 export declare class RwSite {
   getNavigation(sectionRef?: string | undefined | null): Promise<NavigationResponse>
   listSections(): Promise<Array<SectionEntryResponse>>
+  listPages(): Promise<Array<PageEntryResponse>>
   renderPage(path: string): Promise<PageResponse>
   renderSearchDocument(path: string): Promise<SearchDocumentResponse | null>
   reload(force?: boolean | undefined | null): Promise<boolean>
@@ -32,6 +33,18 @@ export interface NavItemResponse {
   path: string
   section?: SectionResponse
   children?: Array<NavItemResponse>
+}
+
+export interface PageEntryResponse {
+  /**
+   * Canonical section ref (`kind:namespace/name`). Named `sectionRef` in JS
+   * to match `PageMeta.sectionRef`.
+   */
+  sectionRef: string
+  /** Page path relative to its section root (`""` for the section root). */
+  subpath: string
+  /** Display title. */
+  title: string
 }
 
 export interface PageMetaResponse {
