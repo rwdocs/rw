@@ -200,8 +200,18 @@ test.describe("Comment keyboard navigation", () => {
     await expect(page.getByRole("complementary", { name: "Comments" })).toBeVisible();
     expect(await activeHighlightId(page)).not.toBeNull();
     await expect(liveRegion(page)).toContainText("Comment 1 of 1");
-    // The active highlight is scrolled into view (centered) on the jump.
-    await expect(page.locator("article rw-annotation[data-active='true']")).toBeInViewport();
+    // The active highlight is scrolled into the upper region on the jump
+    // (scroll-margin-top: 33vh + block:"start"), no longer centered. This page's
+    // anchor sits high enough that, scrolled to the top, it is already above the
+    // 33vh mark — scroll-margin-top can't push it down past the document top — so
+    // here we only assert it is clearly above center (the old block:"center"
+    // landed it at ~50vh). The exact ⅓-down landing is pinned by the deeplink
+    // spec, whose anchor has room to scroll.
+    const active = page.locator("article rw-annotation[data-active='true']").first();
+    await expect(active).toBeInViewport();
+    const top = await active.evaluate((el) => el.getBoundingClientRect().top);
+    const vh = await page.evaluate(() => window.innerHeight);
+    expect(top).toBeLessThan(vh * 0.45);
   });
 
   test("n steps through inline then page comments and wraps", async ({ page }) => {

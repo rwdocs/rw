@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `@rwdocs/core` exposes `RwSite.listSections()`, which returns every documentation section in one call — flat, each with its canonical ref (`kind:namespace/name`), scope path, and full nearest-first ancestry (root last) — so a host no longer needs N+1 `getNavigation()` calls to walk nested sections (which deliberately hide sub-sections as childless leaves).
 
+### Changed
+
+- Opening an inline-comment deep link (`#comment-<id>`), or stepping to an inline comment with `n`/`p`, now lands the highlighted passage about a third of the way down the viewport instead of dead-center — so the passage sits where the eye rests on arrival, with room above for the comment thread.
+
 ### Fixed
 
 - Relative `.md` links from a leaf page (e.g. `[sibling](./other.md)` in `docs/specs/notif.md`) now resolve to the sibling page (`/specs/other`) instead of a non-existent path nested under the current page (`/specs/notif/other`). Links now follow standard CommonMark semantics — resolved relative to the source file's directory — for both leaf pages and `index.md` directory pages. Links from README/`index.md` homepages (including the `docs/` source-dir prefix case) are unchanged.

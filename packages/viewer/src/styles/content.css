@@ -387,6 +387,14 @@ rw-annotation {
   background-size: 100% 2px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
+  /* When a comment is revealed (deeplink reveal or n/p keyboard nav, both via
+   * scrollIntoView block:"start" in PageContent.svelte), land the highlight
+   * ~⅓ down the viewport instead of at the very top — that is where the eye
+   * rests on arrival. A CSS offset (not manual scroll math) is used so it works
+   * whether the window or an embedding host owns the scroll container. 33vh sits
+   * well below the ~49px sticky mobile header, so it clears it without reusing
+   * --scroll-anchor-offset (which carries header-clearance semantics). */
+  scroll-margin-top: 33vh;
 }
 rw-annotation[data-strategy="fuzzy"] {
   /* Dashed equivalent: a horizontal repeating gradient at the box bottom. */
