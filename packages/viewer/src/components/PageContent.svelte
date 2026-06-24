@@ -430,6 +430,9 @@
       if (!activeId || !articleRef) return null;
       return articleRef.querySelector(`rw-annotation[data-comment-id="${escapeId(activeId)}"]`);
     },
+    // block:"start" so the highlight lands ~⅓ down via scroll-margin-top: 33vh
+    // (see content.css) — same position as the deeplink reveal.
+    "start",
   );
 
   // Pending-selection overlay — paint the user's in-progress text selection
@@ -555,9 +558,11 @@
     if (kind === "inline") {
       const el = articleRef?.querySelector(`rw-annotation[data-comment-id="${escapeId(id)}"]`);
       if (!el) return false;
-      // Center (not start) — matches keyboard nav, and leaves room above the
-      // passage for the sidebar thread, which pins its header to the highlight.
-      el.scrollIntoView({ behavior: "auto", block: "center" });
+      // block:"start" + `rw-annotation { scroll-margin-top: 33vh }` lands the
+      // passage ~⅓ down the viewport (where the eye rests on a deeplink), not
+      // centered — and leaves room above for the pinned sidebar thread. Matches
+      // keyboard nav. CSS offset (not scroll math) keeps it embedded-safe.
+      el.scrollIntoView({ behavior: "auto", block: "start" });
       return true;
     }
     // page / resolved: the timeline thread wrapper carries id="comment-<id>".

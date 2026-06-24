@@ -116,9 +116,22 @@ test("deep-link to an inline comment opens the sidebar and highlights it", async
   const active = page.locator('article rw-annotation[data-active="true"]');
   await expect(active.first()).toBeVisible();
   await expect(active.first()).toBeInViewport();
-  // The passage is centered (not jammed to the top), so the pinned sidebar
-  // thread — whose header anchors to the highlight — is not clipped above the
-  // viewport. Its top must sit at or below 0.
+
+  // The passage lands ~⅓ down the viewport (scroll-margin-top: 33vh +
+  // block:"start"), not centered and not jammed to the top. This leaves room
+  // above for the pinned sidebar thread and matches where the eye rests when
+  // arriving via a deeplink. The getting-started fixture is intentionally tall
+  // enough (its "Tips" section) that the anchor has real scroll room below it,
+  // so 33vh genuinely engages — without the scroll-margin, block:"start" would
+  // land the highlight at top≈0 and fail the lower bound below.
+  const { top, vh } = await active.first().evaluate((el) => ({
+    top: el.getBoundingClientRect().top,
+    vh: window.innerHeight,
+  }));
+  expect(top).toBeGreaterThan(vh * 0.2);
+  expect(top).toBeLessThan(vh * 0.45);
+
+  // The pinned sidebar thread header is still not clipped above the viewport.
   const cardTop = await sidebar
     .getByTestId("comment-thread")
     .first()

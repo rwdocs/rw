@@ -14,3 +14,19 @@ Follow these steps to begin:
 
 - [Installation Guide](./installation.md) - How to install
 - [Configuration Guide](./configuration.md) - How to configure
+
+## Tips
+
+A few practices that tend to save time once your setup grows beyond the basics.
+
+Keep your configuration under version control so changes are reviewable. Small,
+focused commits make it easier to trace when a setting changed and why.
+
+Prefer environment variables for secrets and per-machine values, and commit
+only the defaults that are safe to share across every environment.
+
+When something behaves unexpectedly, re-run with verbose logging before
+changing configuration — the logs usually point straight at the cause.
+
+Document any non-obvious setting next to where it is defined, so the next
+reader does not have to reverse-engineer its purpose from behavior alone.
