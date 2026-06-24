@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.28] - 2026-06-24
+
 ### Added
 
 - `@rwdocs/core` exposes `RwSite.listSections()`, which returns every documentation section in one call — flat, each with its canonical ref (`kind:namespace/name`), scope path, and full nearest-first ancestry (root last) — so a host no longer needs N+1 `getNavigation()` calls to walk nested sections (which deliberately hide sub-sections as childless leaves).
