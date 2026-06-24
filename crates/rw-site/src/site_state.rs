@@ -63,6 +63,23 @@ pub struct SectionEntry {
     pub ancestors: Vec<String>,
 }
 
+/// A single page in the site, as returned by [`SiteState::list_pages`].
+///
+/// Keyed by the same `(section_ref, subpath)` pair the comment system uses as a
+/// page's `document_id` (`PageMeta.sectionRef` + `PageMeta.subpath`), so a
+/// consumer can join these entries directly against stored comments. See
+/// [`list_pages`](SiteState::list_pages) for which pages are included.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PageEntry {
+    /// Canonical section ref (`kind:namespace/name`) of the enclosing section.
+    pub section_ref: String,
+    /// Page path relative to its section root (empty for the section's own
+    /// root page; the full path for pages outside any explicit section).
+    pub subpath: String,
+    /// Display title (metadata `title`, first H1, or filename).
+    pub title: String,
+}
+
 /// Describes which [section](crate#sections-and-scoped-navigation) the
 /// navigation sidebar is currently showing.
 ///
@@ -510,6 +527,43 @@ impl SiteState {
             .collect();
         // Scope paths are unique map keys, so stability is irrelevant.
         entries.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+        entries
+    }
+
+    /// Returns every page in the site, each keyed by its `(section_ref,
+    /// subpath)` pair and carrying its title — the per-page counterpart to
+    /// [`list_sections`](Self::list_sections).
+    ///
+    /// Includes **every** page: the root page (empty `subpath`) and virtual
+    /// pages (directory containers without an `index.md`, which have a title
+    /// but no renderable body) among them. The `(section_ref, subpath)` key
+    /// matches what [`section_location`](Self::section_location) produces, so
+    /// it is byte-identical to the `document_id` the comment system stores.
+    ///
+    /// Each key comes from a per-page [`section_location`](Self::section_location)
+    /// lookup (a linear scan of the small section map), so this is
+    /// O(pages × sections) — fine at the expected scale. Sorted by
+    /// `(section_ref, subpath)` for a deterministic order; the key is unique
+    /// per page, so the sort never has to break ties.
+    #[must_use]
+    pub fn list_pages(&self) -> Vec<PageEntry> {
+        let mut entries: Vec<PageEntry> = self
+            .pages
+            .iter()
+            .map(|page| {
+                let (section_ref, subpath) = self.section_location(&page.path);
+                PageEntry {
+                    section_ref,
+                    subpath,
+                    title: page.title.clone(),
+                }
+            })
+            .collect();
+        entries.sort_unstable_by(|a, b| {
+            a.section_ref
+                .cmp(&b.section_ref)
+                .then_with(|| a.subpath.cmp(&b.subpath))
+        });
         entries
     }
 
@@ -2336,6 +2390,138 @@ mod tests {
         // The explicit root is still the universal ancestor of top-level sections.
         let billing = entries.iter().find(|e| e.path == "billing").unwrap();
         assert_eq!(billing.ancestors, vec!["component:default/root".to_owned()]);
+    }
+
+    // list_pages tests
+
+    #[test]
+    fn list_pages_includes_every_page_with_title_and_key() {
+        // root (Home) -> billing (domain) -> billing/payments (system)
+        //   -> billing/payments/api (page, no kind)
+        let site = nested_sections_site();
+        let pages = site.list_pages();
+
+        // One entry per page (4 pages: root, billing, payments, api).
+        assert_eq!(pages.len(), 4);
+
+        // Root page: keyed under the root section ref with an empty subpath.
+        let root = pages.iter().find(|p| p.title == "Home").unwrap();
+        assert_eq!(root.section_ref, "section:default/root");
+        assert_eq!(root.subpath, "");
+
+        // A page that is itself a section root keys under its own section,
+        // empty subpath (matches section_location).
+        let billing = pages.iter().find(|p| p.title == "Billing").unwrap();
+        assert_eq!(billing.section_ref, "domain:default/billing");
+        assert_eq!(billing.subpath, "");
+
+        // A page nested inside a section keys under that section with a
+        // section-relative subpath.
+        let api = pages.iter().find(|p| p.title == "API").unwrap();
+        assert_eq!(api.section_ref, "system:default/payments");
+        assert_eq!(api.subpath, "api");
+    }
+
+    #[test]
+    fn list_pages_page_outside_any_section_keys_under_root_with_full_path() {
+        // root -> guide (no kind, not a section)
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+        let pages = site.list_pages();
+
+        let guide = pages.iter().find(|p| p.title == "Guide").unwrap();
+        assert_eq!(guide.section_ref, "section:default/root");
+        assert_eq!(guide.subpath, "guide");
+    }
+
+    #[test]
+    fn list_pages_includes_virtual_pages() {
+        // A directory container with no index.md is a virtual page
+        // (has_content == false) but still a page with a title and key.
+        let mut builder = SiteStateBuilder::new();
+        let dir_idx = builder.add_page(
+            Page {
+                title: "Guides".to_owned(),
+                path: "guides".to_owned(),
+                has_content: false,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Intro".to_owned(),
+                path: "guides/intro".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(dir_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+        let pages = site.list_pages();
+
+        let dir = pages.iter().find(|p| p.title == "Guides").unwrap();
+        assert_eq!(dir.section_ref, "section:default/root");
+        assert_eq!(dir.subpath, "guides");
+    }
+
+    #[test]
+    fn list_pages_keys_round_trip_through_page_path_for() {
+        // Every (section_ref, subpath) list_pages emits must reverse-map
+        // (via page_path_for) back to a real page path — i.e. it agrees with
+        // section_location / page_path_for.
+        let site = nested_sections_site();
+        let pages = site.list_pages();
+
+        for page in &pages {
+            let path = site
+                .page_path_for(&page.section_ref, &page.subpath)
+                .unwrap_or_else(|| panic!("no path for {page:?}"));
+            assert!(
+                site.get_page(&path).is_some(),
+                "round-tripped path {path:?} is not a real page"
+            );
+        }
+    }
+
+    #[test]
+    fn list_pages_sorted_by_section_ref_then_subpath() {
+        let site = nested_sections_site();
+        let pages = site.list_pages();
+
+        let keys: Vec<(String, String)> = pages
+            .iter()
+            .map(|p| (p.section_ref.clone(), p.subpath.clone()))
+            .collect();
+        let mut sorted = keys.clone();
+        sorted.sort();
+        assert_eq!(keys, sorted);
     }
 
     #[test]

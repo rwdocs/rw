@@ -13,7 +13,7 @@ use crate::page::{
     BreadcrumbItem, Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext,
     RenderError, SearchDocument,
 };
-use crate::site_state::{Navigation, SectionEntry, SiteState, SiteStateBuilder};
+use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
 use rw_kroki::{EntityInfo, MetaIncludeSource};
 use rw_renderer::TitleResolver;
@@ -219,6 +219,20 @@ impl Site {
     /// returned instead.
     pub fn list_sections(&self) -> Result<Vec<SectionEntry>, StorageError> {
         Ok(self.reload_if_needed()?.state.list_sections())
+    }
+
+    /// Returns every document (page) in the site, each keyed by its
+    /// `(section_ref, subpath)` pair and carrying its title — the per-page
+    /// counterpart to [`list_sections`](Self::list_sections). See
+    /// [`SiteState::list_pages`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the initial site load fails (storage
+    /// unreachable). Subsequent reload failures are logged and stale data is
+    /// returned instead.
+    pub fn list_pages(&self) -> Result<Vec<PageEntry>, StorageError> {
+        Ok(self.reload_if_needed()?.state.list_pages())
     }
 
     /// Returns the current [`Sections`] map for cross-section link resolution.
@@ -1527,6 +1541,33 @@ mod tests {
         assert_eq!(billing.path, "billing");
         // ...and the root section is always present.
         assert!(sections.iter().any(|s| s.path.is_empty()));
+    }
+
+    #[test]
+    fn list_pages_returns_pages_through_site() {
+        let storage = MockStorage::new()
+            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document("billing/overview", "Overview");
+        let site = create_site_with_storage(storage);
+
+        let pages = site.list_pages().expect("list_pages");
+
+        // The page inside the billing section keys under that section ref with a
+        // section-relative subpath.
+        let overview = pages
+            .iter()
+            .find(|p| p.title == "Overview")
+            .expect("overview page");
+        assert_eq!(overview.section_ref, "domain:default/billing");
+        assert_eq!(overview.subpath, "overview");
+
+        // The billing section's own root page is present, empty subpath.
+        let billing = pages
+            .iter()
+            .find(|p| p.title == "Billing")
+            .expect("billing page");
+        assert_eq!(billing.section_ref, "domain:default/billing");
+        assert_eq!(billing.subpath, "");
     }
 
     #[test]

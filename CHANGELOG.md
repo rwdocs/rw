@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `@rwdocs/core` exposes `RwSite.listSections()`, which returns every documentation section in one call — flat, each with its canonical ref (`kind:namespace/name`), scope path, and full nearest-first ancestry (root last) — so a host no longer needs N+1 `getNavigation()` calls to walk nested sections (which deliberately hide sub-sections as childless leaves).
+- `@rwdocs/core` exposes `RwSite.listPages()`, which enumerates every page in a site in one pass — each with its title and its `(sectionRef, subpath)` key (the same pair comments use as a page's `document_id`) — so a host can cache human-readable page titles (e.g. for a comment inbox) without an N+1 of per-page `renderPage()` calls. The site's root page and virtual directory pages are included.
 
 ### Changed
 
