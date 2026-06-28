@@ -23,7 +23,7 @@
     "prepublishOnly": "napi prepublish -t npm"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.0"
+    "@napi-rs/cli": "^3.7.2"
   },
   "files": [
     "index.js",
