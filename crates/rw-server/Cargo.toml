@@ -25,7 +25,7 @@ rw-storage-fs = { workspace = true }
 # HTTP framework
 axum = { version = "0.8", features = ["ws", "macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = [
+tower-http = { version = "0.7", features = [
     "set-header",
     "compression-gzip",
     "trace"
