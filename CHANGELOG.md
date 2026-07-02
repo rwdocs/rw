@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Fenced code blocks now match the page theme instead of always rendering as a
+  dark box. In light theme a code block is a faint light-tinted surface with dark
+  text (previously a dark slate slab on the white page); in dark theme it is a
+  subtle panel one step darker than the page. Inline `code` is unchanged. (Syntax
+  highlighting is unaffected — code blocks are not yet syntax-highlighted.)
 - The embedded-preview shell (`rw serve --embedded`, a Backstage-like host
   wrapper for visually testing embedded rendering) is now compiled into every
   build. Previously it required a binary built with the `embedded-preview` Cargo
