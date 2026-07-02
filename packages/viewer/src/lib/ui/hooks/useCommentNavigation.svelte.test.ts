@@ -141,6 +141,74 @@ describe("useCommentNavigation", () => {
     expect(d.navigate).not.toHaveBeenCalled();
   });
 
+  it("navigates on a Cyrillic layout by physical key position", () => {
+    // Russian layout: the physical QWERTY N/P keys produce Cyrillic characters,
+    // but code still reports the physical slot the user pressed.
+    const d = deps();
+    mount(d);
+
+    press("т", { code: "KeyN" });
+    expect(d.navigate).toHaveBeenLastCalledWith("next");
+
+    press("з", { code: "KeyP" });
+    expect(d.navigate).toHaveBeenLastCalledWith("prev");
+  });
+
+  it("focuses the reply box on a Cyrillic layout by physical key position", () => {
+    const d = deps();
+    const nav = mount(d);
+
+    press("к", { code: "KeyR" }); // physical R on a Russian layout
+    expect(d.requestReplyFocus).toHaveBeenCalledOnce();
+    expect(nav.announcement).toBe("Replying to comment 1 of 2 by You");
+  });
+
+  it("ignores a non-Latin key on an unrelated physical position", () => {
+    const d = deps();
+    mount(d);
+
+    press("ф", { code: "KeyA" }); // Cyrillic on physical A — not a shortcut
+    expect(d.navigate).not.toHaveBeenCalled();
+    expect(d.requestReplyFocus).not.toHaveBeenCalled();
+  });
+
+  it("prefers the produced letter over physical position (Dvorak)", () => {
+    // On Dvorak the physical KeyN slot produces Latin "b": it must NOT navigate,
+    // because the letter the user typed is "b", not "n".
+    const d = deps();
+    mount(d);
+
+    press("b", { code: "KeyN" });
+    expect(d.navigate).not.toHaveBeenCalled();
+
+    // ...and the key that actually types "n" (a different physical slot) works.
+    press("n", { code: "KeyL" });
+    expect(d.navigate).toHaveBeenLastCalledWith("next");
+  });
+
+  it("matches shortcuts case-insensitively (Caps Lock / Shift)", () => {
+    const d = deps();
+    mount(d);
+
+    press("N"); // capital N still matches the lowercase mnemonic
+    expect(d.navigate).toHaveBeenLastCalledWith("next");
+  });
+
+  it("lets AltGr combinations through to the browser", () => {
+    // AltGr combos (altKey/ctrlKey both unset) must pass through — see the
+    // AltGraph guard in useCommentNavigation. Without it, the physical-key
+    // fallback would turn an AltGr glyph into a spurious shortcut.
+    const d = deps();
+    mount(d);
+
+    press("п", { code: "KeyP", modifierAltGraph: true });
+    press("н", { code: "KeyN", modifierAltGraph: true });
+    press("к", { code: "KeyR", modifierAltGraph: true });
+
+    expect(d.navigate).not.toHaveBeenCalled();
+    expect(d.requestReplyFocus).not.toHaveBeenCalled();
+  });
+
   it("does nothing when there are no navigable comments", () => {
     const d = deps({ navigable: vi.fn(() => []) });
     mount(d);
