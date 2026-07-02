@@ -415,3 +415,23 @@ rw-annotation[data-active="true"] {
 ::highlight(rw-comment-active) {
   background-color: var(--rw-highlight-active);
 }
+
+/* Code blocks — theme-matched surface. The Tailwind Typography plugin's
+   prose-slate theme paints <pre> a dark slate-800 box in BOTH themes (a dark slab
+   on the light page). Override it so the block matches the theme: a light-grey
+   tint in light mode, a subtle panel one step darker than the neutral-800 page in
+   dark mode. No border — the tint plus the mono font is enough separation. The
+   inner <code> inherits the color (the plugin forces `pre code` background
+   transparent and color inherit). `.prose pre` (0,2,0) beats the plugin's
+   `:where(pre)` (0,1,0) in the same layer, the same mechanism the blockquote and
+   table-wrap overrides above rely on. Inline `code` is intentionally untouched.
+   Syntax highlighting (a future task) will color tokens on top of this surface. */
+@layer utilities {
+  .prose pre {
+    @apply bg-slate-100 text-slate-900;
+  }
+
+  :where(.dark, .dark *) .prose pre {
+    @apply bg-neutral-900 text-slate-300;
+  }
+}
