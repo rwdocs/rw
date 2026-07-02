@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   back to the physical key position when the typed character isn't a Latin
   letter, while still honoring the labeled key on Dvorak/AZERTY. As a side
   effect they're now case-insensitive, so Caps Lock no longer disables them.
+- Resolving an inline comment no longer makes the comment thread's position
+  counter jump to the end (e.g. "1 / 6" → "6 / 6"). The just-resolved comment now
+  stays in its slot with its passage still highlighted; the counter updates
+  (to "1 / 5") only when you step to the next comment.
 - `rw serve` no longer keeps showing broken diagrams from cache after you fix a
   Kroki problem. Previously, rendering a page while `kroki_url` was unset (or
   while the Kroki server was unreachable) cached the broken result; setting

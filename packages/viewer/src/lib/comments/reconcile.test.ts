@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { reconcileHighlights, type DesiredComment } from "./reconcile";
-import type { Selector } from "../../types/comments";
+import { reconcileHighlights, desiredHighlights, type DesiredComment } from "./reconcile";
+import type { Selector, Comment } from "../../types/comments";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -201,5 +201,58 @@ describe("reconcileHighlights — overlapping comments", () => {
     // The pre-existing outer wrapper is not torn down, and inner nests.
     expect(c.querySelector('rw-annotation[data-comment-id="outer"]')).toBe(outerBefore);
     expect(c.querySelector("rw-annotation rw-annotation")).not.toBeNull();
+  });
+});
+
+function comment(over: Partial<Comment> & Pick<Comment, "id">): Comment {
+  return {
+    documentId: "doc",
+    author: { id: "a", name: "A" },
+    body: "b",
+    selectors: [{ type: "TextQuoteSelector", exact: "x", prefix: "", suffix: "" }],
+    status: "open",
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    canDelete: true,
+    canRestore: false,
+    canResolve: true,
+    ...over,
+  };
+}
+
+describe("desiredHighlights", () => {
+  it("includes open inline comments and excludes resolved ones", () => {
+    const items = [comment({ id: "a" }), comment({ id: "b", status: "resolved" })];
+    expect(desiredHighlights(items, null).map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("keeps a resolved comment when it is the active thread", () => {
+    const items = [comment({ id: "a" }), comment({ id: "b", status: "resolved" })];
+    expect(
+      desiredHighlights(items, "b")
+        .map((d) => d.id)
+        .sort(),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("keeps only the active resolved comment, not every resolved one", () => {
+    // Pins the per-id check (`c.id === activeId`): a weaker `activeId != null`
+    // rule would keep both resolved comments whenever any thread is active.
+    const items = [
+      comment({ id: "a", status: "resolved" }),
+      comment({ id: "b", status: "resolved" }),
+    ];
+    expect(desiredHighlights(items, "a").map((d) => d.id)).toEqual(["a"]);
+  });
+
+  it("excludes comments without selectors even when active", () => {
+    const items = [comment({ id: "p", selectors: [] })];
+    expect(desiredHighlights(items, "p")).toEqual([]);
+  });
+
+  it("preserves id, selectors and parentId in the mapped shape", () => {
+    const items = [comment({ id: "r", parentId: "a" })];
+    const [d] = desiredHighlights(items, null);
+    expect(d).toEqual({ id: "r", selectors: items[0].selectors, parentId: "a" });
   });
 });
