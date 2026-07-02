@@ -15,7 +15,7 @@ use crate::cache::DiagramKey;
 use crate::consts::{DEFAULT_DPI, DEFAULT_TIMEOUT};
 use crate::html_embed::{annotate_svg_links, scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
-    DiagramRequest, create_agent, render_all, render_all_png_data_uri_partial,
+    DiagramError, DiagramRequest, create_agent, render_all, render_all_png_data_uri_partial,
     render_all_svg_partial,
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
@@ -86,6 +86,12 @@ pub struct DiagramProcessor {
     extracted: Vec<ExtractedCodeBlock>,
     /// Warnings (accumulated during processing).
     warnings: Vec<String>,
+    /// Whether any diagram hit a transient render failure (network error, Kroki
+    /// 5xx, or a retryable 4xx — see
+    /// [`DiagramErrorKind::is_transient`](crate::kroki::DiagramErrorKind::is_transient))
+    /// during `post_process`. Consumed via
+    /// [`has_transient_error`](CodeBlockProcessor::has_transient_error).
+    has_transient_error: bool,
 }
 
 impl DiagramProcessor {
@@ -117,6 +123,7 @@ impl DiagramProcessor {
             },
             extracted: Vec::new(),
             warnings: Vec::new(),
+            has_transient_error: false,
         }
     }
 
@@ -313,29 +320,31 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 
     fn post_process(&mut self, html: &mut String) {
+        // Reset up front so `post_process` fully determines the flag from this
+        // render alone, rather than relying on the instance never being reused.
+        self.has_transient_error = false;
+
         let diagrams = to_extracted_diagrams(&self.extracted);
         if diagrams.is_empty() {
             return;
         }
 
-        match &self.config.output {
+        self.has_transient_error = match &self.config.output {
             DiagramOutput::Inline => {
-                Self::post_process_inline(&self.config, &mut self.warnings, html, &diagrams);
+                Self::post_process_inline(&self.config, &mut self.warnings, html, &diagrams)
             }
             DiagramOutput::Files {
                 output_dir,
                 tag_generator,
-            } => {
-                Self::post_process_files(
-                    &self.config,
-                    &mut self.warnings,
-                    html,
-                    &diagrams,
-                    output_dir,
-                    tag_generator,
-                );
-            }
-        }
+            } => Self::post_process_files(
+                &self.config,
+                &mut self.warnings,
+                html,
+                &diagrams,
+                output_dir,
+                tag_generator,
+            ),
+        };
     }
 
     fn extracted(&self) -> &[ExtractedCodeBlock] {
@@ -344,6 +353,10 @@ impl CodeBlockProcessor for DiagramProcessor {
 
     fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    fn has_transient_error(&self) -> bool {
+        self.has_transient_error
     }
 
     fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
@@ -400,7 +413,7 @@ impl DiagramProcessor {
         warnings: &mut Vec<String>,
         html: &mut String,
         diagrams: &[ExtractedDiagram],
-    ) {
+    ) -> bool {
         // Collect all replacements for single-pass application
         let mut replacements = Replacements::with_capacity(diagrams.len());
 
@@ -464,11 +477,13 @@ impl DiagramProcessor {
         }
 
         // Render cache misses and collect replacements
-        Self::render_and_cache_svg(config, &mut replacements, svg_to_render);
-        Self::render_and_cache_png(config, &mut replacements, png_to_render);
+        let svg_transient = Self::render_and_cache_svg(config, &mut replacements, svg_to_render);
+        let png_transient = Self::render_and_cache_png(config, &mut replacements, png_to_render);
 
         // Apply all replacements in a single pass
         replacements.apply(html);
+
+        svg_transient || png_transient
     }
 
     /// Render SVG diagrams, cache results, and collect replacements.
@@ -476,9 +491,9 @@ impl DiagramProcessor {
         config: &ProcessorConfig,
         replacements: &mut Replacements,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
-    ) {
+    ) -> bool {
         if to_render.is_empty() {
-            return;
+            return false;
         }
 
         let (requests, cache_map) = extract_requests_and_cache_info(to_render);
@@ -497,9 +512,7 @@ impl DiagramProcessor {
             let figure = format!(r#"<figure class="diagram">{annotated}</figure>"#);
             replacements.add(r.index, figure);
         }
-        for e in result.errors {
-            replacements.add_error(e.index, &e.to_string());
-        }
+        replacements.add_errors(result.errors)
     }
 
     /// Render PNG diagrams, cache results, and collect replacements.
@@ -507,9 +520,9 @@ impl DiagramProcessor {
         config: &ProcessorConfig,
         replacements: &mut Replacements,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
-    ) {
+    ) -> bool {
         if to_render.is_empty() {
-            return;
+            return false;
         }
 
         let (requests, cache_map) = extract_requests_and_cache_info(to_render);
@@ -527,9 +540,7 @@ impl DiagramProcessor {
             );
             replacements.add(r.index, figure);
         }
-        for e in result.errors {
-            replacements.add_error(e.index, &e.to_string());
-        }
+        replacements.add_errors(result.errors)
     }
 
     /// Post-process with file-based output mode.
@@ -542,7 +553,7 @@ impl DiagramProcessor {
         diagrams: &[ExtractedDiagram],
         output_dir: &std::path::Path,
         tag_generator: &TagGenerator,
-    ) {
+    ) -> bool {
         // Collect all replacements for single-pass application
         let mut replacements = Replacements::with_capacity(diagrams.len());
 
@@ -570,12 +581,12 @@ impl DiagramProcessor {
             let tag = tag_generator(&info, config.dpi);
             replacements.add(r.index, tag);
         }
-        for e in result.errors {
-            replacements.add_error(e.index, &e.to_string());
-        }
+        let transient = replacements.add_errors(result.errors);
 
         // Apply all replacements in a single pass
         replacements.apply(html);
+
+        transient
     }
 }
 
@@ -627,6 +638,19 @@ impl Replacements {
             escape_html(error_msg)
         );
         self.add(index, error_figure);
+    }
+
+    /// Record every render error as an error figure and report whether any was
+    /// transient (a network / 5xx / retryable-4xx failure a retry could
+    /// recover). The caller uses the return value to decline to cache a page
+    /// that hit a transient failure — see
+    /// [`DiagramErrorKind::is_transient`](crate::kroki::DiagramErrorKind::is_transient).
+    fn add_errors(&mut self, errors: Vec<DiagramError>) -> bool {
+        let transient = errors.iter().any(|e| e.kind.is_transient());
+        for e in errors {
+            self.add_error(e.index, &e.to_string());
+        }
+        transient
     }
 
     /// Apply all replacements in a single pass.
@@ -707,6 +731,69 @@ pub(crate) fn to_extracted_diagrams(blocks: &[ExtractedCodeBlock]) -> Vec<Extrac
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn has_transient_error_false_when_no_diagrams() {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+        let processor = DiagramProcessor::new("http://kroki.invalid");
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "# Title\n\nJust prose, no diagrams.\n",
+            Pipeline::new().with_processor(processor),
+        );
+
+        assert!(!result.has_transient_error);
+    }
+
+    #[test]
+    fn has_transient_error_true_on_unreachable_kroki() {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+        // Unreachable Kroki → the diagram render fails with a transient
+        // HttpRequest error, which must surface on the RenderResult (true) so
+        // the page renderer declines to cache the error figure. Connecting to a
+        // closed loopback port fails fast in both sandboxed and unsandboxed runs.
+        let processor = DiagramProcessor::new("http://127.0.0.1:1");
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "# Title\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```\n",
+            Pipeline::new().with_processor(processor),
+        );
+
+        assert!(result.has_transient_error);
+        assert!(result.html.contains("diagram-error"));
+    }
+
+    #[test]
+    fn add_errors_reports_transient_only_for_transient_kinds() {
+        use crate::kroki::DiagramErrorKind;
+
+        // A deterministic error (Kroki 400 on malformed source) is recorded as a
+        // figure but is NOT transient, so the page still caches.
+        let mut det = Replacements::new();
+        let det_transient = det.add_errors(vec![DiagramError {
+            index: 0,
+            kind: DiagramErrorKind::HttpResponse {
+                status: 400,
+                body: String::new(),
+            },
+        }]);
+        assert!(!det_transient);
+
+        // A transient error (Kroki 503) is recorded AND flagged transient.
+        let mut tr = Replacements::new();
+        let tr_transient = tr.add_errors(vec![DiagramError {
+            index: 0,
+            kind: DiagramErrorKind::HttpResponse {
+                status: 503,
+                body: String::new(),
+            },
+        }]);
+        assert!(tr_transient);
+
+        // No errors → not transient.
+        let mut empty = Replacements::new();
+        assert!(!empty.add_errors(vec![]));
+    }
 
     #[test]
     fn test_process_plantuml() {
