@@ -11,7 +11,7 @@
 //! `seen_first_h1`) live on [`HeadingAccumulator`](crate::toc::HeadingAccumulator),
 //! not here.
 
-use std::collections::HashMap;
+use crate::code_block::FenceAttrs;
 
 /// Per-instance state for a currently-active inline-capture scope.
 ///
@@ -60,7 +60,7 @@ pub(crate) enum Scope {
     CodeBlock {
         language: Option<String>,
         buffer: String,
-        attrs: HashMap<String, String>,
+        attrs: FenceAttrs,
     },
     /// An open YAML frontmatter / metadata block. Suppresses every inline
     /// event — nothing should appear in `output`.

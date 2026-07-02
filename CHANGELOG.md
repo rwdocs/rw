@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Diagram code fences accept a `{#id}` attribute block to set a stable
+  `data-diagram-id` on the rendered `<figure class="diagram">`
+  (e.g. ` ```mermaid {#architecture} `). Diagrams without an explicit id get an
+  auto `data-diagram-id="diagram-<n>"` (zero-based index among diagrams on the
+  page), so every diagram is addressable. `format` is also set inside the block
+  (`{format=png}`); an explicit id survives diagram reordering, auto ids do not.
+
 ### Changed
 
 - Fenced code blocks now match the page theme instead of always rendering as a
@@ -14,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text (previously a dark slate slab on the white page); in dark theme it is a
   subtle panel one step darker than the page. Inline `code` is unchanged. (Syntax
   highlighting is unaffected — code blocks are not yet syntax-highlighted.)
+- **Breaking (pre-1.0):** the bare `format=png` diagram fence form (outside the
+  braces) is removed. Set the format inside the attribute block: ` ```mermaid
+  {format=png} `.
 - The embedded-preview shell (`rw serve --embedded`, a Backstage-like host
   wrapper for visually testing embedded rendering) is now compiled into every
   build. Previously it required a binary built with the `embedded-preview` Cargo

@@ -133,6 +133,12 @@ pub struct ExtractedDiagram {
     pub language: DiagramLanguage,
     /// Output format (svg, png).
     pub format: DiagramFormat,
+    /// Writer-set id from `{#id}`, kept typed rather than as an `attrs` map
+    /// entry: unlike `format`/`endpoint` (opaque pass-through data), the id has
+    /// renderer-level semantics — an auto `diagram-<n>` fallback and
+    /// HTML-attribute emission — that a stringly-typed map can't express safely.
+    /// `None` → an auto id is assigned at emit time.
+    pub id: Option<String>,
 }
 
 #[cfg(test)]
@@ -262,6 +268,7 @@ mod tests {
             index: 0,
             language: DiagramLanguage::Mermaid,
             format: DiagramFormat::Png,
+            id: None,
         };
         let debug_str = format!("{diagram:?}");
         assert!(debug_str.contains("ExtractedDiagram"));

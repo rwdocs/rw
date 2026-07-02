@@ -274,7 +274,7 @@ mod tests {
 
     use super::*;
     use crate::HtmlBackend;
-    use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
+    use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
     use rw_sections::{Namespace, Section};
 
     fn render_html(markdown: &str) -> RenderResult {
@@ -749,7 +749,7 @@ mod tests {
         fn process(
             &mut self,
             language: &str,
-            attrs: &HashMap<String, String>,
+            attrs: &FenceAttrs,
             source: &str,
             index: usize,
         ) -> ProcessResult {
@@ -758,7 +758,8 @@ mod tests {
                     index,
                     language.to_owned(),
                     source.to_owned(),
-                    attrs.clone(),
+                    attrs.id.clone(),
+                    attrs.map.clone(),
                 ));
                 ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
             } else {
@@ -777,7 +778,7 @@ mod tests {
         fn process(
             &mut self,
             language: &str,
-            _attrs: &HashMap<String, String>,
+            _attrs: &FenceAttrs,
             source: &str,
             _index: usize,
         ) -> ProcessResult {
@@ -893,7 +894,7 @@ mod tests {
         fn process(
             &mut self,
             _language: &str,
-            _attrs: &HashMap<String, String>,
+            _attrs: &FenceAttrs,
             _source: &str,
             _index: usize,
         ) -> ProcessResult {
@@ -935,7 +936,7 @@ mod tests {
         fn process(
             &mut self,
             _language: &str,
-            _attrs: &HashMap<String, String>,
+            _attrs: &FenceAttrs,
             _source: &str,
             _index: usize,
         ) -> ProcessResult {
@@ -1864,7 +1865,7 @@ Install with apt.
             fn process(
                 &mut self,
                 _language: &str,
-                _attrs: &HashMap<String, String>,
+                _attrs: &FenceAttrs,
                 _source: &str,
                 index: usize,
             ) -> ProcessResult {
@@ -1938,7 +1939,7 @@ Install with apt.
             fn process(
                 &mut self,
                 language: &str,
-                _attrs: &HashMap<String, String>,
+                _attrs: &FenceAttrs,
                 _source: &str,
                 _index: usize,
             ) -> ProcessResult {
@@ -1952,7 +1953,7 @@ Install with apt.
             fn process(
                 &mut self,
                 language: &str,
-                _attrs: &HashMap<String, String>,
+                _attrs: &FenceAttrs,
                 _source: &str,
                 _index: usize,
             ) -> ProcessResult {

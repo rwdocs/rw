@@ -4,11 +4,10 @@
 //! skinparam, includes) and returns human-readable text for search indexing.
 //! Non-diagram code blocks pass through unchanged.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rw_renderer::{CodeBlockProcessor, ProcessResult};
+use rw_renderer::{CodeBlockProcessor, FenceAttrs, ProcessResult};
 
 use crate::language::DiagramLanguage;
 use crate::meta_includes::MetaIncludeSource;
@@ -88,7 +87,7 @@ impl CodeBlockProcessor for SearchDiagramProcessor {
     fn process(
         &mut self,
         language: &str,
-        _attrs: &HashMap<String, String>,
+        _attrs: &FenceAttrs,
         source: &str,
         _index: usize,
     ) -> ProcessResult {
@@ -120,8 +119,6 @@ impl CodeBlockProcessor for SearchDiagramProcessor {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use rw_renderer::ProcessResult;
 
     use super::*;
@@ -131,7 +128,7 @@ mod tests {
     fn strips_plantuml_boilerplate() {
         let mut processor = SearchDiagramProcessor::new(vec![]);
         let source = "@startuml\nskinparam defaultFontName Roboto\n!include common.puml\nPerson(user, \"User\", \"A user\")\nSystem(sys, \"System\", \"The system\")\n@enduml";
-        let result = processor.process("plantuml", &HashMap::new(), source, 0);
+        let result = processor.process("plantuml", &FenceAttrs::default(), source, 0);
 
         match result {
             ProcessResult::Inline(text) => {
@@ -148,7 +145,7 @@ mod tests {
     #[test]
     fn non_diagram_passes_through() {
         let mut processor = SearchDiagramProcessor::new(vec![]);
-        let result = processor.process("python", &HashMap::new(), "def hello(): pass", 0);
+        let result = processor.process("python", &FenceAttrs::default(), "def hello(): pass", 0);
         assert_matches!(result, ProcessResult::PassThrough);
     }
 
@@ -156,7 +153,7 @@ mod tests {
     fn strips_c4plantuml_boilerplate() {
         let mut processor = SearchDiagramProcessor::new(vec![]);
         let source = "@startuml\n!include C4_Context.puml\nPerson(user, \"User\")\nSystem(sys, \"System\")\n@enduml";
-        let result = processor.process("c4plantuml", &HashMap::new(), source, 0);
+        let result = processor.process("c4plantuml", &FenceAttrs::default(), source, 0);
 
         match result {
             ProcessResult::Inline(text) => {
@@ -173,7 +170,7 @@ mod tests {
     fn mermaid_passes_raw_source() {
         let mut processor = SearchDiagramProcessor::new(vec![]);
         let source = "graph TD\n    A-->B\n    B-->C";
-        let result = processor.process("mermaid", &HashMap::new(), source, 0);
+        let result = processor.process("mermaid", &FenceAttrs::default(), source, 0);
 
         match result {
             ProcessResult::Inline(text) => {
@@ -202,7 +199,7 @@ mod tests {
             SearchDiagramProcessor::new(vec![]).with_meta_include_source(Arc::new(TestSource));
         let source =
             "@startuml\n!include systems/sys_payment_gateway.iuml\nRel(a, b, \"uses\")\n@enduml";
-        let result = processor.process("plantuml", &HashMap::new(), source, 0);
+        let result = processor.process("plantuml", &FenceAttrs::default(), source, 0);
 
         match result {
             ProcessResult::Inline(text) => {

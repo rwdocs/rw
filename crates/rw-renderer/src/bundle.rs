@@ -26,13 +26,12 @@ use crate::code_block::{CodeBlockProcessor, parse_fence_info};
 /// # Example
 ///
 /// ```
-/// use std::collections::HashMap;
-/// use rw_renderer::{CodeBlockProcessor, ProcessResult, bundle_markdown};
+/// use rw_renderer::{CodeBlockProcessor, FenceAttrs, ProcessResult, bundle_markdown};
 ///
 /// struct UpperCaseProcessor;
 ///
 /// impl CodeBlockProcessor for UpperCaseProcessor {
-///     fn process(&mut self, _: &str, _: &HashMap<String, String>,
+///     fn process(&mut self, _: &str, _: &FenceAttrs,
 ///                _: &str, _: usize) -> ProcessResult {
 ///         ProcessResult::PassThrough
 ///     }
@@ -121,12 +120,10 @@ pub fn bundle_markdown(markdown: &str, processors: &mut [&mut dyn CodeBlockProce
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::code_block::ProcessResult;
+    use crate::code_block::{FenceAttrs, ProcessResult};
 
     /// Test processor that uppercases content for "upper" language.
     struct UpperCaseProcessor;
@@ -135,7 +132,7 @@ mod tests {
         fn process(
             &mut self,
             _language: &str,
-            _attrs: &HashMap<String, String>,
+            _attrs: &FenceAttrs,
             _source: &str,
             _index: usize,
         ) -> ProcessResult {
@@ -159,7 +156,7 @@ mod tests {
         fn process(
             &mut self,
             _language: &str,
-            _attrs: &HashMap<String, String>,
+            _attrs: &FenceAttrs,
             _source: &str,
             _index: usize,
         ) -> ProcessResult {
@@ -188,7 +185,7 @@ mod tests {
         fn process(
             &mut self,
             _language: &str,
-            _attrs: &HashMap<String, String>,
+            _attrs: &FenceAttrs,
             _source: &str,
             _index: usize,
         ) -> ProcessResult {
