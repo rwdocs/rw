@@ -142,7 +142,7 @@ crates/
 │           ├── result.rs     # UpdateResult, DryRunResult
 │           └── error.rs      # UpdateError
 │
-├── rw-embedded-preview/   # Embedded preview shell (dev-only Backstage-like wrapper)
+├── rw-embedded-preview/   # Embedded preview shell (Backstage-like wrapper; runtime --embedded flag)
 │   └── src/
 │       ├── lib.rs            # Public API, axum router
 │       ├── preview.html      # Preview shell HTML (Backstage-like layout)

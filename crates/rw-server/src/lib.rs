@@ -105,8 +105,6 @@ pub struct ServerConfig {
     /// Path to `SQLite` database for comments.
     pub comments_db: PathBuf,
     /// Enable embedded preview mode (serves Backstage-like shell at /).
-    /// Only available when the `embedded-preview` feature is enabled.
-    #[cfg(feature = "embedded-preview")]
     pub embedded_preview: bool,
     /// The `.rw` state directory (holds `server.json`, `comments/`, cache).
     pub project_dir: PathBuf,
@@ -132,7 +130,6 @@ impl Default for ServerConfig {
             version: String::new(),
             meta_filename: "meta.yaml".to_owned(),
             comments_db: SqliteCommentStore::default_path(&project_dir),
-            #[cfg(feature = "embedded-preview")]
             embedded_preview: false,
             project_dir,
         }
@@ -208,7 +205,6 @@ pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
         version: config.version.clone(),
         comment_store,
         notify_token,
-        #[cfg(feature = "embedded-preview")]
         embedded_preview: config.embedded_preview,
     });
 

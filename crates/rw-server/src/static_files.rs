@@ -56,7 +56,6 @@ async fn serve_asset(req: Request<Body>) -> Response {
 /// that doesn't match a real asset, returns the preview shell HTML —
 /// except unmatched requests under the reserved `/_api/` prefix, which
 /// 404 (mirroring [`serve_asset`]) so a bad API path never yields HTML.
-#[cfg(feature = "embedded-preview")]
 pub(crate) async fn asset_or_preview_fallback(req: Request<Body>) -> Response {
     let path = req.uri().path().trim_start_matches('/');
 
@@ -89,7 +88,6 @@ mod tests {
         let _router: Router<Arc<AppState>> = static_router();
     }
 
-    #[cfg(feature = "embedded-preview")]
     mod embedded_preview {
         use super::*;
         use axum::http::Uri;

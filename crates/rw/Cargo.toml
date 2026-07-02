@@ -17,7 +17,6 @@ workspace = true
 [features]
 default = []
 embed-assets = ["rw-assets/embed"]
-embedded-preview = ["rw-server/embedded-preview"]
 
 [dependencies]
 rw-assets = { workspace = true }

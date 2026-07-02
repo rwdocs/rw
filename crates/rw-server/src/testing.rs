@@ -78,7 +78,6 @@ impl TestServer {
             version: "test".to_owned(),
             comment_store,
             notify_token,
-            #[cfg(feature = "embedded-preview")]
             embedded_preview: false,
         });
 
@@ -107,7 +106,6 @@ impl TestServer {
             version: "test".to_owned(),
             comment_store,
             notify_token: Some(Self::TEST_NOTIFY_TOKEN.to_owned()),
-            #[cfg(feature = "embedded-preview")]
             embedded_preview: false,
         });
 
