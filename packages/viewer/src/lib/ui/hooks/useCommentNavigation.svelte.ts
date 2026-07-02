@@ -22,6 +22,18 @@ function isEditable(el: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
 }
 
+/** Resolve a keydown to its mnemonic letter, independent of keyboard layout.
+ *  Prefer the produced character when it is a Latin letter — so Dvorak/AZERTY
+ *  and user remaps win — and fall back to the physical key position for
+ *  non-Latin layouts (Cyrillic, Greek, …), where `key` is not a Latin letter
+ *  but `code` still reports the QWERTY slot the user pressed. Returns null when
+ *  the press maps to no single letter. */
+function shortcutKey(e: KeyboardEvent): string | null {
+  if (/^[a-z]$/i.test(e.key)) return e.key.toLowerCase();
+  const m = /^Key([A-Z])$/.exec(e.code);
+  return m ? m[1].toLowerCase() : null;
+}
+
 /** " by <author>" suffix for a live-region announcement, omitted when the author
  *  name is blank so the live region never reads a dangling "… by ". */
 function authorSuffix(author: string): string {
@@ -62,16 +74,20 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
 
   $effect(() => {
     function onKeydown(e: KeyboardEvent) {
-      // Let browser/OS shortcuts (Cmd+N, Ctrl+P, …) through untouched.
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key !== "n" && e.key !== "p" && e.key !== "r") return;
+      // Let browser/OS shortcuts (Cmd+N, Ctrl+P, …) through untouched. AltGr is
+      // checked separately: on Linux/ChromeOS it sets neither altKey nor
+      // ctrlKey, so without this an AltGr glyph on physical KeyN/KeyP/KeyR would
+      // reach the code fallback below and fire a spurious shortcut.
+      if (e.metaKey || e.ctrlKey || e.altKey || e.getModifierState("AltGraph")) return;
+      const key = shortcutKey(e);
+      if (key !== "n" && key !== "p" && key !== "r") return;
       // Don't hijack typing in the comment form (or any host input when
       // embedded). Check both the event target and the focused element: they
       // usually match, but can differ in embedded/cross-frame setups where the
       // keydown bubbles to a target outside the element that actually has focus.
       if (isEditable(e.target) || isEditable(document.activeElement)) return;
 
-      if (e.key === "r") {
+      if (key === "r") {
         // A null result (nothing to reply to) passes through untouched — no
         // preventDefault — so the keypress isn't swallowed when there's no
         // thread to act on.
@@ -87,7 +103,7 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
       if (deps.navigable().length === 0) return;
 
       e.preventDefault();
-      const result = deps.navigate(e.key === "n" ? "next" : "prev");
+      const result = deps.navigate(key === "n" ? "next" : "prev");
       if (result) {
         announce(`Comment ${result.index + 1} of ${result.total}${authorSuffix(result.author)}`);
       }

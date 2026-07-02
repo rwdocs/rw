@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Comment keyboard navigation (`n` next, `p` previous, `r` reply) now works on
+  non-Latin keyboard layouts (Cyrillic, Greek, and similar). Previously the
+  shortcuts matched the typed character, so on a Russian layout the physical
+  `N`/`P`/`R` keys produced Cyrillic letters that never matched and the shortcuts
+  silently did nothing — you had to switch back to a Latin layout. They now fall
+  back to the physical key position when the typed character isn't a Latin
+  letter, while still honoring the labeled key on Dvorak/AZERTY. As a side
+  effect they're now case-insensitive, so Caps Lock no longer disables them.
 - `rw serve` no longer keeps showing broken diagrams from cache after you fix a
   Kroki problem. Previously, rendering a page while `kroki_url` was unset (or
   while the Kroki server was unreachable) cached the broken result; setting
