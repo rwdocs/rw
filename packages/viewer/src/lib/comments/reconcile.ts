@@ -4,7 +4,7 @@ import {
   selectorsToRangeIn,
   type AnchorStrategy,
 } from "$lib/anchoring";
-import type { Selector } from "../../types/comments";
+import type { Selector, Comment } from "../../types/comments";
 import { wrapRange, unwrapComment, escapeId } from "./highlight";
 
 export interface DesiredComment {
@@ -14,6 +14,19 @@ export interface DesiredComment {
    *  comments that fail to anchor are promoted to orphans, so a falsy parentId
    *  (undefined from the API, or null) means "top-level". */
   parentId?: string | null;
+}
+
+/**
+ * The set of comments whose passages should be highlighted in the article.
+ * A comment is highlighted when it is unresolved OR it is the currently active
+ * thread — so a just-resolved comment keeps its highlight (and its document-order
+ * slot in `order`) until the reader navigates away. Comments without selectors
+ * (page-level comments, replies) are never highlighted.
+ */
+export function desiredHighlights(items: Comment[], activeId: string | null): DesiredComment[] {
+  return items
+    .filter((c) => (c.status !== "resolved" || c.id === activeId) && c.selectors.length > 0)
+    .map((c) => ({ id: c.id, selectors: c.selectors, parentId: c.parentId }));
 }
 
 export interface ReconcileResult {

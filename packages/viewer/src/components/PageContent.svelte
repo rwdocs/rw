@@ -5,7 +5,7 @@
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
   import { escapeId } from "$lib/comments/highlight";
-  import { reconcileHighlights } from "$lib/comments/reconcile";
+  import { reconcileHighlights, desiredHighlights } from "$lib/comments/reconcile";
   import {
     buildCommentHash,
     parseCommentHash,
@@ -48,8 +48,8 @@
 
   // Track the active inline highlight's position so the pinned thread re-aligns
   // when content above it reflows (FOUT, late image/diagram load) — a move the
-  // article ResizeObserver can't see. Null when no inline thread is active or
-  // its passage isn't wrapped (resolved / orphaned), which is harmless.
+  // article ResizeObserver can't see. Null when no thread is active or the active
+  // thread's passage isn't wrapped (orphaned), which is harmless.
   const activeHighlightMove = useElementMove(() => {
     // Read `items` so this re-evaluates (and observeMove re-subscribes to the
     // fresh wrapper node) after a reconcile rebuilds the highlights — e.g. a
@@ -306,6 +306,25 @@
   // Map from comment ID to its anchored Range (for click detection)
   let commentRanges = $state.raw<Map<string, Range>>(new Map());
 
+  // A raw fingerprint of the <rw-annotation> wrapper ids currently in the DOM, in
+  // document order — used by the wrap effect's early-out to detect when the DOM
+  // already matches what we want (or was wiped by a re-render). Deliberately NOT
+  // reconcile's `order`: this keeps duplicate ids (nested/overlapping comments
+  // wrap the same id more than once) and emits "" for a stray null id, so it
+  // faithfully reflects the live wrapper set. Do not "unify" it with `order`
+  // (which dedups and drops nulls) — that would change the comparison basis and
+  // break the early-out for overlapping comments.
+  function domWrapperSig(container: HTMLElement): string {
+    return [...container.querySelectorAll("rw-annotation")]
+      .map((el) => el.getAttribute("data-comment-id") ?? "")
+      .join(" ");
+  }
+
+  // Signatures of the last reconcile, held across runs (non-reactive locals): the
+  // id-set we asked to highlight, and the ids actually wrapped in the DOM after.
+  let prevDesiredSig = "";
+  let prevDomSig = "";
+
   // Reconcile comment highlights to the current open/anchored set. The
   // <rw-annotation> DOM is the wrapped-set ledger, so this mutates only what
   // changed (resolve unwraps one; create/reopen wraps one) instead of tearing
@@ -318,15 +337,33 @@
   // because a single-range overlay doesn't need DOM mutation.
   $effect(() => {
     const items = comments.items;
+    // Read activeId so activating/deactivating a resolved comment re-runs this
+    // effect: a resolved comment stays highlighted while it is the active thread
+    // (keeping its document-order slot in `order`) and unwraps once you navigate
+    // away. The early-out below keeps this extra dependency cheap.
+    const activeId = comments.activeId;
     const container = articleRef;
     if (!container) return;
 
     const sel = window.getSelection();
     const selectionRange = sel && sel.rangeCount > 0 && !sel.isCollapsed ? sel.getRangeAt(0) : null;
 
-    const desired = items
-      .filter((c) => c.status !== "resolved" && c.selectors.length > 0)
-      .map((c) => ({ id: c.id, selectors: c.selectors, parentId: c.parentId }));
+    const desired = desiredHighlights(items, activeId);
+
+    // DOM-truth early-out: skip the (text-index rebuild + full re-anchor)
+    // reconcile when neither the desired set NOR the wrappers already in the DOM
+    // changed since last time. This keeps stepping *between* open comments with
+    // n/p — which lands on non-resolved comments already in the desired set —
+    // from re-anchoring on every keypress. (Stepping *off* a just-resolved active
+    // comment does drop it from the set, so the reconcile correctly runs then to
+    // unwrap it.) `desiredSig` is checked first so the DOM walk (`domWrapperSig`)
+    // is skipped whenever the desired set already differs; comparing the live
+    // wrapper set (not just `desired`) is what keeps a live-reload correct: an
+    // in-place re-render wipes the <rw-annotation> wrappers while `desired` is
+    // unchanged, so the fingerprint differs and the reconcile still runs to
+    // re-wrap.
+    const desiredSig = desired.map((d) => d.id).join(" ");
+    if (desiredSig === prevDesiredSig && domWrapperSig(container) === prevDomSig) return;
 
     const result = reconcileHighlights(container, desired, selectionRange);
 
@@ -334,6 +371,9 @@
     comments.anchorStrategies = result.strategies;
     comments.orphanIds = result.orphanIds;
     comments.order = result.order;
+
+    prevDesiredSig = desiredSig;
+    prevDomSig = domWrapperSig(container);
 
     if (result.touchesSelection) {
       // A wrap/unwrap mutated text nodes the selection points into; drop it so a
@@ -357,8 +397,9 @@
   // genuine non-orphan → orphan transition clears activeId — navigating *onto*
   // an already-orphaned comment (it lives in the page-comments timeline and is
   // a valid n/p target) keeps it active so it highlights and stepping continues.
-  // Must stay separate from the wrap effect above: that effect reads activeId,
-  // so folding this in would re-wrap the article DOM on every n/p keypress.
+  // Must stay separate from the wrap effect above: this effect *writes* activeId,
+  // while the wrap effect *reads* it — merging them would let one effect's write
+  // retrigger its own read.
   // `prevOrphans` is a deliberately non-reactive local: this effect re-runs on
   // orphanIds / activeId changes, not on its own bookkeeping write.
   let prevOrphans = new Set<string>();
@@ -396,9 +437,12 @@
   // Cheap attribute toggle, no DOM mutation beyond setAttribute/removeAttribute.
   // Re-runs when activeId flips (the common case) and also when items change,
   // because the wrap effect above may have just produced fresh wrapper elements
-  // that still need the attribute applied. Resolved comments aren't wrapped
-  // (the wrap effect skips them), so activating a resolved-from-the-sidebar
-  // comment has no in-article visual — the sidebar is the indicator.
+  // that still need the attribute applied. An active inline comment with a live
+  // anchor is always wrapped (the wrap effect keeps a resolved comment
+  // highlighted while it is active), so activating any anchored comment —
+  // resolved or not — tints its passage; the tint clears when you navigate away
+  // and it unwraps. (An active page-level or orphaned comment has no wrapper to
+  // tint, as before.)
   $effect(() => {
     const activeId = comments.activeId;
     void comments.items;
@@ -495,10 +539,12 @@
    *  alpha-compositing) becomes the topmost DOM node at that point, so
    *  clicking the darker patch picks the more-specific thread.
    *
-   *  Resolved-active comments don't get a wrapper (the comment-wrap effect
-   *  skips them), so clicking the active overlay over a resolved comment
-   *  returns null and won't deactivate via article click — the sidebar's
-   *  close button is the dismiss path for resolved-active.
+   *  An active inline comment with a live anchor always has a wrapper (the wrap
+   *  effect keeps a resolved comment highlighted while it is active), so clicking
+   *  a resolved-active highlight returns its id and deactivates it via article
+   *  click, just like an open one — the sidebar's close button is an additional
+   *  dismiss path (and the only one for a page-level/orphaned active thread,
+   *  which has no wrapper to click).
    */
   function findCommentAtPoint(event: MouseEvent): string | null {
     const target = event.target;
@@ -518,21 +564,16 @@
    *  the real highlight — skipping width==0 rects avoids anchoring to that
    *  invisible artifact.
    *
-   *  When `commentId` doesn't have a wrapper-backed Range (the active comment
-   *  just got resolved → wrap effect dropped its wrapper → commentRanges no
-   *  longer maps it), fall back to resolving the comment's selectors on
-   *  demand. The sidebar thread should stay anchored to the article passage
-   *  even after the in-article highlight disappears. */
+   *  An active inline comment with a live anchor is always wrapped (the wrap
+   *  effect keeps a resolved comment highlighted while it is active), so
+   *  `commentRanges` maps it. A missing range means the active comment is
+   *  page-level (no selectors), orphaned, or otherwise unanchorable — return
+   *  null, which is what on-demand selector resolution produced for those cases
+   *  too. */
   function getHighlightAnchor(commentId: string): { top: number; centerX: number } | null {
     if (!articleRef) return null;
-    let range = commentRanges.get(commentId);
-    if (!range) {
-      const comment = comments.items.find((c) => c.id === commentId);
-      if (!comment || comment.selectors.length === 0) return null;
-      const result = selectorsToRange(comment.selectors, articleRef);
-      if (!result) return null;
-      range = result.range;
-    }
+    const range = commentRanges.get(commentId);
+    if (!range) return null;
     const rects = range.getClientRects();
     let firstLineRect: DOMRect | null = null;
     for (const r of rects) {
