@@ -50,6 +50,54 @@ graph LR
 
 The diagram source is sent to the Kroki server, rendered, and embedded into the page as an SVG.
 
+### Attributes
+
+A diagram fence can carry an attribute block after the language, in braces:
+
+````markdown
+```mermaid {#architecture format=png}
+graph LR
+    A --> B
+```
+````
+
+- **`format`** -- output format for this diagram, `svg` (default) or `png`. Set
+  it inside the braces (`{format=png}`); there is no bare `format=png` form
+  outside the braces.
+- **`#id`** -- see [Diagram IDs](#diagram-ids) below.
+
+## Diagram IDs
+
+Every rendered diagram is wrapped in `<figure class="diagram">`, and that
+`<figure>` carries a `data-diagram-id` attribute so host pages, tests, or
+scripts can target a specific diagram.
+
+Set `{#id}` on the fence to give a diagram a stable id:
+
+````markdown
+```mermaid {#architecture}
+graph LR
+    A --> B
+```
+````
+
+renders as `<figure class="diagram" data-diagram-id="architecture">...</figure>`.
+
+Diagrams without an explicit `{#id}` get an auto id of the form
+`diagram-<n>`, where `<n>` is the zero-based index of the diagram among the
+diagrams on the page (the first diagram is `diagram-0`, the second
+`diagram-1`, and so on) -- not the position of its code block among all code
+blocks. This means every diagram is addressable even if you never set an id.
+
+The difference matters when diagrams move: an explicit id stays attached to
+its diagram no matter where it ends up on the page, while an auto id is
+positional and changes if you reorder or add diagrams before it. Set `{#id}`
+on any diagram whose identity needs to stay stable (e.g. one referenced by an
+external link or test).
+
+This attribute is specific to the HTML output path; publishing to Confluence
+does not emit it.
+
 ## PlantUML Includes
 
 PlantUML `!include` directives are resolved relative to the paths listed in `include_dirs`. This allows sharing common definitions, themes, and macros across multiple diagrams.

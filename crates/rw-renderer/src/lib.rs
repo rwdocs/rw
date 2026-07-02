@@ -83,8 +83,9 @@
 //! Add a custom code block processor:
 //!
 //! ```
-//! use std::collections::HashMap;
-//! use rw_renderer::{CodeBlockProcessor, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult};
+//! use rw_renderer::{
+//!     CodeBlockProcessor, FenceAttrs, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult,
+//! };
 //!
 //! struct MathProcessor;
 //!
@@ -92,7 +93,7 @@
 //!     fn process(
 //!         &mut self,
 //!         language: &str,
-//!         _attrs: &HashMap<String, String>,
+//!         _attrs: &FenceAttrs,
 //!         source: &str,
 //!         _index: usize,
 //!     ) -> ProcessResult {
@@ -137,7 +138,7 @@ mod wikilink;
 
 pub use backend::{AlertKind, RenderBackend};
 pub use bundle::bundle_markdown;
-pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
+pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
 pub use comment::render_comment_body;
 pub use config::TitleResolver;
 pub use html::HtmlBackend;

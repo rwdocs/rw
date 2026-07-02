@@ -20,13 +20,12 @@
 //! of [`Walker::end_tag`]. Don't "simplify" either pattern without reading
 //! the comments first; both will fail to compile if hoisted.
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use pulldown_cmark::{CodeBlockKind, Event, LinkType, Tag, TagEnd};
 
 use crate::backend::{AlertKind, RenderBackend};
-use crate::code_block::{CodeBlockProcessor, ProcessResult, parse_fence_info};
+use crate::code_block::{CodeBlockProcessor, FenceAttrs, ProcessResult, parse_fence_info};
 use crate::config::RenderConfig;
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
@@ -472,7 +471,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         let (lang, attrs) = parse_fence_info(info);
                         (if lang.is_empty() { None } else { Some(lang) }, attrs)
                     }
-                    _ => (None, HashMap::new()),
+                    _ => (None, FenceAttrs::default()),
                 };
                 self.scopes.push(Scope::CodeBlock {
                     language,

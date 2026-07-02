@@ -13,8 +13,7 @@
 //! # Example
 //!
 //! ```
-//! use std::collections::HashMap;
-//! use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
+//! use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
 //!
 //! struct DiagramProcessor {
 //!     extracted: Vec<ExtractedCodeBlock>,
@@ -24,7 +23,7 @@
 //!     fn process(
 //!         &mut self,
 //!         language: &str,
-//!         attrs: &HashMap<String, String>,
+//!         attrs: &FenceAttrs,
 //!         source: &str,
 //!         index: usize,
 //!     ) -> ProcessResult {
@@ -33,7 +32,8 @@
 //!                 index,
 //!                 language.to_string(),
 //!                 source.to_string(),
-//!                 attrs.clone(),
+//!                 attrs.id.clone(),
+//!                 attrs.map.clone(),
 //!             ));
 //!             ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
 //!         } else {
@@ -78,6 +78,10 @@ pub struct ExtractedCodeBlock {
     pub language: String,
     /// Raw source content of the code block.
     pub source: String,
+    /// Writer-set id from `{#id}`, kept as a typed field rather than an `attrs`
+    /// map entry so a bare `id=foo` token can't populate it and a consumer reads
+    /// it without stringly-typed lookups.
+    id: Option<String>,
     /// Attributes parsed from fence (e.g., `format=png` → {"format": "png"}).
     attrs: HashMap<String, String>,
 }
@@ -89,14 +93,22 @@ impl ExtractedCodeBlock {
         index: usize,
         language: String,
         source: String,
+        id: Option<String>,
         attrs: HashMap<String, String>,
     ) -> Self {
         Self {
             index,
             language,
             source,
+            id,
             attrs,
         }
+    }
+
+    /// Writer-set id from the fence `{#id}` block, if any.
+    #[must_use]
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
     }
 
     /// Attributes parsed from the fence info string.
@@ -126,13 +138,13 @@ pub trait CodeBlockProcessor: Send + Sync {
     /// Inspects a code block and decides how to handle it.
     ///
     /// `language` is the identifier from the fence info string (e.g.,
-    /// `"plantuml"`). `attrs` contains key-value pairs parsed from the
-    /// remainder of the info string (e.g., `format=png`). `index` is a
+    /// `"plantuml"`). `attrs` is the parsed `{ … }` attribute block from the
+    /// remainder of the info string (e.g., `{#id format=png}`). `index` is a
     /// zero-based counter useful for generating unique placeholder tokens.
     fn process(
         &mut self,
         language: &str,
-        attrs: &HashMap<String, String>,
+        attrs: &FenceAttrs,
         source: &str,
         index: usize,
     ) -> ProcessResult;
@@ -188,24 +200,83 @@ pub trait CodeBlockProcessor: Send + Sync {
     }
 }
 
-/// Parse fence info string into language and attributes.
+/// Parsed fence info string: the language plus an optional `{ … }`
+/// attribute block.
 ///
-/// Format: `language [key=value ...]`
-#[must_use]
-pub(crate) fn parse_fence_info(info: &str) -> (String, HashMap<String, String>) {
-    let mut parts = info.split_whitespace();
-    let language = parts.next().unwrap_or("").to_owned();
+/// Only the brace block populates attributes. Outside the braces, the first
+/// whitespace token is the language and every other bare token is ignored.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct FenceAttrs {
+    /// Explicit id from `{#id}` (last one wins). `None` when absent.
+    pub id: Option<String>,
+    /// Classes from `{.class}`, in source order.
+    pub classes: Vec<String>,
+    /// `key=value` attributes (and valueless flags, value `""`) from the block.
+    pub map: HashMap<String, String>,
+}
 
-    let mut attrs = HashMap::new();
-    for part in parts {
-        if let Some((key, value)) = part.split_once('=') {
-            // Strip quotes if present
-            let value = value.trim_matches('"').trim_matches('\'');
-            attrs.insert(key.to_owned(), value.to_owned());
+/// Parse a fence info string into its language and attribute block.
+///
+/// Grammar inside a single `{ … }` span: whitespace-separated tokens, each
+/// classified by its first byte — `#id`, `.class`, `key=value`, or a bare flag.
+/// Tokens of length ≤ 1 are ignored. This is an original implementation modeled
+/// on the documented Pandoc/heading-attribute behavior; no third-party parser
+/// code is reused.
+#[must_use]
+pub(crate) fn parse_fence_info(info: &str) -> (String, FenceAttrs) {
+    let (before_brace, inner) = split_brace_block(info);
+    let language = before_brace
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_owned();
+
+    let mut attrs = FenceAttrs::default();
+    if let Some(inner) = inner {
+        parse_attr_block(inner, &mut attrs);
+    }
+    (language, attrs)
+}
+
+/// Split off a single `{ … }` block: the substring before the first `{`, and
+/// the content between the first `{` and the *first* `}` after it. Closing on
+/// the first `}` (not the last) keeps two adjacent groups like `{#a}{#b}` from
+/// merging into one corrupted block; only the first group is honored.
+fn split_brace_block(info: &str) -> (&str, Option<&str>) {
+    if let Some(open) = info.find('{')
+        && let Some(close_rel) = info[open + 1..].find('}')
+    {
+        let close = open + 1 + close_rel;
+        return (&info[..open], Some(&info[open + 1..close]));
+    }
+    (info, None)
+}
+
+/// Parse the tokens inside a brace block into `attrs`, dispatching each
+/// whitespace-separated token by its first byte (`#`→id, `.`→class, else
+/// `key=value`). A later `#id` overwrites an earlier one (last wins); classes
+/// accumulate.
+fn parse_attr_block(inner: &str, attrs: &mut FenceAttrs) {
+    for token in inner.split_whitespace() {
+        if token.len() <= 1 {
+            // Lone `#`, `.`, or a single-char token — nothing to name.
+            continue;
+        }
+        match token.as_bytes()[0] {
+            b'#' => attrs.id = Some(token[1..].to_owned()),
+            b'.' => attrs.classes.push(token[1..].to_owned()),
+            _ => {
+                if let Some((key, value)) = token.split_once('=') {
+                    if !key.is_empty() {
+                        let value = value.trim_matches('"').trim_matches('\'');
+                        attrs.map.insert(key.to_owned(), value.to_owned());
+                    }
+                } else {
+                    attrs.map.insert(token.to_owned(), String::new());
+                }
+            }
         }
     }
-
-    (language, attrs)
 }
 
 #[cfg(test)]
@@ -213,55 +284,89 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_fence_info_language_only() {
+    fn parse_language_only() {
         let (lang, attrs) = parse_fence_info("rust");
         assert_eq!(lang, "rust");
-        assert!(attrs.is_empty());
+        assert_eq!(attrs, FenceAttrs::default());
     }
 
     #[test]
-    fn test_parse_fence_info_with_attrs() {
-        let (lang, attrs) = parse_fence_info("plantuml format=png");
+    fn parse_brace_id() {
+        let (lang, attrs) = parse_fence_info("mermaid {#architecture}");
+        assert_eq!(lang, "mermaid");
+        assert_eq!(attrs.id.as_deref(), Some("architecture"));
+        assert!(attrs.classes.is_empty());
+        assert!(attrs.map.is_empty());
+    }
+
+    #[test]
+    fn parse_brace_id_classes_kv() {
+        let (lang, attrs) = parse_fence_info("plantuml {#a .b .c format=png k=v}");
         assert_eq!(lang, "plantuml");
-        assert_eq!(attrs.get("format"), Some(&"png".to_owned()));
+        assert_eq!(attrs.id.as_deref(), Some("a"));
+        assert_eq!(attrs.classes, vec!["b".to_owned(), "c".to_owned()]);
+        assert_eq!(attrs.map.get("format"), Some(&"png".to_owned()));
+        assert_eq!(attrs.map.get("k"), Some(&"v".to_owned()));
     }
 
     #[test]
-    fn test_parse_fence_info_multiple_attrs() {
-        let (lang, attrs) = parse_fence_info("diagram format=svg theme=dark");
-        assert_eq!(lang, "diagram");
-        assert_eq!(attrs.get("format"), Some(&"svg".to_owned()));
-        assert_eq!(attrs.get("theme"), Some(&"dark".to_owned()));
+    fn parse_brace_last_id_wins() {
+        let (_lang, attrs) = parse_fence_info("mermaid {#a #b}");
+        assert_eq!(attrs.id.as_deref(), Some("b"));
     }
 
     #[test]
-    fn test_parse_fence_info_quoted_values() {
-        let (lang, attrs) = parse_fence_info("table-yaml caption=\"User List\"");
-        assert_eq!(lang, "table-yaml");
-        // Note: quotes are stripped, but value is truncated at first space within the fence
-        // This is expected behavior with split_whitespace
-        assert_eq!(attrs.get("caption"), Some(&"User".to_owned()));
+    fn parse_bare_tokens_ignored() {
+        // Outside the braces, bare id=/format= are NOT attributes.
+        let (lang, attrs) = parse_fence_info("mermaid id=foo format=png");
+        assert_eq!(lang, "mermaid");
+        assert_eq!(attrs.id, None);
+        assert!(attrs.map.is_empty());
     }
 
     #[test]
-    fn test_parse_fence_info_single_quoted() {
-        let (lang, attrs) = parse_fence_info("chart title='Sales'");
-        assert_eq!(lang, "chart");
-        assert_eq!(attrs.get("title"), Some(&"Sales".to_owned()));
+    fn parse_brace_format_only() {
+        let (_lang, attrs) = parse_fence_info("mermaid {format=svg}");
+        assert_eq!(attrs.id, None);
+        assert_eq!(attrs.map.get("format"), Some(&"svg".to_owned()));
     }
 
     #[test]
-    fn test_parse_fence_info_empty() {
-        let (lang, attrs) = parse_fence_info("");
-        assert_eq!(lang, "");
-        assert!(attrs.is_empty());
+    fn parse_degenerate_braces_no_panic() {
+        for info in ["mermaid {}", "mermaid {#}", "mermaid {#foo", "mermaid }{"] {
+            let (lang, attrs) = parse_fence_info(info);
+            assert_eq!(lang, "mermaid");
+            assert_eq!(attrs.id, None, "info: {info}");
+        }
     }
 
     #[test]
-    fn test_parse_fence_info_whitespace_only() {
-        let (lang, attrs) = parse_fence_info("   ");
-        assert_eq!(lang, "");
-        assert!(attrs.is_empty());
+    fn parse_non_ascii_id_no_panic() {
+        let (_lang, attrs) = parse_fence_info("mermaid {#заголовок}");
+        assert_eq!(attrs.id.as_deref(), Some("заголовок"));
+    }
+
+    #[test]
+    fn parse_multiple_brace_groups_takes_first() {
+        // Two adjacent groups must not merge into one corrupted block: the
+        // block ends at the first `}`, so only the first group is honored.
+        let (lang, attrs) = parse_fence_info("mermaid {#hello}{format=png}");
+        assert_eq!(lang, "mermaid");
+        assert_eq!(attrs.id.as_deref(), Some("hello"));
+        assert!(
+            attrs.map.is_empty(),
+            "second group must be ignored, not merged"
+        );
+
+        let (_lang, attrs) = parse_fence_info("mermaid {#a} {b=c}");
+        assert_eq!(attrs.id.as_deref(), Some("a"));
+        assert!(attrs.map.is_empty());
+    }
+
+    #[test]
+    fn parse_quoted_kv_value_trimmed() {
+        let (_lang, attrs) = parse_fence_info("mermaid {caption=\"User\"}");
+        assert_eq!(attrs.map.get("caption"), Some(&"User".to_owned()));
     }
 
     #[test]
@@ -284,12 +389,14 @@ mod tests {
             0,
             "plantuml".to_owned(),
             "@startuml\nA -> B\n@enduml".to_owned(),
+            None,
             HashMap::from([("format".to_owned(), "png".to_owned())]),
         );
 
         assert_eq!(block.index, 0);
         assert_eq!(block.language, "plantuml");
         assert_eq!(block.source, "@startuml\nA -> B\n@enduml");
+        assert_eq!(block.id(), None);
         assert_eq!(block.attrs().get("format"), Some(&"png".to_owned()));
     }
 
@@ -311,7 +418,7 @@ mod tests {
         fn process(
             &mut self,
             language: &str,
-            attrs: &HashMap<String, String>,
+            attrs: &FenceAttrs,
             source: &str,
             index: usize,
         ) -> ProcessResult {
@@ -321,7 +428,8 @@ mod tests {
                         index,
                         language.to_owned(),
                         source.to_owned(),
-                        attrs.clone(),
+                        attrs.id.clone(),
+                        attrs.map.clone(),
                     ));
                     ProcessResult::Placeholder(format!("{{{{TEST_{index}}}}}"))
                 }
@@ -346,7 +454,7 @@ mod tests {
     #[test]
     fn test_processor_placeholder() {
         let mut processor = TestProcessor::new();
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         let result = processor.process("test-placeholder", &attrs, "content", 0);
         assert_eq!(result, ProcessResult::Placeholder("{{TEST_0}}".to_owned()));
@@ -360,7 +468,7 @@ mod tests {
     #[test]
     fn test_processor_inline() {
         let mut processor = TestProcessor::new();
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         let result = processor.process("test-inline", &attrs, "hello", 0);
         assert_eq!(result, ProcessResult::Inline("<div>hello</div>".to_owned()));
@@ -371,7 +479,7 @@ mod tests {
     #[test]
     fn test_processor_passthrough() {
         let mut processor = TestProcessor::new();
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         let result = processor.process("rust", &attrs, "fn main() {}", 0);
         assert_eq!(result, ProcessResult::PassThrough);
@@ -380,7 +488,7 @@ mod tests {
     #[test]
     fn test_processor_warnings() {
         let mut processor = TestProcessor::new();
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         processor.process("test-warn", &attrs, "", 0);
         let warnings = processor.warnings();
@@ -396,7 +504,7 @@ mod tests {
             fn process(
                 &mut self,
                 _language: &str,
-                _attrs: &HashMap<String, String>,
+                _attrs: &FenceAttrs,
                 _source: &str,
                 _index: usize,
             ) -> ProcessResult {

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
+use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
 use ureq::Agent;
 
 use crate::cache::DiagramKey;
@@ -275,7 +275,7 @@ impl CodeBlockProcessor for DiagramProcessor {
     fn process(
         &mut self,
         language: &str,
-        attrs: &HashMap<String, String>,
+        attrs: &FenceAttrs,
         source: &str,
         index: usize,
     ) -> ProcessResult {
@@ -284,7 +284,7 @@ impl CodeBlockProcessor for DiagramProcessor {
         };
 
         // Parse format attribute with validation
-        let format = attrs.get("format").map_or(DiagramFormat::default(), |value| {
+        let format = attrs.map.get("format").map_or(DiagramFormat::default(), |value| {
             DiagramFormat::parse(value).unwrap_or_else(|| {
                 self.warnings.push(format!(
                     "diagram {index}: unknown format value '{value}', using default 'svg' (valid: svg, png)"
@@ -294,25 +294,29 @@ impl CodeBlockProcessor for DiagramProcessor {
         });
 
         // Warn about unknown attributes
-        for key in attrs.keys().filter(|k| *k != "format") {
+        for key in attrs.map.keys().filter(|k| *k != "format") {
             self.warnings.push(format!(
                 "diagram {index}: unknown attribute '{key}' ignored (valid: format)"
             ));
         }
 
-        // Store the format in attrs for later use
-        let mut stored_attrs = attrs.clone();
-        stored_attrs.insert("format".to_owned(), format.as_str().to_owned());
-        stored_attrs.insert(
-            "endpoint".to_owned(),
-            diagram_language.kroki_endpoint().to_owned(),
-        );
+        // Only `format` and `endpoint` are read downstream (to_extracted_diagram),
+        // so store just those instead of cloning the whole brace map — its other
+        // keys were already warned about above and are never read again.
+        let stored_attrs = HashMap::from([
+            ("format".to_owned(), format.as_str().to_owned()),
+            (
+                "endpoint".to_owned(),
+                diagram_language.kroki_endpoint().to_owned(),
+            ),
+        ]);
 
         // Extract the code block
         self.extracted.push(ExtractedCodeBlock::new(
             index,
             language.to_owned(),
             source.to_owned(),
+            attrs.id.clone(),
             stored_attrs,
         ));
 
@@ -414,8 +418,41 @@ impl DiagramProcessor {
         html: &mut String,
         diagrams: &[ExtractedDiagram],
     ) -> bool {
+        // Resolve each diagram's id: explicit `{#id}`, else `diagram-<n>` where n
+        // is the diagram's zero-based position among diagrams on the page.
+        // Number by `pos` (the enumerate index over the diagrams-only slice), NOT
+        // `d.index` (the block's position among ALL code blocks): a page that
+        // interleaves non-diagram code blocks would otherwise get sparse ids like
+        // `diagram-0`, `diagram-3`, breaking the sequential numbering docs promise.
+        let resolved: Vec<(usize, String)> = diagrams
+            .iter()
+            .enumerate()
+            .map(|(pos, d)| {
+                (
+                    d.index,
+                    d.id.clone().unwrap_or_else(|| format!("diagram-{pos}")),
+                )
+            })
+            .collect();
+
+        // Warn on duplicate resolved ids (auto ids are unique by construction;
+        // this catches explicit-vs-explicit and explicit-vs-auto collisions).
+        let mut seen: HashMap<&str, usize> = HashMap::with_capacity(resolved.len());
+        for (idx, id) in &resolved {
+            if let Some(&first) = seen.get(id.as_str()) {
+                warnings.push(format!(
+                    "diagram {idx}: duplicate id '{id}' (already used by diagram {first})"
+                ));
+            } else {
+                seen.insert(id, *idx);
+            }
+        }
+
+        let id_by_index: HashMap<usize, String> = resolved.into_iter().collect();
+
         // Collect all replacements for single-pass application
         let mut replacements = Replacements::with_capacity(diagrams.len());
+        replacements.set_ids(id_by_index);
 
         // Prepare all diagrams
         let prepared: Vec<_> = diagrams
@@ -447,14 +484,15 @@ impl DiagramProcessor {
             // invalidation is handled by FileCache's VERSION file.
             if let Some(cached_content) = config.cache.get_string(&hash, "") {
                 // Cache hit: add replacement directly
+                let id_attr = replacements.id_attr(diagram.index);
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
                         let annotated = Self::annotate_links(config, &cached_content);
-                        format!(r#"<figure class="diagram">{annotated}</figure>"#)
+                        format!(r#"<figure class="diagram"{id_attr}>{annotated}</figure>"#)
                     }
                     DiagramFormat::Png => {
                         format!(
-                            r#"<figure class="diagram"><img src="{cached_content}" alt="diagram"></figure>"#
+                            r#"<figure class="diagram"{id_attr}><img src="{cached_content}" alt="diagram"></figure>"#
                         )
                     }
                 };
@@ -509,7 +547,8 @@ impl DiagramProcessor {
             }
 
             let annotated = Self::annotate_links(config, &scaled_svg);
-            let figure = format!(r#"<figure class="diagram">{annotated}</figure>"#);
+            let id_attr = replacements.id_attr(r.index);
+            let figure = format!(r#"<figure class="diagram"{id_attr}>{annotated}</figure>"#);
             replacements.add(r.index, figure);
         }
         replacements.add_errors(result.errors)
@@ -534,8 +573,9 @@ impl DiagramProcessor {
                 config.cache.set_string(&hash, "", &r.data_uri);
             }
 
+            let id_attr = replacements.id_attr(r.index);
             let figure = format!(
-                r#"<figure class="diagram"><img src="{}" alt="diagram"></figure>"#,
+                r#"<figure class="diagram"{id_attr}><img src="{}" alt="diagram"></figure>"#,
                 r.data_uri
             );
             replacements.add(r.index, figure);
@@ -602,12 +642,27 @@ fn extract_requests_and_cache_info(
     (requests, cache_map)
 }
 
+/// Render the optional `data-diagram-id` attribute (leading space included), or
+/// an empty string when there is no id. The value is HTML-attribute-escaped.
+fn diagram_id_attr(id: Option<&str>) -> String {
+    use rw_renderer::escape_html;
+    id.map_or(String::new(), |id| {
+        format!(r#" data-diagram-id="{}""#, escape_html(id))
+    })
+}
+
 /// Collects diagram replacements for single-pass application.
 ///
 /// Instead of calling `html.replace()` for each diagram (O(N × `string_length`)),
 /// this collects all replacements and applies them in a single pass.
 struct Replacements {
     map: HashMap<usize, String>,
+    /// Resolved id per diagram code-block index (explicit or `diagram-<n>`).
+    /// Populated only on the Inline path (`post_process_inline`); the
+    /// Files/Confluence path builds figures via a caller-supplied `tag_generator`
+    /// with no `data-diagram-id` insertion point, so it never resolves ids and
+    /// this map stays empty there.
+    id_by_index: HashMap<usize, String>,
 }
 
 impl Replacements {
@@ -615,13 +670,33 @@ impl Replacements {
     fn new() -> Self {
         Self {
             map: HashMap::new(),
+            id_by_index: HashMap::new(),
         }
     }
 
     fn with_capacity(capacity: usize) -> Self {
         Self {
             map: HashMap::with_capacity(capacity),
+            id_by_index: HashMap::new(),
         }
+    }
+
+    /// Attach the resolved id map (explicit or auto `diagram-<n>`) computed by
+    /// the caller.
+    fn set_ids(&mut self, ids: HashMap<usize, String>) {
+        self.id_by_index = ids;
+    }
+
+    /// Resolved id for a diagram code-block index, if one was set via
+    /// [`set_ids`](Self::set_ids).
+    fn id_for(&self, index: usize) -> Option<&str> {
+        self.id_by_index.get(&index).map(String::as_str)
+    }
+
+    /// The `data-diagram-id` attribute string for a diagram index (leading
+    /// space included), or empty when no id was set — e.g. the Files path.
+    fn id_attr(&self, index: usize) -> String {
+        diagram_id_attr(self.id_for(index))
     }
 
     /// Add a replacement for a diagram placeholder.
@@ -633,8 +708,9 @@ impl Replacements {
     fn add_error(&mut self, index: usize, error_msg: &str) {
         use rw_renderer::escape_html;
 
+        let id_attr = self.id_attr(index);
         let error_figure = format!(
-            r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: {}</pre></figure>"#,
+            r#"<figure class="diagram diagram-error"{id_attr}><pre>Diagram rendering failed: {}</pre></figure>"#,
             escape_html(error_msg)
         );
         self.add(index, error_figure);
@@ -717,6 +793,7 @@ pub(crate) fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<Extract
         index: block.index,
         language,
         format,
+        id: block.id().map(str::to_owned),
     })
 }
 
@@ -731,6 +808,193 @@ pub(crate) fn to_extracted_diagrams(blocks: &[ExtractedCodeBlock]) -> Vec<Extrac
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Render markdown through a [`DiagramProcessor`] pointed at an
+    /// unreachable Kroki (connecting to a closed loopback port fails fast in
+    /// both sandboxed and unsandboxed runs). Diagram renders fail, but the
+    /// resulting error `<figure>`s still carry `data-diagram-id`, which is
+    /// all these id-focused tests need.
+    fn render_diagrams(markdown: &str) -> String {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+        let processor = DiagramProcessor::new("http://127.0.0.1:1");
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .render(markdown, Pipeline::new().with_processor(processor));
+        result.html
+    }
+
+    /// Same as [`render_diagrams`] but returns the collected warnings.
+    fn render_diagrams_warnings(markdown: &str) -> Vec<String> {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+        let processor = DiagramProcessor::new("http://127.0.0.1:1");
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .render(markdown, Pipeline::new().with_processor(processor));
+        result.warnings
+    }
+
+    /// Same as [`render_diagrams`] but in `DiagramOutput::Files` mode, to
+    /// confirm the Files/Confluence output path never emits `data-diagram-id`.
+    fn render_diagrams_files(markdown: &str) -> String {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+        let tag_generator: TagGenerator = Arc::new(|info: &RenderedDiagramInfo, _dpi: u32| {
+            format!(r#"<img src="{}" alt="diagram">"#, info.filename())
+        });
+        let processor = DiagramProcessor::new("http://127.0.0.1:1").output(DiagramOutput::Files {
+            output_dir: std::env::temp_dir(),
+            tag_generator,
+        });
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .render(markdown, Pipeline::new().with_processor(processor));
+        result.html
+    }
+
+    #[test]
+    fn explicit_id_emitted_on_figure() {
+        let html = render_diagrams("```mermaid {#architecture}\nA-->B\n```\n");
+        assert!(html.contains(r#"data-diagram-id="architecture""#), "{html}");
+    }
+
+    #[test]
+    fn auto_id_when_unset() {
+        let html = render_diagrams("```mermaid\nA-->B\n```\n");
+        assert!(html.contains(r#"data-diagram-id="diagram-0""#), "{html}");
+    }
+
+    #[test]
+    fn two_unannotated_diagrams_get_sequential_ids() {
+        let html = render_diagrams("```mermaid\nA-->B\n```\n\n```mermaid\nC-->D\n```\n");
+        assert!(html.contains(r#"data-diagram-id="diagram-0""#), "{html}");
+        assert!(html.contains(r#"data-diagram-id="diagram-1""#), "{html}");
+    }
+
+    #[test]
+    fn explicit_id_html_escaped() {
+        let html = render_diagrams("```mermaid {#a\"b&c}\nA-->B\n```\n");
+        assert!(
+            html.contains(r#"data-diagram-id="a&quot;b&amp;c""#),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn bare_id_is_ignored_and_gets_auto_id() {
+        let markdown = "```mermaid id=foo\nA-->B\n```\n";
+        let html = render_diagrams(markdown);
+        assert!(!html.contains(r#"data-diagram-id="foo""#), "{html}");
+        assert!(html.contains(r#"data-diagram-id="diagram-0""#), "{html}");
+        // A bare token outside the braces is dropped by the parser, so it never
+        // reaches the kroki attrs map and raises no "unknown attribute" warning.
+        let warnings = render_diagrams_warnings(markdown);
+        assert!(
+            !warnings.iter().any(|w| w.contains("unknown attribute")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn duplicate_ids_warn() {
+        let warnings = render_diagrams_warnings(
+            "```mermaid {#dup}\nA-->B\n```\n\n```mermaid {#dup}\nC-->D\n```\n",
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("duplicate id 'dup'")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn files_path_emits_no_diagram_id() {
+        let html = render_diagrams_files("```mermaid {#x}\nA-->B\n```\n");
+        assert!(!html.contains("data-diagram-id"), "{html}");
+    }
+
+    /// Render with a cache that hits on every lookup, returning `cached` as the
+    /// stored content. This drives the *success* figure branch (cache hit) —
+    /// which `render_diagrams` never reaches, since its Kroki is unreachable and
+    /// only the error figure is produced.
+    fn render_diagrams_cached(markdown: &str, cached: &str) -> String {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+        struct AlwaysHit(Vec<u8>);
+        impl CacheBucket for AlwaysHit {
+            fn get(&self, _key: &str, _etag: &str) -> Option<Vec<u8>> {
+                Some(self.0.clone())
+            }
+            fn set(&self, _key: &str, _etag: &str, _value: &[u8]) {}
+        }
+
+        let processor = DiagramProcessor::new("http://127.0.0.1:1")
+            .with_cache(Box::new(AlwaysHit(cached.as_bytes().to_vec())));
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .render(markdown, Pipeline::new().with_processor(processor));
+        result.html
+    }
+
+    #[test]
+    fn id_emitted_on_success_svg_figure() {
+        let html = render_diagrams_cached(
+            "```mermaid {#architecture}\nA-->B\n```\n",
+            "<svg id=\"real\"></svg>",
+        );
+        // The id lands on a real (non-error) success figure, not the error path.
+        assert!(!html.contains("diagram-error"), "{html}");
+        assert!(
+            html.contains(r#"<figure class="diagram" data-diagram-id="architecture">"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"<svg id="real"></svg>"#), "{html}");
+    }
+
+    #[test]
+    fn id_emitted_on_success_png_figure() {
+        let html = render_diagrams_cached(
+            "```mermaid {#pic format=png}\nA-->B\n```\n",
+            "data:image/png;base64,ABC",
+        );
+        assert!(!html.contains("diagram-error"), "{html}");
+        assert!(
+            html.contains(
+                r#"<figure class="diagram" data-diagram-id="pic"><img src="data:image/png;base64,ABC" alt="diagram"></figure>"#
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn empty_brace_id_falls_back_to_auto_id() {
+        // `{#}` yields no explicit id, so the auto fallback applies.
+        let html = render_diagrams("```mermaid {#}\nA-->B\n```\n");
+        assert!(html.contains(r#"data-diagram-id="diagram-0""#), "{html}");
+    }
+
+    #[test]
+    fn explicit_id_colliding_with_auto_id_warns() {
+        // The second diagram explicitly claims the first diagram's auto id.
+        let warnings = render_diagrams_warnings(
+            "```mermaid\nA-->B\n```\n\n```mermaid {#diagram-0}\nC-->D\n```\n",
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("duplicate id 'diagram-0'")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn diagram_id_attr_formats_and_escapes() {
+        assert_eq!(
+            diagram_id_attr(Some("architecture")),
+            r#" data-diagram-id="architecture""#
+        );
+        assert_eq!(
+            diagram_id_attr(Some("a\"b&c")),
+            r#" data-diagram-id="a&quot;b&amp;c""#
+        );
+        assert_eq!(diagram_id_attr(None), "");
+    }
 
     #[test]
     fn has_transient_error_false_when_no_diagrams() {
@@ -798,7 +1062,7 @@ mod tests {
     #[test]
     fn test_process_plantuml() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
         let source = "@startuml\nA -> B\n@enduml";
 
         let result = processor.process("plantuml", &attrs, source, 0);
@@ -816,7 +1080,7 @@ mod tests {
     #[test]
     fn test_process_mermaid() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         let result = processor.process("mermaid", &attrs, "graph TD\n  A --> B", 0);
 
@@ -830,7 +1094,7 @@ mod tests {
     #[test]
     fn test_process_kroki_prefix() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         let result = processor.process("kroki-mermaid", &attrs, "graph TD", 0);
 
@@ -844,7 +1108,7 @@ mod tests {
     #[test]
     fn test_process_non_diagram() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         let result = processor.process("rust", &attrs, "fn main() {}", 0);
 
@@ -855,8 +1119,8 @@ mod tests {
     #[test]
     fn test_process_with_format_png() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let mut attrs = HashMap::new();
-        attrs.insert("format".to_owned(), "png".to_owned());
+        let mut attrs = FenceAttrs::default();
+        attrs.map.insert("format".to_owned(), "png".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
@@ -870,8 +1134,8 @@ mod tests {
     #[test]
     fn test_process_with_invalid_format() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let mut attrs = HashMap::new();
-        attrs.insert("format".to_owned(), "jpeg".to_owned());
+        let mut attrs = FenceAttrs::default();
+        attrs.map.insert("format".to_owned(), "jpeg".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
@@ -887,8 +1151,8 @@ mod tests {
     #[test]
     fn test_process_with_unknown_attribute() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let mut attrs = HashMap::new();
-        attrs.insert("size".to_owned(), "large".to_owned());
+        let mut attrs = FenceAttrs::default();
+        attrs.map.insert("size".to_owned(), "large".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
@@ -899,7 +1163,7 @@ mod tests {
     #[test]
     fn test_process_multiple_diagrams() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         processor.process("plantuml", &attrs, "source1", 0);
         processor.process("mermaid", &attrs, "source2", 1);
@@ -915,6 +1179,7 @@ mod tests {
             0,
             "plantuml".to_owned(),
             "@startuml\nA -> B\n@enduml".to_owned(),
+            None,
             HashMap::from([("format".to_owned(), "png".to_owned())]),
         );
 
@@ -932,6 +1197,7 @@ mod tests {
             0,
             "rust".to_owned(),
             "fn main() {}".to_owned(),
+            None,
             HashMap::new(),
         );
 
@@ -945,18 +1211,21 @@ mod tests {
                 0,
                 "plantuml".to_owned(),
                 "source1".to_owned(),
+                None,
                 HashMap::new(),
             ),
             ExtractedCodeBlock::new(
                 1,
                 "rust".to_owned(), // Not a diagram
                 "source2".to_owned(),
+                None,
                 HashMap::new(),
             ),
             ExtractedCodeBlock::new(
                 2,
                 "mermaid".to_owned(),
                 "source3".to_owned(),
+                None,
                 HashMap::new(),
             ),
         ];
@@ -973,7 +1242,7 @@ mod tests {
     #[test]
     fn test_stores_endpoint_in_attrs() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        let attrs = HashMap::new();
+        let attrs = FenceAttrs::default();
 
         processor.process("plantuml", &attrs, "source", 0);
 
@@ -1008,7 +1277,7 @@ mod tests {
 
         for lang in languages {
             let mut processor = DiagramProcessor::new("https://kroki.io");
-            let attrs = HashMap::new();
+            let attrs = FenceAttrs::default();
 
             let result = processor.process(lang, &attrs, "source", 0);
 

@@ -120,15 +120,14 @@ impl std::fmt::Debug for Pipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::code_block::ProcessResult;
-    use std::collections::HashMap;
+    use crate::code_block::{FenceAttrs, ProcessResult};
 
     struct DummyProcessor;
     impl CodeBlockProcessor for DummyProcessor {
         fn process(
             &mut self,
             _language: &str,
-            _attrs: &HashMap<String, String>,
+            _attrs: &FenceAttrs,
             _source: &str,
             _index: usize,
         ) -> ProcessResult {
