@@ -5,6 +5,7 @@
 //! Also defines the public result and configuration types used by
 //! [`Site`](crate::Site).
 
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -246,6 +247,30 @@ pub(crate) fn apply_breadcrumb_sections(breadcrumbs: &mut [BreadcrumbItem], sect
     }
 }
 
+/// Fingerprint of the diagram configuration that affects rendered output.
+///
+/// Folded into the page-cache etag so that changing `kroki_url` (including
+/// unset→set), `dpi`, or `include_dirs` invalidates cached pages — otherwise a
+/// page rendered while diagrams were misconfigured would be served from cache
+/// even after the config is fixed.
+///
+/// Returns a `u64` (rendered as decimal digits in the etag, preserving the
+/// `:`-delimited etag contract). Uses `DefaultHasher` for the same reason
+/// `compute_resolution_fingerprint` does: its fixed seed makes identical inputs
+/// hash identically across restarts of the same binary; a stdlib change would
+/// only cause a one-time safe re-render, and a crate version bump wipes the
+/// cache anyway.
+fn diagram_config_fingerprint(kroki_url: Option<&str>, dpi: u32, include_dirs: &[PathBuf]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    // `Option<&str>` hashes `None` and `Some(_)` distinctly, so presence and
+    // value are both captured.
+    kroki_url.hash(&mut hasher);
+    dpi.hash(&mut hasher);
+    // Order is significant (include search order), so do not sort.
+    include_dirs.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Page rendering pipeline.
 ///
 /// Handles markdown-to-HTML conversion with caching, diagram processing,
@@ -259,6 +284,7 @@ pub(crate) struct PageRenderer {
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
     dpi: u32,
+    diagram_config_fingerprint: u64,
 }
 
 impl PageRenderer {
@@ -268,6 +294,11 @@ impl PageRenderer {
         cache: Arc<dyn Cache>,
         config: PageRendererConfig,
     ) -> Self {
+        let diagram_config_fingerprint = diagram_config_fingerprint(
+            config.kroki_url.as_deref(),
+            config.dpi,
+            &config.include_dirs,
+        );
         Self {
             storage,
             page_bucket: cache.bucket("pages"),
@@ -276,6 +307,7 @@ impl PageRenderer {
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
             dpi: config.dpi,
+            diagram_config_fingerprint,
         }
     }
 
@@ -314,12 +346,18 @@ impl PageRenderer {
 
         let metadata = self.load_metadata(path);
 
-        // Etag combines the page's own source mtime with the snapshot's
-        // resolution fingerprint, so a cross-page change (another page's
-        // title/description/section that this render resolves) invalidates the
-        // cached HTML even though this page's own file is unchanged. `mtime`
-        // (f64) never contains ':' and the fingerprint is decimal digits.
-        let etag = format!("{source_mtime}:{}", ctx.resolution_fingerprint);
+        // Etag combines the page's own source mtime, the snapshot's resolution
+        // fingerprint (a cross-page change — another page's title/description/
+        // section that this render resolves — invalidates this page even though
+        // its own file is unchanged), and the diagram-config fingerprint (a
+        // `kroki_url`/`dpi`/`include_dirs` change invalidates every page so a
+        // page rendered under a broken diagram config is not served stale).
+        // `mtime` (f64) never contains ':', and both fingerprints are decimal
+        // digits, so the ':' delimiter stays unambiguous.
+        let etag = format!(
+            "{source_mtime}:{}:{}",
+            ctx.resolution_fingerprint, self.diagram_config_fingerprint
+        );
 
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
             return Ok(PageRenderResult {
@@ -340,15 +378,23 @@ impl PageRenderer {
         let pipeline = self.create_pipeline(ctx);
         let result = renderer.render(&markdown_text, pipeline);
 
-        self.page_bucket.set_json(
-            path,
-            &etag,
-            &CachedPageRef {
-                html: &result.html,
-                title: result.title.as_deref(),
-                toc: &result.toc,
-            },
-        );
+        // A transient diagram failure (Kroki unreachable, a 5xx, or a retryable
+        // 4xx) is not persisted, so the page re-renders and can recover once
+        // Kroki is back — mirroring the diagram bucket, which caches only
+        // successes. A deterministic failure (e.g. Kroki 400 on malformed
+        // source) is not transient and still caches, so it does not re-hit
+        // Kroki every request.
+        if !result.has_transient_error {
+            self.page_bucket.set_json(
+                path,
+                &etag,
+                &CachedPageRef {
+                    html: &result.html,
+                    title: result.title.as_deref(),
+                    toc: &result.toc,
+                },
+            );
+        }
 
         Ok(PageRenderResult {
             html: result.html,
@@ -660,6 +706,158 @@ mod tests {
             .unwrap();
         assert!(result2.from_cache);
         assert_eq!(result1.html, result2.html);
+    }
+
+    #[test]
+    fn diagram_config_fingerprint_distinguishes_inputs() {
+        use std::path::PathBuf;
+
+        let base = diagram_config_fingerprint(None, 192, &[]);
+
+        // Presence of kroki_url matters (unset vs set).
+        assert_ne!(base, diagram_config_fingerprint(Some("http://k"), 192, &[]));
+        // Value of kroki_url matters (switching servers).
+        assert_ne!(
+            diagram_config_fingerprint(Some("http://a"), 192, &[]),
+            diagram_config_fingerprint(Some("http://b"), 192, &[]),
+        );
+        // dpi matters.
+        assert_ne!(base, diagram_config_fingerprint(None, 300, &[]));
+        // include_dirs matter.
+        assert_ne!(
+            base,
+            diagram_config_fingerprint(None, 192, &[PathBuf::from("/inc")]),
+        );
+        // Stable for identical inputs.
+        assert_eq!(base, diagram_config_fingerprint(None, 192, &[]));
+    }
+
+    #[test]
+    fn changing_kroki_url_invalidates_cached_page() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
+            temp_dir.path().join("cache"),
+            "1.0.0",
+        ));
+        let storage: Arc<dyn rw_storage::Storage> = Arc::new(
+            MockStorage::new()
+                .with_file("test", "Doc", "# Doc\n\nProse only.")
+                .with_mtime("test", 1000.0),
+        );
+        let page = make_page("Doc", "test", true);
+
+        // Render + cache with kroki_url = None.
+        let cfg_none = PageRendererConfig::default();
+        let renderer_a = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg_none);
+        let r1 = renderer_a
+            .render("test", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(!r1.from_cache);
+
+        // A new renderer with a different kroki_url over the SAME cache/storage
+        // must miss (etag changed via the diagram-config fingerprint).
+        let cfg_some = PageRendererConfig {
+            kroki_url: Some("http://kroki.example".to_owned()),
+            ..PageRendererConfig::default()
+        };
+        let renderer_b = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg_some);
+        let r2 = renderer_b
+            .render("test", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            !r2.from_cache,
+            "changing kroki_url should invalidate the cached page"
+        );
+
+        // Same config now hits.
+        let r3 = renderer_b
+            .render("test", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(r3.from_cache);
+    }
+
+    #[test]
+    fn transient_diagram_failure_is_not_cached() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
+            temp_dir.path().join("cache"),
+            "1.0.0",
+        ));
+        let storage: Arc<dyn rw_storage::Storage> = Arc::new(
+            MockStorage::new()
+                .with_file(
+                    "diag",
+                    "Diagram",
+                    "# Diagram\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```\n",
+                )
+                .with_mtime("diag", 1000.0),
+        );
+        let page = make_page("Diagram", "diag", true);
+
+        // Unreachable Kroki → transient render failure. Whether the sandbox
+        // blocks the connection or the port refuses it, ureq reports an
+        // HttpRequest error (transient), so this holds in both environments.
+        let cfg = PageRendererConfig {
+            kroki_url: Some("http://127.0.0.1:1".to_owned()),
+            ..PageRendererConfig::default()
+        };
+        let renderer = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg);
+
+        let r1 = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(!r1.from_cache);
+        assert!(
+            r1.html.contains("diagram-error"),
+            "expected an error figure, got: {}",
+            r1.html
+        );
+
+        // Not cached: a second render still misses (re-renders, can recover later).
+        let r2 = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            !r2.from_cache,
+            "a transient diagram failure must not be cached"
+        );
+    }
+
+    #[test]
+    fn page_without_transient_failure_is_cached() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
+            temp_dir.path().join("cache"),
+            "1.0.0",
+        ));
+        // kroki_url = None → diagram fence falls back to a code block, no error.
+        let storage: Arc<dyn rw_storage::Storage> = Arc::new(
+            MockStorage::new()
+                .with_file(
+                    "diag",
+                    "Diagram",
+                    "# Diagram\n\n```plantuml\n@startuml\nA -> B\n@enduml\n```\n",
+                )
+                .with_mtime("diag", 1000.0),
+        );
+        let page = make_page("Diagram", "diag", true);
+
+        let renderer = PageRenderer::new(
+            Arc::clone(&storage),
+            Arc::clone(&cache),
+            PageRendererConfig::default(),
+        );
+        let r1 = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(!r1.from_cache);
+        let r2 = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            r2.from_cache,
+            "a page with no transient failure should cache"
+        );
     }
 
     #[test]

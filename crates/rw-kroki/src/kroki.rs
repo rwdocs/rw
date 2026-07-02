@@ -110,6 +110,30 @@ pub enum DiagramErrorKind {
     InvalidPng,
 }
 
+impl DiagramErrorKind {
+    /// Whether this error is transient — i.e. a retry with the same diagram
+    /// source could succeed once the underlying condition clears.
+    ///
+    /// Network failures and Kroki 5xx server errors are transient (Kroki was
+    /// unreachable or briefly failing), as are the retryable 4xx statuses a
+    /// server or reverse proxy raises under transient conditions — 408 Request
+    /// Timeout, 425 Too Early, and 429 Too Many Requests. Every other 4xx
+    /// response (e.g. Kroki returns 400 for malformed diagram source) is
+    /// deterministic: the same source will fail identically on every retry.
+    /// Malformed-response kinds are treated as deterministic to avoid an
+    /// infinite re-render loop on a persistently bad response.
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        match self {
+            Self::HttpRequest(_) => true,
+            Self::HttpResponse { status, .. } => {
+                *status >= 500 || matches!(status, 408 | 425 | 429)
+            }
+            Self::Io(_) | Self::InvalidUtf8(_) | Self::InvalidPng => false,
+        }
+    }
+}
+
 /// Create HTTP agent with the specified timeout.
 ///
 /// Use this to create a reusable agent for connection pooling when making
@@ -385,6 +409,58 @@ pub fn render_all_png_data_uri_partial(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_transient_classifies_error_kinds() {
+        // 5xx server errors and network failures are transient (retry may succeed).
+        assert!(
+            DiagramErrorKind::HttpResponse {
+                status: 500,
+                body: String::new(),
+            }
+            .is_transient()
+        );
+        assert!(
+            DiagramErrorKind::HttpResponse {
+                status: 503,
+                body: String::new(),
+            }
+            .is_transient()
+        );
+
+        // Retryable 4xx statuses (rate-limit / timeout, often raised by a proxy
+        // in front of Kroki) are transient.
+        for status in [408, 425, 429] {
+            assert!(
+                DiagramErrorKind::HttpResponse {
+                    status,
+                    body: String::new(),
+                }
+                .is_transient(),
+                "status {status} should be transient"
+            );
+        }
+
+        // Other 4xx (e.g. malformed diagram source → Kroki 400) is deterministic.
+        assert!(
+            !DiagramErrorKind::HttpResponse {
+                status: 400,
+                body: String::new(),
+            }
+            .is_transient()
+        );
+        assert!(
+            !DiagramErrorKind::HttpResponse {
+                status: 404,
+                body: String::new(),
+            }
+            .is_transient()
+        );
+
+        // Malformed-response kinds are deterministic: retrying yields the same
+        // bad response, so caching avoids an infinite re-render loop.
+        assert!(!DiagramErrorKind::InvalidPng.is_transient());
+    }
 
     #[test]
     fn test_get_png_dimensions() {

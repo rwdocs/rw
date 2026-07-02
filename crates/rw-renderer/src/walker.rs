@@ -156,11 +156,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             .flat_map(|p| p.warnings())
             .cloned()
             .collect();
+        let has_transient_error = self.processors.iter().any(|p| p.has_transient_error());
         RenderResult {
             html,
             title: self.heading.take_title(),
             toc: self.heading.take_toc(),
             warnings,
+            has_transient_error,
         }
     }
 

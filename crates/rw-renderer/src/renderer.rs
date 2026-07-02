@@ -47,6 +47,11 @@ pub struct RenderResult {
     /// Warnings generated during conversion (e.g., unresolved includes,
     /// unclosed container directives).
     pub warnings: Vec<String>,
+    /// Whether any code-block processor hit a transient failure during this
+    /// render (e.g. a diagram service was unreachable). Callers use this to
+    /// decide whether the rendered output is safe to persist to a durable
+    /// cache — a transient failure should not be cached, so it is retried.
+    pub has_transient_error: bool,
 }
 
 /// Generic markdown renderer with pluggable backend.
@@ -920,6 +925,47 @@ mod tests {
     fn test_render_result_empty_warnings_by_default() {
         let result = render_html("Hello");
         assert!(result.warnings.is_empty());
+    }
+
+    struct TransientErrorProcessor {
+        transient: bool,
+    }
+
+    impl CodeBlockProcessor for TransientErrorProcessor {
+        fn process(
+            &mut self,
+            _language: &str,
+            _attrs: &HashMap<String, String>,
+            _source: &str,
+            _index: usize,
+        ) -> ProcessResult {
+            ProcessResult::PassThrough
+        }
+
+        fn has_transient_error(&self) -> bool {
+            self.transient
+        }
+    }
+
+    #[test]
+    fn render_result_aggregates_transient_error_flag() {
+        let with_error = MarkdownRenderer::<HtmlBackend>::new().render(
+            "Hello",
+            Pipeline::new().with_processor(TransientErrorProcessor { transient: true }),
+        );
+        assert!(with_error.has_transient_error);
+
+        let without_error = MarkdownRenderer::<HtmlBackend>::new().render(
+            "Hello",
+            Pipeline::new().with_processor(TransientErrorProcessor { transient: false }),
+        );
+        assert!(!without_error.has_transient_error);
+    }
+
+    #[test]
+    fn render_result_transient_error_false_by_default() {
+        let result = render_html("Hello");
+        assert!(!result.has_transient_error);
     }
 
     #[test]

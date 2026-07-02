@@ -121,6 +121,7 @@ impl PageRenderer {
             title: result.title,
             toc: result.toc,
             warnings: result.warnings,
+            has_transient_error: result.has_transient_error,
         }
     }
 

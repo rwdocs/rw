@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `rw serve` no longer keeps showing broken diagrams from cache after you fix a
+  Kroki problem. Previously, rendering a page while `kroki_url` was unset (or
+  while the Kroki server was unreachable) cached the broken result; setting
+  `kroki_url` or restoring Kroki and restarting still served the stale page
+  until you deleted `.rw/cache`. Now a change to `kroki_url`, `dpi`, or the
+  PlantUML include directories invalidates cached pages, and a page whose
+  diagrams failed to reach Kroki (a network error or a 5xx) is not cached at
+  all, so it re-renders and recovers on the next request once Kroki is back. A
+  page with a genuinely broken diagram (Kroki returns 400 for invalid source)
+  still caches, so it does not re-hit Kroki on every request.
+
 ## [0.1.28] - 2026-06-24
 
 ### Added

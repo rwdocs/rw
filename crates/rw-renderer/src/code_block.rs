@@ -161,6 +161,16 @@ pub trait CodeBlockProcessor: Send + Sync {
         &[]
     }
 
+    /// Whether this processor encountered a transient failure during processing
+    /// (e.g. a remote render service was unreachable). A `true` value signals
+    /// callers not to persist the rendered output to a durable cache, so the
+    /// render is retried once the condition clears.
+    ///
+    /// Default implementation returns `false`.
+    fn has_transient_error(&self) -> bool {
+        false
+    }
+
     /// Bundle code block source before rendering.
     ///
     /// Called by [`bundle_markdown`](crate::bundle_markdown) to resolve
