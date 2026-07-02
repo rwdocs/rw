@@ -1,7 +1,5 @@
 all: build test format lint
 
-FEATURES ?=
-
 dev:
 	npm -w @rwdocs/viewer run dev
 
@@ -9,7 +7,7 @@ build:
 	npm install
 	npm -w @rwdocs/viewer run build
 	npm -w @rwdocs/viewer run build:lib
-	cargo build -p rw $(if $(FEATURES),--features $(FEATURES))
+	cargo build -p rw
 	npm -w @rwdocs/core run build
 
 build-release:
@@ -26,7 +24,7 @@ install:
 	cargo install --path crates/rw --features embed-assets
 
 test:
-	cargo llvm-cov --html $(if $(FEATURES),-p rw --features $(FEATURES))
+	cargo llvm-cov --html
 	cargo test --doc --workspace
 	npm -w @rwdocs/viewer run test
 
@@ -38,7 +36,7 @@ format:
 	npm -w @rwdocs/viewer run format
 
 lint:
-	cargo clippy --all-targets $(if $(FEATURES),-p rw --features $(FEATURES))
+	cargo clippy --all-targets
 	npm -w @rwdocs/viewer run check
 	npm -w @rwdocs/viewer run lint
 

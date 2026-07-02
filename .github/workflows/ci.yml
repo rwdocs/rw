@@ -125,7 +125,7 @@ jobs:
         run: npm -w @rwdocs/viewer run build
 
       - name: Build CLI
-        run: cargo build -p rw --features embedded-preview
+        run: cargo build -p rw
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

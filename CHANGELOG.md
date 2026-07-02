@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The embedded-preview shell (`rw serve --embedded`, a Backstage-like host
+  wrapper for visually testing embedded rendering) is now compiled into every
+  build. Previously it required a binary built with the `embedded-preview` Cargo
+  feature, so `--embedded` did not exist in a default build. The flag is hidden
+  from `rw --help` (it is a dev/testing aid), but works in every build.
+
 ### Fixed
 
 - `rw serve` no longer keeps showing broken diagrams from cache after you fix a

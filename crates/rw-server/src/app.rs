@@ -51,25 +51,17 @@ pub(crate) fn create_router(state: Arc<AppState>) -> Router {
     // Static files and SPA fallback.
     // When embedded preview is enabled, the preview shell replaces the
     // normal SPA as the fallback — static assets are still served normally.
-    #[cfg(feature = "embedded-preview")]
-    let use_embedded_preview = state.embedded_preview;
-    #[cfg(not(feature = "embedded-preview"))]
-    let use_embedded_preview = false;
-
-    if use_embedded_preview {
-        #[cfg(feature = "embedded-preview")]
-        {
-            router = router
-                .route(
-                    "/__embedded_preview.js",
-                    get(rw_embedded_preview::preview_script),
-                )
-                .route(
-                    "/__embedded_preview.css",
-                    get(rw_embedded_preview::preview_style),
-                )
-                .fallback(static_files::asset_or_preview_fallback);
-        }
+    if state.embedded_preview {
+        router = router
+            .route(
+                "/__embedded_preview.js",
+                get(rw_embedded_preview::preview_script),
+            )
+            .route(
+                "/__embedded_preview.css",
+                get(rw_embedded_preview::preview_style),
+            )
+            .fallback(static_files::asset_or_preview_fallback);
     } else {
         router = router.merge(static_files::static_router());
     }

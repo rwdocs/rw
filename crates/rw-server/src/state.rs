@@ -27,7 +27,6 @@ pub(crate) struct AppState {
     /// returns 404 and the live-notify feature is effectively disabled.
     pub(crate) notify_token: Option<String>,
     /// Enable embedded preview page at /.
-    #[cfg(feature = "embedded-preview")]
     pub(crate) embedded_preview: bool,
 }
 

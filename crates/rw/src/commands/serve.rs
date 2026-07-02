@@ -53,10 +53,9 @@ pub(crate) struct ServeArgs {
     #[arg(long, conflicts_with = "cache")]
     no_cache: bool,
 
-    /// Serve an embedded preview page (host-app shell).
-    /// Only available when the `embedded-preview` feature is enabled.
-    #[cfg(feature = "embedded-preview")]
-    #[arg(long = "embedded")]
+    /// Serve an embedded preview page (host-app shell). Hidden: a dev/testing
+    /// aid, not a supported end-user feature, so it stays out of `--help`.
+    #[arg(long = "embedded", hide = true)]
     embedded_preview: bool,
 }
 
@@ -120,19 +119,14 @@ impl ServeArgs {
             output.info("Live reload: disabled");
         }
 
-        #[cfg(feature = "embedded-preview")]
         if self.embedded_preview {
             output.info("Embedded preview: enabled");
         }
 
         // Build server config and run
-        #[allow(unused_mut)]
         let mut server_config =
             server_config_from_rw_config(&config, version.to_owned(), self.verbose);
-        #[cfg(feature = "embedded-preview")]
-        {
-            server_config.embedded_preview = self.embedded_preview;
-        }
+        server_config.embedded_preview = self.embedded_preview;
         run_server(server_config).await?;
 
         Ok(())
