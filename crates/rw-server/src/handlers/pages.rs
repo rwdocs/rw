@@ -3,6 +3,7 @@
 //! Handles page rendering and returns JSON responses with metadata,
 //! table of contents, and HTML content.
 
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -11,7 +12,6 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
-use md5::{Digest, Md5};
 use rw_renderer::TocEntry;
 use rw_site::{BreadcrumbItem, Section};
 use serde::Serialize;
@@ -221,11 +221,23 @@ fn get_page_impl(
 
 /// Compute `ETag` from version and content.
 ///
-/// Uses MD5 hash truncated to 64 bits (16 hex chars) - sufficient for
-/// cache invalidation with negligible collision probability.
+/// Hashes `version:content` with the stdlib [`DefaultHasher`] into a 64-bit
+/// fingerprint (rendered as 16 hex chars) — sufficient for cache invalidation
+/// with negligible collision probability. An `ETag` is a change-detection
+/// token, not a security token, so a non-cryptographic hash is the right tool.
+///
+/// `DefaultHasher::new()` uses a fixed seed (unlike `HashMap`'s randomized
+/// `RandomState`), so identical inputs produce identical `ETag`s across process
+/// restarts and replicas — the property conditional requests rely on. Its hash
+/// values are not guaranteed stable across Rust versions, which is harmless
+/// here: an `ETag` mismatch only triggers a one-time revalidation.
 fn compute_etag(version: &str, content: &str) -> String {
-    let hash = Md5::digest(format!("{version}:{content}").as_bytes());
-    format!("\"{}\"", &hex::encode(hash)[..16])
+    let mut hasher = DefaultHasher::new();
+    version.hash(&mut hasher);
+    // Delimit so ("a", "bc") and ("ab", "c") hash distinctly.
+    0u8.hash(&mut hasher);
+    content.hash(&mut hasher);
+    format!("\"{:016x}\"", hasher.finish())
 }
 
 #[cfg(test)]

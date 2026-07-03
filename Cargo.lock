@@ -4011,9 +4011,7 @@ version = "0.1.28"
 dependencies = [
  "axum",
  "chrono",
- "hex",
  "http-body-util",
- "md-5",
  "pretty_assertions",
  "rw-assets",
  "rw-cache",
