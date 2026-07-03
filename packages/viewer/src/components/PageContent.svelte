@@ -2,6 +2,7 @@
   import { tick, untrack } from "svelte";
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
+  import { initializeDiagramZoom } from "$lib/diagram/initializeDiagramZoom";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
   import { escapeId } from "$lib/comments/highlight";
@@ -26,12 +27,26 @@
   import { useScrollIntoViewOnNav } from "$lib/ui/hooks/useScrollIntoViewOnNav.svelte";
   import PageComments from "./comments/PageComments.svelte";
   import CommentPopover from "./comments/CommentPopover.svelte";
+  import DiagramZoomModal from "./DiagramZoomModal.svelte";
 
   const ctx = getRwContext();
   const { page, router, comments, liveReload } = ctx;
 
   let articleRef: HTMLElement | undefined = $state();
   let showSkeleton = $state(false);
+
+  // The zoom popup is keyed on a diagram's identity, not a DOM node — so it survives
+  // a live reload, which replaces the whole article subtree. `zoomId` is the open
+  // popup's identity (null when closed); `zoomFigure` is its current `<figure>`.
+  // `zoomTrackId` is the stable `data-diagram-id` (writer-set, or auto `diagram-<n>`)
+  // used to re-resolve the figure after a reload — null when the opened figure has
+  // no such id (e.g. a raw `<figure class="diagram">` authored in markdown), in which
+  // case the popup still opens but does not live-update. `zoomAnonSeq` gives those
+  // id-less figures a unique non-null `zoomId` so opening one still works.
+  let zoomId = $state<string | null>(null);
+  let zoomFigure = $state<HTMLElement | null>(null);
+  let zoomTrackId: string | null = null;
+  let zoomAnonSeq = 0;
 
   // Bumped after a deep-link reveal to force one re-measure of the thread pin.
   // On a cold load the thread's vertical offset is first computed while the page
@@ -107,6 +122,65 @@
     if (page.data && articleRef) {
       return initializeTabs(articleRef);
     }
+  });
+
+  // Inject a per-diagram "expand" button that opens the zoom popup. Keyed on
+  // page.data + articleRef only (like tabs) so buttons re-inject in lockstep
+  // with the server-rendered article and never on comment mutations. Opening
+  // captures the diagram's stable id; the resolve effect below tracks it thereafter.
+  $effect(() => {
+    if (page.data && articleRef) {
+      return initializeDiagramZoom(articleRef, (figure) => {
+        const id = figure.dataset.diagramId ?? "";
+        zoomTrackId = id.length > 0 ? id : null;
+        zoomId = zoomTrackId ?? `anon-${++zoomAnonSeq}`;
+        zoomFigure = figure;
+      });
+    }
+  });
+
+  // Close the zoom popup when navigating to a different page. Keyed on the page
+  // identity (docId) rather than page.data so a same-page silent live-reload (a
+  // file save) does NOT slam the popup shut mid-edit. Defined BEFORE the resolve
+  // effect so that on navigation it nulls `zoomId` first, and the resolve effect
+  // then short-circuits instead of hunting the old id on the new page.
+  $effect(() => {
+    void docId;
+    zoomId = null;
+    zoomFigure = null;
+    zoomTrackId = null;
+  });
+
+  // Re-resolve the open diagram to its freshly-rendered `<figure>` after a
+  // same-page live reload (which replaced the whole article, detaching the node the
+  // popup opened from). Keyed on page.data; reads state untracked so it fires only
+  // on a reload, not when the popup opens. Only runs for a diagram with a stable
+  // `data-diagram-id` (zoomTrackId); a valid new render updates the popup (the modal
+  // preserves zoom); a render that failed (`.diagram-error`) keeps the last good
+  // render on screen and surfaces a toast; a diagram that vanished entirely keeps
+  // the last good render silently (no disruptive toast for a removed diagram).
+  $effect(() => {
+    void page.data;
+    untrack(() => {
+      if (!articleRef || zoomTrackId === null) return;
+      const figure = articleRef.querySelector<HTMLElement>(
+        `figure.diagram[data-diagram-id="${escapeId(zoomTrackId)}"]`,
+      );
+      if (
+        figure &&
+        !figure.classList.contains("diagram-error") &&
+        figure.querySelector(":scope > svg, :scope > img")
+      ) {
+        zoomFigure = figure;
+      } else if (figure) {
+        // Present but its current source failed to render.
+        zoomFigure = null;
+        ctx.notify({
+          intent: "error",
+          message: "This diagram can't be shown right now — check its source for errors.",
+        });
+      }
+    });
   });
 
   // Rewrite section ref links when content changes (embedded mode with resolver).
@@ -742,3 +816,17 @@
     <PageComments />
   {/if}
 {/if}
+
+<!-- Outside the page-state branches so a live reload (which flips page.loading and
+     briefly swaps the active branch) can't unmount and remount the popup mid-edit —
+     that would wipe its zoom state and make a live update reset to fit. It renders
+     nothing until a diagram is opened. -->
+<DiagramZoomModal
+  diagramId={zoomId}
+  figure={zoomFigure}
+  onClose={() => {
+    zoomId = null;
+    zoomFigure = null;
+    zoomTrackId = null;
+  }}
+/>

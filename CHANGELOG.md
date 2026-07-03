@@ -15,6 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   auto `data-diagram-id="diagram-<n>"` (zero-based index among diagrams on the
   page), so every diagram is addressable. `format` is also set inside the block
   (`{format=png}`); an explicit id survives diagram reordering, auto ids do not.
+- Diagrams can now be opened in a fullscreen zoom popup. Every rendered diagram
+  (PlantUML, Mermaid, C4, etc.) shows an "Expand diagram" button on hover (always
+  visible on touch); activating it opens the diagram in a modal where you can zoom
+  (scroll wheel, pinch, or the on-screen zoom controls — a −/+ pair around a live
+  zoom-percentage readout that resets the view to fit when clicked) and drag to
+  pan — so large, complex diagrams that were unreadable at content width become
+  legible.
+  The diagram opens at natural size (100%), scaled down to fit only if it is
+  larger than the screen, and always keeps its true proportions. Escape or the
+  close button dismisses it.
+  While the popup stays open, editing the diagram's source updates it live (on
+  the next live reload) without losing your zoom or pan — so you can enlarge a
+  diagram, tweak its source in your editor, and watch it re-render in place. A
+  momentarily-broken edit keeps the last good render on screen and shows a brief
+  notification until you fix the source.
 
 ### Changed
 
@@ -25,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   highlighting is unaffected — code blocks are not yet syntax-highlighted.)
 - **Breaking (pre-1.0):** the bare `format=png` diagram fence form (outside the
   braces) is removed. Set the format inside the attribute block: ` ```mermaid
-  {format=png} `.
+{format=png} `.
 - The embedded-preview shell (`rw serve --embedded`, a Backstage-like host
   wrapper for visually testing embedded rendering) is now compiled into every
   build. Previously it required a binary built with the `embedded-preview` Cargo
@@ -34,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Live-reloading the homepage (editing `docs/index.md` or the `README.md`
+  homepage while `rw serve` is running) no longer sometimes jumps your scroll
+  position back to the top. The homepage refreshed non-silently, so a reload
+  slower than ~300ms (e.g. one that re-renders a diagram via Kroki) briefly
+  showed the loading skeleton in place of the article, collapsing the page
+  height and losing your scroll. The homepage now refreshes silently like every
+  other page, keeping you where you were.
 - Comment keyboard navigation (`n` next, `p` previous, `r` reply) now works on
   non-Latin keyboard layouts (Cyrillic, Greek, and similar). Previously the
   shortcuts matched the typed character, so on a Russian layout the physical

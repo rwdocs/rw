@@ -30,7 +30,53 @@
 
   /* Diagram styling */
   .prose figure.diagram {
-    @apply my-6 flex justify-center overflow-x-auto;
+    @apply relative my-6 flex justify-center overflow-x-auto;
+  }
+
+  /* Expand button injected by initializeDiagramZoom. Hidden until the figure is
+     hovered/focused on pointer devices; always shown where hover is unavailable
+     (touch), so it is reachable on phones. */
+  .prose figure.diagram .diagram-expand-btn {
+    @apply absolute right-2 top-2 flex size-8 cursor-pointer items-center justify-center
+      rounded-sm border border-border-default bg-bg-raised text-fg-muted opacity-0
+      transition-opacity;
+    z-index: 1;
+    /* While hidden, don't hit-test: an invisible button must not swallow clicks
+       meant for a diagram link in the same top-right corner. Re-enabled when the
+       button is revealed (hover/focus-within, and always on touch). */
+    pointer-events: none;
+  }
+
+  .prose figure.diagram .diagram-expand-btn svg {
+    @apply size-4;
+    /* The dark-mode diagram-invert filter (`.prose figure.diagram svg`) also
+       matches this injected icon; keep it on its own color. */
+    filter: none;
+  }
+
+  .prose figure.diagram:hover .diagram-expand-btn {
+    @apply opacity-100;
+    pointer-events: auto;
+  }
+
+  .prose figure.diagram .diagram-expand-btn:hover {
+    @apply bg-bg-subtle text-fg-default;
+  }
+
+  /* Reveal on keyboard focus only (`:focus-visible`, not `:focus-within`): after
+     the modal closes it restores focus to this button, and a mouse-driven
+     open/close must not leave the button stuck visible once the pointer leaves.
+     Keyboard users still keep it visible with a focus ring. */
+  .prose figure.diagram .diagram-expand-btn:focus-visible {
+    @apply opacity-100 outline-2 outline-offset-1 outline-accent-fg;
+    pointer-events: auto;
+  }
+
+  @media (hover: none) {
+    .prose figure.diagram .diagram-expand-btn {
+      @apply opacity-100;
+      pointer-events: auto;
+    }
   }
 
   .prose figure.diagram svg {
@@ -71,6 +117,76 @@
 
   .prose figure.diagram-error pre {
     @apply m-0;
+  }
+
+  /* Diagram zoom popup (native <dialog> in the top layer). */
+  .diagram-zoom-dialog {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: var(--color-bg-default);
+    overflow: hidden;
+  }
+
+  .diagram-zoom-dialog::backdrop {
+    background: rgb(0 0 0 / 0.7);
+  }
+
+  .diagram-zoom-toolbar {
+    @apply absolute right-3 top-3 z-10 flex select-none items-center gap-2;
+    /* Toolbar chrome is never selectable — a fast double-click on −/+ must not
+       select the % readout text. */
+    -webkit-user-select: none;
+  }
+
+  .diagram-zoom-viewport {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none; /* we handle pinch/pan ourselves */
+    /* Dragging to pan must not select the diagram's SVG <text> labels. */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .diagram-zoom-viewport:active {
+    cursor: grabbing;
+  }
+
+  /* The content box fills the viewport; zoom/pan is driven by the SVG's viewBox,
+     not by resizing or transforming this box, so the diagram stays crisp. */
+  .diagram-zoom-content {
+    position: absolute;
+    inset: 0;
+  }
+
+  .diagram-zoom-content svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Mirror the in-article diagram treatment on the cloned SVG (the shared
+     `.prose figure.diagram svg` rules don't reach it — there's no prose/figure
+     wrapper here): invert in dark mode, use the bundled font for labels, and
+     drop underlines from diagram links. A `[data-raster]` wrapper holds a PNG
+     `<image>`; the article never inverts PNG diagrams (only `svg`), so the
+     popup skips them too. */
+  :where(.dark, .dark *) .diagram-zoom-content svg:not([data-raster]) {
+    filter: invert(93%) hue-rotate(180deg);
+  }
+
+  .diagram-zoom-content svg text {
+    font-family: "Roboto", sans-serif !important;
+  }
+
+  .diagram-zoom-content svg a {
+    text-decoration: none !important;
   }
 
   /* GitHub-style alerts */
