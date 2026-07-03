@@ -49,6 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Mermaid diagrams no longer render as solid black shapes with unreadable
+  labels in the fullscreen zoom popup. Mermaid SVGs scope their entire
+  embedded stylesheet under the SVG root id; the popup clones the diagram and
+  renames its ids (so the clone stays self-contained across live reloads), but
+  left the stylesheet's `#id` selectors behind, orphaning every style rule.
+  Selectors (and `aria-labelledby`/`aria-describedby` references) are now
+  renamed in lockstep, so the popup shows the diagram exactly as the article
+  renders it. PlantUML/C4 diagrams (styled via attributes) were never
+  affected.
 - Inline comments no longer attach to rendered diagrams. Because a diagram
   (PlantUML, Mermaid, C4, etc.) is inlined as an SVG whose labels are real text,
   selecting a diagram's label used to offer an "Add comment" button and create a
