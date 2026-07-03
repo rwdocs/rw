@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `rw serve` now falls back to the next free port when its default port (`7979`)
+  is already in use — it tries `7980`, `7981`, … and serves on the first one
+  available, printing the port it settled on. This makes running a second `rw
+  serve` (a different docs project, or a forgotten one still running) just work
+  instead of failing. A port you set explicitly — via `--port` or
+  `[server].port` in `rw.toml` — is still treated as a hard requirement: if it's
+  busy, `rw serve` fails with a clear "port N is already in use" error rather
+  than silently choosing a different one. The startup line now shows the actual
+  bound URL (`Starting server on http://127.0.0.1:7980`).
 - Diagram code fences accept a `{#id}` attribute block to set a stable
   `data-diagram-id` on the rendered `<figure class="diagram">`
   (e.g. ` ```mermaid {#architecture} `). Diagrams without an explicit id get an

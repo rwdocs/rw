@@ -14,7 +14,7 @@
 //!
 //! ```no_run
 //! use std::path::PathBuf;
-//! use rw_server::{ServerConfig, run_server};
+//! use rw_server::{ServerConfig, bind_listener, run_server};
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -33,7 +33,10 @@
 //!         ..Default::default()
 //!     };
 //!
-//!     run_server(config).await.unwrap();
+//!     // Bind the port (falling back to the next free one if 7979 is busy),
+//!     // then serve on the bound listener.
+//!     let listener = bind_listener(&config.host, config.port, true).await.unwrap();
+//!     run_server(config, listener).await.unwrap();
 //! }
 //! ```
 //!
@@ -136,16 +139,91 @@ impl Default for ServerConfig {
     }
 }
 
-/// Run the server.
+/// Number of sequential ports tried when the requested port is busy and port
+/// fallback is enabled: the default port and the next 19 above it.
+const PORT_FALLBACK_RANGE: u16 = 20;
+
+/// Bind a TCP listener on `host:port`, optionally falling back to the next free
+/// port.
+///
+/// When `allow_fallback` is `true` and `port` is already in use, the next
+/// sequential ports are tried (up to [`PORT_FALLBACK_RANGE`] total) and the
+/// first free one is used — this is how `rw serve` copes with a busy *default*
+/// port. When `allow_fallback` is `false`, a busy port is a hard error
+/// ([`ServerError::PortInUse`]): the caller asked for a specific port and must
+/// get it or nothing.
+///
+/// `host` must be an IP literal (e.g. `127.0.0.1` or `0.0.0.0`), matching the
+/// address form accepted elsewhere in the server.
+///
+/// # Errors
+///
+/// Returns [`ServerError::InvalidAddress`] if `host:port` is not a valid socket
+/// address, [`ServerError::PortInUse`] if the sole requested port is taken (no
+/// fallback), [`ServerError::NoFreePort`] if every port in the fallback range is
+/// taken, or [`ServerError::Io`] for any other bind failure.
+pub async fn bind_listener(
+    host: &str,
+    port: u16,
+    allow_fallback: bool,
+) -> Result<tokio::net::TcpListener, ServerError> {
+    let attempts = if allow_fallback {
+        PORT_FALLBACK_RANGE
+    } else {
+        1
+    };
+
+    let mut last_candidate = port;
+    for offset in 0..attempts {
+        // Stop early if incrementing would overflow past the last port. Only
+        // reachable with a near-max explicit-but-fallback port, which we never
+        // produce today, but keep it total rather than panicking.
+        let Some(candidate) = port.checked_add(offset) else {
+            break;
+        };
+        last_candidate = candidate;
+
+        let addr = SocketAddr::from_str(&format!("{host}:{candidate}"))?;
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => {
+                tracing::info!(address = %addr, "Listening");
+                return Ok(listener);
+            }
+            // Port taken — fall through to try the next one if fallback is
+            // allowed, otherwise report it as a hard error below.
+            Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {}
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    if allow_fallback {
+        Err(ServerError::NoFreePort {
+            start: port,
+            end: last_candidate,
+        })
+    } else {
+        Err(ServerError::PortInUse(port))
+    }
+}
+
+/// Run the server on an already-bound listener.
+///
+/// The caller binds the socket (see [`bind_listener`]) so it can report the
+/// actually-bound address — which may differ from the requested port when port
+/// fallback kicked in — before the server takes over the terminal.
 ///
 /// # Arguments
 ///
 /// * `config` - Server configuration
+/// * `listener` - A bound TCP listener to serve on
 ///
 /// # Errors
 ///
 /// Returns an error if the server fails to start.
-pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
+pub async fn run_server(
+    config: ServerConfig,
+    listener: tokio::net::TcpListener,
+) -> Result<(), ServerError> {
     // Create shared storage backend
     let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::with_meta_filename(
         config.source_dir.clone(),
@@ -179,12 +257,8 @@ pub async fn run_server(config: ServerConfig) -> Result<(), ServerError> {
 
     let comment_store = Arc::new(SqliteCommentStore::open(&config.comments_db).await?);
 
-    // Bind first so the server-info file (and the in-memory notify token that
-    // guards the internal endpoint) reflect the actually-bound address.
-    let addr = SocketAddr::from_str(&format!("{}:{}", config.host, config.port))?;
-    tracing::info!(address = %addr, "Starting server");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-
+    // The listener is already bound by the caller (via `bind_listener`), so the
+    // server-info file and notify token below reflect the actually-bound address.
     // Build the server-info struct once from the bound address. Its token is
     // both written to `.rw/server.json` and held in `AppState` so the internal
     // notify endpoint can authenticate the CLI. If the bound address can't be
@@ -302,5 +376,38 @@ mod tests {
     fn server_config_default_project_dir_is_dot_rw() {
         let cfg = ServerConfig::default();
         assert_eq!(cfg.project_dir, std::path::PathBuf::from(".rw"));
+    }
+
+    #[tokio::test]
+    async fn bind_listener_uses_requested_free_port() {
+        // Port 0 asks the OS for any free port — always succeeds.
+        let listener = bind_listener("127.0.0.1", 0, false).await.unwrap();
+        assert!(listener.local_addr().unwrap().port() > 0);
+    }
+
+    #[tokio::test]
+    async fn bind_listener_explicit_busy_port_errors() {
+        // Occupy a port, then request it explicitly (no fallback).
+        let occupied = bind_listener("127.0.0.1", 0, false).await.unwrap();
+        let port = occupied.local_addr().unwrap().port();
+
+        let err = bind_listener("127.0.0.1", port, false).await.unwrap_err();
+        match err {
+            ServerError::PortInUse(p) => assert_eq!(p, port),
+            other => panic!("expected PortInUse, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_listener_falls_back_to_next_free_port() {
+        // Occupy a port, then request it with fallback allowed: it should land
+        // on a different, free port within the fallback range.
+        let occupied = bind_listener("127.0.0.1", 0, false).await.unwrap();
+        let port = occupied.local_addr().unwrap().port();
+
+        let listener = bind_listener("127.0.0.1", port, true).await.unwrap();
+        let bound = listener.local_addr().unwrap().port();
+        assert_ne!(bound, port);
+        assert!((port..port.saturating_add(PORT_FALLBACK_RANGE)).contains(&bound));
     }
 }

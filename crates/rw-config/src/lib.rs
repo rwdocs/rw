@@ -94,13 +94,18 @@ impl Default for Config {
 }
 
 /// Server configuration.
-#[derive(Debug, Deserialize)]
-#[serde(default)]
+#[derive(Debug)]
 pub struct ServerConfig {
     /// Server host address.
     pub host: String,
     /// Server port.
     pub port: u16,
+    /// Whether the port was set explicitly — via `[server].port` in `rw.toml` or
+    /// the `-p`/`--port` CLI flag — rather than left at the built-in default.
+    ///
+    /// `rw serve` falls back to the next free port when the *default* port is
+    /// busy, but treats an explicit port as a hard requirement (fail if busy).
+    pub port_explicit: bool,
 }
 
 impl Default for ServerConfig {
@@ -108,7 +113,33 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_owned(),
             port: 7979,
+            port_explicit: false,
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for ServerConfig {
+    /// Deserialize `[server]`, recording whether `port` was present so an
+    /// explicitly-set port can be distinguished from the built-in default. A
+    /// present `port` sets [`ServerConfig::port_explicit`].
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct Raw {
+            host: Option<String>,
+            port: Option<u16>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let defaults = ServerConfig::default();
+        Ok(ServerConfig {
+            host: raw.host.unwrap_or(defaults.host),
+            port_explicit: raw.port.is_some(),
+            port: raw.port.unwrap_or(defaults.port),
+        })
     }
 }
 
@@ -292,6 +323,8 @@ impl Config {
         }
         if let Some(port) = settings.port {
             self.server.port = port;
+            // An explicit `-p`/`--port` is a hard requirement — no port fallback.
+            self.server.port_explicit = true;
         }
         if let Some(source_dir) = &settings.source_dir {
             self.docs_resolved.source_dir.clone_from(source_dir);
@@ -561,6 +594,37 @@ port = 9000
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 9000);
+        // A port set in `rw.toml` is explicit — not eligible for port fallback.
+        assert!(config.server.port_explicit);
+    }
+
+    #[test]
+    fn test_default_port_not_explicit() {
+        // No `[server].port` anywhere → the default 7979 stays eligible for
+        // fallback to the next free port.
+        assert!(
+            !Config::default_with_base(Path::new("/test"))
+                .server
+                .port_explicit
+        );
+        let from_empty: Config = toml::from_str("").unwrap();
+        assert!(!from_empty.server.port_explicit);
+        // `[server]` present but without a `port` key is likewise not explicit.
+        let host_only: Config = toml::from_str("[server]\nhost = \"0.0.0.0\"\n").unwrap();
+        assert!(!host_only.server.port_explicit);
+        assert_eq!(host_only.server.port, 7979);
+    }
+
+    #[test]
+    fn test_cli_port_marks_explicit() {
+        let mut config = Config::default_with_base(Path::new("/test"));
+        assert!(!config.server.port_explicit);
+        config.apply_cli_settings(&CliSettings {
+            port: Some(9000),
+            ..Default::default()
+        });
+        assert_eq!(config.server.port, 9000);
+        assert!(config.server.port_explicit);
     }
 
     #[test]

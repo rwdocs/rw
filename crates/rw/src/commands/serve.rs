@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use rw_config::{CliSettings, Config};
-use rw_server::{run_server, server_config_from_rw_config};
+use rw_server::{bind_listener, run_server, server_config_from_rw_config};
 
 use crate::error::CliError;
 use crate::output::Output;
@@ -88,11 +88,22 @@ impl ServeArgs {
         // Ensure project directory exists with .gitignore
         ensure_project_dir(&config.docs_resolved.project_dir)?;
 
+        // Bind up front so we report the port the server actually listens on.
+        // An explicit port (`-p` or `[server].port`) is a hard requirement; the
+        // default port falls back to the next free one when it's busy.
+        let requested_port = config.server.port;
+        let allow_fallback = !config.server.port_explicit;
+        let listener = bind_listener(&config.server.host, requested_port, allow_fallback).await?;
+        let bound = listener.local_addr()?;
+        if bound.port() != requested_port {
+            output.warning(&format!(
+                "Port {requested_port} is in use, using {} instead",
+                bound.port()
+            ));
+        }
+
         // Print startup info
-        output.info(&format!(
-            "Starting server on {}:{}",
-            config.server.host, config.server.port
-        ));
+        output.info(&format!("Starting server on http://{bound}"));
         output.info(&format!(
             "Source directory: {}",
             config.docs_resolved.source_dir.display()
@@ -127,7 +138,7 @@ impl ServeArgs {
         let mut server_config =
             server_config_from_rw_config(&config, version.to_owned(), self.verbose);
         server_config.embedded_preview = self.embedded_preview;
-        run_server(server_config).await?;
+        run_server(server_config, listener).await?;
 
         Ok(())
     }
