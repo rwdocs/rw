@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `rw serve --open` (short `-o`) opens the site in your default browser once,
+  right after the server is ready. It opens the port the server actually bound
+  to, so it lands on the correct page even when `rw serve` fell back to a
+  different port because the default was busy; when the server listens on all
+  interfaces (`--host 0.0.0.0`) it opens `localhost` at that port. Off by
+  default (matching MkDocs, Hugo, Jekyll, mdBook, and other docs servers); if
+  the browser can't be launched, `rw serve` prints a warning and keeps serving
+  instead of failing.
 - `rw serve` now falls back to the next free port when its default port (`7979`)
   is already in use — it tries `7980`, `7981`, … and serves on the first one
   available, printing the port it settled on. This makes running a second `rw

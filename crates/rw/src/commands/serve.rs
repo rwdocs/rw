@@ -1,5 +1,6 @@
 //! `rw serve` command implementation.
 
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use clap::Args;
@@ -57,6 +58,10 @@ pub(crate) struct ServeArgs {
     /// aid, not a supported end-user feature, so it stays out of `--help`.
     #[arg(long = "embedded", hide = true)]
     embedded_preview: bool,
+
+    /// Open the site in your default browser once the server is ready.
+    #[arg(short = 'o', long)]
+    open: bool,
 }
 
 impl ServeArgs {
@@ -134,10 +139,30 @@ impl ServeArgs {
             output.info("Embedded preview: enabled");
         }
 
-        // Build server config and run
+        // Build server config
         let mut server_config =
             server_config_from_rw_config(&config, version.to_owned(), self.verbose);
         server_config.embedded_preview = self.embedded_preview;
+
+        // Open the browser at the bound URL, once, before serving. The listener
+        // is already bound, so the browser's connection is accepted into the
+        // socket backlog and served once run_server starts. `open::that_detached`
+        // spawns the OS launcher without waiting for it, so a launcher that would
+        // block (an odd `xdg-open`, a WSL edge case) cannot stall startup. A
+        // launch failure (headless box, no default browser) is a warning, not
+        // fatal.
+        if self.open {
+            let url = browser_url(bound);
+            output.info(&format!("Opening {url} in your browser"));
+            let launched = tokio::task::spawn_blocking(move || open::that_detached(&url))
+                .await
+                .map_err(|err| err.to_string())
+                .and_then(|res| res.map_err(|err| err.to_string()));
+            if let Err(err) = launched {
+                output.warning(&format!("Could not open browser: {err}"));
+            }
+        }
+
         run_server(server_config, listener).await?;
 
         Ok(())
@@ -164,4 +189,75 @@ fn ensure_project_dir(project_dir: &Path) -> Result<(), CliError> {
     }
 
     Ok(())
+}
+
+/// Build the URL to open in the browser for the address the server bound to.
+///
+/// When the server bound to an unspecified address (`0.0.0.0` or `::`, i.e. all
+/// interfaces), that address is not something a browser can connect to, so the
+/// URL targets the matching loopback address instead. Any concrete bound
+/// address is used as-is.
+fn browser_url(bound: SocketAddr) -> String {
+    let addr = if bound.ip().is_unspecified() {
+        let loopback = match bound.ip() {
+            IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        };
+        SocketAddr::new(loopback, bound.port())
+    } else {
+        bound
+    };
+    format!("http://{addr}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// Minimal parser wrapper so `ServeArgs` can be parsed on its own in tests.
+    #[derive(Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        args: ServeArgs,
+    }
+
+    fn parse(argv: &[&str]) -> ServeArgs {
+        TestCli::try_parse_from(argv)
+            .expect("args should parse")
+            .args
+    }
+
+    #[test]
+    fn open_flag_defaults_to_false() {
+        assert!(!parse(&["rw"]).open);
+    }
+
+    #[test]
+    fn long_open_flag_sets_true() {
+        assert!(parse(&["rw", "--open"]).open);
+    }
+
+    #[test]
+    fn short_open_flag_sets_true() {
+        assert!(parse(&["rw", "-o"]).open);
+    }
+
+    #[test]
+    fn browser_url_keeps_concrete_lan_ipv4() {
+        let addr = "192.168.1.5:8080".parse().unwrap();
+        assert_eq!(browser_url(addr), "http://192.168.1.5:8080");
+    }
+
+    #[test]
+    fn browser_url_rewrites_unspecified_ipv4_to_loopback() {
+        let addr = "0.0.0.0:7991".parse().unwrap();
+        assert_eq!(browser_url(addr), "http://127.0.0.1:7991");
+    }
+
+    #[test]
+    fn browser_url_rewrites_unspecified_ipv6_to_loopback() {
+        let addr = "[::]:7991".parse().unwrap();
+        assert_eq!(browser_url(addr), "http://[::1]:7991");
+    }
 }
