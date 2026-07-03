@@ -48,4 +48,17 @@ test.describe("Diagram zoom popup", () => {
     await page.getByRole("button", { name: "Close" }).click();
     await expect(page.getByRole("dialog", { name: "Diagram viewer" })).toBeHidden();
   });
+
+  test("clone keeps id-scoped <style> rules styling it (mermaid-shaped svg)", async ({ page }) => {
+    await page.goto("/diagram");
+    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+
+    const rect = page.getByTestId("diagram-zoom-content").locator("svg rect");
+    await expect(rect).toBeVisible();
+    // The fixture styles its rect via a rule scoped to the SVG root id.
+    // Namespacing the clone's ids must rename that selector in lockstep, or the
+    // rect falls back to SVG's default black fill.
+    const fill = await rect.evaluate((el) => getComputedStyle(el).fill);
+    expect(fill).toBe("rgb(238, 238, 255)"); // #eef
+  });
 });

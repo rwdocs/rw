@@ -89,4 +89,82 @@ describe("namespaceIds", () => {
     namespaceIds(el);
     expect(el.innerHTML).toBe(before);
   });
+
+  it("rewrites #id CSS selectors in <style> so an id-scoped stylesheet still styles the clone", () => {
+    // Shape of a Kroki Mermaid SVG: root id + every rule prefixed with it.
+    const el = svg(
+      `<style>#container .node rect{fill:#ECECFF;}#container .marker{fill:#333;}#container p{color:#ffffde;}</style>` +
+        `<g class="node"><rect></rect></g>`,
+    );
+    el.setAttribute("id", "container");
+
+    namespaceIds(el);
+
+    const newId = el.getAttribute("id")!;
+    expect(newId).toMatch(/^dzm\d+-container$/);
+    expect(el.querySelector("style")!.textContent).toBe(
+      `#${newId} .node rect{fill:#ECECFF;}#${newId} .marker{fill:#333;}#${newId} p{color:#ffffde;}`,
+    );
+  });
+
+  it("leaves unmapped #tokens in <style> alone (hex colors, external ids, longer idents)", () => {
+    const el = svg(
+      `<style>#container rect{fill:#eef;}#external{fill:#aaaa33;}#containerfoo{stroke:#eef;}</style>` +
+        `<rect id="container"></rect>`,
+    );
+
+    namespaceIds(el);
+
+    // The mapped id's selector is rewritten, but #external, #containerfoo (a
+    // longer ident), and letter-led hex colors are not mapped ids — untouched.
+    const newId = el.querySelector("rect")!.id;
+    expect(el.querySelector("style")!.textContent).toBe(
+      `#${newId} rect{fill:#eef;}#external{fill:#aaaa33;}#containerfoo{stroke:#eef;}`,
+    );
+  });
+
+  it("rewrites #id CSS selectors for non-ASCII ids in lockstep with the id attribute", () => {
+    const el = svg(`<style>#узел1 rect{fill:#eef;}</style><g id="узел1"><rect></rect></g>`);
+
+    namespaceIds(el);
+
+    const newId = el.querySelector("g")!.getAttribute("id")!;
+    expect(newId).toMatch(/^dzm\d+-узел1$/);
+    expect(el.querySelector("style")!.textContent).toBe(`#${newId} rect{fill:#eef;}`);
+  });
+
+  it("rewrites id selectors and non-ident url(#id) fragments in the same <style>", () => {
+    // Leading-digit ids (e.g. "123-grad") can't be a CSS selector token, only
+    // a url() fragment — exercises that URL_REF still fires inside <style>
+    // even though CSS_ID_TOKEN can't match this id.
+    const el = svg(
+      `<style>#container rect{fill:url(#123-grad);}.b{stroke:url('#123-grad');}</style>` +
+        `<linearGradient id="123-grad"></linearGradient><rect id="container"></rect>`,
+    );
+
+    namespaceIds(el);
+
+    const containerId = el.querySelector("rect")!.id;
+    const gradId = el.querySelector("linearGradient")!.id;
+    expect(gradId).toMatch(/^dzm\d+-123-grad$/);
+    expect(el.querySelector("style")!.textContent).toBe(
+      `#${containerId} rect{fill:url(#${gradId});}.b{stroke:url(#${gradId});}`,
+    );
+  });
+
+  it("rewrites aria-labelledby / aria-describedby idref lists", () => {
+    const el = svg(`<title id="chart-title">T</title><desc id="chart-desc">D</desc>`);
+    el.setAttribute("aria-labelledby", "chart-title");
+    el.setAttribute("aria-describedby", "chart-desc chart-title missing-id");
+
+    namespaceIds(el);
+
+    const titleId = el.querySelector("title")!.id;
+    const descId = el.querySelector("desc")!.id;
+    expect(titleId).toMatch(/^dzm\d+-chart-title$/);
+    expect(el.getAttribute("aria-labelledby")).toBe(titleId);
+    // Every mapped token rewritten (not just the first), unknown token
+    // preserved, separators preserved.
+    expect(el.getAttribute("aria-describedby")).toBe(`${descId} ${titleId} missing-id`);
+  });
 });
