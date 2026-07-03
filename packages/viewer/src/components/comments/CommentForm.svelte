@@ -155,8 +155,7 @@
       focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none
       dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500
       dark:focus:border-blue-400 dark:focus:ring-blue-400
-    "
-  ></textarea>
+    "></textarea>
   {#if showActions}
     <div class="flex justify-end gap-2">
       {#if onCancel}
