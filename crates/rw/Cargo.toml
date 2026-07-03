@@ -30,6 +30,7 @@ rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 console = "0.16"
+open = "5"
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
