@@ -716,6 +716,15 @@
 
     const range = selection.getRangeAt(0);
     const selectors = rangeToSelectors(range, articleRef);
+    // Belt-and-suspenders: never create a pending comment from an empty
+    // selector list (a selection that projects to no prose — e.g. one entirely
+    // inside a diagram — or a collapsed/whitespace range). The popover's
+    // rangeTouchesDiagram guard is what blocks diagram-crossing selections.
+    if (selectors.length === 0) {
+      selectionPopover.clear();
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
 
     comments.pending = { documentId: docId, selectors };
     comments.activeId = null;

@@ -1,6 +1,7 @@
 import { diff_match_patch } from "diff-match-patch";
 
 import type { Selector } from "../types/comments";
+import { diagramExclusionFilter } from "./comments/diagram";
 
 const CONTEXT_LENGTH = 32;
 
@@ -16,15 +17,13 @@ export interface AnchorResult {
 /** Threshold for fuzzy matching: 0.0 = perfect required, 1.0 = anything. */
 const FUZZY_THRESHOLD = 0.15;
 
-function getTextContent(container: HTMLElement): string {
-  return container.textContent ?? "";
-}
-
 export interface TextIndex {
   /** Full concatenated text content of the container, in document order. */
   text: string;
   /** Map a character offset in `text` to a live text node + local offset. */
   locate(offset: number): { node: Text; offset: number } | null;
+  /** Map a DOM boundary point (node, offset) to its offset in `text`. */
+  offsetOf(node: Node, nodeOffset: number): number | null;
 }
 
 /**
@@ -37,7 +36,7 @@ export function buildTextIndex(container: HTMLElement): TextIndex {
   const nodes: Text[] = [];
   const starts: number[] = []; // starts[i] = cumulative text offset where nodes[i] begins
   let text = "";
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, diagramExclusionFilter);
   while (walker.nextNode()) {
     const node = walker.currentNode as Text;
     starts.push(text.length);
@@ -68,26 +67,63 @@ export function buildTextIndex(container: HTMLElement): TextIndex {
     return { node: nodes[idx], offset: offset - starts[idx] };
   }
 
-  return { text, locate };
+  // Inverse of `locate`: walk the indexed (diagram-excluded) nodes in document
+  // order, summing lengths of nodes that fall before the boundary point, and a
+  // partial length for the node the boundary falls inside. Diagram text is not
+  // in `nodes`, so a boundary sitting after a diagram gets the filtered offset.
+  function offsetOf(node: Node, nodeOffset: number): number | null {
+    const point = document.createRange();
+    try {
+      point.setStart(node, nodeOffset);
+      point.setEnd(node, nodeOffset);
+    } catch {
+      return null;
+    }
+    let total = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      const t = nodes[i];
+      const nodeRange = document.createRange();
+      nodeRange.selectNodeContents(t);
+      // Whole node ends at or before the point -> count all of it.
+      if (nodeRange.compareBoundaryPoints(Range.START_TO_END, point) <= 0) {
+        total += t.data.length;
+        continue;
+      }
+      // Whole node starts at or after the point -> we're done.
+      if (nodeRange.compareBoundaryPoints(Range.START_TO_START, point) >= 0) {
+        break;
+      }
+      // The point lies inside this text node; its container is this node, so
+      // nodeOffset is the local character offset.
+      total += nodeOffset;
+      break;
+    }
+    return total;
+  }
+
+  return { text, locate, offsetOf };
 }
 
 /**
  * Convert a DOM Range to an array of selectors for storage.
  * Creates TextQuoteSelector (robust) + TextPositionSelector (fast).
+ *
+ * Offsets, quote, and context are all computed against the diagram-excluded
+ * text stream (via buildTextIndex), so they line up with resolution and a
+ * diagram sitting above the selection can't skew them. Returns [] when the
+ * selection projects to no prose (e.g. it lies entirely inside a diagram).
  */
 export function rangeToSelectors(range: Range, container: HTMLElement): Selector[] {
-  const text = getTextContent(container);
-  const exact = range.toString();
+  const index = buildTextIndex(container);
+  const start = index.offsetOf(range.startContainer, range.startOffset);
+  const end = index.offsetOf(range.endContainer, range.endOffset);
+  if (start === null || end === null || start >= end) return [];
+
+  const exact = index.text.slice(start, end);
   if (!exact) return [];
 
-  const preRange = document.createRange();
-  preRange.setStart(container, 0);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const start = preRange.toString().length;
-  const end = start + exact.length;
-
-  const prefix = text.slice(Math.max(0, start - CONTEXT_LENGTH), start);
-  const suffix = text.slice(end, end + CONTEXT_LENGTH);
+  const prefix = index.text.slice(Math.max(0, start - CONTEXT_LENGTH), start);
+  const suffix = index.text.slice(end, end + CONTEXT_LENGTH);
 
   return [
     { type: "TextQuoteSelector", exact, prefix, suffix },

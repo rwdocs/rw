@@ -581,3 +581,74 @@ describe("selectorsToRangeIn", () => {
     );
   });
 });
+
+describe("buildTextIndex diagram exclusion", () => {
+  const HTML = `<p>before</p><figure class="diagram"><svg><text>Billing</text></svg></figure><p>after</p>`;
+
+  it("omits diagram text from the concatenated stream", () => {
+    const idx = buildTextIndex(createContainer(HTML));
+    expect(idx.text).toBe("beforeafter");
+    expect(idx.text).not.toContain("Billing");
+  });
+
+  it("offsetOf maps a prose boundary to its filtered offset (skipping the diagram)", () => {
+    const c = createContainer(HTML);
+    const afterP = c.querySelectorAll("p")[1].firstChild as Text;
+    const idx = buildTextIndex(c);
+    // "after" begins right after "before" (6 chars) in the filtered stream.
+    expect(idx.offsetOf(afterP, 0)).toBe(6);
+    expect(idx.offsetOf(afterP, 5)).toBe(11);
+  });
+
+  it("offsetOf and locate round-trip on prose after a diagram", () => {
+    const c = createContainer(HTML);
+    const afterP = c.querySelectorAll("p")[1].firstChild as Text;
+    const idx = buildTextIndex(c);
+    const off = idx.offsetOf(afterP, 2)!;
+    const loc = idx.locate(off)!;
+    expect(loc.node).toBe(afterP);
+    expect(loc.offset).toBe(2);
+  });
+
+  it("offsetOf handles an element-boundary container after a diagram", () => {
+    // Boundary containers are Elements (child-index offsets), not text nodes,
+    // when a selection starts/ends at a tag boundary. Filtered stream is
+    // "beforebold".
+    const c = createContainer(
+      `<p>before</p><figure class="diagram"><svg><text>Billing</text></svg></figure><p><b>bo</b>ld</p>`,
+    );
+    const p2 = c.querySelectorAll("p")[1];
+    const idx = buildTextIndex(c);
+    expect(idx.offsetOf(p2, 0)).toBe(6); // before <b>: past "before", diagram skipped
+    expect(idx.offsetOf(p2, 1)).toBe(8); // between <b>bo</b> and "ld": 6 + 2
+  });
+});
+
+describe("rangeToSelectors diagram exclusion", () => {
+  it("computes prose offsets unaffected by a diagram above the selection", () => {
+    const c = createContainer(
+      `<p>before</p><figure class="diagram"><svg><text>Billing</text></svg></figure><p>target here</p>`,
+    );
+    const p = c.querySelectorAll("p")[1].firstChild as Text;
+    const range = document.createRange();
+    range.setStart(p, 0);
+    range.setEnd(p, 6); // "target"
+    const selectors = rangeToSelectors(range, c);
+    const pos = selectors.find((s) => s.type === "TextPositionSelector");
+    const quote = selectors.find((s) => s.type === "TextQuoteSelector");
+    // Filtered stream is "beforetarget here"; "target" starts at 6, not 13.
+    expect(pos).toEqual({ type: "TextPositionSelector", start: 6, end: 12 });
+    expect(quote).toMatchObject({ type: "TextQuoteSelector", exact: "target", prefix: "before" });
+  });
+
+  it("returns [] for a selection entirely inside a diagram", () => {
+    const c = createContainer(
+      `<p>before</p><figure class="diagram"><svg><text>Billing</text></svg></figure>`,
+    );
+    const label = c.querySelector("text")!.firstChild as Text;
+    const range = document.createRange();
+    range.setStart(label, 0);
+    range.setEnd(label, label.data.length);
+    expect(rangeToSelectors(range, c)).toEqual([]);
+  });
+});
