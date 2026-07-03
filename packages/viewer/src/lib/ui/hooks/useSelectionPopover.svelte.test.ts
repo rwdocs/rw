@@ -42,6 +42,18 @@ function articleWithText(text: string): { article: HTMLElement; range: Range } {
   return { article, range };
 }
 
+/** Build an <article> with a diagram figure, plus a Range over its SVG label. */
+function articleWithDiagram(): { article: HTMLElement; diagramRange: Range } {
+  const article = document.createElement("article");
+  article.innerHTML = `<p>before</p><figure class="diagram"><svg><text>Billing</text></svg></figure><p>after</p>`;
+  document.body.appendChild(article);
+  const label = article.querySelector("text")!.firstChild as Text;
+  const diagramRange = document.createRange();
+  diagramRange.setStart(label, 0);
+  diagramRange.setEnd(label, label.data.length);
+  return { article, diagramRange };
+}
+
 /** Stub window.getSelection: a non-null range is a non-collapsed selection. */
 function stubSelection(range: Range | null) {
   vi.spyOn(window, "getSelection").mockReturnValue({
@@ -152,6 +164,17 @@ describe("useSelectionPopover", () => {
 
     popover.clear();
     flushSync();
+    expect(popover.pos).toBeNull();
+  });
+
+  it("does not open the popover for a selection inside a diagram", () => {
+    const { article, diagramRange } = articleWithDiagram();
+    const popover = mount(
+      () => article,
+      () => true,
+    );
+    stubSelection(diagramRange);
+    mouseup();
     expect(popover.pos).toBeNull();
   });
 

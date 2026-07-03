@@ -49,6 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Inline comments no longer attach to rendered diagrams. Because a diagram
+  (PlantUML, Mermaid, C4, etc.) is inlined as an SVG whose labels are real text,
+  selecting a diagram's label used to offer an "Add comment" button and create a
+  comment that couldn't be highlighted or reliably re-found. Now selecting text
+  inside a diagram — or a selection that crosses one — shows no "Add comment"
+  button, and a normal prose comment can no longer silently jump onto a
+  same-worded diagram label when the page re-renders. On the CLI,
+  `rw comment add --quote` for text that appears only inside a diagram (a label
+  or a "Diagram rendering failed" message) now reports the quote as not found
+  instead of anchoring into the diagram. Pointing comments at a specific spot
+  inside a diagram is intentionally not supported yet.
 - Live-reloading the homepage (editing `docs/index.md` or the `README.md`
   homepage while `rw serve` is running) no longer sometimes jumps your scroll
   position back to the top. The homepage refreshed non-silently, so a reload

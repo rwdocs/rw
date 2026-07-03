@@ -6,6 +6,7 @@ import {
 } from "$lib/anchoring";
 import type { Selector, Comment } from "../../types/comments";
 import { wrapRange, unwrapComment, escapeId } from "./highlight";
+import { rangeIntersectsNode, rangesOverlap } from "./ranges";
 
 export interface DesiredComment {
   id: string;
@@ -37,21 +38,6 @@ export interface ReconcileResult {
   order: string[];
   /** Whether a wrap/unwrap touched the passed-in selection range. */
   touchesSelection: boolean;
-}
-
-/** True when two ranges share interior (touching endpoints alone is not overlap). */
-function rangesOverlap(a: Range, b: Range): boolean {
-  // a.end > b.start && a.start < b.end
-  return (
-    a.compareBoundaryPoints(Range.START_TO_END, b) > 0 &&
-    a.compareBoundaryPoints(Range.END_TO_START, b) < 0
-  );
-}
-
-function rangeIntersectsNode(range: Range, node: Node): boolean {
-  const nodeRange = (node.ownerDocument ?? document).createRange();
-  nodeRange.selectNode(node);
-  return rangesOverlap(range, nodeRange);
 }
 
 /**

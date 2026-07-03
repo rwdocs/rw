@@ -259,3 +259,23 @@ describe("unwrapAll + wrapRange round trip", () => {
     expect(b.innerHTML).toBe(a.innerHTML);
   });
 });
+
+describe("wrapRange diagram exclusion", () => {
+  it("does not wrap SVG text when a range straddles a diagram", () => {
+    const container = createContainer(
+      `<p id="a">alpha</p><figure class="diagram"><svg><text>Billing</text></svg></figure><p id="b">omega</p>`,
+    );
+    const a = container.querySelector("#a")!.firstChild as Text;
+    const b = container.querySelector("#b")!.firstChild as Text;
+    const range = document.createRange();
+    range.setStart(a, 0);
+    range.setEnd(b, 5); // spans across the diagram
+
+    wrapRange(range, { commentId: "c1", strategy: "quote" });
+
+    // Prose gets wrapped; the SVG <text> label does not.
+    expect(container.querySelector("svg rw-annotation")).toBeNull();
+    expect(container.querySelector("text")!.textContent).toBe("Billing");
+    expect(container.querySelectorAll("rw-annotation").length).toBeGreaterThan(0);
+  });
+});

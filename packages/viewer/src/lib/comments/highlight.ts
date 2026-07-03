@@ -1,4 +1,5 @@
 import type { AnchorStrategy } from "$lib/anchoring";
+import { diagramExclusionFilter } from "./diagram";
 
 export interface WrapAttrs {
   commentId: string;
@@ -61,7 +62,11 @@ function wholeTextNodesInRange(range: Range): Text[] {
   if (!root) return [];
 
   const out: Text[] = [];
-  const iter = root.ownerDocument!.createNodeIterator(root, NodeFilter.SHOW_TEXT);
+  const iter = root.ownerDocument!.createNodeIterator(
+    root,
+    NodeFilter.SHOW_TEXT,
+    diagramExclusionFilter,
+  );
   let node: Node | null;
   while ((node = iter.nextNode())) {
     const text = node as Text;

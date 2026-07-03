@@ -1,5 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
-import { resolveDocumentId } from "./comment-helpers";
+import { resolveDocumentId, selectText } from "./comment-helpers";
 
 // Wide viewport so the right sidebar (TOC / comments) is visible
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -9,58 +9,6 @@ test.use({ viewport: { width: 1400, height: 800 } });
 // beforeEach `resolveAllComments` close another block's in-flight comments.
 // Serialize everything in this file to keep tests isolated.
 test.describe.configure({ mode: "serial" });
-
-/** Select a text range inside the article and trigger the selection popover. */
-async function selectText(page: Page, text: string) {
-  await page.evaluate((targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const fullText = article.textContent ?? "";
-    const startInDoc = fullText.indexOf(targetText);
-    if (startInDoc === -1) throw new Error(`text "${targetText}" not found in article`);
-    const endInDoc = startInDoc + targetText.length;
-
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    let offset = 0;
-    let startNode: Text | null = null;
-    let startOffset = 0;
-    let endNode: Text | null = null;
-    let endOffset = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text;
-      const len = node.data.length;
-      if (!startNode && offset + len > startInDoc) {
-        startNode = node;
-        startOffset = startInDoc - offset;
-      }
-      if (startNode && offset + len >= endInDoc) {
-        endNode = node;
-        endOffset = endInDoc - offset;
-        break;
-      }
-      offset += len;
-    }
-    if (!startNode || !endNode) {
-      throw new Error(`couldn't build range for "${targetText}"`);
-    }
-
-    const range = document.createRange();
-    range.setStart(startNode, startOffset);
-    range.setEnd(endNode, endOffset);
-    const selection = window.getSelection()!;
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    const rect = range.getBoundingClientRect();
-    article.dispatchEvent(
-      new MouseEvent("mouseup", {
-        bubbles: true,
-        clientX: rect.left + rect.width / 2,
-        clientY: rect.top + rect.height / 2,
-      }),
-    );
-  }, text);
-}
 
 /** Activate comments sidebar by clicking the highlighted text. */
 async function clickHighlight(page: Page, text: string) {
