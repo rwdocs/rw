@@ -7,7 +7,7 @@ RW uses `rw.toml` for configuration. The file is automatically discovered in the
 ```toml
 [server]
 host = "127.0.0.1"      # Server host
-port = 7979              # Server port
+port = 7979              # Server port (see "Port selection" below)
 
 [docs]
 source_dir = "docs"      # Markdown source directory
@@ -75,6 +75,22 @@ rw serve --port 9000
 # Use explicit config file
 rw serve --config /path/to/rw.toml
 ```
+
+## Port selection
+
+`rw serve` listens on port `7979` by default. If that port is already in use
+(for example, another `rw serve` is running), it automatically falls back to the
+next free port — `7980`, `7981`, and so on — and prints the port it settled on:
+
+```
+Port 7979 is in use, using 7980 instead
+Starting server on http://127.0.0.1:7980
+```
+
+Fallback applies **only to the default port**. When you set a port explicitly —
+either `--port` on the command line or `[server].port` in `rw.toml` — it is
+treated as a hard requirement: if that port is busy, `rw serve` fails with an
+error instead of quietly using a different one.
 
 ## README.md as Homepage
 

@@ -18,6 +18,20 @@ pub enum ServerError {
     #[error("invalid bind address: {0}")]
     InvalidAddress(#[from] AddrParseError),
 
+    /// The requested port is in use and port fallback was not allowed (an
+    /// explicitly-configured port is treated as a hard requirement).
+    #[error("port {0} is already in use")]
+    PortInUse(u16),
+
+    /// No free port was found in the fallback range starting at the default.
+    #[error("no free port available in {start}-{end} (all in use)")]
+    NoFreePort {
+        /// First port tried (the default).
+        start: u16,
+        /// Last port tried.
+        end: u16,
+    },
+
     /// I/O error (bind or serve failure).
     #[error("{0}")]
     Io(#[from] std::io::Error),
