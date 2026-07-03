@@ -23,16 +23,12 @@ rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
 
 # HTTP framework
-axum = { version = "0.8", features = ["ws", "macros"] }
+axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = [
-    "set-header",
-    "compression-gzip",
-    "trace"
-] }
+tower-http = { version = "0.7", features = ["set-header"] }
 
 # Async runtime
-tokio = { version = "1", features = ["full", "sync"] }
+tokio = { version = "1", features = ["full"] }
 
 # Serialization
 serde = { workspace = true }
@@ -44,7 +40,7 @@ uuid = { workspace = true }
 tracing = { workspace = true }
 md-5 = "0.11"
 hex = { workspace = true }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4" }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

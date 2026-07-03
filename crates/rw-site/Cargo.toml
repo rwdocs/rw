@@ -17,10 +17,8 @@ rw-sections = { workspace = true, features = ["serde"] }
 rw-storage = { workspace = true }
 
 parking_lot = { workspace = true }
-regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
