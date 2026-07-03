@@ -98,6 +98,18 @@ external link or test).
 This attribute is specific to the HTML output path; publishing to Confluence
 does not emit it.
 
+## Viewing diagrams
+
+Complex diagrams can be hard to read at the width of the page column. Hover over any rendered diagram (or, on touch devices, look for the button in its top-right corner) and click **Expand diagram** to open it in a fullscreen popup.
+
+In the popup you can:
+
+- **Zoom** with the scroll wheel, a pinch gesture, or the on-screen `+` / `−` buttons.
+- **Pan** by dragging the diagram once it is zoomed in.
+- **Reset** to the initial fit with the reset button.
+
+The diagram opens at its natural size, scaled down only when it is larger than the screen. Press `Escape` or click the close button to dismiss the popup.
+
 ## PlantUML Includes
 
 PlantUML `!include` directives are resolved relative to the paths listed in `include_dirs`. This allows sharing common definitions, themes, and macros across multiple diagrams.

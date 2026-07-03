@@ -14,7 +14,10 @@
     if (router.embedded && !router.resolved) return;
     page.load("");
     return liveReload.onReload(() => {
-      page.load("", { bypassCache: true });
+      // Silent so a live reload doesn't flip `loading` → show the skeleton (which
+      // unmounts the article after 300ms) and lose the reader's scroll position.
+      // Mirrors Page.svelte's reload; the initial load above stays non-silent.
+      page.load("", { bypassCache: true, silent: true });
     });
   });
 </script>
