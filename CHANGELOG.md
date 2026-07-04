@@ -66,6 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Inline comments now re-anchor inline in more cases after their passage is
+  edited, instead of dropping to the page timeline. Previously an edited quote
+  longer than 32 characters (most sentence-length selections) could not be
+  fuzzy-matched at all, a moderate word substitution inside the quote was
+  rejected as too different, and a comment whose page was edited *above* it was
+  blocked by a stale-position distance penalty. The fuzzy re-anchor now uses a
+  Myers bit-vector matcher with no length limit and ranks candidates by edit
+  distance and surrounding-context agreement, so these comments highlight their
+  passage again (with the usual dashed "re-anchored" underline). Passages that
+  are genuinely gone, or too ambiguous to place confidently, still drop to the
+  timeline as before.
 - An inline comment anchored to a short passage (e.g. a short section heading)
   no longer disappears from its highlight and drops to the page
   timeline when the text *next to* it is edited — for instance inserting a

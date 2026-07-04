@@ -1,4 +1,4 @@
-import { diff_match_patch } from "diff-match-patch";
+import approxSearch from "approx-string-match";
 
 import type { Selector } from "../types/comments";
 import { diagramExclusionFilter } from "./comments/diagram";
@@ -14,8 +14,17 @@ export interface AnchorResult {
   strategy: AnchorStrategy;
 }
 
-/** Threshold for fuzzy matching: 0.0 = perfect required, 1.0 = anything. */
-const FUZZY_THRESHOLD = 0.15;
+/**
+ * Maximum edit distance for a fuzzy match, as a fraction of the quote length:
+ * `maxErrors = ceil(exact.length * FUZZY_MAX_ERROR_FRACTION)`. At 0.3 a quote
+ * re-anchors after up to ~30% of its characters change. Realistic edits to a
+ * still-present passage sit well under this (empirically ~0.2), while heavier
+ * rewrites fall through to the page timeline. Precision is enforced by the
+ * context/uniqueness gate (isConfidentMatch), not by this budget — a sweep of
+ * 0.3/0.4/0.5 produced identical anchoring outcomes, so 0.3 is chosen as the
+ * tightest value with no recall loss and the fewest spurious candidates.
+ */
+const FUZZY_MAX_ERROR_FRACTION = 0.3;
 
 export interface TextIndex {
   /** Full concatenated text content of the container, in document order. */
@@ -145,12 +154,13 @@ export function rangeToSelectors(range: Range, container: HTMLElement): Selector
  *      quote or any long quote needs one strongly-agreeing recorded side.
  *      Without confidence we don't anchor inline — `strategy: 'quote'` is
  *      reserved for matches we trust.
- *   3. Fuzzy match via diff-match-patch — runs ONLY when the exact substring
- *      is absent from the document (e.g. typo fix inside the quote,
- *      paragraph split that dropped a space). When the exact text IS present
- *      but failed the confidence gate, fuzzy would just rescue it to the
- *      same wrong place, so we orphan instead. Successful fuzzy matches get
- *      `strategy: 'fuzzy'` (dashed underline + "re-anchored" badge).
+ *   3. Fuzzy match via approximate (Myers) string search — runs ONLY when the
+ *      exact substring is absent from the document (e.g. typo fix inside the
+ *      quote, a word substitution, a paragraph split that dropped a space).
+ *      When the exact text IS present but failed the confidence gate, fuzzy
+ *      would just rescue it to the same wrong place, so we orphan instead.
+ *      Successful fuzzy matches get `strategy: 'fuzzy'` (dashed underline +
+ *      "re-anchored" badge).
  */
 export function selectorsToRangeIn(selectors: Selector[], index: TextIndex): AnchorResult | null {
   const posSelector = selectors.find(
@@ -416,48 +426,58 @@ function fuzzyToRange(
   index: TextIndex,
   positionHint?: number,
 ): Range | null {
-  const pattern = selector.exact;
-  if (!pattern || !index.text) return null;
+  const { exact, prefix, suffix } = selector;
+  if (!exact || !index.text) return null;
 
-  // diff-match-patch's match_main works in chunks of 32 chars internally; for
-  // longer patterns it splits and stitches. Anything longer than the document
-  // can't match; bail early.
-  if (pattern.length > index.text.length) return null;
+  // Myers bit-vector approximate match — no pattern-length limit, so
+  // sentence-length quotes (the common case) can be fuzzy-matched at all.
+  // NOTE: approx-string-match returns only the region(s) with the *lowest*
+  // error count it finds, not every region within the budget. Consequence: if
+  // another passage on the page is strictly more similar to the stored quote
+  // than the lightly-edited original, it shadows the original (which is then
+  // never returned). The context gate below is what stops such a coincidence
+  // from anchoring to the wrong place; we accept the residual recall loss. Do
+  // NOT re-introduce a position-distance penalty to recover it: that reinstates
+  // a stale-hint barrier where a comment whose page was edited above it can no
+  // longer re-anchor.
+  const maxErrors = Math.ceil(exact.length * FUZZY_MAX_ERROR_FRACTION);
+  const matches = approxSearch(index.text, exact, maxErrors);
+  if (matches.length === 0) return null;
 
-  const dmp = new diff_match_patch();
-  dmp.Match_Threshold = FUZZY_THRESHOLD;
-  // Allow the match to drift a few quote-lengths from the stored position;
-  // beyond that the position hint stops being meaningful.
-  dmp.Match_Distance = pattern.length * 4;
+  // Rank the returned candidates: fewer edits first (kept for intent and
+  // forward-compat — with the current matcher this clause never fires, since
+  // approxSearch already returns only lowest-error matches); then stronger
+  // surrounding-context agreement; then proximity to the stored position hint.
+  // The hint is a tiebreaker ONLY — no hard distance penalty — so a comment
+  // whose page was edited above it (a drifted hint) is not blocked from
+  // re-anchoring. This parallels quoteBestOccurrence's context + distance
+  // tiebreak, including neutralizing the hint when it is absent.
+  const best = matches
+    .map((m) => ({
+      match: m,
+      ...scoreContext(index.text, m.start, m.end - m.start, prefix, suffix),
+    }))
+    .sort((a, b) => {
+      if (a.match.errors !== b.match.errors) return a.match.errors - b.match.errors;
+      const context = b.prefixScore + b.suffixScore - (a.prefixScore + a.suffixScore);
+      if (context !== 0) return context;
+      if (positionHint === undefined) return 0;
+      return Math.abs(a.match.start - positionHint) - Math.abs(b.match.start - positionHint);
+    })[0];
 
-  const expectedLoc = positionHint ?? 0;
-  // match_main throws "Pattern too long for this browser." when pattern.length
-  // exceeds Match_MaxBits (default 32) and no exact substring equals it at the
-  // hinted offset. Treat that as "no fuzzy match" instead of letting the
-  // exception bubble up and break the caller's anchoring pass.
-  let matchIndex: number;
-  try {
-    matchIndex = dmp.match_main(index.text, pattern, expectedLoc);
-  } catch {
-    return null;
-  }
-  if (matchIndex === -1) return null;
+  // Precision gate — reuse the quote path's context-confidence check. isUnique
+  // is false here (as on the position path): "one candidate survived the error
+  // budget" is a function of maxErrors, not of the text's actual ambiguity, so
+  // it must not relax the short-quote both-sides rule.
+  const occ: QuoteOccurrence = {
+    index: best.match.start,
+    isUnique: false,
+    prefixScore: best.prefixScore,
+    suffixScore: best.suffixScore,
+  };
+  if (!isConfidentMatch(occ, exact.length, prefix, suffix)) return null;
 
-  // diff-match-patch returns a starting index but not a length — it found a
-  // region "similar to" the pattern. The actual matched substring may be
-  // slightly shorter or longer than `pattern.length`. Anchor to a window of
-  // exactly `pattern.length` starting at `matchIndex`; this is what Hypothesis
-  // does and gives a reasonable visible highlight in practice.
-  const start = index.locate(matchIndex);
-  const end = index.locate(Math.min(matchIndex + pattern.length, index.text.length));
-  if (!start || !end) return null;
-
-  try {
-    const range = document.createRange();
-    range.setStart(start.node, start.offset);
-    range.setEnd(end.node, end.offset);
-    return range;
-  } catch {
-    return null;
-  }
+  // Anchor to the matcher's real end offset, so the highlight spans the actual
+  // matched region rather than a fixed-length window.
+  return rangeAtTextOffset(index, best.match.start, best.match.end);
 }
