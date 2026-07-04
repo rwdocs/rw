@@ -481,10 +481,10 @@
  *
  * Every comment carries an underline; the line style is the differentiator.
  * Exact anchors (data-strategy "position"/"quote") get a solid underline.
- * data-strategy="fuzzy" marks comments anchored via the diff-match-patch
- * fallback (exact text drifted) and switches to a dashed underline — same
- * yellow, so the dash pattern is what tells reviewers the re-anchor may have
- * moved.
+ * data-strategy="fuzzy" marks comments anchored via the approximate-match
+ * (Myers) fallback (exact text drifted) and switches to a dashed underline —
+ * same yellow, so the dash pattern is what tells reviewers the re-anchor may
+ * have moved.
  *
  * The line is a background gradient pinned to background-position bottom so it
  * sits flush with the bottom edge of the highlight box at any font size. Do NOT

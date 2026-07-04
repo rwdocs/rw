@@ -310,6 +310,79 @@ describe("fuzzy fallback", () => {
     expect(result!.strategy).toBe("fuzzy");
   });
 
+  it("re-anchors a long (>32 char) quote after a leading word is deleted", () => {
+    // 39-char quote (longer than 32) whose leading "DOMA and " was dropped
+    // from the heading. The surviving suffix still agrees, so the fuzzy
+    // matcher re-anchors it. Concatenated textContent (no inter-block spaces)
+    // is "Q3 plans.Target architecture of domainsWe start docs."
+    const container = createContainer(
+      "<p>Q3 plans.</p><h2>Target architecture of domains</h2><p>We start docs.</p>",
+    );
+    const exact = "DOMA and Target architecture of domains"; // 39 chars, absent verbatim
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact,
+        prefix: "Q3 plans.",
+        suffix: "We start docs.",
+      },
+      { type: "TextPositionSelector", start: 9, end: 9 + exact.length },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.strategy).toBe("fuzzy");
+    // Landed on the real heading, not just some fuzzy region.
+    expect(result!.range.toString()).toContain("Target architecture of domains");
+  });
+
+  it("re-anchors after a word inside the quote is substituted", () => {
+    // "draft" was edited to "final" (a 5-char substitution) inside a 25-char
+    // quote (~0.2 edit ratio); the surviving context re-anchors it.
+    const container = createContainer(
+      "<p>By Q3 we deliver a final target architecture for review.</p>",
+    );
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: "draft target architecture",
+        prefix: "we deliver a ",
+        suffix: " for review.",
+      },
+      { type: "TextPositionSelector", start: 18, end: 43 },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.strategy).toBe("fuzzy");
+    // Landed on the edited passage, not the unrelated text around it.
+    expect(result!.range.toString()).toContain("target architecture");
+  });
+
+  it("re-anchors when the stored position hint has drifted far from the passage", () => {
+    // The passage now sits ~300 chars past its stored position (text was
+    // inserted above it). Re-anchoring must tolerate a drifted position hint —
+    // the hint is only a tiebreaker, not a hard distance constraint.
+    const container = createContainer(
+      "<p>" + "x".repeat(300) + " and later a final target architecture summary here.</p>",
+    );
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: "draft target architecture summary",
+        prefix: "later a ",
+        suffix: " here.",
+      },
+      { type: "TextPositionSelector", start: 5, end: 38 },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.strategy).toBe("fuzzy");
+    // Anchored to the drifted passage far from the stored position.
+    expect(result!.range.toString()).toContain("target architecture summary");
+  });
+
   it("re-anchors after the renderer drops the space between two paragraphs", () => {
     // Scenario J2: comment was on "brown fox jumps", then a paragraph break
     // got inserted between "fox" and "jumps". The renderer concatenates
@@ -331,13 +404,11 @@ describe("fuzzy fallback", () => {
     expect(result!.strategy).toBe("fuzzy");
   });
 
-  it("returns null instead of throwing when the quote exceeds diff-match-patch's pattern bit width", () => {
-    // diff-match-patch throws "Pattern too long for this browser." when a
-    // pattern longer than Match_MaxBits (default 32) isn't a verbatim match.
-    // An orphaned inline comment with a long stored quote hits that branch
-    // on every re-anchor pass; the exception must not bubble up and break
-    // the caller's anchoring loop (PageContent relies on null to mark the
-    // comment as an orphan).
+  it("orphans a long quote with no similar passage instead of anchoring at random", () => {
+    // A 64-char quote (longer than 32) absent from a short, unrelated page has
+    // no candidate within maxErrors = ceil(64*0.3) = 20 (aligning it to ~38
+    // chars of unrelated text costs far more than 20 edits), so the matcher
+    // returns no matches and the comment orphans instead of anchoring at random.
     const container = createContainer("<p>totally unrelated content on this page.</p>");
     const longQuote = "a".repeat(64);
     const selectors: Selector[] = [
@@ -351,6 +422,30 @@ describe("fuzzy fallback", () => {
 
     const result = selectorsToRange(selectors, container);
     expect(result).toBeNull();
+  });
+
+  it("orphans instead of wrong-anchoring when a more-similar passage shadows the edited original", () => {
+    // The Myers matcher returns only its lowest-error region. Here the original
+    // passage was edited ("report card" -> "summary card") while a different
+    // sentence ("...budget report follows") is strictly closer to the stored
+    // quote, so it shadows the original and is the only region returned. Its
+    // surrounding context does not match the stored prefix/suffix, so the
+    // confidence gate rejects it: the comment orphans to the timeline rather
+    // than jumping to the wrong sentence.
+    const container = createContainer(
+      "<p>In H1 the quarterly budget summary card shipped. Elsewhere: monthly the quarterly budget report follows next.</p>",
+    );
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: "the quarterly budget report card",
+        prefix: "In H1 ",
+        suffix: " shipped. Else",
+      },
+      { type: "TextPositionSelector", start: 6, end: 38 },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
   });
 
   it("orphans when the passage was rewritten beyond the similarity threshold", () => {
