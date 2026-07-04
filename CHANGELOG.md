@@ -66,6 +66,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An inline comment anchored to a short passage (e.g. a short section heading)
+  no longer disappears from its highlight and drops to the page
+  timeline when the text *next to* it is edited — for instance inserting a
+  paragraph between a heading and the list that used to follow it. As long as
+  the commented passage is still unique on the page and one side of its
+  surrounding context still matches, the comment stays anchored to it.
+  Previously a short passage required both the text before *and* after it to be
+  unchanged, so editing either neighbor orphaned the comment even though the
+  passage itself was untouched and unambiguous.
 - Mermaid diagrams no longer render as solid black shapes with unreadable
   labels in the fullscreen zoom popup. Mermaid SVGs scope their entire
   embedded stylesheet under the SVG root id; the popup clones the diagram and
