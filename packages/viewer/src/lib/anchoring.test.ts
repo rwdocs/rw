@@ -524,6 +524,143 @@ describe("low-confidence demotion", () => {
   });
 });
 
+describe("unique short-quote relaxation", () => {
+  // A unique short heading ("Metrics", 7 < SHORT_QUOTE_LEN) whose SUFFIX changed:
+  // a paragraph was inserted after it. Prefix ("Report" H1) intact, suffix broken,
+  // position stale. The heading text stream is "Report" + "Metrics" + <para>, so
+  // "Metrics" sits at offset 6.
+  it("anchors a unique short exact when only the prefix side still agrees", () => {
+    const container = createContainer(
+      "<h1>Report</h1><h2>Metrics</h2><p>An inserted intro paragraph now leads.</p>",
+    );
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: "Metrics",
+        prefix: "Report",
+        suffix: "First bullet under the heading ",
+      },
+      // Stale position: at record time "Metrics" sat at 6–13; that still holds
+      // here, but the suffix no longer matches so the position path's confidence
+      // check fails and it falls through to the quote path.
+      { type: "TextPositionSelector", start: 6, end: 13 },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.range.toString()).toBe("Metrics");
+    expect(result!.strategy).toBe("quote");
+  });
+
+  // Symmetric: unique short exact whose PREFIX changed (H1 gone), suffix intact.
+  it("anchors a unique short exact when only the suffix side still agrees", () => {
+    const container = createContainer(
+      "<h2>Metrics</h2><p>First bullet under the heading follows.</p>",
+    );
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: "Metrics",
+        prefix: "Report",
+        suffix: "First bullet under the heading ",
+      },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.range.toString()).toBe("Metrics");
+    expect(result!.strategy).toBe("quote");
+  });
+
+  // Proves the fix lives in the quote path, independent of position validity:
+  // no position selector at all, unique short exact, only the prefix agrees.
+  it("anchors a unique short exact via the quote path with no position selector", () => {
+    const container = createContainer(
+      "<h1>Report</h1><h2>Metrics</h2><p>Totally different text below.</p>",
+    );
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: "Metrics",
+        prefix: "Report",
+        suffix: "First bullet under the heading ",
+      },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.range.toString()).toBe("Metrics");
+    expect(result!.strategy).toBe("quote");
+  });
+
+  // The position fast-path still handles a unique short exact directly (as
+  // "position", not falling through to the quote path) when both recorded
+  // sides still agree — the relaxation didn't disturb the happy path.
+  it("anchors a unique short exact via the position path when both sides still agree", () => {
+    const container = createContainer(
+      "<h1>Report</h1><h2>Metrics</h2><p>First bullet under the heading follows.</p>",
+    );
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: "Metrics",
+        prefix: "Report",
+        suffix: "First bullet under the heading ",
+      },
+      { type: "TextPositionSelector", start: 6, end: 13 },
+    ];
+
+    const result = selectorsToRange(selectors, container);
+    expect(result).not.toBeNull();
+    expect(result!.range.toString()).toBe("Metrics");
+    expect(result!.strategy).toBe("position");
+  });
+
+  // A self-overlapping short exact ("aa" in "aaa") is counted as more than one
+  // occurrence (the scan steps by i+1), so it stays NON-unique and on the
+  // strict both-sides gate. Guards against a future indexOf-step change silently
+  // making overlapping short exacts eligible for the one-side relaxation.
+  it("treats a self-overlapping short exact as non-unique (strict gate)", () => {
+    const container = createContainer("<p>Baaa</p>");
+    const selectors: Selector[] = [
+      // "aa" occurs at offsets 1 and 2 (overlapping) → non-unique. Prefix "B"
+      // matches the first occurrence, suffix does not — one strong side only,
+      // which must NOT be enough for a non-unique short exact.
+      { type: "TextQuoteSelector", exact: "aa", prefix: "B", suffix: "zzzz" },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
+  });
+
+  // Protection preserved: multiple occurrences of a short exact with only
+  // one-side context must still orphan (both-sides rule stays for ambiguity).
+  it("still orphans a short exact with multiple occurrences and one-side context", () => {
+    const container = createContainer("<p>alpha TODO beta</p><p>gamma TODO delta</p>");
+    const selectors: Selector[] = [
+      // "TODO" (4 < 8) appears twice; suffix " beta" strongly matches the first
+      // occurrence but the prefix does not, and it is not unique — must orphan.
+      { type: "TextQuoteSelector", exact: "TODO", prefix: "zzzz ", suffix: " beta" },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
+  });
+
+  // Didn't over-relax: a unique short exact whose BOTH sides changed still orphans.
+  it("still orphans a unique short exact when both context sides changed", () => {
+    const container = createContainer("<p>xxxx Metrics yyyy</p>");
+    const selectors: Selector[] = [
+      {
+        type: "TextQuoteSelector",
+        exact: "Metrics",
+        prefix: "Report",
+        suffix: "First bullet under the heading ",
+      },
+    ];
+
+    expect(selectorsToRange(selectors, container)).toBeNull();
+  });
+});
+
 describe("roundtrip", () => {
   it("rangeToSelectors -> selectorsToRange preserves the selection", () => {
     const container = createContainer(

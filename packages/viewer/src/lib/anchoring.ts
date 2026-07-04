@@ -140,10 +140,11 @@ export function rangeToSelectors(range: Range, container: HTMLElement): Selector
  *      AND that the surrounding context clears the confidence floor (see
  *      isConfidentMatch). Either check failing falls through.
  *   2. TextQuoteSelector — exact substring search with a context-confidence
- *      check. Short quotes (`exact.length` < SHORT_QUOTE_LEN) need strong
- *      agreement on every recorded context side; long quotes need one
- *      strongly-agreeing recorded side. Without confidence we don't anchor
- *      inline — `strategy: 'quote'` is reserved for matches we trust.
+ *      check. A non-unique short quote (`exact.length` < SHORT_QUOTE_LEN)
+ *      needs strong agreement on every recorded context side; a unique short
+ *      quote or any long quote needs one strongly-agreeing recorded side.
+ *      Without confidence we don't anchor inline — `strategy: 'quote'` is
+ *      reserved for matches we trust.
  *   3. Fuzzy match via diff-match-patch — runs ONLY when the exact substring
  *      is absent from the document (e.g. typo fix inside the quote,
  *      paragraph split that dropped a space). When the exact text IS present
@@ -171,7 +172,10 @@ export function selectorsToRangeIn(selectors: Selector[], index: TextIndex): Anc
           quoteSelector.prefix,
           quoteSelector.suffix,
         );
-        const occ = { index: posSelector.start, ...score };
+        // The position path never searched the document, so it can't claim
+        // uniqueness — isUnique:false keeps a short exact on the strict
+        // both-sides gate (long exacts are unaffected either way).
+        const occ = { index: posSelector.start, isUnique: false, ...score };
         if (
           isConfidentMatch(
             occ,
@@ -183,8 +187,9 @@ export function selectorsToRangeIn(selectors: Selector[], index: TextIndex): Anc
           return { range, strategy: "position" };
         }
         // Position validated exact but context disagrees — fall through to the
-        // quote-search branch, which will reach the same occurrence via
-        // quoteBestOccurrence and fail the same gate (orphaning the comment).
+        // quote-search branch, which re-evaluates this occurrence with
+        // uniqueness in play: a unique short exact can still anchor there on a
+        // single strong side; otherwise the comment orphans.
       }
     } else if (range) {
       return { range, strategy: "position" };
@@ -291,14 +296,18 @@ function scoreContext(
 const MIN_CONTEXT_PER_SIDE = 4;
 
 // At ~8 chars an exact text carries enough identifying signal on its own
-// that one strong context side is sufficient; below that, the exact is
-// too common to trust without agreement on BOTH sides (`-`, `,`, `TODO`).
+// that one strong context side is sufficient; below that, a NON-unique exact
+// is too common to trust without agreement on BOTH sides (`-`, `,`, `TODO`).
+// A unique short exact has nothing to disambiguate against, so it too needs
+// only one strong side (see isConfidentMatch).
 const SHORT_QUOTE_LEN = 8;
 
 interface QuoteOccurrence {
   index: number;
   prefixScore: number;
   suffixScore: number;
+  /** True when `exact` occurs exactly once in the live document. */
+  isUnique: boolean;
 }
 
 /**
@@ -318,20 +327,23 @@ function quoteBestOccurrence(
 
   let best: QuoteOccurrence | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
+  let count = 0;
 
   let i = index.text.indexOf(exact);
   while (i !== -1) {
+    count++;
     const { prefixScore, suffixScore } = scoreContext(index.text, i, exact.length, prefix, suffix);
     const distance = positionHint === undefined ? 0 : Math.abs(i - positionHint);
     const currentSum = prefixScore + suffixScore;
     const bestSum = best ? best.prefixScore + best.suffixScore : -1;
     if (currentSum > bestSum || (currentSum === bestSum && distance < bestDistance)) {
-      best = { index: i, prefixScore, suffixScore };
+      best = { index: i, prefixScore, suffixScore, isUnique: false };
       bestDistance = distance;
     }
     i = index.text.indexOf(exact, i + 1);
   }
 
+  if (best) best.isUnique = count === 1;
   return best;
 }
 
@@ -339,9 +351,14 @@ function quoteBestOccurrence(
  * Decide whether a quote occurrence has enough surrounding-context agreement
  * to be trusted as the original passage.
  *
- *   - Short quotes (`exact.length` < SHORT_QUOTE_LEN): every RECORDED side
- *     must agree to its achievable threshold. A side we didn't record is
- *     vacuously ok — but a side we DID record cannot be brushed off.
+ *   - Short quotes (`exact.length` < SHORT_QUOTE_LEN): the both-sides rule
+ *     exists only to disambiguate a short exact among multiple occurrences.
+ *     When the exact is UNIQUE (`occ.isUnique`) there is nothing to disambiguate,
+ *     so one strongly-agreeing RECORDED side is enough — this keeps a comment
+ *     on e.g. a short heading anchored when the text next to it is edited.
+ *     A NON-unique short exact still needs every RECORDED side to agree (a
+ *     side we didn't record is vacuously ok; a side we DID record cannot be
+ *     brushed off).
  *   - Long quotes (`exact.length` >= SHORT_QUOTE_LEN): at least one RECORDED
  *     side must strongly agree. An empty side carries no evidence, so it
  *     cannot be "the strong side."
@@ -369,6 +386,9 @@ function isConfidentMatch(
   const suffixGood = haveSuffix && occ.suffixScore >= suffixThreshold;
 
   if (exactLen < SHORT_QUOTE_LEN) {
+    // A unique short exact has nothing to disambiguate against, so one strong
+    // recorded side is sufficient (same as the long-quote rule below).
+    if (occ.isUnique) return prefixGood || suffixGood;
     const prefixOk = !havePrefix || prefixGood;
     const suffixOk = !haveSuffix || suffixGood;
     return prefixOk && suffixOk;
