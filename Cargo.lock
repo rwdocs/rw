@@ -3799,7 +3799,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rw"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "clap",
  "console",
@@ -3828,7 +3828,7 @@ dependencies = [
 
 [[package]]
 name = "rw-assets"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "mime_guess",
  "rust-embed",
@@ -3836,7 +3836,7 @@ dependencies = [
 
 [[package]]
 name = "rw-cache"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "serde",
  "serde_json",
@@ -3846,7 +3846,7 @@ dependencies = [
 
 [[package]]
 name = "rw-cache-s3"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "aws-sdk-s3",
  "rw-cache",
@@ -3856,7 +3856,7 @@ dependencies = [
 
 [[package]]
 name = "rw-comments"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "chrono",
  "html-escape",
@@ -3875,7 +3875,7 @@ dependencies = [
 
 [[package]]
 name = "rw-config"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "parking_lot",
  "pretty_assertions",
@@ -3888,7 +3888,7 @@ dependencies = [
 
 [[package]]
 name = "rw-confluence"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "pretty_assertions",
  "quick-xml",
@@ -3902,7 +3902,7 @@ dependencies = [
 
 [[package]]
 name = "rw-embedded-preview"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "axum",
  "tokio",
@@ -3910,7 +3910,7 @@ dependencies = [
 
 [[package]]
 name = "rw-kroki"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "base64",
  "hex",
@@ -3927,7 +3927,7 @@ dependencies = [
 
 [[package]]
 name = "rw-meta"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "pulldown-cmark",
  "serde",
@@ -3937,7 +3937,7 @@ dependencies = [
 
 [[package]]
 name = "rw-renderer"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "pretty_assertions",
  "pulldown-cmark",
@@ -3948,7 +3948,7 @@ dependencies = [
 
 [[package]]
 name = "rw-sections"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "serde",
  "thiserror",
@@ -3956,7 +3956,7 @@ dependencies = [
 
 [[package]]
 name = "rw-server"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "axum",
  "chrono",
@@ -3985,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "rw-server-info"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "chrono",
  "serde",
@@ -3997,7 +3997,7 @@ dependencies = [
 
 [[package]]
 name = "rw-site"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "criterion",
  "parking_lot",
@@ -4017,7 +4017,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "parking_lot",
  "serde",
@@ -4027,7 +4027,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-fs"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "glob",
  "ignore",
@@ -4046,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-s3"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -4064,7 +4064,7 @@ dependencies = [
 
 [[package]]
 name = "rw-vcs"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "gix",
  "tempfile",

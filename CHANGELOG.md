@@ -5,136 +5,93 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.29] - 2026-07-07
 
 ### Added
 
-- `rw serve --open` (short `-o`) opens the site in your default browser once,
-  right after the server is ready. It opens the port the server actually bound
-  to, so it lands on the correct page even when `rw serve` fell back to a
-  different port because the default was busy; when the server listens on all
-  interfaces (`--host 0.0.0.0`) it opens `localhost` at that port. Off by
-  default (matching MkDocs, Hugo, Jekyll, mdBook, and other docs servers); if
-  the browser can't be launched, `rw serve` prints a warning and keeps serving
-  instead of failing.
-- `rw serve` now falls back to the next free port when its default port (`7979`)
-  is already in use — it tries `7980`, `7981`, … and serves on the first one
-  available, printing the port it settled on. This makes running a second `rw
-  serve` (a different docs project, or a forgotten one still running) just work
-  instead of failing. A port you set explicitly — via `--port` or
-  `[server].port` in `rw.toml` — is still treated as a hard requirement: if it's
-  busy, `rw serve` fails with a clear "port N is already in use" error rather
-  than silently choosing a different one. The startup line now shows the actual
-  bound URL (`Starting server on http://127.0.0.1:7980`).
+- `rw serve --open` (short `-o`) opens the site in your default browser once the
+  server is ready. It opens the actual bound port (so it's correct even after a
+  port fallback) and uses `localhost` when listening on `0.0.0.0`. Off by
+  default; if the browser can't be launched, `rw serve` warns and keeps serving.
+- `rw serve` now falls back to the next free port when its default (`7979`) is
+  busy — it tries `7980`, `7981`, … and prints the port it settled on — so a
+  second `rw serve` just works. A port set explicitly (`--port` or
+  `[server].port` in `rw.toml`) stays a hard requirement and still fails with
+  "port N is already in use".
 - Diagram code fences accept a `{#id}` attribute block to set a stable
   `data-diagram-id` on the rendered `<figure class="diagram">`
-  (e.g. ` ```mermaid {#architecture} `). Diagrams without an explicit id get an
-  auto `data-diagram-id="diagram-<n>"` (zero-based index among diagrams on the
-  page), so every diagram is addressable. `format` is also set inside the block
-  (`{format=png}`); an explicit id survives diagram reordering, auto ids do not.
+  (e.g. ` ```mermaid {#architecture} `). Diagrams without one get an auto
+  `data-diagram-id="diagram-<n>"`. An explicit id survives diagram reordering;
+  auto ids do not. `format` is also set inside the block (`{format=png}`).
 - Diagrams can now be opened in a fullscreen zoom popup. Every rendered diagram
-  (PlantUML, Mermaid, C4, etc.) shows an "Expand diagram" button on hover (always
-  visible on touch); activating it opens the diagram in a modal where you can zoom
-  (scroll wheel, pinch, or the on-screen zoom controls — a −/+ pair around a live
-  zoom-percentage readout that resets the view to fit when clicked) and drag to
-  pan — so large, complex diagrams that were unreadable at content width become
-  legible.
-  The diagram opens at natural size (100%), scaled down to fit only if it is
-  larger than the screen, and always keeps its true proportions. Escape or the
-  close button dismisses it.
-  While the popup stays open, editing the diagram's source updates it live (on
-  the next live reload) without losing your zoom or pan — so you can enlarge a
-  diagram, tweak its source in your editor, and watch it re-render in place. A
-  momentarily-broken edit keeps the last good render on screen and shows a brief
-  notification until you fix the source.
+  shows an "Expand diagram" button on hover (always visible on touch) that opens
+  a modal where you can zoom (wheel, pinch, or on-screen controls) and drag to
+  pan, making large diagrams legible. It opens at natural size, scaled down only
+  to fit the screen, and keeps its proportions; Escape or the close button
+  dismisses it. While it's open, editing the diagram's source re-renders it live
+  on the next reload without losing your zoom or pan; a momentarily-broken edit
+  keeps the last good render until you fix it.
 
 ### Changed
 
 - Fenced code blocks now match the page theme instead of always rendering as a
-  dark box. In light theme a code block is a faint light-tinted surface with dark
-  text (previously a dark slate slab on the white page); in dark theme it is a
-  subtle panel one step darker than the page. Inline `code` is unchanged. (Syntax
-  highlighting is unaffected — code blocks are not yet syntax-highlighted.)
+  dark box: a faint light-tinted surface in light theme, a subtly darker panel in
+  dark theme. Inline `code` and syntax highlighting are unchanged.
 - **Breaking (pre-1.0):** the bare `format=png` diagram fence form (outside the
   braces) is removed. Set the format inside the attribute block: ` ```mermaid
 {format=png} `.
 - The embedded-preview shell (`rw serve --embedded`, a Backstage-like host
-  wrapper for visually testing embedded rendering) is now compiled into every
-  build. Previously it required a binary built with the `embedded-preview` Cargo
-  feature, so `--embedded` did not exist in a default build. The flag is hidden
-  from `rw --help` (it is a dev/testing aid), but works in every build.
+  wrapper for testing embedded rendering) is now compiled into every build,
+  instead of needing the `embedded-preview` Cargo feature. The flag stays hidden
+  from `rw --help`.
 
 ### Fixed
 
-- Inline comments now re-anchor inline in more cases after their passage is
-  edited, instead of dropping to the page timeline. Previously an edited quote
-  longer than 32 characters (most sentence-length selections) could not be
-  fuzzy-matched at all, a moderate word substitution inside the quote was
-  rejected as too different, and a comment whose page was edited *above* it was
-  blocked by a stale-position distance penalty. The fuzzy re-anchor now uses a
-  Myers bit-vector matcher with no length limit and ranks candidates by edit
-  distance and surrounding-context agreement, so these comments highlight their
-  passage again (with the usual dashed "re-anchored" underline). Passages that
-  are genuinely gone, or too ambiguous to place confidently, still drop to the
-  timeline as before.
-- An inline comment anchored to a short passage (e.g. a short section heading)
-  no longer disappears from its highlight and drops to the page
-  timeline when the text *next to* it is edited — for instance inserting a
-  paragraph between a heading and the list that used to follow it. As long as
-  the commented passage is still unique on the page and one side of its
-  surrounding context still matches, the comment stays anchored to it.
-  Previously a short passage required both the text before *and* after it to be
-  unchanged, so editing either neighbor orphaned the comment even though the
-  passage itself was untouched and unambiguous.
-- Mermaid diagrams no longer render as solid black shapes with unreadable
-  labels in the fullscreen zoom popup. Mermaid SVGs scope their entire
-  embedded stylesheet under the SVG root id; the popup clones the diagram and
-  renames its ids (so the clone stays self-contained across live reloads), but
-  left the stylesheet's `#id` selectors behind, orphaning every style rule.
-  Selectors (and `aria-labelledby`/`aria-describedby` references) are now
-  renamed in lockstep, so the popup shows the diagram exactly as the article
-  renders it. PlantUML/C4 diagrams (styled via attributes) were never
-  affected.
-- Inline comments no longer attach to rendered diagrams. Because a diagram
-  (PlantUML, Mermaid, C4, etc.) is inlined as an SVG whose labels are real text,
-  selecting a diagram's label used to offer an "Add comment" button and create a
-  comment that couldn't be highlighted or reliably re-found. Now selecting text
-  inside a diagram — or a selection that crosses one — shows no "Add comment"
-  button, and a normal prose comment can no longer silently jump onto a
-  same-worded diagram label when the page re-renders. On the CLI,
-  `rw comment add --quote` for text that appears only inside a diagram (a label
-  or a "Diagram rendering failed" message) now reports the quote as not found
-  instead of anchoring into the diagram. Pointing comments at a specific spot
-  inside a diagram is intentionally not supported yet.
+- Inline comments now re-anchor to their passage in more cases after it's edited,
+  instead of dropping to the page timeline. The fuzzy re-anchor now uses a Myers
+  bit-vector matcher with no length limit (previously quotes over 32 characters
+  couldn't be matched at all) and ranks candidates by edit distance and
+  surrounding context, so edited quotes and moderate word substitutions
+  re-highlight (with the dashed "re-anchored" underline). Passages that are
+  genuinely gone or too ambiguous still drop to the timeline.
+- An inline comment on a short passage (e.g. a section heading) no longer drops
+  to the page timeline when the text *next to* it is edited — for instance
+  inserting a paragraph between a heading and its list. As long as the passage is
+  still unique on the page and one side of its context still matches, the comment
+  stays anchored; previously a short passage needed both sides unchanged.
+- Mermaid diagrams no longer render as solid black shapes with unreadable labels
+  in the fullscreen zoom popup. Mermaid scopes its embedded stylesheet under the
+  SVG's root id; the popup renames the clone's ids but left the stylesheet
+  selectors behind, orphaning every rule. Selectors and
+  `aria-labelledby`/`aria-describedby` references are now renamed in lockstep.
+  PlantUML/C4 diagrams were never affected.
+- Inline comments no longer attach to rendered diagrams. A diagram is inlined as
+  an SVG whose labels are real text, so selecting one used to offer "Add comment"
+  and create a comment that couldn't be reliably re-found. Selecting text inside
+  a diagram (or across one) now shows no "Add comment" button, and a prose
+  comment can no longer jump onto a same-worded diagram label on re-render. On
+  the CLI, `rw comment add --quote` for text that appears only inside a diagram
+  now reports the quote as not found.
 - Live-reloading the homepage (editing `docs/index.md` or the `README.md`
-  homepage while `rw serve` is running) no longer sometimes jumps your scroll
-  position back to the top. The homepage refreshed non-silently, so a reload
-  slower than ~300ms (e.g. one that re-renders a diagram via Kroki) briefly
-  showed the loading skeleton in place of the article, collapsing the page
-  height and losing your scroll. The homepage now refreshes silently like every
-  other page, keeping you where you were.
-- Comment keyboard navigation (`n` next, `p` previous, `r` reply) now works on
-  non-Latin keyboard layouts (Cyrillic, Greek, and similar). Previously the
-  shortcuts matched the typed character, so on a Russian layout the physical
-  `N`/`P`/`R` keys produced Cyrillic letters that never matched and the shortcuts
-  silently did nothing — you had to switch back to a Latin layout. They now fall
-  back to the physical key position when the typed character isn't a Latin
-  letter, while still honoring the labeled key on Dvorak/AZERTY. As a side
-  effect they're now case-insensitive, so Caps Lock no longer disables them.
-- Resolving an inline comment no longer makes the comment thread's position
-  counter jump to the end (e.g. "1 / 6" → "6 / 6"). The just-resolved comment now
-  stays in its slot with its passage still highlighted; the counter updates
-  (to "1 / 5") only when you step to the next comment.
+  homepage) no longer sometimes jumps your scroll position to the top. It
+  refreshed non-silently, so a reload slower than ~300ms briefly showed the
+  loading skeleton and collapsed the page height; the homepage now refreshes
+  silently like every other page.
+- Comment keyboard navigation (`n`/`p`/`r`) now works on non-Latin keyboard
+  layouts (Cyrillic, Greek, and similar). The shortcuts matched the typed
+  character, so on a Russian layout the physical keys produced letters that never
+  matched; they now fall back to the physical key position while still honoring
+  the labeled key on Dvorak/AZERTY. As a side effect they're now case-insensitive.
+- Resolving an inline comment no longer makes the thread's position counter jump
+  to the end (e.g. "1 / 6" → "6 / 6"). The resolved comment stays in its slot with
+  its passage highlighted; the counter updates (to "1 / 5") only when you step to
+  the next comment.
 - `rw serve` no longer keeps showing broken diagrams from cache after you fix a
-  Kroki problem. Previously, rendering a page while `kroki_url` was unset (or
-  while the Kroki server was unreachable) cached the broken result; setting
-  `kroki_url` or restoring Kroki and restarting still served the stale page
-  until you deleted `.rw/cache`. Now a change to `kroki_url`, `dpi`, or the
-  PlantUML include directories invalidates cached pages, and a page whose
-  diagrams failed to reach Kroki (a network error or a 5xx) is not cached at
-  all, so it re-renders and recovers on the next request once Kroki is back. A
-  page with a genuinely broken diagram (Kroki returns 400 for invalid source)
-  still caches, so it does not re-hit Kroki on every request.
+  Kroki problem. A change to `kroki_url`, `dpi`, or the PlantUML include
+  directories now invalidates cached pages, and a page whose diagrams failed to
+  reach Kroki (network error or 5xx) isn't cached at all, so it recovers on the
+  next request. A genuinely broken diagram (Kroki returns 400) still caches, so it
+  doesn't re-hit Kroki on every request.
 
 ## [0.1.28] - 2026-06-24
 
