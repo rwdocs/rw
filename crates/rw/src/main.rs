@@ -6,6 +6,7 @@
 //! - `confluence update`: Update Confluence pages from markdown
 //! - `confluence generate-tokens`: Generate OAuth access tokens
 //! - `comment`: Read and write comments directly against the local `SQLite` store
+//! - `update`: Update rw to the latest release
 
 mod commands;
 mod error;
@@ -14,7 +15,7 @@ mod output;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use commands::{BackstageCommand, CommentCommand, ConfluenceCommand, ServeArgs};
+use commands::{BackstageCommand, CommentCommand, ConfluenceCommand, ServeArgs, UpdateArgs};
 use output::Output;
 
 /// Application version from Cargo.toml.
@@ -41,6 +42,8 @@ enum Commands {
     /// Read and write inline comments on project docs (for scripts and LLM agents).
     #[command(subcommand)]
     Comment(CommentCommand),
+    /// Update rw to the latest release.
+    Update(UpdateArgs),
 }
 
 fn main() {
@@ -67,6 +70,7 @@ fn main() {
         Commands::Backstage(cmd) => cmd.execute(),
         Commands::Confluence(cmd) => cmd.execute(),
         Commands::Comment(cmd) => cmd.execute(),
+        Commands::Update(args) => args.execute(VERSION),
     };
 
     if let Err(err) = result {

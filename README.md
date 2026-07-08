@@ -43,6 +43,17 @@ RW looks for markdown files in `docs/` by default. If `docs/` has no `index.md`,
 
 Open [http://localhost:7979](http://localhost:7979) to see your site.
 
+## Updating
+
+If you installed via the shell or PowerShell script, upgrade in place with:
+
+```bash
+rw update
+```
+
+Use `rw update --check` to see whether a newer release is available without
+installing it. Homebrew users upgrade with `brew upgrade rw` instead.
+
 ## Configuration
 
 RW uses `rw.toml` for configuration, automatically discovered in the current directory or any parent directory.
@@ -65,6 +76,7 @@ See the [configuration guide](docs/configuration.md) for all options.
 | `rw backstage publish` | Publish documentation bundles to S3 for Backstage |
 | `rw confluence render` | Render markdown into a Confluence-publishable bundle (XHTML + diagrams) |
 | `rw comment` | Read and write inline comments on project docs (for scripts and LLM agents) |
+| `rw update` | Update rw to the latest release (self-update) |
 
 ## Documentation
 

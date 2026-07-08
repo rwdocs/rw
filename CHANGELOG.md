@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `rw update` self-updates the installed `rw` binary to the latest GitHub
+  release. `rw update --check` reports whether an update is available without
+  installing it, `rw update --version <x.y.z>` installs (or pins to) a specific
+  version, and `rw update --prerelease` includes pre-releases when resolving
+  "latest". Self-update works for installs done via the shell/PowerShell
+  installer; Homebrew, npm, `cargo install`, and source builds print guidance
+  (`brew upgrade rw`, or re-run the install script) and exit non-zero instead.
+
 ## [0.1.29] - 2026-07-07
 
 ### Added
