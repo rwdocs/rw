@@ -1,5 +1,6 @@
 //! CLI error types.
 
+use axoupdater::AxoupdateError;
 use rw_comments::{CreateError, QuoteResolutionError, StoreError};
 use rw_config::ConfigError;
 use rw_confluence::ConfluenceError;
@@ -40,6 +41,22 @@ pub(crate) enum CliError {
 
     #[error("--out - cannot stream {count} attachment(s); pass --out <dir> instead")]
     OutStdoutHasAttachments { count: usize },
+
+    #[error(transparent)]
+    Update(Box<AxoupdateError>),
+
+    #[error(
+        "rw wasn't installed with the rw installer, so it can't update itself — run `brew upgrade rw` if you used Homebrew, otherwise re-run the install script: https://github.com/rwdocs/rw#quickstart"
+    )]
+    CantSelfUpdate,
+}
+
+impl From<AxoupdateError> for CliError {
+    fn from(err: AxoupdateError) -> Self {
+        // Boxed to keep `CliError` (and every `Result<_, CliError>`) small —
+        // `AxoupdateError` is large enough to trip clippy's `result_large_err`.
+        CliError::Update(Box::new(err))
+    }
 }
 
 impl From<CreateError> for CliError {
@@ -88,6 +105,17 @@ mod tests {
         assert_eq!(err.exit_code(), 3);
         assert!(err.to_string().contains("attachment(s)"));
         assert!(err.to_string().contains("--out -"));
+    }
+
+    #[test]
+    fn cant_self_update_exits_1() {
+        // Falls through to the `_ => 1` arm (not a validation/not-found bucket);
+        // guard against a future exit_code arm reclassifying it.
+        let err = CliError::CantSelfUpdate;
+        assert_eq!(err.exit_code(), 1);
+        let msg = err.to_string();
+        assert!(msg.contains("brew upgrade"));
+        assert!(msg.contains("https://github.com/rwdocs/rw#quickstart"));
     }
 
     #[test]

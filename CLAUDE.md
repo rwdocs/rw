@@ -52,6 +52,7 @@ crates/
 │       └── commands/
 │           ├── mod.rs        # Command module exports
 │           ├── serve.rs      # `serve` command
+│           ├── update.rs     # `update` self-updater command (axoupdater)
 │           ├── confluence/
 │           │   ├── mod.rs         # `confluence` subcommand group
 │           │   ├── update.rs      # `confluence update` command

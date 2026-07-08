@@ -4,10 +4,12 @@ pub(crate) mod backstage;
 pub(crate) mod comment;
 pub(crate) mod confluence;
 pub(crate) mod serve;
+pub(crate) mod update;
 pub(crate) use backstage::BackstageCommand;
 pub(crate) use comment::CommentCommand;
 pub(crate) use confluence::ConfluenceCommand;
 pub(crate) use serve::ServeArgs;
+pub(crate) use update::UpdateArgs;
 
 use clap::Args;
 use rw_storage_s3::S3Config;

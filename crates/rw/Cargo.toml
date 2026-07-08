@@ -28,6 +28,7 @@ rw-server = { workspace = true }
 rw-site = { workspace = true }
 rw-storage = { workspace = true }
 rw-storage-fs = { workspace = true }
+axoupdater = { version = "0.10", features = ["blocking"] }
 clap = { version = "4", features = ["derive", "env"] }
 console = "0.16"
 open = "5"
