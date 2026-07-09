@@ -21,11 +21,14 @@ concurrency:
 # - walltime (real elapsed time, CodSpeed `codspeed-macro` bare-metal runners):
 #   correctly measures the rw-site benches, whose cost is filesystem I/O and the
 #   parallel scanner — work whose instruction count is not reproducible under
-#   simulation. Free for open-source within the monthly macro-runner minutes.
+#   simulation.
 #
-# Both jobs upload to the same CodSpeed project within one workflow run (required
-# for CodSpeed to emit results), and both authenticate via the GitHub App + OIDC
-# (no token needed for a public repo).
+# The rw-site benches are compiled on a free GitHub ARM64 runner and only *run*
+# on the (metered) macro runner, so building doesn't consume macro-runner
+# minutes. `cargo codspeed run` executes the previously-built benches without
+# recompiling. All jobs authenticate via the GitHub App + OIDC (no token needed
+# for a public repo), and both instruments upload to the same CodSpeed project
+# within one workflow run (required for CodSpeed to emit results).
 
 jobs:
   simulation:
@@ -54,12 +57,12 @@ jobs:
           mode: simulation
           run: cargo codspeed run
 
-  walltime:
-    name: Walltime (site)
-    runs-on: codspeed-macro
-    permissions:
-      contents: read
-      id-token: write
+  # Compile the rw-site benches on a free ARM64 runner so the macro runner never
+  # spends metered minutes building. Built on 22.04 (glibc 2.35) so the binaries
+  # stay forward-compatible with whatever glibc the macro runner ships.
+  build-site:
+    name: Build site benches (free ARM64)
+    runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v7
 
@@ -68,12 +71,48 @@ jobs:
         with:
           channel: stable
           cache-target: release
-          # Macro runners are ARM64; keep their cache distinct from the x64 job.
           cache-extra-identifier: ${{ runner.arch }}
           bins: cargo-codspeed
 
       - name: Build the site benchmarks
         run: cargo codspeed build -p rw-site
+
+      # Tar preserves the executable bit that upload-artifact would otherwise drop.
+      - name: Package built benches
+        run: tar -czf codspeed-site.tar.gz target/codspeed
+
+      - name: Upload built benches
+        uses: actions/upload-artifact@v4
+        with:
+          name: codspeed-site-benches
+          path: codspeed-site.tar.gz
+          retention-days: 1
+
+  walltime:
+    name: Walltime (site)
+    needs: build-site
+    runs-on: codspeed-macro
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # Toolchain + cargo-codspeed only — no build happens here (cache disabled).
+      - name: Set up Rust toolchain and cargo-codspeed
+        uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          cache: false
+          bins: cargo-codspeed
+
+      - name: Download built benches
+        uses: actions/download-artifact@v4
+        with:
+          name: codspeed-site-benches
+
+      - name: Unpack built benches
+        run: tar -xzf codspeed-site.tar.gz
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v4
