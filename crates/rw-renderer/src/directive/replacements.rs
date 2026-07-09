@@ -4,24 +4,38 @@
 
 /// Collects string replacements for single-pass application.
 ///
-/// Instead of each directive calling `html.replace()` (O(N) allocation per call),
-/// all directives register their replacements, then [`apply()`](Self::apply) performs
-/// them in a single pass over the HTML string.
+/// Instead of each directive calling `html.replace()` (a full scan + a whole
+/// new allocation per call), all directives register their replacements, then
+/// [`apply()`](Self::apply) rewrites them in a single left-to-right pass over
+/// the HTML string with a single output allocation.
 ///
 /// # Performance
 ///
 /// ```text
-/// Naive approach (N handlers, M replacements each):
-///   for handler in handlers:           # N iterations
-///     html = html.replace(...)         # O(len) allocation per replace
-///   Total: O(N × M × len) allocations
+/// Naive approach (P registered patterns):
+///   for (from, to) in patterns:        # P iterations
+///     html = html.replace(from, to)    # full scan + full realloc per matching pattern
+///   Total: O(P × len), up to P whole-string reallocations
 ///
 /// Replacements approach:
-///   for handler in handlers:           # N iterations
-///     handler.post_process(&mut replacements)  # collect only
-///   replacements.apply(html)           # single O(len) allocation
-///   Total: O(1) allocation
+///   replacements.apply(html)           # one scan, one output String
+///   Total: O(P × len) comparisons, a single allocation
 /// ```
+///
+/// The pattern set is small (a handful of directive markers) and known only at
+/// call time, so this uses a plain per-position scan rather than an
+/// Aho-Corasick automaton — for so few patterns, building an automaton per
+/// render costs far more than it saves.
+///
+/// # Semantics
+///
+/// Matching is a single left-to-right pass: the replacement text is *not*
+/// re-scanned, so replacements do not chain (a pattern cannot match text
+/// produced by an earlier replacement). Where two patterns could match at the
+/// same position, the one added first wins, so registration order still
+/// resolves overlaps — it just no longer feeds one replacement's output into
+/// the next. The directive markers this is used for are unique, non-overlapping
+/// sentinels, so this is transparent in practice.
 ///
 /// # Example
 ///
@@ -63,10 +77,18 @@ impl Replacements {
         self.items.push((from.into(), to.into()));
     }
 
-    /// Apply all registered replacements.
+    /// Apply all registered replacements in a single pass.
     ///
-    /// For efficiency, this uses simple sequential replacement. For very large
-    /// numbers of patterns, consider using `aho-corasick` instead.
+    /// Rewrites the HTML left-to-right into a single new allocation, bulk-copying
+    /// the spans between marker matches — replacing the previous approach of one
+    /// full scan and one whole-string reallocation per pattern. See the
+    /// [type docs](Self#semantics) for the (non-chaining) match semantics.
+    ///
+    /// Every directive marker begins with `<`, so in that (universal in practice)
+    /// case candidates are found by jumping between `<` positions with the
+    /// standard library's memchr-accelerated `find` — the same SIMD search
+    /// `str::replace` uses. A pattern set with some other leading byte takes an
+    /// equivalent but non-accelerated per-character scan; the result is identical.
     ///
     /// Note: This consumes the replacements to prevent accidental reuse.
     pub fn apply(self, html: &mut String) {
@@ -74,14 +96,63 @@ impl Replacements {
             return;
         }
 
-        // For a small number of replacements, sequential replace is efficient enough
-        // and avoids the aho-corasick dependency. If performance becomes an issue
-        // with many patterns, we can switch to aho-corasick.
-        for (from, to) in self.items {
-            if html.contains(&from) {
-                *html = html.replace(&from, &to);
+        let src = std::mem::take(html);
+        let mut out = String::with_capacity(src.len());
+        // `run_start` is the start of the span not yet copied to `out`.
+        let mut run_start = 0;
+
+        // Fast path: every marker starts with '<', so memchr-jump between '<'.
+        if self
+            .items
+            .iter()
+            .all(|(from, _)| from.as_bytes().first() == Some(&b'<'))
+        {
+            // `search_from` diverges from `run_start` across the many '<' that
+            // begin ordinary tags (not markers), so the uncopied span grows and
+            // is flushed in one bulk copy at the next real match.
+            let mut search_from = 0;
+            while let Some(rel) = src[search_from..].find('<') {
+                let at = search_from + rel;
+                if let Some((from, to)) = self.find_match(&src[at..]) {
+                    out.push_str(&src[run_start..at]);
+                    out.push_str(to);
+                    run_start = at + from.len();
+                    search_from = run_start;
+                } else {
+                    search_from = at + 1;
+                }
+            }
+        } else {
+            // General path: advance one char at a time (no SIMD skip). Only
+            // reached if a caller registers a non-'<' pattern — never the
+            // directive markers — so its slower scan is irrelevant in practice.
+            let mut i = 0;
+            while i < src.len() {
+                if src.is_char_boundary(i)
+                    && let Some((from, to)) = self.find_match(&src[i..])
+                {
+                    out.push_str(&src[run_start..i]);
+                    out.push_str(to);
+                    i += from.len();
+                    run_start = i;
+                    continue;
+                }
+                i += 1;
             }
         }
+
+        out.push_str(&src[run_start..]);
+        *html = out;
+    }
+
+    /// The first registered pattern that is a prefix of `rest`, if any. First
+    /// wins, preserving the documented "applied in the order they are added"
+    /// priority when patterns could match at the same position.
+    fn find_match(&self, rest: &str) -> Option<(&String, &String)> {
+        self.items
+            .iter()
+            .find(|(from, _)| !from.is_empty() && rest.starts_with(from.as_str()))
+            .map(|(from, to)| (from, to))
     }
 
     /// Check if there are any replacements registered.
@@ -177,14 +248,28 @@ mod tests {
     }
 
     #[test]
-    fn test_replacement_order() {
-        // Replacements are applied sequentially, so order matters
+    fn test_single_pass_no_chaining() {
+        // Single pass: replacement output is NOT re-scanned, so "bb" (produced
+        // by the first rule) is not itself replaced by the second rule.
         let mut html = "aaa".to_owned();
         let mut replacements = Replacements::new();
         replacements.add("a", "bb");
         replacements.add("bb", "c");
         replacements.apply(&mut html);
-        // First: aaa -> bbbbbb, then bbbbbb -> ccc
-        assert_eq!(html, "ccc");
+        // Each "a" is rewritten to "bb" once; the emitted "bb" stays put.
+        assert_eq!(html, "bbbbbb");
+    }
+
+    #[test]
+    fn test_overlap_prefers_first_registered() {
+        // When two patterns can match at the same position, the one added first
+        // wins (LeftmostFirst) — registration order resolves the overlap.
+        let mut html = "<rw-tabs>".to_owned();
+        let mut replacements = Replacements::new();
+        replacements.add("<rw-tab>", "<SHORT>");
+        replacements.add("<rw-tabs>", "<LONG>");
+        replacements.apply(&mut html);
+        // "<rw-tab>" cannot match here (char mismatch at 's'), so "<rw-tabs>" wins.
+        assert_eq!(html, "<LONG>");
     }
 }
