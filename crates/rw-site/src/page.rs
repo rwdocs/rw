@@ -5,6 +5,7 @@
 //! Also defines the public result and configuration types used by
 //! [`Site`](crate::Site).
 
+use std::collections::BTreeSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -190,6 +191,11 @@ pub struct PageRenderResult {
     /// Page metadata from YAML frontmatter or sidecar `meta.yaml` file,
     /// if present.
     pub metadata: Option<Metadata>,
+    /// Canonical section refs (`"kind:namespace/name"`) this page references,
+    /// via prose links and diagram `$link`s. Deduped and deterministically
+    /// ordered; empty for pages that reference no sections. Survives the page
+    /// cache, so a cache hit reports the same set as a fresh render.
+    pub section_refs: BTreeSet<String>,
 }
 
 /// Plain text representation of a page for search indexing.
@@ -370,6 +376,7 @@ impl PageRenderer {
                 source_mtime,
                 breadcrumbs,
                 metadata,
+                section_refs: cached.section_refs,
             });
         }
 
@@ -392,6 +399,7 @@ impl PageRenderer {
                     html: &result.html,
                     title: result.title.as_deref(),
                     toc: &result.toc,
+                    section_refs: &result.section_refs,
                 },
             );
         }
@@ -406,6 +414,7 @@ impl PageRenderer {
             source_mtime,
             breadcrumbs,
             metadata,
+            section_refs: result.section_refs,
         })
     }
 
@@ -428,6 +437,7 @@ impl PageRenderer {
             source_mtime,
             breadcrumbs,
             metadata,
+            section_refs: BTreeSet::new(),
         }
     }
 
@@ -569,6 +579,11 @@ struct CachedPage {
     html: String,
     title: Option<String>,
     toc: Vec<TocEntry>,
+    /// `#[serde(default)]` so cache entries written before this field existed
+    /// still deserialize — the missing set becomes empty until the page is next
+    /// rendered.
+    #[serde(default)]
+    section_refs: BTreeSet<String>,
 }
 
 /// Borrowed view of cached page data for serialization (zero-copy).
@@ -577,6 +592,7 @@ struct CachedPageRef<'a> {
     html: &'a str,
     title: Option<&'a str>,
     toc: &'a [TocEntry],
+    section_refs: &'a BTreeSet<String>,
 }
 
 #[cfg(test)]
@@ -706,6 +722,69 @@ mod tests {
             .unwrap();
         assert!(result2.from_cache);
         assert_eq!(result1.html, result2.html);
+    }
+
+    #[test]
+    fn cache_hit_preserves_referenced_section_refs() {
+        use rw_sections::Namespace;
+        use std::collections::HashMap;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
+            temp_dir.path().join("cache"),
+            "1.0.0",
+        ));
+
+        let storage = MockStorage::new()
+            .with_file(
+                "domains/billing/api",
+                "API",
+                "# API\n\n[home](/domains/billing)",
+            )
+            .with_mtime("domains/billing/api", 1000.0);
+
+        let sections = Arc::new(Sections::with_implicit_root(
+            HashMap::from([(
+                "domains/billing".to_owned(),
+                Section {
+                    kind: "domain".to_owned(),
+                    namespace: Namespace::default(),
+                    name: "billing".to_owned(),
+                },
+            )]),
+            Namespace::default(),
+        ));
+        let ctx = RenderContext {
+            sections,
+            ..Default::default()
+        };
+
+        let config = PageRendererConfig::default();
+        let renderer = PageRenderer::new(Arc::new(storage), cache, config);
+        let page = make_page("API", "domains/billing/api", true);
+
+        let fresh = renderer
+            .render("domains/billing/api", &page, vec![], &ctx)
+            .unwrap();
+        assert!(!fresh.from_cache);
+
+        let cached = renderer
+            .render("domains/billing/api", &page, vec![], &ctx)
+            .unwrap();
+        assert!(cached.from_cache);
+
+        let expected: BTreeSet<String> = ["domain:default/billing".to_owned()].into();
+        assert_eq!(fresh.section_refs, expected);
+        assert_eq!(cached.section_refs, fresh.section_refs);
+    }
+
+    #[test]
+    fn cached_page_without_refs_field_deserializes() {
+        // An entry written before `section_refs` existed must still
+        // deserialize, defaulting to an empty set.
+        let json = r#"{"html":"<p>x</p>","title":"X","toc":[]}"#;
+        let cached: CachedPage = serde_json::from_str(json).unwrap();
+        assert!(cached.section_refs.is_empty());
     }
 
     #[test]

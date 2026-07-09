@@ -47,7 +47,7 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// Result of processing a code block.
 #[derive(Debug, PartialEq, Eq)]
@@ -181,6 +181,20 @@ pub trait CodeBlockProcessor: Send + Sync {
     /// Default implementation returns `false`.
     fn has_transient_error(&self) -> bool {
         false
+    }
+
+    /// Canonical section refs (`"kind:namespace/name"`) this processor's output
+    /// referenced during `post_process` (e.g. diagram `$link`s resolved to
+    /// sections). Collected by the renderer into
+    /// [`RenderResult::section_refs`](crate::RenderResult::section_refs).
+    ///
+    /// Default implementation returns an empty set.
+    fn section_refs(&self) -> &BTreeSet<String> {
+        // A `static` is needed to hand out a `'static` empty set by reference;
+        // unlike the `&[]` slice-literal defaults above, `&BTreeSet::new()`
+        // alone would not outlive the call.
+        static EMPTY: BTreeSet<String> = BTreeSet::new();
+        &EMPTY
     }
 
     /// Bundle code block source before rendering.

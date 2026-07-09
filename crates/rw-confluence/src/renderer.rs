@@ -122,6 +122,7 @@ impl PageRenderer {
             toc: result.toc,
             warnings: result.warnings,
             has_transient_error: result.has_transient_error,
+            section_refs: result.section_refs,
         }
     }
 

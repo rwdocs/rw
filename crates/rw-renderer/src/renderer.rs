@@ -2,6 +2,7 @@
 //!
 //! See the [crate-level documentation](crate) for an overview and examples.
 
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -52,6 +53,10 @@ pub struct RenderResult {
     /// decide whether the rendered output is safe to persist to a durable
     /// cache — a transient failure should not be cached, so it is retried.
     pub has_transient_error: bool,
+    /// Canonical section refs (`"kind:namespace/name"`) this render referenced,
+    /// via prose links (markdown + wikilinks) and diagram `$link`s. Deduped and
+    /// deterministically ordered. Empty when the page references no sections.
+    pub section_refs: BTreeSet<String>,
 }
 
 /// Generic markdown renderer with pluggable backend.
@@ -1561,6 +1566,41 @@ Install with apt.
             .with_base_path(base)
             .with_title_resolver(StaticTitleResolver)
             .render(markdown, Pipeline::new())
+    }
+
+    #[test]
+    fn collects_referenced_section_refs_from_prose_links() {
+        let sections = Arc::new(Sections::with_implicit_root(
+            HashMap::from([(
+                "domains/billing".to_owned(),
+                Section {
+                    kind: "domain".to_owned(),
+                    namespace: Namespace::default(),
+                    name: "billing".to_owned(),
+                },
+            )]),
+            Namespace::default(),
+        ));
+
+        // Two links to the same section (must dedup), one external (must be
+        // ignored), one fragment-only (no section).
+        let md = "[a](/domains/billing/api) [b](/domains/billing/other) \
+                  [ext](https://example.com) [frag](#top)";
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_sections(Arc::clone(&sections))
+            .render(md, Pipeline::new());
+
+        let refs: Vec<&str> = result.section_refs.iter().map(String::as_str).collect();
+        assert_eq!(refs, ["domain:default/billing"]);
+    }
+
+    #[test]
+    fn collects_referenced_section_refs_from_wikilinks() {
+        // A resolved wikilink contributes its section ref to the set, exactly
+        // like a markdown link.
+        let result = render_wikilink("[[domain:billing::overview]]");
+        let refs: Vec<&str> = result.section_refs.iter().map(String::as_str).collect();
+        assert_eq!(refs, ["domain:default/billing"]);
     }
 
     #[test]
