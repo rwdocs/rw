@@ -74,28 +74,8 @@ fn generate_markdown(headings: usize, paragraphs_per_section: usize) -> String {
     md
 }
 
-/// Render cost through the full `Site` path as document size grows; reports
-/// throughput in bytes. The interesting signal is the slope across sizes.
-#[divan::bench(args = ["5h_2p", "20h_3p", "50h_5p"])]
-fn render_by_size(bencher: Bencher, shape: &str) {
-    let (headings, paragraphs) = match shape {
-        "5h_2p" => (5, 2),
-        "20h_3p" => (20, 3),
-        "50h_5p" => (50, 5),
-        _ => unreachable!(),
-    };
-    let dir = tempfile::tempdir().unwrap();
-    let source_dir = dir.path().to_path_buf();
-    let markdown = generate_markdown(headings, paragraphs);
-    let bytes = markdown.len();
-    fs::write(source_dir.join("doc.md"), &markdown).unwrap();
-    bencher
-        .counter(BytesCount::new(bytes))
-        .with_inputs(|| scan_primed(create_site(source_dir.clone())))
-        .bench_values(|site| site.render(black_box("doc")));
-}
-
-/// Render a large (~100KB) document; reports throughput in bytes.
+/// Render a large (~100KB) document through the full `Site` path; reports
+/// throughput in bytes.
 #[divan::bench]
 fn large_document(bencher: Bencher) {
     let dir = tempfile::tempdir().unwrap();
