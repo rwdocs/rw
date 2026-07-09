@@ -239,6 +239,51 @@ describe("navigation store", () => {
       expect(navigation.error).toBeNull();
       expect(navigation.loading).toBe(false);
     });
+
+    it("keeps the fetched (unresolved) tree when the section-ref resolver rejects", async () => {
+      // A tree with no `scope`/section-bearing items short-circuits
+      // resolveNavTree before it ever calls the resolver (empty ref set), so
+      // this must carry a scope + matching sectionAncestry to exercise the
+      // resolver-rejection path.
+      const scopedTree: NavigationTree = {
+        items: mockTree.items,
+        scope: {
+          path: "/api",
+          title: "API",
+          section: { kind: "component", namespace: "default", name: "api" },
+        },
+        sectionAncestry: {
+          "component:default/api": [{ sectionRef: "component:default/api", subpath: "" }],
+        },
+      };
+      mockFetchNavigation.mockResolvedValue(scopedTree);
+      const navigation = new Navigation(mockApiClient);
+      const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
+      navigation.setSectionRefResolver(resolver);
+
+      await navigation.load();
+
+      // The fetch succeeded; resolver rejection must not blank/error the
+      // sidebar — it just falls back to the unresolved tree.
+      expect(resolver).toHaveBeenCalled();
+      expect(navigation.tree).toEqual(scopedTree);
+      expect(navigation.error).toBeNull();
+      expect(navigation.loading).toBe(false);
+    });
+
+    it("still errors when the FETCH itself rejects, even with a section-ref resolver configured", async () => {
+      mockFetchNavigation.mockRejectedValue(new Error("Network error"));
+      const navigation = new Navigation(mockApiClient);
+      const resolver = vi.fn().mockResolvedValue({});
+      navigation.setSectionRefResolver(resolver);
+
+      await navigation.load();
+
+      expect(navigation.tree).toBeNull();
+      expect(navigation.error).toBe("Network error");
+      // The resolver is never reached because fetchNavigation rejected first.
+      expect(resolver).not.toHaveBeenCalled();
+    });
   });
 
   describe("toggle", () => {

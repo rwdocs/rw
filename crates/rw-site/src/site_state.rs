@@ -355,7 +355,8 @@ impl SiteState {
             return vec![BreadcrumbItem {
                 title: "Home".to_owned(),
                 path: String::new(),
-                section: None,
+                section_ref: String::new(),
+                subpath: String::new(),
             }];
         };
 
@@ -374,7 +375,8 @@ impl SiteState {
         let mut breadcrumbs = vec![BreadcrumbItem {
             title: "Home".to_owned(),
             path: String::new(),
-            section: None,
+            section_ref: String::new(),
+            subpath: String::new(),
         }];
 
         // Skip the last element (current page) and exclude root page (already represented by Home)
@@ -386,7 +388,8 @@ impl SiteState {
                 .map(|page| BreadcrumbItem {
                     title: page.title.clone(),
                     path: page.path.clone(),
-                    section: None,
+                    section_ref: String::new(),
+                    subpath: String::new(),
                 }),
         );
 
@@ -1295,7 +1298,8 @@ mod tests {
         let item = BreadcrumbItem {
             title: "Home".to_owned(),
             path: String::new(),
-            section: None,
+            section_ref: String::new(),
+            subpath: String::new(),
         };
 
         assert_eq!(item.title, "Home");

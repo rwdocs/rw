@@ -389,9 +389,13 @@ describe("page store", () => {
           {
             title: "API",
             path: "/",
-            section: { kind: "component", namespace: "default", name: "api" },
+            sectionRef: "component:default/api",
+            subpath: "",
           },
         ],
+        sectionAncestry: {
+          "component:default/api": [{ sectionRef: "component:default/api", subpath: "" }],
+        },
       };
 
       // The bug: load1 fetches page, then awaits resolveBreadcrumbs. While
@@ -434,6 +438,52 @@ describe("page store", () => {
       resolveResolver({ "component:default/api": "/docs/api" });
       await load1;
       expect(page.error).toBeNull();
+    });
+
+    it("keeps the fetched page with unresolved breadcrumbs when the section-ref resolver rejects", async () => {
+      const page = new Page(mockApiClient);
+      const responseWithBreadcrumbs: PageResponse = {
+        ...mockPageResponse,
+        breadcrumbs: [
+          {
+            title: "API",
+            path: "/",
+            sectionRef: "component:default/api",
+            subpath: "",
+          },
+        ],
+        sectionAncestry: {
+          "component:default/api": [{ sectionRef: "component:default/api", subpath: "" }],
+        },
+      };
+      mockFetchPage.mockResolvedValue(responseWithBreadcrumbs);
+      const resolver = vi.fn().mockRejectedValue(new Error("host resolver failed"));
+      page.setSectionRefResolver(resolver);
+
+      await page.load("test");
+
+      // The fetch succeeded; resolver rejection must not blank the page or
+      // surface an error/notFound — only breadcrumb rewriting is skipped.
+      expect(page.data).toEqual(responseWithBreadcrumbs);
+      expect(page.data?.breadcrumbs).toEqual(responseWithBreadcrumbs.breadcrumbs);
+      expect(page.error).toBeNull();
+      expect(page.notFound).toBe(false);
+      expect(page.loading).toBe(false);
+    });
+
+    it("still errors when the FETCH itself rejects, even with a section-ref resolver configured", async () => {
+      const page = new Page(mockApiClient);
+      mockFetchPage.mockRejectedValue(new Error("Server error"));
+      const resolver = vi.fn().mockResolvedValue({});
+      page.setSectionRefResolver(resolver);
+
+      await page.load("test");
+
+      expect(page.data).toBeNull();
+      expect(page.error).toBe("Server error");
+      expect(page.notFound).toBe(false);
+      // The resolver is never reached because fetchPage rejected first.
+      expect(resolver).not.toHaveBeenCalled();
     });
   });
 

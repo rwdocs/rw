@@ -86,10 +86,22 @@ export class Navigation {
       });
       if (controller.signal.aborted) return;
 
-      const resolvedTree = this.sectionRefResolver
-        ? await resolveNavTree(tree, this.sectionRefResolver)
-        : tree;
-      if (controller.signal.aborted) return;
+      let resolvedTree = tree;
+      if (this.sectionRefResolver) {
+        try {
+          resolvedTree = await resolveNavTree(tree, this.sectionRefResolver);
+          if (controller.signal.aborted) return;
+        } catch (e) {
+          if (controller.signal.aborted) return; // superseded load: don't commit
+          if (import.meta.env.DEV) {
+            console.warn(
+              "[rw] nav section-ref resolution failed; using unresolved navigation tree:",
+              e,
+            );
+          }
+          // keep the fetched (unresolved) tree
+        }
+      }
 
       const allParentPaths = collectParentPaths(resolvedTree.items);
       this.tree = resolvedTree;

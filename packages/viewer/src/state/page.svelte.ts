@@ -45,11 +45,24 @@ export class Page {
       });
       if (signal.aborted) return;
       if (this.sectionRefResolver) {
-        data = {
-          ...data,
-          breadcrumbs: await resolveBreadcrumbs(data.breadcrumbs, this.sectionRefResolver),
-        };
-        if (signal.aborted) return;
+        try {
+          const breadcrumbs = await resolveBreadcrumbs(
+            data.breadcrumbs,
+            data.sectionAncestry,
+            this.sectionRefResolver,
+          );
+          if (signal.aborted) return;
+          data = { ...data, breadcrumbs };
+        } catch (e) {
+          if (signal.aborted) return; // superseded load: don't commit
+          if (import.meta.env.DEV) {
+            console.warn(
+              "[rw] breadcrumb section-ref resolution failed; using unresolved breadcrumbs:",
+              e,
+            );
+          }
+          // keep data.breadcrumbs as fetched
+        }
       }
       this.data = data;
       this.loading = false;
