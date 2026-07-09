@@ -56,8 +56,10 @@ ureq = { version = "3", features = ["rustls", "json"] }
 
 shellexpand = "3"
 
-# Benchmarking
-criterion = { version = "0.8", features = ["html_reports"] }
+# Benchmarking.
+# CodSpeed's drop-in for Divan: aliased to `divan` so bench code stays vanilla.
+# Runs as normal Divan locally (`cargo bench`); instruments under CodSpeed CI.
+divan = { package = "codspeed-divan-compat", version = "5" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -2 }

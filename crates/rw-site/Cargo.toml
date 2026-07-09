@@ -23,7 +23,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+divan = { workspace = true }
 rw-storage = { workspace = true, features = ["mock"] }
 rw-storage-fs = { workspace = true }
 static_assertions = { workspace = true }

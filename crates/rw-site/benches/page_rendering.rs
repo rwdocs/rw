@@ -1,31 +1,64 @@
-//! Benchmarks for page rendering performance.
+//! Benchmarks for the `Site::render` serving path — the per-request cost on top
+//! of the markdown renderer: storage read, metadata, and the page cache.
+//!
+//! Scope is deliberately narrow. Pure markdown->HTML render (including per-feature
+//! cost — tables, code fences, alerts, task lists) is covered by `rw-renderer`'s
+//! `render` bench; the one-time site scan/index path is covered by this crate's
+//! `site_structure` bench. This file measures only what is unique to
+//! `Site::render`: how render cost scales through the full path, and the warm
+//! persistent-cache hit that is the real steady-state serving cost.
+//!
+//! Each timed `render` runs against a site whose scan is already primed (via
+//! `navigation`, as untimed `with_inputs` setup) so it measures the per-request
+//! path, not the startup scan. Priming `navigation` leaves the in-process render
+//! memo empty, so every timed render is a real render (or, for `cache_hit`, a
+//! real persistent-cache read) rather than a memo hit.
+//!
+//! Local:    cargo bench -p rw-site --bench page_rendering
+//! Under CI: instrumented via CodSpeed (the `divan` dep is the compat shim).
 
 #![allow(clippy::format_push_string)] // Benchmark setup code, performance not critical
+#![allow(clippy::doc_markdown)] // Product names (CodSpeed) and CLI examples in docs
 
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use divan::counter::BytesCount;
+use divan::{Bencher, black_box};
+use rw_cache::{Cache, FileCache, NullCache};
 use rw_site::{PageRendererConfig, Site};
 use rw_storage_fs::FsStorage;
 
-fn create_site(source_dir: PathBuf) -> Site {
-    let storage = Arc::new(FsStorage::new(source_dir));
-    let config = PageRendererConfig::default();
-    Site::new(storage, Arc::new(rw_cache::NullCache), config)
+fn main() {
+    divan::main();
 }
 
 fn create_site_with_config(
     source_dir: PathBuf,
-    cache: Arc<dyn rw_cache::Cache>,
+    cache: Arc<dyn Cache>,
     config: PageRendererConfig,
 ) -> Site {
     let storage = Arc::new(FsStorage::new(source_dir));
     Site::new(storage, cache, config)
 }
 
-/// Generate markdown content with specified structure.
+fn create_site(source_dir: PathBuf) -> Site {
+    create_site_with_config(
+        source_dir,
+        Arc::new(NullCache),
+        PageRendererConfig::default(),
+    )
+}
+
+/// Build `site` and prime its scan (via `navigation`) without touching the render
+/// memo, so a following timed `render` measures the per-request path only.
+fn scan_primed(site: Site) -> Site {
+    let _ = site.navigation(None);
+    site
+}
+
+/// Generate markdown content with the specified structure.
 fn generate_markdown(headings: usize, paragraphs_per_section: usize) -> String {
     let mut md = String::with_capacity(headings * 50 + headings * paragraphs_per_section * 200);
     md.push_str("# Document Title\n\n");
@@ -41,191 +74,77 @@ fn generate_markdown(headings: usize, paragraphs_per_section: usize) -> String {
     md
 }
 
-fn bench_render_simple(c: &mut Criterion) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let source_dir = temp_dir.path().to_path_buf();
-    fs::write(source_dir.join("simple.md"), "# Hello\n\nSimple content.").unwrap();
-
-    let site = create_site(source_dir);
-
-    c.bench_function("render_simple_markdown", |b| {
-        b.iter(|| site.render("/simple"));
-    });
-}
-
-fn bench_render_with_toc(c: &mut Criterion) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let source_dir = temp_dir.path().to_path_buf();
-    let markdown = generate_markdown(10, 2);
-    fs::write(source_dir.join("toc.md"), &markdown).unwrap();
-
-    let config = PageRendererConfig {
-        extract_title: true,
-        ..Default::default()
+/// Render cost through the full `Site` path as document size grows; reports
+/// throughput in bytes. The interesting signal is the slope across sizes.
+#[divan::bench(args = ["5h_2p", "20h_3p", "50h_5p"])]
+fn render_by_size(bencher: Bencher, shape: &str) {
+    let (headings, paragraphs) = match shape {
+        "5h_2p" => (5, 2),
+        "20h_3p" => (20, 3),
+        "50h_5p" => (50, 5),
+        _ => unreachable!(),
     };
-    let site = create_site_with_config(source_dir, Arc::new(rw_cache::NullCache), config);
-
-    c.bench_function("render_with_toc_10_headings", |b| {
-        b.iter(|| site.render("/toc"));
-    });
+    let dir = tempfile::tempdir().unwrap();
+    let source_dir = dir.path().to_path_buf();
+    let markdown = generate_markdown(headings, paragraphs);
+    let bytes = markdown.len();
+    fs::write(source_dir.join("doc.md"), &markdown).unwrap();
+    bencher
+        .counter(BytesCount::new(bytes))
+        .with_inputs(|| scan_primed(create_site(source_dir.clone())))
+        .bench_values(|site| site.render(black_box("doc")));
 }
 
-fn bench_render_varying_sizes(c: &mut Criterion) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let source_dir = temp_dir.path().to_path_buf();
-    let renderer = create_site(source_dir.clone());
-
-    let mut group = c.benchmark_group("render_by_size");
-
-    for (headings, paragraphs) in [(5, 2), (20, 3), (50, 5)] {
-        let markdown = generate_markdown(headings, paragraphs);
-        let filename = format!("doc_{headings}_{paragraphs}.md");
-        fs::write(source_dir.join(&filename), &markdown).unwrap();
-
-        let size = markdown.len();
-        let url_path = format!("/doc_{headings}_{paragraphs}");
-        // Invalidate to pick up new file
-        renderer.invalidate();
-        group.throughput(Throughput::Bytes(size as u64));
-        group.bench_with_input(
-            BenchmarkId::new("markdown", format!("{headings}h_{paragraphs}p")),
-            &url_path,
-            |b, path| b.iter(|| renderer.render(path)),
-        );
-    }
-
-    group.finish();
+/// Render a large (~100KB) document; reports throughput in bytes.
+#[divan::bench]
+fn large_document(bencher: Bencher) {
+    let dir = tempfile::tempdir().unwrap();
+    let source_dir = dir.path().to_path_buf();
+    let markdown = generate_markdown(100, 5);
+    let bytes = markdown.len();
+    fs::write(source_dir.join("large.md"), &markdown).unwrap();
+    bencher
+        .counter(BytesCount::new(bytes))
+        .with_inputs(|| scan_primed(create_site(source_dir.clone())))
+        .bench_values(|site| site.render(black_box("large")));
 }
 
-fn bench_render_cached_vs_uncached(c: &mut Criterion) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let source_dir = temp_dir.path().to_path_buf();
-    let cache_dir = temp_dir.path().join("cache");
+/// Cold render (`NullCache`, cache miss) vs. warm persistent `FileCache` hit for
+/// the same page. `cache_hit` uses a *fresh* site over a pre-primed on-disk cache
+/// so its render is served from `FileCache` (the in-process memo is empty),
+/// measuring the real persistent-cache read rather than a memo hit. The delta
+/// between the two arms is the render work the cache saves.
+#[divan::bench(args = ["cache_miss", "cache_hit"])]
+fn caching(bencher: Bencher, kind: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let source_dir = dir.path().to_path_buf();
     fs::write(source_dir.join("cached.md"), generate_markdown(10, 3)).unwrap();
 
-    // Uncached site
-    let uncached_site = create_site(source_dir.clone());
-
-    // Cached site
-    let cached_config = PageRendererConfig::default();
-    let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(cache_dir, "bench"));
-    let cached_site = create_site_with_config(source_dir, cache, cached_config);
-
-    let mut group = c.benchmark_group("caching");
-
-    group.bench_function("render_uncached", |b| {
-        b.iter(|| uncached_site.render("/cached"));
-    });
-
-    // Prime the cache
-    let _ = cached_site.render("/cached");
-
-    group.bench_function("render_cache_hit", |b| {
-        b.iter(|| cached_site.render("/cached"));
-    });
-
-    group.finish();
-}
-
-fn bench_render_gfm_features(c: &mut Criterion) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let source_dir = temp_dir.path().to_path_buf();
-
-    let markdown = r"# GFM Features
-
-| Column A | Column B | Column C |
-|----------|----------|----------|
-| Value 1  | Value 2  | Value 3  |
-| Value 4  | Value 5  | Value 6  |
-
-- [x] Completed task
-- [ ] Pending task
-- [ ] Another task
-
-This has ~~strikethrough~~ and **bold** and *italic*.
-";
-    fs::write(source_dir.join("gfm.md"), markdown).unwrap();
-
-    let site = create_site(source_dir);
-
-    c.bench_function("render_gfm_features", |b| {
-        b.iter(|| site.render("/gfm"));
-    });
-}
-
-fn bench_render_code_blocks(c: &mut Criterion) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let source_dir = temp_dir.path().to_path_buf();
-
-    let markdown = r#"# Code Examples
-
-## Rust
-
-```rust
-fn main() {
-    println!("Hello, world!");
-    let x = 42;
-    for i in 0..10 {
-        println!("{}", i * x);
+    match kind {
+        "cache_miss" => bencher
+            .with_inputs(|| scan_primed(create_site(source_dir.clone())))
+            .bench_values(|site| site.render(black_box("cached"))),
+        "cache_hit" => {
+            let cache_dir = dir.path().join("cache");
+            let file_cache =
+                || -> Arc<dyn Cache> { Arc::new(FileCache::new(cache_dir.clone(), "bench")) };
+            // Prime the on-disk cache once (untimed).
+            let _ = create_site_with_config(
+                source_dir.clone(),
+                file_cache(),
+                PageRendererConfig::default(),
+            )
+            .render("cached");
+            bencher
+                .with_inputs(|| {
+                    scan_primed(create_site_with_config(
+                        source_dir.clone(),
+                        file_cache(),
+                        PageRendererConfig::default(),
+                    ))
+                })
+                .bench_values(|site| site.render(black_box("cached")));
+        }
+        _ => unreachable!(),
     }
 }
-```
-
-## Python
-
-```python
-def greet(name):
-    return f"Hello, {name}!"
-
-if __name__ == "__main__":
-    print(greet("World"))
-```
-
-## JavaScript
-
-```javascript
-function fibonacci(n) {
-    if (n <= 1) return n;
-    return fibonacci(n - 1) + fibonacci(n - 2);
-}
-
-console.log(fibonacci(10));
-```
-"#;
-    fs::write(source_dir.join("code.md"), markdown).unwrap();
-
-    let site = create_site(source_dir);
-
-    c.bench_function("render_code_blocks", |b| {
-        b.iter(|| site.render("/code"));
-    });
-}
-
-fn bench_render_large_document(c: &mut Criterion) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let source_dir = temp_dir.path().to_path_buf();
-    let markdown = generate_markdown(100, 5); // ~100KB document
-    fs::write(source_dir.join("large.md"), &markdown).unwrap();
-
-    let site = create_site(source_dir);
-
-    let mut group = c.benchmark_group("large_document");
-    group.throughput(Throughput::Bytes(markdown.len() as u64));
-    group.bench_function("render", |b| {
-        b.iter(|| site.render("/large"));
-    });
-    group.finish();
-}
-
-criterion_group!(
-    benches,
-    bench_render_simple,
-    bench_render_with_toc,
-    bench_render_varying_sizes,
-    bench_render_cached_vs_uncached,
-    bench_render_gfm_features,
-    bench_render_code_blocks,
-    bench_render_large_document,
-);
-
-criterion_main!(benches);

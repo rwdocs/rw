@@ -20,4 +20,9 @@ serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 pretty_assertions = { workspace = true }
+
+[[bench]]
+name = "render"
+harness = false

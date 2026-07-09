@@ -1,0 +1,44 @@
+name: CodSpeed
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow running from the Actions tab.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Cancel superseded PR runs, but never cancel a push to main — those runs
+  # establish the performance baseline that PRs are compared against.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  benchmarks:
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Rust toolchain, cache, and cargo-codspeed
+        uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          cache-target: release
+          bins: cargo-codspeed
+
+      - name: Build the benchmark targets
+        run: cargo codspeed build
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@v4
+        with:
+          mode: simulation
+          run: cargo codspeed run
+          # No token needed: this is a public repo, so the action authenticates
+          # via the CodSpeed GitHub App + OIDC (see `permissions: id-token: write`
+          # above). A CODSPEED_TOKEN secret is only required for private repos.
