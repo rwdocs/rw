@@ -4349,7 +4349,9 @@ name = "rw-sections"
 version = "0.1.29"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
