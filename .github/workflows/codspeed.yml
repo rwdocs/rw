@@ -74,8 +74,10 @@ jobs:
           cache-extra-identifier: ${{ runner.arch }}
           bins: cargo-codspeed
 
+      # -m walltime so the artifacts land in target/codspeed/walltime, which is
+      # what the macro job's `cargo codspeed run` (walltime mode) looks for.
       - name: Build the site benchmarks
-        run: cargo codspeed build -p rw-site
+        run: cargo codspeed build -p rw-site -m walltime
 
       # Tar preserves the executable bit that upload-artifact would otherwise drop.
       - name: Package built benches
