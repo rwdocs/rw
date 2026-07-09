@@ -5,7 +5,7 @@
 //! Also defines the public result and configuration types used by
 //! [`Site`](crate::Site).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use rw_renderer::{
     HtmlBackend, MarkdownRenderer, Pipeline, RenderBackend, SearchDocumentBackend, StatusDirective,
     TabsDirective, TocEntry, escape_html,
 };
-use rw_sections::{Section, Sections};
+use rw_sections::{Section, SectionAnchor, Sections};
 
 use crate::site::{SiteSnapshot, SiteTitleResolver};
 use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
@@ -196,6 +196,16 @@ pub struct PageRenderResult {
     /// ordered; empty for pages that reference no sections. Survives the page
     /// cache, so a cache hit reports the same set as a fresh render.
     pub section_refs: BTreeSet<String>,
+    /// Ancestry chains for the sections this page is connected to: its own
+    /// enclosing section, each referenced section ref (from
+    /// [`section_refs`](Self::section_refs)), and each breadcrumb section —
+    /// mapped to that section's chain of [`SectionAnchor`]s. Each chain starts
+    /// with the section itself (empty subpath), then its ancestors nearest-first
+    /// with the root last. Lets a host resolve a page's section context —
+    /// including the page's own section (`section_ancestry[meta.section_ref]`) —
+    /// without extra lookups. Rebuilt from live sections on every render, so it
+    /// is identical for cached and freshly-rendered pages.
+    pub section_ancestry: HashMap<String, Vec<SectionAnchor>>,
 }
 
 /// Plain text representation of a page for search indexing.
@@ -338,6 +348,39 @@ impl PageRenderer {
 
         apply_breadcrumb_sections(&mut result.breadcrumbs, &ctx.sections);
 
+        // Ancestry for the sections this page is connected to: its own
+        // enclosing section, the content and diagram-link refs collected during
+        // render (`section_refs`), and each breadcrumb's section ref (derived
+        // from its resolved `section`). Built here — not in the cache-hit path —
+        // so cached and freshly-rendered pages carry the same map, rebuilt from
+        // live sections every render.
+        //
+        // The page's own section is included (like navigation includes its
+        // scope) so `section_ancestry[meta.section_ref]` resolves even for a
+        // section-root landing page that links to no other section — breadcrumbs
+        // exclude the current page, so its own section arrives via neither
+        // `section_refs` nor the crumbs otherwise.
+        //
+        // `section_refs` are borrowed straight into the iterator; the page's own
+        // ref and the breadcrumb refs need owning. `ancestry_for` collects into a
+        // map, so a ref that appears more than once is deduped for free.
+        let mut owned_refs: Vec<String> = Vec::new();
+        if let Some(section_path) = ctx.sections.find(path) {
+            owned_refs.push(section_path.section.to_string());
+        }
+        owned_refs.extend(
+            result
+                .breadcrumbs
+                .iter()
+                .filter_map(|crumb| crumb.section.as_ref().map(Section::to_string)),
+        );
+        let refs = result
+            .section_refs
+            .iter()
+            .map(String::as_str)
+            .chain(owned_refs.iter().map(String::as_str));
+        result.section_ancestry = ctx.sections.ancestry_for(refs);
+
         Ok(result)
     }
 
@@ -377,6 +420,8 @@ impl PageRenderer {
                 breadcrumbs,
                 metadata,
                 section_refs: cached.section_refs,
+                // Overwritten in `render()` after breadcrumb sections resolve.
+                section_ancestry: HashMap::new(),
             });
         }
 
@@ -415,6 +460,8 @@ impl PageRenderer {
             breadcrumbs,
             metadata,
             section_refs: result.section_refs,
+            // Overwritten in `render()` after breadcrumb sections resolve.
+            section_ancestry: HashMap::new(),
         })
     }
 
@@ -438,6 +485,8 @@ impl PageRenderer {
             breadcrumbs,
             metadata,
             section_refs: BTreeSet::new(),
+            // Overwritten in `render()` after breadcrumb sections resolve.
+            section_ancestry: HashMap::new(),
         }
     }
 

@@ -44,6 +44,30 @@ would require an author-supplied front-matter `id` (or an engine-assigned durabl
 slug). That is intentionally out of scope today; `(sectionRef, subpath)` is the
 cheap, high-value first step that covers the common case.
 
+## Resolve section ancestry with `sectionAncestry`
+
+Both the page response (`renderPage` / the page HTTP API) and the navigation
+response (`getNavigation` / the navigation HTTP API) include a `sectionAncestry`
+map, so a host can resolve a page's or view's full section context from a single
+response instead of walking sections with follow-up calls.
+
+- **Keys** are section refs (`kind:namespace/name`).
+- **Values** are ancestry chains — arrays of `{ sectionRef, subpath }` anchors.
+  Each chain **starts with the section itself** (empty `subpath`), then its
+  ancestors nearest-first with the root section last.
+
+A page's map covers the page's own section, every section it links to, and its
+breadcrumb sections; a navigation view's map covers its items, scope, and parent
+scope. Look up a page's own section by its `sectionRef`:
+
+```js
+// The ancestry chain of the page's own section, root last.
+const chain = page.sectionAncestry[page.meta.sectionRef];
+```
+
+Over the HTTP API the field is **omitted when empty**; `@rwdocs/core` always
+returns the map (empty `{}` when there is nothing to resolve).
+
 ## Sanitize the comment HTML you supply
 
 If your host stores its own comments and supplies them through

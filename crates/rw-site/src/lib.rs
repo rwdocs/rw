@@ -106,6 +106,10 @@ pub use page::{BreadcrumbItem, PageRenderResult, PageRendererConfig, RenderError
 /// `"domain:default/billing"`.
 pub use rw_sections::Section;
 
+/// A single link in a section's ancestry chain: a section ref string paired
+/// with the subpath of that section's root. See [`rw_sections::SectionAnchor`].
+pub use rw_sections::SectionAnchor;
+
 /// A validated section namespace — see [`rw_sections::Namespace`].
 pub use rw_sections::Namespace;
 
