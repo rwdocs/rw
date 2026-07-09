@@ -1,15 +1,21 @@
-//! Benchmarks for the markdown -> HTML render hot path.
+//! Benchmark for the markdown -> HTML render hot path.
 //!
 //! This is `rw`'s central per-request cost: the engine renders pages on demand,
 //! so `MarkdownRenderer::render` runs once for every page view.
 //!
-//! Fixtures live in `benches/fixtures/` and are dedicated, frozen bench inputs —
-//! deliberately NOT the project's live `docs/`, so a documentation edit can't
-//! shift the benchmark baseline (a gate must move only when the *code* changes).
-//! Together they cover the render feature surface: `article` (frontmatter,
-//! headings, prose, lists, links, blockquotes), `reference` (tables, multi-language
-//! code fences, images, nested lists), and `gfm` (GitHub alerts, task lists,
-//! strikethrough).
+//! One coarse gate on the whole render, deliberately — not a per-construct
+//! matrix. Splitting by markdown construct (tables, code, alerts, …) would
+//! mostly bench pulldown-cmark's parsing surface, not rw's own logic. What is
+//! rw's own is exercised here: syntax highlighting, heading anchors + ToC, and
+//! the directive processor. The pipeline mirrors the production HTML serving
+//! path (`rw_site`'s page renderer): a `DirectiveProcessor` with the `:::tab`
+//! container and inline `:status` badge registered. (The production path also
+//! adds a Kroki diagram processor, omitted here since it needs the network.)
+//! When a specific rw path is identified as hot or gets optimized, add a
+//! targeted bench for it then, rather than partitioning speculatively now.
+//!
+//! The fixture is a frozen, realistic doc page (`benches/fixtures/page.md`) — not
+//! the project's live `docs/`, so a documentation edit can't shift the baseline.
 //!
 //! Local:      cargo bench -p rw-renderer --bench render
 //! Under CI:   cargo codspeed run   (the `divan` dep is the CodSpeed compat shim,
@@ -18,46 +24,38 @@
 #![allow(clippy::doc_markdown)] // Product names (CodSpeed) and GitHub-flavored terms
 
 use divan::{Bencher, black_box};
-use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+use rw_renderer::directive::DirectiveProcessor;
+use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline, StatusDirective, TabsDirective};
 
 fn main() {
     divan::main();
 }
 
-// Report heap traffic (allocations + bytes) alongside timing for every bench.
-// Under CodSpeed instrumentation this is harmless; locally it's how you spot a
-// change that allocates more even when wall time stays flat.
+// Report heap traffic (allocations + bytes) alongside timing. Under CodSpeed
+// instrumentation this is harmless; locally it's how you spot a change that
+// allocates more even when wall time stays flat.
 #[global_allocator]
 static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
 
-/// Dedicated, frozen bench fixtures (see module docs) — the single source of
-/// both the `args` labels and the markdown looked up by [`markdown_for`].
-const FIXTURES: &[(&str, &str)] = &[
-    ("article", include_str!("fixtures/article.md")),
-    ("reference", include_str!("fixtures/reference.md")),
-    ("gfm", include_str!("fixtures/gfm.md")),
-];
+/// A frozen, realistic doc page (see module docs) — the render input.
+const PAGE: &str = include_str!("fixtures/page.md");
 
-fn markdown_for(name: &str) -> &'static str {
-    FIXTURES
-        .iter()
-        .find(|(fixture, _)| *fixture == name)
-        .expect("known fixture name")
-        .1
+/// The directive processor the production HTML path installs (`rw_site`
+/// `create_directives_pipeline`): `:::tab` container + inline `:status` badge.
+/// Built fresh per render, as production does — the render consumes the pipeline.
+fn pipeline() -> Pipeline {
+    let directives = DirectiveProcessor::new()
+        .with_container(TabsDirective::new())
+        .with_inline(StatusDirective::new());
+    Pipeline::new().with_directives(directives)
 }
 
-/// Build a renderer configured like the real serving path: title extraction is
-/// on in production (`PageRendererConfig::extract_title` defaults true).
-fn renderer() -> MarkdownRenderer<HtmlBackend> {
-    MarkdownRenderer::<HtmlBackend>::new().with_title_extraction()
-}
-
-/// Render each fixture, one bench row per fixture. The renderer is built once
-/// (outside the timed loop, matching the server which reuses one), and only
-/// `.render` is measured; a fresh `Pipeline` is required per call.
-#[divan::bench(args = FIXTURES.iter().map(|&(name, _)| name))]
-fn page(bencher: Bencher, name: &str) {
-    let renderer = renderer();
-    let markdown = markdown_for(name);
-    bencher.bench(|| renderer.render(black_box(markdown), Pipeline::new()));
+/// Render the fixture through the full pipeline. The renderer is built once
+/// (outside the timed loop, matching the server which reuses one) and configured
+/// like the real serving path (title extraction is on in production); only
+/// `.render` is measured.
+#[divan::bench]
+fn render(bencher: Bencher) {
+    let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
+    bencher.bench(|| renderer.render(black_box(PAGE), pipeline()));
 }
