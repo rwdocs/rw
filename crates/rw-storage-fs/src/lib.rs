@@ -42,7 +42,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use rayon::prelude::*;
 use rw_meta::Meta;
 use rw_sections::Namespace;
-use rw_vcs::Vcs;
+use rw_vcs::{Vcs, fs_mtime};
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 use inheritance::{build_ancestor_chain, merge_metadata};
@@ -114,8 +114,34 @@ pub struct FsStorage {
     meta_filename: String,
     /// Path to README.md used as homepage fallback (parent of `source_dir`).
     readme_path: Option<PathBuf>,
-    /// Git-aware file metadata resolver.
-    vcs: Vcs,
+    /// How this storage computes modification times (filesystem or git).
+    mtime: MtimeStrategy,
+}
+
+/// Selects how [`FsStorage`] computes a page's modification time.
+///
+/// The default is [`Filesystem`](MtimeSource::Filesystem): a plain `stat`, with
+/// no git involvement (not even repository discovery). Choose
+/// [`Git`](MtimeSource::Git) — via [`FsStorage::with_mtime_source`] — for stable,
+/// history-derived times (e.g. when publishing), at the cost of a per-call git
+/// query (index load, file hash, history walk).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MtimeSource {
+    /// Filesystem `stat` mtime (fast, reflects on-disk edits). Default.
+    #[default]
+    Filesystem,
+    /// Git commit author-time for clean tracked files, filesystem mtime
+    /// otherwise (via [`rw_vcs::Vcs`]).
+    Git,
+}
+
+/// Internal per-storage mtime strategy. Carries the [`Vcs`] only in `Git`, so
+/// `Filesystem` mode holds no git state. The `Vcs` is boxed to keep the enum
+/// (and thus every `Filesystem`-mode `FsStorage`) pointer-sized rather than
+/// reserving the ~700-byte repository handle inline.
+enum MtimeStrategy {
+    Filesystem,
+    Git(Box<Vcs>),
 }
 
 /// Default metadata filename.
@@ -126,6 +152,9 @@ impl FsStorage {
     ///
     /// Watches `**/*.md`, `meta.yaml`, and `*.meta.yaml` (named sidecar / index
     /// form) files for changes.
+    ///
+    /// Modification times default to [`MtimeSource::Filesystem`]; call
+    /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
     ///
     /// # Arguments
     ///
@@ -143,6 +172,9 @@ impl FsStorage {
     ///
     /// * `source_dir` - Root directory containing markdown files
     /// * `meta_filename` - Name of metadata files (e.g., "meta.yaml")
+    ///
+    /// Modification times default to [`MtimeSource::Filesystem`]; call
+    /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
     #[must_use]
     pub fn with_meta_filename(source_dir: PathBuf, meta_filename: &str) -> Self {
         let watch_patterns = vec![
@@ -156,8 +188,6 @@ impl FsStorage {
         // Auto-detect README.md in parent directory as homepage fallback
         let readme_path = source_dir.parent().map(|p| p.join("README.md"));
 
-        let vcs = Vcs::new(&source_dir);
-
         Self {
             source_dir,
             scanner,
@@ -165,8 +195,23 @@ impl FsStorage {
             watch_patterns,
             meta_filename: meta_filename.to_owned(),
             readme_path,
-            vcs,
+            mtime: MtimeStrategy::Filesystem,
         }
+    }
+
+    /// Selects the modification-time source (default
+    /// [`Filesystem`](MtimeSource::Filesystem)).
+    ///
+    /// [`Git`](MtimeSource::Git) discovers the repository from `source_dir` and
+    /// uses commit times; [`Filesystem`](MtimeSource::Filesystem) does a plain
+    /// `stat` and touches no git state.
+    #[must_use]
+    pub fn with_mtime_source(mut self, source: MtimeSource) -> Self {
+        self.mtime = match source {
+            MtimeSource::Filesystem => MtimeStrategy::Filesystem,
+            MtimeSource::Git => MtimeStrategy::Git(Box::new(Vcs::new(&self.source_dir))),
+        };
+        self
     }
 
     /// Validate that a URL path doesn't contain path traversal attempts.
@@ -718,7 +763,14 @@ impl Storage for FsStorage {
             .filter_map(|p| p.as_deref())
             .collect();
 
-        Ok(self.vcs.mtime(&paths))
+        let mtime = match &self.mtime {
+            MtimeStrategy::Filesystem => paths
+                .iter()
+                .filter_map(|p| fs_mtime(p))
+                .fold(0.0_f64, f64::max),
+            MtimeStrategy::Git(vcs) => vcs.mtime(&paths),
+        };
+        Ok(mtime)
     }
 
     fn watch(&self) -> Result<(StorageEventReceiver, WatchHandle), StorageError> {
@@ -1657,8 +1709,70 @@ mod tests {
         assert!(resolved.is_none());
     }
 
+    /// Create a git repo with one file committed at an explicit old date
+    /// (2020-01-01), signing disabled. Returns the tempdir.
+    fn git_repo_with_old_commit(rel_file: &str, contents: &str) -> tempfile::TempDir {
+        use std::process::Command;
+        let dir = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap();
+        };
+        // Branch "test", not "main": a global hook here blocks commits to main.
+        run(&["init", "-b", "test"]);
+        run(&["config", "user.email", "t@t.com"]);
+        run(&["config", "user.name", "T"]);
+        run(&["config", "commit.gpgsign", "false"]);
+        let file = dir.path().join(rel_file);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, contents).unwrap();
+        run(&["add", "."]);
+        Command::new("git")
+            .args(["commit", "-m", "old"])
+            .env("GIT_AUTHOR_DATE", "2020-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        dir
+    }
+
+    #[test]
+    fn git_mode_returns_commit_time_filesystem_mode_returns_fs_time() {
+        // Keep the file at the repo root (like the rw-vcs Vcs tests) and use the
+        // repo path directly as source_dir, so gix's workdir and the resolved
+        // file path share the same form on every platform. A docs/ subdir plus
+        // fs::canonicalize tripped repo_relative_path's strip_prefix — the macOS
+        // /var -> /private/var symlink one way, the Windows \\?\ verbatim prefix
+        // the other — making git mode fall back to fs and defeating the test.
+        let dir = git_repo_with_old_commit("guide.md", "# Guide");
+        let source_dir = dir.path().to_path_buf();
+
+        // Git mode: the 2020 commit time (well before 1_600_000_000 = 2020-09).
+        let git = FsStorage::new(source_dir.clone()).with_mtime_source(MtimeSource::Git);
+        let git_mtime = git.mtime("guide").unwrap();
+        assert!(
+            git_mtime < 1_600_000_000.0,
+            "git mtime {git_mtime} should be the 2020 commit time"
+        );
+
+        // Filesystem mode (the default): the file's on-disk mtime = ~now.
+        let fs = FsStorage::new(source_dir);
+        let fs_mtime = fs.mtime("guide").unwrap();
+        assert!(
+            fs_mtime > 1_600_000_000.0,
+            "fs mtime {fs_mtime} should be ~now, not the commit time"
+        );
+    }
+
     #[test]
     fn test_mtime_returns_modification_time() {
+        // `create_test_dir` is a bare (non-git) tempdir and `FsStorage::new`
+        // defaults to `MtimeSource::Filesystem`, so this also covers the
+        // filesystem default working with no git repo present.
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
 

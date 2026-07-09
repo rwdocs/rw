@@ -17,6 +17,14 @@ pub struct SiteConfig {
     pub project_dir: Option<String>,
     pub s3: Option<S3Config>,
     pub diagrams: Option<DiagramsConfig>,
+    /// Modification-time source for a `projectDir` (filesystem) site:
+    /// `"filesystem"` (default — a fast `stat`, reflecting on-disk edits) or
+    /// `"git"` (commit times, matching S3-served pages, at the cost of a
+    /// per-page git query). Ignored for `s3` sites (their mtimes come from the
+    /// published manifest). For a `projectDir` site, an unrecognized value is
+    /// rejected.
+    #[napi(js_name = "mtimeSource")]
+    pub mtime_source: Option<String>,
 }
 
 #[napi(object)]
