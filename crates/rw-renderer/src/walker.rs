@@ -20,6 +20,7 @@
 //! of [`Walker::end_tag`]. Don't "simplify" either pattern without reading
 //! the comments first; both will fail to compile if hoisted.
 
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 
 use pulldown_cmark::{CodeBlockKind, Event, LinkType, Tag, TagEnd};
@@ -75,6 +76,8 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     block_depth: usize,
     /// Cached `max_include_depth` from the directive processor (or 10).
     block_depth_limit: usize,
+    /// Canonical section refs referenced by prose links in this document.
+    section_refs: BTreeSet<String>,
     _backend: PhantomData<B>,
 }
 
@@ -111,6 +114,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             paragraph: ParagraphState::None,
             block_depth: 0,
             block_depth_limit,
+            section_refs: BTreeSet::new(),
             _backend: PhantomData,
         }
     }
@@ -156,12 +160,17 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             .cloned()
             .collect();
         let has_transient_error = self.processors.iter().any(|p| p.has_transient_error());
+        let mut section_refs = std::mem::take(&mut self.section_refs);
+        for processor in self.processors.iter() {
+            section_refs.extend(processor.section_refs().iter().cloned());
+        }
         RenderResult {
             html,
             title: self.heading.take_title(),
             toc: self.heading.take_toc(),
             warnings,
             has_transient_error,
+            section_refs,
         }
     }
 
@@ -538,6 +547,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         subpath,
                         ..
                     } => {
+                        if !section_ref.is_empty() {
+                            self.section_refs.insert(section_ref.clone());
+                        }
                         let section_attrs = (!section_ref.is_empty())
                             .then_some((section_ref.as_str(), subpath.as_str()));
                         self.with_markup_buffer(|out| B::link_start(href, section_attrs, out));
@@ -561,6 +573,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 let base = link::link_base(self.cfg);
                 let href = B::transform_link(&dest_url, base);
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
+                if let Some((r, _)) = &section_ref {
+                    self.section_refs.insert(r.clone());
+                }
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
             }

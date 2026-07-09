@@ -3,7 +3,7 @@
 //! This module provides [`DiagramProcessor`], which implements the
 //! [`CodeBlockProcessor`] trait for extracting diagram code blocks during rendering.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -92,6 +92,10 @@ pub struct DiagramProcessor {
     /// during `post_process`. Consumed via
     /// [`has_transient_error`](CodeBlockProcessor::has_transient_error).
     has_transient_error: bool,
+    /// Canonical section refs referenced by diagram `$link`s during
+    /// `post_process`. Consumed via
+    /// [`section_refs`](CodeBlockProcessor::section_refs).
+    section_refs: BTreeSet<String>,
 }
 
 impl DiagramProcessor {
@@ -124,6 +128,7 @@ impl DiagramProcessor {
             extracted: Vec::new(),
             warnings: Vec::new(),
             has_transient_error: false,
+            section_refs: BTreeSet::new(),
         }
     }
 
@@ -242,10 +247,11 @@ impl DiagramProcessor {
         self
     }
 
-    /// Annotate SVG links if sections are configured.
-    fn annotate_links(config: &ProcessorConfig, svg: &str) -> String {
+    /// Annotate SVG links if sections are configured, recording each resolved
+    /// ref in `refs`.
+    fn annotate_links(config: &ProcessorConfig, svg: &str, refs: &mut BTreeSet<String>) -> String {
         match &config.sections {
-            Some(sections) => annotate_svg_links(svg, sections),
+            Some(sections) => annotate_svg_links(svg, sections, refs),
             None => svg.to_owned(),
         }
     }
@@ -324,9 +330,10 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 
     fn post_process(&mut self, html: &mut String) {
-        // Reset up front so `post_process` fully determines the flag from this
+        // Reset up front so `post_process` fully determines these from this
         // render alone, rather than relying on the instance never being reused.
         self.has_transient_error = false;
+        self.section_refs.clear();
 
         let diagrams = to_extracted_diagrams(&self.extracted);
         if diagrams.is_empty() {
@@ -334,9 +341,13 @@ impl CodeBlockProcessor for DiagramProcessor {
         }
 
         self.has_transient_error = match &self.config.output {
-            DiagramOutput::Inline => {
-                Self::post_process_inline(&self.config, &mut self.warnings, html, &diagrams)
-            }
+            DiagramOutput::Inline => Self::post_process_inline(
+                &self.config,
+                &mut self.warnings,
+                &mut self.section_refs,
+                html,
+                &diagrams,
+            ),
             DiagramOutput::Files {
                 output_dir,
                 tag_generator,
@@ -361,6 +372,10 @@ impl CodeBlockProcessor for DiagramProcessor {
 
     fn has_transient_error(&self) -> bool {
         self.has_transient_error
+    }
+
+    fn section_refs(&self) -> &BTreeSet<String> {
+        &self.section_refs
     }
 
     fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
@@ -411,10 +426,12 @@ impl CacheInfo {
 impl DiagramProcessor {
     /// Post-process with inline output mode.
     ///
-    /// Checks cache first, renders only cache misses via Kroki.
+    /// Checks cache first, renders only cache misses via Kroki, and collects
+    /// the section refs resolved from diagram links into `refs`.
     fn post_process_inline(
         config: &ProcessorConfig,
         warnings: &mut Vec<String>,
+        refs: &mut BTreeSet<String>,
         html: &mut String,
         diagrams: &[ExtractedDiagram],
     ) -> bool {
@@ -487,7 +504,7 @@ impl DiagramProcessor {
                 let id_attr = replacements.id_attr(diagram.index);
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
-                        let annotated = Self::annotate_links(config, &cached_content);
+                        let annotated = Self::annotate_links(config, &cached_content, refs);
                         format!(r#"<figure class="diagram"{id_attr}>{annotated}</figure>"#)
                     }
                     DiagramFormat::Png => {
@@ -515,7 +532,8 @@ impl DiagramProcessor {
         }
 
         // Render cache misses and collect replacements
-        let svg_transient = Self::render_and_cache_svg(config, &mut replacements, svg_to_render);
+        let svg_transient =
+            Self::render_and_cache_svg(config, &mut replacements, refs, svg_to_render);
         let png_transient = Self::render_and_cache_png(config, &mut replacements, png_to_render);
 
         // Apply all replacements in a single pass
@@ -524,10 +542,12 @@ impl DiagramProcessor {
         svg_transient || png_transient
     }
 
-    /// Render SVG diagrams, cache results, and collect replacements.
+    /// Render SVG diagrams, cache results, collect replacements, and record
+    /// section refs resolved from each diagram's links into `refs`.
     fn render_and_cache_svg(
         config: &ProcessorConfig,
         replacements: &mut Replacements,
+        refs: &mut BTreeSet<String>,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
     ) -> bool {
         if to_render.is_empty() {
@@ -546,7 +566,7 @@ impl DiagramProcessor {
                 config.cache.set_string(&hash, "", &scaled_svg);
             }
 
-            let annotated = Self::annotate_links(config, &scaled_svg);
+            let annotated = Self::annotate_links(config, &scaled_svg, refs);
             let id_attr = replacements.id_attr(r.index);
             let figure = format!(r#"<figure class="diagram"{id_attr}>{annotated}</figure>"#);
             replacements.add(r.index, figure);
@@ -930,6 +950,142 @@ mod tests {
         let result = MarkdownRenderer::<HtmlBackend>::new()
             .render(markdown, Pipeline::new().with_processor(processor));
         result.html
+    }
+
+    #[test]
+    fn collects_referenced_section_refs_from_diagram_links() {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+        use rw_sections::{Namespace, Section, Sections};
+        use std::collections::{BTreeSet, HashMap};
+
+        struct AlwaysHit(Vec<u8>);
+        impl CacheBucket for AlwaysHit {
+            fn get(&self, _key: &str, _etag: &str) -> Option<Vec<u8>> {
+                Some(self.0.clone())
+            }
+            fn set(&self, _key: &str, _etag: &str, _value: &[u8]) {}
+        }
+
+        let sections = Arc::new(Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                namespace: Namespace::default(),
+                name: "billing".to_owned(),
+            },
+        )])));
+
+        // The cached SVG carries an internal link into the billing section, so
+        // annotation resolves it and the processor must report the ref.
+        let cached_svg = r#"<svg id="real"><a href="/domains/billing/api">API</a></svg>"#;
+        let processor = DiagramProcessor::new("http://127.0.0.1:1")
+            .with_cache(Box::new(AlwaysHit(cached_svg.as_bytes().to_vec())))
+            .with_sections(sections);
+
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "```mermaid\nA-->B\n```\n",
+            Pipeline::new().with_processor(processor),
+        );
+
+        // The input registers exactly one section and one diagram link, so the
+        // set is fully determined — an exact match also catches a stale ref
+        // leaking in if the accumulator were not cleared per render.
+        assert_eq!(
+            result.section_refs,
+            BTreeSet::from(["domain:default/billing".to_owned()])
+        );
+    }
+
+    #[test]
+    fn referenced_section_refs_union_prose_and_diagram() {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+        use rw_sections::{Namespace, Section, Sections};
+        use std::collections::{BTreeSet, HashMap};
+
+        struct AlwaysHit(Vec<u8>);
+        impl CacheBucket for AlwaysHit {
+            fn get(&self, _key: &str, _etag: &str) -> Option<Vec<u8>> {
+                Some(self.0.clone())
+            }
+            fn set(&self, _key: &str, _etag: &str, _value: &[u8]) {}
+        }
+
+        let sections = Arc::new(Sections::new(HashMap::from([
+            (
+                "domains/billing".to_owned(),
+                Section {
+                    kind: "domain".to_owned(),
+                    namespace: Namespace::default(),
+                    name: "billing".to_owned(),
+                },
+            ),
+            (
+                "systems/pay".to_owned(),
+                Section {
+                    kind: "system".to_owned(),
+                    namespace: Namespace::default(),
+                    name: "pay".to_owned(),
+                },
+            ),
+        ])));
+
+        // Prose link resolves to system:default/pay; the diagram's $link
+        // resolves to domain:default/billing. Walker::finish must union both.
+        let cached_svg = r#"<svg id="real"><a href="/domains/billing/api">API</a></svg>"#;
+        let processor = DiagramProcessor::new("http://127.0.0.1:1")
+            .with_cache(Box::new(AlwaysHit(cached_svg.as_bytes().to_vec())))
+            .with_sections(Arc::clone(&sections));
+
+        let md = "[pay](/systems/pay)\n\n```mermaid\nA-->B\n```\n";
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .with_sections(sections)
+            .render(md, Pipeline::new().with_processor(processor));
+
+        assert_eq!(
+            result.section_refs,
+            BTreeSet::from([
+                "domain:default/billing".to_owned(),
+                "system:default/pay".to_owned(),
+            ])
+        );
+    }
+
+    #[test]
+    fn png_diagrams_collect_no_section_refs() {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+        use rw_sections::{Namespace, Section, Sections};
+        use std::collections::HashMap;
+
+        struct AlwaysHit(Vec<u8>);
+        impl CacheBucket for AlwaysHit {
+            fn get(&self, _key: &str, _etag: &str) -> Option<Vec<u8>> {
+                Some(self.0.clone())
+            }
+            fn set(&self, _key: &str, _etag: &str, _value: &[u8]) {}
+        }
+
+        let sections = Arc::new(Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                namespace: Namespace::default(),
+                name: "billing".to_owned(),
+            },
+        )])));
+
+        // PNG diagrams render to an <img>, never an SVG with <a> links, so the
+        // PNG path never calls annotate_svg_links — no refs are collected even
+        // with a section registered.
+        let processor = DiagramProcessor::new("http://127.0.0.1:1")
+            .with_cache(Box::new(AlwaysHit(b"data:image/png;base64,ABC".to_vec())))
+            .with_sections(sections);
+
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "```mermaid {format=png}\nA-->B\n```\n",
+            Pipeline::new().with_processor(processor),
+        );
+
+        assert!(result.section_refs.is_empty());
     }
 
     #[test]
