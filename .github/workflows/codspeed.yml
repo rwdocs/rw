@@ -100,13 +100,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Toolchain + cargo-codspeed only — no build happens here (cache disabled).
-      - name: Set up Rust toolchain and cargo-codspeed
-        uses: moonrepo/setup-rust@v1
+      # No toolchain setup: the macro runner ships Rust, and this job only *runs*
+      # the prebuilt benches — so it needs cargo-codspeed and nothing else. This
+      # is what uv/ruff do, and it keeps ~40s of the toolchain reinstall off the
+      # metered runner.
+      - name: Install cargo-codspeed
+        uses: taiki-e/install-action@v2
         with:
-          channel: stable
-          cache: false
-          bins: cargo-codspeed
+          tool: cargo-codspeed
 
       - name: Download built benches
         uses: actions/download-artifact@v4
