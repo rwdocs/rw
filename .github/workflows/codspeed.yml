@@ -1,11 +1,23 @@
 name: CodSpeed
 
 on:
+  # Always run on main so every commit re-establishes the comparison baseline.
   push:
     branches: [main]
+  # On PRs, only run when something that could actually move the benchmarks
+  # changes — Rust source, Cargo deps, the bench fixtures, or this workflow.
+  # Docs-only, frontend-only, and CI-only PRs (from anyone, including Renovate's
+  # frontend/npm bumps) don't trigger the metered macro run. A Rust dependency
+  # bump touches Cargo.lock and still runs — which is exactly when you want it.
   pull_request:
     branches: [main]
-  # Allow running from the Actions tab.
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "crates/rw-renderer/benches/fixtures/**"
+      - ".github/workflows/codspeed.yml"
+  # Allow running from the Actions tab (e.g. to force a run on a skipped PR).
   workflow_dispatch:
 
 concurrency:
