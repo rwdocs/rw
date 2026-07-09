@@ -174,8 +174,13 @@ impl Vcs {
     }
 }
 
-/// Read filesystem mtime for a file.
-fn fs_mtime(path: &Path) -> Option<f64> {
+/// Read a file's filesystem modification time as seconds since the Unix epoch.
+///
+/// Returns `None` if the file cannot be stat'd. This is the raw filesystem
+/// signal, independent of git — used directly by `FsStorage` in filesystem
+/// mtime mode, and as the fallback inside [`Vcs::mtime`] for dirty/untracked
+/// files.
+pub fn fs_mtime(path: &Path) -> Option<f64> {
     let metadata = fs::metadata(path).ok()?;
     let modified = metadata.modified().ok()?;
     Some(

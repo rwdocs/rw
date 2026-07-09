@@ -6,7 +6,7 @@ use std::sync::Arc;
 use clap::Args;
 use rw_config::{CliSettings, Config};
 use rw_storage::Storage;
-use rw_storage_fs::FsStorage;
+use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{BundlePublisher, PublishReport};
 
 use crate::commands::S3Args;
@@ -53,10 +53,17 @@ impl PublishArgs {
             self.s3.bucket, self.s3.entity
         ));
 
-        let storage: Arc<dyn Storage> = Arc::new(FsStorage::with_meta_filename(
-            config.docs_resolved.source_dir.clone(),
-            &config.metadata.name,
-        ));
+        // Publish bakes git-commit times into the S3 manifest, so they stay
+        // stable across CI checkouts (fs mtime would be the meaningless
+        // checkout time). FsStorage defaults to filesystem mtime, so git is
+        // selected explicitly here.
+        let storage: Arc<dyn Storage> = Arc::new(
+            FsStorage::with_meta_filename(
+                config.docs_resolved.source_dir.clone(),
+                &config.metadata.name,
+            )
+            .with_mtime_source(MtimeSource::Git),
+        );
 
         let include_dirs = config.diagrams_resolved.include_dirs;
         let publisher = BundlePublisher::new(self.s3.into_config());

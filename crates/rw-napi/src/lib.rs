@@ -14,7 +14,7 @@ use rw_cache_s3::S3Cache;
 use rw_config::Config;
 use rw_site::{NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site};
 use rw_storage::Storage;
-use rw_storage_fs::FsStorage;
+use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
 
 use crate::types::{
@@ -173,10 +173,23 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
         let rw_config = Config::load(config_file, None)
             .map_err(|e| napi::Error::from_reason(format!("Failed to load rw.toml: {e}")))?;
 
-        let storage = Arc::new(FsStorage::with_meta_filename(
-            rw_config.docs_resolved.source_dir.clone(),
-            &rw_config.metadata.name,
-        ));
+        let mtime_source = match config.mtime_source.as_deref() {
+            None | Some("filesystem") => MtimeSource::Filesystem,
+            Some("git") => MtimeSource::Git,
+            Some(other) => {
+                return Err(napi::Error::new(
+                    napi::Status::InvalidArg,
+                    format!("invalid mtimeSource {other:?} (expected \"filesystem\" or \"git\")"),
+                ));
+            }
+        };
+        let storage = Arc::new(
+            FsStorage::with_meta_filename(
+                rw_config.docs_resolved.source_dir.clone(),
+                &rw_config.metadata.name,
+            )
+            .with_mtime_source(mtime_source),
+        );
         let mut renderer_config = PageRendererConfig {
             extract_title: true,
             kroki_url: rw_config.diagrams_resolved.kroki_url,

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `@rwdocs/core` `createSite({ projectDir })` accepts `mtimeSource: "filesystem"
+  | "git"` (default `"filesystem"`). `"git"` reports commit-based times (matching
+  S3-served pages) at the cost of a per-page git query; `"filesystem"` uses a
+  fast `stat`. S3 sites are unaffected (their times come from the published
+  manifest).
 - `@rwdocs/core`'s `renderPage` and `getNavigation` — and the corresponding
   `rw serve` page and navigation HTTP responses — now include a
   `sectionAncestry` map: each section the page or navigation view is connected
@@ -35,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the breadcrumb `section` object in favor of flat `sectionRef`/`subpath`
   fields; only callers that read the old breadcrumb `section` shape directly
   need to update. (The additive `sectionAncestry` map is described under Added.)
+- `rw serve` now reports page `lastModified` from the filesystem (when the file
+  was last saved) instead of the git commit time, removing a per-request git
+  history walk from serving. Published bundles (`rw backstage publish`) and
+  S3-served pages keep stable git-commit times. This only affects the value of
+  `lastModified` in the `rw serve` HTTP page API; the viewer does not display it.
 - The `rw serve` page response `ETag` now covers the whole response, not just
   the rendered HTML, so a page revalidates when its section identity or
   ancestry changes even if its HTML is byte-for-byte unchanged. Conditional
