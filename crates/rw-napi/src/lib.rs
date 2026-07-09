@@ -1,5 +1,6 @@
 mod types;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, UNIX_EPOCH};
@@ -11,15 +12,15 @@ use napi_derive::napi;
 use rw_cache::{Cache, NullCache};
 use rw_cache_s3::S3Cache;
 use rw_config::Config;
-use rw_site::{NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionEntry, Site};
+use rw_site::{NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site};
 use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
 use rw_storage_s3::{S3Config, S3Storage};
 
 use crate::types::{
     BreadcrumbResponse, DiagramsConfig, NavItemResponse, NavigationResponse, PageEntryResponse,
-    PageMetaResponse, PageResponse, ScopeInfoResponse, SearchDocumentResponse, SectionEntryResponse,
-    SectionResponse, SiteConfig, TocEntryResponse,
+    PageMetaResponse, PageResponse, ScopeInfoResponse, SearchDocumentResponse, SectionAnchorResponse,
+    SectionEntryResponse, SectionResponse, SiteConfig, TocEntryResponse,
 };
 
 /// Shared tokio runtime for all S3-backed storage instances.
@@ -90,6 +91,21 @@ fn convert_scope_info(info: ScopeInfo) -> ScopeInfoResponse {
         title: info.title,
         section: info.section.into(),
     }
+}
+
+/// Convert a section-ancestry map from the site layer into its napi form,
+/// mapping each [`SectionAnchor`] to a [`SectionAnchorResponse`].
+fn convert_section_ancestry(
+    map: HashMap<String, Vec<SectionAnchor>>,
+) -> HashMap<String, Vec<SectionAnchorResponse>> {
+    map.into_iter()
+        .map(|(section_ref, anchors)| {
+            (
+                section_ref,
+                anchors.into_iter().map(SectionAnchorResponse::from).collect(),
+            )
+        })
+        .collect()
 }
 
 #[napi]
@@ -198,6 +214,7 @@ impl RwSite {
                 items: nav.items.into_iter().map(convert_nav_item).collect(),
                 scope: nav.scope.map(convert_scope_info),
                 parent_scope: nav.parent_scope.map(convert_scope_info),
+                section_ancestry: convert_section_ancestry(nav.section_ancestry),
             })
         })
         .await
@@ -362,6 +379,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
             })
             .collect(),
         content: result.html,
+        section_ancestry: convert_section_ancestry(result.section_ancestry),
     })
 }
 

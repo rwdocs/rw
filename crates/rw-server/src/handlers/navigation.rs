@@ -2,11 +2,12 @@
 //!
 //! Returns the navigation tree for the documentation site.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Query, State};
-use rw_site::{NavItem, ScopeInfo, Section};
+use rw_site::{NavItem, ScopeInfo, Section, SectionAnchor};
 use serde::{Deserialize, Serialize};
 
 use crate::error::HandlerError;
@@ -33,6 +34,13 @@ pub(crate) struct NavigationResponse {
     /// Parent scope for back navigation (null only at root).
     #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
     parent_scope: Option<ScopeInfoResponse>,
+    /// Ancestry chains for the sections reachable from this navigation view,
+    /// keyed by section ref; each chain starts with the section itself (empty
+    /// subpath), then its ancestors, root last. Omitted when empty. No `ETag`
+    /// covers this handler, so a plain `HashMap` (no key-order stability
+    /// requirement) is fine.
+    #[serde(rename = "sectionAncestry", skip_serializing_if = "HashMap::is_empty")]
+    section_ancestry: HashMap<String, Vec<SectionAnchor>>,
 }
 
 /// Scope info for JSON response.
@@ -101,6 +109,7 @@ pub(crate) async fn get_navigation(
             .collect(),
         scope: scoped_nav.scope.map(ScopeInfoResponse::from),
         parent_scope: scoped_nav.parent_scope.map(ScopeInfoResponse::from),
+        section_ancestry: scoped_nav.section_ancestry,
     }))
 }
 
@@ -122,6 +131,7 @@ mod tests {
             items: vec![NavItemResponse::from(nav_item)],
             scope: None,
             parent_scope: None,
+            section_ancestry: HashMap::new(),
         };
 
         let json = serde_json::to_value(&response).unwrap();
@@ -155,6 +165,7 @@ mod tests {
                 },
             }),
             parent_scope: None,
+            section_ancestry: HashMap::new(),
         };
 
         let json = serde_json::to_value(&response).unwrap();
@@ -165,5 +176,51 @@ mod tests {
         assert_eq!(json["scope"]["section"]["namespace"], "payments");
         assert_eq!(json["scope"]["section"]["name"], "billing");
         assert!(json.get("parentScope").is_none());
+    }
+
+    #[test]
+    fn test_navigation_response_serializes_section_ancestry() {
+        let mut ancestry = HashMap::new();
+        ancestry.insert(
+            "domain:default/billing".to_owned(),
+            vec![
+                SectionAnchor {
+                    section_ref: "domain:default/billing".to_owned(),
+                    subpath: "overview".to_owned(),
+                },
+                SectionAnchor {
+                    section_ref: "section:default/root".to_owned(),
+                    subpath: String::new(),
+                },
+            ],
+        );
+        let response = NavigationResponse {
+            items: vec![],
+            scope: None,
+            parent_scope: None,
+            section_ancestry: ancestry,
+        };
+
+        let json = serde_json::to_value(&response).unwrap();
+
+        let chain = &json["sectionAncestry"]["domain:default/billing"];
+        assert_eq!(chain[0]["sectionRef"], "domain:default/billing");
+        assert_eq!(chain[0]["subpath"], "overview");
+        assert_eq!(chain[1]["sectionRef"], "section:default/root");
+        assert_eq!(chain[1]["subpath"], "");
+    }
+
+    #[test]
+    fn test_navigation_response_omits_empty_section_ancestry() {
+        let response = NavigationResponse {
+            items: vec![],
+            scope: None,
+            parent_scope: None,
+            section_ancestry: HashMap::new(),
+        };
+
+        let json = serde_json::to_value(&response).unwrap();
+
+        assert!(json.get("sectionAncestry").is_none());
     }
 }

@@ -13,7 +13,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
 use rw_cache::{CacheBucket, CacheBucketExt};
-use rw_sections::{Namespace, Section, Sections};
+use rw_sections::{Namespace, Section, SectionAnchor, Sections};
 use serde::{Deserialize, Serialize};
 
 use crate::page::{BreadcrumbItem, Page};
@@ -121,6 +121,13 @@ pub struct Navigation {
     /// The parent section for "back" navigation. `None` only at the root scope.
     #[serde(rename = "parentScope", skip_serializing_if = "Option::is_none")]
     pub parent_scope: Option<ScopeInfo>,
+    /// Ancestry chains for the sections reachable from this navigation view:
+    /// each nav item's section, the scope, and the parent scope, mapped to that
+    /// section's chain of [`SectionAnchor`]s. Each chain starts with the section
+    /// itself (empty subpath), then its ancestors nearest-first with the root
+    /// last. Empty (and omitted from JSON) when no section is in view.
+    #[serde(rename = "sectionAncestry", skip_serializing_if = "HashMap::is_empty")]
+    pub section_ancestry: HashMap<String, Vec<SectionAnchor>>,
 }
 
 /// Immutable snapshot of the document hierarchy.
@@ -436,19 +443,15 @@ impl SiteState {
     /// appear as leaf nodes — they do not expand their children inline.
     #[must_use]
     pub fn navigation(&self, scope_path: &str) -> Navigation {
-        if scope_path.is_empty() {
+        let (items, scope, parent_scope) = if scope_path.is_empty() {
             // Root scope: show children of root page (or root pages if no index.md)
-            let items = self
+            let items: Vec<NavItem> = self
                 .get_children_with_content("")
                 .into_iter()
                 .map(|page| self.build_nav_item_with_section_cutoff(page))
                 .collect();
 
-            Navigation {
-                items,
-                scope: Some(self.root_scope_info()),
-                parent_scope: None,
-            }
+            (items, Some(self.root_scope_info()), None)
         } else {
             // Section scope: show section's children
             let Some(section) = self.sections.get(scope_path) else {
@@ -457,7 +460,7 @@ impl SiteState {
             };
 
             // Get children of this section
-            let items = self
+            let items: Vec<NavItem> = self
                 .get_children_with_content(scope_path)
                 .into_iter()
                 .map(|page| self.build_nav_item_with_section_cutoff(page))
@@ -473,12 +476,39 @@ impl SiteState {
             // Find parent section for back navigation
             let parent_scope = self.find_parent_section(scope_path);
 
-            Navigation {
-                items,
-                scope,
-                parent_scope,
-            }
+            (items, scope, parent_scope)
+        };
+
+        let section_ancestry =
+            self.nav_section_ancestry(&items, scope.as_ref(), parent_scope.as_ref());
+
+        Navigation {
+            items,
+            scope,
+            parent_scope,
+            section_ancestry,
         }
+    }
+
+    /// Build the ancestry map for a navigation view: every section reachable
+    /// from `items`, `scope`, and `parent_scope`, mapped to its own nearest-
+    /// first, root-last chain. Refs are derived from the existing `section`
+    /// objects, so nav items and scopes carry no separate ref field.
+    fn nav_section_ancestry(
+        &self,
+        items: &[NavItem],
+        scope: Option<&ScopeInfo>,
+        parent_scope: Option<&ScopeInfo>,
+    ) -> HashMap<String, Vec<SectionAnchor>> {
+        let mut refs: HashSet<String> = HashSet::new();
+        collect_nav_item_refs(items, &mut refs);
+        if let Some(scope) = scope {
+            refs.insert(scope.section.to_string());
+        }
+        if let Some(parent) = parent_scope {
+            refs.insert(parent.section.to_string());
+        }
+        self.sections.ancestry_for(refs.iter().map(String::as_str))
     }
 
     /// Returns `(section_ref, subpath)` for the section enclosing `page_path`.
@@ -687,6 +717,16 @@ impl SiteState {
     #[must_use]
     pub(crate) fn resolution_fingerprint(&self) -> u64 {
         self.resolution_fingerprint
+    }
+}
+
+/// Collect the section ref of every nav item and its descendants into `refs`.
+fn collect_nav_item_refs(items: &[NavItem], refs: &mut HashSet<String>) {
+    for item in items {
+        if let Some(section) = &item.section {
+            refs.insert(section.to_string());
+        }
+        collect_nav_item_refs(&item.children, refs);
     }
 }
 

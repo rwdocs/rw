@@ -26,6 +26,11 @@ export interface NavigationResponse {
   items: Array<NavItemResponse>
   scope?: ScopeInfoResponse
   parentScope?: ScopeInfoResponse
+  /**
+   * Ancestry chains for the sections reachable from this navigation view,
+   * keyed by section ref.
+   */
+  sectionAncestry: Record<string, Array<SectionAnchorResponse>>
 }
 
 export interface NavItemResponse {
@@ -68,6 +73,11 @@ export interface PageResponse {
   breadcrumbs: Array<BreadcrumbResponse>
   toc: Array<TocEntryResponse>
   content: string
+  /**
+   * Ancestry chains for the sections this page is connected to, keyed by
+   * section ref.
+   */
+  sectionAncestry: Record<string, Array<SectionAnchorResponse>>
 }
 
 /**
@@ -101,6 +111,15 @@ export interface ScopeInfoResponse {
 export interface SearchDocumentResponse {
   title: string
   text: string
+}
+
+/**
+ * One link in a section's ancestry chain: a section ref and the subpath of
+ * that section's root.
+ */
+export interface SectionAnchorResponse {
+  sectionRef: string
+  subpath: string
 }
 
 export interface SectionEntryResponse {

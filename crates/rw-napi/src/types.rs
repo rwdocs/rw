@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use napi_derive::napi;
-use rw_site::Section;
+use rw_site::{Section, SectionAnchor};
 use serde_json::Value;
 
 #[napi(object)]
@@ -44,6 +46,24 @@ impl From<Section> for SectionResponse {
             kind: s.kind,
             namespace: s.namespace.into(),
             name: s.name,
+        }
+    }
+}
+
+/// One link in a section's ancestry chain: a section ref and the subpath of
+/// that section's root.
+#[napi(object)]
+pub struct SectionAnchorResponse {
+    #[napi(js_name = "sectionRef")]
+    pub section_ref: String,
+    pub subpath: String,
+}
+
+impl From<SectionAnchor> for SectionAnchorResponse {
+    fn from(a: SectionAnchor) -> Self {
+        Self {
+            section_ref: a.section_ref,
+            subpath: a.subpath,
         }
     }
 }
@@ -93,6 +113,10 @@ pub struct NavigationResponse {
     pub scope: Option<ScopeInfoResponse>,
     #[napi(js_name = "parentScope")]
     pub parent_scope: Option<ScopeInfoResponse>,
+    /// Ancestry chains for the sections reachable from this navigation view,
+    /// keyed by section ref.
+    #[napi(js_name = "sectionAncestry")]
+    pub section_ancestry: HashMap<String, Vec<SectionAnchorResponse>>,
 }
 
 #[napi(object)]
@@ -134,6 +158,10 @@ pub struct PageResponse {
     pub breadcrumbs: Vec<BreadcrumbResponse>,
     pub toc: Vec<TocEntryResponse>,
     pub content: String,
+    /// Ancestry chains for the sections this page is connected to, keyed by
+    /// section ref.
+    #[napi(js_name = "sectionAncestry")]
+    pub section_ancestry: HashMap<String, Vec<SectionAnchorResponse>>,
 }
 
 #[napi(object)]

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `@rwdocs/core`'s `renderPage` and `getNavigation` — and the corresponding
+  `rw serve` page and navigation HTTP responses — now include a
+  `sectionAncestry` map: each section the page or navigation view is connected
+  to (the page's own section, its referenced sections, and the breadcrumb/scope
+  sections), keyed by section ref, mapped to that section's ordered ancestry
+  chain. Each chain starts with the section itself (empty subpath), then its
+  ancestors nearest-first with the root last. A host can resolve a page's full
+  section context — including the page's own section
+  (`sectionAncestry[meta.sectionRef]`) — in one response instead of walking
+  sections with follow-up calls. Purely additive — every existing field
+  (including the breadcrumb and scope `section` objects) is unchanged.
 - `rw update` self-updates the installed `rw` binary to the latest GitHub
   release. `rw update --check` reports whether an update is available without
   installing it, `rw update --version <x.y.z>` installs (or pins to) a specific
@@ -16,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "latest". Self-update works for installs done via the shell/PowerShell
   installer; Homebrew, npm, `cargo install`, and source builds print guidance
   (`brew upgrade rw`, or re-run the install script) and exit non-zero instead.
+
+### Changed
+
+- The `rw serve` page response `ETag` now covers the whole response, not just
+  the rendered HTML, so a page revalidates when its section identity or
+  ancestry changes even if its HTML is byte-for-byte unchanged. Conditional
+  requests (`If-None-Match`) still return `304 Not Modified` when nothing
+  changed.
 
 ## [0.1.29] - 2026-07-07
 

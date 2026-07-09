@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{self, Body};
-use axum::http::{Method, Request, StatusCode};
+use axum::http::{HeaderMap, Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use rw_cache::NullCache;
 use rw_comments::SqliteCommentStore;
@@ -126,8 +126,13 @@ impl TestServer {
     async fn send(&self, req: Request<Body>) -> TestResponse {
         let response = self.router.clone().oneshot(req).await.unwrap();
         let status = response.status();
+        let headers = response.headers().clone();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
-        TestResponse { status, bytes }
+        TestResponse {
+            status,
+            headers,
+            bytes,
+        }
     }
 
     /// `GET <path>`.
@@ -135,6 +140,22 @@ impl TestServer {
         let req = Request::builder()
             .method(Method::GET)
             .uri(path)
+            .body(Body::empty())
+            .unwrap();
+        self.send(req).await
+    }
+
+    /// `GET <path>` with a single extra request header (e.g. `If-None-Match`).
+    pub(crate) async fn get_with_header(
+        &self,
+        path: &str,
+        name: &str,
+        value: &str,
+    ) -> TestResponse {
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .header(name, value)
             .body(Body::empty())
             .unwrap();
         self.send(req).await
@@ -256,13 +277,23 @@ impl TestServer {
     }
 }
 
-/// Captured HTTP response — status plus already-collected body bytes.
+/// Captured HTTP response — status, headers, plus already-collected body bytes.
 pub(crate) struct TestResponse {
     pub(crate) status: StatusCode,
+    headers: HeaderMap,
     bytes: body::Bytes,
 }
 
 impl TestResponse {
+    /// Value of a response header as a string, or `None` if absent. Panics if
+    /// the header value is not valid UTF-8 (never true for the headers tests
+    /// assert on here).
+    pub(crate) fn header(&self, name: &str) -> Option<String> {
+        self.headers
+            .get(name)
+            .map(|v| v.to_str().unwrap().to_owned())
+    }
+
     /// Parse the body as JSON. Panics on parse failure.
     pub(crate) fn json(&self) -> Value {
         serde_json::from_slice(&self.bytes).unwrap_or_else(|e| {
