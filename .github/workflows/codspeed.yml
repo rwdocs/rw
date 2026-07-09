@@ -96,7 +96,7 @@ jobs:
         run: tar -czf codspeed-site.tar.gz target/codspeed
 
       - name: Upload built benches
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codspeed-site-benches
           path: codspeed-site.tar.gz
@@ -122,7 +122,7 @@ jobs:
           tool: cargo-codspeed
 
       - name: Download built benches
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: codspeed-site-benches
 
