@@ -266,6 +266,23 @@ struct Enclosing<'s, 'h> {
     path: &'h str,
 }
 
+/// One rung of a path's section ancestry: a section ref and the target path
+/// expressed relative to that section's root.
+///
+/// [`Sections::anchors`] returns these deepest-first (root last), so a caller
+/// that can only resolve some of the refs can take the first one it resolves
+/// and append its `subpath`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct SectionAnchor {
+    /// Section ref string, e.g. `"domain:default/billing"`.
+    pub section_ref: String,
+    /// Target path relative to this section's root; empty when the target *is*
+    /// the section root.
+    pub subpath: String,
+}
+
 /// Section-root → [`Section`] index with segment-aware prefix lookup and an O(1)
 /// reverse (ref → root) index.
 ///
@@ -378,7 +395,8 @@ fn relative_to<'h>(path: &'h str, prefix: &str) -> &'h str {
 impl serde::Serialize for Sections {
     /// Serializes as the bare `section-root → section` map — byte-identical to the
     /// previous `#[serde(transparent)]` shape. The derived `by_ref` index is not
-    /// serialized (it is rebuilt on deserialize via [`with_implicit_root`]).
+    /// serialized (it is rebuilt on deserialize via
+    /// [`with_implicit_root`](Sections::with_implicit_root)).
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -623,6 +641,45 @@ impl Sections {
         self.enclosing_iter(section_root)
             .find(|enclosing| enclosing.section_root != section_root)
             .map(|enclosing| (enclosing.section, enclosing.section_root))
+    }
+
+    /// The section-ancestry chain for `href`: every enclosing section (innermost
+    /// first, root last) paired with `href` relative to that section. Generalizes
+    /// [`find`](Self::find) (whose match is this chain's first entry) to the full
+    /// ordered ancestry. When the map was built with
+    /// [`with_implicit_root`](Self::with_implicit_root) the chain always ends
+    /// with the root anchor, so a deepest-first walk over it can never fail. O(D).
+    #[must_use]
+    pub fn anchors(&self, href: &str) -> Vec<SectionAnchor> {
+        let without_slash = href.strip_prefix('/').unwrap_or(href);
+        let (path, _fragment) = split_fragment(without_slash);
+        self.enclosing_iter(path)
+            .map(|enclosing| SectionAnchor {
+                section_ref: enclosing.section.to_string(),
+                subpath: enclosing.path.to_owned(),
+            })
+            .collect()
+    }
+
+    /// The ancestry chains for the given section refs, keyed by ref — each ref's
+    /// own chain (innermost first, root last), exactly what
+    /// [`anchors`](Self::anchors) returns for that section's own root. A ref that
+    /// doesn't resolve to a section is skipped.
+    ///
+    /// Builds ancestry for only the given refs rather than the whole site: each
+    /// ref costs an O(1) [`find_by_ref`](Self::find_by_ref) plus an O(D)
+    /// [`anchors`](Self::anchors).
+    #[must_use]
+    pub fn ancestry_for<'r>(
+        &self,
+        refs: impl IntoIterator<Item = &'r str>,
+    ) -> HashMap<String, Vec<SectionAnchor>> {
+        refs.into_iter()
+            .filter_map(|ref_string| {
+                let root = self.find_by_ref(ref_string)?;
+                Some((ref_string.to_owned(), self.anchors(root)))
+            })
+            .collect()
     }
 
     /// Finds the section root for a given ref string.
@@ -958,6 +1015,76 @@ mod tests {
 
         // The root has no parent.
         assert!(sections.parent("").is_none());
+    }
+
+    #[test]
+    fn anchors_are_deepest_first_root_last_with_relative_subpaths() {
+        let sections = nested_sections();
+
+        // For a page href: each enclosing section with the href relative to it,
+        // innermost first, root last. A trailing #fragment is stripped.
+        let anchors = sections.anchors("/domains/billing/systems/pay/api#frag");
+        assert_eq!(
+            anchors,
+            vec![
+                SectionAnchor {
+                    section_ref: "system:default/pay".to_owned(),
+                    subpath: "api".to_owned(),
+                },
+                SectionAnchor {
+                    section_ref: "domain:default/billing".to_owned(),
+                    subpath: "systems/pay/api".to_owned(),
+                },
+                SectionAnchor {
+                    section_ref: "section:default/root".to_owned(),
+                    subpath: "domains/billing/systems/pay/api".to_owned(),
+                },
+            ]
+        );
+
+        // For a section's own root the innermost anchor has an empty subpath.
+        assert_eq!(
+            sections.anchors("domains/billing")[0],
+            SectionAnchor {
+                section_ref: "domain:default/billing".to_owned(),
+                subpath: String::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn ancestry_for_returns_only_requested_refs_chains() {
+        let sections = nested_sections();
+        // Only the requested refs get chains; unrelated sections are absent.
+        let map = sections.ancestry_for(["system:default/pay", "section:default/root"]);
+        assert_eq!(map.len(), 2);
+        assert!(!map.contains_key("domain:default/billing"));
+        assert_eq!(
+            map["system:default/pay"],
+            vec![
+                SectionAnchor {
+                    section_ref: "system:default/pay".to_owned(),
+                    subpath: String::new(),
+                },
+                SectionAnchor {
+                    section_ref: "domain:default/billing".to_owned(),
+                    subpath: "systems/pay".to_owned(),
+                },
+                SectionAnchor {
+                    section_ref: "section:default/root".to_owned(),
+                    subpath: "domains/billing/systems/pay".to_owned(),
+                },
+            ]
+        );
+        assert_eq!(
+            map["section:default/root"],
+            vec![SectionAnchor {
+                section_ref: "section:default/root".to_owned(),
+                subpath: String::new(),
+            }]
+        );
+        // An unresolvable ref is skipped, not an error.
+        assert!(sections.ancestry_for(["nope:default/x"]).is_empty());
     }
 
     #[test]
