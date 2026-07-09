@@ -13,7 +13,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
 use rw_renderer::TocEntry;
-use rw_site::{BreadcrumbItem, Section, SectionAnchor};
+use rw_site::{BreadcrumbItem, SectionAnchor};
 use serde::Serialize;
 
 use crate::error::HandlerError;
@@ -71,14 +71,17 @@ struct PageMeta {
 
 /// Breadcrumb item for serialization.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct BreadcrumbResponse {
     /// Display title.
     title: String,
     /// Link target path.
     path: String,
-    /// Section identity if this breadcrumb's path matches a section.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    section: Option<Section>,
+    /// Section ref of the nearest enclosing section — the crumb's key into the
+    /// page response's `sectionAncestry` map.
+    section_ref: String,
+    /// This crumb's path relative to `section_ref`'s scope root.
+    subpath: String,
 }
 
 impl From<BreadcrumbItem> for BreadcrumbResponse {
@@ -86,7 +89,8 @@ impl From<BreadcrumbItem> for BreadcrumbResponse {
         Self {
             title: item.title,
             path: to_url_path(&item.path),
-            section: item.section,
+            section_ref: item.section_ref,
+            subpath: item.subpath,
         }
     }
 }

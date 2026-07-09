@@ -27,6 +27,23 @@ export interface NavGroup {
   items: NavItem[];
 }
 
+/**
+ * One rung of a section's ancestry chain: a section ref and the target path
+ * expressed relative to that section's root. Chains run deepest-first (the
+ * section itself, then ancestors, root last).
+ */
+export interface SectionAnchor {
+  sectionRef: string;
+  subpath: string;
+}
+
+/**
+ * Every section ref mapped to its ordered ancestry chain, delivered once per
+ * page/navigation response. A link's nearest `sectionRef` keys into this; the
+ * viewer walks the chain to the first host-mapped ancestor to build a URL.
+ */
+export type SectionAncestry = Record<string, SectionAnchor[]>;
+
 /** Information about a navigation scope. */
 export interface ScopeInfo {
   /** URL path (with leading slash). */
@@ -35,7 +52,10 @@ export interface ScopeInfo {
   href?: string;
   /** Display title. */
   title: string;
-  /** Section identity. */
+  /**
+   * Section identity. The scope's own ref (with an empty subpath) is its key
+   * into the navigation response's `sectionAncestry` map.
+   */
   section: SectionInfo;
 }
 
@@ -46,6 +66,8 @@ export interface NavigationTree {
   scope?: ScopeInfo;
   /** Parent scope for back navigation (omitted at root or if no parent section). */
   parentScope?: ScopeInfo;
+  /** Section ref → ancestry chain, for resolving nav/scope hrefs. */
+  sectionAncestry?: SectionAncestry;
 }
 
 /** Page metadata from GET /_api/pages/{path} */
@@ -73,8 +95,13 @@ export interface Breadcrumb {
   path: string;
   /** Resolved external URL for cross-section navigation (bypasses prefixPath). */
   href?: string;
-  /** Section identity if this breadcrumb's path matches a section. */
-  section?: SectionInfo;
+  /**
+   * Section ref of the nearest enclosing section — this crumb's key into the
+   * page response's `sectionAncestry` map.
+   */
+  sectionRef?: string;
+  /** This crumb's path relative to `sectionRef`'s scope root. */
+  subpath?: string;
 }
 
 /** Table of contents entry */
@@ -90,6 +117,8 @@ export interface PageResponse {
   breadcrumbs: Breadcrumb[];
   toc: TocEntry[];
   content: string; // HTML
+  /** Section ref → ancestry chain, for resolving breadcrumb and content-link hrefs. */
+  sectionAncestry?: SectionAncestry;
 }
 
 /** API error response */

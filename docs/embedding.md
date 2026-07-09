@@ -1,8 +1,31 @@
-# Embedding & durable comment keys
+# Embedding
 
-When you embed `@rwdocs/viewer` (or render pages through `@rwdocs/core`) in a host
-application that stores **its own** comments — for example the Backstage plugin
-pair — each comment needs a stable identifier for the page it annotates.
+This page covers two concerns for embedding `@rwdocs/viewer` (or rendering pages
+through `@rwdocs/core`) in a host application: resolving cross-entity links via
+`resolveSectionRefs`, and durable comment keys for hosts that store their own
+comments.
+
+When you embed the viewer in a host application that stores **its own**
+comments — for example the Backstage plugin pair — each comment needs a stable
+identifier for the page it annotates.
+
+## `resolveSectionRefs` must map the site-root ref
+
+`mountRw({ resolveSectionRefs })` lets the viewer turn a cross-entity link (a
+breadcrumb, back-link, or content link that points outside the current
+entity's scope) into your host's own URL for that entity. The viewer resolves
+a link by walking its target's section ancestry — nearest section first,
+site-root section last — and using the first ancestor your resolver maps to a
+base URL.
+
+Because every ancestry chain ends at the site-root section ref (e.g.
+`section:default/root`), **your `resolveSectionRefs` must return a base URL
+for it**. That mapping is the guaranteed backstop every link ultimately
+resolves against, however deeply nested the target section is. If you decline
+to map the root ref (return `undefined`, `null`, or omit it), the viewer falls
+back to resolving the link against the current mount's own base path — a
+last-resort for a host that violates the contract, not something to rely on
+for correct cross-entity navigation.
 
 ## Don't key on `path`
 

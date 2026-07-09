@@ -12,7 +12,13 @@ export declare class RwSite {
 export interface BreadcrumbResponse {
   title: string
   path: string
-  section?: SectionResponse
+  /**
+   * Section ref of the nearest enclosing section — the crumb's key into the
+   * page response's `sectionAncestry` map.
+   */
+  sectionRef: string
+  /** This crumb's path relative to `sectionRef`'s scope root. */
+  subpath: string
 }
 
 export declare function createSite(config: SiteConfig): RwSite

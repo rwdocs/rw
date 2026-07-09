@@ -30,11 +30,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (pre-1.0):** the page and navigation responses from
+  `@rwdocs/core`'s `renderPage`/`getNavigation` (and the bundled viewer) drop
+  the breadcrumb `section` object in favor of flat `sectionRef`/`subpath`
+  fields; only callers that read the old breadcrumb `section` shape directly
+  need to update. (The additive `sectionAncestry` map is described under Added.)
 - The `rw serve` page response `ETag` now covers the whole response, not just
   the rendered HTML, so a page revalidates when its section identity or
   ancestry changes even if its HTML is byte-for-byte unchanged. Conditional
   requests (`If-None-Match`) still return `304 Not Modified` when nothing
   changed.
+
+### Fixed
+
+- Internal links no longer build doubled or wrong paths when the viewer is
+  embedded (e.g. in Backstage). A breadcrumb, back-link, or content link that
+  points above the current entity's scope — or into a section the host hasn't
+  mapped to its own docs URL — now resolves against the nearest host-mapped
+  ancestor in the target's ancestry, instead of concatenating the target's full
+  path onto the current entity's base. The embedding host is required to map
+  the site-root section ref via `resolveSectionRefs`; that mapping is the
+  guaranteed backstop every link ultimately resolves against. Rendered links
+  and diagram links keep their existing
+  `data-section-ref`/`data-section-path` attributes; the viewer now resolves
+  each link by joining its nearest ref against the new `sectionAncestry` map,
+  walking to the first host-mapped ancestor and appending the remainder — no
+  path parsing. Standalone `rw serve` is unaffected. As a deliberate
+  consequence, the top "Home" breadcrumb in a nested sub-entity now navigates
+  to the root entity's docs; the logo link still goes to the current mount's
+  home.
 
 ## [0.1.29] - 2026-07-07
 

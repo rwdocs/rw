@@ -142,7 +142,12 @@ pub struct PageMetaResponse {
 pub struct BreadcrumbResponse {
     pub title: String,
     pub path: String,
-    pub section: Option<SectionResponse>,
+    /// Section ref of the nearest enclosing section — the crumb's key into the
+    /// page response's `sectionAncestry` map.
+    #[napi(js_name = "sectionRef")]
+    pub section_ref: String,
+    /// This crumb's path relative to `sectionRef`'s scope root.
+    pub subpath: String,
 }
 
 #[napi(object)]
