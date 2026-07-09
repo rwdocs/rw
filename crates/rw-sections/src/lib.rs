@@ -3,7 +3,7 @@
 //! A **section** is a named subtree of a documentation site. Each section has a
 //! freeform [`kind`](Section::kind) (e.g., `"domain"`, `"system"`,
 //! `"component"`) and a [`name`](Section::name) derived from the last segment
-//! of its scope path (e.g., `"billing"` for path `domains/billing`). Sections
+//! of its section root (e.g., `"billing"` for path `domains/billing`). Sections
 //! let you organize a flat directory of markdown files into a structured
 //! hierarchy that other tools can consume programmatically — for example,
 //! Backstage can map sections to catalog entities based on their kind.
@@ -12,7 +12,7 @@
 //! `"kind:namespace/name"` (e.g., `"domain:default/billing"`). The namespace
 //! defaults to `"default"` and is set per page via the `namespace` metadata field.
 //!
-//! The main entry point is [`Sections`], a map from scope paths to
+//! The main entry point is [`Sections`], a map from section roots to
 //! [`Section`] values that supports prefix-based lookup.
 //!
 //! # Vocabulary
@@ -47,24 +47,33 @@
 //! # Feature flags
 //!
 //! - **`serde`** — derives `serde::Serialize` and `serde::Deserialize` on
-//!   [`Section`], and a transparent `serde::Serialize` on [`Sections`] (it
-//!   serializes as its bare scope-path → section map), for JSON API responses
-//!   and cache storage.
+//!   [`Section`], and a hand-written `serde::Serialize` on [`Sections`] that
+//!   emits its bare section-root → section map (the derived reverse index is
+//!   never serialized), for JSON API responses and cache storage.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt;
+use std::iter::from_fn;
 use std::str::FromStr;
 
 mod namespace;
 pub use namespace::{InvalidNamespace, Namespace};
+
+/// The site-relative path at which a section is rooted — the chain of directory
+/// segments from the site root down to the section, with no leading slash
+/// (e.g. `"domains/billing"`; `""` is the root section). It is what
+/// [`Sections`] keys sections by. A plain `String`; the alias just names the
+/// role wherever the type would otherwise read as a bare `String`.
+pub type SectionRoot = String;
 
 /// A named documentation section with a kind and name.
 ///
 /// Represents one node in the section hierarchy. The [`kind`](Self::kind) is a
 /// freeform label — any string is valid, though typical values include
 /// `"domain"`, `"system"`, and `"component"`. The [`name`](Self::name) is
-/// currently derived from the last segment of the section's scope path
-/// (e.g., `"billing"` for scope path `domains/billing`).
+/// currently derived from the last segment of its section root
+/// (e.g., `"billing"` for section root `domains/billing`).
 ///
 /// Formats as a ref string via [`Display`](fmt::Display)
 /// (e.g., `"domain:default/billing"`) and parses back via
@@ -97,12 +106,12 @@ pub struct Section {
     /// [`Namespace::default()`] (`"default"`), matching historical behavior.
     #[cfg_attr(feature = "serde", serde(default))]
     pub namespace: Namespace,
-    /// Section name, currently the last segment of the scope path (e.g., `"billing"`).
+    /// Section name, currently the last segment of the section root (e.g., `"billing"`).
     pub name: String,
 }
 
 impl Section {
-    /// Name used for sections rooted at the empty scope path.
+    /// Name used for the section at the empty section root (the root section).
     pub const ROOT_NAME: &str = "root";
 
     /// Returns the implicit root section in `namespace` (`section:<namespace>/root`).
@@ -241,9 +250,26 @@ pub struct SectionPath<'s, 'h> {
     pub fragment: Option<&'h str>,
 }
 
-/// Map from scope paths to [`Section`] values with prefix-based lookup.
+/// One section yielded by the internal enclosing walk, with the target's path
+/// relative to it. Private: the walk backs [`Sections::find`],
+/// [`Sections::ancestors`], and [`Sections::parent`], which each expose only the
+/// piece their callers need.
+#[derive(Debug)]
+struct Enclosing<'s, 'h> {
+    /// The enclosing section.
+    section: &'s Section,
+    /// The enclosing section's own root (no leading slash; `""` for the root).
+    section_root: &'s str,
+    /// The target path relative to this section (empty for an exact match; the
+    /// full path when only the root encloses it). A query string stays part of
+    /// it; a `#fragment` is split off before the walk.
+    path: &'h str,
+}
+
+/// Section-root → [`Section`] index with segment-aware prefix lookup and an O(1)
+/// reverse (ref → root) index.
 ///
-/// Scope paths are stored without leading slashes (e.g., `"domains/billing"`).
+/// Section roots are stored without leading slashes (e.g., `"domains/billing"`).
 /// Lookup methods accept href-style paths with leading slashes and perform
 /// segment-aware prefix matching — `"domains/bill"` does **not** match
 /// `"/domains/billing"`.
@@ -277,20 +303,94 @@ pub struct SectionPath<'s, 'h> {
 /// assert_eq!(sp.section.to_string(), "system:default/pay");
 /// assert_eq!(sp.path, "api");
 ///
-/// // Reverse lookup: ref string → scope path
+/// // Reverse lookup: ref string → section root
 /// let path = sections.find_by_ref("domain:default/billing");
 /// assert_eq!(path, Some("domains/billing"));
 /// ```
 #[derive(Debug, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(transparent))]
 pub struct Sections {
-    map: HashMap<String, Section>,
+    /// Section root → section (no leading slash; `""` is the root section).
+    /// Exact lookup, enumeration, and the enclosing-section walk all read this.
+    by_path: HashMap<SectionRoot, Section>,
+    /// Canonical section → section root, derived from `by_path` at construction.
+    /// Makes [`find_by_ref`](Self::find_by_ref) O(1). Never serialized; rebuilt
+    /// whenever a `Sections` is constructed (including cache reload).
+    by_ref: HashMap<Section, SectionRoot>,
+}
+
+/// Builds the `section → section root` reverse index from `by_path`.
+///
+/// On a duplicate identifier the lexicographically-first section root wins, so the
+/// index is deterministic regardless of `HashMap` iteration order. A collision
+/// is logged, not fatal — section identifiers are assumed unique but not
+/// validated at load.
+fn build_ref_index(by_path: &HashMap<SectionRoot, Section>) -> HashMap<Section, SectionRoot> {
+    let mut by_ref: HashMap<Section, SectionRoot> = HashMap::with_capacity(by_path.len());
+    for (path, section) in by_path {
+        match by_ref.entry(section.clone()) {
+            Entry::Vacant(slot) => {
+                slot.insert(path.clone());
+            }
+            Entry::Occupied(mut slot) => {
+                // Keep the lexicographically-smaller path; report the loser.
+                let ignored = if path < slot.get() {
+                    std::mem::replace(slot.get_mut(), path.clone())
+                } else {
+                    path.clone()
+                };
+                tracing::warn!(
+                    section_ref = %section,
+                    kept = %slot.get(),
+                    ignored = %ignored,
+                    "duplicate section identifier; keeping the lexicographically-first section root"
+                );
+            }
+        }
+    }
+    by_ref
+}
+
+/// Splits a `#fragment` off the end of an href tail (leading slash already
+/// stripped). A trailing `#` with nothing after it yields `Some("")`, not
+/// `None` — an empty fragment is still a fragment.
+fn split_fragment(input: &str) -> (&str, Option<&str>) {
+    match input.find('#') {
+        Some(pos) => (&input[..pos], Some(&input[pos + 1..])),
+        None => (input, None),
+    }
+}
+
+/// The remainder of `path` after a section `prefix`: `path` itself for the root
+/// prefix (`""`), empty for an exact match, otherwise the tail after the joining
+/// `/`. `prefix` must be a segment-aligned prefix of `path` (as produced by
+/// [`Sections::enclosing_iter`]), so the byte slice always lands on a boundary.
+fn relative_to<'h>(path: &'h str, prefix: &str) -> &'h str {
+    if prefix.is_empty() {
+        path
+    } else if path.len() > prefix.len() {
+        &path[prefix.len() + 1..]
+    } else {
+        ""
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Sections {
+    /// Serializes as the bare `section-root → section` map — byte-identical to the
+    /// previous `#[serde(transparent)]` shape. The derived `by_ref` index is not
+    /// serialized (it is rebuilt on deserialize via [`with_implicit_root`]).
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serde::Serialize::serialize(&self.by_path, serializer)
+    }
 }
 
 impl Sections {
-    /// Creates a [`Sections`] map from scope-path/section pairs.
+    /// Creates a [`Sections`] map from section-root/section pairs.
     ///
-    /// Keys are scope paths without leading slashes (e.g., `"domains/billing"`).
+    /// Keys are section roots without leading slashes (e.g., `"domains/billing"`).
     /// Use an empty string key for the root section.
     ///
     /// # Examples
@@ -309,13 +409,17 @@ impl Sections {
     /// assert!(!sections.is_empty());
     /// ```
     #[must_use]
-    pub fn new(map: HashMap<String, Section>) -> Self {
-        Self { map }
+    pub fn new(map: HashMap<SectionRoot, Section>) -> Self {
+        let by_ref = build_ref_index(&map);
+        Self {
+            by_path: map,
+            by_ref,
+        }
     }
 
     /// Creates a [`Sections`] that always resolves.
     ///
-    /// If `map` has no entry at the empty scope path, inserts the implicit
+    /// If `map` has no entry at the empty section root, inserts the implicit
     /// root section (`section:<root_namespace>/root`) so [`find`](Self::find)
     /// returns a match for *every* path — a page outside any explicit section
     /// resolves to the root rather than `None`. An explicit root already in
@@ -327,21 +431,25 @@ impl Sections {
     /// any caller that wants a rootless map.
     #[must_use]
     pub fn with_implicit_root(
-        mut map: HashMap<String, Section>,
+        mut map: HashMap<SectionRoot, Section>,
         root_namespace: Namespace,
     ) -> Self {
         map.entry(String::new())
             .or_insert_with(|| Section::root(root_namespace));
-        Self { map }
+        let by_ref = build_ref_index(&map);
+        Self {
+            by_path: map,
+            by_ref,
+        }
     }
 
     /// Returns `true` if no sections are registered.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        self.by_path.is_empty()
     }
 
-    /// Returns the section at the given scope path, or `None`.
+    /// Returns the section at the given section root, or `None`.
     ///
     /// The `path` must match a key exactly (no prefix matching). Use
     /// [`find`](Self::find) for prefix-based lookup from an href.
@@ -365,27 +473,27 @@ impl Sections {
     /// ```
     #[must_use]
     pub fn get(&self, path: &str) -> Option<&Section> {
-        self.map.get(path)
+        self.by_path.get(path)
     }
 
-    /// Returns an iterator over the `(scope path, section)` entries, in
+    /// Returns an iterator over the `(section root, section)` entries, in
     /// arbitrary order.
     ///
     /// For a single lookup use [`get`](Self::get) (exact) or
     /// [`find`](Self::find) (deepest prefix). Reach for this only when you
     /// need to visit every entry, e.g. building a secondary index.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &Section)> {
-        self.map
+        self.by_path
             .iter()
             .map(|(path, section)| (path.as_str(), section))
     }
 
-    /// Returns an iterator over the scope paths (map keys), in arbitrary order.
+    /// Returns an iterator over the section roots (map keys), in arbitrary order.
     pub fn paths(&self) -> impl Iterator<Item = &str> {
-        self.map.keys().map(String::as_str)
+        self.by_path.keys().map(String::as_str)
     }
 
-    /// Finds the deepest section whose scope path is a prefix of `href`.
+    /// Finds the deepest section whose section root is a prefix of `href`.
     ///
     /// Returns a [`SectionPath`] with the matching section, the path within
     /// that section, and an optional fragment. Returns `None` if no section
@@ -393,7 +501,7 @@ impl Sections {
     ///
     /// The `href` may have a leading slash (it is stripped before matching)
     /// and an optional `#fragment` (it is extracted into
-    /// [`SectionPath::fragment`]). Matching is segment-aware: scope path
+    /// [`SectionPath::fragment`]). Matching is segment-aware: section root
     /// `"domains/bill"` does **not** match href `"/domains/billing"`.
     ///
     /// # Examples
@@ -426,51 +534,104 @@ impl Sections {
     #[must_use]
     pub fn find<'h>(&self, href: &'h str) -> Option<SectionPath<'_, 'h>> {
         let without_slash = href.strip_prefix('/').unwrap_or(href);
-
-        let (path, fragment) = match without_slash.find('#') {
-            Some(pos) => (&without_slash[..pos], Some(&without_slash[pos + 1..])),
-            None => (without_slash, None),
-        };
-
-        let mut best: Option<(&str, &Section)> = None;
-
-        for (prefix, section) in &self.map {
-            let matches = if prefix.is_empty() {
-                true
-            } else {
-                path == prefix.as_str()
-                    || (path.starts_with(prefix.as_str())
-                        && path.as_bytes().get(prefix.len()) == Some(&b'/'))
-            };
-
-            if matches && best.as_ref().is_none_or(|(k, _)| prefix.len() > k.len()) {
-                best = Some((prefix.as_str(), section));
-            }
-        }
-
-        let (prefix, section) = best?;
-        let remainder = if prefix.is_empty() {
-            path
-        } else if path.len() > prefix.len() {
-            &path[prefix.len() + 1..]
-        } else {
-            ""
-        };
-
+        let (path, fragment) = split_fragment(without_slash);
+        let innermost = self.enclosing_iter(path).next()?;
         Some(SectionPath {
-            section,
-            path: remainder,
+            section: innermost.section,
+            path: innermost.path,
             fragment,
         })
     }
 
-    /// Finds the scope path for a given ref string.
+    /// Iterates the sections enclosing `path` (slash- and fragment-stripped),
+    /// innermost first and the root (`""`) last. O(D): walks `path`'s
+    /// segment-aligned prefixes from longest to shortest with an O(1) `get` at
+    /// each depth, then the root. Only whole `/`-segments are trimmed, so
+    /// matching is inherently segment-aware (`domains/bill` never matches
+    /// `domains/billing`) and the first yield is the deepest match.
+    fn enclosing_iter<'s, 'h>(&'s self, path: &'h str) -> impl Iterator<Item = Enclosing<'s, 'h>> {
+        // Candidate sequence: path, its segment-prefixes (longest→shortest),
+        // then "" (root) — unless path is already "" (root handled as the path).
+        let mut candidate = Some(path);
+        from_fn(move || {
+            while let Some(cur) = candidate {
+                candidate = if cur.is_empty() {
+                    None
+                } else {
+                    Some(cur.rsplit_once('/').map_or("", |(parent, _)| parent))
+                };
+                if let Some((key, section)) = self.by_path.get_key_value(cur) {
+                    return Some(Enclosing {
+                        section,
+                        section_root: key.as_str(),
+                        path: relative_to(path, key.as_str()),
+                    });
+                }
+            }
+            None
+        })
+    }
+
+    /// The sections strictly enclosing the section at `section_root`, nearest-first
+    /// with the root last. Excludes a section sitting exactly at `section_root`, so
+    /// for a section root this yields its ancestors — the root section has none.
+    /// O(D).
+    ///
+    /// `section_root` is a section root (no leading slash), like
+    /// [`get`](Self::get) — not an href. The yielded sections borrow the index,
+    /// so nothing is cloned; collect or map as the caller needs.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use rw_sections::{Namespace, Section, Sections};
+    ///
+    /// let sections = Sections::with_implicit_root(
+    ///     HashMap::from([
+    ///         ("billing".to_owned(), Section {
+    ///             kind: "domain".to_owned(), namespace: Namespace::default(), name: "billing".to_owned(),
+    ///         }),
+    ///         ("billing/pay".to_owned(), Section {
+    ///             kind: "system".to_owned(), namespace: Namespace::default(), name: "pay".to_owned(),
+    ///         }),
+    ///     ]),
+    ///     Namespace::default(),
+    /// );
+    /// let refs: Vec<String> = sections.ancestors("billing/pay").map(ToString::to_string).collect();
+    /// assert_eq!(refs, ["domain:default/billing", "section:default/root"]);
+    /// ```
+    pub fn ancestors<'s, 'p>(
+        &'s self,
+        section_root: &'p str,
+    ) -> impl Iterator<Item = &'s Section> + use<'s, 'p> {
+        self.enclosing_iter(section_root)
+            .filter(move |enclosing| enclosing.section_root != section_root)
+            .map(|enclosing| enclosing.section)
+    }
+
+    /// The nearest section strictly enclosing the section at `section_root`, paired
+    /// with that ancestor's own section root — the caller needs the path to build a
+    /// URL or look up a title, which the [`Section`] alone can't supply. O(D).
+    /// Returns `None` when nothing encloses `section_root` (the root, or a rootless
+    /// map).
+    ///
+    /// `section_root` is a section root (no leading slash), like
+    /// [`get`](Self::get) — not an href.
+    #[must_use]
+    pub fn parent<'s>(&'s self, section_root: &str) -> Option<(&'s Section, &'s str)> {
+        self.enclosing_iter(section_root)
+            .find(|enclosing| enclosing.section_root != section_root)
+            .map(|enclosing| (enclosing.section, enclosing.section_root))
+    }
+
+    /// Finds the section root for a given ref string.
     ///
     /// Parses the ref string (e.g., `"domain:default/billing"`) and returns the
-    /// scope path (e.g., `"domains/billing"`) of the matching section, or
+    /// section root (e.g., `"domains/billing"`) of the matching section, or
     /// `None` if the ref is malformed or no section matches.
     ///
-    /// This is a linear scan — the map is expected to be small.
+    /// This is an O(1) average lookup via a reverse index built at construction.
     ///
     /// # Examples
     ///
@@ -492,10 +653,7 @@ impl Sections {
     #[must_use]
     pub fn find_by_ref(&self, ref_string: &str) -> Option<&str> {
         let target: Section = ref_string.parse().ok()?;
-        self.map
-            .iter()
-            .find(|(_, section)| **section == target)
-            .map(|(path, _)| path.as_str())
+        self.by_ref.get(&target).map(String::as_str)
     }
 
     /// Parse and resolve a refpath to a concrete href and section path.
@@ -533,13 +691,13 @@ impl Sections {
             sp.section.to_string()
         };
 
-        let scope_path = self.find_by_ref(&section_ref_string)?;
-        let section = self.map.get(scope_path)?;
+        let section_root = self.find_by_ref(&section_ref_string)?;
+        let section = self.by_path.get(section_root)?;
 
-        let mut href = if scope_path.is_empty() {
+        let mut href = if section_root.is_empty() {
             String::from("/")
         } else {
-            format!("/{scope_path}")
+            format!("/{section_root}")
         };
 
         if let Some(subpath) = target.subpath {
@@ -721,6 +879,87 @@ mod tests {
         assert!(sp.fragment.is_none());
     }
 
+    fn nested_sections() -> Sections {
+        Sections::with_implicit_root(
+            HashMap::from([
+                (
+                    "domains/billing".to_owned(),
+                    Section {
+                        kind: "domain".to_owned(),
+                        namespace: Namespace::default(),
+                        name: "billing".to_owned(),
+                    },
+                ),
+                (
+                    "domains/billing/systems/pay".to_owned(),
+                    Section {
+                        kind: "system".to_owned(),
+                        namespace: Namespace::default(),
+                        name: "pay".to_owned(),
+                    },
+                ),
+            ]),
+            Namespace::default(),
+        )
+    }
+
+    #[test]
+    fn find_handles_degenerate_hrefs_without_panic() {
+        let sections = nested_sections();
+        // None of these match an explicit section, so they resolve to the
+        // implicit root — and the byte-index slicing must not panic on empty,
+        // slash-only, doubled-slash, or trailing-slash inputs.
+        for href in ["", "/", "#frag", "/#frag", "//", "a//b", "a/"] {
+            assert_eq!(
+                sections.find(href).unwrap().section.to_string(),
+                "section:default/root",
+                "href {href:?} should resolve to the root section"
+            );
+        }
+        // The fragment is still extracted for the root-with-fragment form.
+        assert_eq!(sections.find("/#frag").unwrap().fragment, Some("frag"));
+    }
+
+    #[test]
+    fn ancestors_excludes_self_and_ends_at_root() {
+        let sections = nested_sections();
+
+        // Nested section: ancestors are billing then root, self (pay) excluded.
+        let refs: Vec<String> = sections
+            .ancestors("domains/billing/systems/pay")
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(refs, ["domain:default/billing", "section:default/root"]);
+
+        // Top-level section: only the root.
+        let refs: Vec<String> = sections
+            .ancestors("domains/billing")
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(refs, ["section:default/root"]);
+
+        // The root section has no ancestors.
+        assert_eq!(sections.ancestors("").count(), 0);
+    }
+
+    #[test]
+    fn parent_is_nearest_enclosing_with_section_root() {
+        let sections = nested_sections();
+
+        // A nested section's parent is billing, carrying its section root.
+        let (section, section_root) = sections.parent("domains/billing/systems/pay").unwrap();
+        assert_eq!(section.to_string(), "domain:default/billing");
+        assert_eq!(section_root, "domains/billing");
+
+        // A top-level section's parent is the root (empty section root).
+        let (section, section_root) = sections.parent("domains/billing").unwrap();
+        assert_eq!(section.to_string(), "section:default/root");
+        assert_eq!(section_root, "");
+
+        // The root has no parent.
+        assert!(sections.parent("").is_none());
+    }
+
     #[test]
     fn find_deepest_wins() {
         let sections = Sections::new(HashMap::from([
@@ -826,6 +1065,48 @@ mod tests {
     fn find_by_ref_no_match() {
         let sections = billing();
         assert!(sections.find_by_ref("system:default/unknown").is_none());
+    }
+
+    #[test]
+    fn find_by_ref_deterministic_on_duplicate_identifier() {
+        // Three different section roots collapse to the same kind:namespace/name
+        // ref. Three (not two) distinguishes "keep the running minimum" from
+        // "keep the last-seen-smaller": the winner must be the global minimum
+        // regardless of HashMap iteration order.
+        let billing = Section {
+            kind: "domain".to_owned(),
+            namespace: Namespace::default(),
+            name: "billing".to_owned(),
+        };
+        let sections = Sections::new(HashMap::from([
+            ("m/billing".to_owned(), billing.clone()),
+            ("z/billing".to_owned(), billing.clone()),
+            ("a/billing".to_owned(), billing),
+        ]));
+        assert_eq!(
+            sections.find_by_ref("domain:default/billing"),
+            Some("a/billing")
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serializes_as_bare_section_root_map() {
+        let sections = Sections::new(HashMap::from([(
+            "domains/billing".to_owned(),
+            Section {
+                kind: "domain".to_owned(),
+                namespace: Namespace::default(),
+                name: "billing".to_owned(),
+            },
+        )]));
+        let json = serde_json::to_value(&sections).unwrap();
+        // Bare map keyed by section root; the derived reverse index must not leak.
+        assert_eq!(json["domains/billing"]["kind"], "domain");
+        assert_eq!(json["domains/billing"]["namespace"], "default");
+        assert_eq!(json["domains/billing"]["name"], "billing");
+        assert!(json.get("by_ref").is_none());
+        assert!(json.get("by_path").is_none());
     }
 
     #[test]

@@ -569,34 +569,11 @@ impl SiteState {
 
     /// Returns the ancestor section refs for the section at `path`, nearest-first
     /// with the root section last, excluding the section itself.
-    ///
-    /// Walks parent paths (`rsplit_once('/')`) collecting any registered section,
-    /// then appends the universal root section (always present via
-    /// [`Sections::with_implicit_root`]). The root section itself has no
-    /// ancestors. Mirrors the prefix walk in
-    /// [`find_parent_section`](Self::find_parent_section), which returns only the
-    /// nearest parent.
     fn section_ancestors(&self, path: &str) -> Vec<String> {
-        if path.is_empty() {
-            return Vec::new();
-        }
-
-        let mut ancestors = Vec::new();
-        let mut current = path;
-        while let Some((parent, _)) = current.rsplit_once('/') {
-            if let Some(section) = self.sections.get(parent) {
-                ancestors.push(section.to_string());
-            }
-            current = parent;
-        }
-
-        // The universal root ancestor. The loop above never yields `parent == ""`
-        // (a top-level path has no '/'), so this cannot double-count.
-        if let Some(root) = self.sections.get("") {
-            ancestors.push(root.to_string());
-        }
-
-        ancestors
+        self.sections
+            .ancestors(path)
+            .map(ToString::to_string)
+            .collect()
     }
 
     /// Inverse of [`section_location`](Self::section_location): the page URL
@@ -660,19 +637,19 @@ impl SiteState {
             return None;
         }
 
-        let mut current = path;
-        while let Some((parent, _)) = current.rsplit_once('/') {
-            if let Some(section) = self.sections.get(parent) {
-                return Some(ScopeInfo {
-                    path: format!("/{parent}"),
-                    title: self.page_title_or(parent, parent),
-                    section: section.clone(),
-                });
-            }
-            current = parent;
+        // A top-level section's parent is the root, which routes through
+        // `root_scope_info` so the "Home" title and any explicit root kind are
+        // preserved.
+        let (section, scope_path) = self.sections.parent(path)?;
+        if scope_path.is_empty() {
+            Some(self.root_scope_info())
+        } else {
+            Some(ScopeInfo {
+                path: format!("/{scope_path}"),
+                title: self.page_title_or(scope_path, scope_path),
+                section: section.clone(),
+            })
         }
-
-        Some(self.root_scope_info())
     }
 
     /// Build a `ScopeInfo` for the root section.
