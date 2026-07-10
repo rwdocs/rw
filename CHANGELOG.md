@@ -5,76 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.30] - 2026-07-10
 
 ### Added
 
-- `@rwdocs/core` `createSite({ projectDir })` accepts `mtimeSource: "filesystem"
-  | "git"` (default `"filesystem"`). `"git"` reports commit-based times (matching
-  S3-served pages) at the cost of a per-page git query; `"filesystem"` uses a
-  fast `stat`. S3 sites are unaffected (their times come from the published
-  manifest).
-- `@rwdocs/core`'s `renderPage` and `getNavigation` — and the corresponding
-  `rw serve` page and navigation HTTP responses — now include a
-  `sectionAncestry` map: each section the page or navigation view is connected
-  to (the page's own section, its referenced sections, and the breadcrumb/scope
-  sections), keyed by section ref, mapped to that section's ordered ancestry
-  chain. Each chain starts with the section itself (empty subpath), then its
-  ancestors nearest-first with the root last. A host can resolve a page's full
-  section context — including the page's own section
-  (`sectionAncestry[meta.sectionRef]`) — in one response instead of walking
-  sections with follow-up calls. Purely additive — every existing field
-  (including the breadcrumb and scope `section` objects) is unchanged.
-- `@rwdocs/core` `RwSite.listPages()` entries now include a `lastModified`
-  field — an RFC-3339 timestamp matching `PageMeta.lastModified` — so a host can
-  build a recency-sorted page listing from one call instead of rendering every
-  page to read its mtime. Sites served from a legacy S3 manifest published before
-  per-page mtimes were recorded report the Unix epoch
-  (`1970-01-01T00:00:00+00:00`) until republished.
-- `rw update` self-updates the installed `rw` binary to the latest GitHub
-  release. `rw update --check` reports whether an update is available without
-  installing it, `rw update --version <x.y.z>` installs (or pins to) a specific
-  version, and `rw update --prerelease` includes pre-releases when resolving
-  "latest". Self-update works for installs done via the shell/PowerShell
-  installer; Homebrew, npm, `cargo install`, and source builds print guidance
-  (`brew upgrade rw`, or re-run the install script) and exit non-zero instead.
+- `mtimeSource: "filesystem" | "git"` option on `@rwdocs/core`'s `createSite()` (default `"filesystem"`) — `"git"` reports commit-based times matching S3-served pages; `"filesystem"` uses a fast `stat`.
+- `@rwdocs/core`'s `renderPage`/`getNavigation` (and the matching `rw serve` responses) now return a `sectionAncestry` map — each connected section's ref mapped to its nearest-first ancestry chain — so a host resolves a page's full section context in one call. Purely additive.
+- `@rwdocs/core`'s `RwSite.listPages()` entries now carry a `lastModified` RFC-3339 timestamp, so a host can sort pages by recency without rendering each one. Legacy S3 manifests report the Unix epoch until republished.
+- `rw update` self-updates the installed binary from the latest GitHub release (`--check`, `--version <x.y.z>`, `--prerelease`). Only shell/PowerShell installs self-update; Homebrew, npm, `cargo`, and source builds print upgrade guidance instead.
 
 ### Changed
 
-- **Breaking (pre-1.0):** the page and navigation responses from
-  `@rwdocs/core`'s `renderPage`/`getNavigation` (and the bundled viewer) drop
-  the breadcrumb `section` object in favor of flat `sectionRef`/`subpath`
-  fields; only callers that read the old breadcrumb `section` shape directly
-  need to update. (The additive `sectionAncestry` map is described under Added.)
-- `rw serve` now reports page `lastModified` from the filesystem (when the file
-  was last saved) instead of the git commit time, removing a per-request git
-  history walk from serving. Published bundles (`rw backstage publish`) and
-  S3-served pages keep stable git-commit times. This only affects the value of
-  `lastModified` in the `rw serve` HTTP page API; the viewer does not display it.
-- The `rw serve` page response `ETag` now covers the whole response, not just
-  the rendered HTML, so a page revalidates when its section identity or
-  ancestry changes even if its HTML is byte-for-byte unchanged. Conditional
-  requests (`If-None-Match`) still return `304 Not Modified` when nothing
-  changed.
+- **Breaking (pre-1.0):** `@rwdocs/core`'s `renderPage`/`getNavigation` responses (and the viewer) replace the breadcrumb `section` object with flat `sectionRef`/`subpath` fields.
+- `rw serve` now reports page `lastModified` from the filesystem mtime instead of the git commit time, dropping a per-request git walk. Published bundles and S3-served pages keep git-commit times.
+- The `rw serve` page `ETag` now covers the whole response, not just the HTML, so a page revalidates when its section identity or ancestry changes. `If-None-Match` still returns `304` when nothing changed.
 
 ### Fixed
 
-- Internal links no longer build doubled or wrong paths when the viewer is
-  embedded (e.g. in Backstage). A breadcrumb, back-link, or content link that
-  points above the current entity's scope — or into a section the host hasn't
-  mapped to its own docs URL — now resolves against the nearest host-mapped
-  ancestor in the target's ancestry, instead of concatenating the target's full
-  path onto the current entity's base. The embedding host is required to map
-  the site-root section ref via `resolveSectionRefs`; that mapping is the
-  guaranteed backstop every link ultimately resolves against. Rendered links
-  and diagram links keep their existing
-  `data-section-ref`/`data-section-path` attributes; the viewer now resolves
-  each link by joining its nearest ref against the new `sectionAncestry` map,
-  walking to the first host-mapped ancestor and appending the remainder — no
-  path parsing. Standalone `rw serve` is unaffected. As a deliberate
-  consequence, the top "Home" breadcrumb in a nested sub-entity now navigates
-  to the root entity's docs; the logo link still goes to the current mount's
-  home.
+- Internal links no longer build doubled or wrong paths when the viewer is embedded (e.g. in Backstage): a link pointing above the current entity's scope now resolves against the nearest host-mapped ancestor instead of concatenating onto the current base. Consequently the top "Home" breadcrumb in a nested sub-entity navigates to the root entity's docs.
 
 ## [0.1.29] - 2026-07-07
 
