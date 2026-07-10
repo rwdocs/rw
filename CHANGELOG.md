@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`sectionAncestry[meta.sectionRef]`) — in one response instead of walking
   sections with follow-up calls. Purely additive — every existing field
   (including the breadcrumb and scope `section` objects) is unchanged.
+- `@rwdocs/core` `RwSite.listPages()` entries now include a `lastModified`
+  field — an RFC-3339 timestamp matching `PageMeta.lastModified` — so a host can
+  build a recency-sorted page listing from one call instead of rendering every
+  page to read its mtime. Sites served from a legacy S3 manifest published before
+  per-page mtimes were recorded report the Unix epoch
+  (`1970-01-01T00:00:00+00:00`) until republished.
 - `rw update` self-updates the installed `rw` binary to the latest GitHub
   release. `rw update --check` reports whether an update is available without
   installing it, `rw update --version <x.y.z>` installs (or pins to) a specific

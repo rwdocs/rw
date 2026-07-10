@@ -270,6 +270,7 @@ impl RwSite {
                     section_ref: p.section_ref,
                     subpath: p.subpath,
                     title: p.title,
+                    last_modified: mtime_to_rfc3339(p.mtime),
                 })
                 .collect())
         })
@@ -332,14 +333,21 @@ pub async fn render_comment_body(markdown: String) -> Result<String> {
         .map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
+/// Formats a raw mtime (seconds since the Unix epoch) as an RFC-3339 string,
+/// e.g. `2026-07-09T10:35:00+00:00`. Unknown mtimes are passed in as `0.0` and
+/// render as the Unix epoch.
+fn mtime_to_rfc3339(mtime: f64) -> String {
+    let t = UNIX_EPOCH + Duration::from_secs_f64(mtime);
+    let dt: DateTime<Utc> = t.into();
+    dt.to_rfc3339()
+}
+
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
     let result = site
         .render(path)
         .map_err(|e| napi::Error::from_reason(error_chain(&e)))?;
 
-    let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
-    let last_modified: DateTime<Utc> = source_mtime.into();
-    let last_modified = last_modified.to_rfc3339();
+    let last_modified = mtime_to_rfc3339(result.source_mtime);
     let (section_ref, subpath) = site
         .section_location(path)
         .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
