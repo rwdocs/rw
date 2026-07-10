@@ -26,6 +26,7 @@ install:
 test:
 	cargo llvm-cov --html
 	cargo test --doc --workspace
+	cargo test --manifest-path crates/rw-napi/Cargo.toml
 	npm -w @rwdocs/viewer run test
 
 test-e2e:
@@ -33,10 +34,12 @@ test-e2e:
 
 format:
 	cargo fmt
+	cargo fmt --manifest-path crates/rw-napi/Cargo.toml
 	npm -w @rwdocs/viewer run format
 
 lint:
 	cargo clippy --all-targets
+	cargo clippy --manifest-path crates/rw-napi/Cargo.toml --all-targets
 	npm -w @rwdocs/viewer run check
 	npm -w @rwdocs/viewer run lint
 

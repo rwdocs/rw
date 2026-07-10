@@ -40,8 +40,14 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
+      - name: Check rw-napi formatting
+        run: cargo fmt --manifest-path crates/rw-napi/Cargo.toml -- --check
+
       - name: Run Clippy
         run: cargo clippy --all-targets -- -W clippy::pedantic
+
+      - name: Run Clippy (rw-napi)
+        run: cargo clippy --manifest-path crates/rw-napi/Cargo.toml --all-targets -- -W clippy::pedantic
 
       - name: Run svelte-check
         run: npm -w @rwdocs/viewer run check
@@ -87,6 +93,9 @@ jobs:
 
       - name: Run Rust tests
         run: cargo test --all-targets
+
+      - name: Run rw-napi tests
+        run: cargo test --manifest-path crates/rw-napi/Cargo.toml
 
       - name: Run frontend tests
         run: npm -w @rwdocs/viewer run test
