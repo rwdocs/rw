@@ -5,18 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.31] - 2026-07-10
 
 ### Fixed
 
-- `rw backstage publish` now reports correct git-commit modification times for
-  sites that have no `docs/` directory (e.g. a `README.md` homepage). Git
-  repository discovery started from the (non-existent) source directory and
-  failed silently, so every published page fell back to the filesystem checkout
-  time — which in CI equals the latest commit's date, making unchanged pages
-  look freshly modified. Discovery now climbs to the nearest existing directory,
-  and `rw` warns when git modification times are requested but no repository is
-  found.
+- `rw backstage publish` now reports correct git-commit modification times for sites that have no `docs/` directory (e.g. a `README.md` homepage). Git repository discovery started from the (non-existent) source directory and failed silently, so every published page fell back to the filesystem checkout time — which in CI equals the latest commit's date, making unchanged pages look freshly modified. Discovery now climbs to the nearest existing directory, and `rw` warns when git modification times are requested but no repository is found.
 
 ## [0.1.30] - 2026-07-10
 
