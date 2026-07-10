@@ -209,7 +209,17 @@ impl FsStorage {
     pub fn with_mtime_source(mut self, source: MtimeSource) -> Self {
         self.mtime = match source {
             MtimeSource::Filesystem => MtimeStrategy::Filesystem,
-            MtimeSource::Git => MtimeStrategy::Git(Box::new(Vcs::new(&self.source_dir))),
+            MtimeSource::Git => {
+                let vcs = Vcs::new(&self.source_dir);
+                if !vcs.has_repo() {
+                    tracing::warn!(
+                        source_dir = %self.source_dir.display(),
+                        "git modification times requested but no git repository was \
+                         found; page times will fall back to filesystem times",
+                    );
+                }
+                MtimeStrategy::Git(Box::new(vcs))
+            }
         };
         self
     }
@@ -1766,6 +1776,51 @@ mod tests {
             fs_mtime > 1_600_000_000.0,
             "fs mtime {fs_mtime} should be ~now, not the commit time"
         );
+    }
+
+    #[test]
+    fn git_mode_resolves_commit_time_for_readme_only_project() {
+        // README-only site: no docs/ dir, so the default source_dir points at a
+        // non-existent <repo>/docs. Git discovery must climb to the repo root
+        // and still report the README's commit time — not the fs checkout time.
+        // Use dir.path() as-is (do NOT canonicalize): discovery climbs to it, so
+        // gix's workdir and the resolved README path share the same form and
+        // repo_relative_path strips cleanly on every platform. Canonicalizing
+        // introduces the Windows `\\?\` verbatim prefix (and the macOS
+        // /var -> /private/var swap) that gix's workdir lacks, defeating the
+        // strip. Same rationale as git_mode_returns_commit_time_*.
+        let dir = git_repo_with_old_commit("README.md", "# Hi");
+        let missing_source_dir = dir.path().join("docs");
+        assert!(!missing_source_dir.exists());
+
+        let storage = FsStorage::new(missing_source_dir).with_mtime_source(MtimeSource::Git);
+
+        // The homepage ("") resolves to the root README; its mtime must be the
+        // 2020 commit time (< 2020-09), proving git discovery succeeded.
+        let mtime = storage.mtime("").unwrap();
+        assert!(
+            mtime < 1_600_000_000.0,
+            "expected the 2020 commit time, got {mtime} \
+             (a value near now means discovery failed and it used fs mtime)",
+        );
+    }
+
+    #[test]
+    fn git_mode_falls_back_to_fs_time_with_no_repo() {
+        // Git requested but the tree is not a git repo at all. The observable
+        // contract asserted here is the filesystem-time fallback; the accompanying
+        // warning in with_mtime_source is a side effect this test does not capture.
+        let dir = create_test_dir();
+        fs::write(dir.path().join("guide.md"), "# Guide").unwrap();
+
+        let storage = FsStorage::new(dir.path().to_path_buf()).with_mtime_source(MtimeSource::Git);
+        let mtime = storage.mtime("guide").unwrap();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        assert!(mtime > now - 60.0 && mtime <= now);
     }
 
     #[test]
