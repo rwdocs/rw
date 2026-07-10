@@ -25,8 +25,34 @@ impl Vcs {
     /// inside a git repository.
     #[must_use]
     pub fn new(path: &Path) -> Self {
-        let repo = gix::discover(path).ok().map(Repository::into_sync);
+        // `gix::discover` errors when `path` is not an accessible directory —
+        // e.g. a README-only site whose default `docs/` source dir does not
+        // exist. Discovery already walks *upward* to find `.git`, so handing it
+        // the nearest existing ancestor finds the same repository without the
+        // spurious failure that would drop every page to filesystem mtimes.
+        let start = Self::nearest_existing_dir(path).unwrap_or(path);
+        let repo = gix::discover(start).ok().map(Repository::into_sync);
         Self { repo }
+    }
+
+    /// Returns `true` if a git repository was discovered for the path this
+    /// `Vcs` was constructed with.
+    ///
+    /// When `false`, [`Vcs::mtime`] always falls back to filesystem
+    /// modification times. Callers that requested git times can use this to
+    /// warn about a misconfiguration (git times asked for, but none available).
+    #[must_use]
+    pub fn has_repo(&self) -> bool {
+        self.repo.is_some()
+    }
+
+    /// The nearest ancestor of `path` (including `path` itself) that exists and
+    /// is a directory, or `None` if none exists.
+    ///
+    /// Lets [`Vcs::new`] hand `gix::discover` a real directory even when the
+    /// caller's path points at a not-yet-created subdirectory.
+    fn nearest_existing_dir(path: &Path) -> Option<&Path> {
+        path.ancestors().find(|p| p.is_dir())
     }
 
     /// Returns the most recent modification time across all given paths
@@ -455,6 +481,53 @@ mod tests {
         // not reflecting the staged change. This is acceptable — staged content
         // is snapshotted in the index but not yet part of history.
         assert!(!Vcs::is_dirty(&repo, &PathBuf::from("doc.md")));
+    }
+
+    #[test]
+    fn test_discovers_repo_when_source_dir_missing() {
+        // README-only project shape: nothing is committed under a `docs/` dir
+        // because it never exists, yet the Vcs is constructed pointing at it.
+        // Discovery must climb to the existing parent and find the repo — a
+        // `gix::discover` failure here drops every page to the filesystem
+        // checkout time instead of the git commit time. (The end-to-end
+        // git-vs-fs time proof lives in rw-storage-fs's git-mode test.)
+        let dir = create_git_repo();
+        let file = dir.path().join("README.md");
+        fs::write(&file, "# Hello").unwrap();
+        git_add_commit(dir.path(), "initial");
+
+        let missing_source_dir = dir.path().join("docs");
+        assert!(!missing_source_dir.exists());
+
+        assert!(
+            Vcs::new(&missing_source_dir).has_repo(),
+            "Vcs should discover the repo by climbing to the existing parent",
+        );
+    }
+
+    #[test]
+    fn test_has_repo_true_inside_repo() {
+        let dir = create_git_repo();
+        assert!(Vcs::new(dir.path()).has_repo());
+    }
+
+    #[test]
+    fn test_has_repo_false_outside_any_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!Vcs::new(dir.path()).has_repo());
+    }
+
+    #[test]
+    fn test_nearest_existing_dir_climbs_to_existing_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("a/b/c"); // none of a, b, c exist
+        assert_eq!(Vcs::nearest_existing_dir(&missing), Some(dir.path()));
+    }
+
+    #[test]
+    fn test_nearest_existing_dir_returns_self_when_dir_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(Vcs::nearest_existing_dir(dir.path()), Some(dir.path()));
     }
 
     #[test]
