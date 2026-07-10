@@ -45,7 +45,50 @@ pub(crate) fn slugify(text: &str) -> String {
     result
 }
 
-/// Escapes the five HTML special characters (`&`, `<`, `>`, `"`, `'`).
+/// Appends `s` to `out`, escaping the five HTML special characters
+/// (`&`, `<`, `>`, `"`, `'`).
+///
+/// Prefer this over [`escape_html`] on a hot path: it writes straight into the
+/// caller's buffer and bulk-copies the (usually long) runs between special
+/// characters with `push_str`, so text with nothing to escape — the common case
+/// — is a single copy and no allocation. All five specials are ASCII, so the
+/// byte scan never splits a multi-byte character.
+///
+/// # Examples
+///
+/// ```
+/// use rw_renderer::escape_into;
+///
+/// let mut out = String::from("<p>");
+/// escape_into("a <b> & c", &mut out);
+/// out.push_str("</p>");
+/// assert_eq!(out, "<p>a &lt;b&gt; &amp; c</p>");
+/// ```
+pub fn escape_into(s: &str, out: &mut String) {
+    let mut run_start = 0;
+    for (i, &b) in s.as_bytes().iter().enumerate() {
+        let replacement = match b {
+            b'&' => "&amp;",
+            b'<' => "&lt;",
+            b'>' => "&gt;",
+            b'"' => "&quot;",
+            b'\'' => "&#x27;",
+            _ => continue,
+        };
+        // Bulk-copy the verbatim run before this special byte, then the entity.
+        out.push_str(&s[run_start..i]);
+        out.push_str(replacement);
+        run_start = i + 1;
+    }
+    out.push_str(&s[run_start..]);
+}
+
+/// Escapes the five HTML special characters (`&`, `<`, `>`, `"`, `'`),
+/// returning a new [`String`].
+///
+/// This is a convenience wrapper over [`escape_into`] for callers that need an
+/// owned value; on a hot path where the result is appended to an existing
+/// buffer, call [`escape_into`] directly to avoid the intermediate allocation.
 ///
 /// # Examples
 ///
@@ -58,16 +101,7 @@ pub(crate) fn slugify(text: &str) -> String {
 #[must_use]
 pub fn escape_html(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => result.push_str("&amp;"),
-            '<' => result.push_str("&lt;"),
-            '>' => result.push_str("&gt;"),
-            '"' => result.push_str("&quot;"),
-            '\'' => result.push_str("&#x27;"),
-            _ => result.push(c),
-        }
-    }
+    escape_into(s, &mut result);
     result
 }
 
@@ -107,5 +141,35 @@ mod tests {
         assert_eq!(escape_html("a & b"), "a &amp; b");
         assert_eq!(escape_html(r#""quoted""#), "&quot;quoted&quot;");
         assert_eq!(escape_html("it's"), "it&#x27;s");
+    }
+
+    #[test]
+    fn test_escape_into_appends() {
+        // Appends to existing content rather than replacing it.
+        let mut out = String::from("<p>");
+        escape_into("a <b> & \"c\" 'd'", &mut out);
+        out.push_str("</p>");
+        assert_eq!(out, "<p>a &lt;b&gt; &amp; &quot;c&quot; &#x27;d&#x27;</p>");
+    }
+
+    #[test]
+    fn test_escape_into_no_specials_and_multibyte() {
+        // The common case (no specials) and multi-byte UTF-8 must pass through
+        // verbatim — the byte scan never splits a multi-byte character.
+        let mut out = String::new();
+        escape_into("plain — Привет 你好 🎉", &mut out);
+        assert_eq!(out, "plain — Привет 你好 🎉");
+
+        // A special char adjacent to multi-byte text still escapes correctly.
+        let mut out = String::new();
+        escape_into("Привет <b>", &mut out);
+        assert_eq!(out, "Привет &lt;b&gt;");
+    }
+
+    #[test]
+    fn test_escape_into_empty() {
+        let mut out = String::from("x");
+        escape_into("", &mut out);
+        assert_eq!(out, "x");
     }
 }

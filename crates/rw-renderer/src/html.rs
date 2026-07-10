@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use std::fmt::Write;
 
 use crate::backend::{AlertKind, RenderBackend};
-use crate::util::escape_html;
+use crate::util::escape_into;
 
 // SVG icons for alerts (GitHub Octicons-style, 16x16)
 const SVG_INFO: &str = r#"<svg class="alert-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>"#;
@@ -43,15 +43,15 @@ impl RenderBackend for HtmlBackend {
 
     fn code_block(lang: Option<&str>, content: &str, out: &mut String) {
         if let Some(lang) = lang {
-            write!(
-                out,
-                r#"<pre><code class="language-{}">{}</code></pre>"#,
-                escape_html(lang),
-                escape_html(content)
-            )
-            .unwrap();
+            out.push_str(r#"<pre><code class="language-"#);
+            escape_into(lang, out);
+            out.push_str(r#"">"#);
+            escape_into(content, out);
+            out.push_str("</code></pre>");
         } else {
-            write!(out, "<pre><code>{}</code></pre>", escape_html(content)).unwrap();
+            out.push_str("<pre><code>");
+            escape_into(content, out);
+            out.push_str("</code></pre>");
         }
     }
 
@@ -83,18 +83,17 @@ impl RenderBackend for HtmlBackend {
     }
 
     fn image(src: &str, alt: &str, title: &str, out: &mut String) {
-        let title_attr = if title.is_empty() {
-            String::new()
-        } else {
-            format!(r#" title="{}""#, escape_html(title))
-        };
-        write!(
-            out,
-            r#"<img src="{}"{title_attr} alt="{}">"#,
-            escape_html(src),
-            escape_html(alt)
-        )
-        .unwrap();
+        out.push_str(r#"<img src=""#);
+        escape_into(src, out);
+        out.push('"');
+        if !title.is_empty() {
+            out.push_str(r#" title=""#);
+            escape_into(title, out);
+            out.push('"');
+        }
+        out.push_str(r#" alt=""#);
+        escape_into(alt, out);
+        out.push_str(r#"">"#);
     }
 
     fn table_start(out: &mut String) {

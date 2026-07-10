@@ -158,4 +158,4 @@ pub use search_document::SearchDocumentBackend;
 pub use status::{StatusColor, StatusDirective};
 pub use tabs::TabsDirective;
 pub use toc::TocEntry;
-pub use util::escape_html;
+pub use util::{escape_html, escape_into};

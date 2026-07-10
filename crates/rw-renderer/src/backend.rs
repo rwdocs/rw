@@ -9,7 +9,7 @@ use std::fmt::Write;
 
 use pulldown_cmark::{Alignment, BlockQuoteKind};
 
-use crate::escape_html;
+use crate::escape_into;
 
 /// Alert variant for GitHub-style blockquotes (`> [!NOTE]`, `> [!TIP]`, etc.).
 ///
@@ -320,7 +320,9 @@ pub trait RenderBackend {
 
     /// Writes inline code.
     fn inline_code(code: &str, out: &mut String) {
-        write!(out, "<code>{}</code>", escape_html(code)).unwrap();
+        out.push_str("<code>");
+        escape_into(code, out);
+        out.push_str("</code>");
     }
 
     /// Writes the opening tag for a link.
@@ -329,11 +331,17 @@ pub trait RenderBackend {
     /// links. The default adds `data-section-ref` and `data-section-path` HTML
     /// attributes; non-HTML backends can ignore this parameter.
     fn link_start(href: &str, section_ref: Option<(&str, &str)>, out: &mut String) {
-        write!(out, r#"<a href="{}""#, escape_html(href)).unwrap();
+        out.push_str(r#"<a href=""#);
+        escape_into(href, out);
+        out.push('"');
         if let Some((ref_string, section_path)) = section_ref {
-            write!(out, r#" data-section-ref="{}""#, escape_html(ref_string)).unwrap();
+            out.push_str(r#" data-section-ref=""#);
+            escape_into(ref_string, out);
+            out.push('"');
             if !section_path.is_empty() {
-                write!(out, r#" data-section-path="{}""#, escape_html(section_path)).unwrap();
+                out.push_str(r#" data-section-path=""#);
+                escape_into(section_path, out);
+                out.push('"');
             }
         }
         out.push('>');
@@ -355,7 +363,7 @@ pub trait RenderBackend {
 
     /// Writes a text node. Default: HTML-escapes the text.
     fn text(text: &str, out: &mut String) {
-        out.push_str(&escape_html(text));
+        escape_into(text, out);
     }
 
     /// Writes raw HTML content. Default: passes through unchanged.
