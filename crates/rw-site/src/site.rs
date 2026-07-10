@@ -222,9 +222,26 @@ impl Site {
     }
 
     /// Returns every document (page) in the site, each keyed by its
-    /// `(section_ref, subpath)` pair and carrying its title — the per-page
-    /// counterpart to [`list_sections`](Self::list_sections). See
-    /// [`SiteState::list_pages`].
+    /// `(section_ref, subpath)` pair and carrying its title and last-modified
+    /// `mtime` — the per-page counterpart to
+    /// [`list_sections`](Self::list_sections). See [`SiteState::list_pages`].
+    ///
+    /// Unlike [`SiteState::list_pages`], which stays storage-free and leaves
+    /// each entry's `mtime` at `0.0`, this method owns storage and fills the
+    /// per-page `mtime` from [`Storage::mtime`], falling back to `0.0` when the
+    /// mtime is unknown.
+    ///
+    /// # Performance
+    ///
+    /// The per-page `mtime` lookup cost depends on the storage backend and its
+    /// mtime source. On S3 it is an in-memory map lookup (the manifest's mtimes,
+    /// loaded once at scan time), so this stays O(pages). On a filesystem
+    /// backend in the default filesystem-mtime mode it is a plain `stat` — also
+    /// cheap. It is costly only for a filesystem backend in git-mtime mode
+    /// (e.g. `createSite` with `mtimeSource: "git"`), where each `mtime` reads
+    /// and hashes the file and walks commit history back to its last change,
+    /// with no caching here — so a bulk listing over a large git-backed tree
+    /// with deep history should prefer S3 or the filesystem mtime source.
     ///
     /// # Errors
     ///
@@ -232,7 +249,17 @@ impl Site {
     /// unreachable). Subsequent reload failures are logged and stale data is
     /// returned instead.
     pub fn list_pages(&self) -> Result<Vec<PageEntry>, StorageError> {
-        Ok(self.reload_if_needed()?.state.list_pages())
+        let snapshot = self.reload_if_needed()?;
+        let entries = snapshot
+            .state
+            .list_pages()
+            .into_iter()
+            .map(|(path, mut entry)| {
+                entry.mtime = self.storage.mtime(&path).unwrap_or(0.0);
+                entry
+            })
+            .collect();
+        Ok(entries)
     }
 
     /// Returns the current [`Sections`] map for cross-section link resolution.
@@ -1568,6 +1595,32 @@ mod tests {
             .expect("billing page");
         assert_eq!(billing.section_ref, "domain:default/billing");
         assert_eq!(billing.subpath, "");
+    }
+
+    #[test]
+    #[allow(clippy::float_cmp)] // exact, non-arithmetic values set via with_mtime
+    fn list_pages_carries_per_page_mtime_from_storage() {
+        // billing/overview has an explicit mtime; the billing section root has none.
+        let storage = MockStorage::new()
+            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document("billing/overview", "Overview")
+            .with_mtime("billing/overview", 1_700_000_000.0);
+        let site = create_site_with_storage(storage);
+
+        let pages = site.list_pages().expect("list_pages");
+
+        let overview = pages
+            .iter()
+            .find(|p| p.title == "Overview")
+            .expect("overview page");
+        assert_eq!(overview.mtime, 1_700_000_000.0);
+
+        // A page whose storage has no recorded mtime falls back to the epoch.
+        let billing = pages
+            .iter()
+            .find(|p| p.title == "Billing")
+            .expect("billing page");
+        assert_eq!(billing.mtime, 0.0);
     }
 
     #[test]

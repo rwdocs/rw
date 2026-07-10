@@ -69,7 +69,7 @@ pub struct SectionEntry {
 /// page's `document_id` (`PageMeta.sectionRef` + `PageMeta.subpath`), so a
 /// consumer can join these entries directly against stored comments. See
 /// [`list_pages`](SiteState::list_pages) for which pages are included.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PageEntry {
     /// Canonical section ref (`kind:namespace/name`) of the enclosing section.
     pub section_ref: String,
@@ -78,6 +78,14 @@ pub struct PageEntry {
     pub subpath: String,
     /// Display title (metadata `title`, first H1, or filename).
     pub title: String,
+    /// Last-modified time as seconds since the Unix epoch — the same per-page
+    /// mtime [`render`](crate::Site::render) reports (git author-time for clean
+    /// tracked files, filesystem mtime otherwise; the S3 manifest `mtimes` table
+    /// for published bundles). `0.0` when the mtime is unknown.
+    ///
+    /// Filled by [`Site::list_pages`](crate::Site::list_pages), which owns
+    /// storage; [`SiteState::list_pages`] itself leaves it `0.0`.
+    pub mtime: f64,
 }
 
 /// Describes which [section](crate#sections-and-scoped-navigation) the
@@ -563,9 +571,9 @@ impl SiteState {
         entries
     }
 
-    /// Returns every page in the site, each keyed by its `(section_ref,
-    /// subpath)` pair and carrying its title — the per-page counterpart to
-    /// [`list_sections`](Self::list_sections).
+    /// Returns every page in the site, each paired with its URL path (the
+    /// storage key) and carrying its `(section_ref, subpath)` key and title —
+    /// the per-page counterpart to [`list_sections`](Self::list_sections).
     ///
     /// Includes **every** page: the root page (empty `subpath`) and virtual
     /// pages (directory containers without an `index.md`, which have a title
@@ -573,29 +581,41 @@ impl SiteState {
     /// matches what [`section_location`](Self::section_location) produces, so
     /// it is byte-identical to the `document_id` the comment system stores.
     ///
+    /// The paired path is the same key [`render`](crate::Site::render) passes
+    /// to storage, so a storage-owning caller
+    /// (e.g. [`Site::list_pages`](crate::Site::list_pages)) can look up per-page
+    /// storage data such as the `mtime` directly, without reversing the
+    /// `(section_ref, subpath)` key back into a path. `SiteState` owns no
+    /// storage, so each entry's `mtime` is left `0.0` here for that caller to
+    /// fill.
+    ///
     /// Each key comes from a per-page [`section_location`](Self::section_location)
     /// lookup (a linear scan of the small section map), so this is
     /// O(pages × sections) — fine at the expected scale. Sorted by
     /// `(section_ref, subpath)` for a deterministic order; the key is unique
     /// per page, so the sort never has to break ties.
     #[must_use]
-    pub fn list_pages(&self) -> Vec<PageEntry> {
-        let mut entries: Vec<PageEntry> = self
+    pub(crate) fn list_pages(&self) -> Vec<(String, PageEntry)> {
+        let mut entries: Vec<(String, PageEntry)> = self
             .pages
             .iter()
             .map(|page| {
                 let (section_ref, subpath) = self.section_location(&page.path);
-                PageEntry {
-                    section_ref,
-                    subpath,
-                    title: page.title.clone(),
-                }
+                (
+                    page.path.clone(),
+                    PageEntry {
+                        section_ref,
+                        subpath,
+                        title: page.title.clone(),
+                        mtime: 0.0,
+                    },
+                )
             })
             .collect();
         entries.sort_unstable_by(|a, b| {
-            a.section_ref
-                .cmp(&b.section_ref)
-                .then_with(|| a.subpath.cmp(&b.subpath))
+            a.1.section_ref
+                .cmp(&b.1.section_ref)
+                .then_with(|| a.1.subpath.cmp(&b.1.subpath))
         });
         entries
     }
@@ -2415,12 +2435,22 @@ mod tests {
 
     // list_pages tests
 
+    /// Projects [`SiteState::list_pages`] to just the `PageEntry` values these
+    /// tests assert on, dropping the paired storage path.
+    fn page_entries(state: &SiteState) -> Vec<PageEntry> {
+        state
+            .list_pages()
+            .into_iter()
+            .map(|(_, entry)| entry)
+            .collect()
+    }
+
     #[test]
     fn list_pages_includes_every_page_with_title_and_key() {
         // root (Home) -> billing (domain) -> billing/payments (system)
         //   -> billing/payments/api (page, no kind)
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = page_entries(&site);
 
         // One entry per page (4 pages: root, billing, payments, api).
         assert_eq!(pages.len(), 4);
@@ -2470,7 +2500,7 @@ mod tests {
             Namespace::default(),
         );
         let site = builder.build();
-        let pages = site.list_pages();
+        let pages = page_entries(&site);
 
         let guide = pages.iter().find(|p| p.title == "Guide").unwrap();
         assert_eq!(guide.section_ref, "section:default/root");
@@ -2505,7 +2535,7 @@ mod tests {
             Namespace::default(),
         );
         let site = builder.build();
-        let pages = site.list_pages();
+        let pages = page_entries(&site);
 
         let dir = pages.iter().find(|p| p.title == "Guides").unwrap();
         assert_eq!(dir.section_ref, "section:default/root");
@@ -2518,7 +2548,7 @@ mod tests {
         // (via page_path_for) back to a real page path — i.e. it agrees with
         // section_location / page_path_for.
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = page_entries(&site);
 
         for page in &pages {
             let path = site
@@ -2534,7 +2564,7 @@ mod tests {
     #[test]
     fn list_pages_sorted_by_section_ref_then_subpath() {
         let site = nested_sections_site();
-        let pages = site.list_pages();
+        let pages = page_entries(&site);
 
         let keys: Vec<(String, String)> = pages
             .iter()
