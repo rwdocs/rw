@@ -12,15 +12,17 @@ use napi_derive::napi;
 use rw_cache::{Cache, NullCache};
 use rw_cache_s3::S3Cache;
 use rw_config::Config;
-use rw_site::{NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site};
+use rw_site::{
+    NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
+};
 use rw_storage::Storage;
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
 
 use crate::types::{
     BreadcrumbResponse, DiagramsConfig, NavItemResponse, NavigationResponse, PageEntryResponse,
-    PageMetaResponse, PageResponse, ScopeInfoResponse, SearchDocumentResponse, SectionAnchorResponse,
-    SectionEntryResponse, SectionResponse, SiteConfig, TocEntryResponse,
+    PageMetaResponse, PageResponse, ScopeInfoResponse, SearchDocumentResponse,
+    SectionAnchorResponse, SectionEntryResponse, SectionResponse, SiteConfig, TocEntryResponse,
 };
 
 /// Shared tokio runtime for all S3-backed storage instances.
@@ -31,8 +33,7 @@ fn shared_runtime() -> Arc<tokio::runtime::Runtime> {
     static RUNTIME: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
     Arc::clone(RUNTIME.get_or_init(|| {
         Arc::new(
-            tokio::runtime::Runtime::new()
-                .expect("Failed to create tokio runtime for S3 storage"),
+            tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for S3 storage"),
         )
     }))
 }
@@ -102,7 +103,10 @@ fn convert_section_ancestry(
         .map(|(section_ref, anchors)| {
             (
                 section_ref,
-                anchors.into_iter().map(SectionAnchorResponse::from).collect(),
+                anchors
+                    .into_iter()
+                    .map(SectionAnchorResponse::from)
+                    .collect(),
             )
         })
         .collect()
@@ -124,87 +128,89 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
         ));
     }
 
-    let (storage, renderer_config, cache): (
-        Arc<dyn Storage>,
-        PageRendererConfig,
-        Arc<dyn Cache>,
-    ) = if let Some(s3) = config.s3 {
-        if s3.access_key_id.is_some() != s3.secret_access_key.is_some() {
-            return Err(napi::Error::new(
-                napi::Status::InvalidArg,
-                "s3.accessKeyId and s3.secretAccessKey must be provided together",
-            ));
-        }
-
-        let s3_config = S3Config {
-            bucket: s3.bucket,
-            prefix: s3.entity,
-            region: s3.region.unwrap_or_else(|| "us-east-1".to_owned()),
-            endpoint: s3.endpoint,
-            bucket_root_path: s3.bucket_root_path,
-            access_key_id: s3.access_key_id,
-            secret_access_key: s3.secret_access_key,
-        };
-        let storage = S3Storage::new(s3_config, shared_runtime()).map_err(|e| {
-            napi::Error::from_reason(format!("Failed to create S3 storage: {}", error_chain(&e)))
-        })?;
-
-        let cache: Arc<dyn Cache> = Arc::new(S3Cache::new(
-            storage.client().clone(),
-            storage.runtime_handle(),
-            storage.config().bucket.clone(),
-            storage.config().base_prefix(),
-        ));
-
-        let mut renderer_config = PageRendererConfig {
-            extract_title: true,
-            ..Default::default()
-        };
-        apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
-        (Arc::new(storage), renderer_config, cache)
-    } else if let Some(project_dir) = config.project_dir {
-        let project_path = PathBuf::from(&project_dir);
-        let config_path = project_path.join("rw.toml");
-        let config_file = if config_path.exists() {
-            Some(config_path.as_path())
-        } else {
-            None
-        };
-        let rw_config = Config::load(config_file, None)
-            .map_err(|e| napi::Error::from_reason(format!("Failed to load rw.toml: {e}")))?;
-
-        let mtime_source = match config.mtime_source.as_deref() {
-            None | Some("filesystem") => MtimeSource::Filesystem,
-            Some("git") => MtimeSource::Git,
-            Some(other) => {
+    let (storage, renderer_config, cache): (Arc<dyn Storage>, PageRendererConfig, Arc<dyn Cache>) =
+        if let Some(s3) = config.s3 {
+            if s3.access_key_id.is_some() != s3.secret_access_key.is_some() {
                 return Err(napi::Error::new(
                     napi::Status::InvalidArg,
-                    format!("invalid mtimeSource {other:?} (expected \"filesystem\" or \"git\")"),
+                    "s3.accessKeyId and s3.secretAccessKey must be provided together",
                 ));
             }
+
+            let s3_config = S3Config {
+                bucket: s3.bucket,
+                prefix: s3.entity,
+                region: s3.region.unwrap_or_else(|| "us-east-1".to_owned()),
+                endpoint: s3.endpoint,
+                bucket_root_path: s3.bucket_root_path,
+                access_key_id: s3.access_key_id,
+                secret_access_key: s3.secret_access_key,
+            };
+            let storage = S3Storage::new(s3_config, shared_runtime()).map_err(|e| {
+                napi::Error::from_reason(format!(
+                    "Failed to create S3 storage: {}",
+                    error_chain(&e)
+                ))
+            })?;
+
+            let cache: Arc<dyn Cache> = Arc::new(S3Cache::new(
+                storage.client().clone(),
+                storage.runtime_handle(),
+                storage.config().bucket.clone(),
+                storage.config().base_prefix(),
+            ));
+
+            let mut renderer_config = PageRendererConfig {
+                extract_title: true,
+                ..Default::default()
+            };
+            apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
+            (Arc::new(storage), renderer_config, cache)
+        } else if let Some(project_dir) = config.project_dir {
+            let project_path = PathBuf::from(&project_dir);
+            let config_path = project_path.join("rw.toml");
+            let config_file = if config_path.exists() {
+                Some(config_path.as_path())
+            } else {
+                None
+            };
+            let rw_config = Config::load(config_file, None)
+                .map_err(|e| napi::Error::from_reason(format!("Failed to load rw.toml: {e}")))?;
+
+            let mtime_source = match config.mtime_source.as_deref() {
+                None | Some("filesystem") => MtimeSource::Filesystem,
+                Some("git") => MtimeSource::Git,
+                Some(other) => {
+                    return Err(napi::Error::new(
+                        napi::Status::InvalidArg,
+                        format!(
+                            "invalid mtimeSource {other:?} (expected \"filesystem\" or \"git\")"
+                        ),
+                    ));
+                }
+            };
+            let storage = Arc::new(
+                FsStorage::with_meta_filename(
+                    rw_config.docs_resolved.source_dir.clone(),
+                    &rw_config.metadata.name,
+                )
+                .with_mtime_source(mtime_source),
+            );
+            let mut renderer_config = PageRendererConfig {
+                extract_title: true,
+                kroki_url: rw_config.diagrams_resolved.kroki_url,
+                include_dirs: rw_config.diagrams_resolved.include_dirs,
+                dpi: rw_config.diagrams_resolved.dpi,
+                ..Default::default()
+            };
+            apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
+            (storage, renderer_config, Arc::new(NullCache))
+        } else {
+            return Err(napi::Error::new(
+                napi::Status::InvalidArg,
+                "Either projectDir or s3 must be provided",
+            ));
         };
-        let storage = Arc::new(
-            FsStorage::with_meta_filename(
-                rw_config.docs_resolved.source_dir.clone(),
-                &rw_config.metadata.name,
-            )
-            .with_mtime_source(mtime_source),
-        );
-        let mut renderer_config = PageRendererConfig {
-            extract_title: true,
-            kroki_url: rw_config.diagrams_resolved.kroki_url,
-            include_dirs: rw_config.diagrams_resolved.include_dirs,
-            dpi: rw_config.diagrams_resolved.dpi,
-            ..Default::default()
-        };
-        apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
-        (storage, renderer_config, Arc::new(NullCache))
-    } else {
-        return Err(napi::Error::new(
-            napi::Status::InvalidArg,
-            "Either projectDir or s3 must be provided",
-        ));
-    };
 
     let site = Arc::new(Site::new(storage, cache, renderer_config));
     Ok(RwSite { site })
@@ -214,10 +220,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
 #[allow(clippy::needless_pass_by_value)]
 impl RwSite {
     #[napi(js_name = "getNavigation")]
-    pub async fn get_navigation(
-        &self,
-        section_ref: Option<String>,
-    ) -> Result<NavigationResponse> {
+    pub async fn get_navigation(&self, section_ref: Option<String>) -> Result<NavigationResponse> {
         let site = Arc::clone(&self.site);
         tokio::task::spawn_blocking(move || {
             let nav = site
@@ -288,15 +291,13 @@ impl RwSite {
         path: String,
     ) -> Result<Option<SearchDocumentResponse>> {
         let site = Arc::clone(&self.site);
-        tokio::task::spawn_blocking(move || {
-            match site.render_search_document(&path) {
-                Ok(Some(doc)) => Ok(Some(SearchDocumentResponse {
-                    title: doc.title,
-                    text: doc.text,
-                })),
-                Ok(None) => Ok(None),
-                Err(e) => Err(napi::Error::from_reason(error_chain(&e))),
-            }
+        tokio::task::spawn_blocking(move || match site.render_search_document(&path) {
+            Ok(Some(doc)) => Ok(Some(SearchDocumentResponse {
+                title: doc.title,
+                text: doc.text,
+            })),
+            Ok(None) => Ok(None),
+            Err(e) => Err(napi::Error::from_reason(error_chain(&e))),
         })
         .await
         .map_err(|e| napi::Error::from_reason(e.to_string()))?
