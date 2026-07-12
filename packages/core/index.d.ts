@@ -6,6 +6,16 @@ export declare class RwSite {
   listPages(): Promise<Array<PageEntryResponse>>
   renderPage(path: string): Promise<PageResponse>
   renderSearchDocument(path: string): Promise<SearchDocumentResponse | null>
+  /**
+   * Returns a page's markdown source, exactly as authored.
+   *
+   * Nothing is rendered or transformed — this is a single storage read.
+   *
+   * Resolves to `null` for a virtual page — a directory that declares
+   * metadata (a `meta.yaml`) but has no markdown of its own. Rejects if no
+   * page exists at `path`.
+   */
+  getPageMarkdown(path: string): Promise<PageMarkdownResponse | null>
   reload(force?: boolean | undefined | null): Promise<boolean>
 }
 
@@ -70,6 +80,11 @@ export interface PageEntryResponse {
    * unknown, not an actual 1970 modification.
    */
   lastModified: string
+}
+
+/** A page's markdown source, exactly as authored (frontmatter included). */
+export interface PageMarkdownResponse {
+  markdown: string
 }
 
 export interface PageMetaResponse {

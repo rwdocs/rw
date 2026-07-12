@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `@rwdocs/core`'s `RwSite.getPageMarkdown()` returns a page's Markdown source as authored, so a host (e.g. an MCP `read-page` tool feeding an AI agent) can read a page as Markdown instead of converting the rendered HTML back with turndown. Returns `null` for a virtual directory page.
+
 ## [0.1.31] - 2026-07-10
 
 ### Fixed
