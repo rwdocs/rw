@@ -295,13 +295,35 @@ impl Site {
     /// explicit section's ref resolves even when nothing has loaded the site
     /// yet — the empty initial snapshot carries only the implicit root, so a
     /// snapshot-only read would miss every explicit section and wrongly return
-    /// `None`. A reload failure falls back to the current snapshot; a caller
-    /// that follows this with [`render`](Self::render) surfaces the real
-    /// storage error there.
+    /// `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError`] if the site has never loaded and loading it
+    /// fails. A failure to *re*load an already-loaded site is not an error: the
+    /// stale snapshot is kept and resolved against.
+    pub fn try_page_path_for(
+        &self,
+        section_ref: &str,
+        subpath: &str,
+    ) -> Result<Option<String>, StorageError> {
+        Ok(self
+            .reload_if_needed()?
+            .state
+            .page_path_for(section_ref, subpath))
+    }
+
+    /// [`try_page_path_for`](Self::try_page_path_for), with a failed initial
+    /// load reported as `None` rather than an error.
+    ///
+    /// Only for callers that follow this with [`render`](Self::render), which
+    /// surfaces the real storage error. Anything that maps `None` to
+    /// "not found" must use `try_page_path_for` instead, or an unreachable
+    /// backend masquerades as a missing page.
     #[must_use]
     pub fn page_path_for(&self, section_ref: &str, subpath: &str) -> Option<String> {
-        let snapshot = self.reload_if_needed().unwrap_or_else(|_| self.snapshot());
-        snapshot.state.page_path_for(section_ref, subpath)
+        self.try_page_path_for(section_ref, subpath)
+            .unwrap_or_else(|_| self.snapshot().state.page_path_for(section_ref, subpath))
     }
 
     /// Returns `true` if a page exists at `path` in the site structure.
@@ -1395,6 +1417,30 @@ mod tests {
         let result = site.navigation(None);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
+    }
+
+    // A caller that maps "no path" to a 404 must not see an unreachable backend
+    // as a missing page: the initial snapshot holds only the implicit root, so
+    // swallowing the load failure would resolve every explicit section to None.
+    #[test]
+    fn test_try_page_path_for_propagates_storage_error_on_initial_failure() {
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+        let site = create_site_with_storage(storage);
+
+        let result = site.try_page_path_for("domain:default/billing", "api");
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind, StorageErrorKind::Unavailable);
+    }
+
+    // The lossy variant keeps its contract for the render-first callers that
+    // rely on it (rw-comments): a failed load reads as None, not a panic.
+    #[test]
+    fn test_page_path_for_reports_initial_storage_failure_as_none() {
+        let storage = MockStorage::new().with_scan_error(StorageErrorKind::Unavailable);
+        let site = create_site_with_storage(storage);
+
+        assert_eq!(site.page_path_for("domain:default/billing", "api"), None);
     }
 
     #[test]
