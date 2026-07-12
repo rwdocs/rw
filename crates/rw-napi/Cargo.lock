@@ -3042,7 +3042,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rw-cache"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "serde",
  "serde_json",
@@ -3051,7 +3051,7 @@ dependencies = [
 
 [[package]]
 name = "rw-cache-s3"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aws-sdk-s3",
  "rw-cache",
@@ -3061,7 +3061,7 @@ dependencies = [
 
 [[package]]
 name = "rw-config"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "serde",
  "shellexpand",
@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "rw-kroki"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "base64",
  "hex",
@@ -3087,7 +3087,7 @@ dependencies = [
 
 [[package]]
 name = "rw-meta"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "pulldown-cmark",
  "serde",
@@ -3097,7 +3097,7 @@ dependencies = [
 
 [[package]]
 name = "rw-napi"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "chrono",
  "napi",
@@ -3117,7 +3117,7 @@ dependencies = [
 
 [[package]]
 name = "rw-renderer"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "pulldown-cmark",
  "rw-sections",
@@ -3127,7 +3127,7 @@ dependencies = [
 
 [[package]]
 name = "rw-sections"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "serde",
  "thiserror",
@@ -3136,7 +3136,7 @@ dependencies = [
 
 [[package]]
 name = "rw-site"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "parking_lot",
  "rw-cache",
@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "serde",
  "serde_json",
@@ -3161,7 +3161,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-fs"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "glob",
  "ignore",
@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-s3"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -3193,7 +3193,7 @@ dependencies = [
 
 [[package]]
 name = "rw-vcs"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "gix",
 ]
