@@ -531,6 +531,33 @@ impl Site {
         self.renderer.render_search_document(path, page, &ctx)
     }
 
+    /// Returns a page's markdown source, exactly as authored.
+    ///
+    /// Nothing is rendered, transformed or cached: this is a single storage
+    /// read.
+    ///
+    /// Returns `None` for virtual pages (directories without content).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RenderError::PageNotFound`] if no page with this path exists in
+    /// the site structure, [`RenderError::FileNotFound`] if the page exists but
+    /// its markdown source is missing from storage, and
+    /// [`RenderError::Storage`] if the storage backend itself fails.
+    pub fn page_markdown(&self, path: &str) -> Result<Option<String>, RenderError> {
+        let snapshot = self.reload_if_needed().map_err(RenderError::Storage)?;
+        let page = snapshot
+            .state
+            .get_page(path)
+            .ok_or_else(|| RenderError::PageNotFound(path.to_owned()))?;
+
+        if !page.has_content {
+            return Ok(None);
+        }
+
+        Ok(Some(self.storage.read(path)?))
+    }
+
     fn render_context(snapshot: &Arc<SiteSnapshot>) -> RenderContext {
         RenderContext {
             sections: Arc::clone(snapshot.state.sections()),
@@ -1808,6 +1835,62 @@ mod tests {
             result.html.contains(r#"href="/specs/inbox""#),
             "leaf sibling link should resolve to /specs/inbox, got: {}",
             result.html
+        );
+    }
+
+    // ========================================================================
+    // page_markdown
+    // ========================================================================
+
+    #[test]
+    fn test_page_markdown_keeps_frontmatter() {
+        let source = "---\ntitle: Guide\nkind: domain\n---\n\n# Guide\n\nBody.\n";
+        let storage = MockStorage::new()
+            .with_file("guide", "Guide", source)
+            .with_mtime("guide", 1000.0);
+        let site = create_site_with_storage(storage);
+
+        let markdown = site.page_markdown("guide").unwrap();
+
+        assert_eq!(
+            markdown.as_deref(),
+            Some(source),
+            "frontmatter carries title/kind/vars an agent can use"
+        );
+    }
+
+    #[test]
+    fn test_page_markdown_is_returned_verbatim() {
+        let source = "# Guide\n\nSee [[billing::api]].\n\n```plantuml\nA -> B\n```\n";
+        let storage = MockStorage::new()
+            .with_file("guide", "Guide", source)
+            .with_mtime("guide", 1000.0);
+        let site = create_site_with_storage(storage);
+
+        let markdown = site.page_markdown("guide").unwrap();
+
+        assert_eq!(
+            markdown.as_deref(),
+            Some(source),
+            "wikilinks, directives and diagram fences are left untouched"
+        );
+    }
+
+    #[test]
+    fn test_page_markdown_virtual_page_returns_none() {
+        let storage = MockStorage::new().with_virtual_page("section", "Section");
+        let site = create_site_with_storage(storage);
+
+        assert_eq!(site.page_markdown("section").unwrap(), None);
+    }
+
+    #[test]
+    fn test_page_markdown_unknown_path_is_page_not_found() {
+        let site = create_site_with_storage(MockStorage::new());
+
+        assert_matches!(
+            site.page_markdown("missing"),
+            Err(RenderError::PageNotFound(_))
         );
     }
 }

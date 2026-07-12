@@ -195,3 +195,9 @@ pub struct SearchDocumentResponse {
     pub title: String,
     pub text: String,
 }
+
+/// A page's markdown source, exactly as authored (frontmatter included).
+#[napi(object)]
+pub struct PageMarkdownResponse {
+    pub markdown: String,
+}

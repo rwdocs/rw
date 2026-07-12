@@ -21,8 +21,9 @@ use rw_storage_s3::{S3Config, S3Storage};
 
 use crate::types::{
     BreadcrumbResponse, DiagramsConfig, NavItemResponse, NavigationResponse, PageEntryResponse,
-    PageMetaResponse, PageResponse, ScopeInfoResponse, SearchDocumentResponse,
-    SectionAnchorResponse, SectionEntryResponse, SectionResponse, SiteConfig, TocEntryResponse,
+    PageMarkdownResponse, PageMetaResponse, PageResponse, ScopeInfoResponse,
+    SearchDocumentResponse, SectionAnchorResponse, SectionEntryResponse, SectionResponse,
+    SiteConfig, TocEntryResponse,
 };
 
 /// Shared tokio runtime for all S3-backed storage instances.
@@ -297,6 +298,25 @@ impl RwSite {
                 title: doc.title,
                 text: doc.text,
             })),
+            Ok(None) => Ok(None),
+            Err(e) => Err(napi::Error::from_reason(error_chain(&e))),
+        })
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
+    }
+
+    /// Returns a page's markdown source, exactly as authored.
+    ///
+    /// Nothing is rendered or transformed — this is a single storage read.
+    ///
+    /// Resolves to `null` for a virtual page — a directory that declares
+    /// metadata (a `meta.yaml`) but has no markdown of its own. Rejects if no
+    /// page exists at `path`.
+    #[napi(js_name = "getPageMarkdown")]
+    pub async fn get_page_markdown(&self, path: String) -> Result<Option<PageMarkdownResponse>> {
+        let site = Arc::clone(&self.site);
+        tokio::task::spawn_blocking(move || match site.page_markdown(&path) {
+            Ok(Some(markdown)) => Ok(Some(PageMarkdownResponse { markdown })),
             Ok(None) => Ok(None),
             Err(e) => Err(napi::Error::from_reason(error_chain(&e))),
         })
