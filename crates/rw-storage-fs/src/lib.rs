@@ -2558,7 +2558,7 @@ mod tests {
     // --- url_paths_for_source ---
 
     /// Create a test project: `<tmp>/README.md`, `<tmp>/docs/` with several pages.
-    /// Storage source_dir is `<tmp>/docs`.
+    /// Storage `source_dir` is `<tmp>/docs`.
     fn make_url_paths_storage() -> (tempfile::TempDir, FsStorage) {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();

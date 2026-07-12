@@ -202,7 +202,6 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 kroki_url: rw_config.diagrams_resolved.kroki_url,
                 include_dirs: rw_config.diagrams_resolved.include_dirs,
                 dpi: rw_config.diagrams_resolved.dpi,
-                ..Default::default()
             };
             apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
             (storage, renderer_config, Arc::new(NullCache))
