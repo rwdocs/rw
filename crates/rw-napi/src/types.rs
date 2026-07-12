@@ -106,13 +106,39 @@ pub struct SectionEntryResponse {
 #[napi(object)]
 pub struct PageEntryResponse {
     /// Canonical section ref (`kind:namespace/name`). Named `sectionRef` in JS
-    /// to match `PageMeta.sectionRef`.
+    /// to match `PageMeta.sectionRef`. Always equal to `anchors[0].sectionRef`.
     #[napi(js_name = "sectionRef")]
     pub section_ref: String,
     /// Page path relative to its section root (`""` for the section root).
+    /// Always equal to `anchors[0].subpath`.
     pub subpath: String,
+    /// Site path, no leading slash (`""` for the site's root page) — the form
+    /// `renderPage()`, `renderSearchDocument()`, and `getPageMarkdown()` take,
+    /// so a listed page can be read without mapping its `(sectionRef, subpath)`
+    /// identity back through `pagePathFor()`.
+    pub path: String,
     /// Display title.
     pub title: String,
+    /// Whether the page has a markdown body. `false` for a virtual directory
+    /// page (a directory with no `index.md`) — it has a title and a place in the
+    /// navigation, but nothing to render, so a host indexing a site should skip
+    /// it rather than call `renderSearchDocument()` on it just to get `null`.
+    #[napi(js_name = "hasContent")]
+    pub has_content: bool,
+    /// Every section enclosing this page, innermost first with the root section
+    /// last, each paired with the page's path relative to *that* section.
+    /// `anchors[0]` is the page's own `(sectionRef, subpath)` identity;
+    /// `anchors[anchors.length - 1]` is the root section, whose subpath is
+    /// `path`. Never empty.
+    ///
+    /// A host whose sections map to catalog entities can find the nearest
+    /// enclosing entity and get a path relative to it in one pass:
+    ///
+    /// ```js
+    /// const anchor = page.anchors.find((a) => claims.has(a.sectionRef))
+    /// const viewerPath = anchor ? anchor.subpath : page.path
+    /// ```
+    pub anchors: Vec<SectionAnchorResponse>,
     /// Last-modified time as an RFC-3339 string (e.g.
     /// `2026-07-09T10:35:00+00:00`), matching `PageMeta.lastModified`. Sourced
     /// from the same per-page mtime `renderPage()` uses (git author-time for
@@ -121,8 +147,8 @@ pub struct PageEntryResponse {
     ///
     /// Falls back to the Unix epoch (`1970-01-01T00:00:00+00:00`) when the mtime
     /// is unknown — a site served from a legacy S3 manifest published before
-    /// per-page mtimes were recorded (republishing repopulates it), or a virtual
-    /// directory page that has no backing markdown file. Here "epoch" means
+    /// per-page mtimes were recorded (republishing repopulates it), or a page
+    /// with no backing markdown file (`hasContent: false`). Here "epoch" means
     /// unknown, not an actual 1970 modification.
     #[napi(js_name = "lastModified")]
     pub last_modified: String,

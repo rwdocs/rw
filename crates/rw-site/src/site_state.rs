@@ -72,12 +72,39 @@ pub struct SectionEntry {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PageEntry {
     /// Canonical section ref (`kind:namespace/name`) of the enclosing section.
+    /// Always equal to `anchors[0].section_ref`.
     pub section_ref: String,
     /// Page path relative to its section root (empty for the section's own
     /// root page; the full path for pages outside any explicit section).
+    /// Always equal to `anchors[0].subpath`.
     pub subpath: String,
+    /// Site path, no leading slash (empty for the site's root page) — the key
+    /// [`Site::render`](crate::Site::render) and
+    /// [`Site::page_markdown`](crate::Site::page_markdown) take, so a
+    /// consumer can read a listed page without reversing its
+    /// `(section_ref, subpath)` key back into a path.
+    pub path: String,
     /// Display title (metadata `title`, first H1, or filename).
     pub title: String,
+    /// Whether the page has a markdown body. `false` for a virtual directory
+    /// page (a directory with no `index.md`), which has a title and a place in
+    /// the navigation tree but nothing to render — so a consumer indexing a
+    /// site can skip it instead of rendering it just to get nothing back.
+    pub has_content: bool,
+    /// Every section enclosing this page, innermost first with the root section
+    /// last, each paired with the page's path relative to *that* section — the
+    /// full chain [`section_ref`](Self::section_ref)/[`subpath`](Self::subpath)
+    /// keep only the first link of. Never empty: the root section encloses every
+    /// page.
+    ///
+    /// Lets a consumer whose sections map to owning entities find the nearest
+    /// enclosing owner and get a path relative to it in one pass, with no path
+    /// arithmetic:
+    ///
+    /// ```text
+    /// let anchor = page.anchors.iter().find(|a| owners.contains_key(&a.section_ref));
+    /// ```
+    pub anchors: Vec<SectionAnchor>,
     /// Last-modified time as seconds since the Unix epoch — the same per-page
     /// mtime [`render`](crate::Site::render) reports (git author-time for clean
     /// tracked files, filesystem mtime otherwise; the S3 manifest `mtimes` table
@@ -571,51 +598,59 @@ impl SiteState {
         entries
     }
 
-    /// Returns every page in the site, each paired with its URL path (the
-    /// storage key) and carrying its `(section_ref, subpath)` key and title —
-    /// the per-page counterpart to [`list_sections`](Self::list_sections).
+    /// Returns every page in the site, each carrying its site path, its
+    /// `(section_ref, subpath)` key, its full section [`anchors`](PageEntry::anchors)
+    /// chain, and its title — the per-page counterpart to
+    /// [`list_sections`](Self::list_sections).
     ///
     /// Includes **every** page: the root page (empty `subpath`) and virtual
-    /// pages (directory containers without an `index.md`, which have a title
-    /// but no renderable body) among them. The `(section_ref, subpath)` key
-    /// matches what [`section_location`](Self::section_location) produces, so
-    /// it is byte-identical to the `document_id` the comment system stores.
+    /// pages (directory containers without an `index.md`, flagged
+    /// [`has_content: false`](PageEntry::has_content)) among them. The
+    /// `(section_ref, subpath)` key matches what
+    /// [`section_location`](Self::section_location) produces, so it is
+    /// byte-identical to the `document_id` the comment system stores.
     ///
-    /// The paired path is the same key [`render`](crate::Site::render) passes
-    /// to storage, so a storage-owning caller
-    /// (e.g. [`Site::list_pages`](crate::Site::list_pages)) can look up per-page
-    /// storage data such as the `mtime` directly, without reversing the
-    /// `(section_ref, subpath)` key back into a path. `SiteState` owns no
-    /// storage, so each entry's `mtime` is left `0.0` here for that caller to
-    /// fill.
+    /// `SiteState` owns no storage, so each entry's `mtime` is left `0.0` for a
+    /// storage-owning caller ([`Site::list_pages`](crate::Site::list_pages)) to
+    /// fill from the entry's `path`.
     ///
-    /// Each key comes from a per-page [`section_location`](Self::section_location)
-    /// lookup (a linear scan of the small section map), so this is
-    /// O(pages × sections) — fine at the expected scale. Sorted by
-    /// `(section_ref, subpath)` for a deterministic order; the key is unique
-    /// per page, so the sort never has to break ties.
+    /// Each entry's anchors come from one [`Sections::anchors`] walk, which is
+    /// O(depth) with O(1) map lookups, so this is O(pages × depth). Sorted by
+    /// `(section_ref, subpath)`, then by `path` to break ties: the key is unique
+    /// per page in the common case, but two sections sharing a last segment and
+    /// kind (`a/billing` and `b/billing`, both `kind: domain`) collapse to one
+    /// ref, so their pages collide. `path` is unique per page, making the order
+    /// total regardless.
     #[must_use]
-    pub(crate) fn list_pages(&self) -> Vec<(String, PageEntry)> {
-        let mut entries: Vec<(String, PageEntry)> = self
+    pub(crate) fn list_pages(&self) -> Vec<PageEntry> {
+        let mut entries: Vec<PageEntry> = self
             .pages
             .iter()
             .map(|page| {
-                let (section_ref, subpath) = self.section_location(&page.path);
-                (
-                    page.path.clone(),
-                    PageEntry {
-                        section_ref,
-                        subpath,
-                        title: page.title.clone(),
-                        mtime: 0.0,
-                    },
-                )
+                let anchors = self.sections.anchors(&page.path);
+                // The root anchor encloses every page, so `anchors` is never
+                // empty; fall back to `section_location`, which owns the single
+                // (unreachable) rootless-map fallback, rather than add a second.
+                let (section_ref, subpath) = anchors.first().map_or_else(
+                    || self.section_location(&page.path),
+                    |a| (a.section_ref.clone(), a.subpath.clone()),
+                );
+                PageEntry {
+                    section_ref,
+                    subpath,
+                    path: page.path.clone(),
+                    title: page.title.clone(),
+                    has_content: page.has_content,
+                    anchors,
+                    mtime: 0.0,
+                }
             })
             .collect();
         entries.sort_unstable_by(|a, b| {
-            a.1.section_ref
-                .cmp(&b.1.section_ref)
-                .then_with(|| a.1.subpath.cmp(&b.1.subpath))
+            a.section_ref
+                .cmp(&b.section_ref)
+                .then_with(|| a.subpath.cmp(&b.subpath))
+                .then_with(|| a.path.cmp(&b.path))
         });
         entries
     }
@@ -2435,22 +2470,12 @@ mod tests {
 
     // list_pages tests
 
-    /// Projects [`SiteState::list_pages`] to just the `PageEntry` values these
-    /// tests assert on, dropping the paired storage path.
-    fn page_entries(state: &SiteState) -> Vec<PageEntry> {
-        state
-            .list_pages()
-            .into_iter()
-            .map(|(_, entry)| entry)
-            .collect()
-    }
-
     #[test]
     fn list_pages_includes_every_page_with_title_and_key() {
         // root (Home) -> billing (domain) -> billing/payments (system)
         //   -> billing/payments/api (page, no kind)
         let site = nested_sections_site();
-        let pages = page_entries(&site);
+        let pages = site.list_pages();
 
         // One entry per page (4 pages: root, billing, payments, api).
         assert_eq!(pages.len(), 4);
@@ -2500,17 +2525,16 @@ mod tests {
             Namespace::default(),
         );
         let site = builder.build();
-        let pages = page_entries(&site);
+        let pages = site.list_pages();
 
         let guide = pages.iter().find(|p| p.title == "Guide").unwrap();
         assert_eq!(guide.section_ref, "section:default/root");
         assert_eq!(guide.subpath, "guide");
     }
 
-    #[test]
-    fn list_pages_includes_virtual_pages() {
-        // A directory container with no index.md is a virtual page
-        // (has_content == false) but still a page with a title and key.
+    /// A directory container with no `index.md` — "Guides", a virtual page
+    /// (`has_content == false`) — holding one real page, "Intro".
+    fn virtual_directory_site() -> SiteState {
         let mut builder = SiteStateBuilder::new();
         let dir_idx = builder.add_page(
             Page {
@@ -2534,8 +2558,13 @@ mod tests {
             None,
             Namespace::default(),
         );
-        let site = builder.build();
-        let pages = page_entries(&site);
+        builder.build()
+    }
+
+    #[test]
+    fn list_pages_includes_virtual_pages() {
+        // A virtual page is still a page with a title and a key.
+        let pages = virtual_directory_site().list_pages();
 
         let dir = pages.iter().find(|p| p.title == "Guides").unwrap();
         assert_eq!(dir.section_ref, "section:default/root");
@@ -2548,7 +2577,7 @@ mod tests {
         // (via page_path_for) back to a real page path — i.e. it agrees with
         // section_location / page_path_for.
         let site = nested_sections_site();
-        let pages = page_entries(&site);
+        let pages = site.list_pages();
 
         for page in &pages {
             let path = site
@@ -2564,7 +2593,7 @@ mod tests {
     #[test]
     fn list_pages_sorted_by_section_ref_then_subpath() {
         let site = nested_sections_site();
-        let pages = page_entries(&site);
+        let pages = site.list_pages();
 
         let keys: Vec<(String, String)> = pages
             .iter()
@@ -2573,6 +2602,180 @@ mod tests {
         let mut sorted = keys.clone();
         sorted.sort();
         assert_eq!(keys, sorted);
+    }
+
+    #[test]
+    fn list_pages_order_is_total_when_two_sections_share_a_ref() {
+        // A section's name is its last path segment, so `a/billing` and
+        // `b/billing` — both `kind: domain` — collapse to the single ref
+        // `domain:default/billing`. Their pages then share a
+        // `(section_ref, subpath)` key, and sorting on that key alone would
+        // leave their relative order unspecified. `path` breaks the tie.
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        for dir in ["b", "a"] {
+            let section_idx = builder.add_page(
+                Page {
+                    title: format!("{dir} Billing"),
+                    path: format!("{dir}/billing"),
+                    has_content: true,
+                    ..Default::default()
+                },
+                Some(root_idx),
+                Some("domain"),
+                Namespace::default(),
+            );
+            builder.add_page(
+                Page {
+                    title: format!("{dir} Overview"),
+                    path: format!("{dir}/billing/overview"),
+                    has_content: true,
+                    ..Default::default()
+                },
+                Some(section_idx),
+                None,
+                Namespace::default(),
+            );
+        }
+        let site = builder.build();
+
+        let pages = site.list_pages();
+
+        // Both directories really did collapse to one ref — otherwise this test
+        // would pass without ever exercising a tie.
+        let colliding: Vec<&PageEntry> = pages
+            .iter()
+            .filter(|p| p.section_ref == "domain:default/billing")
+            .collect();
+        assert_eq!(colliding.len(), 4);
+
+        // Tied keys are ordered by `path`, which is unique per page.
+        let paths: Vec<&str> = colliding.iter().map(|p| p.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "a/billing",
+                "b/billing",
+                "a/billing/overview",
+                "b/billing/overview",
+            ]
+        );
+    }
+
+    #[test]
+    fn list_pages_anchors_are_innermost_first_root_last_with_relative_subpaths() {
+        let site = nested_sections_site();
+        let pages = site.list_pages();
+
+        let api = pages.iter().find(|p| p.title == "API").unwrap();
+        assert_eq!(
+            api.anchors,
+            vec![
+                SectionAnchor {
+                    section_ref: "system:default/payments".to_owned(),
+                    subpath: "api".to_owned(),
+                },
+                SectionAnchor {
+                    section_ref: "domain:default/billing".to_owned(),
+                    subpath: "payments/api".to_owned(),
+                },
+                SectionAnchor {
+                    section_ref: "section:default/root".to_owned(),
+                    subpath: "billing/payments/api".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn list_pages_first_anchor_is_the_entry_identity_and_last_is_the_root() {
+        let site = nested_sections_site();
+        let pages = site.list_pages();
+        assert!(!pages.is_empty());
+
+        for page in &pages {
+            let first = page.anchors.first().expect("every page has a root anchor");
+            assert_eq!(first.section_ref, page.section_ref);
+            assert_eq!(first.subpath, page.subpath);
+
+            // The last anchor is the root section, whose subpath is the site path.
+            let last = page.anchors.last().expect("every page has a root anchor");
+            assert_eq!(last.section_ref, "section:default/root");
+            assert_eq!(last.subpath, page.path);
+        }
+    }
+
+    #[test]
+    fn list_pages_carries_the_site_path() {
+        let site = nested_sections_site();
+        let pages = site.list_pages();
+
+        let api = pages.iter().find(|p| p.title == "API").unwrap();
+        assert_eq!(api.path, "billing/payments/api");
+
+        // The root page's path is empty, like its subpath.
+        let root = pages.iter().find(|p| p.title == "Home").unwrap();
+        assert_eq!(root.path, "");
+    }
+
+    #[test]
+    fn list_pages_page_outside_any_section_has_a_single_root_anchor() {
+        let mut builder = SiteStateBuilder::new();
+        let root_idx = builder.add_page(
+            Page {
+                title: "Home".to_owned(),
+                path: String::new(),
+                has_content: true,
+                ..Default::default()
+            },
+            None,
+            None,
+            Namespace::default(),
+        );
+        builder.add_page(
+            Page {
+                title: "Guide".to_owned(),
+                path: "guide".to_owned(),
+                has_content: true,
+                ..Default::default()
+            },
+            Some(root_idx),
+            None,
+            Namespace::default(),
+        );
+        let site = builder.build();
+
+        let pages = site.list_pages();
+        let guide = pages.iter().find(|p| p.title == "Guide").unwrap();
+        assert_eq!(
+            guide.anchors,
+            vec![SectionAnchor {
+                section_ref: "section:default/root".to_owned(),
+                subpath: "guide".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn list_pages_marks_virtual_directory_pages_as_content_free() {
+        let pages = virtual_directory_site().list_pages();
+
+        // The directory container has no body to render...
+        let dir = pages.iter().find(|p| p.title == "Guides").unwrap();
+        assert!(!dir.has_content);
+        // ...while the real page inside it does.
+        let intro = pages.iter().find(|p| p.title == "Intro").unwrap();
+        assert!(intro.has_content);
     }
 
     #[test]

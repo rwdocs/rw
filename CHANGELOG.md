@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `@rwdocs/core`'s `RwSite.listPages()` entries now also carry `path` (the page's site path — the form `renderPage`/`renderSearchDocument`/`getPageMarkdown` take), `hasContent` (`false` for a virtual directory page, which has no body to render), and `anchors` — every section enclosing the page, innermost first with the root last, each paired with the page's path relative to *that* section. A host indexing a whole site can now find the nearest enclosing catalog entity and a page path relative to it from one call, instead of joining `listPages()` with `listSections()` and re-deriving rw's path semantics. Purely additive: `anchors[0]` is the page's existing `(sectionRef, subpath)` identity.
+
 ## [0.1.32] - 2026-07-12
 
 ### Added
