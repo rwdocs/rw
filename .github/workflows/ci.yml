@@ -44,10 +44,10 @@ jobs:
         run: cargo fmt --manifest-path crates/rw-napi/Cargo.toml -- --check
 
       - name: Run Clippy
-        run: cargo clippy --all-targets -- -W clippy::pedantic
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Run Clippy (rw-napi)
-        run: cargo clippy --manifest-path crates/rw-napi/Cargo.toml --all-targets -- -W clippy::pedantic
+        run: cargo clippy --manifest-path crates/rw-napi/Cargo.toml --all-targets -- -D warnings
 
       - name: Run svelte-check
         run: npm -w @rwdocs/viewer run check

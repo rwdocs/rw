@@ -57,10 +57,9 @@ pub(crate) fn page_bundle_key(path: &str) -> String {
     }
 }
 
-impl Manifest {
-    /// Create a new manifest with the current format version.
-    #[must_use]
-    pub fn new(documents: Vec<Document>) -> Self {
+impl From<Vec<Document>> for Manifest {
+    /// Create a manifest with the current format version and no mtimes.
+    fn from(documents: Vec<Document>) -> Self {
         Self {
             version: FORMAT_VERSION,
             documents,
@@ -75,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_manifest_serialization_roundtrip() {
-        let manifest = Manifest::new(vec![
+        let manifest = Manifest::from(vec![
             Document {
                 path: String::new(),
                 title: "Home".to_owned(),
@@ -191,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_manifest_with_mtimes_roundtrips() {
-        let mut manifest = Manifest::new(vec![Document {
+        let mut manifest = Manifest::from(vec![Document {
             path: "guide".to_owned(),
             title: "Guide".to_owned(),
             has_content: true,
@@ -221,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_manifest_with_pages_roundtrips() {
-        let manifest = Manifest::new(vec![Document {
+        let manifest = Manifest::from(vec![Document {
             path: "guides".to_owned(),
             title: "Guides".to_owned(),
             has_content: true,

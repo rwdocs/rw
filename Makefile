@@ -38,8 +38,8 @@ format:
 	npm -w @rwdocs/viewer run format
 
 lint:
-	cargo clippy --all-targets
-	cargo clippy --manifest-path crates/rw-napi/Cargo.toml --all-targets
+	cargo clippy --all-targets -- -D warnings
+	cargo clippy --manifest-path crates/rw-napi/Cargo.toml --all-targets -- -D warnings
 	npm -w @rwdocs/viewer run check
 	npm -w @rwdocs/viewer run lint
 

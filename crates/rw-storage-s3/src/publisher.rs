@@ -139,7 +139,7 @@ impl BundlePublisher {
 
         // Upload manifest last so readers don't see a manifest referencing
         // pages that haven't been uploaded yet.
-        let mut manifest = Manifest::new(documents);
+        let mut manifest = Manifest::from(documents);
         manifest.mtimes = mtimes;
         let manifest_json = serde_json::to_vec(&manifest)?;
         s3::upload(
