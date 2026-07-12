@@ -221,9 +221,9 @@ impl Site {
         Ok(self.reload_if_needed()?.state.list_sections())
     }
 
-    /// Returns every document (page) in the site, each keyed by its
-    /// `(section_ref, subpath)` pair and carrying its title and last-modified
-    /// `mtime` — the per-page counterpart to
+    /// Returns every document (page) in the site, each carrying its site path,
+    /// its `(section_ref, subpath)` key, its full section anchors chain, its
+    /// title, and its last-modified `mtime` — the per-page counterpart to
     /// [`list_sections`](Self::list_sections). See [`SiteState::list_pages`].
     ///
     /// Unlike [`SiteState::list_pages`], which stays storage-free and leaves
@@ -254,8 +254,8 @@ impl Site {
             .state
             .list_pages()
             .into_iter()
-            .map(|(path, mut entry)| {
-                entry.mtime = self.storage.mtime(&path).unwrap_or(0.0);
+            .map(|mut entry| {
+                entry.mtime = self.storage.mtime(&entry.path).unwrap_or(0.0);
                 entry
             })
             .collect();
@@ -1694,6 +1694,27 @@ mod tests {
             .find(|p| p.title == "Billing")
             .expect("billing page");
         assert_eq!(billing.mtime, 0.0);
+    }
+
+    #[test]
+    fn list_pages_carries_the_site_path_render_accepts() {
+        let storage = MockStorage::new()
+            .with_document_and_kind("billing", "Billing", "domain")
+            .with_document("billing/overview", "Overview")
+            .with_content("billing/overview", "# Overview")
+            .with_mtime("billing/overview", 1_700_000_000.0);
+        let site = create_site_with_storage(storage);
+
+        let pages = site.list_pages().expect("list_pages");
+
+        let overview = pages
+            .iter()
+            .find(|p| p.title == "Overview")
+            .expect("overview page");
+        // The path is the site path (not the section-relative subpath), and it is
+        // the key `render` takes.
+        assert_eq!(overview.path, "billing/overview");
+        assert!(site.render(&overview.path).is_ok());
     }
 
     #[test]

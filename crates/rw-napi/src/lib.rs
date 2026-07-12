@@ -269,7 +269,14 @@ impl RwSite {
                 .map(|p: PageEntry| PageEntryResponse {
                     section_ref: p.section_ref,
                     subpath: p.subpath,
+                    path: p.path,
                     title: p.title,
+                    has_content: p.has_content,
+                    anchors: p
+                        .anchors
+                        .into_iter()
+                        .map(SectionAnchorResponse::from)
+                        .collect(),
                     last_modified: mtime_to_rfc3339(p.mtime),
                 })
                 .collect())
