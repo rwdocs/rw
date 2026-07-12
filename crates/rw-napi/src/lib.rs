@@ -279,6 +279,53 @@ impl RwSite {
         .map_err(|e| napi::Error::from_reason(e.to_string()))?
     }
 
+    /// Resolves a page's canonical identity — the `(sectionRef, subpath)` pair
+    /// `listPages()` and `PageMeta` hand out — to the path the read methods take.
+    ///
+    /// This is the inverse of the split every page response performs, so a host
+    /// holding an identity (a search hit, a comment's key) can read the page
+    /// without re-deriving section scopes itself:
+    ///
+    /// ```js
+    /// const path = await site.pagePathFor(sectionRef, subpath);
+    /// if (path === null) return notFound();
+    /// const page = await site.getPageMarkdown(path);
+    /// ```
+    ///
+    /// Resolves to `null` when **no section has that ref** — and only then. A
+    /// site that cannot be loaded rejects rather than resolving to `null`, so a
+    /// host mapping `null` to a 404 can't turn an unreachable storage backend
+    /// into a missing page.
+    ///
+    /// It is not a page-existence check: a real section ref with a subpath
+    /// naming no page still resolves to a well-formed path, and the read that
+    /// follows rejects.
+    ///
+    /// - The site's root page resolves to the **empty string**, which is falsy in
+    ///   JavaScript. Test for absence with `path === null`, never `if (!path)`,
+    ///   or the homepage looks missing.
+    /// - The returned path has **no leading slash** (`"guide"`), which is the form
+    ///   `renderPage` / `renderSearchDocument` / `getPageMarkdown` expect. It is
+    ///   deliberately not the `/`-prefixed form of `PageMeta.path`.
+    /// - Two sections declaring the same ref is a site misconfiguration rw only
+    ///   warns about, and a ref is resolved here to whichever of them sorts
+    ///   first. An ambiguous identity therefore resolves to a path, but not
+    ///   necessarily to the page the identity came from.
+    #[napi(js_name = "pagePathFor")]
+    pub async fn page_path_for(
+        &self,
+        section_ref: String,
+        subpath: String,
+    ) -> Result<Option<String>> {
+        let site = Arc::clone(&self.site);
+        tokio::task::spawn_blocking(move || {
+            site.try_page_path_for(&section_ref, &subpath)
+                .map_err(|e| napi::Error::from_reason(e.display_chain()))
+        })
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
+    }
+
     #[napi]
     pub async fn render_page(&self, path: String) -> Result<PageResponse> {
         let site = Arc::clone(&self.site);

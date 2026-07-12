@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `@rwdocs/core`'s `RwSite.getPageMarkdown()` returns a page's Markdown source as authored, so a host (e.g. an MCP `read-page` tool feeding an AI agent) can read a page as Markdown instead of converting the rendered HTML back with turndown. Returns `null` for a virtual directory page.
+- `@rwdocs/core`'s `RwSite.pagePathFor(sectionRef, subpath)` maps a page's canonical identity — the `(sectionRef, subpath)` pair `listPages()` and `PageMeta` hand out — to the path `renderPage`/`renderSearchDocument`/`getPageMarkdown` take, so a host holding an identity (a search hit, a comment) can read the page without re-deriving section scopes itself. Returns `null` when no section has that ref.
 
 ## [0.1.31] - 2026-07-10
 

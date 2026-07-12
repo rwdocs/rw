@@ -90,7 +90,7 @@ jobs:
         with:
           image: ${{ matrix.image }}
           options: -v ${{ github.workspace }}:/workspace -w /workspace
-          run: node --test packages/core/test/render-comment-body.test.mjs
+          run: node --test packages/core/test/*.test.mjs
 
   build-viewer:
     name: Build viewer library
