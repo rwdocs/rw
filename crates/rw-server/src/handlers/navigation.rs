@@ -36,9 +36,7 @@ pub(crate) struct NavigationResponse {
     parent_scope: Option<ScopeInfoResponse>,
     /// Ancestry chains for the sections reachable from this navigation view,
     /// keyed by section ref; each chain starts with the section itself (empty
-    /// subpath), then its ancestors, root last. Omitted when empty. No `ETag`
-    /// covers this handler, so a plain `HashMap` (no key-order stability
-    /// requirement) is fine.
+    /// subpath), then its ancestors, root last. Omitted when empty.
     #[serde(rename = "sectionAncestry", skip_serializing_if = "HashMap::is_empty")]
     section_ancestry: HashMap<String, Vec<SectionAnchor>>,
 }
