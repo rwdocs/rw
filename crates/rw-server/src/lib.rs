@@ -276,7 +276,6 @@ pub async fn run_server(
         site,
         live_reload,
         verbose: config.verbose,
-        version: config.version.clone(),
         comment_store,
         notify_token,
         embedded_preview: config.embedded_preview,

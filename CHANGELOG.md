@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **Breaking (pre-1.0):** `rw serve` no longer sends an `ETag` or `Last-Modified` on page responses, and no longer answers `If-None-Match` with `304 Not Modified` — every page request returns a full `200`. `rw serve` is a local development server, so the validator only ever saved a loopback write of a response the server had already rendered and serialized. Page caching that matters is unchanged: the render cache still skips re-rendering unchanged pages, and `Cache-Control: no-cache` still prevents stale content across restarts. Published bundles and S3-served pages are unaffected.
+
 ## [0.1.33] - 2026-07-12
 
 ### Added

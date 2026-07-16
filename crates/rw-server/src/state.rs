@@ -17,8 +17,6 @@ pub(crate) struct AppState {
     pub(crate) live_reload: Option<LiveReloadManager>,
     /// Enable verbose output (show warnings).
     pub(crate) verbose: bool,
-    /// Application version for cache invalidation.
-    pub(crate) version: String,
     /// Comment store.
     pub(crate) comment_store: Arc<SqliteCommentStore>,
     /// Secret token from `.rw/server.json` that authenticates the internal

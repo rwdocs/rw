@@ -75,7 +75,6 @@ impl TestServer {
             site,
             live_reload: None,
             verbose: false,
-            version: "test".to_owned(),
             comment_store,
             notify_token,
             embedded_preview: false,
@@ -103,7 +102,6 @@ impl TestServer {
             site,
             live_reload: Some(live_reload),
             verbose: false,
-            version: "test".to_owned(),
             comment_store,
             notify_token: Some(Self::TEST_NOTIFY_TOKEN.to_owned()),
             embedded_preview: false,
@@ -140,22 +138,6 @@ impl TestServer {
         let req = Request::builder()
             .method(Method::GET)
             .uri(path)
-            .body(Body::empty())
-            .unwrap();
-        self.send(req).await
-    }
-
-    /// `GET <path>` with a single extra request header (e.g. `If-None-Match`).
-    pub(crate) async fn get_with_header(
-        &self,
-        path: &str,
-        name: &str,
-        value: &str,
-    ) -> TestResponse {
-        let req = Request::builder()
-            .method(Method::GET)
-            .uri(path)
-            .header(name, value)
             .body(Body::empty())
             .unwrap();
         self.send(req).await
