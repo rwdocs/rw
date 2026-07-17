@@ -1,6 +1,6 @@
 // packages/viewer/src/lib/comments/navigation.test.ts
 import { describe, it, expect } from "vitest";
-import { resolveNavTarget, sortByOrder, isNewlyOrphaned } from "./navigation";
+import { resolveNavTarget, sortByOrder, isNewlyOrphaned, holdsSlot } from "./navigation";
 
 describe("resolveNavTarget", () => {
   const list = ["a", "b", "c"];
@@ -81,5 +81,21 @@ describe("isNewlyOrphaned", () => {
 
   it("returns false when an orphan re-anchored (left the current set)", () => {
     expect(isNewlyOrphaned("a", new Set(), new Set(["a"]))).toBe(false);
+  });
+});
+
+describe("holdsSlot", () => {
+  it("holds an open thread regardless of the active id", () => {
+    expect(holdsSlot({ id: "a", status: "open" }, null)).toBe(true);
+    expect(holdsSlot({ id: "a", status: "open" }, "b")).toBe(true);
+  });
+
+  it("holds a resolved thread while it is the active one", () => {
+    expect(holdsSlot({ id: "a", status: "resolved" }, "a")).toBe(true);
+  });
+
+  it("drops a resolved thread that is not active", () => {
+    expect(holdsSlot({ id: "a", status: "resolved" }, "b")).toBe(false);
+    expect(holdsSlot({ id: "a", status: "resolved" }, null)).toBe(false);
   });
 });

@@ -424,7 +424,7 @@ describe("Comments navigation", () => {
     expect(comments.navigable).toEqual(["i1", "i2", "p1", "p2"]);
   });
 
-  it("excludes resolved threads from navigable", () => {
+  it("excludes resolved threads from navigable unless one is active", () => {
     comments.items = [
       mkComment({ id: "i1", selectors: quoteSel }),
       mkComment({ id: "i2", selectors: quoteSel, status: "resolved" }),
@@ -432,6 +432,69 @@ describe("Comments navigation", () => {
     ];
     comments.order = ["i1", "i2"];
     expect(comments.navigable).toEqual(["i1", "p1"]);
+
+    // The active thread holds its slot even once resolved, so resolving the
+    // thread you're navigating on doesn't drop it from under you.
+    comments.activeId = "i2";
+    expect(comments.navigable).toEqual(["i1", "i2", "p1"]);
+  });
+
+  it("navigate steps off a just-resolved mid-list thread onto the next one", () => {
+    // The exact report: sitting on the 3rd of 4 inline comments, resolve it,
+    // press `n` — must land on the 4th, not wrap back to the 1st.
+    comments.items = [
+      mkComment({ id: "i1", selectors: quoteSel }),
+      mkComment({ id: "i2", selectors: quoteSel }),
+      mkComment({ id: "i3", selectors: quoteSel, status: "resolved" }),
+      mkComment({ id: "i4", selectors: quoteSel }),
+    ];
+    // `order` must include the resolved id: it keeps its highlight (and so its
+    // DOM slot) while active. Omitting it would rank it Infinity in sortByOrder
+    // and sort it last, making this pass whether or not holdsSlot is wired in.
+    comments.order = ["i1", "i2", "i3", "i4"];
+    comments.activeId = "i3";
+
+    expect(comments.navigate("next")).toEqual({ index: 2, total: 3, author: "You" });
+    expect(comments.activeId).toBe("i4");
+  });
+
+  it("navigate steps back off a just-resolved thread onto the previous one", () => {
+    comments.items = [
+      mkComment({ id: "i1", selectors: quoteSel }),
+      mkComment({ id: "i2", selectors: quoteSel }),
+      mkComment({ id: "i3", selectors: quoteSel, status: "resolved" }),
+      mkComment({ id: "i4", selectors: quoteSel }),
+    ];
+    comments.order = ["i1", "i2", "i3", "i4"];
+    comments.activeId = "i3";
+
+    expect(comments.navigate("prev")).toEqual({ index: 1, total: 3, author: "You" });
+    expect(comments.activeId).toBe("i2");
+  });
+
+  it("navigate reports a post-move index and total, excluding the left-behind resolved thread", () => {
+    // The index/total feed the screen-reader announcement, so they must describe
+    // the list as it stands after the step — not the pre-move list, which still
+    // counted the thread the reader just resolved.
+    comments.items = [
+      mkComment({ id: "i1", selectors: quoteSel }),
+      mkComment({ id: "i2", selectors: quoteSel, status: "resolved" }),
+      mkComment({ id: "i3", selectors: quoteSel }),
+    ];
+    comments.order = ["i1", "i2", "i3"];
+    comments.activeId = "i2";
+
+    // Pre-move the list is 3 long (i2 held its slot); post-move it is 2.
+    expect(comments.navigate("next")).toEqual({ index: 1, total: 2, author: "You" });
+  });
+
+  it("navigate stays put when the only comment is resolved and active", () => {
+    comments.items = [mkComment({ id: "i1", selectors: quoteSel, status: "resolved" })];
+    comments.order = ["i1"];
+    comments.activeId = "i1";
+
+    expect(comments.navigate("next")).toEqual({ index: 0, total: 1, author: "You" });
+    expect(comments.activeId).toBe("i1");
   });
 
   it("navigate enters at first on next and last on prev from idle", () => {
@@ -483,9 +546,9 @@ describe("Comments navigation", () => {
   it("activeIsInline stays true for a resolved active inline thread (sidebar still shows it)", () => {
     comments.items = [mkComment({ id: "i1", selectors: quoteSel, status: "resolved" })];
     comments.activeId = "i1";
-    // A resolved inline thread is excluded from `navigable` but can still be the
-    // active thread (e.g. clicked from the resolved list), and the sidebar must
-    // render it — so activeIsInline does not filter by status.
+    // A resolved inline thread can still be the active thread (e.g. clicked from
+    // the resolved list), and the sidebar must render it — so activeIsInline does
+    // not filter by status.
     expect(comments.activeIsInline).toBe(true);
   });
 

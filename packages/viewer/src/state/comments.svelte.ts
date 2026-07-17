@@ -1,7 +1,7 @@
 import type { AnchorStrategy } from "$lib/anchoring";
 import type { CommentApiClient } from "../api/comments";
 import type { Comment, CreateCommentRequest, Selector } from "../types/comments";
-import { resolveNavTarget, sortByOrder } from "$lib/comments/navigation";
+import { resolveNavTarget, sortByOrder, holdsSlot } from "$lib/comments/navigation";
 import type { NotifyFn } from "../types/notify";
 
 /** A new comment being drafted — selectors are captured, awaiting body text. */
@@ -237,17 +237,23 @@ export class Comments {
     return this.activeIsInline || this.pending != null;
   }
 
-  /** All open top-level threads in review order: inline threads in document
-   *  order (live DOM rank from `order`) followed by page-level + orphaned
-   *  threads by creation time — matching the order `PageComments` renders them.
-   *  Resolved threads are excluded. */
+  /** All top-level threads in review order: inline threads in document order
+   *  (live DOM rank from `order`) followed by page-level + orphaned threads by
+   *  creation time — matching the order `PageComments` renders them.
+   *
+   *  Resolved threads are excluded, except the active one: it holds its slot so
+   *  that resolving the thread you're navigating on steps to the *next* thread
+   *  rather than dropping out from under you (which `resolveNavTarget` would
+   *  read as an unknown id and answer with idle entry — the first thread on
+   *  `next`, the last on `prev`). It leaves the list as soon as `activeId`
+   *  moves off it. */
   get navigable(): string[] {
     const inline = sortByOrder(
-      this.inlineThreads.filter((t) => t.status !== "resolved"),
+      this.inlineThreads.filter((t) => holdsSlot(t, this.activeId)),
       this.order,
     ).map((t) => t.id);
     const page = this.pageThreads
-      .filter((t) => t.status !== "resolved")
+      .filter((t) => holdsSlot(t, this.activeId))
       .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))
       .map((t) => t.id);
     return [...inline, ...page];
@@ -264,11 +270,16 @@ export class Comments {
   navigate = (
     direction: "next" | "prev",
   ): { index: number; total: number; author: string } | null => {
-    const list = this.navigable;
-    const target = resolveNavTarget(list, this.activeId, direction);
+    const target = resolveNavTarget(this.navigable, this.activeId, direction);
     if (target == null) return null;
     this.activeId = target;
     this.navSeq++;
+    // Recomputed after the move, not reused from the pre-move read: `holdsSlot`
+    // keeps a resolved thread in the list only while it's active, so stepping
+    // off the thread just resolved drops it from the list the announcement must
+    // describe. `navigable` is a plain getter over `$state`, so this genuinely
+    // re-reads.
+    const list = this.navigable;
     const author = this.items.find((c) => c.id === target)?.author.name ?? "";
     return { index: list.indexOf(target), total: list.length, author };
   };

@@ -4,7 +4,7 @@
   import { getRwContext } from "$lib/context";
   import CommentThread from "./CommentThread.svelte";
   import CommentForm from "./CommentForm.svelte";
-  import { sortByOrder } from "$lib/comments/navigation";
+  import { sortByOrder, holdsSlot } from "$lib/comments/navigation";
   import { escapeId } from "$lib/comments/highlight";
   import { restoreFocusToThread, focusReplyTextarea } from "$lib/comments/focus";
   import { SAVE_FAILED_MESSAGE } from "$lib/comments/messages";
@@ -89,7 +89,7 @@
    *  Resolved threads are hidden unless one is the currently active thread. */
   const orderedThreads = $derived(
     sortByOrder(
-      comments.inlineThreads.filter((t) => t.status !== "resolved" || t.id === comments.activeId),
+      comments.inlineThreads.filter((t) => holdsSlot(t, comments.activeId)),
       comments.order,
     ),
   );
