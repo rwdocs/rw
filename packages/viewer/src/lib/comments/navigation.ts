@@ -1,4 +1,5 @@
 // packages/viewer/src/lib/comments/navigation.ts
+import type { Comment } from "../../types/comments";
 
 /** Resolve the comment id to navigate to.
  *
@@ -42,4 +43,26 @@ export function isNewlyOrphaned(
   previousOrphans: ReadonlySet<string>,
 ): boolean {
   return activeId != null && currentOrphans.has(activeId) && !previousOrphans.has(activeId);
+}
+
+/** Whether a thread holds its slot in the navigation cycle and on the inline
+ *  surfaces (highlight + margin panel): open threads always, plus the active
+ *  thread even once resolved — so resolving the thread you're sitting on doesn't
+ *  make it vanish from under you mid-navigation.
+ *
+ *  The highlight layer and the store's `navigable` must apply this *same*
+ *  predicate, not merely a similar one: `navigable`'s ordering comes from
+ *  `order`, which is derived from the set of wrapped highlights, and
+ *  `sortByOrder` ranks ids absent from `order` as `Infinity`. Narrowing
+ *  `desiredHighlights` back to open-only would silently sort a resolved-active
+ *  thread to the end of the nav cycle instead of holding its slot.
+ *
+ *  Does NOT govern the page-comments timeline — see `PageComments.visibleThreads`,
+ *  which partitions threads into open/resolved lists and would render the active
+ *  thread twice if it honoured this. */
+export function holdsSlot(
+  thread: { id: string; status: Comment["status"] },
+  activeId: string | null,
+): boolean {
+  return thread.status !== "resolved" || thread.id === activeId;
 }

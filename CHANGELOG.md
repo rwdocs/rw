@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Breaking (pre-1.0):** `rw serve` no longer sends an `ETag` or `Last-Modified` on page responses, and no longer answers `If-None-Match` with `304 Not Modified` — every page request returns a full `200`. `rw serve` is a local development server, so the validator only ever saved a loopback write of a response the server had already rendered and serialized. Page caching that matters is unchanged: the render cache still skips re-rendering unchanged pages, and `Cache-Control: no-cache` still prevents stale content across restarts. Published bundles and S3-served pages are unaffected.
 
+### Fixed
+
+- Resolving the inline comment you're navigating on and pressing `n` now steps to the next comment instead of jumping back to the first; `p` steps back instead of jumping to the last. The just-resolved comment keeps its place in the navigation cycle until you step off it, matching the sidebar's Next/Previous buttons, which were already correct. The screen-reader announcement now reports your position in the list as it stands after the step, no longer counting the comment you just resolved.
+
 ## [0.1.33] - 2026-07-12
 
 ### Added

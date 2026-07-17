@@ -7,6 +7,7 @@ import {
 import type { Selector, Comment } from "../../types/comments";
 import { wrapRange, unwrapComment, escapeId } from "./highlight";
 import { rangeIntersectsNode, rangesOverlap } from "./ranges";
+import { holdsSlot } from "./navigation";
 
 export interface DesiredComment {
   id: string;
@@ -26,7 +27,7 @@ export interface DesiredComment {
  */
 export function desiredHighlights(items: Comment[], activeId: string | null): DesiredComment[] {
   return items
-    .filter((c) => (c.status !== "resolved" || c.id === activeId) && c.selectors.length > 0)
+    .filter((c) => holdsSlot(c, activeId) && c.selectors.length > 0)
     .map((c) => ({ id: c.id, selectors: c.selectors, parentId: c.parentId }));
 }
 

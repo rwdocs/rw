@@ -115,3 +115,34 @@ test("after resolving, a re-render re-wraps only the remaining open highlights",
   await page.getByRole("article").waitFor();
   await expect(page.locator("article rw-annotation")).toHaveCount(5);
 });
+
+test("resolving a mid-list comment then pressing n steps to the next one", async ({ page }) => {
+  // Walk to the 3rd comment in document order.
+  const bar = sidebar(page);
+  for (let i = 0; i < 3; i++) await page.keyboard.press("n");
+  await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
+
+  // Resolve it — it holds its slot while active.
+  await bar.getByRole("button", { name: "Resolve", exact: true }).click();
+  await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+  await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
+
+  // Press `n`: must land on the 4th comment, not jump back to the 1st.
+  await page.keyboard.press("n");
+  await expect(bar.getByText("3 / 5", { exact: true })).toBeVisible();
+  await expect(bar.getByText("seed 3", { exact: true })).toBeVisible();
+});
+
+test("resolving a mid-list comment then pressing p steps to the previous one", async ({ page }) => {
+  const bar = sidebar(page);
+  for (let i = 0; i < 3; i++) await page.keyboard.press("n");
+  await expect(bar.getByText("3 / 6", { exact: true })).toBeVisible();
+
+  await bar.getByRole("button", { name: "Resolve", exact: true }).click();
+  await expect(bar.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
+
+  // Press `p`: must land on the 2nd comment, not jump to the last.
+  await page.keyboard.press("p");
+  await expect(bar.getByText("2 / 5", { exact: true })).toBeVisible();
+  await expect(bar.getByText("seed 1", { exact: true })).toBeVisible();
+});
