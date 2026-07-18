@@ -171,3 +171,53 @@ fn render_surfaces_preservation_warning_on_malformed_current_xhtml() {
         output.warnings
     );
 }
+
+#[test]
+fn render_status_directive_emits_native_status_macro() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let out = tmp.path();
+
+    let markdown = "Ship :status[On Track]{color=green} now.\n";
+    let output = render(markdown, out, RenderOptions::default()).expect("render succeeded");
+
+    assert!(
+        output.xhtml.contains(concat!(
+            r#"<ac:structured-macro ac:name="status" ac:schema-version="1">"#,
+            r#"<ac:parameter ac:name="colour">Green</ac:parameter>"#,
+            r#"<ac:parameter ac:name="title">On Track</ac:parameter>"#,
+            r#"</ac:structured-macro>"#,
+        )),
+        "got: {}",
+        output.xhtml
+    );
+
+    // The HTML backend's span must never reach Confluence storage format.
+    assert!(
+        !output.xhtml.contains("class=\"status"),
+        "html markup leaked: {}",
+        output.xhtml
+    );
+}
+
+#[test]
+fn render_status_directive_escapes_label_and_defaults_color() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let out = tmp.path();
+
+    // No color attribute, and a label needing XML escaping.
+    let markdown = "State :status[A & B].\n";
+    let output = render(markdown, out, RenderOptions::default()).expect("render succeeded");
+
+    assert!(
+        output
+            .xhtml
+            .contains(r#"<ac:parameter ac:name="colour">Grey</ac:parameter>"#),
+        "expected default Grey: {}",
+        output.xhtml
+    );
+    assert!(
+        output.xhtml.contains("A &amp; B"),
+        "label not escaped: {}",
+        output.xhtml
+    );
+}

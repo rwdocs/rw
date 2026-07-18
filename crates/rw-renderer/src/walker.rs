@@ -30,6 +30,7 @@ use crate::code_block::{CodeBlockProcessor, FenceAttrs, ProcessResult, parse_fen
 use crate::config::RenderConfig;
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
+use crate::directive::Marker;
 use crate::directive::parser::{
     ParsedDirective, parse_container_line, parse_leaf_line, parse_line,
 };
@@ -289,13 +290,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             };
 
             // Tightly-scoped processor borrow: dispatch and capture the name
-            // before relinquishing the borrow so we can call self.text /
-            // self.raw_html below.
+            // before relinquishing the borrow.
             //
             // Borrow discipline (pattern B): release the `&mut self.directives`
             // reborrow at the end of this block before any `&mut self` method
-            // call (self.raw_html / self.text) below. The compiler can't prove
-            // raw_html doesn't touch self.directives, so holding the directives
+            // call below. The compiler can't prove those methods don't touch
+            // self.directives, so holding the directives
             // borrow across the call would fail. The outcome must be owned data,
             // not a borrow.
             let output = {
@@ -310,10 +310,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 DirectiveOutput::Html(html) => {
                     self.raw_html(&html);
                 }
-                DirectiveOutput::Marker { open, body, close } => {
-                    self.raw_html(&open);
+                DirectiveOutput::Marker { marker, body } => {
+                    self.marker_open(&marker);
                     self.text(&body);
-                    self.raw_html(&close);
+                    self.marker_close(&marker);
                 }
                 DirectiveOutput::Markdown(md) => {
                     if let Some(p) = self.directives.as_deref_mut() {
@@ -385,7 +385,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// Dispatch a recognized block directive through the processor and render
     /// the result. Pattern-B borrow discipline: the `&mut self.directives`
     /// reborrow is dropped (owned `BlockDispatch` returned) before any
-    /// `raw_html`/`text`/`process_event` call.
+    /// `&mut self` method call.
     fn handle_block_directive(&mut self, parsed: ParsedDirective) {
         let dispatch = {
             let processor = self
@@ -396,10 +396,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         };
         match dispatch {
             BlockDispatch::Html(html) => self.raw_html(&html),
-            BlockDispatch::Marker { open, body, close } => {
-                self.raw_html(&open);
+            BlockDispatch::Marker { marker, body } => {
+                self.marker_open(&marker);
                 self.text(&body);
-                self.raw_html(&close);
+                self.marker_close(&marker);
             }
             BlockDispatch::Markdown(md) => self.reparse_block_markdown(&md),
             BlockDispatch::PassThrough(text) => self.emit_text_paragraph(&text),
@@ -803,21 +803,18 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     }
 
     fn raw_html(&mut self, html: &str) {
-        match self.scopes.last_mut() {
-            // toc_text intentionally NOT touched: raw HTML inside a heading
-            // is rendered into the HTML body but does not contribute to the
-            // TOC entry title or the slug id.
-            Some(Scope::Heading { rendered_html, .. }) => B::raw_html(html, rendered_html),
-            // CommonMark: alt text is plain text — raw HTML tags are suppressed
-            // (their visible text comes through as Text events).
-            // Metadata: suppressed entirely.
-            Some(Scope::Image { .. } | Scope::Metadata) => {}
-            // Dormant: pulldown-cmark doesn't emit Html/InlineHtml inside fenced code.
-            Some(Scope::CodeBlock { .. }) => {
-                debug_assert!(false, "raw_html inside a fenced code block");
-            }
-            None => B::raw_html(html, &mut self.output),
-        }
+        self.with_markup_buffer(|out| B::raw_html(html, out));
+    }
+
+    /// Route a marker's opening to the backend. A marker is markup, so it
+    /// follows the same scope rules as every other inline tag.
+    fn marker_open(&mut self, marker: &Marker) {
+        self.with_markup_buffer(|out| B::marker_open(marker, out));
+    }
+
+    /// Route a marker's closing to the backend. See [`marker_open`](Self::marker_open).
+    fn marker_close(&mut self, marker: &Marker) {
+        self.with_markup_buffer(|out| B::marker_close(marker, out));
     }
 
     fn soft_break(&mut self) {
@@ -850,6 +847,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// `Image` / `Metadata` are no-ops — the closure is never invoked and
     /// the buffer is never exposed. `CodeBlock` is dormant
     /// (`debug_assert! + drop`).
+    ///
+    /// Inside a `Heading`, markup lands in the heading's rendered HTML but
+    /// `toc_text` is intentionally left alone: it feeds the TOC entry title and
+    /// the slug id, which are plain text. Inside an `Image`, markup is dropped
+    /// because `CommonMark` alt text is plain text (its visible characters arrive
+    /// separately as `Text` events).
     ///
     /// # Invariant
     ///

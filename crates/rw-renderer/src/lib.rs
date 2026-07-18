@@ -155,7 +155,7 @@ pub use renderer::{MarkdownRenderer, RenderResult};
 /// configuration.
 pub use rw_sections::Sections;
 pub use search_document::SearchDocumentBackend;
-pub use status::{StatusColor, StatusDirective};
+pub use status::{STATUS_MARKER, StatusColor, StatusDirective};
 pub use tabs::TabsDirective;
 pub use toc::TocEntry;
 pub use util::{escape_html, escape_into};

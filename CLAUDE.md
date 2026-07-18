@@ -107,6 +107,9 @@ crates/
 │       │   ├── container.rs  # ContainerDirective trait (:::name)
 │       │   ├── parser.rs     # Directive syntax parsing
 │       │   └── processor.rs  # DirectiveProcessor coordination
+│       ├── status/            # Status badge inline directive
+│       │   ├── mod.rs        # Module exports
+│       │   └── directive.rs  # StatusDirective, StatusColor, STATUS_MARKER
 │       ├── tabs/             # Tabbed content blocks
 │       │   ├── mod.rs        # Module exports
 │       │   └── directive.rs  # TabsDirective (ContainerDirective impl)
