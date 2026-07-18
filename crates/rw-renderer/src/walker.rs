@@ -319,6 +319,19 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
         let buf = std::mem::take(&mut self.text_buffer);
         self.flush_text(&buf);
+        self.recycle_text_buffer(buf);
+    }
+
+    /// Return a taken text buffer's allocation so the next run of text reuses
+    /// it. The `mem::take`s above leave a zero-capacity `String` behind, so
+    /// without this every run of text re-allocates and re-grows from empty.
+    /// A nested flush may have installed its own buffer meanwhile; keep
+    /// whichever has more room.
+    fn recycle_text_buffer(&mut self, mut buf: String) {
+        buf.clear();
+        if buf.capacity() > self.text_buffer.capacity() {
+            self.text_buffer = buf;
+        }
     }
 
     fn flush_text(&mut self, text: &str) {
@@ -440,10 +453,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             && let Some(parsed) = parse_container_line(&text).or_else(|| parse_leaf_line(&text))
         {
             self.handle_block_directive(parsed);
-            return;
+        } else {
+            self.emit_text_paragraph(&text);
         }
 
-        self.emit_text_paragraph(&text);
+        self.recycle_text_buffer(text);
     }
 
     /// Render `text` as an ordinary paragraph: emit `<p>`, flush the text
