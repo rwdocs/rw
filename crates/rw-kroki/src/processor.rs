@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
+use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, Fills, ProcessResult};
 use ureq::Agent;
 
 use crate::cache::DiagramKey;
@@ -52,9 +52,9 @@ struct ProcessorConfig {
 
 /// Code block processor for diagram languages.
 ///
-/// Extracts diagram code blocks (`PlantUML`, Mermaid, `GraphViz`, etc.) and replaces
-/// them with placeholders during rendering. Placeholders are replaced with
-/// rendered diagrams during `post_process()`.
+/// Extracts diagram code blocks (`PlantUML`, Mermaid, `GraphViz`, etc.) and defers
+/// them during rendering. Deferred holes are filled with rendered diagrams via
+/// [`fills`](CodeBlockProcessor::fills).
 ///
 /// # Configuration
 ///
@@ -76,7 +76,7 @@ struct ProcessorConfig {
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new();
 /// let pipeline = Pipeline::new().with_processor(processor);
 ///
-/// // render auto-calls post_process() on all processors
+/// // render auto-calls fills() on all processors
 /// let result = renderer.render(markdown, pipeline);
 /// ```
 pub struct DiagramProcessor {
@@ -89,11 +89,11 @@ pub struct DiagramProcessor {
     /// Whether any diagram hit a transient render failure (network error, Kroki
     /// 5xx, or a retryable 4xx — see
     /// [`DiagramErrorKind::is_transient`](crate::kroki::DiagramErrorKind::is_transient))
-    /// during `post_process`. Consumed via
+    /// during [`fills`](CodeBlockProcessor::fills). Consumed via
     /// [`has_transient_error`](CodeBlockProcessor::has_transient_error).
     has_transient_error: bool,
     /// Canonical section refs referenced by diagram `$link`s during
-    /// `post_process`. Consumed via
+    /// [`fills`](CodeBlockProcessor::fills). Consumed via
     /// [`section_refs`](CodeBlockProcessor::section_refs).
     section_refs: BTreeSet<String>,
 }
@@ -187,7 +187,7 @@ impl DiagramProcessor {
 
     /// Set the diagram cache for content-based caching.
     ///
-    /// When a cache is provided, [`post_process`](Self::post_process) will:
+    /// When a cache is provided, [`fills`](CodeBlockProcessor::fills) will:
     /// 1. Compute a content hash for each diagram
     /// 2. Check the cache for a hit before rendering via Kroki
     /// 3. Store newly rendered diagrams in the cache
@@ -341,12 +341,18 @@ impl CodeBlockProcessor for DiagramProcessor {
             stored_attrs,
         ));
 
-        ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
+        ProcessResult::Deferred
     }
 
-    fn post_process(&mut self, html: &mut String) {
-        // Reset up front so `post_process` fully determines these from this
-        // render alone, rather than relying on the instance never being reused.
+    fn fills(&mut self, fills: &mut Fills) {
+        // Reset up front so these two fields are fully determined by this
+        // render rather than carried over from a previous one. This runs before
+        // the early return deliberately, and the renderer calls `fills` on every
+        // processor regardless of whether any hole was reserved.
+        //
+        // NOTE: `self.extracted` and `self.warnings` are NOT cleared here (or
+        // anywhere else) — an instance must not be reused across renders, or
+        // the next render's fills/warnings will be mixed with this one's.
         self.has_transient_error = false;
         self.section_refs.clear();
 
@@ -356,20 +362,20 @@ impl CodeBlockProcessor for DiagramProcessor {
         }
 
         self.has_transient_error = match &self.config.output {
-            DiagramOutput::Inline => Self::post_process_inline(
+            DiagramOutput::Inline => Self::resolve_inline(
                 &self.config,
                 &mut self.warnings,
                 &mut self.section_refs,
-                html,
+                fills,
                 &diagrams,
             ),
             DiagramOutput::Files {
                 output_dir,
                 tag_generator,
-            } => Self::post_process_files(
+            } => Self::resolve_files(
                 &self.config,
                 &mut self.warnings,
-                html,
+                fills,
                 &diagrams,
                 output_dir,
                 tag_generator,
@@ -439,15 +445,15 @@ impl CacheInfo {
 /// These methods take `&ProcessorConfig` and `&mut Vec<String>` separately,
 /// allowing immutable config access while mutating warnings (idiomatic Rust pattern).
 impl DiagramProcessor {
-    /// Post-process with inline output mode.
+    /// Resolve diagrams in inline output mode.
     ///
     /// Checks cache first, renders only cache misses via Kroki, and collects
     /// the section refs resolved from diagram links into `refs`.
-    fn post_process_inline(
+    fn resolve_inline(
         config: &ProcessorConfig,
         warnings: &mut Vec<String>,
         refs: &mut BTreeSet<String>,
-        html: &mut String,
+        fills: &mut Fills,
         diagrams: &[ExtractedDiagram],
     ) -> bool {
         // Resolve each diagram's id: explicit `{#id}`, else `diagram-<n>` where n
@@ -482,9 +488,9 @@ impl DiagramProcessor {
 
         let id_by_index: HashMap<usize, String> = resolved.into_iter().collect();
 
-        // Collect all replacements for single-pass application
-        let mut replacements = Replacements::with_capacity(diagrams.len());
-        replacements.set_ids(id_by_index);
+        // Collect all figures for single-pass fill
+        let mut figures = Figures::with_capacity(diagrams.len());
+        figures.set_ids(id_by_index);
 
         // Prepare all diagrams
         let prepared: Vec<_> = diagrams
@@ -515,8 +521,8 @@ impl DiagramProcessor {
             // IS the hash), so etag validation is unnecessary. Version-level
             // invalidation is handled by FileCache's VERSION file.
             if let Some(cached_content) = config.cache.get_string(&hash, "") {
-                // Cache hit: add replacement directly
-                let id_attr = replacements.id_attr(diagram.index);
+                // Cache hit: add figure directly
+                let id_attr = figures.id_attr(diagram.index);
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
                         let annotated = Self::annotate_links(config, &cached_content, refs);
@@ -528,7 +534,7 @@ impl DiagramProcessor {
                         )
                     }
                 };
-                replacements.add(diagram.index, figure);
+                figures.add(diagram.index, figure);
             } else {
                 // Cache miss: clone for CacheInfo, move into DiagramRequest
                 let cache_info = CacheInfo {
@@ -546,22 +552,20 @@ impl DiagramProcessor {
             }
         }
 
-        // Render cache misses and collect replacements
-        let svg_transient =
-            Self::render_and_cache_svg(config, &mut replacements, refs, svg_to_render);
-        let png_transient = Self::render_and_cache_png(config, &mut replacements, png_to_render);
+        // Render cache misses and collect figures
+        let svg_transient = Self::render_and_cache_svg(config, &mut figures, refs, svg_to_render);
+        let png_transient = Self::render_and_cache_png(config, &mut figures, png_to_render);
 
-        // Apply all replacements in a single pass
-        replacements.apply(html);
+        figures.into_fills(fills);
 
         svg_transient || png_transient
     }
 
-    /// Render SVG diagrams, cache results, collect replacements, and record
+    /// Render SVG diagrams, cache results, collect figures, and record
     /// section refs resolved from each diagram's links into `refs`.
     fn render_and_cache_svg(
         config: &ProcessorConfig,
-        replacements: &mut Replacements,
+        figures: &mut Figures,
         refs: &mut BTreeSet<String>,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
     ) -> bool {
@@ -582,17 +586,17 @@ impl DiagramProcessor {
             }
 
             let annotated = Self::annotate_links(config, &scaled_svg, refs);
-            let id_attr = replacements.id_attr(r.index);
+            let id_attr = figures.id_attr(r.index);
             let figure = Self::svg_figure(&id_attr, &annotated);
-            replacements.add(r.index, figure);
+            figures.add(r.index, figure);
         }
-        replacements.add_errors(result.errors)
+        figures.add_errors(result.errors)
     }
 
-    /// Render PNG diagrams, cache results, and collect replacements.
+    /// Render PNG diagrams, cache results, and collect figures.
     fn render_and_cache_png(
         config: &ProcessorConfig,
-        replacements: &mut Replacements,
+        figures: &mut Figures,
         to_render: Vec<(DiagramRequest, CacheInfo)>,
     ) -> bool {
         if to_render.is_empty() {
@@ -608,29 +612,29 @@ impl DiagramProcessor {
                 config.cache.set_string(&hash, "", &r.data_uri);
             }
 
-            let id_attr = replacements.id_attr(r.index);
+            let id_attr = figures.id_attr(r.index);
             let figure = format!(
                 r#"<figure class="diagram"{id_attr}><img src="{}" alt="diagram"></figure>"#,
                 r.data_uri
             );
-            replacements.add(r.index, figure);
+            figures.add(r.index, figure);
         }
-        replacements.add_errors(result.errors)
+        figures.add_errors(result.errors)
     }
 
-    /// Post-process with file-based output mode.
+    /// Resolve diagrams in file-based output mode.
     ///
-    /// Renders diagrams to PNG files and replaces placeholders with custom tags.
-    fn post_process_files(
+    /// Renders diagrams to PNG files and fills holes with custom tags.
+    fn resolve_files(
         config: &ProcessorConfig,
         warnings: &mut Vec<String>,
-        html: &mut String,
+        fills: &mut Fills,
         diagrams: &[ExtractedDiagram],
         output_dir: &std::path::Path,
         tag_generator: &TagGenerator,
     ) -> bool {
-        // Collect all replacements for single-pass application
-        let mut replacements = Replacements::with_capacity(diagrams.len());
+        // Collect all figures for single-pass fill
+        let mut figures = Figures::with_capacity(diagrams.len());
 
         // Prepare all diagrams
         let diagram_requests: Vec<_> = diagrams
@@ -654,12 +658,11 @@ impl DiagramProcessor {
         for r in result.rendered {
             let info = RenderedDiagramInfo::new(r.filename, r.width, r.height);
             let tag = tag_generator(&info, config.dpi);
-            replacements.add(r.index, tag);
+            figures.add(r.index, tag);
         }
-        let transient = replacements.add_errors(result.errors);
+        let transient = figures.add_errors(result.errors);
 
-        // Apply all replacements in a single pass
-        replacements.apply(html);
+        figures.into_fills(fills);
 
         transient
     }
@@ -686,21 +689,19 @@ fn diagram_id_attr(id: Option<&str>) -> String {
     })
 }
 
-/// Collects diagram replacements for single-pass application.
-///
-/// Instead of calling `html.replace()` for each diagram (O(N × `string_length`)),
-/// this collects all replacements and applies them in a single pass.
-struct Replacements {
+/// Collects one rendered figure per diagram code-block index, then hands them
+/// to the renderer as hole fills.
+struct Figures {
     map: HashMap<usize, String>,
     /// Resolved id per diagram code-block index (explicit or `diagram-<n>`).
-    /// Populated only on the Inline path (`post_process_inline`); the
+    /// Populated only on the Inline path (`resolve_inline`); the
     /// Files/Confluence path builds figures via a caller-supplied `tag_generator`
     /// with no `data-diagram-id` insertion point, so it never resolves ids and
     /// this map stays empty there.
     id_by_index: HashMap<usize, String>,
 }
 
-impl Replacements {
+impl Figures {
     #[cfg(test)]
     fn new() -> Self {
         Self {
@@ -734,12 +735,12 @@ impl Replacements {
         diagram_id_attr(self.id_for(index))
     }
 
-    /// Add a replacement for a diagram placeholder.
+    /// Add a figure for a diagram code-block index.
     fn add(&mut self, index: usize, content: String) {
         self.map.insert(index, content);
     }
 
-    /// Add an error message for a diagram placeholder.
+    /// Add an error message for a diagram code-block index.
     fn add_error(&mut self, index: usize, error_msg: &str) {
         use rw_renderer::escape_html;
 
@@ -764,50 +765,15 @@ impl Replacements {
         transient
     }
 
-    /// Apply all replacements in a single pass.
+    /// Move every collected figure into `fills`, keyed by code-block index.
     ///
-    /// This scans the HTML once, replacing all `{{DIAGRAM_N}}` placeholders
-    /// with their corresponding content from the map.
-    fn apply(self, html: &mut String) {
-        if self.map.is_empty() {
-            return;
+    /// The renderer reserved a hole per deferred block under that same index,
+    /// so each figure lands at the offset its fence occupied.
+    fn into_fills(self, fills: &mut Fills) {
+        for (index, content) in self.map {
+            let key = u32::try_from(index).expect("code block index exceeds hole key width");
+            fills.set(key, content);
         }
-
-        let mut result = String::with_capacity(html.len());
-        let mut remaining = html.as_str();
-
-        while let Some(start) = remaining.find("{{DIAGRAM_") {
-            // Add everything before the placeholder
-            result.push_str(&remaining[..start]);
-
-            // Find the end of the placeholder
-            let after_prefix = &remaining[start + 10..]; // Skip "{{DIAGRAM_"
-            if let Some(end_pos) = after_prefix.find("}}") {
-                // Parse the index
-                let index_str = &after_prefix[..end_pos];
-                if let Ok(index) = index_str.parse::<usize>() {
-                    if let Some(replacement) = self.map.get(&index) {
-                        result.push_str(replacement);
-                    } else {
-                        // No replacement found, keep original placeholder
-                        result.push_str(&remaining[start..start + 10 + end_pos + 2]);
-                    }
-                } else {
-                    // Invalid index, keep original placeholder
-                    result.push_str(&remaining[start..start + 10 + end_pos + 2]);
-                }
-                remaining = &after_prefix[end_pos + 2..];
-            } else {
-                // No closing }}, keep rest as-is
-                result.push_str(&remaining[start..]);
-                remaining = "";
-            }
-        }
-
-        // Add any remaining content
-        result.push_str(remaining);
-
-        *html = result;
     }
 }
 
@@ -1223,7 +1189,7 @@ mod tests {
 
         // A deterministic error (Kroki 400 on malformed source) is recorded as a
         // figure but is NOT transient, so the page still caches.
-        let mut det = Replacements::new();
+        let mut det = Figures::new();
         let det_transient = det.add_errors(vec![DiagramError {
             index: 0,
             kind: DiagramErrorKind::HttpResponse {
@@ -1234,7 +1200,7 @@ mod tests {
         assert!(!det_transient);
 
         // A transient error (Kroki 503) is recorded AND flagged transient.
-        let mut tr = Replacements::new();
+        let mut tr = Figures::new();
         let tr_transient = tr.add_errors(vec![DiagramError {
             index: 0,
             kind: DiagramErrorKind::HttpResponse {
@@ -1245,7 +1211,7 @@ mod tests {
         assert!(tr_transient);
 
         // No errors → not transient.
-        let mut empty = Replacements::new();
+        let mut empty = Figures::new();
         assert!(!empty.add_errors(vec![]));
     }
 
@@ -1257,10 +1223,7 @@ mod tests {
 
         let result = processor.process("plantuml", &attrs, source, 0);
 
-        assert_eq!(
-            result,
-            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned())
-        );
+        assert_eq!(result, ProcessResult::Deferred);
         assert_eq!(processor.extracted().len(), 1);
         assert_eq!(processor.extracted()[0].language, "plantuml");
         assert_eq!(processor.extracted()[0].source, source);
@@ -1274,10 +1237,7 @@ mod tests {
 
         let result = processor.process("mermaid", &attrs, "graph TD\n  A --> B", 0);
 
-        assert_eq!(
-            result,
-            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned())
-        );
+        assert_eq!(result, ProcessResult::Deferred);
         assert_eq!(processor.extracted()[0].language, "mermaid");
     }
 
@@ -1288,10 +1248,7 @@ mod tests {
 
         let result = processor.process("kroki-mermaid", &attrs, "graph TD", 0);
 
-        assert_eq!(
-            result,
-            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned())
-        );
+        assert_eq!(result, ProcessResult::Deferred);
         assert_eq!(processor.extracted()[0].language, "kroki-mermaid");
     }
 
@@ -1471,85 +1428,93 @@ mod tests {
 
             let result = processor.process(lang, &attrs, "source", 0);
 
-            assert!(
-                matches!(result, ProcessResult::Placeholder(_)),
-                "Expected Placeholder for language: {lang}"
+            assert_eq!(
+                result,
+                ProcessResult::Deferred,
+                "Expected Deferred for language: {lang}"
             );
         }
     }
 
+    // `into_fills` just moves `Figures::map` into `Fills` keyed by code-block
+    // index; the *renderer* (not this processor) splices each fill at its
+    // pre-reserved offset. So the tests below assert on `Fills::get` instead of
+    // HTML substrings; end-to-end placement through a real render (proving a
+    // fill lands at its reserved offset, not appended or scanned) is covered by
+    // `deferred_code_block_fills_at_its_offset` in `code_block.rs` and by
+    // `figures_land_in_source_order` below.
+
     #[test]
-    fn test_replacements_single() {
-        let mut html = String::from("<p>Before</p>{{DIAGRAM_0}}<p>After</p>");
-        let mut replacements = Replacements::new();
-        replacements.add(0, "<svg>diagram</svg>".to_owned());
+    fn into_fills_ignores_add_order() {
+        // Figures are collected in whatever order diagrams finish rendering
+        // (cache hits first, then Kroki responses as they arrive) — the key,
+        // not insertion order, must determine which fill lands where.
+        let mut figures = Figures::new();
+        figures.add(2, "C".to_owned());
+        figures.add(0, "A".to_owned());
+        figures.add(1, "B".to_owned());
 
-        replacements.apply(&mut html);
+        let mut fills = Fills::new();
+        figures.into_fills(&mut fills);
 
-        assert_eq!(html, "<p>Before</p><svg>diagram</svg><p>After</p>");
+        assert_eq!(fills.get(0), Some("A"));
+        assert_eq!(fills.get(1), Some("B"));
+        assert_eq!(fills.get(2), Some("C"));
     }
 
     #[test]
-    fn test_replacements_multiple() {
-        let mut html =
-            String::from("{{DIAGRAM_0}}<p>middle</p>{{DIAGRAM_1}}<p>end</p>{{DIAGRAM_2}}");
-        let mut replacements = Replacements::new();
-        replacements.add(0, "<svg>first</svg>".to_owned());
-        replacements.add(1, "<svg>second</svg>".to_owned());
-        replacements.add(2, "<svg>third</svg>".to_owned());
+    fn into_fills_leaves_a_gap_unfilled() {
+        // A gap in a partially-populated `Figures` stays a gap: `into_fills`
+        // must never invent an entry for an index it was not given.
+        let mut figures = Figures::new();
+        figures.add(0, "A".to_owned());
+        // No figure added for index 1.
 
-        replacements.apply(&mut html);
+        let mut fills = Fills::new();
+        figures.into_fills(&mut fills);
 
-        assert_eq!(
-            html,
-            "<svg>first</svg><p>middle</p><svg>second</svg><p>end</p><svg>third</svg>"
+        assert_eq!(fills.get(0), Some("A"));
+        assert_eq!(fills.get(1), None);
+    }
+
+    #[test]
+    fn into_fills_of_empty_figures_sets_nothing() {
+        let mut fills = Fills::new();
+        Figures::new().into_fills(&mut fills);
+
+        assert_eq!(fills.get(0), None);
+    }
+
+    #[test]
+    fn figures_land_in_source_order() {
+        // End-to-end through the real renderer: two diagrams (unreachable Kroki,
+        // so each resolves to a distinguishable error figure) must appear
+        // between the same prose that surrounds them in the source, regardless
+        // of the order `fills` happens to collect them in.
+        let html = render_diagrams(
+            "before\n\n```mermaid {#first}\nA-->B\n```\n\nmiddle\n\n```mermaid {#second}\nC-->D\n```\n\nafter\n",
         );
-    }
 
-    #[test]
-    fn test_replacements_out_of_order() {
-        let mut html = String::from("{{DIAGRAM_2}}{{DIAGRAM_0}}{{DIAGRAM_1}}");
-        let mut replacements = Replacements::new();
-        replacements.add(0, "A".to_owned());
-        replacements.add(1, "B".to_owned());
-        replacements.add(2, "C".to_owned());
+        let before = html
+            .find("before")
+            .unwrap_or_else(|| panic!("before missing: {html}"));
+        let first = html
+            .find(r#"data-diagram-id="first""#)
+            .unwrap_or_else(|| panic!("first diagram missing: {html}"));
+        let middle = html
+            .find("middle")
+            .unwrap_or_else(|| panic!("middle missing: {html}"));
+        let second = html
+            .find(r#"data-diagram-id="second""#)
+            .unwrap_or_else(|| panic!("second diagram missing: {html}"));
+        let after = html
+            .find("after")
+            .unwrap_or_else(|| panic!("after missing: {html}"));
 
-        replacements.apply(&mut html);
-
-        assert_eq!(html, "CAB");
-    }
-
-    #[test]
-    fn test_replacements_missing_keeps_placeholder() {
-        let mut html = String::from("{{DIAGRAM_0}}{{DIAGRAM_1}}");
-        let mut replacements = Replacements::new();
-        replacements.add(0, "A".to_owned());
-        // No replacement for index 1
-
-        replacements.apply(&mut html);
-
-        assert_eq!(html, "A{{DIAGRAM_1}}");
-    }
-
-    #[test]
-    fn test_replacements_empty_no_change() {
-        let mut html = String::from("<p>No placeholders</p>");
-        let replacements = Replacements::new();
-
-        replacements.apply(&mut html);
-
-        assert_eq!(html, "<p>No placeholders</p>");
-    }
-
-    #[test]
-    fn test_replacements_large_index() {
-        let mut html = String::from("{{DIAGRAM_12345}}");
-        let mut replacements = Replacements::new();
-        replacements.add(12345, "content".to_owned());
-
-        replacements.apply(&mut html);
-
-        assert_eq!(html, "content");
+        assert!(
+            before < first && first < middle && middle < second && second < after,
+            "figures out of source order: {html}"
+        );
     }
 
     #[test]

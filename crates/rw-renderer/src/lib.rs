@@ -16,17 +16,22 @@
 //! ## Extension points
 //!
 //! - **Code block processors** ([`CodeBlockProcessor`]) — intercept fenced
-//!   code blocks by language (e.g., diagram rendering via Kroki). Processors
-//!   return a [`ProcessResult`]: a placeholder for deferred work, inline HTML,
-//!   or pass-through for normal syntax highlighting.
+//!   code blocks by language (e.g., diagram rendering via Kroki). A processor
+//!   whose output isn't knowable during the walk — a diagram needs an HTTP
+//!   round trip to Kroki — returns [`ProcessResult::Deferred`], reserving a
+//!   hole at the current output offset; otherwise it returns inline HTML or
+//!   passes through for normal syntax highlighting.
 //!
 //! - **Directives** ([`directive`] module) — [CommonMark generic directives]
 //!   syntax (`:inline`, `::leaf`, `:::container`). Directives are recognized
 //!   during the event walk and dispatched straight to the backend. A handler
 //!   whose markup depends on content the walk has not reached yet — a tab strip
 //!   needs every tab's label — returns [`DirectiveOutput::Deferred`](directive::DirectiveOutput::Deferred), reserving
-//!   a hole at the current output offset; a single assembly pass after the walk
-//!   splices in the content each handler then supplies.
+//!   a hole at the current output offset.
+//!
+//! Both extension points share the same deferral mechanism: a single assembly
+//! pass after the walk splices each reserved hole's content in, supplied by
+//! [`CodeBlockProcessor::fills`] or the directive handler's `fills` hook.
 //!
 //! [pulldown-cmark]: https://docs.rs/pulldown-cmark
 //! [CommonMark generic directives]: https://talk.commonmark.org/t/generic-directives-plugins-syntax/444
@@ -144,6 +149,12 @@ pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
 pub use comment::render_comment_body;
 pub use config::TitleResolver;
+/// Re-exported from [`directive`] for [`CodeBlockProcessor::fills`]
+/// implementations. Directives and code-block processors defer content through
+/// the same hole mechanism, so [`Fills`]/[`HoleKey`] belong to both extension
+/// points; this re-export lets a processor use them without reaching into the
+/// directive module. The `directive::` paths name the same types.
+pub use directive::{Fills, HoleKey};
 pub use html::HtmlBackend;
 pub use pipeline::Pipeline;
 /// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.

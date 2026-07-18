@@ -30,9 +30,10 @@ use crate::code_block::{CodeBlockProcessor, FenceAttrs, ProcessResult, parse_fen
 use crate::config::RenderConfig;
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
+use crate::directive::Fills;
 use crate::directive::Marker;
 use crate::directive::Part;
-use crate::directive::fills::GlobalKey;
+use crate::directive::fills::{GlobalKey, Source};
 use crate::directive::parser::{
     ParsedDirective, parse_container_line, parse_leaf_line, parse_line,
 };
@@ -128,24 +129,40 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
     /// Consume the walker and produce the final `RenderResult`.
     ///
-    /// Order is load-bearing:
+    /// Order still matters, but only in one direction — everything that writes
+    /// to the walk buffer must precede assembly, which is keyed to offsets in
+    /// it:
     ///
     /// 1. Close containers still open at end of input, appending their closing
-    ///    markup to `output` — must precede assembly (step 3), which is keyed
-    ///    to offsets in that buffer.
-    /// 2. `mem::take` `output` into a local `html` — this owned `String`
-    ///    will be moved into the returned `RenderResult`, so it must be
-    ///    freestanding (not a borrow into `self`).
-    /// 3. Assemble deferred directive content into `html` — holes address
-    ///    offsets in the walk buffer, so this must happen before any step
-    ///    that rewrites the string.
-    /// 4. Iterate `self.processors` mutably and call
-    ///    `processor.post_process(&mut html)` on each — replaces deferred
-    ///    code-block placeholders with rendered output.
-    /// 5. Collect code-block processor warnings (directive warnings are
-    ///    collected by the façade in `render`).
-    /// 6. Take title and toc from the heading accumulator into the
-    ///    `RenderResult` struct literal.
+    ///    markup to `output`. Appending only extends the buffer, so every
+    ///    recorded hole offset stays valid.
+    /// 2. `mem::take` `output` into a local `html` — this owned `String` is
+    ///    moved into the returned `RenderResult`, so it must be freestanding.
+    /// 3. Collect fills from directive handlers and code-block processors, then
+    ///    assemble: one pass, copying spans of the buffer and writing each fill
+    ///    at its reserved offset.
+    /// 4. Collect code-block processor warnings, transient-error state, and
+    ///    section refs. `has_transient_error` is populated only during step 3
+    ///    (by [`CodeBlockProcessor::fills`]). Section refs come from two
+    ///    sources: `self.section_refs`, accumulated during the walk itself from
+    ///    prose links and wikilinks, plus each processor's `section_refs()`
+    ///    (populated during step 3, e.g. from diagram `$link`s) — the two are
+    ///    merged here. Warnings may also be pushed earlier — during the walk
+    ///    (directive warnings are collected by the façade in `render`), or
+    ///    before it, by [`CodeBlockProcessor::bundle`], which runs from the
+    ///    separate [`bundle_markdown`](crate::bundle_markdown) entry point
+    ///    (used by the S3 publish path) ahead of any walk.
+    /// 5. Take title and toc from the heading accumulator.
+    ///
+    /// # Do not add a step that rewrites the buffer
+    ///
+    /// Every step before assembly may only *append* to the walk buffer. Hole
+    /// offsets are byte positions into that buffer, so any insertion, deletion,
+    /// or replacement ahead of a recorded offset shifts the bytes out from
+    /// under it and every later fill splices into the wrong place. If you need
+    /// to transform the rendered markup, do it after `assemble` returns, on the
+    /// finished `String`. See the Invariant section on
+    /// [`holes`](crate::holes).
     pub(crate) fn finish(mut self) -> RenderResult {
         debug_assert!(
             self.scopes.is_empty(),
@@ -170,24 +187,33 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
 
         let mut html = std::mem::take(&mut self.output);
-
-        // Assemble before the code-block processors run: their sentinel
-        // replacement rewrites the string, and holes address the walk buffer.
         let holes = std::mem::take(&mut self.holes);
-        if !holes.is_empty() {
-            let fills = self
-                .directives
-                .as_deref_mut()
-                .map(DirectiveProcessor::collect_fills)
-                .unwrap_or_default();
-            // Fills are markup the backend never saw during the walk, so they
-            // go in through `raw_html` like every other emission.
-            html = holes.assemble(html, &fills, B::raw_html);
+
+        // Collect fills unconditionally, without first checking whether any
+        // hole was reserved. Whether a handler has anything to contribute is
+        // the handler's own business, and hole bookkeeping is private to
+        // `Holes` — gating the call on it would couple this call site to state
+        // it has no reason to inspect. The empty path is cheap:
+        // `Fills`/`GlobalFills` wrap `HashMap::default()`, which does not
+        // allocate until the first insert, so a handler that sets nothing
+        // costs no allocation.
+        let mut fills = self
+            .directives
+            .as_deref_mut()
+            .map(DirectiveProcessor::collect_fills)
+            .unwrap_or_default();
+        for (idx, processor) in self.processors.iter_mut().enumerate() {
+            let mut local = Fills::new();
+            processor.fills(&mut local);
+            fills.merge(Source::CodeBlock(idx), local);
         }
 
-        for processor in self.processors.iter_mut() {
-            processor.post_process(&mut html);
-        }
+        // Fills are markup the backend never saw during the walk, so they go in
+        // through `raw_html` like every other emission. `assemble` returns
+        // `html` untouched when no hole was reserved. Keep this the only step
+        // that transforms the buffer — see this function's doc comment.
+        html = holes.assemble(html, &fills, B::raw_html);
+
         let warnings = self
             .processors
             .iter()
@@ -452,7 +478,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 self.marker_close(&marker);
             }
             BlockDispatch::Markdown(md) => self.reparse_block_markdown(&md),
-            BlockDispatch::Deferred { parts, namespace } => self.emit_parts(parts, namespace),
+            BlockDispatch::Deferred { parts, source } => self.emit_parts(parts, source),
             BlockDispatch::PassThrough(text) => self.emit_text_paragraph(&text),
         }
     }
@@ -740,30 +766,47 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 self.code_block_index += 1;
 
                 // Borrow discipline (pattern A): field-disjoint borrows.
-                // `self.processors` (mutably via iter_mut) and `self.output` (mutably
-                // via push_str inside the closure) are distinct fields of Walker, so
-                // NLL splits the borrow per field. This works because the closure body
-                // directly names both fields — NLL sees them as disjoint. If the
-                // push_str calls were wrapped in a helper (e.g. `self.emit_html(...)`)
-                // that took `&mut self`, the whole-struct reborrow would prevent the
-                // concurrent iter_mut borrow on self.processors.
-                let processed = language.as_deref().is_some_and(|lang_str| {
-                    self.processors.iter_mut().any(|processor| {
+                // `self.processors` (mutably via iter_mut) and `self.output` /
+                // `self.holes` (mutably in the body) are distinct fields of
+                // Walker, so NLL splits the borrow per field. This works only
+                // because the body names those fields directly — wrapping the
+                // pushes or the reservation in a helper taking `&mut self`
+                // would reborrow the whole struct and conflict with iter_mut.
+                // That is why this reserves via `self.holes.reserve(...)`
+                // rather than the `reserve_hole` helper.
+                debug_assert!(
+                    self.scopes.is_empty(),
+                    "code block processed inside a scope: hole offsets would reference the wrong buffer"
+                );
+                let mut handled = false;
+                if let Some(lang_str) = language.as_deref() {
+                    for (proc_idx, processor) in self.processors.iter_mut().enumerate() {
                         match processor.process(lang_str, &attrs, &buffer, index) {
-                            ProcessResult::Placeholder(placeholder) => {
-                                self.output.push_str(&placeholder);
-                                true
+                            ProcessResult::Deferred => {
+                                // Reserve at the current end of the append-only
+                                // buffer and write nothing. Scopes are empty
+                                // here: Scope::CodeBlock was popped above, and
+                                // blockquotes/list items are not scopes.
+                                let key = u32::try_from(index)
+                                    .expect("code block index exceeds hole key width");
+                                self.holes.reserve(
+                                    self.output.len(),
+                                    GlobalKey(Source::CodeBlock(proc_idx), key),
+                                );
+                                handled = true;
+                                break;
                             }
                             ProcessResult::Inline(html) => {
                                 self.output.push_str(&html);
-                                true
+                                handled = true;
+                                break;
                             }
-                            ProcessResult::PassThrough => false,
+                            ProcessResult::PassThrough => {}
                         }
-                    })
-                });
+                    }
+                }
 
-                if !processed {
+                if !handled {
                     B::code_block(language.as_deref(), &buffer, &mut self.output);
                 }
             }
@@ -909,13 +952,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// Emit a deferred directive's parts: literal HTML inline, holes reserved
     /// at the position the fill will occupy.
     ///
-    /// `namespace` identifies the handler the parts came from; its local hole
+    /// `source` identifies the handler the parts came from; its local hole
     /// keys become global here.
-    fn emit_parts(&mut self, parts: Vec<Part>, namespace: u32) {
+    fn emit_parts(&mut self, parts: Vec<Part>, source: Source) {
         for part in parts {
             match part {
                 Part::Html(html) => self.raw_html(&html),
-                Part::Hole(key) => self.reserve_hole(GlobalKey(namespace, key)),
+                Part::Hole(key) => self.reserve_hole(GlobalKey(source, key)),
             }
         }
     }

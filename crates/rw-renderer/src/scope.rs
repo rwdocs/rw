@@ -56,7 +56,11 @@ pub(crate) enum Scope {
     /// An open fenced code block. Only `text` (and `soft_break` → `\n`)
     /// reach this scope — pulldown-cmark doesn't emit markup or raw HTML
     /// inside a fenced block. On pop, the renderer runs code-block
-    /// processors with `self.code_block_index` and emits the result.
+    /// processors with `self.code_block_index`. `ProcessResult::Inline` and
+    /// `PassThrough` emit their result immediately; `Deferred` — e.g. a
+    /// diagram — emits nothing here and reserves a hole instead,
+    /// filled later by the processor's `fills` in the post-walk assembly
+    /// pass. This is why `output` doesn't grow at a diagram fence.
     CodeBlock {
         language: Option<String>,
         buffer: String,

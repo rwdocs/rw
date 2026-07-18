@@ -64,7 +64,7 @@ impl RenderedDiagramInfo {
 
 /// Callback that generates an HTML tag for a rendered diagram.
 ///
-/// Arguments: `(info, dpi)` → HTML string to replace the diagram placeholder.
+/// Arguments: `(info, dpi)` → HTML string to fill the diagram's reserved hole.
 pub type TagGenerator = Arc<dyn Fn(&RenderedDiagramInfo, u32) -> String + Send + Sync>;
 
 /// Output mode for diagram rendering.

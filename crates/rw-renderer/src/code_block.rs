@@ -12,11 +12,18 @@
 //!
 //! # Example
 //!
-//! ```
-//! use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
+//! A processor that can't render immediately (e.g. it needs an external HTTP
+//! call) returns [`ProcessResult::Deferred`] to reserve a hole, then supplies
+//! the rendered markup afterwards through
+//! [`fills`](CodeBlockProcessor::fills):
 //!
+//! ```
+//! use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, Fills, ProcessResult};
+//!
+//! #[derive(Default)]
 //! struct DiagramProcessor {
 //!     extracted: Vec<ExtractedCodeBlock>,
+//!     seen: Vec<usize>,
 //! }
 //!
 //! impl CodeBlockProcessor for DiagramProcessor {
@@ -35,9 +42,18 @@
 //!                 attrs.id.clone(),
 //!                 attrs.map.clone(),
 //!             ));
-//!             ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
+//!             self.seen.push(index);
+//!             ProcessResult::Deferred
 //!         } else {
 //!             ProcessResult::PassThrough
+//!         }
+//!     }
+//!
+//!     fn fills(&mut self, fills: &mut Fills) {
+//!         // Runs after the walk, once every diagram has been rendered.
+//!         for index in &self.seen {
+//!             let key = u32::try_from(*index).expect("code block index exceeds hole key width");
+//!             fills.set(key, format!(r#"<img src="diagram-{index}.svg">"#));
 //!         }
 //!     }
 //!
@@ -49,15 +65,11 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use crate::directive::Fills;
+
 /// Result of processing a code block.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProcessResult {
-    /// Replace code block with placeholder for deferred processing.
-    ///
-    /// Use when processing requires external resources (HTTP calls, file I/O).
-    /// The caller is responsible for replacing placeholders after rendering.
-    Placeholder(String),
-
     /// Replace code block with inline HTML immediately.
     ///
     /// Use when processing is fast and self-contained (YAML parsing, math rendering).
@@ -67,6 +79,13 @@ pub enum ProcessResult {
     ///
     /// Use when the language is not handled by this processor.
     PassThrough,
+
+    /// The block's content is not knowable during the walk. The walker reserves
+    /// a hole at this position keyed by the block's index, and the processor
+    /// supplies content afterwards through [`CodeBlockProcessor::fills`].
+    ///
+    /// Carries no payload: nothing about the final markup is known yet.
+    Deferred,
 }
 
 /// Metadata extracted from code block for deferred processing.
@@ -121,26 +140,27 @@ impl ExtractedCodeBlock {
 /// Intercepts fenced code blocks during rendering.
 ///
 /// Implementations handle one or more code block languages, transforming
-/// them into placeholders (for deferred processing like Kroki HTTP calls)
-/// or inline HTML (for fast, self-contained transforms like YAML tables).
+/// them into deferred holes (for processing that needs external resources,
+/// like Kroki HTTP calls) or inline HTML (for fast, self-contained transforms
+/// like YAML tables).
 ///
 /// Register processors with
 /// [`Pipeline::with_processor`](crate::Pipeline::with_processor).
 /// They are checked in registration order; the first returning a
 /// non-[`PassThrough`](ProcessResult::PassThrough) result wins.
 ///
-/// Processors that use placeholders can implement
-/// [`post_process`](Self::post_process) to replace them after rendering
-/// completes.
-/// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render) calls
-/// `post_process` automatically.
+/// Processors that return [`ProcessResult::Deferred`] implement
+/// [`fills`](Self::fills) to supply the reserved hole's content once the walk
+/// completes; [`MarkdownRenderer::render`](crate::MarkdownRenderer::render)
+/// calls `fills` automatically.
 pub trait CodeBlockProcessor: Send + Sync {
     /// Inspects a code block and decides how to handle it.
     ///
     /// `language` is the identifier from the fence info string (e.g.,
     /// `"plantuml"`). `attrs` is the parsed `{ … }` attribute block from the
     /// remainder of the info string (e.g., `{#id format=png}`). `index` is a
-    /// zero-based counter useful for generating unique placeholder tokens.
+    /// zero-based counter useful for keying a reserved hole (see
+    /// [`ProcessResult::Deferred`]).
     fn process(
         &mut self,
         language: &str,
@@ -149,18 +169,25 @@ pub trait CodeBlockProcessor: Send + Sync {
         index: usize,
     ) -> ProcessResult;
 
-    /// Post-process rendered HTML to replace placeholders.
+    /// Supply content for holes reserved by [`ProcessResult::Deferred`].
     ///
-    /// Called by [`MarkdownRenderer::render`](crate::MarkdownRenderer::render)
-    /// after rendering completes.
-    /// Use this to replace placeholders with actual content (e.g., rendered diagrams).
+    /// Called once after the walk, before assembly. Keys are the code-block
+    /// `index` values passed to [`process`](Self::process), narrowed to
+    /// [`HoleKey`](crate::directive::HoleKey).
     ///
-    /// Default implementation is a no-op.
-    fn post_process(&mut self, _html: &mut String) {}
+    /// Called on every registered processor whether or not it deferred
+    /// anything.
+    ///
+    /// Every hole reserved by returning [`ProcessResult::Deferred`] must be
+    /// filled here. A key left unset is an internal bug, not a recoverable
+    /// condition: debug builds panic, release builds silently omit that content
+    /// from the page, and it never surfaces through
+    /// [`warnings`](Self::warnings).
+    fn fills(&mut self, _fills: &mut Fills) {}
 
     /// Get all extracted code blocks after rendering.
     ///
-    /// Returns blocks that were processed with `ProcessResult::Placeholder`.
+    /// Returns blocks that were processed with [`ProcessResult::Deferred`].
     /// Default implementation returns empty slice (for inline-only processors).
     fn extracted(&self) -> &[ExtractedCodeBlock] {
         &[]
@@ -184,8 +211,8 @@ pub trait CodeBlockProcessor: Send + Sync {
     }
 
     /// Canonical section refs (`"kind:namespace/name"`) this processor's output
-    /// referenced during `post_process` (e.g. diagram `$link`s resolved to
-    /// sections). Collected by the renderer into
+    /// referenced (e.g. diagram `$link`s resolved to sections), collected in
+    /// [`fills`](Self::fills). Collected by the renderer into
     /// [`RenderResult::section_refs`](crate::RenderResult::section_refs).
     ///
     /// Default implementation returns an empty set.
@@ -296,6 +323,230 @@ fn parse_attr_block(inner: &str, attrs: &mut FenceAttrs) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+    /// Defers every `demo` block and fills each after the walk, proving the
+    /// fill lands at the reserved offset rather than being scanned for.
+    #[derive(Default)]
+    struct DeferringProcessor {
+        seen: Vec<usize>,
+    }
+
+    impl CodeBlockProcessor for DeferringProcessor {
+        fn process(
+            &mut self,
+            language: &str,
+            _attrs: &FenceAttrs,
+            _source: &str,
+            index: usize,
+        ) -> ProcessResult {
+            if language != "demo" {
+                return ProcessResult::PassThrough;
+            }
+            self.seen.push(index);
+            ProcessResult::Deferred
+        }
+
+        fn fills(&mut self, fills: &mut Fills) {
+            // Runs after the walk, so the total is known — the reason to defer.
+            let total = self.seen.len();
+            for index in &self.seen {
+                let key = u32::try_from(*index).expect("code block index exceeds hole key width");
+                fills.set(key, format!("<i>{index} of {total}</i>"));
+            }
+        }
+    }
+
+    #[test]
+    fn deferred_code_block_fills_at_its_offset() {
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "before\n\n```demo\nx\n```\n\nmiddle\n\n```demo\ny\n```\n\nafter\n",
+            Pipeline::new().with_processor(DeferringProcessor::default()),
+        );
+
+        // Each fill carries a total only knowable after the walk, and lands
+        // between its neighbours rather than appended or scanned into place.
+        // `HtmlBackend` emits no separator between block-level tags, so the
+        // expected substrings are adjacent with no newline between them.
+        assert!(
+            result.html.contains("<p>before</p><i>0 of 2</i>"),
+            "first fill misplaced: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains("<i>1 of 2</i><p>after</p>"),
+            "second fill misplaced: {}",
+            result.html
+        );
+    }
+
+    /// Defers one fence language and fills each hole with `<tag>index</tag>`.
+    ///
+    /// Two of these registered on one pipeline give the walk two *distinct*
+    /// deferring processor indices, which is what `Source::CodeBlock(proc_idx)`
+    /// exists to keep apart.
+    struct LanguageProcessor {
+        language: &'static str,
+        tag: &'static str,
+        seen: Vec<usize>,
+    }
+
+    impl LanguageProcessor {
+        fn new(language: &'static str, tag: &'static str) -> Self {
+            Self {
+                language,
+                tag,
+                seen: Vec::new(),
+            }
+        }
+    }
+
+    impl CodeBlockProcessor for LanguageProcessor {
+        fn process(
+            &mut self,
+            language: &str,
+            _attrs: &FenceAttrs,
+            _source: &str,
+            index: usize,
+        ) -> ProcessResult {
+            if language != self.language {
+                return ProcessResult::PassThrough;
+            }
+            self.seen.push(index);
+            ProcessResult::Deferred
+        }
+
+        fn fills(&mut self, fills: &mut Fills) {
+            for index in &self.seen {
+                let key = u32::try_from(*index).expect("code block index exceeds hole key width");
+                fills.set(key, format!("<{0}>{index}</{0}>", self.tag));
+            }
+        }
+    }
+
+    /// Two deferring processors on one pipeline must each get their own hole
+    /// namespace.
+    ///
+    /// The walker reserves under `GlobalKey(Source::CodeBlock(proc_idx), key)`
+    /// and `Walker::finish` merges each processor's `Fills` under
+    /// `Source::CodeBlock(idx)`; both derive the index from `enumerate()` over
+    /// the same slice, so they must agree. Drop `proc_idx` from either side and
+    /// the second processor's holes are looked up under the first's source:
+    /// the reserved key is missing from `GlobalFills`, so its content never
+    /// reaches the page (and `Holes::assemble` trips its debug assert).
+    ///
+    /// Note the walker derives a hole's local key from the document-wide code
+    /// block index, so two processors cannot be handed the same local key by
+    /// construction — the failure this pins is the namespace *mismatch* between
+    /// the reservation and merge sites, not an overwrite within `GlobalFills`.
+    #[test]
+    fn two_deferring_processors_do_not_share_a_hole_namespace() {
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "start\n\n```alpha\na\n```\n\nmiddle\n\n```beta\nb\n```\n\nend\n",
+            Pipeline::new()
+                .with_processor(LanguageProcessor::new("alpha", "a"))
+                .with_processor(LanguageProcessor::new("beta", "b")),
+        );
+
+        // Both processors' content lands, each at its own fence's position.
+        assert!(
+            result.html.contains("<p>start</p><a>0</a><p>middle</p>"),
+            "first processor's fill misplaced or missing: {}",
+            result.html
+        );
+        assert!(
+            result.html.contains("<p>middle</p><b>1</b><p>end</p>"),
+            "second processor's fill misplaced or missing: {}",
+            result.html
+        );
+        // Neither processor's content appears where the other's belongs.
+        assert!(
+            !result.html.contains("<a>1</a>") && !result.html.contains("<b>0</b>"),
+            "a processor's fill leaked into the other's hole: {}",
+            result.html
+        );
+    }
+
+    /// A deferred fence inside a blockquote fills inside the `<blockquote>`.
+    ///
+    /// Hole offsets index the walk buffer, so a fill's position depends on
+    /// nothing but where the buffer stood at reservation time. Blockquotes are
+    /// not `Scope`s (they write straight to `output`), which is what lets the
+    /// walker assert `self.scopes.is_empty()` when it reserves.
+    #[test]
+    fn deferred_code_block_inside_blockquote_fills_within_it() {
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "> quoted\n>\n> ```demo\n> x\n> ```\n\nafter\n",
+            Pipeline::new().with_processor(DeferringProcessor::default()),
+        );
+
+        let fill = result
+            .html
+            .find("<i>0 of 1</i>")
+            .expect("fill missing from output");
+        let close = result
+            .html
+            .find("</blockquote>")
+            .expect("blockquote should close");
+        assert!(
+            fill < close,
+            "fill landed outside the blockquote: {}",
+            result.html
+        );
+    }
+
+    /// Same for a list item: the fill lands inside the `<li>`, not after it.
+    #[test]
+    fn deferred_code_block_inside_list_item_fills_within_it() {
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "- item\n\n  ```demo\n  x\n  ```\n\nafter\n",
+            Pipeline::new().with_processor(DeferringProcessor::default()),
+        );
+
+        let fill = result
+            .html
+            .find("<i>0 of 1</i>")
+            .expect("fill missing from output");
+        let close = result.html.find("</li>").expect("list item should close");
+        assert!(
+            fill < close,
+            "fill landed outside the list item: {}",
+            result.html
+        );
+    }
+
+    /// Returning `Deferred` without implementing `fills` is the likeliest
+    /// mistake at this extension point, because `fills` has a no-op default.
+    /// The reserved hole is then never filled: debug builds panic, release
+    /// builds silently omit the content.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "was reserved but never filled")]
+    fn deferring_without_implementing_fills_panics_in_debug() {
+        struct ForgetfulProcessor;
+
+        impl CodeBlockProcessor for ForgetfulProcessor {
+            fn process(
+                &mut self,
+                language: &str,
+                _attrs: &FenceAttrs,
+                _source: &str,
+                _index: usize,
+            ) -> ProcessResult {
+                if language == "demo" {
+                    // Reserves a hole, but `fills` is left at its no-op default.
+                    ProcessResult::Deferred
+                } else {
+                    ProcessResult::PassThrough
+                }
+            }
+        }
+
+        let _ = MarkdownRenderer::<HtmlBackend>::new().render(
+            "```demo\nx\n```\n",
+            Pipeline::new().with_processor(ForgetfulProcessor),
+        );
+    }
 
     #[test]
     fn parse_language_only() {
@@ -384,20 +635,6 @@ mod tests {
     }
 
     #[test]
-    fn test_process_result_variants() {
-        let placeholder = ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned());
-        let inline = ProcessResult::Inline("<table></table>".to_owned());
-        let passthrough = ProcessResult::PassThrough;
-
-        assert_eq!(
-            placeholder,
-            ProcessResult::Placeholder("{{DIAGRAM_0}}".to_owned())
-        );
-        assert_eq!(inline, ProcessResult::Inline("<table></table>".to_owned()));
-        assert_eq!(passthrough, ProcessResult::PassThrough);
-    }
-
-    #[test]
     fn test_extracted_code_block() {
         let block = ExtractedCodeBlock::new(
             0,
@@ -437,7 +674,7 @@ mod tests {
             index: usize,
         ) -> ProcessResult {
             match language {
-                "test-placeholder" => {
+                "test-deferred" => {
                     self.extracted.push(ExtractedCodeBlock::new(
                         index,
                         language.to_owned(),
@@ -445,7 +682,7 @@ mod tests {
                         attrs.id.clone(),
                         attrs.map.clone(),
                     ));
-                    ProcessResult::Placeholder(format!("{{{{TEST_{index}}}}}"))
+                    ProcessResult::Deferred
                 }
                 "test-inline" => ProcessResult::Inline(format!("<div>{source}</div>")),
                 "test-warn" => {
@@ -466,16 +703,16 @@ mod tests {
     }
 
     #[test]
-    fn test_processor_placeholder() {
+    fn test_processor_deferred() {
         let mut processor = TestProcessor::new();
         let attrs = FenceAttrs::default();
 
-        let result = processor.process("test-placeholder", &attrs, "content", 0);
-        assert_eq!(result, ProcessResult::Placeholder("{{TEST_0}}".to_owned()));
+        let result = processor.process("test-deferred", &attrs, "content", 0);
+        assert_eq!(result, ProcessResult::Deferred);
 
         let extracted = processor.extracted();
         assert_eq!(extracted.len(), 1);
-        assert_eq!(extracted[0].language, "test-placeholder");
+        assert_eq!(extracted[0].language, "test-deferred");
         assert_eq!(extracted[0].source, "content");
     }
 

@@ -880,12 +880,13 @@ fn unclosed_tabs_emit_no_markup_into_a_search_document() {
     assert!(result.html.contains("linux body"), "got: {}", result.html);
 }
 
-/// A code-block processor that defers with a placeholder, to exercise the seam
-/// between hole assembly and `post_process` (which runs after it).
+/// Defers every `demo` block, filling it after the walk.
 #[derive(Default)]
-struct PlaceholderProcessor;
+struct DeferringProcessor {
+    seen: Vec<usize>,
+}
 
-impl CodeBlockProcessor for PlaceholderProcessor {
+impl CodeBlockProcessor for DeferringProcessor {
     fn process(
         &mut self,
         language: &str,
@@ -893,41 +894,73 @@ impl CodeBlockProcessor for PlaceholderProcessor {
         _source: &str,
         index: usize,
     ) -> ProcessResult {
-        if language == "deferredcode" {
-            ProcessResult::Placeholder(format!("<!--CODE-{index}-->"))
-        } else {
-            ProcessResult::PassThrough
+        if language != "demo" {
+            return ProcessResult::PassThrough;
         }
+        self.seen.push(index);
+        ProcessResult::Deferred
     }
 
-    fn post_process(&mut self, html: &mut String) {
-        *html = html.replace("<!--CODE-0-->", "<figure>RENDERED</figure>");
+    fn fills(&mut self, fills: &mut Fills) {
+        for index in &self.seen {
+            let key = u32::try_from(*index).expect("code block index exceeds hole key width");
+            fills.set(key, format!("<i>block {index}</i>"));
+        }
     }
 }
 
-/// Assembly only inserts spans — it never splits or rewrites existing bytes —
-/// so a placeholder emitted inside a deferred container survives intact for
-/// `post_process` to replace afterwards.
 #[test]
-fn code_block_placeholder_inside_a_tab_is_replaced_after_assembly() {
-    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+fn code_block_and_directive_holes_interleave_in_one_document() {
+    // Markup closing a tab group: the panel plus the group's opening tags.
+    const TAB_GROUP_CLOSE: &str = "</div></div>";
+
+    // Two independent hole sources — a tab container and a code-block
+    // processor — reserving into the same buffer. Both reserve at the current
+    // end of an append-only buffer, so their offsets are non-decreasing without
+    // any coordination between them. Asserting the nested fill lands inside a
+    // real, filled panel element (`id="panel-0-0"`, from the tab container's
+    // own hole) verifies both hole sources landed correctly, not just the
+    // code-block processor's.
+    let markdown = "\
+:::tab[One]
+
+```demo
+x
+```
+
+:::
+
+```demo
+y
+```
+";
+
     let result = MarkdownRenderer::<HtmlBackend>::new().render(
-        ":::tab[macOS]\n\n```deferredcode\ndiagram source\n```\n\n:::tab[Linux]\n\nlinux body\n\n:::\n",
+        markdown,
         Pipeline::new()
-            .with_directives(directives)
-            .with_processor(PlaceholderProcessor),
+            .with_directives(DirectiveProcessor::new().with_container(TabsDirective::new()))
+            .with_processor(DeferringProcessor::default()),
     );
 
-    assert!(
-        result.html.contains("<figure>RENDERED</figure>"),
-        "placeholder was not replaced after assembly: {}",
-        result.html
+    // The nested block fills inside the tab panel, the trailing one outside it.
+    assert_between(
+        &result.html,
+        "<i>block 0</i>",
+        r#"id="panel-0-0""#,
+        TAB_GROUP_CLOSE,
     );
     assert!(
-        !result.html.contains("<!--CODE-0-->"),
-        "placeholder survived post_process: {}",
+        result.html.contains("<i>block 1</i>"),
+        "trailing fill missing: {}",
         result.html
     );
-    // The fill still landed around it: the placeholder sits inside the panel.
-    assert_between(&result.html, "<figure>", r#"id="panel-0-0""#, "</div>");
+    let panel_end = result
+        .html
+        .rfind(TAB_GROUP_CLOSE)
+        .expect("tab group should close");
+    assert!(
+        result.html.find("<i>block 1</i>").expect("trailing fill") > panel_end,
+        "trailing fill landed inside the tab group: {}",
+        result.html
+    );
 }

@@ -1,23 +1,41 @@
 //! Handler-facing side of offset holes.
 //!
-//! A directive that cannot emit its final content during the walk reserves a
-//! [`Hole`](Part::Hole) keyed by a value it chooses, then supplies the content
-//! through [`Fills`] once the walk is complete.
+//! A directive or code-block processor that cannot emit its final content
+//! during the walk reserves a hole keyed by a value it chooses — a
+//! [`Hole`](Part::Hole) part for a directive, [`ProcessResult::Deferred`] for a
+//! code-block processor — then supplies the content through [`Fills`] once the
+//! walk is complete.
+//!
+//! [`ProcessResult::Deferred`]: crate::ProcessResult::Deferred
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-/// Key identifying one reserved hole. Chosen by the directive that reserves it,
-/// and unique within that directive.
+/// Key identifying one reserved hole. Chosen by whoever reserves it, and
+/// unique within that handler.
 ///
-/// A handler's key is *local*: two handlers may both pick `0`. The processor
-/// pairs it with the handler's namespace to form the globally-unique key that
-/// [`Holes`](crate::holes::Holes) records.
+/// A handler's key is *local*: two handlers may both pick `0`. The renderer
+/// pairs it with the handler's identity to form the globally-unique key it
+/// records the hole under, so keys never need to be coordinated across
+/// handlers.
 pub type HoleKey = u32;
 
-/// Globally-unique key: a handler's namespace paired with its local key.
+/// Which registry a hole's owner lives in, paired with its index there.
+///
+/// Handlers are registered in separate `Vec`s, so an index alone does not
+/// identify one — a leaf at index 0, a container at index 0, and a code-block
+/// processor at index 0 are three different owners. Making that a type rather
+/// than packed arithmetic means disjointness is checked by the compiler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct GlobalKey(pub(crate) u32, pub(crate) HoleKey);
+pub(crate) enum Source {
+    Leaf(usize),
+    Container(usize),
+    CodeBlock(usize),
+}
+
+/// Globally-unique key: a hole's owner paired with the owner's local key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct GlobalKey(pub(crate) Source, pub(crate) HoleKey);
 
 /// One piece of a deferred directive's output, in document order.
 #[derive(Debug, PartialEq, Eq)]
@@ -33,8 +51,8 @@ pub enum Part {
 ///
 /// Keys are handler-local: [`set`](Fills::set) and [`get`](Fills::get) are
 /// inverses. Each handler is collected from through its own `Fills`, and the
-/// processor applies the handler's namespace when merging, so a key a handler
-/// chooses can never collide with another handler's.
+/// renderer keys those entries by the handler they came from when merging, so
+/// a key a handler chooses can never collide with another handler's.
 ///
 /// # Example
 ///
@@ -92,9 +110,9 @@ impl Fills {
     /// Supply the content for `key`. A later call for the same key replaces
     /// the earlier one.
     ///
-    /// `key` is local to the calling directive: pick whatever numbering suits
-    /// the handler, starting at `0`. Keys are namespaced per handler, so two
-    /// directives choosing the same key do not overwrite each other.
+    /// `key` is local to the calling handler: pick whatever numbering suits
+    /// it, starting at `0`. Keys are scoped per handler, so two handlers
+    /// choosing the same key do not overwrite each other.
     pub fn set(&mut self, key: HoleKey, html: String) {
         self.map.insert(key, html);
     }
@@ -106,7 +124,7 @@ impl Fills {
     }
 }
 
-/// Every handler's fills, merged under their namespaces.
+/// Every handler's fills, merged under their `Source`s.
 ///
 /// Tracks the total byte length of the content it holds, so
 /// [`Holes::assemble`](crate::holes::Holes::assemble) can size its output
@@ -118,11 +136,11 @@ pub(crate) struct GlobalFills {
 }
 
 impl GlobalFills {
-    /// Merge one handler's [`Fills`] in, keying each entry under `namespace`.
-    pub(crate) fn merge(&mut self, namespace: u32, fills: Fills) {
+    /// Merge one owner's [`Fills`] in, keying each entry under `source`.
+    pub(crate) fn merge(&mut self, source: Source, fills: Fills) {
         for (local, html) in fills.map {
             self.total_len += html.len();
-            if let Some(previous) = self.map.insert(GlobalKey(namespace, local), html) {
+            if let Some(previous) = self.map.insert(GlobalKey(source, local), html) {
                 self.total_len -= previous.len();
             }
         }
@@ -165,20 +183,20 @@ mod tests {
     }
 
     #[test]
-    fn merge_keys_entries_under_their_namespace() {
+    fn merge_keys_entries_under_their_source() {
         let mut first = Fills::new();
         first.set(0, "a".to_owned());
         let mut second = Fills::new();
         second.set(0, "b".to_owned());
 
         let mut global = GlobalFills::default();
-        global.merge(1, first);
-        global.merge(2, second);
+        global.merge(Source::Leaf(0), first);
+        global.merge(Source::Container(0), second);
 
         // Same local key, different handlers — no collision.
-        assert_eq!(global.get(GlobalKey(1, 0)), Some("a"));
-        assert_eq!(global.get(GlobalKey(2, 0)), Some("b"));
-        assert_eq!(global.get(GlobalKey(3, 0)), None);
+        assert_eq!(global.get(GlobalKey(Source::Leaf(0), 0)), Some("a"));
+        assert_eq!(global.get(GlobalKey(Source::Container(0), 0)), Some("b"));
+        assert_eq!(global.get(GlobalKey(Source::Leaf(1), 0)), None);
     }
 
     #[test]
@@ -188,7 +206,7 @@ mod tests {
         fills.set(1, "de".to_owned());
 
         let mut global = GlobalFills::default();
-        global.merge(1, fills);
+        global.merge(Source::Leaf(0), fills);
 
         assert_eq!(global.total_len(), 5);
     }
@@ -199,13 +217,13 @@ mod tests {
 
         let mut first = Fills::new();
         first.set(0, "long fill".to_owned());
-        global.merge(1, first);
+        global.merge(Source::Leaf(0), first);
 
         let mut replacement = Fills::new();
         replacement.set(0, "short".to_owned());
-        global.merge(1, replacement);
+        global.merge(Source::Leaf(0), replacement);
 
-        assert_eq!(global.get(GlobalKey(1, 0)), Some("short"));
+        assert_eq!(global.get(GlobalKey(Source::Leaf(0), 0)), Some("short"));
         assert_eq!(global.total_len(), "short".len());
     }
 }
