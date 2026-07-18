@@ -84,10 +84,6 @@ pub fn escape_into(s: &str, out: &mut String) {
 ///
 /// Kept as 256 *bytes* (four cache lines) rather than a table of `&str`
 /// directly: a `[&str; 256]` would be 4 KB of fat pointers and evict the
-<<<<<<< Updated upstream
-/// surrounding hot data. The scan then costs one load and one compare per byte
-/// instead of walking a five-way compare chain.
-=======
 /// surrounding hot data.
 ///
 /// The scan indexes this table and then [`ENTITY`] on every byte — two loads,
@@ -103,7 +99,6 @@ pub fn escape_into(s: &str, out: &mut String) {
 /// splitting the single inlined byte loop into a separate search call costs
 /// more than the vectorized scan saves. Measure before "simplifying" either
 /// decision.
->>>>>>> Stashed changes
 static SPECIAL: [u8; 256] = {
     let mut table = [0u8; 256];
     table[b'&' as usize] = 1;
@@ -217,14 +212,30 @@ mod tests {
         }
 
         for b in 0..=127u8 {
-            let ch = char::from(b);
+            let input = String::from(char::from(b));
             let expected = match reference(b) {
-                "" => String::from(ch),
+                "" => input.clone(),
                 entity => entity.to_owned(),
             };
             let mut out = String::new();
-            escape_into(&String::from(ch), &mut out);
-            assert_eq!(out, expected, "byte {b:#04x} ({ch:?})");
+            escape_into(&input, &mut out);
+            assert_eq!(out, expected, "byte {b:#04x}");
+        }
+    }
+
+    #[test]
+    fn test_special_table_is_inert_above_ascii() {
+        // Bytes >= 0x80 only ever appear as UTF-8 lead/continuation bytes, and
+        // `escape_into` scans raw bytes, so a nonzero slot up here would make
+        // the scan set `run_start` mid-character — the next `&s[run_start..i]`
+        // then slices off a char boundary and panics on any non-ASCII page.
+        //
+        // The loop above cannot reach these slots: `char::from(b)` for b >= 128
+        // yields U+0080..U+00FF, which encodes as *two* bytes, neither of them
+        // `b`. So assert against the table directly.
+        for b in 0x80..=0xFFu16 {
+            let b = u8::try_from(b).expect("0x80..=0xFF fits in u8");
+            assert_eq!(SPECIAL[b as usize], 0, "byte {b:#04x} must pass through");
         }
     }
 

@@ -323,11 +323,19 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     }
 
     /// Return a taken text buffer's allocation so the next run of text reuses
-    /// it. The `mem::take`s above leave a zero-capacity `String` behind, so
-    /// without this every run of text re-allocates and re-grows from empty.
-    /// A nested flush may have installed its own buffer meanwhile; keep
-    /// whichever has more room.
+    /// it. The `mem::take`s around the walker leave a zero-capacity `String`
+    /// behind, so without this every run of text re-allocates and re-grows
+    /// from empty.
+    ///
+    /// Content always wins over capacity: if the walker has meanwhile buffered
+    /// text (a nested flush, or a restored outer buffer), that buffer stays and
+    /// `buf`'s allocation is dropped. Discarding a spare allocation costs one
+    /// `malloc` later; discarding buffered text would silently drop it from the
+    /// rendered page.
     fn recycle_text_buffer(&mut self, mut buf: String) {
+        if !self.text_buffer.is_empty() {
+            return;
+        }
         buf.clear();
         if buf.capacity() > self.text_buffer.capacity() {
             self.text_buffer = buf;
@@ -525,7 +533,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
         self.flush_text_buffer();
 
-        self.text_buffer = saved_buffer;
+        // Restore the outer buffer, then offer the nested one's allocation
+        // back rather than dropping it — otherwise every re-parsed block
+        // directive pays a fresh allocate-and-grow cycle. `recycle_text_buffer`
+        // keeps the restored buffer if it still holds text.
+        let nested_buffer = std::mem::replace(&mut self.text_buffer, saved_buffer);
+        self.recycle_text_buffer(nested_buffer);
         self.paragraph = saved_paragraph;
         self.block_depth -= 1;
     }
@@ -1061,6 +1074,38 @@ mod tests {
 
     fn cfg() -> RenderConfig {
         RenderConfig::new()
+    }
+
+    #[test]
+    fn recycle_text_buffer_keeps_content_over_capacity() {
+        // No path reaches this today (every caller recycles into an empty
+        // buffer), but the guard is what keeps the optimization from being
+        // silently lossy if one ever does: buffered text must survive, even
+        // when the incoming allocation is roomier.
+        let config = cfg();
+        let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
+        let mut directives = None;
+        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
+
+        walker.text_buffer = String::from("pending");
+        walker.recycle_text_buffer(String::with_capacity(4096));
+        assert_eq!(walker.text_buffer, "pending");
+    }
+
+    #[test]
+    fn recycle_text_buffer_reclaims_capacity_when_idle() {
+        let config = cfg();
+        let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
+        let mut directives = None;
+        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
+
+        walker.text_buffer = String::new();
+        walker.recycle_text_buffer(String::from("spent buffer"));
+        assert!(walker.text_buffer.is_empty());
+        assert!(
+            walker.text_buffer.capacity() > 0,
+            "the spent buffer's allocation should have been kept for reuse"
+        );
     }
 
     #[test]
