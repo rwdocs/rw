@@ -76,6 +76,11 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     code_block_index: usize,
     skip_wikilink_text: bool,
     text_buffer: String,
+    /// The previous heading's `(toc_text, rendered_html)` buffers, cleared and
+    /// parked for the next one. Headings can't nest, so a single spare pair
+    /// covers the whole document: without it every heading allocates two
+    /// zero-capacity `String`s and grows them from empty.
+    spare_heading_buffers: Option<(String, String)>,
     scopes: Vec<Scope>,
     /// Lifecycle of the current paragraph's `<p>`/`</p>` emission.
     paragraph: ParagraphState,
@@ -118,6 +123,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             code_block_index: 0,
             skip_wikilink_text: false,
             text_buffer: String::new(),
+            spare_heading_buffers: None,
             scopes: Vec::new(),
             paragraph: ParagraphState::None,
             block_depth: 0,
@@ -340,6 +346,24 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         if buf.capacity() > self.text_buffer.capacity() {
             self.text_buffer = buf;
         }
+    }
+
+    /// Buffers for a heading's plain-text shadow and formatted HTML body,
+    /// reusing the previous heading's pair when there is one. The initial
+    /// capacities cover a typical heading without a growth chain.
+    fn take_heading_buffers(&mut self) -> (String, String) {
+        self.spare_heading_buffers
+            .take()
+            .unwrap_or_else(|| (String::with_capacity(64), String::with_capacity(128)))
+    }
+
+    /// Park a finished heading's buffers for the next heading. Both are spent
+    /// by this point — their contents have been copied into `output`, the TOC
+    /// entry, or the title — so clearing them loses nothing.
+    fn store_heading_buffers(&mut self, mut toc_text: String, mut rendered_html: String) {
+        toc_text.clear();
+        rendered_html.clear();
+        self.spare_heading_buffers = Some((toc_text, rendered_html));
     }
 
     fn flush_text(&mut self, text: &str) {
@@ -590,11 +614,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 // different answer and skip nothing (or skip the wrong
                 // heading) if we re-consulted.
                 let in_first_h1 = self.heading.is_skipped_title(level_num);
+                let (toc_text, rendered_html) = self.take_heading_buffers();
                 self.scopes.push(Scope::Heading {
                     level: level_num,
                     in_first_h1,
-                    toc_text: String::new(),
-                    rendered_html: String::new(),
+                    toc_text,
+                    rendered_html,
                 });
             }
             Tag::BlockQuote(kind) => {
@@ -756,6 +781,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 };
                 if in_first_h1 {
                     self.heading.complete_first_h1(&toc_text);
+                    self.store_heading_buffers(toc_text, rendered_html);
                 } else {
                     let done = self
                         .heading
@@ -763,6 +789,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     B::heading_start(done.adjusted_level, &done.id, &mut self.output);
                     self.output.push_str(done.rendered_html.trim());
                     B::heading_end(done.adjusted_level, &mut self.output);
+                    self.store_heading_buffers(toc_text, done.rendered_html);
                 }
             }
             TagEnd::BlockQuote(_) => {

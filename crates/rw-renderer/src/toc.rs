@@ -6,9 +6,9 @@
 //! cross-heading state (title, TOC entries, id de-duplication state, and the
 //! "have we seen the first H1?" flag) across an entire document render.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::util::slugify;
+use crate::util::slugify_into;
 
 /// A single heading in the table of contents.
 ///
@@ -58,7 +58,7 @@ pub(crate) struct CompletedHeading {
     /// Heading level after Confluence's title-shift adjustment.
     pub adjusted_level: u8,
     /// Slug-based anchor id, deduped to be unique within the document via the
-    /// accumulator's `used_ids`.
+    /// accumulator's `claimed_ids`.
     pub id: String,
     /// Backend-formatted HTML body, ready to splice into `output` between
     /// the heading's open and close tags. Encoding/escaping is whatever the
@@ -68,7 +68,7 @@ pub(crate) struct CompletedHeading {
 
 /// Persistent accumulator for heading-related output across an entire
 /// document render. Holds cross-heading state (title, TOC entries,
-/// id-counts, the "have we seen the first H1?" flag, and the config
+/// claimed ids, the "have we seen the first H1?" flag, and the config
 /// flags that govern title extraction).
 ///
 /// Per-heading state (the heading's level, plain-text shadow, formatted
@@ -88,15 +88,17 @@ pub(crate) struct HeadingAccumulator {
     seen_first_h1: bool,
     /// Table of contents entries.
     toc: Vec<TocEntry>,
-    /// Starting-suffix hint per base slug, so repeated headings don't rescan
-    /// `base-1, base-2, …` from scratch each time. Uniqueness is enforced by
-    /// `used_ids`, not by this counter alone.
-    id_counts: HashMap<String, usize>,
-    /// Every id already emitted in this render. A generated candidate is
-    /// retried with a higher suffix until it is absent here, guaranteeing
-    /// globally unique ids even when a synthesized `{base}-{n}` coincides
-    /// with another heading's slug.
-    used_ids: HashSet<String>,
+    /// Every string already claimed as an id in this render, mapped to the
+    /// next suffix to try when that string comes up again as a base slug.
+    ///
+    /// One map rather than a separate id-set and counter-map: a key's presence
+    /// *is* the "already used" answer, so a heading costs one lookup instead of
+    /// two, and a colliding `{base}-{n}` is caught by the same table that
+    /// hands out the counter.
+    claimed_ids: HashMap<String, usize>,
+    /// Reused slug buffer, so `generate_id` doesn't allocate a `String` per
+    /// heading just to hash it.
+    slug_scratch: String,
 }
 
 impl HeadingAccumulator {
@@ -111,8 +113,8 @@ impl HeadingAccumulator {
             title: None,
             seen_first_h1: false,
             toc: Vec::new(),
-            id_counts: HashMap::new(),
-            used_ids: HashSet::new(),
+            claimed_ids: HashMap::new(),
+            slug_scratch: String::new(),
         }
     }
 
@@ -182,22 +184,29 @@ impl HeadingAccumulator {
     /// for this document: a numeric suffix is bumped until the candidate is
     /// unused, even when it would collide with another heading's slug.
     fn generate_id(&mut self, text: &str) -> String {
-        let mut base = slugify(text);
-        if base.is_empty() {
-            "section".clone_into(&mut base);
+        slugify_into(text, &mut self.slug_scratch);
+        if self.slug_scratch.is_empty() {
+            self.slug_scratch.push_str("section");
         }
-        let mut n = self.id_counts.get(&base).copied().unwrap_or(0);
-        let mut candidate = if n == 0 {
-            base.clone()
-        } else {
-            format!("{base}-{n}")
+        let base = &self.slug_scratch;
+
+        // Unclaimed base: the slug itself is the id.
+        let Some(&start) = self.claimed_ids.get(base) else {
+            self.claimed_ids.insert(base.clone(), 1);
+            return base.clone();
         };
-        while self.used_ids.contains(&candidate) {
+
+        // Claimed: walk suffixes from the stored hint. The hint alone isn't
+        // enough — `{base}-{n}` can collide with another heading's literal
+        // slug — so each candidate is checked against the same map.
+        let mut n = start;
+        let mut candidate = format!("{base}-{n}");
+        while self.claimed_ids.contains_key(&candidate) {
             n += 1;
             candidate = format!("{base}-{n}");
         }
-        self.id_counts.insert(base, n + 1);
-        self.used_ids.insert(candidate.clone());
+        self.claimed_ids.insert(base.clone(), n + 1);
+        self.claimed_ids.insert(candidate.clone(), 1);
         candidate
     }
 
@@ -318,6 +327,23 @@ mod tests {
             c.id, "section-2",
             "fallback must skip the taken 'section-1'"
         );
+    }
+
+    #[test]
+    fn test_generate_id_synthesized_id_reused_as_a_base() {
+        // "foo-1" is handed out as a *synthesized* suffix, then a later
+        // heading slugifies to that same string as its *base*. One map now
+        // holds both roles, so this is where the id-set and the suffix-counter
+        // could disagree: the base must see itself as taken and skip past it.
+        let mut acc = HeadingAccumulator::new(false, false);
+        let a = acc.complete_heading(2, "Foo", "Foo".to_owned());
+        let b = acc.complete_heading(2, "Foo", "Foo".to_owned());
+        let c = acc.complete_heading(2, "Foo 1", "Foo 1".to_owned());
+        let d = acc.complete_heading(2, "Foo 1", "Foo 1".to_owned());
+        assert_eq!(a.id, "foo");
+        assert_eq!(b.id, "foo-1");
+        assert_eq!(c.id, "foo-1-1", "base 'foo-1' was already handed out");
+        assert_eq!(d.id, "foo-1-2");
     }
 
     #[test]
