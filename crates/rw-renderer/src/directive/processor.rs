@@ -1,17 +1,37 @@
 //! Directive processor for `CommonMark` directives.
 //!
 //! Registries for inline/leaf/container handlers, dispatched during the
-//! pulldown-cmark event walk, plus post-processing (after rendering) of
-//! intermediate markers.
+//! pulldown-cmark event walk, plus collection of the deferred content that
+//! fills their reserved holes once the walk completes.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
+use super::fills::GlobalFills;
 use super::parser::ParsedDirective;
 use super::{
-    ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective,
-    LeafDirective, Marker, Replacements,
+    ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Fills, InlineDirective,
+    LeafDirective, Marker, Part,
 };
+
+/// Which handler list a namespace belongs to. Leaf and container handlers are
+/// registered in separate `Vec`s, so an index alone does not identify a
+/// handler — a leaf at index 0 and a container at index 0 must not share a
+/// namespace.
+#[derive(Clone, Copy)]
+enum HandlerList {
+    Leaf = 0,
+    Container = 1,
+}
+
+/// The namespace identifying the handler at `index` of `list`.
+///
+/// Interleaves the list discriminant with the index, so no two handlers share
+/// a namespace.
+fn handler_namespace(list: HandlerList, index: usize) -> u32 {
+    let index = u32::try_from(index).expect("handler index exceeds the namespace field");
+    1 + (index << 1 | list as u32)
+}
 
 /// Type alias for the file reading callback function.
 pub type ReadFileFn = dyn Fn(&Path) -> io::Result<String> + Send;
@@ -30,6 +50,12 @@ pub(crate) enum BlockDispatch {
     Marker { marker: Marker, body: String },
     /// Markdown that the walker must re-parse in context.
     Markdown(String),
+    /// Literal HTML interleaved with holes. See [`DirectiveOutput::Deferred`].
+    ///
+    /// `namespace` identifies the handler that produced the parts: its hole
+    /// keys are handler-local, and the walker pairs each with this namespace to
+    /// get the global key it records.
+    Deferred { parts: Vec<Part>, namespace: u32 },
     /// Literal text the walker renders as an ordinary paragraph (`<p>…</p>`).
     PassThrough(String),
 }
@@ -38,13 +64,27 @@ pub(crate) enum BlockDispatch {
 /// `:::` should be rendered. Pushed for every `:::name` opener the user must
 /// close with its own `:::` — including unregistered or `Skip`-ing openers, so
 /// their close does not pop an enclosing registered container.
+///
+/// Every frame carries the walker's enclosing block-nesting depth (blockquote
+/// and list levels) at the moment the opener was seen. A container left open
+/// must be balanced when *that* block ends, not at end of input — see
+/// [`DirectiveProcessor::close_containers_nested_in`].
 enum ContainerFrame {
     /// A registered handler opened a scope; call `container_handlers[idx].end()`
     /// when the closing `:::` is reached.
-    Handled(usize),
+    Handled { idx: usize, depth: usize },
     /// The opening delimiter rendered literally (unregistered name, or the
     /// handler returned `Skip`); render the closing `:::` literally too.
-    Literal,
+    Literal { depth: usize },
+}
+
+impl ContainerFrame {
+    /// Enclosing block-nesting depth at the opener.
+    fn depth(&self) -> usize {
+        match *self {
+            Self::Handled { depth, .. } | Self::Literal { depth } => depth,
+        }
+    }
 }
 
 /// Configuration for the directive processor.
@@ -133,7 +173,7 @@ fn default_read_file(path: &Path) -> io::Result<String> {
 /// Processor for `CommonMark` directives.
 ///
 /// Dispatches directive handlers during the pulldown-cmark event walk and
-/// post-processes intermediate markers after rendering.
+/// collects the content filling their deferred holes once the walk completes.
 ///
 /// # Example
 ///
@@ -170,6 +210,11 @@ pub struct DirectiveProcessor {
     /// Stack of open container scopes (one [`ContainerFrame`] per textual
     /// `:::name` … `:::` nesting level) used to pair closing delimiters.
     active_containers: Vec<ContainerFrame>,
+    /// Handler indices of containers already balanced early, when their
+    /// enclosing blockquote or list item ended. They are off
+    /// `active_containers` (so they are neither closed nor popped twice) but
+    /// [`finalize`](DirectiveProcessor::finalize) still owes each one warning.
+    closed_at_block_end: Vec<usize>,
     warnings: Vec<String>,
 }
 
@@ -195,6 +240,7 @@ impl DirectiveProcessor {
             leaf_handlers: Vec::new(),
             container_handlers: Vec::new(),
             active_containers: Vec::new(),
+            closed_at_block_end: Vec::new(),
             warnings: Vec::new(),
         }
     }
@@ -260,7 +306,16 @@ impl DirectiveProcessor {
     /// bookkeeping, and return owned [`BlockDispatch`] data for the walker to
     /// render. `ctx.line()` is always `0` — block directives carry no line
     /// number (no shipped handler reads it).
-    pub(crate) fn dispatch_block(&mut self, directive: ParsedDirective) -> BlockDispatch {
+    ///
+    /// `depth` is the walker's enclosing block nesting (blockquote and list
+    /// levels) at this directive. Container frames remember it so an unclosed
+    /// container is balanced when its enclosing block ends — see
+    /// [`close_containers_nested_in`](Self::close_containers_nested_in).
+    pub(crate) fn dispatch_block(
+        &mut self,
+        directive: ParsedDirective,
+        depth: usize,
+    ) -> BlockDispatch {
         match directive {
             ParsedDirective::ContainerStart { name, args, .. } => {
                 let Some(idx) = self
@@ -271,7 +326,8 @@ impl DirectiveProcessor {
                     // Unregistered: render the opener literally and track the
                     // scope so its closing ::: renders literally too, rather
                     // than closing an enclosing registered container.
-                    self.active_containers.push(ContainerFrame::Literal);
+                    self.active_containers
+                        .push(ContainerFrame::Literal { depth });
                     return BlockDispatch::PassThrough(format!(":::{name}{}", args.to_syntax()));
                 };
                 let syntax = args.to_syntax();
@@ -280,39 +336,38 @@ impl DirectiveProcessor {
                 // Read before the match: do NOT move this into the arms or after
                 // any other handler call — it reflects only the latest start().
                 let opened = self.container_handlers[idx].opened_scope();
+                // Every arm but `Skip` renders through the handler, so an
+                // opened scope is the handler's to close. `Skip` is the
+                // exception: it pushes a `Literal` frame of its own below.
+                if opened && !matches!(output, DirectiveOutput::Skip) {
+                    self.active_containers
+                        .push(ContainerFrame::Handled { idx, depth });
+                }
                 match output {
-                    DirectiveOutput::Html(html) => {
-                        if opened {
-                            self.active_containers.push(ContainerFrame::Handled(idx));
-                        }
-                        BlockDispatch::Html(html)
-                    }
+                    DirectiveOutput::Html(html) => BlockDispatch::Html(html),
                     DirectiveOutput::Marker { marker, body } => {
-                        if opened {
-                            self.active_containers.push(ContainerFrame::Handled(idx));
-                        }
                         BlockDispatch::Marker { marker, body }
                     }
-                    DirectiveOutput::Markdown(md) => {
-                        if opened {
-                            self.active_containers.push(ContainerFrame::Handled(idx));
-                        }
-                        BlockDispatch::Markdown(md)
-                    }
+                    DirectiveOutput::Markdown(md) => BlockDispatch::Markdown(md),
+                    DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
+                        parts,
+                        namespace: handler_namespace(HandlerList::Container, idx),
+                    },
                     DirectiveOutput::Skip => {
                         // Handler declined: the opener renders literally, so
                         // track a Literal scope for its matching close.
-                        self.active_containers.push(ContainerFrame::Literal);
+                        self.active_containers
+                            .push(ContainerFrame::Literal { depth });
                         BlockDispatch::PassThrough(format!(":::{name}{syntax}"))
                     }
                 }
             }
             ParsedDirective::ContainerEnd { colon_count } => match self.active_containers.pop() {
-                Some(ContainerFrame::Handled(idx)) => {
+                Some(ContainerFrame::Handled { idx, .. }) => {
                     let html = self.container_handlers[idx].end(0).unwrap_or_default();
                     BlockDispatch::Html(html)
                 }
-                Some(ContainerFrame::Literal) => {
+                Some(ContainerFrame::Literal { .. }) => {
                     // Matching close for an unhandled opener — render literally.
                     BlockDispatch::PassThrough(":".repeat(colon_count))
                 }
@@ -334,6 +389,10 @@ impl DirectiveProcessor {
                         BlockDispatch::Marker { marker, body }
                     }
                     DirectiveOutput::Markdown(md) => BlockDispatch::Markdown(md),
+                    DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
+                        parts,
+                        namespace: handler_namespace(HandlerList::Leaf, idx),
+                    },
                     DirectiveOutput::Skip => {
                         BlockDispatch::PassThrough(format!("::{name}{syntax}"))
                     }
@@ -366,46 +425,150 @@ impl DirectiveProcessor {
         self.inline_handlers[idx].process(args, &ctx)
     }
 
+    /// Emit the closing markup for every container still open at end of input,
+    /// appending it to `out`.
+    ///
+    /// A container whose closing `:::` is missing never reaches `end()` through
+    /// [`dispatch_block`](Self::dispatch_block), so without this its opening
+    /// tags would be left dangling and the rest of the document would nest
+    /// inside them — for tabs, inside a `hidden` panel, making it invisible.
+    /// Innermost scope first, so the emitted tags close in the right order.
+    ///
+    /// Frames are read, not drained: [`finalize`](Self::finalize) still needs
+    /// them to report one "unclosed container directive" warning per frame.
+    /// Only [`ContainerFrame::Handled`] frames have a handler to close; a
+    /// `Literal` opener rendered as plain text and has no markup to balance.
+    ///
+    /// Must run before hole assembly: appending only extends the walk buffer,
+    /// so every recorded hole offset stays valid.
+    ///
+    /// Closing tags are markup, so they reach `out` through `write_html` — the
+    /// backend's `raw_html` — exactly as an in-walk `end()` would.
+    pub(crate) fn close_unclosed_containers(
+        &mut self,
+        out: &mut String,
+        write_html: impl Fn(&str, &mut String),
+    ) {
+        // Collect indices first: calling `end()` needs `&mut self`, which would
+        // conflict with a live borrow of `self.active_containers`.
+        let open: Vec<usize> = self
+            .active_containers
+            .iter()
+            .rev()
+            .filter_map(|frame| match frame {
+                ContainerFrame::Handled { idx, .. } => Some(*idx),
+                ContainerFrame::Literal { .. } => None,
+            })
+            .collect();
+
+        for idx in open {
+            if let Some(html) = self.container_handlers[idx].end(0) {
+                write_html(&html, out);
+            }
+        }
+    }
+
+    /// Emit the closing markup for every container opened at block-nesting
+    /// depth `depth` or deeper, appending it to `out`.
+    ///
+    /// Called by the walker as a blockquote or list item is about to close,
+    /// *before* the enclosing `</blockquote>` / `</li>` is written. A container
+    /// left open inside such a block cannot wait for end of input: by then its
+    /// parent's closing tag has already been emitted, and the container's own
+    /// closing tags would land outside it, crossing the nesting.
+    ///
+    /// `active_containers` is a stack, so frames opened deeper than the block
+    /// that is ending are exactly the topmost ones — popping until the depth
+    /// test fails visits them innermost-first, the order their tags must close
+    /// in.
+    ///
+    /// Unlike [`close_unclosed_containers`](Self::close_unclosed_containers),
+    /// frames are *drained*: a closed handler must not be closed again at end of
+    /// input, nor be popped by a later stray `:::`. Their warnings are still
+    /// owed, so `Handled` frames move to `closed_at_block_end` for
+    /// [`finalize`](Self::finalize) to report.
+    ///
+    /// Closing markup is appended at the walker's current write position, so it
+    /// only ever extends the walk buffer — no hole offset recorded earlier
+    /// moves.
+    pub(crate) fn close_containers_nested_in(
+        &mut self,
+        depth: usize,
+        out: &mut String,
+        write_html: impl Fn(&str, &mut String),
+    ) {
+        while self
+            .active_containers
+            .last()
+            .is_some_and(|frame| frame.depth() >= depth)
+        {
+            let frame = self
+                .active_containers
+                .pop()
+                .expect("checked above: the stack has a frame at or below `depth`");
+            // Literal frames rendered their opener as plain text: nothing to
+            // balance, and finalize owes them no warning either.
+            if let ContainerFrame::Handled { idx, .. } = frame {
+                if let Some(html) = self.container_handlers[idx].end(0) {
+                    write_html(&html, out);
+                }
+                self.closed_at_block_end.push(idx);
+            }
+        }
+    }
+
     pub(crate) fn finalize(&mut self) {
         // mem::take avoids borrowing self.active_containers while reading
         // self.container_handlers / pushing to self.warnings below.
         let frames = std::mem::take(&mut self.active_containers);
-        for frame in frames {
-            if let ContainerFrame::Handled(idx) = frame {
-                let name = self.container_handlers[idx].name().to_owned();
-                self.warnings.push(format!(
-                    "unclosed container directive :::{name} (missing closing :::)"
-                ));
-            }
-            // Literal frames: the opener rendered as plain text, so there is no
-            // managed container to warn about.
+        let closed_early = std::mem::take(&mut self.closed_at_block_end);
+        let handled = frames
+            .into_iter()
+            .filter_map(|frame| match frame {
+                // Literal frames: the opener rendered as plain text, so there is
+                // no managed container to warn about.
+                ContainerFrame::Handled { idx, .. } => Some(idx),
+                ContainerFrame::Literal { .. } => None,
+            })
+            // Containers balanced early at a blockquote/list-item boundary are
+            // off the stack but just as unclosed: they still owe one warning.
+            .chain(closed_early);
+        for idx in handled {
+            let name = self.container_handlers[idx].name().to_owned();
+            self.warnings.push(format!(
+                "unclosed container directive :::{name} (missing closing :::)"
+            ));
         }
     }
 
-    /// Post-process rendered HTML.
+    /// Collect hole content from every leaf and container handler.
     ///
-    /// Collects all replacements from handlers and applies them in a single pass.
-    pub fn post_process(&mut self, html: &mut String) {
-        let mut replacements = Replacements::new();
-
-        // Inline handlers are absent by design: they emit semantic markers the
-        // backend renders during the walk, so they have no post_process hook.
-        for handler in &mut self.leaf_handlers {
-            handler.post_process(&mut replacements);
+    /// Inline handlers are absent by design: they emit semantic markers the
+    /// backend renders during the walk, so they never defer.
+    ///
+    /// Each handler fills a fresh [`Fills`] under its own local keys, which are
+    /// then merged under the handler's namespace — the same one paired with its
+    /// `Part::Hole` keys at dispatch — so handlers keep choosing simple local
+    /// keys without risk of overwriting each other. Both directions of the
+    /// namespacing live here.
+    pub(crate) fn collect_fills(&mut self) -> GlobalFills {
+        let mut collected = GlobalFills::default();
+        for (idx, handler) in self.leaf_handlers.iter_mut().enumerate() {
+            let mut fills = Fills::new();
+            handler.fills(&mut fills);
+            collected.merge(handler_namespace(HandlerList::Leaf, idx), fills);
         }
-        for handler in &mut self.container_handlers {
-            handler.post_process(&mut replacements);
+        for (idx, handler) in self.container_handlers.iter_mut().enumerate() {
+            let mut fills = Fills::new();
+            handler.fills(&mut fills);
+            collected.merge(handler_namespace(HandlerList::Container, idx), fills);
         }
-
-        // Apply all replacements in single pass
-        replacements.apply(html);
+        collected
     }
 
-    /// Record a warning. Called by [`InlineDirectiveStream`] when it
+    /// Record a warning. Called by the walker's `flush_text` when it
     /// encounters cases it can't fully honor (e.g., an inline directive
     /// returning `DirectiveOutput::Markdown`).
-    ///
-    /// [`InlineDirectiveStream`]: super::InlineDirectiveStream
     pub(crate) fn push_warning(&mut self, msg: String) {
         self.warnings.push(msg);
     }
@@ -486,9 +649,23 @@ mod tests {
     }
 
     #[test]
+    fn handler_namespaces_are_distinct_across_lists_and_indices() {
+        let namespaces = [
+            handler_namespace(HandlerList::Leaf, 0),
+            handler_namespace(HandlerList::Leaf, 1),
+            handler_namespace(HandlerList::Container, 0),
+            handler_namespace(HandlerList::Container, 1),
+        ];
+        let mut sorted = namespaces.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), namespaces.len(), "got: {namespaces:?}");
+    }
+
+    #[test]
     fn test_inline_directive() {
-        // Inline directives are expanded via `transform_events` (during the
-        // pulldown-cmark event stream), not by `process`. Drive the full
+        // Inline directives are expanded by the walker's `flush_text` (during
+        // the pulldown-cmark event walk), not by `process`. Drive the full
         // `MarkdownRenderer` pipeline so the wiring runs end-to-end.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
@@ -559,8 +736,8 @@ mod tests {
     fn test_code_fence_skipping() {
         // End-to-end: a fenced code block should preserve inline directive
         // syntax literally, while the same directive on a regular paragraph
-        // line should expand. The `transform_events` stream is responsible
-        // for skipping `Tag::CodeBlock` content; `process` no longer touches
+        // line should expand. The walker's `flush_text` is responsible for
+        // skipping `Tag::CodeBlock` content; `process` no longer touches
         // inline syntax at all.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
@@ -599,7 +776,7 @@ mod tests {
         // Regression guard: a `::leaf` token mid-line must not stop the
         // scanner from finding a later `:inline` directive on the same line.
         // Driven through the full pipeline because inline expansion now
-        // happens in `transform_events`, not in `process`.
+        // happens in the walker's `flush_text`, not in `process`.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
@@ -624,7 +801,7 @@ mod tests {
         let mut processor = DirectiveProcessor::new().with_container(TestNote);
 
         let start = parse_container_line(":::note[Important]").unwrap();
-        match processor.dispatch_block(start) {
+        match processor.dispatch_block(start, 0) {
             BlockDispatch::Html(html) => {
                 assert!(html.contains(r#"<div class="note" data-title="Important">"#));
             }
@@ -632,7 +809,7 @@ mod tests {
         }
 
         let end = parse_container_line(":::").unwrap();
-        match processor.dispatch_block(end) {
+        match processor.dispatch_block(end, 0) {
             BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
             other => panic!("expected Html, got {other:?}"),
         }
@@ -644,23 +821,23 @@ mod tests {
         let mut processor = DirectiveProcessor::new().with_container(TestNote);
 
         // Outer registered container opens its scope.
-        match processor.dispatch_block(parse_container_line(":::note[Important]").unwrap()) {
+        match processor.dispatch_block(parse_container_line(":::note[Important]").unwrap(), 0) {
             BlockDispatch::Html(html) => assert!(html.contains(r#"data-title="Important""#)),
             other => panic!("expected Html, got {other:?}"),
         }
         // Inner UNREGISTERED container: rendered literally, tracked separately.
-        match processor.dispatch_block(parse_container_line(":::unknown").unwrap()) {
+        match processor.dispatch_block(parse_container_line(":::unknown").unwrap(), 0) {
             BlockDispatch::PassThrough(s) => assert!(s.starts_with(":::unknown"), "got {s}"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
         // First close pairs with the inner unregistered opener -> literal,
         // it must NOT close the outer note.
-        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
             other => panic!("expected literal PassThrough for inner close, got {other:?}"),
         }
         // Second close pairs with the outer note -> note.end().
-        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
             BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
             other => panic!("expected note end() Html, got {other:?}"),
         }
@@ -678,7 +855,7 @@ mod tests {
         let mut processor = DirectiveProcessor::new();
 
         // Unregistered opener: rendered literally, scope tracked so its close pairs with it.
-        match processor.dispatch_block(parse_container_line(":::foo[x]{.c}").unwrap()) {
+        match processor.dispatch_block(parse_container_line(":::foo[x]{.c}").unwrap(), 0) {
             BlockDispatch::PassThrough(s) => {
                 assert!(s.starts_with(":::foo[x]"), "got {s}");
                 assert!(s.contains(".c"), "got {s}");
@@ -687,7 +864,7 @@ mod tests {
         }
 
         // Its matching close renders literally and does NOT warn about a stray.
-        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
@@ -704,7 +881,7 @@ mod tests {
         let mut processor = DirectiveProcessor::new();
 
         // A close with no opener on the stack is a genuine stray.
-        match processor.dispatch_block(parse_container_line("::::").unwrap()) {
+        match processor.dispatch_block(parse_container_line("::::").unwrap(), 0) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, "::::"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
@@ -716,13 +893,13 @@ mod tests {
         let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
 
         let leaf = crate::directive::parser::parse_leaf_line("::youtube[abc]").unwrap();
-        match processor.dispatch_block(leaf) {
+        match processor.dispatch_block(leaf, 0) {
             BlockDispatch::Html(html) => assert!(html.contains("abc")),
             other => panic!("expected Html, got {other:?}"),
         }
 
         let unreg = crate::directive::parser::parse_leaf_line("::missing[y]").unwrap();
-        match processor.dispatch_block(unreg) {
+        match processor.dispatch_block(unreg, 0) {
             BlockDispatch::PassThrough(s) => assert!(s.starts_with("::missing[y]"), "got {s}"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
@@ -775,7 +952,7 @@ mod tests {
             .with_leaf(MarkerLeaf);
 
         let start = crate::directive::parser::parse_container_line(":::mdwrap").unwrap();
-        match processor.dispatch_block(start) {
+        match processor.dispatch_block(start, 0) {
             BlockDispatch::Markdown(md) => assert_eq!(md, "expanded body"),
             other => panic!("expected Markdown, got {other:?}"),
         }
@@ -783,13 +960,13 @@ mod tests {
         // Proves the container name was pushed: the closing ::: pops it and
         // dispatches the handler's end().
         let end = crate::directive::parser::parse_container_line(":::").unwrap();
-        match processor.dispatch_block(end) {
+        match processor.dispatch_block(end, 0) {
             BlockDispatch::Html(html) => assert_eq!(html, "<!--mdwrap-end-->"),
             other => panic!("expected Html from container end(), got {other:?}"),
         }
 
         let leaf = crate::directive::parser::parse_leaf_line("::marker[x]").unwrap();
-        match processor.dispatch_block(leaf) {
+        match processor.dispatch_block(leaf, 0) {
             BlockDispatch::Marker { marker, body } => {
                 assert_eq!(marker.name, "marker");
                 assert_eq!(marker.attr("flavor"), Some("leaf"));
@@ -929,11 +1106,11 @@ mod tests {
         let mut processor = DirectiveProcessor::new().with_container(MockContinuation::new());
 
         let open_a = crate::directive::parser::parse_container_line(":::mock[A]").unwrap();
-        let _ = processor.dispatch_block(open_a);
+        let _ = processor.dispatch_block(open_a, 0);
         let open_b = crate::directive::parser::parse_container_line(":::mock[B]").unwrap();
-        let _ = processor.dispatch_block(open_b);
+        let _ = processor.dispatch_block(open_b, 0);
         let end = crate::directive::parser::parse_container_line(":::").unwrap();
-        let _ = processor.dispatch_block(end);
+        let _ = processor.dispatch_block(end, 0);
 
         processor.finalize();
 
@@ -949,12 +1126,12 @@ mod tests {
         let mut processor = DirectiveProcessor::new().with_container(MockContinuation::new());
 
         let open_a = crate::directive::parser::parse_container_line(":::mock[A]").unwrap();
-        let _ = processor.dispatch_block(open_a);
+        let _ = processor.dispatch_block(open_a, 0);
         // Second opener CONTINUES the scope (opened_scope() == false). Without
         // the fix this would push a second entry and finalize() would warn
         // twice; the single genuinely-open scope must yield exactly one warning.
         let open_b = crate::directive::parser::parse_container_line(":::mock[B]").unwrap();
-        let _ = processor.dispatch_block(open_b);
+        let _ = processor.dispatch_block(open_b, 0);
 
         processor.finalize();
 
@@ -987,16 +1164,16 @@ mod tests {
             .with_container(TestNote)
             .with_container(SkipContainer);
 
-        let _ = processor.dispatch_block(parse_container_line(":::note[T]").unwrap());
-        match processor.dispatch_block(parse_container_line(":::skipme").unwrap()) {
+        let _ = processor.dispatch_block(parse_container_line(":::note[T]").unwrap(), 0);
+        match processor.dispatch_block(parse_container_line(":::skipme").unwrap(), 0) {
             BlockDispatch::PassThrough(s) => assert!(s.starts_with(":::skipme"), "got {s}"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
-        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
             other => panic!("expected literal PassThrough, got {other:?}"),
         }
-        match processor.dispatch_block(parse_container_line(":::").unwrap()) {
+        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
             BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
             other => panic!("expected note end(), got {other:?}"),
         }
@@ -1006,7 +1183,7 @@ mod tests {
     fn unclosed_unregistered_container_emits_no_warning() {
         use crate::directive::parser::parse_container_line;
         let mut processor = DirectiveProcessor::new();
-        let _ = processor.dispatch_block(parse_container_line(":::foo").unwrap());
+        let _ = processor.dispatch_block(parse_container_line(":::foo").unwrap(), 0);
         processor.finalize();
         assert!(
             processor.warnings().is_empty(),
@@ -1019,7 +1196,7 @@ mod tests {
     fn unclosed_registered_container_emits_unclosed_warning() {
         use crate::directive::parser::parse_container_line;
         let mut processor = DirectiveProcessor::new().with_container(TestNote);
-        let _ = processor.dispatch_block(parse_container_line(":::note").unwrap());
+        let _ = processor.dispatch_block(parse_container_line(":::note").unwrap(), 0);
         processor.finalize();
         let unclosed: Vec<_> = processor
             .warnings()

@@ -2,7 +2,7 @@
 //!
 //! Leaf directives use double-colon syntax: `::name[content]{attrs}`
 
-use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
+use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Fills};
 
 /// Handler for leaf directives: `::name[content]{attrs}`
 ///
@@ -15,11 +15,12 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 /// They can return markdown (for `::include`, which is re-parsed in context) or
 /// HTML (for `::youtube`).
 ///
-/// # Post-Processing
+/// # Deferred Content
 ///
-/// Leaf directives support post-processing via [`post_process`](Self::post_process).
-/// During the event walk, return intermediate HTML that is then transformed
-/// during the post-processing pass after rendering.
+/// A leaf whose content is not known during the walk returns
+/// [`DirectiveOutput::Deferred`] from [`process`](Self::process), reserving a
+/// hole in the output, and supplies that hole's content from
+/// [`fills`](Self::fills) once the walk completes.
 ///
 /// # Thread Safety
 ///
@@ -30,7 +31,7 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 ///
 /// ```
 /// use rw_renderer::directive::{
-///     DirectiveArgs, DirectiveContext, DirectiveOutput, LeafDirective, Replacements,
+///     DirectiveArgs, DirectiveContext, DirectiveOutput, LeafDirective,
 /// };
 ///
 /// struct YoutubeDirective;
@@ -60,14 +61,16 @@ pub trait LeafDirective: Send {
     /// - [`DirectiveOutput::Html`] for HTML output that passes through pulldown-cmark
     /// - [`DirectiveOutput::Markdown`] for content that needs full pipeline processing
     ///   (used by `::include` to inline file contents)
+    /// - [`DirectiveOutput::Deferred`] for content that is not known during the
+    ///   walk — it reserves holes that [`fills`](Self::fills) supplies afterwards
     /// - [`DirectiveOutput::Skip`] to pass through unchanged
     fn process(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput;
 
-    /// Register string replacements to apply after rendering.
+    /// Supply content for holes this directive reserved during the walk.
     ///
-    /// All replacements are collected and applied in a single pass.
-    /// Override this method if your directive needs post-processing.
-    fn post_process(&mut self, _replacements: &mut Replacements) {}
+    /// Called once, after the walk completes, before assembly. Override when
+    /// `process()` returned [`DirectiveOutput::Deferred`].
+    fn fills(&mut self, _fills: &mut Fills) {}
 
     /// Get warnings generated during processing.
     ///
@@ -252,14 +255,6 @@ mod tests {
         assert!(include.warnings()[0].contains("line 12"));
         assert!(include.warnings()[0].contains("../secret.md"));
         assert!(include.warnings()[0].contains("invalid include"));
-    }
-
-    #[test]
-    fn test_default_post_process() {
-        let mut youtube = TestYoutube;
-        let mut replacements = Replacements::new();
-        youtube.post_process(&mut replacements);
-        assert!(replacements.is_empty());
     }
 
     #[test]

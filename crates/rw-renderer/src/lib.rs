@@ -21,10 +21,12 @@
 //!   or pass-through for normal syntax highlighting.
 //!
 //! - **Directives** ([`directive`] module) — [CommonMark generic directives]
-//!   syntax (`:inline`, `::leaf`, `:::container`). Directives are preprocessed
-//!   before pulldown-cmark parsing because pulldown-cmark does not understand
-//!   directive syntax natively; a post-processing pass then transforms
-//!   intermediate elements into final HTML.
+//!   syntax (`:inline`, `::leaf`, `:::container`). Directives are recognized
+//!   during the event walk and dispatched straight to the backend. A handler
+//!   whose markup depends on content the walk has not reached yet — a tab strip
+//!   needs every tab's label — returns [`DirectiveOutput::Deferred`](directive::DirectiveOutput::Deferred), reserving
+//!   a hole at the current output offset; a single assembly pass after the walk
+//!   splices in the content each handler then supplies.
 //!
 //! [pulldown-cmark]: https://docs.rs/pulldown-cmark
 //! [CommonMark generic directives]: https://talk.commonmark.org/t/generic-directives-plugins-syntax/444
@@ -122,6 +124,7 @@ mod code_block;
 mod comment;
 mod config;
 pub mod directive;
+mod holes;
 mod html;
 mod link;
 mod pipeline;

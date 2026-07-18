@@ -31,10 +31,13 @@ use crate::config::RenderConfig;
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
 use crate::directive::Marker;
+use crate::directive::Part;
+use crate::directive::fills::GlobalKey;
 use crate::directive::parser::{
     ParsedDirective, parse_container_line, parse_leaf_line, parse_line,
 };
 use crate::directive::processor::BlockDispatch;
+use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
 use crate::scope::Scope;
@@ -63,6 +66,8 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     processors: &'r mut [Box<dyn CodeBlockProcessor>],
     directives: Option<&'r mut DirectiveProcessor>,
     output: String,
+    /// Byte offsets where deferred directive content belongs.
+    holes: Holes,
     list_stack: Vec<bool>,
     table: TableState,
     heading: HeadingAccumulator,
@@ -104,6 +109,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             // API on the façade could carry per-call sizing (e.g., based on
             // the previous render's final size) but is out of scope here.
             output: String::with_capacity(4096),
+            holes: Holes::default(),
             list_stack: Vec::new(),
             table: TableState::default(),
             heading: HeadingAccumulator::new(cfg.extract_title, B::TITLE_AS_METADATA),
@@ -124,15 +130,21 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     ///
     /// Order is load-bearing:
     ///
-    /// 1. `mem::take` `output` into a local `html` — this owned `String`
+    /// 1. Close containers still open at end of input, appending their closing
+    ///    markup to `output` — must precede assembly (step 3), which is keyed
+    ///    to offsets in that buffer.
+    /// 2. `mem::take` `output` into a local `html` — this owned `String`
     ///    will be moved into the returned `RenderResult`, so it must be
     ///    freestanding (not a borrow into `self`).
-    /// 2. Iterate `self.processors` mutably and call
+    /// 3. Assemble deferred directive content into `html` — holes address
+    ///    offsets in the walk buffer, so this must happen before any step
+    ///    that rewrites the string.
+    /// 4. Iterate `self.processors` mutably and call
     ///    `processor.post_process(&mut html)` on each — replaces deferred
     ///    code-block placeholders with rendered output.
-    /// 3. Collect code-block processor warnings (directive warnings are
+    /// 5. Collect code-block processor warnings (directive warnings are
     ///    collected by the façade in `render`).
-    /// 4. Take title and toc from the heading accumulator into the
+    /// 6. Take title and toc from the heading accumulator into the
     ///    `RenderResult` struct literal.
     pub(crate) fn finish(mut self) -> RenderResult {
         debug_assert!(
@@ -150,7 +162,29 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             "Walker::finish called with unclosed blockquote/alert nesting: {} levels still open",
             self.alert_stack.len()
         );
+        // Balance any container left open by missing `:::`, while the buffer is
+        // still the walk buffer holes address. Appending only extends it, so
+        // every recorded hole offset (all `<= output.len()`) stays valid.
+        if let Some(processor) = self.directives.as_deref_mut() {
+            processor.close_unclosed_containers(&mut self.output, B::raw_html);
+        }
+
         let mut html = std::mem::take(&mut self.output);
+
+        // Assemble before the code-block processors run: their sentinel
+        // replacement rewrites the string, and holes address the walk buffer.
+        let holes = std::mem::take(&mut self.holes);
+        if !holes.is_empty() {
+            let fills = self
+                .directives
+                .as_deref_mut()
+                .map(DirectiveProcessor::collect_fills)
+                .unwrap_or_default();
+            // Fills are markup the backend never saw during the walk, so they
+            // go in through `raw_html` like every other emission.
+            html = holes.assemble(html, &fills, B::raw_html);
+        }
+
         for processor in self.processors.iter_mut() {
             processor.post_process(&mut html);
         }
@@ -323,6 +357,21 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     }
                     self.raw_html(&md);
                 }
+                DirectiveOutput::Deferred(parts) => {
+                    if let Some(p) = self.directives.as_deref_mut() {
+                        p.push_warning(format!(
+                            "inline directive ':{name}' returned Deferred; its holes were dropped (inline directives cannot defer content — return Marker instead)"
+                        ));
+                    }
+                    // Emit the literal pieces so their content isn't lost, but
+                    // skip the holes: `InlineDirective` has no `fills()` hook,
+                    // so a reserved hole could never be filled.
+                    for part in parts {
+                        if let Part::Html(html) = part {
+                            self.raw_html(&html);
+                        }
+                    }
+                }
                 DirectiveOutput::Skip => {
                     if let Some(p) = self.directives.as_deref_mut() {
                         p.push_warning(format!(
@@ -387,12 +436,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// reborrow is dropped (owned `BlockDispatch` returned) before any
     /// `&mut self` method call.
     fn handle_block_directive(&mut self, parsed: ParsedDirective) {
+        let depth = self.enclosing_block_depth();
         let dispatch = {
             let processor = self
                 .directives
                 .as_deref_mut()
                 .expect("checked above: directives is Some");
-            processor.dispatch_block(parsed)
+            processor.dispatch_block(parsed, depth)
         };
         match dispatch {
             BlockDispatch::Html(html) => self.raw_html(&html),
@@ -402,6 +452,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 self.marker_close(&marker);
             }
             BlockDispatch::Markdown(md) => self.reparse_block_markdown(&md),
+            BlockDispatch::Deferred { parts, namespace } => self.emit_parts(parts, namespace),
             BlockDispatch::PassThrough(text) => self.emit_text_paragraph(&text),
         }
     }
@@ -437,6 +488,35 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.text_buffer = saved_buffer;
         self.paragraph = saved_paragraph;
         self.block_depth -= 1;
+    }
+
+    /// How deeply the current position is nested in blockquotes and lists.
+    ///
+    /// A block directive records this when it opens a container scope, so a
+    /// container left unclosed can be balanced when the block enclosing it
+    /// ends. Counting blockquote and list levels together is enough: the two
+    /// stacks only ever grow and shrink in properly nested order, so the sum is
+    /// monotonic with actual nesting.
+    ///
+    /// Distinct from `self.block_depth`, which counts `Markdown` reparse
+    /// recursion, not document structure.
+    fn enclosing_block_depth(&self) -> usize {
+        self.alert_stack.len() + self.list_stack.len()
+    }
+
+    /// Close container scopes opened inside the blockquote or list item that is
+    /// ending, before its own closing tag is written.
+    ///
+    /// Must be called while the level being closed is still on its stack — the
+    /// depth it computes is the one containers opened *directly inside* it
+    /// recorded.
+    fn close_containers_for_block_end(&mut self) {
+        let depth = self.enclosing_block_depth();
+        // Field-disjoint borrows (pattern A): `self.directives` and
+        // `self.output` are separate fields, so NLL splits the borrow.
+        if let Some(processor) = self.directives.as_deref_mut() {
+            processor.close_containers_nested_in(depth, &mut self.output, B::raw_html);
+        }
     }
 
     #[allow(clippy::too_many_lines)]
@@ -632,14 +712,17 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     B::heading_end(done.adjusted_level, &mut self.output);
                 }
             }
-            TagEnd::BlockQuote(_) => match self.alert_stack.pop() {
-                Some(Some(alert_kind)) => {
-                    B::alert_end(alert_kind, &mut self.output);
+            TagEnd::BlockQuote(_) => {
+                self.close_containers_for_block_end();
+                match self.alert_stack.pop() {
+                    Some(Some(alert_kind)) => {
+                        B::alert_end(alert_kind, &mut self.output);
+                    }
+                    _ => {
+                        B::blockquote_end(&mut self.output);
+                    }
                 }
-                _ => {
-                    B::blockquote_end(&mut self.output);
-                }
-            },
+            }
             TagEnd::CodeBlock => {
                 if !matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
                     debug_assert!(false, "TagEnd::CodeBlock without matching Scope::CodeBlock");
@@ -689,6 +772,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 B::list_end(ordered, &mut self.output);
             }
             TagEnd::Item => {
+                self.close_containers_for_block_end();
                 B::list_item_end(&mut self.output);
             }
             TagEnd::FootnoteDefinition | TagEnd::HtmlBlock => {}
@@ -804,6 +888,36 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
     fn raw_html(&mut self, html: &str) {
         self.with_markup_buffer(|out| B::raw_html(html, out));
+    }
+
+    /// Reserve a hole at the current output position.
+    ///
+    /// # Invariant
+    ///
+    /// Only valid at top level. Inside a scope, output is routed to that
+    /// scope's own buffer (`Scope::Heading` collects into `rendered_html` and
+    /// is spliced back *trimmed*), so an offset into `self.output` would name
+    /// the wrong place in the wrong string.
+    fn reserve_hole(&mut self, key: GlobalKey) {
+        debug_assert!(
+            self.scopes.is_empty(),
+            "hole reserved inside a scope: the offset would reference the wrong buffer"
+        );
+        self.holes.reserve(self.output.len(), key);
+    }
+
+    /// Emit a deferred directive's parts: literal HTML inline, holes reserved
+    /// at the position the fill will occupy.
+    ///
+    /// `namespace` identifies the handler the parts came from; its local hole
+    /// keys become global here.
+    fn emit_parts(&mut self, parts: Vec<Part>, namespace: u32) {
+        for part in parts {
+            match part {
+                Part::Html(html) => self.raw_html(&html),
+                Part::Hole(key) => self.reserve_hole(GlobalKey(namespace, key)),
+            }
+        }
     }
 
     /// Route a marker's opening to the backend. A marker is markup, so it

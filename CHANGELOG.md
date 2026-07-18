@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A `:::tab` group missing its closing `:::` no longer leaks raw markers into the page. Previously the group rendered as literal `<rw-tabs data-id="0">` text with no tab bar and no styling at all; it now renders as a normal, fully-styled tab group. An unclosed group runs to the end of the block containing it, so anything written after it becomes part of the last tab's panel — hidden until the reader selects that tab. Close the group with `:::` to keep following content outside it.
+
+- An unclosed `:::tab` group inside a blockquote or a list item now closes inside that block instead of after it. Its closing tags were appended at the very end of the document, landing after the `</blockquote>` or `</li></ul>` — the tag counts balanced but the nesting was crossed, so the browser silently ended the tab panel at the block boundary and dropped the stray closers. Well-formed documents are unaffected, and an unclosed group at the top level still runs to the end of the document as before.
+
 - Resolving the inline comment you're navigating on and pressing `n` now steps to the next comment instead of jumping back to the first; `p` steps back instead of jumping to the last. The just-resolved comment keeps its place in the navigation cycle until you step off it, matching the sidebar's Next/Previous buttons, which were already correct. The screen-reader announcement now reports your position in the list as it stands after the step, no longer counting the comment you just resolved.
 
 ## [0.1.33] - 2026-07-12
