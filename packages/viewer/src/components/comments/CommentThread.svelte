@@ -32,7 +32,9 @@
      *  avatar row's vertical center, whenever that distance changes. */
     onAnchor?: (offsetPx: number) => void;
     /** True when the comment was anchored via fuzzy matching — the original
-     *  passage no longer appears verbatim, so the highlight may be approximate. */
+     *  passage no longer appears verbatim, so the highlight may be approximate.
+     *  Rendered in the thread header, so it only shows on surfaces that pass
+     *  `onClose` (the margin panel and popover), not the page-comments list. */
     fuzzy?: boolean;
     /** Quote of the original passage, shown between the author row and the
      *  comment body. Populated for orphaned page comments and for resolved
@@ -167,6 +169,18 @@
     </Button>
   {/snippet}
 
+  {#snippet fuzzyBadge(extraClass = "")}
+    <Badge
+      intent="warning"
+      size="sm"
+      class={extraClass}
+      aria-label="Re-anchored to the closest matching passage"
+      title="The exact passage this comment was attached to no longer appears in the page. The highlight is the closest match."
+    >
+      fuzzy
+    </Badge>
+  {/snippet}
+
   <!-- Thread navigation -->
   {#if onClose}
     {#if nav && nav.total > 1}
@@ -176,7 +190,10 @@
           dark:border-neutral-700
         "
       >
-        <Badge intent="neutral" size="sm">{nav.index + 1} / {nav.total}</Badge>
+        <div class="flex items-center gap-2">
+          <Badge intent="neutral" size="sm">{nav.index + 1} / {nav.total}</Badge>
+          {#if fuzzy}{@render fuzzyBadge()}{/if}
+        </div>
         <div class="flex gap-1">
           <Button
             variant="ghost"
@@ -220,10 +237,11 @@
     {:else}
       <div
         class="
-          -mx-3 -mt-3 mb-2 flex justify-end border-b border-gray-200 px-3 py-2
+          -mx-3 -mt-3 mb-2 flex items-center justify-end border-b border-gray-200 px-3 py-2
           dark:border-neutral-700
         "
       >
+        {#if fuzzy}{@render fuzzyBadge("mr-auto")}{/if}
         {@render closeButton()}
       </div>
     {/if}
@@ -249,16 +267,6 @@
       <span class="text-sm font-semibold text-gray-900 dark:text-neutral-100">
         {comment.author.name}
       </span>
-      {#if fuzzy}
-        <Badge
-          intent="warning"
-          size="sm"
-          class="italic"
-          title="The exact passage this comment was attached to no longer appears in the page. The highlight is the closest match."
-        >
-          re-anchored
-        </Badge>
-      {/if}
       <div class="ml-auto flex items-center gap-2">
         <button
           type="button"

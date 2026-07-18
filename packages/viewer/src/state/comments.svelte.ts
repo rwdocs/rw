@@ -39,7 +39,7 @@ export class Comments {
    *  must come from the live DOM. */
   order = $state.raw<string[]>([]);
   /** Per-comment anchor strategy from the most recent re-anchor pass.
-   *  Comments anchored via 'fuzzy' get a "re-anchored" indicator in the UI. */
+   *  Comments anchored via 'fuzzy' get a "fuzzy" indicator in the UI. */
   anchorStrategies = $state.raw<Map<string, AnchorStrategy>>(new Map());
   /** Ids of inline comments whose stored selectors no longer anchor to any
    *  text in the current document. The viewer surfaces these in the page

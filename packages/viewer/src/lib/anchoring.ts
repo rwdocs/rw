@@ -160,7 +160,7 @@ export function rangeToSelectors(range: Range, container: HTMLElement): Selector
  *      When the exact text IS present but failed the confidence gate, fuzzy
  *      would just rescue it to the same wrong place, so we orphan instead.
  *      Successful fuzzy matches get `strategy: 'fuzzy'` (dashed underline +
- *      "re-anchored" badge).
+ *      "fuzzy" badge).
  */
 export function selectorsToRangeIn(selectors: Selector[], index: TextIndex): AnchorResult | null {
   const posSelector = selectors.find(
