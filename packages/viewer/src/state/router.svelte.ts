@@ -139,10 +139,12 @@ export class Router {
     };
 
     const handleClick = (e: MouseEvent) => {
-      const target = e.target;
-      if (!(target instanceof Element)) return;
-
-      const anchor = target.closest("a");
+      // `composedPath()` rather than `closest()`: a click inside a diagram's
+      // shadow root retargets `e.target` to the <rw-diagram> host, so the
+      // anchor is only reachable through the composed path.
+      const anchor = e
+        .composedPath()
+        .find((n): n is Element => n instanceof Element && n.matches("a"));
       if (!anchor) return;
 
       const href =

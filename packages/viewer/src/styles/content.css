@@ -79,6 +79,15 @@
     }
   }
 
+  /* `.prose figure.diagram svg` matches two things, and only two: a
+     hand-authored `<figure class="diagram"><svg>` in markdown, and the injected
+     expand button's icon (see the `filter: none` override above). It does NOT
+     match a server-rendered diagram — that SVG lives in a `<rw-diagram>` shadow
+     root, which no light-DOM selector can enter; the wrapped case gets the same
+     declarations from the adopted sheet instead. So for the diagram itself the
+     two rule sets are mutually exclusive and never both apply.
+
+     Keep in sync with DIAGRAM_ARTICLE_CSS in src/lib/diagram/sheet.ts. */
   .prose figure.diagram svg {
     /*
      * SVG width/height are adjusted in Rust to display at correct physical size.
@@ -91,12 +100,32 @@
 
   /* Invert diagrams in dark mode so white backgrounds become dark
      and black lines/text become light. hue-rotate(180deg) preserves
-     the original hue of colored elements (blues stay blue, etc.) */
+     the original hue of colored elements (blues stay blue, etc.)
+
+     Two selectors, one job. A server-rendered diagram lives inside a
+     <rw-diagram> shadow root, which no light-DOM selector can reach — and no
+     selector *inside* that root can match `.dark` either (it sits on the
+     document root; `:host-context()` is Chromium-only). So the wrapped case
+     inverts the host, which works because `filter` is a paint effect that
+     applies to the whole subtree. The second rule serves hand-authored
+     `<figure class="diagram"><svg>` in markdown, which has no wrapper. No
+     diagram matches both, so none is ever inverted twice.
+
+     The second rule also catches the injected expand-button icon, which is a
+     bare `<svg>` child of every figure, wrapped or not — that is what the
+     `filter: none` override on `.diagram-expand-btn svg` above is for. Do not
+     delete it as dead code. */
+  :where(.dark, .dark *) .prose figure.diagram rw-diagram {
+    filter: invert(93%) hue-rotate(180deg);
+  }
+
   :where(.dark, .dark *) .prose figure.diagram svg {
     filter: invert(93%) hue-rotate(180deg);
   }
 
-  /* Apply bundled Roboto font to SVG text elements */
+  /* Apply bundled Roboto font to SVG text elements.
+     Keep in sync with DIAGRAM_SHARED_CSS in src/lib/diagram/sheet.ts, which
+     carries this declaration for shadow-wrapped diagrams. */
   .prose figure.diagram svg text {
     font-family: "Roboto", sans-serif !important;
   }
@@ -105,7 +134,9 @@
     @apply max-w-full h-auto;
   }
 
-  /* Remove underline from links inside SVG diagrams */
+  /* Remove underline from links inside SVG diagrams.
+     Keep in sync with DIAGRAM_SHARED_CSS in src/lib/diagram/sheet.ts, which
+     carries this declaration for shadow-wrapped diagrams. */
   .prose figure.diagram svg a {
     text-decoration: none !important;
   }
@@ -165,28 +196,15 @@
     inset: 0;
   }
 
-  .diagram-zoom-content svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-
-  /* Mirror the in-article diagram treatment on the cloned SVG (the shared
-     `.prose figure.diagram svg` rules don't reach it — there's no prose/figure
-     wrapper here): invert in dark mode, use the bundled font for labels, and
-     drop underlines from diagram links. A `[data-raster]` wrapper holds a PNG
-     `<image>`; the article never inverts PNG diagrams (only `svg`), so the
-     popup skips them too. */
-  :where(.dark, .dark *) .diagram-zoom-content svg:not([data-raster]) {
+  /* The clone mounts into the content box's shadow root, so rules that reach
+     inside it live in the adopted sheet (src/lib/diagram/sheet.ts) instead —
+     sizing, font, and link underlines are all set there. What must stay here is
+     the theme-dependent invert: no selector inside a shadow root can match
+     `.dark`. `data-raster` is reflected onto this host by DiagramZoomModal for
+     a PNG diagram; the article never inverts PNG diagrams, so the popup
+     matches. */
+  :where(.dark, .dark *) .diagram-zoom-content:not([data-raster]) {
     filter: invert(93%) hue-rotate(180deg);
-  }
-
-  .diagram-zoom-content svg text {
-    font-family: "Roboto", sans-serif !important;
-  }
-
-  .diagram-zoom-content svg a {
-    text-decoration: none !important;
   }
 
   /* GitHub-style alerts */

@@ -3,6 +3,7 @@
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
   import { initializeDiagramZoom } from "$lib/diagram/initializeDiagramZoom";
+  import { diagramShadowRoots, diagramSource } from "$lib/diagram/source";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
   import { escapeId } from "$lib/comments/highlight";
@@ -166,11 +167,7 @@
       const figure = articleRef.querySelector<HTMLElement>(
         `figure.diagram[data-diagram-id="${escapeId(zoomTrackId)}"]`,
       );
-      if (
-        figure &&
-        !figure.classList.contains("diagram-error") &&
-        figure.querySelector(":scope > svg, :scope > img")
-      ) {
+      if (figure && !figure.classList.contains("diagram-error") && diagramSource(figure)) {
         zoomFigure = figure;
       } else if (figure) {
         // Present but its current source failed to render.
@@ -196,7 +193,7 @@
     if (!page.data || !articleRef || !ctx.resolveSectionRefs) return;
     const controller = new AbortController();
     rewriteSectionRefLinks(
-      articleRef,
+      [articleRef, ...diagramShadowRoots(articleRef)],
       ctx.resolveSectionRefs,
       () => router.getBasePath(),
       page.data.sectionAncestry,

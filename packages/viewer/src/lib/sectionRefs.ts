@@ -94,19 +94,28 @@ function chainRefsFor(
  * (each present ref's own ancestry chain) with the host in one call, then
  * rewrites each link via its ancestry chain.
  *
+ * `roots` is a list rather than a single container because the links are not
+ * all in one tree. Most are ordinary markdown internal links in the article
+ * itself; diagram anchors (from `annotate_svg_links`) instead sit inside a
+ * `<rw-diagram>` shadow root, which `querySelectorAll` does not pierce. Both
+ * kinds must be rewritten, so pass the article element *and* every diagram
+ * shadow root under it (see `diagramShadowRoots`).
+ *
  * `signal`, when provided, is checked after the resolver settles: if already
  * aborted, the function returns without touching the DOM. This guards against
  * an older in-flight call (e.g. a superseded live-reload) overwriting hrefs a
  * newer call already resolved — see the caller in `PageContent.svelte`.
  */
 export async function rewriteSectionRefLinks(
-  container: HTMLElement,
+  roots: ParentNode[],
   resolver: SectionRefResolver,
   getBasePath: () => string,
   ancestry: SectionAncestry | undefined,
   signal?: AbortSignal,
 ): Promise<void> {
-  const links = container.querySelectorAll<HTMLElement>("a[data-section-ref]");
+  const links = roots.flatMap((root) => [
+    ...root.querySelectorAll<HTMLElement>("a[data-section-ref]"),
+  ]);
   if (links.length === 0) return;
 
   const present = new Set<string>();

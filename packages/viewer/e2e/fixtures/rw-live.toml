@@ -1,0 +1,15 @@
+# Test configuration for the live-reload E2E test
+# Same fixture docs as rw.toml, but with live reload enabled. It runs on its own
+# port so that a spec rewriting a fixture file cannot push a reload into the
+# pages of every other (parallel) spec connected to the main server.
+
+[server]
+host = "127.0.0.1"
+port = 8084
+
+[docs]
+source_dir = "docs"
+cache_enabled = false
+
+[live_reload]
+enabled = true

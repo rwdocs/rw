@@ -29,12 +29,29 @@ function diagramFigure(marker = "a"): HTMLElement {
 
 const closed = { diagramId: null, figure: null, onClose: () => {} };
 
+/** The light-DOM host the clone's shadow root hangs off. */
+function contentHost(root: ParentNode): HTMLElement | null {
+  return root.querySelector('[data-testid="diagram-zoom-content"]');
+}
+
+/**
+ * The cloned diagram inside the popup's shadow root. The clone is mounted into
+ * a shadow root (its own id scope, so it cannot collide with the original still
+ * in the article), which light-DOM `querySelector` does not pierce.
+ */
+function clonedSvg(root: ParentNode, selector = "svg"): SVGSVGElement | null {
+  return contentHost(root)?.shadowRoot?.querySelector<SVGSVGElement>(selector) ?? null;
+}
+
 describe("DiagramZoomModal", () => {
   it("renders nothing interactive until a diagram is set", () => {
     const { container } = render(DiagramZoomModal, { props: closed });
     const dialog = container.querySelector("dialog")!;
     expect(dialog.hasAttribute("open")).toBe(false);
-    expect(dialog.querySelector('[data-testid="diagram-zoom-content"] svg')).toBeNull();
+    // Assert directly on the host's absence, not on `clonedSvg`'s optional
+    // chaining: that would also read `null` if the host existed but its
+    // shadow root were merely empty, which isn't the case being tested here.
+    expect(contentHost(dialog)).toBeNull();
   });
 
   it("clones the diagram into the dialog when opened", async () => {
@@ -44,7 +61,7 @@ describe("DiagramZoomModal", () => {
     flushSync();
     await tick();
     const dialog = container.querySelector("dialog")!;
-    expect(dialog.querySelector('[data-testid="diagram-zoom-content"] svg')).not.toBeNull();
+    expect(clonedSvg(dialog, "svg")).not.toBeNull();
     expect(dialog.getAttribute("aria-label")).toBe("Diagram viewer");
   });
 
@@ -63,7 +80,7 @@ describe("DiagramZoomModal", () => {
     flushSync();
     await tick();
 
-    const svg = container.querySelector<SVGSVGElement>('[data-testid="diagram-zoom-content"] svg')!;
+    const svg = clonedSvg(container)!;
     expect(svg.style.width).toBe("100%");
     expect(svg.style.height).toBe("100%");
     expect(svg.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
@@ -72,9 +89,10 @@ describe("DiagramZoomModal", () => {
     expect(svg.hasAttribute("height")).toBe(false);
   });
 
-  it("wraps a PNG <img> diagram as a data-raster svg so the popup does not invert it", async () => {
-    // The article never inverts PNG diagrams (only `svg`), so the popup marks the
-    // raster wrapper and the dark-mode invert rule skips `svg[data-raster]`.
+  it("marks the host data-raster for a PNG <img> diagram so the popup does not invert it", async () => {
+    // The article never inverts PNG diagrams (only `svg`), so the popup marks
+    // the raster wrapper — and reflects the marker onto the light-DOM host,
+    // which is where the theme-dependent invert rule has to live.
     const fig = document.createElement("figure");
     fig.className = "diagram";
     const img = document.createElement("img");
@@ -89,9 +107,61 @@ describe("DiagramZoomModal", () => {
     flushSync();
     await tick();
 
-    const svg = container.querySelector<SVGSVGElement>('[data-testid="diagram-zoom-content"] svg')!;
-    expect(svg.hasAttribute("data-raster")).toBe(true);
+    const svg = clonedSvg(container)!;
     expect(svg.querySelector("image")).not.toBeNull();
+    // The invert rule cannot see inside the shadow root, so the host carries it.
+    expect(contentHost(container)!.hasAttribute("data-raster")).toBe(true);
+  });
+
+  it("leaves the raster marker off the host for a vector diagram", async () => {
+    const fig = diagramFigure();
+    const { container, rerender } = render(DiagramZoomModal, { props: closed });
+    await rerender({ diagramId: "d0", figure: fig, onClose: () => {} });
+    flushSync();
+    await tick();
+    expect(contentHost(container)!.hasAttribute("data-raster")).toBe(false);
+  });
+
+  it("keeps the clone's ids intact in its own shadow scope", async () => {
+    // The clone used to have every id rewritten, because clone and original
+    // shared one document scope. Mounting into a shadow root separates the
+    // scopes, so ids and the url(#…) references pointing at them survive as-is.
+    const fig = document.createElement("figure");
+    fig.className = "diagram";
+    fig.innerHTML =
+      '<svg viewBox="0 0 10 10"><defs><marker id="arrow"></marker></defs>' +
+      '<path id="p" marker-end="url(#arrow)" /></svg>';
+    document.body.appendChild(fig);
+
+    const { container, rerender } = render(DiagramZoomModal, { props: closed });
+    await rerender({ diagramId: "d0", figure: fig, onClose: () => {} });
+    flushSync();
+    await tick();
+
+    const svg = clonedSvg(container)!;
+    expect(svg.querySelector("#arrow")).not.toBeNull();
+    expect(svg.querySelector("path")!.getAttribute("marker-end")).toBe("url(#arrow)");
+    // The original in the article is untouched by the clone sharing its ids.
+    expect(fig.querySelector("#arrow")).not.toBeNull();
+  });
+
+  it("reads the source from a <rw-diagram> shadow root", async () => {
+    // Server-rendered figures wrap the SVG in `<rw-diagram>`; the popup must
+    // find the diagram there, not only as a direct child of the figure.
+    const fig = document.createElement("figure");
+    fig.className = "diagram";
+    const wrapper = document.createElement("rw-diagram");
+    wrapper.attachShadow({ mode: "open" }).innerHTML =
+      '<svg viewBox="0 0 8 8" data-marker="wrapped"></svg>';
+    fig.appendChild(wrapper);
+    document.body.appendChild(fig);
+
+    const { container, rerender } = render(DiagramZoomModal, { props: closed });
+    await rerender({ diagramId: "d0", figure: fig, onClose: () => {} });
+    flushSync();
+    await tick();
+
+    expect(clonedSvg(container, 'svg[data-marker="wrapped"]')).not.toBeNull();
   });
 
   it("does not mistake the injected expand-button icon for the diagram source", async () => {
@@ -111,7 +181,13 @@ describe("DiagramZoomModal", () => {
     flushSync();
     await tick();
 
-    expect(container.querySelector('[data-testid="diagram-zoom-content"] svg')).toBeNull();
+    // The host and its shadow root do exist (the popup is open with a real
+    // figure) — assert the svg is absent from a live shadow root, not via
+    // `clonedSvg`'s optional chaining, which would read `null` just the same
+    // if the host itself were missing.
+    const host = contentHost(container);
+    expect(host).not.toBeNull();
+    expect(host!.shadowRoot!.querySelector("svg")).toBeNull();
   });
 
   it("exposes zoom in/out/reset/close controls with labels", async () => {
@@ -144,6 +220,14 @@ describe("DiagramZoomModal", () => {
     flushSync();
     const dialog = container.querySelector("dialog")!;
     expect(dialog.hasAttribute("open")).toBe(true);
+    // Capture the host now: the `{#if}` unmounts it on close regardless of
+    // what `clearCloneRoot` does, so asserting only through the (now-detached)
+    // DOM tree afterward wouldn't tell `clearCloneRoot` ran from the host
+    // simply being gone. The captured element and its shadow root are still
+    // live JS objects even once detached, so querying them after close proves
+    // the clone content was actually removed.
+    const host = contentHost(dialog)!;
+    expect(host.shadowRoot!.querySelector("svg")).not.toBeNull();
 
     // Clearing the id (Escape/close/navigation) must close the dialog. The close
     // branch of the open/close effect must not depend on the inner nodes, which
@@ -151,7 +235,8 @@ describe("DiagramZoomModal", () => {
     await rerender({ diagramId: null, figure: null, onClose: () => {} });
     flushSync();
     expect(dialog.hasAttribute("open")).toBe(false);
-    expect(dialog.querySelector('[data-testid="diagram-zoom-content"] svg')).toBeNull();
+    expect(contentHost(dialog)).toBeNull();
+    expect(host.shadowRoot!.querySelector("svg")).toBeNull();
   });
 
   it("swaps in the new render when the same diagram live-updates", async () => {
@@ -162,20 +247,14 @@ describe("DiagramZoomModal", () => {
     await rerender({ diagramId: "d0", figure: first, onClose: () => {} });
     flushSync();
     await tick();
-    expect(
-      container.querySelector('[data-testid="diagram-zoom-content"] svg[data-marker="before"]'),
-    ).not.toBeNull();
+    expect(clonedSvg(container, 'svg[data-marker="before"]')).not.toBeNull();
 
     const second = diagramFigure("after");
     await rerender({ diagramId: "d0", figure: second, onClose: () => {} });
     flushSync();
     await tick();
-    expect(
-      container.querySelector('[data-testid="diagram-zoom-content"] svg[data-marker="after"]'),
-    ).not.toBeNull();
-    expect(
-      container.querySelector('[data-testid="diagram-zoom-content"] svg[data-marker="before"]'),
-    ).toBeNull();
+    expect(clonedSvg(container, 'svg[data-marker="after"]')).not.toBeNull();
+    expect(clonedSvg(container, 'svg[data-marker="before"]')).toBeNull();
     // The dialog stays open across the swap.
     expect(container.querySelector("dialog")!.hasAttribute("open")).toBe(true);
   });
@@ -196,9 +275,7 @@ describe("DiagramZoomModal", () => {
     const dialog = container.querySelector("dialog")!;
     expect(dialog.hasAttribute("open")).toBe(true);
     // Last good render is still on screen.
-    expect(
-      dialog.querySelector('[data-testid="diagram-zoom-content"] svg[data-marker="good"]'),
-    ).not.toBeNull();
+    expect(clonedSvg(dialog, 'svg[data-marker="good"]')).not.toBeNull();
   });
 
   it("re-opens for a different diagram after one was shown", async () => {
@@ -214,11 +291,36 @@ describe("DiagramZoomModal", () => {
     await rerender({ diagramId: "d1", figure: second, onClose: () => {} });
     flushSync();
     await tick();
-    expect(
-      container.querySelector('[data-testid="diagram-zoom-content"] svg[data-marker="two"]'),
-    ).not.toBeNull();
-    expect(
-      container.querySelector('[data-testid="diagram-zoom-content"] svg[data-marker="one"]'),
-    ).toBeNull();
+    expect(clonedSvg(container, 'svg[data-marker="two"]')).not.toBeNull();
+    expect(clonedSvg(container, 'svg[data-marker="one"]')).toBeNull();
+  });
+
+  it("keeps the shadow root styled after switching to a different diagram without closing", async () => {
+    // `ensureCloneRoot` short-circuits when the host is unchanged, so the sheet
+    // `applySheet` installed at open is never re-applied on a diagram switch or
+    // live update — `clearCloneRoot` must not remove it along with the old
+    // clone. A close/reopen cycle would NOT catch a regression here: closing
+    // tears the host down (`{#if diagramId !== null}`), so reopening attaches a
+    // fresh shadow root with a fresh sheet regardless of how the old one was
+    // cleared. Only a same-host switch (id changes, popup stays open)
+    // exercises the short-circuit.
+    const first = diagramFigure("one");
+    const { container, rerender } = render(DiagramZoomModal, { props: closed });
+    await rerender({ diagramId: "d0", figure: first, onClose: () => {} });
+    flushSync();
+    await tick();
+
+    const second = diagramFigure("two");
+    await rerender({ diagramId: "d1", figure: second, onClose: () => {} });
+    flushSync();
+    await tick();
+
+    const shadow = contentHost(container)!.shadowRoot!;
+    // jsdom takes the `<style>` fallback path; a real browser takes the
+    // adopted-stylesheet path (see `applySheet`) — check both so the pin holds
+    // either way.
+    const hasStyleEl = shadow.querySelector("style") !== null;
+    const hasAdoptedSheet = (shadow.adoptedStyleSheets ?? []).length > 0;
+    expect(hasStyleEl || hasAdoptedSheet).toBe(true);
   });
 });

@@ -236,7 +236,8 @@ packages/
 │   │   ├── pages/             # Page components
 │   │   ├── stores/            # Svelte stores (router, navigation, page)
 │   │   ├── api/               # API client
-│   │   ├── lib/               # Utility libraries (tabs.ts)
+│   │   ├── lib/               # Utility libraries (tabs.ts, comments/, diagram/)
+│   │   │   └── diagram/       # Zoom popup + the rw-diagram shadow-root boundary
 │   │   ├── styles/            # Shared CSS (content.css: prose, diagrams, alerts, tabs)
 │   │   └── types/             # TypeScript interfaces
 │   └── dist/                  # Production build output
@@ -258,3 +259,10 @@ rw-kroki (Rust) → Node.js objects
 
 - **Rust requirements**: Edition 2024, Rust 1.91+
 - **PlantUML**: Extracted from code blocks, rendered via Kroki, uploaded as attachments
+- **Diagram id isolation**: Kroki generators emit SVG ids unique only within one
+  diagram, so `rw-kroki` wraps each inlined SVG in `<rw-diagram>` and the viewer
+  attaches a shadow root — one id scope per diagram. Consequence: `querySelector`
+  does not reach diagram internals. Use `lib/diagram/source.ts`'s `diagramSource`
+  / `diagramShadowRoots` rather than open-coding a traversal. A hand-authored
+  `<figure class="diagram">` in markdown gets no wrapper and is unisolated by
+  design; both shapes must keep working.

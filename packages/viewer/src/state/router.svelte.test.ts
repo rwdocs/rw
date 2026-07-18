@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { extractDocPath, Router } from "./router.svelte";
+import { registerRwDiagram } from "../lib/diagram/rwDiagramElement";
 
 describe("extractDocPath", () => {
   it("strips leading slash from path", () => {
@@ -179,10 +180,24 @@ describe("initRouter", () => {
       return anchor;
     }
 
+    // `clickHandler` is invoked directly (see the outer `beforeEach`), so the
+    // event was never actually dispatched through the DOM — `composedPath()`
+    // would otherwise be empty. Reconstruct it from `target`'s real ancestor
+    // chain (`parentElement`), which is exactly what the handler now walks via
+    // `composedPath()` instead of `closest()`.
+    function setEventTarget(event: MouseEvent, target: Element): void {
+      Object.defineProperty(event, "target", { value: target, configurable: true });
+      const path: Element[] = [];
+      for (let node: Element | null = target; node; node = node.parentElement) {
+        path.push(node);
+      }
+      vi.spyOn(event, "composedPath").mockReturnValue(path);
+    }
+
     it("navigates on internal link click", () => {
       const anchor = createAnchor("/internal-page");
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -193,7 +208,7 @@ describe("initRouter", () => {
     it("ignores clicks not on anchors", () => {
       const div = document.createElement("div");
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: div });
+      setEventTarget(event, div);
 
       clickHandler!(event);
 
@@ -203,7 +218,7 @@ describe("initRouter", () => {
     it("ignores anchors without href", () => {
       const anchor = createAnchor(null);
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -213,7 +228,7 @@ describe("initRouter", () => {
     it("ignores clicks with meta key", () => {
       const anchor = createAnchor("/page");
       const event = createClickEvent({ metaKey: true });
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -223,7 +238,7 @@ describe("initRouter", () => {
     it("ignores clicks with ctrl key", () => {
       const anchor = createAnchor("/page");
       const event = createClickEvent({ ctrlKey: true });
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -233,7 +248,7 @@ describe("initRouter", () => {
     it("ignores clicks with shift key", () => {
       const anchor = createAnchor("/page");
       const event = createClickEvent({ shiftKey: true });
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -243,7 +258,7 @@ describe("initRouter", () => {
     it("ignores clicks with alt key", () => {
       const anchor = createAnchor("/page");
       const event = createClickEvent({ altKey: true });
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -253,7 +268,7 @@ describe("initRouter", () => {
     it("ignores external http links", () => {
       const anchor = createAnchor("https://example.com");
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -263,7 +278,7 @@ describe("initRouter", () => {
     it("ignores protocol-relative links", () => {
       const anchor = createAnchor("//example.com/page");
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -273,7 +288,7 @@ describe("initRouter", () => {
     it("ignores mailto links", () => {
       const anchor = createAnchor("mailto:test@example.com");
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -283,7 +298,7 @@ describe("initRouter", () => {
     it("ignores tel links", () => {
       const anchor = createAnchor("tel:+1234567890");
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -293,7 +308,7 @@ describe("initRouter", () => {
     it("ignores hash links", () => {
       const anchor = createAnchor("#section");
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -303,7 +318,7 @@ describe("initRouter", () => {
     it("ignores links with target attribute", () => {
       const anchor = createAnchor("/page", { target: "_blank" });
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -313,7 +328,7 @@ describe("initRouter", () => {
     it("ignores links with download attribute", () => {
       const anchor = createAnchor("/file.pdf", { download: "" });
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: anchor });
+      setEventTarget(event, anchor);
 
       clickHandler!(event);
 
@@ -325,7 +340,7 @@ describe("initRouter", () => {
       const span = document.createElement("span");
       anchor.appendChild(span);
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: span });
+      setEventTarget(event, span);
 
       clickHandler!(event);
 
@@ -359,7 +374,7 @@ describe("initRouter", () => {
     it("navigates on SVG link with target attribute (e.g., PlantUML diagrams)", () => {
       const text = createSvgAnchor("/domains/billing", { attributes: { target: "_top" } });
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: text });
+      setEventTarget(event, text);
 
       clickHandler!(event);
 
@@ -370,7 +385,7 @@ describe("initRouter", () => {
     it("navigates on SVG link with xlink:href", () => {
       const text = createSvgAnchor("/domains/billing", { xlink: true });
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: text });
+      setEventTarget(event, text);
 
       clickHandler!(event);
 
@@ -381,7 +396,7 @@ describe("initRouter", () => {
     it("ignores SVG links with external URLs", () => {
       const text = createSvgAnchor("https://external.com");
       const event = createClickEvent();
-      Object.defineProperty(event, "target", { value: text });
+      setEventTarget(event, text);
 
       clickHandler!(event);
 
@@ -632,10 +647,11 @@ describe("basePath", () => {
 
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     vi.spyOn(event, "preventDefault");
-    Object.defineProperty(event, "target", { value: anchor });
 
-    // Dispatch through the rootElement's click handler
-    rootElement.dispatchEvent(event);
+    // Dispatch on the anchor itself so it bubbles to rootElement — composedPath()
+    // reflects genuine dispatch, unlike overriding `target` on an event fired
+    // elsewhere.
+    anchor.dispatchEvent(event);
 
     expect(event.preventDefault).toHaveBeenCalled();
     expect(onNavigate).toHaveBeenCalledWith("/rw-docs/docs/guide");
@@ -657,9 +673,8 @@ describe("basePath", () => {
 
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     vi.spyOn(event, "preventDefault");
-    Object.defineProperty(event, "target", { value: anchor });
 
-    rootElement.dispatchEvent(event);
+    anchor.dispatchEvent(event);
 
     expect(onNavigate).toHaveBeenCalledWith("/rw-docs/");
     expect(router.path).toBe("/");
@@ -680,9 +695,8 @@ describe("basePath", () => {
 
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     vi.spyOn(event, "preventDefault");
-    Object.defineProperty(event, "target", { value: anchor });
 
-    rootElement.dispatchEvent(event);
+    anchor.dispatchEvent(event);
 
     expect(event.preventDefault).toHaveBeenCalled();
     expect(onNavigate).toHaveBeenCalledWith("/catalog/default/system/payment-gateway/docs");
@@ -704,9 +718,8 @@ describe("basePath", () => {
 
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     vi.spyOn(event, "preventDefault");
-    Object.defineProperty(event, "target", { value: anchor });
 
-    rootElement.dispatchEvent(event);
+    anchor.dispatchEvent(event);
 
     expect(event.preventDefault).not.toHaveBeenCalled();
 
@@ -800,9 +813,8 @@ describe("scopePath", () => {
 
     const event = new MouseEvent("click", { bubbles: true, cancelable: true });
     vi.spyOn(event, "preventDefault");
-    Object.defineProperty(event, "target", { value: anchor });
 
-    rootElement.dispatchEvent(event);
+    anchor.dispatchEvent(event);
 
     expect(event.preventDefault).toHaveBeenCalled();
     expect(router.path).toBe("/domains/billing/systems/payment-gateway/usecases/get-cards");
@@ -811,6 +823,41 @@ describe("scopePath", () => {
     );
 
     cleanup();
+  });
+});
+
+describe("diagram links", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "location", {
+      value: { origin: "http://localhost:8001", pathname: "/", hash: "" },
+      writable: true,
+      configurable: true,
+    });
+    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("routes a click on a link inside a diagram shadow root", () => {
+    registerRwDiagram();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    host.innerHTML = `<rw-diagram><svg><a href="/guide">x</a></svg></rw-diagram>`;
+    const anchor = host.querySelector("rw-diagram")!.shadowRoot!.querySelector("a")!;
+
+    const router = new Router();
+    const cleanup = router.initRouter();
+
+    anchor.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, composed: true, cancelable: true }),
+    );
+
+    expect(router.path).toBe("/guide");
+
+    cleanup();
+    host.remove();
   });
 });
 
