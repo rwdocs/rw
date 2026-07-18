@@ -20,29 +20,29 @@ pub(crate) fn heading_level_to_num(level: HeadingLevel) -> u8 {
 /// Converts to lowercase, replaces whitespace/dashes/underscores with single dashes,
 /// and removes other non-alphanumeric characters. Preserves non-Latin Unicode characters
 /// (Cyrillic, CJK, etc.) following GitHub-style heading ID generation.
-#[must_use]
-pub(crate) fn slugify(text: &str) -> String {
-    let mut result = String::new();
+/// Writes the slug into `out` (which is cleared first) rather than returning a
+/// fresh `String`, so a caller slugifying every heading in a document reuses
+/// one buffer instead of allocating per heading.
+pub(crate) fn slugify_into(text: &str, out: &mut String) {
+    out.clear();
     let mut last_was_dash = true; // Prevents leading dash
 
     for c in text.trim().chars() {
         if c.is_alphanumeric() {
             for lc in c.to_lowercase() {
-                result.push(lc);
+                out.push(lc);
             }
             last_was_dash = false;
         } else if !last_was_dash && (c.is_whitespace() || c == '-' || c == '_') {
-            result.push('-');
+            out.push('-');
             last_was_dash = true;
         }
     }
 
     // Remove trailing dash if present
-    if result.ends_with('-') {
-        result.pop();
+    if out.ends_with('-') {
+        out.pop();
     }
-
-    result
 }
 
 /// Appends `s` to `out`, escaping the five HTML special characters
@@ -137,6 +137,13 @@ pub fn escape_html(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Owned-return wrapper over [`slugify_into`], for readable assertions.
+    fn slugify(text: &str) -> String {
+        let mut out = String::new();
+        slugify_into(text, &mut out);
+        out
+    }
 
     #[test]
     fn test_slugify() {
