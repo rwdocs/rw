@@ -10,6 +10,7 @@
   import { Ui } from "./state/ui.svelte";
   import { Comments } from "./state/comments.svelte";
   import { createNotify } from "./lib/notify";
+  import "./lib/diagram/rwDiagramElement";
   import type { NotifyFn } from "./types/notify";
   import { setRwContext } from "./lib/context";
   import type { ConfigResponse } from "./types";

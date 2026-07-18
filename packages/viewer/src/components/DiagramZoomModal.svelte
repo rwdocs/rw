@@ -17,7 +17,8 @@
     type Size,
   } from "$lib/diagram/zoomMath";
   import { naturalSizeOf } from "$lib/diagram/naturalSize";
-  import { namespaceIds } from "$lib/diagram/namespaceIds";
+  import { DIAGRAM_MODAL_CSS, applySheet } from "$lib/diagram/sheet";
+  import { diagramSource } from "$lib/diagram/source";
 
   interface Props {
     /**
@@ -51,6 +52,35 @@
   let dialogEl = $state<HTMLDialogElement>();
   let viewportEl = $state<HTMLElement>();
   let cloneHost = $state<HTMLElement>();
+
+  /** Shadow root of the clone host — its own id scope, so the clone's ids
+      cannot collide with the original still living in the article. */
+  let cloneRoot: ShadowRoot | undefined;
+
+  function ensureCloneRoot(host: HTMLElement): ShadowRoot {
+    if (!cloneRoot || cloneRoot.host !== host) {
+      cloneRoot = host.shadowRoot ?? host.attachShadow({ mode: "open" });
+      applySheet(cloneRoot, DIAGRAM_MODAL_CSS);
+    }
+    return cloneRoot;
+  }
+
+  /**
+   * Drop the mounted clone from `root`, keeping any `<style>` the sheet was
+   * applied through. `applySheet` falls back to a `<style>` child where
+   * `adoptedStyleSheets` is unavailable, and `ensureCloneRoot` short-circuits
+   * when the host is unchanged — so switching to a different diagram, or a
+   * live update, while the popup stays open never re-applies the sheet. A
+   * blanket `replaceChildren()` here would strip the diagram styling at that
+   * point and never put it back. (Closing the popup is not this case: it
+   * tears the host down via `{#if diagramId !== null}`, so reopening attaches
+   * a fresh root with a fresh sheet.)
+   */
+  function clearCloneRoot(root: ShadowRoot) {
+    for (const child of [...root.children]) {
+      if (child.tagName !== "STYLE") child.remove();
+    }
+  }
 
   // The current viewBox drives what slice of the diagram is shown. Writing it to
   // the SVG re-renders the vector paths crisply at the new zoom (a repaint, not a
@@ -179,10 +209,6 @@
   function buildSvg(source: SVGSVGElement | HTMLImageElement, nat: Size): SVGSVGElement {
     if (source instanceof HTMLImageElement) {
       const svg = document.createElementNS(SVG_NS, "svg");
-      // Mark the raster wrapper so the dark-mode invert filter skips it — a PNG
-      // diagram is left untouched in the article (only `svg` is inverted there),
-      // and the popup must match rather than invert the bitmap.
-      svg.setAttribute("data-raster", "");
       svg.setAttribute("viewBox", `0 0 ${nat.w} ${nat.h}`);
       const image = document.createElementNS(SVG_NS, "image");
       image.setAttribute("href", source.src);
@@ -191,12 +217,9 @@
       svg.appendChild(image);
       return svg;
     }
-    // Deep clone duplicates every id while the original still lives in the
-    // article; namespace them so the clone's url(#…)/href references resolve to
-    // its own defs (not the original's, which a live reload can destroy).
-    const clone = source.cloneNode(true) as SVGSVGElement;
-    namespaceIds(clone);
-    return clone;
+    // The clone mounts into the modal's own shadow root, a separate id scope
+    // from the article — so duplicating every id here is harmless.
+    return source.cloneNode(true) as SVGSVGElement;
   }
 
   // Open / live-update / close, driven by (diagramId, figure). Reading dialogEl and
@@ -213,7 +236,7 @@
 
     untrack(() => {
       if (id === null) {
-        cloneHost?.replaceChildren();
+        if (cloneRoot) clearCloneRoot(cloneRoot);
         svgClone = undefined;
         shownDiagramId = null;
         if (dlg.open) {
@@ -242,13 +265,13 @@
         pointers.clear();
         pinchStartDist = 0;
 
-        // Direct children only: the injected `.diagram-expand-btn` lives inside the
-        // same figure and carries its own icon <svg>, which an unscoped `svg, img`
-        // would match on a figure whose diagram failed to produce any real svg/img.
-        const source = fig.querySelector<SVGSVGElement | HTMLImageElement>(
-          ":scope > svg, :scope > img",
-        );
-        host.replaceChildren();
+        const source = diagramSource(fig);
+        const mount = ensureCloneRoot(host);
+        clearCloneRoot(mount);
+        // Reflect the raster marker onto the light-DOM host: the dark-mode
+        // invert must live outside the shadow root (no selector inside one can
+        // match `.dark`), and a PNG diagram must not be inverted.
+        host.toggleAttribute("data-raster", source instanceof HTMLImageElement);
         if (source) {
           natural = naturalSizeOf(source);
           const svg = buildSvg(source, natural);
@@ -273,7 +296,7 @@
           svg.style.setProperty("max-width", "none");
           svg.style.setProperty("max-height", "none");
           svgClone = svg;
-          host.appendChild(svg);
+          mount.appendChild(svg);
         } else {
           natural = { w: 1, h: 1 };
           diagram = { x: 0, y: 0, w: 1, h: 1 };

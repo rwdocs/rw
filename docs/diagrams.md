@@ -81,7 +81,32 @@ graph LR
 ```
 ````
 
-renders as `<figure class="diagram" data-diagram-id="architecture">...</figure>`.
+renders as:
+
+```html
+<figure class="diagram" data-diagram-id="architecture">
+  <rw-diagram><!-- shadow root: <svg>...</svg> --></rw-diagram>
+</figure>
+```
+
+The SVG sits inside a `<rw-diagram>` shadow root rather than directly in the
+page. Diagram generators emit element ids that are unique only within a single
+diagram -- Vega numbers its clip paths `clip0`, `clip1`, and so on, and Mermaid
+roots every SVG on `container` -- so with several diagrams on one page a
+`url(#clip1)` reference would otherwise resolve to whichever diagram came
+first, silently painting one diagram with another's clipping. A shadow root
+gives each diagram its own id scope, which makes that impossible.
+
+The `<figure>` and its `data-diagram-id` stay in the normal page, so targeting
+a diagram is unchanged. Reaching *inside* one is not: `querySelector` does not
+cross a shadow boundary, so a script or test that needs the SVG itself must go
+through the wrapper's `shadowRoot`:
+
+```js
+document
+  .querySelector('[data-diagram-id="architecture"] > rw-diagram')
+  .shadowRoot.querySelector("svg");
+```
 
 Diagrams without an explicit `{#id}` get an auto id of the form
 `diagram-<n>`, where `<n>` is the zero-based index of the diagram among the

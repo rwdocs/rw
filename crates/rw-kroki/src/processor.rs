@@ -256,6 +256,21 @@ impl DiagramProcessor {
         }
     }
 
+    /// Build the HTML for an inlined SVG diagram figure.
+    ///
+    /// The SVG is wrapped in `<rw-diagram>`, which the viewer upgrades into a
+    /// shadow root. Kroki generators emit ids that are unique only within one SVG
+    /// (Vega hard-codes `clip0, clip1, …`; Mermaid roots every SVG on `container`),
+    /// so without a per-diagram tree scope a `url(#clip1)` reference resolves
+    /// document-wide to whichever diagram came first — silently painting one
+    /// diagram with another's clip paths.
+    ///
+    /// Only the inline SVG path is wrapped. PNG figures hold an `<img>` with no ids
+    /// to collide, and error figures hold a `<pre>`.
+    fn svg_figure(id_attr: &str, svg: &str) -> String {
+        format!(r#"<figure class="diagram"{id_attr}><rw-diagram>{svg}</rw-diagram></figure>"#)
+    }
+
     /// Prepare diagram source for rendering.
     ///
     /// For `PlantUML` diagrams, this resolves `!include` directives and injects config.
@@ -505,7 +520,7 @@ impl DiagramProcessor {
                 let figure = match diagram.format {
                     DiagramFormat::Svg => {
                         let annotated = Self::annotate_links(config, &cached_content, refs);
-                        format!(r#"<figure class="diagram"{id_attr}>{annotated}</figure>"#)
+                        Self::svg_figure(&id_attr, &annotated)
                     }
                     DiagramFormat::Png => {
                         format!(
@@ -568,7 +583,7 @@ impl DiagramProcessor {
 
             let annotated = Self::annotate_links(config, &scaled_svg, refs);
             let id_attr = replacements.id_attr(r.index);
-            let figure = format!(r#"<figure class="diagram"{id_attr}>{annotated}</figure>"#);
+            let figure = Self::svg_figure(&id_attr, &annotated);
             replacements.add(r.index, figure);
         }
         replacements.add_errors(result.errors)
@@ -1097,10 +1112,11 @@ mod tests {
         // The id lands on a real (non-error) success figure, not the error path.
         assert!(!html.contains("diagram-error"), "{html}");
         assert!(
-            html.contains(r#"<figure class="diagram" data-diagram-id="architecture">"#),
+            html.contains(
+                r#"<figure class="diagram" data-diagram-id="architecture"><rw-diagram><svg id="real"></svg></rw-diagram></figure>"#
+            ),
             "{html}"
         );
-        assert!(html.contains(r#"<svg id="real"></svg>"#), "{html}");
     }
 
     #[test]
@@ -1110,6 +1126,9 @@ mod tests {
             "data:image/png;base64,ABC",
         );
         assert!(!html.contains("diagram-error"), "{html}");
+        // PNG figures hold an <img> with no ids to collide, so they are not
+        // wrapped in <rw-diagram> — only the inline SVG path is.
+        assert!(!html.contains("rw-diagram"), "{html}");
         assert!(
             html.contains(
                 r#"<figure class="diagram" data-diagram-id="pic"><img src="data:image/png;base64,ABC" alt="diagram"></figure>"#
@@ -1152,6 +1171,18 @@ mod tests {
         assert_eq!(diagram_id_attr(None), "");
     }
 
+    /// The populated-`id_attr` case is pinned end-to-end by
+    /// `id_emitted_on_success_svg_figure`; this covers the empty case, which is
+    /// reachable (a fence with no `{#id}`) and asserted nowhere else.
+    #[test]
+    fn svg_figure_without_id_attr_still_wraps() {
+        let html = DiagramProcessor::svg_figure("", "<svg/>");
+        assert_eq!(
+            html,
+            "<figure class=\"diagram\"><rw-diagram><svg/></rw-diagram></figure>"
+        );
+    }
+
     #[test]
     fn has_transient_error_false_when_no_diagrams() {
         use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
@@ -1181,6 +1212,9 @@ mod tests {
 
         assert!(result.has_transient_error);
         assert!(result.html.contains("diagram-error"));
+        // Error figures hold a <pre>, so they are not wrapped in <rw-diagram> —
+        // only the inline SVG path is.
+        assert!(!result.html.contains("rw-diagram"));
     }
 
     #[test]
