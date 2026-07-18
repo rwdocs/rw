@@ -2,7 +2,7 @@
 //!
 //! Inline directives use single-colon syntax: `:name[content]{attrs}`
 
-use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
+use super::{DirectiveArgs, DirectiveContext, DirectiveOutput};
 
 /// Handler for inline directives: `:name[content]{attrs}`
 ///
@@ -11,11 +11,12 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 /// flushes text (`flush_text`) it scans `Event::Text` content for `:name[…]`
 /// syntax and dispatches to the handler; there is no separate pre-pass.
 ///
-/// # Post-Processing
+/// # Backend-Specific Output
 ///
-/// Inline directives support post-processing via [`post_process`](Self::post_process).
-/// During the event walk, return intermediate HTML that is then transformed
-/// during the post-processing pass.
+/// An inline directive that wraps a label in backend-specific markup should
+/// return [`DirectiveOutput::Marker`] rather than `Html`, so each backend
+/// renders it its own way. `Html` reaches every backend verbatim, including
+/// Confluence's XHTML storage format.
 ///
 /// # Thread Safety
 ///
@@ -46,21 +47,13 @@ pub trait InlineDirective: Send {
 
     /// Process the inline directive.
     ///
-    /// Returns [`DirectiveOutput::Html`] to emit HTML, [`DirectiveOutput::Skip`]
-    /// to pass through unchanged.
+    /// Returns [`DirectiveOutput::Html`] to emit HTML, [`DirectiveOutput::Marker`]
+    /// to emit a semantic marker each backend renders itself, or
+    /// [`DirectiveOutput::Skip`] to pass through unchanged.
     ///
     /// Note: [`DirectiveOutput::Markdown`] is supported but uncommon for inline
     /// directives since they typically produce simple HTML.
     fn process(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput;
-
-    /// Register post-processing replacements for intermediate marker elements.
-    ///
-    /// Inline directives that emit neutral marker elements during
-    /// [`process`](Self::process) can override this to rewrite those markers
-    /// into final HTML after rendering, using the [`Replacements`] collector.
-    /// The default is a no-op — most inline directives emit final HTML
-    /// directly and need nothing here.
-    fn post_process(&mut self, _replacements: &mut Replacements) {}
 }
 
 #[cfg(test)]
@@ -104,13 +97,5 @@ mod tests {
     fn test_inline_directive_name() {
         let kbd = TestKbd;
         assert_eq!(kbd.name(), "kbd");
-    }
-
-    #[test]
-    fn test_default_post_process() {
-        let mut kbd = TestKbd;
-        let mut replacements = Replacements::new();
-        kbd.post_process(&mut replacements);
-        assert!(replacements.is_empty());
     }
 }

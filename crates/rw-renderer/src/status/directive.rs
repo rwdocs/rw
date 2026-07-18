@@ -5,9 +5,11 @@
 
 use std::fmt;
 
-use crate::directive::{
-    DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective, Replacements,
-};
+use crate::directive::{DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective, Marker};
+
+/// Semantic name of the marker `StatusDirective` emits. Backends match on this
+/// to render a status badge their own way.
+pub const STATUS_MARKER: &str = "status";
 
 /// One of the six Confluence-native status colors. [`Default`] is Grey;
 /// [`From<&str>`] parses a name case-insensitively and returns the default
@@ -24,30 +26,32 @@ pub enum StatusColor {
     Purple,
 }
 
-impl StatusColor {
-    /// All six colors, in palette order. Used to register post-processing
-    /// replacements for every possible `<rw-status>` marker.
-    const ALL: [StatusColor; 6] = [
-        StatusColor::Grey,
-        StatusColor::Red,
-        StatusColor::Yellow,
-        StatusColor::Green,
-        StatusColor::Blue,
-        StatusColor::Purple,
-    ];
-}
-
 impl From<&str> for StatusColor {
     fn from(name: &str) -> Self {
-        match name.trim().to_ascii_lowercase().as_str() {
-            "red" => Self::Red,
-            "yellow" => Self::Yellow,
-            "green" => Self::Green,
-            "blue" => Self::Blue,
-            "purple" => Self::Purple,
-            // "grey", "gray", unknown values, and the empty string -> default (Grey).
-            _ => Self::default(),
-        }
+        const NAMED: [(&str, StatusColor); 5] = [
+            ("red", StatusColor::Red),
+            ("yellow", StatusColor::Yellow),
+            ("green", StatusColor::Green),
+            ("blue", StatusColor::Blue),
+            ("purple", StatusColor::Purple),
+        ];
+        let name = name.trim();
+        NAMED
+            .into_iter()
+            .find(|(label, _)| name.eq_ignore_ascii_case(label))
+            .map_or_else(
+                // "grey", "gray", unknown values, and the empty string -> default (Grey).
+                Self::default,
+                |(_, color)| color,
+            )
+    }
+}
+
+/// Reads a status marker's `color` attribute. Both backends translate the same
+/// marker, so the derivation lives here rather than being repeated per backend.
+impl From<&Marker> for StatusColor {
+    fn from(marker: &Marker) -> Self {
+        Self::from(marker.attr("color").unwrap_or_default())
     }
 }
 
@@ -66,10 +70,10 @@ impl fmt::Display for StatusColor {
 
 /// Inline directive for status badges: `:status[Label]{color=NAME}`.
 ///
-/// `process` emits a neutral `<rw-status data-color="X">label</rw-status>`
-/// marker. `post_process` rewrites that marker to
-/// `<span class="status status-X">…</span>` for HTML output; the Confluence
-/// backend translates the same marker into a native `status` macro.
+/// `process` emits a backend-neutral [`Marker`] named [`STATUS_MARKER`] with a
+/// normalized `color` attribute. `HtmlBackend` renders it as
+/// `<span class="status status-X">…</span>`; the Confluence backend translates
+/// the same marker into a native `status` macro.
 ///
 /// # Example
 ///
@@ -104,28 +108,13 @@ impl InlineDirective for StatusDirective {
 
     fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
         let color = StatusColor::from(args.get("color").unwrap_or_default());
-        // Emit as a marker triple — the renderer routes the label through its
-        // `text` method, which HTML-escapes it. Backends with stateful
-        // `raw_html` (Confluence) see the open and close markers as discrete
-        // events so they can translate to native macros.
+        // The label goes in the marker body, not in an attr: the renderer
+        // routes bodies through `text`, which the backend HTML-escapes. Attrs
+        // are not escaped — a backend interpolating one must validate it.
         DirectiveOutput::marker(
-            format!(r#"<rw-status data-color="{color}">"#),
+            Marker::new(STATUS_MARKER).with_attr("color", color.to_string()),
             args.content().trim(),
-            "</rw-status>",
         )
-    }
-
-    fn post_process(&mut self, replacements: &mut Replacements) {
-        // The open marker maps purely from its color, and the close marker is
-        // constant — register all six unconditionally; Replacements skips any
-        // pattern not present in the output.
-        for color in StatusColor::ALL {
-            replacements.add(
-                format!(r#"<rw-status data-color="{color}">"#),
-                format!(r#"<span class="status status-{color}">"#),
-            );
-        }
-        replacements.add("</rw-status>", "</span>");
     }
 }
 
@@ -262,5 +251,71 @@ mod tests {
             html.contains(r#"<span class="status status-blue">B</span>"#),
             "got: {html}"
         );
+    }
+
+    #[test]
+    fn test_status_inside_heading_renders_into_the_heading_body() {
+        // The marker is markup, so it routes to the heading's rendered_html
+        // buffer — not to the TOC text or the slug id.
+        let html = render("# Ship :status[On Track]{color=green}\n");
+        assert!(
+            html.contains(r#"<span class="status status-green">On Track</span>"#),
+            "got: {html}"
+        );
+        assert!(html.contains("<h1"), "got: {html}");
+    }
+
+    #[test]
+    fn test_status_inside_image_alt_text_drops_markup() {
+        // CommonMark: alt text is plain text. The marker is suppressed while
+        // its label survives, so no markup leaks into the alt attribute.
+        let html = render("![before :status[Badge]{color=red} after](x.png)\n");
+        assert!(!html.contains("<span"), "markup leaked into alt: {html}");
+        assert!(
+            !html.contains("status-red"),
+            "markup leaked into alt: {html}"
+        );
+        assert!(html.contains("Badge"), "label lost: {html}");
+    }
+
+    #[test]
+    fn test_html_backend_unset_color_renders_grey() {
+        use crate::directive::Marker;
+        use crate::{HtmlBackend, RenderBackend};
+
+        // Matches the Confluence backend rather than emitting a `status-`
+        // class no stylesheet matches.
+        let mut out = String::new();
+        HtmlBackend::marker_open(&Marker::new(STATUS_MARKER), &mut out);
+        assert_eq!(out, r#"<span class="status status-grey">"#);
+    }
+
+    #[test]
+    fn test_html_backend_color_cannot_inject_markup() {
+        use crate::directive::Marker;
+        use crate::{HtmlBackend, RenderBackend};
+
+        // Normalizing through StatusColor means the emitted class is one of
+        // six literals by construction, whatever the attribute holds.
+        let mut out = String::new();
+        HtmlBackend::marker_open(
+            &Marker::new(STATUS_MARKER).with_attr("color", r#"x"><script>alert(1)</script>"#),
+            &mut out,
+        );
+        assert_eq!(out, r#"<span class="status status-grey">"#);
+    }
+
+    #[test]
+    fn test_html_backend_ignores_unrecognized_marker() {
+        use crate::directive::Marker;
+        use crate::{HtmlBackend, RenderBackend};
+
+        let mut open = String::new();
+        let mut close = String::new();
+        let marker = Marker::new("kbd");
+        HtmlBackend::marker_open(&marker, &mut open);
+        HtmlBackend::marker_close(&marker, &mut close);
+        assert!(open.is_empty(), "got: {open}");
+        assert!(close.is_empty(), "got: {close}");
     }
 }

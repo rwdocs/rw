@@ -22,7 +22,10 @@
 //! - **Inline directives** are expanded while flushing text: the renderer scans
 //!   `Event::Text` content for `:name[…]` syntax and dispatches handlers
 //!   directly into its backend. Inline code spans, code blocks, and raw HTML
-//!   pass through unchanged.
+//!   pass through unchanged. An inline directive that wraps a label in
+//!   backend-specific markup returns [`DirectiveOutput::Marker`] — a semantic
+//!   [`Marker`] the backend renders itself via `marker_open`/`marker_close` —
+//!   rather than emitting markup that would reach every backend verbatim.
 //!
 //! - **Leaf and container directives** are recognized when their delimiter
 //!   paragraph appears in the event stream (`::name` for a leaf, `:::name` …
@@ -34,9 +37,10 @@
 //!   raw markdown that is re-parsed in context.
 //!
 //! - **Post-processing** ([`DirectiveProcessor::post_process`]) runs after
-//!   rendering. It transforms the intermediate elements into final accessible
-//!   HTML using the [`Replacements`] collector for efficient single-pass
-//!   string replacement.
+//!   rendering. It transforms leaf and container directives' intermediate
+//!   elements into final accessible HTML using the [`Replacements`] collector
+//!   for efficient single-pass string replacement. Inline directives have no
+//!   post-processing hook: they emit [`Marker`]s the backend renders directly.
 //!
 //! # Path Resolution Sandbox
 //!
@@ -84,6 +88,7 @@ mod container;
 mod context;
 mod inline;
 mod leaf;
+mod marker;
 mod output;
 pub(crate) mod parser;
 pub(crate) mod processor;
@@ -94,6 +99,7 @@ pub use container::ContainerDirective;
 pub use context::{DirectiveContext, ResolveError};
 pub use inline::InlineDirective;
 pub use leaf::LeafDirective;
+pub use marker::Marker;
 pub use output::DirectiveOutput;
 pub use processor::{DirectiveProcessor, DirectiveProcessorConfig};
 pub use replacements::Replacements;

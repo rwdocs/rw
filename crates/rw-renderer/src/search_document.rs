@@ -228,6 +228,27 @@ mod tests {
     }
 
     #[test]
+    fn status_badge_label_indexed_without_markup() {
+        // Markers route through marker_open/marker_close, whose defaults are
+        // no-ops — so a badge contributes its label to the index and nothing else.
+        use crate::StatusDirective;
+        use crate::directive::DirectiveProcessor;
+
+        let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
+        let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
+            "Delivery is :status[On Track]{color=green} today.",
+            Pipeline::new().with_directives(processor),
+        );
+        assert!(result.html.contains("On Track"), "got: {}", result.html);
+        assert!(!result.html.contains('<'), "markup leaked: {}", result.html);
+        assert!(
+            !result.html.contains("status-green"),
+            "got: {}",
+            result.html
+        );
+    }
+
+    #[test]
     fn alert_content_included() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .render("> [!WARNING]\n> Do not delete this file.", Pipeline::new());

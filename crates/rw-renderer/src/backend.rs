@@ -7,6 +7,8 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
+use crate::directive::Marker;
+
 use pulldown_cmark::{Alignment, BlockQuoteKind};
 
 use crate::escape_into;
@@ -370,4 +372,15 @@ pub trait RenderBackend {
     fn raw_html(html: &str, out: &mut String) {
         out.push_str(html);
     }
+
+    /// Writes the opening of a semantic [`Marker`] emitted by a directive.
+    ///
+    /// Backends match on `marker.name` and read normalized attributes with
+    /// [`Marker::attr`]. The default is a no-op, so a backend that doesn't
+    /// recognize a marker renders the body as an unstyled label rather than
+    /// leaking markup it doesn't understand.
+    fn marker_open(_marker: &Marker, _out: &mut String) {}
+
+    /// Writes the closing of a semantic [`Marker`]. See [`marker_open`](Self::marker_open).
+    fn marker_close(_marker: &Marker, _out: &mut String) {}
 }

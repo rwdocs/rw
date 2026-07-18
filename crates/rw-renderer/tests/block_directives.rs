@@ -55,10 +55,16 @@ fn bracketed_attr_delimiter_is_recognized() {
 fn status_inline_alone_on_a_line_still_expands() {
     let result = render_status(":status[Done]{color=green}");
     // The inline directive must expand even when it is alone on a line (i.e. it
-    // must not be mistaken for / swallowed by block-directive deferral). The
-    // `<rw-status>` marker is rewritten to `status status-green` in post-process,
-    // so the post-processed class is the observable proof of expansion.
-    assert!(result.html.contains("status-green"), "got: {}", result.html);
+    // must not be mistaken for / swallowed by block-directive deferral).
+    // `status-green` comes from HtmlBackend::marker_open, so the class is the
+    // observable proof of expansion.
+    assert!(
+        result
+            .html
+            .contains(r#"<span class="status status-green">Done</span>"#),
+        "got: {}",
+        result.html
+    );
 }
 
 #[test]
@@ -289,7 +295,13 @@ fn leaf_markdown_output_is_reparsed_in_context() {
             body: "## Included\n\nStatus: :status[Go]{color=green}".to_owned(),
         },
     );
-    assert!(result.html.contains("status-green"), "got: {}", result.html);
+    assert!(
+        result
+            .html
+            .contains(r#"<span class="status status-green">Go</span>"#),
+        "got: {}",
+        result.html
+    );
     assert!(
         result.html.contains(r#"<h2 id="included">"#),
         "got: {}",
