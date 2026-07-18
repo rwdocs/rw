@@ -96,12 +96,13 @@ crates/
 │       ├── bundle.rs         # bundle_markdown() for resolving code block references
 │       ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
 │       ├── html.rs           # HtmlBackend implementation
+│       ├── holes.rs          # Deferred-content holes reserved during the walk
 │       ├── directive/        # Pluggable directives API (CommonMark syntax)
 │       │   ├── mod.rs        # Module exports
 │       │   ├── args.rs       # DirectiveArgs parsing ([content]{attrs})
 │       │   ├── context.rs    # DirectiveContext (file system access)
-│       │   ├── output.rs     # DirectiveOutput (Html/Markdown/Skip)
-│       │   ├── replacements.rs  # Single-pass string replacement
+│       │   ├── output.rs     # DirectiveOutput (Html/Marker/Markdown/Deferred/Skip)
+│       │   ├── fills.rs      # Fills collector for deferred hole content
 │       │   ├── inline.rs     # InlineDirective trait (:name)
 │       │   ├── leaf.rs       # LeafDirective trait (::name)
 │       │   ├── container.rs  # ContainerDirective trait (:::name)

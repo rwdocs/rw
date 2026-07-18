@@ -2,15 +2,38 @@
 //! `MarkdownRenderer` pipeline.
 
 use rw_renderer::directive::{
-    DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor, LeafDirective,
+    ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor,
+    Fills, InlineDirective, LeafDirective, Part,
 };
 use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, Pipeline, RenderResult, StatusDirective, TabsDirective,
+    CodeBlockProcessor, FenceAttrs, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult,
+    RenderResult, SearchDocumentBackend, StatusDirective, TabsDirective,
 };
 
 fn render_tabs(md: &str) -> RenderResult {
     let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
     MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(directives))
+}
+
+/// Assert `needle` lands strictly inside the `open`…`close` pair — i.e. the
+/// hole was spliced into the enclosing element, not merely somewhere on the
+/// page. Uses the first `open` and the last `close`.
+fn assert_between(html: &str, needle: &str, open: &str, close: &str) {
+    let at = html
+        .find(needle)
+        .unwrap_or_else(|| panic!("{needle} not found in: {html}"));
+    let open_end = html
+        .find(open)
+        .unwrap_or_else(|| panic!("{open} not found in: {html}"))
+        + open.len();
+    let close_at = html
+        .rfind(close)
+        .unwrap_or_else(|| panic!("{close} not found in: {html}"));
+
+    assert!(
+        at >= open_end && at < close_at,
+        "{needle} landed outside {open}…{close}: {html}"
+    );
 }
 
 fn render_status(md: &str) -> RenderResult {
@@ -87,11 +110,17 @@ fn multi_tab_group_renders_without_spurious_warning() {
         "got: {}",
         result.html
     );
+    assert!(
+        result.html.contains(r#"<button role="tab""#),
+        "got: {}",
+        result.html
+    );
     assert!(result.html.contains(">A</button>"), "got: {}", result.html);
     assert!(result.html.contains(">B</button>"), "got: {}", result.html);
     assert!(result.html.contains("Content A"), "got: {}", result.html);
     assert!(result.html.contains("Content B"), "got: {}", result.html);
-    assert!(!result.html.contains("<rw-tab"), "got: {}", result.html);
+    // No form of the intermediate marker may survive into the output.
+    assert!(!result.html.contains("rw-tab"), "got: {}", result.html);
     assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
@@ -126,6 +155,134 @@ fn unclosed_multi_tab_group_warns_exactly_once() {
         .filter(|w| w.contains("unclosed"))
         .collect();
     assert_eq!(unclosed.len(), 1, "got: {:?}", result.warnings);
+}
+
+/// Index of the last `</div>` in `html`, or a panic naming the offender.
+fn last_div_close(html: &str) -> usize {
+    html.rfind("</div>")
+        .unwrap_or_else(|| panic!("no </div> in: {html}"))
+}
+
+fn unclosed_warning_count(result: &RenderResult) -> usize {
+    result
+        .warnings
+        .iter()
+        .filter(|w| w.contains("unclosed container directive :::tab"))
+        .count()
+}
+
+#[test]
+fn unclosed_tab_inside_blockquote_closes_before_the_blockquote() {
+    // A container left open must be closed when its *enclosing block* ends,
+    // not at end of input — otherwise its </div>s land after </blockquote>
+    // and the nesting is crossed.
+    let md = "> intro\n>\n> :::tab[A]\n>\n> body\n\nafter\n";
+    let result = render_tabs(md);
+    let html = &result.html;
+
+    let bq_close = html
+        .find("</blockquote>")
+        .unwrap_or_else(|| panic!("no </blockquote> in: {html}"));
+    assert!(
+        last_div_close(html) < bq_close,
+        "tab panel closed outside the blockquote: {html}"
+    );
+    // Content after the blockquote must not be swallowed by the tab panel.
+    assert_between(html, "<p>body</p>", "<blockquote>", "</blockquote>");
+    assert!(
+        html.find("<p>after</p>").expect("after") > bq_close,
+        "content after the blockquote leaked inside it: {html}"
+    );
+    assert_eq!(unclosed_warning_count(&result), 1, "{:?}", result.warnings);
+}
+
+#[test]
+fn unclosed_tab_inside_list_item_closes_before_the_item() {
+    let md = "- item\n\n  :::tab[A]\n\n  body\n\n- second\n";
+    let result = render_tabs(md);
+    let html = &result.html;
+
+    let ul_close = html
+        .find("</ul>")
+        .unwrap_or_else(|| panic!("no </ul> in: {html}"));
+    let li_close = html
+        .find("</li>")
+        .unwrap_or_else(|| panic!("no </li> in: {html}"));
+    assert!(
+        last_div_close(html) < li_close,
+        "tab panel closed outside the list item: {html}"
+    );
+    assert!(
+        html.find("<p>second</p>").expect("second") > ul_close.min(li_close),
+        "the second item leaked into the tab panel: {html}"
+    );
+    assert_eq!(unclosed_warning_count(&result), 1, "{:?}", result.warnings);
+}
+
+#[test]
+fn unclosed_tab_at_top_level_still_closes_at_end_of_input() {
+    // Top-level containers have no enclosing block, so end-of-input closing
+    // stays correct: trailing content belongs to the open panel.
+    let md = ":::tab[A]\n\nA\n\nAFTER\n";
+    let result = render_tabs(md);
+    let html = &result.html;
+
+    assert!(html.ends_with("</div>"), "got: {html}");
+    assert!(
+        html.contains("<p>AFTER</p></div></div>"),
+        "trailing content left the open panel: {html}"
+    );
+    assert_eq!(unclosed_warning_count(&result), 1, "{:?}", result.warnings);
+}
+
+#[test]
+fn closing_delimiter_after_the_enclosing_blockquote_does_not_close_twice() {
+    // The container was already balanced at `</blockquote>`, so the stray `:::`
+    // outside it must not reach the handler's `end()` a second time — a double
+    // close would emit the tab group twice.
+    let md = "> :::tab[A]\n>\n> body\n\n:::\n\nafter\n";
+    let result = render_tabs(md);
+    let html = &result.html;
+
+    assert_eq!(
+        html.matches(r#"role="tablist""#).count(),
+        1,
+        "the tab group was emitted twice: {html}"
+    );
+    assert_eq!(
+        html.matches("<div").count(),
+        html.matches("</div>").count(),
+        "unbalanced divs: {html}"
+    );
+    assert_eq!(unclosed_warning_count(&result), 1, "{:?}", result.warnings);
+}
+
+#[test]
+fn closed_tab_group_inside_blockquote_is_unaffected() {
+    let md = "> intro\n>\n> :::tab[A]\n>\n> body\n>\n> :::\n>\n> tail\n\nafter\n";
+    let result = render_tabs(md);
+    let html = &result.html;
+
+    assert_between(html, "<p>body</p>", "<blockquote>", "</blockquote>");
+    assert!(
+        html.contains("<p>tail</p></blockquote>"),
+        "trailing blockquote content misplaced: {html}"
+    );
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn closed_tab_group_inside_list_item_is_unaffected() {
+    let md = "- item\n\n  :::tab[A]\n\n  body\n\n  :::\n\n  tail\n\n- second\n";
+    let result = render_tabs(md);
+    let html = &result.html;
+
+    assert_between(html, "<p>body</p>", "<li>", "</li>");
+    assert!(
+        html.contains("<p>tail</p></li>"),
+        "trailing item content misplaced: {html}"
+    );
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
 }
 
 #[test]
@@ -222,10 +379,11 @@ fn container_inside_blockquote_is_recognized() {
     let md = "> :::tab[Q]\n>\n> Body.\n>\n> :::";
     let result = render_tabs(md);
     assert!(result.html.contains("<blockquote>"), "got: {}", result.html);
-    assert!(
-        result.html.contains(r#"role="tablist""#),
-        "got: {}",
-        result.html
+    assert_between(
+        &result.html,
+        r#"role="tablist""#,
+        "<blockquote>",
+        "</blockquote>",
     );
 }
 
@@ -234,11 +392,7 @@ fn container_inside_loose_list_is_recognized() {
     let md = "- item\n\n  :::tab[L]\n\n  Body.\n\n  :::";
     let result = render_tabs(md);
     assert!(result.html.contains("<li>"), "got: {}", result.html);
-    assert!(
-        result.html.contains(r#"role="tablist""#),
-        "got: {}",
-        result.html
-    );
+    assert_between(&result.html, r#"role="tablist""#, "<li>", "</li>");
 }
 
 #[test]
@@ -485,4 +639,295 @@ fn tab_label_is_html_escaped_and_quotes_stripped() {
         "got: {}",
         r2.html
     );
+}
+
+/// A container that defers its opening tag, proving the walker reserves a hole
+/// during the walk and fills it afterwards.
+#[derive(Default)]
+struct DeferredContainer {
+    seen: usize,
+}
+
+impl ContainerDirective for DeferredContainer {
+    fn name(&self) -> &'static str {
+        "deferred"
+    }
+
+    fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
+        self.seen += 1;
+        DirectiveOutput::Deferred(vec![Part::Hole(1), Part::Html("<p>body</p>".into())])
+    }
+
+    fn end(&mut self, _line: usize) -> Option<String> {
+        Some("</section>".to_owned())
+    }
+
+    fn fills(&mut self, fills: &mut Fills) {
+        // Content known only after the walk — here, the opener count.
+        fills.set(1, format!(r#"<section data-seen="{}">"#, self.seen));
+    }
+}
+
+#[test]
+fn deferred_container_fills_hole_after_walk() {
+    let processor = DirectiveProcessor::new().with_container(DeferredContainer::default());
+    let renderer = MarkdownRenderer::<HtmlBackend>::new();
+
+    // The leading paragraph puts the hole at a non-zero offset, so the
+    // splice position is actually exercised rather than degenerating to 0.
+    let result = renderer.render(
+        "intro\n\n:::deferred\n\ntext\n\n:::\n",
+        Pipeline::new().with_directives(processor),
+    );
+
+    // The fill lands after the intro paragraph and before the directive's own
+    // literal parts — exactly where the hole was reserved.
+    assert_between(
+        &result.html,
+        r#"<section data-seen="1">"#,
+        "intro</p>",
+        "<p>body</p>",
+    );
+}
+
+/// A leaf directive that defers its output, proving the walker reserves a hole
+/// during the walk and fills it afterwards.
+#[derive(Default)]
+struct DeferredLeaf {
+    seen: usize,
+}
+
+impl LeafDirective for DeferredLeaf {
+    fn name(&self) -> &'static str {
+        "deferredleaf"
+    }
+
+    fn process(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
+        self.seen += 1;
+        DirectiveOutput::Deferred(vec![Part::Hole(1)])
+    }
+
+    fn fills(&mut self, fills: &mut Fills) {
+        // Content known only after the walk — here, the invocation count.
+        fills.set(1, format!(r#"<aside data-seen="{}"></aside>"#, self.seen));
+    }
+}
+
+#[test]
+fn deferred_leaf_fills_hole_after_walk() {
+    let processor = DirectiveProcessor::new().with_leaf(DeferredLeaf::default());
+    let renderer = MarkdownRenderer::<HtmlBackend>::new();
+
+    // The leading paragraph puts the hole at a non-zero offset, so the
+    // splice position is actually exercised rather than degenerating to 0.
+    let result = renderer.render(
+        "intro\n\n::deferredleaf\n",
+        Pipeline::new().with_directives(processor),
+    );
+
+    let fill = result
+        .html
+        .find(r#"<aside data-seen="1"></aside>"#)
+        .unwrap_or_else(|| panic!("hole was not filled: {}", result.html));
+    let intro_end = result
+        .html
+        .find("intro</p>")
+        .unwrap_or_else(|| panic!("intro paragraph missing: {}", result.html))
+        + "intro</p>".len();
+
+    assert!(
+        fill >= intro_end,
+        "fill landed before the intro paragraph closed: {}",
+        result.html
+    );
+}
+
+/// Two container directives that both pick local hole key `0` — the natural
+/// choice for a handler numbering its own holes from zero.
+struct LocalKeyZeroContainer {
+    name: &'static str,
+    fill: &'static str,
+}
+
+impl ContainerDirective for LocalKeyZeroContainer {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
+        DirectiveOutput::Deferred(vec![Part::Hole(0)])
+    }
+
+    fn end(&mut self, _line: usize) -> Option<String> {
+        None
+    }
+
+    fn fills(&mut self, fills: &mut Fills) {
+        fills.set(0, self.fill.to_owned());
+    }
+}
+
+#[test]
+fn two_handlers_using_the_same_local_hole_key_do_not_collide() {
+    let processor = DirectiveProcessor::new()
+        .with_container(LocalKeyZeroContainer {
+            name: "alpha",
+            fill: "<p>ALPHA-FILL</p>",
+        })
+        .with_container(LocalKeyZeroContainer {
+            name: "beta",
+            fill: "<p>BETA-FILL</p>",
+        });
+    let renderer = MarkdownRenderer::<HtmlBackend>::new();
+
+    let result = renderer.render(
+        ":::alpha\n\na\n\n:::\n\n:::beta\n\nb\n\n:::\n",
+        Pipeline::new().with_directives(processor),
+    );
+
+    assert!(
+        result.html.contains("ALPHA-FILL"),
+        "first handler's fill was lost: {}",
+        result.html
+    );
+    assert!(
+        result.html.contains("BETA-FILL"),
+        "second handler's fill was lost: {}",
+        result.html
+    );
+}
+
+/// An inline directive that (incorrectly) defers content. Inline directives
+/// have no `fills()` hook, so a hole they reserve could never be filled.
+struct DeferringInline;
+
+impl InlineDirective for DeferringInline {
+    fn name(&self) -> &'static str {
+        "deferredinline"
+    }
+
+    fn process(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
+        DirectiveOutput::Deferred(vec![Part::Html("LITERAL".into()), Part::Hole(0)])
+    }
+}
+
+#[test]
+fn deferred_inline_directive_warns_instead_of_reserving_a_hole() {
+    let processor = DirectiveProcessor::new().with_inline(DeferringInline);
+    let renderer = MarkdownRenderer::<HtmlBackend>::new();
+
+    // Inside a heading: inline directives commonly run within a scope, where
+    // reserving a hole would also trip `reserve_hole`'s empty-scopes assert.
+    let result = renderer.render(
+        "# Title :deferredinline[x]\n",
+        Pipeline::new().with_directives(processor),
+    );
+
+    assert!(
+        result.html.contains("LITERAL"),
+        "literal parts must still be emitted: {}",
+        result.html
+    );
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.contains("deferredinline") && w.contains("defer")),
+        "expected a warning naming the directive: {:?}",
+        result.warnings
+    );
+}
+
+/// Fills reach the buffer through the backend's `raw_html`, like every other
+/// emission — so a backend that drops markup drops fills too. Without that,
+/// the tab bar and panel `<div>`s (which are fills, not walk-time output) leak
+/// into the search index.
+#[test]
+fn tabs_emit_no_markup_into_a_search_document() {
+    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+    let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
+        ":::tab[macOS]\n\nmac body\n\n:::tab[Linux]\n\nlinux body\n\n:::\n",
+        Pipeline::new().with_directives(directives),
+    );
+
+    assert!(
+        !result.html.contains('<'),
+        "markup leaked into the search document: {}",
+        result.html
+    );
+    assert!(result.html.contains("mac body"), "got: {}", result.html);
+    assert!(result.html.contains("linux body"), "got: {}", result.html);
+    // Tab labels are markup content, not prose — the backend drops them.
+    assert!(!result.html.contains("tablist"), "got: {}", result.html);
+}
+
+/// The closing tags a missing `:::` forces the processor to emit at end of
+/// input take the same backend route as an in-walk `end()`.
+#[test]
+fn unclosed_tabs_emit_no_markup_into_a_search_document() {
+    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+    let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
+        ":::tab[macOS]\n\nmac body\n\n:::tab[Linux]\n\nlinux body\n",
+        Pipeline::new().with_directives(directives),
+    );
+
+    assert!(
+        !result.html.contains('<'),
+        "markup leaked into the search document: {}",
+        result.html
+    );
+    assert!(result.html.contains("mac body"), "got: {}", result.html);
+    assert!(result.html.contains("linux body"), "got: {}", result.html);
+}
+
+/// A code-block processor that defers with a placeholder, to exercise the seam
+/// between hole assembly and `post_process` (which runs after it).
+#[derive(Default)]
+struct PlaceholderProcessor;
+
+impl CodeBlockProcessor for PlaceholderProcessor {
+    fn process(
+        &mut self,
+        language: &str,
+        _attrs: &FenceAttrs,
+        _source: &str,
+        index: usize,
+    ) -> ProcessResult {
+        if language == "deferredcode" {
+            ProcessResult::Placeholder(format!("<!--CODE-{index}-->"))
+        } else {
+            ProcessResult::PassThrough
+        }
+    }
+
+    fn post_process(&mut self, html: &mut String) {
+        *html = html.replace("<!--CODE-0-->", "<figure>RENDERED</figure>");
+    }
+}
+
+/// Assembly only inserts spans — it never splits or rewrites existing bytes —
+/// so a placeholder emitted inside a deferred container survives intact for
+/// `post_process` to replace afterwards.
+#[test]
+fn code_block_placeholder_inside_a_tab_is_replaced_after_assembly() {
+    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+    let result = MarkdownRenderer::<HtmlBackend>::new().render(
+        ":::tab[macOS]\n\n```deferredcode\ndiagram source\n```\n\n:::tab[Linux]\n\nlinux body\n\n:::\n",
+        Pipeline::new()
+            .with_directives(directives)
+            .with_processor(PlaceholderProcessor),
+    );
+
+    assert!(
+        result.html.contains("<figure>RENDERED</figure>"),
+        "placeholder was not replaced after assembly: {}",
+        result.html
+    );
+    assert!(
+        !result.html.contains("<!--CODE-0-->"),
+        "placeholder survived post_process: {}",
+        result.html
+    );
+    // The fill still landed around it: the placeholder sits inside the panel.
+    assert_between(&result.html, "<figure>", r#"id="panel-0-0""#, "</div>");
 }

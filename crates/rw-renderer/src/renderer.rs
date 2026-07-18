@@ -242,7 +242,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
 
         if let Some(processor) = pipeline.directives.as_mut() {
             processor.finalize();
-            processor.post_process(&mut result.html);
             result.warnings.extend(processor.warnings());
         }
 

@@ -163,9 +163,9 @@ mod tests {
 
     /// Render `input` through the full `MarkdownRenderer` pipeline.
     ///
-    /// Inline directives are expanded during the pulldown-cmark event
-    /// stream (see [`DirectiveProcessor::transform_events`]), so they only
-    /// take effect end-to-end. `MarkdownRenderer` wraps single-paragraph
+    /// Inline directives are expanded during the pulldown-cmark event walk
+    /// (in the walker's `flush_text`), so they only take effect
+    /// end-to-end. `MarkdownRenderer` wraps single-paragraph
     /// input in `<p>…</p>` — the assertions below contain the resulting
     /// HTML as a substring.
     fn render(input: &str) -> String {

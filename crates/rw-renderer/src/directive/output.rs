@@ -2,11 +2,11 @@
 //!
 //! Defines the output variants that directive handlers can return.
 
-use super::Marker;
+use super::{Marker, Part};
 
 /// Output from directive processing.
 ///
-/// Directives can produce four kinds of output:
+/// Directives can produce five kinds of output:
 ///
 /// - [`Html`](Self::Html): a single HTML blob passed verbatim to the backend's `raw_html`.
 /// - [`Marker`](Self::Marker): a semantic [`Marker`](super::Marker) wrapping a body of text.
@@ -15,12 +15,16 @@ use super::Marker;
 ///   looks like — Confluence emits a native macro where HTML emits a `<span>`. Use this for
 ///   any inline directive that wraps a label.
 /// - [`Markdown`](Self::Markdown): markdown that needs recursive processing (used by `::include`).
+/// - [`Deferred`](Self::Deferred): literal HTML interleaved with holes the handler fills after
+///   the walk, via [`fills`](super::ContainerDirective::fills). Use this when the content depends
+///   on material the walk has not reached yet — a tab bar needs every tab's label but is emitted
+///   before the first tab.
 /// - [`Skip`](Self::Skip): the handler declines; the original directive syntax is preserved.
 ///
 /// # Example
 ///
 /// ```
-/// use rw_renderer::directive::{DirectiveOutput, Marker};
+/// use rw_renderer::directive::{DirectiveOutput, Marker, Part};
 ///
 /// // Single HTML blob.
 /// let _ = DirectiveOutput::html("<kbd>Ctrl+C</kbd>");
@@ -30,6 +34,9 @@ use super::Marker;
 ///
 /// // Markdown for recursive processing.
 /// let _ = DirectiveOutput::markdown("# Included Content\n\nSome text.");
+///
+/// // Literal HTML plus a hole filled after the walk.
+/// let _ = DirectiveOutput::deferred(vec![Part::Hole(0), Part::Html("<p>body</p>".into())]);
 ///
 /// // Skip handling (pass through unchanged).
 /// let _ = DirectiveOutput::Skip;
@@ -50,6 +57,12 @@ pub enum DirectiveOutput {
     ///
     /// Used by `::include` to inline file contents for recursive processing.
     Markdown(String),
+    /// Literal HTML interleaved with holes to be filled after the walk.
+    ///
+    /// Used by directives whose opening content depends on material that has
+    /// not been walked yet — a tab bar needs every tab's label, but is emitted
+    /// before the first tab.
+    Deferred(Vec<Part>),
     /// Don't handle this directive (pass through unchanged).
     Skip,
 }
@@ -110,6 +123,25 @@ impl DirectiveOutput {
     #[must_use]
     pub fn markdown(s: impl Into<String>) -> Self {
         Self::Markdown(s.into())
+    }
+
+    /// Create a deferred output: literal HTML interleaved with holes.
+    ///
+    /// Each [`Part::Hole`] reserves a position in the output; the handler
+    /// supplies its content afterwards from
+    /// [`fills`](super::ContainerDirective::fills), keyed by the same value.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rw_renderer::directive::{DirectiveOutput, Part};
+    ///
+    /// let output = DirectiveOutput::deferred(vec![Part::Hole(0)]);
+    /// assert!(matches!(output, DirectiveOutput::Deferred(_)));
+    /// ```
+    #[must_use]
+    pub fn deferred(parts: impl Into<Vec<Part>>) -> Self {
+        Self::Deferred(parts.into())
     }
 }
 

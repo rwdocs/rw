@@ -2,7 +2,7 @@
 //!
 //! Container directives use triple-colon syntax: `:::name` ... `:::`
 
-use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
+use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Fills};
 
 /// Handler for container directives: `:::name` ... `:::`
 ///
@@ -13,15 +13,16 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 ///
 /// # Processing
 ///
-/// Container handlers are invoked during the pulldown-cmark event walk and then
-/// reconciled by a post-processing pass:
+/// Container handlers are invoked during the pulldown-cmark event walk, and any
+/// content they could not emit yet is assembled once the walk completes:
 ///
 /// 1. **Event walk**: when the opening and closing delimiter paragraphs are
 ///    recognized, [`start`](Self::start) and [`end`](Self::end) are called to
-///    emit intermediate HTML around the wrapped content
+///    emit HTML around the wrapped content
 ///
-/// 2. **Post-processing**: [`post_process`](Self::post_process) transforms the
-///    intermediate elements into final HTML after rendering
+/// 2. **Assembly**: a handler that returned [`DirectiveOutput::Deferred`] from
+///    `start` reserved a hole in the output; [`fills`](Self::fills) supplies
+///    that hole's content after the walk, and it is spliced in during assembly
 ///
 /// # Thread Safety
 ///
@@ -32,7 +33,7 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements};
 ///
 /// ```
 /// use rw_renderer::directive::{
-///     DirectiveArgs, DirectiveContext, DirectiveOutput, ContainerDirective, Replacements,
+///     DirectiveArgs, DirectiveContext, DirectiveOutput, ContainerDirective,
 /// };
 ///
 /// struct NoteDirective;
@@ -62,6 +63,10 @@ pub trait ContainerDirective: Send {
     ///
     /// Returns the opening output:
     /// - [`DirectiveOutput::Html`] to emit opening HTML tags
+    /// - [`DirectiveOutput::Deferred`] when part of the opening is not known
+    ///   yet — it reserves holes that [`fills`](Self::fills) supplies after the
+    ///   walk (a tab bar needs every tab's label, but is emitted before the
+    ///   first tab)
     /// - [`DirectiveOutput::Skip`] to pass through (don't handle)
     ///
     /// Note: [`DirectiveOutput::Markdown`] is supported for advanced use cases
@@ -88,12 +93,11 @@ pub trait ContainerDirective: Send {
         true
     }
 
-    /// Register string replacements to apply after rendering.
+    /// Supply content for holes this directive reserved during the walk.
     ///
-    /// All replacements are collected and applied in a single pass.
-    /// Override this method if your directive needs post-processing
-    /// (e.g., to transform intermediate elements to accessible HTML).
-    fn post_process(&mut self, _replacements: &mut Replacements) {}
+    /// Called once, after the walk completes, before assembly. Override when
+    /// `start()` returned [`DirectiveOutput::Deferred`].
+    fn fills(&mut self, _fills: &mut Fills) {}
 
     /// Get warnings generated during processing.
     ///
@@ -208,14 +212,6 @@ mod tests {
         // End directive
         let end_output = details.end(10);
         assert_eq!(end_output, Some("</div></details>".to_owned()));
-    }
-
-    #[test]
-    fn test_default_post_process() {
-        let mut note = TestNote;
-        let mut replacements = Replacements::new();
-        note.post_process(&mut replacements);
-        assert!(replacements.is_empty());
     }
 
     #[test]

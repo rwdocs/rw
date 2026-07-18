@@ -12,13 +12,31 @@
 //!
 //! # Architecture
 //!
-//! The tabs system uses two-phase processing:
+//! A tab bar can only be rendered once every tab in the group is known, which
+//! is not until the walk passes the group's closing `:::`. Tabs therefore emit
+//! no markup for the bar during the walk; they reserve a *hole* — a recorded
+//! offset in the output buffer — and fill it afterwards:
 //!
-//! 1. **Event walk**: The tabs container is recognized during the pulldown-cmark
-//!    event walk and emits intermediate `<rw-tabs>` / `<rw-tab>` markers.
+//! 1. **Event walk**: each `:::tab[Label]` returns
+//!    [`DirectiveOutput::Deferred`](crate::directive::DirectiveOutput::Deferred),
+//!    reserving a hole for the group's tab bar (first tab only) and one for its
+//!    own panel opening, and recording the label.
 //!
-//! 2. **Post-processing**: Transforms the intermediate elements to accessible
-//!    HTML with ARIA attributes.
+//! 2. **Assembly**: after the walk, `fills()` renders the accessible ARIA
+//!    markup for every hole, and the walker splices it in at the recorded
+//!    offsets. No intermediate markers are ever emitted, so nothing can leak
+//!    into the output.
+//!
+//! # Unclosed groups
+//!
+//! A group left unclosed by missing `:::` extends to the end of the document:
+//! the directive processor closes it at end of input, so its markup stays
+//! balanced (and a warning is emitted). Because the group has no explicit end,
+//! everything after the last `:::tab[…]` is part of that tab's panel — content
+//! the author meant to follow the group is absorbed into the last tab. That
+//! panel is `hidden` unless its tab is the selected one, so the trailing
+//! content can disappear from view until the reader clicks that tab. The fix is
+//! to close the group with `:::`.
 //!
 //! Register [`TabsDirective`] on a
 //! [`DirectiveProcessor`](crate::directive::DirectiveProcessor), then render

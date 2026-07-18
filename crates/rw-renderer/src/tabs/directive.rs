@@ -2,10 +2,11 @@
 //!
 //! Implements `ContainerDirective` for tabbed content blocks.
 
+use std::borrow::Cow;
 use std::fmt::Write;
 
 use crate::directive::{
-    ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Replacements,
+    ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Fills, HoleKey, Part,
 };
 use crate::util::escape_html;
 
@@ -18,6 +19,8 @@ pub(crate) struct TabMetadata {
     pub(crate) label: String,
     /// Line number where the tab was defined (1-indexed).
     pub(crate) line: usize,
+    /// Hole reserved for this tab's panel opening.
+    panel_hole: HoleKey,
 }
 
 /// Metadata for a tab group.
@@ -27,6 +30,8 @@ pub(crate) struct TabsGroup {
     pub(crate) id: usize,
     /// Tabs within this group.
     pub(crate) tabs: Vec<TabMetadata>,
+    /// Hole reserved for this group's tab bar.
+    bar_hole: HoleKey,
 }
 
 /// Container directive for tabbed content blocks.
@@ -61,6 +66,9 @@ pub struct TabsDirective {
     /// Whether the most recent `start()` opened a new tab group (vs. continued
     /// an existing one with another `:::tab`). Read by `opened_scope()`.
     last_start_opened: bool,
+    /// Next hole key. Separate from `next_group_id`/`next_tab_id`, which are
+    /// two independent sequences and would collide as keys.
+    next_hole_key: HoleKey,
     warnings: Vec<String>,
 }
 
@@ -75,8 +83,16 @@ impl TabsDirective {
             next_tab_id: 0,
             stack: Vec::new(),
             last_start_opened: false,
+            next_hole_key: 0,
             warnings: Vec::new(),
         }
+    }
+
+    /// Reserve the next hole key for this directive.
+    fn next_hole(&mut self) -> HoleKey {
+        let key = self.next_hole_key;
+        self.next_hole_key += 1;
+        key
     }
 }
 
@@ -104,6 +120,10 @@ impl ContainerDirective for TabsDirective {
             self.next_group_id += 1;
             let tab_id = self.next_tab_id;
             self.next_tab_id += 1;
+            // The bar needs every tab's label, so it cannot be rendered until
+            // the walk has passed the group's closing `:::`.
+            let bar_hole = self.next_hole();
+            let panel_hole = self.next_hole();
 
             self.current_group = Some(TabsGroup {
                 id: group_id,
@@ -111,30 +131,40 @@ impl ContainerDirective for TabsDirective {
                     id: tab_id,
                     label,
                     line: ctx.line(),
+                    panel_hole,
                 }],
+                bar_hole,
             });
             self.stack.push(ctx.line());
             self.last_start_opened = true;
 
-            DirectiveOutput::html(format!(
-                "<rw-tabs data-id=\"{group_id}\"><rw-tab data-id=\"{tab_id}\">"
-            ))
+            DirectiveOutput::Deferred(vec![Part::Hole(bar_hole), Part::Hole(panel_hole)])
         } else {
             // Close previous tab, open new one in same group
             let tab_id = self.next_tab_id;
             self.next_tab_id += 1;
+            let panel_hole = self.next_hole();
 
-            if let Some(ref mut group) = self.current_group {
-                group.tabs.push(TabMetadata {
-                    id: tab_id,
-                    label,
-                    line: ctx.line(),
-                });
-            }
+            let Some(group) = self.current_group.as_mut() else {
+                unreachable!(
+                    "tabs invariant violated: a non-empty `stack` must imply `current_group` is Some, \
+                     otherwise `panel_hole` is emitted with nothing to fill it"
+                )
+            };
+            group.tabs.push(TabMetadata {
+                id: tab_id,
+                label,
+                line: ctx.line(),
+                panel_hole,
+            });
 
             self.last_start_opened = false;
 
-            DirectiveOutput::html(format!("</rw-tab><rw-tab data-id=\"{tab_id}\">"))
+            // Closes the previous panel, then opens this one.
+            DirectiveOutput::Deferred(vec![
+                Part::Html(Cow::Borrowed("</div>")),
+                Part::Hole(panel_hole),
+            ])
         }
     }
 
@@ -144,32 +174,32 @@ impl ContainerDirective for TabsDirective {
 
     fn end(&mut self, _line: usize) -> Option<String> {
         if self.stack.pop().is_some() {
-            // Close tab AND tabs container
             if let Some(group) = self.current_group.take() {
                 self.groups.push(group);
             }
-            Some("</rw-tab></rw-tabs>".to_owned())
+            // Closes the last panel, then the tabs container.
+            Some("</div></div>".to_owned())
         } else {
             // Should not happen if DirectiveProcessor is correct
             None
         }
     }
 
-    fn post_process(&mut self, replacements: &mut Replacements) {
+    fn fills(&mut self, fills: &mut Fills) {
+        // Every group has reached `end()` by now — including one whose closing
+        // `:::` was missing, which the processor closes at end of input — so
+        // `self.groups` holds them all and each reserved hole gets filled.
+        debug_assert!(
+            self.current_group.is_none(),
+            "fills() called with a tab group still open: its holes would go unfilled"
+        );
+
         for group in &self.groups {
-            let opening = render_tabs_open(group);
-            replacements.add(format!(r#"<rw-tabs data-id="{}">"#, group.id), opening);
+            fills.set(group.bar_hole, render_tabs_open(group));
 
             for (idx, tab) in group.tabs.iter().enumerate() {
-                let panel_open = render_panel_open(group.id, tab, idx == 0);
-                replacements.add(format!(r#"<rw-tab data-id="{}">"#, tab.id), panel_open);
+                fills.set(tab.panel_hole, render_panel_open(group.id, tab, idx == 0));
             }
-        }
-
-        // Replace common closing tags (if any groups were processed)
-        if !self.groups.is_empty() {
-            replacements.add("</rw-tab>", "</div>");
-            replacements.add("</rw-tabs>", "</div>");
         }
     }
 
@@ -221,4 +251,44 @@ fn strip_quotes(s: &str) -> &str {
         return &s[1..s.len() - 1];
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::directive::DirectiveProcessor;
+    use crate::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+    #[test]
+    fn unclosed_group_still_closes_its_divs() {
+        let processor = DirectiveProcessor::new().with_container(TabsDirective::new());
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+
+        // No closing `:::` — the group runs to the end of the document.
+        let result = renderer.render(
+            ":::tab[A]\n\nA\n\n:::tab[B]\n\nB\n\nAFTER\n",
+            Pipeline::new().with_directives(processor),
+        );
+
+        let opens = result.html.matches("<div").count();
+        let closes = result.html.matches("</div>").count();
+        assert_eq!(
+            opens, closes,
+            "unbalanced divs ({opens} open, {closes} close): {}",
+            result.html
+        );
+        assert!(
+            result.html.contains("AFTER"),
+            "content after the unclosed group vanished: {}",
+            result.html
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("unclosed container directive :::tab")),
+            "expected the unclosed-container warning: {:?}",
+            result.warnings
+        );
+    }
 }
