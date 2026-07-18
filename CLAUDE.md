@@ -162,7 +162,7 @@ crates/
 │       ├── kroki.rs          # Parallel Kroki HTTP rendering
 │       ├── plantuml.rs       # !include resolution, DPI configuration
 │       ├── meta_includes.rs  # MetaIncludeSource trait, C4 macro generation from metadata
-│       └── html_embed.rs     # SVG scaling, placeholder replacement
+│       └── html_embed.rs     # SVG scaling, Google Fonts stripping, link annotation
 │
 ├── rw-meta/               # Metadata extraction and resolution
 │   └── src/

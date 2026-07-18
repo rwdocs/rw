@@ -4,7 +4,7 @@
 //! - `DiagramProcessor` implements `CodeBlockProcessor` for extracting diagrams
 //! - Parallel rendering via Kroki service (`PlantUML`, Mermaid, `GraphViz`, etc.)
 //! - `PlantUML` preprocessing with `!include` resolution and DPI configuration
-//! - HTML embedding with SVG scaling and placeholder replacement
+//! - HTML embedding with SVG scaling and link annotation
 //!
 //! # Architecture
 //!
@@ -13,7 +13,7 @@
 //! - [`processor`]: `DiagramProcessor` implementing `CodeBlockProcessor` trait
 //! - [`kroki`]: Parallel HTTP rendering via Kroki service
 //! - [`plantuml`]: PlantUML-specific preprocessing
-//! - [`html_embed`]: HTML embedding with SVG scaling and placeholder replacement
+//! - [`html_embed`]: HTML embedding with SVG scaling and link annotation
 //!
 //! # Example
 //!
@@ -26,7 +26,7 @@
 //! let pipeline = Pipeline::new()
 //!     .with_processor(DiagramProcessor::new("https://kroki.io"));
 //!
-//! // render auto-calls post_process() on all processors
+//! // render auto-calls fills() on all processors
 //! let result = renderer.render(markdown, pipeline);
 //! ```
 

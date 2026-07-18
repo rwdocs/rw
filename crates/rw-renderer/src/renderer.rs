@@ -68,8 +68,8 @@ pub struct RenderResult {
 ///
 /// The entry point is [`render`](Self::render): it accepts raw markdown and a
 /// [`Pipeline`], and runs the full pipeline — block-directive preprocessing,
-/// parse + event walk (with inline-directive expansion), and directive
-/// post-processing.
+/// parse + event walk (with inline-directive expansion), and hole
+/// assembly.
 ///
 /// # Code block processors and directives
 ///
@@ -219,8 +219,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///    are recognized in the event walk, and inline directives (`:name[…]`)
     ///    expand during text flush — there is no separate line-based
     ///    preprocessing pass.
-    /// 2. **Finalize & post-process** — reports unclosed containers, transforms
-    ///    intermediate directive markers, and replaces code-block placeholders.
+    /// 2. **Finalize & assemble** — reports unclosed containers, then splices
+    ///    every reserved hole's content (from directive handlers and
+    ///    code-block processors, e.g. rendered diagrams) into the output in
+    ///    a single pass.
     ///
     /// The supplied `Pipeline` is consumed: build a fresh one per render.
     pub fn render(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
@@ -279,6 +281,7 @@ mod tests {
     use super::*;
     use crate::HtmlBackend;
     use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
+    use crate::directive::Fills;
     use rw_sections::{Namespace, Section};
 
     fn render_html(markdown: &str) -> RenderResult {
@@ -737,19 +740,19 @@ mod tests {
 
     // Code block processor tests
 
-    struct PlaceholderProcessor {
+    #[derive(Default)]
+    struct DeferringProcessor {
         extracted: Vec<ExtractedCodeBlock>,
+        seen: Vec<usize>,
     }
 
-    impl PlaceholderProcessor {
+    impl DeferringProcessor {
         fn new() -> Self {
-            Self {
-                extracted: Vec::new(),
-            }
+            Self::default()
         }
     }
 
-    impl CodeBlockProcessor for PlaceholderProcessor {
+    impl CodeBlockProcessor for DeferringProcessor {
         fn process(
             &mut self,
             language: &str,
@@ -765,9 +768,20 @@ mod tests {
                     attrs.id.clone(),
                     attrs.map.clone(),
                 ));
-                ProcessResult::Placeholder(format!("{{{{DIAGRAM_{index}}}}}"))
+                self.seen.push(index);
+                ProcessResult::Deferred
             } else {
                 ProcessResult::PassThrough
+            }
+        }
+
+        fn fills(&mut self, fills: &mut Fills) {
+            for index in &self.seen {
+                let key = u32::try_from(*index).expect("code block index exceeds hole key width");
+                // Markup, not a brace-delimited token: a fill is spliced at its
+                // reserved offset and is opaque to the renderer, so the fixture
+                // should look like what a real processor emits.
+                fills.set(key, format!(r#"<figure data-rendered="{index}"></figure>"#));
             }
         }
 
@@ -799,7 +813,7 @@ mod tests {
         let markdown = "```rust\nfn main() {}\n```";
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
             markdown,
-            Pipeline::new().with_processor(PlaceholderProcessor::new()),
+            Pipeline::new().with_processor(DeferringProcessor::new()),
         );
 
         // Should render as normal code block
@@ -808,14 +822,18 @@ mod tests {
     }
 
     #[test]
-    fn test_processor_placeholder() {
+    fn test_processor_deferred() {
         let markdown = "```diagram\nA -> B\n```";
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
             markdown,
-            Pipeline::new().with_processor(PlaceholderProcessor::new()),
+            Pipeline::new().with_processor(DeferringProcessor::new()),
         );
 
-        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert!(
+            result
+                .html
+                .contains(r#"<figure data-rendered="0"></figure>"#)
+        );
         assert!(!result.html.contains("<pre>"));
     }
 
@@ -834,10 +852,14 @@ mod tests {
         let markdown = "```diagram format=png theme=dark\nA -> B\n```";
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
             markdown,
-            Pipeline::new().with_processor(PlaceholderProcessor::new()),
+            Pipeline::new().with_processor(DeferringProcessor::new()),
         );
 
-        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert!(
+            result
+                .html
+                .contains(r#"<figure data-rendered="0"></figure>"#)
+        );
     }
 
     #[test]
@@ -847,12 +869,16 @@ mod tests {
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
             markdown,
             Pipeline::new()
-                .with_processor(PlaceholderProcessor::new())
+                .with_processor(DeferringProcessor::new())
                 .with_processor(InlineProcessor),
         );
 
         // First processor handles diagram
-        assert!(result.html.contains("{{DIAGRAM_0}}"));
+        assert!(
+            result
+                .html
+                .contains(r#"<figure data-rendered="0"></figure>"#)
+        );
         // Second processor handles inline-test
         assert!(result.html.contains(r#"<div class="inline">hello"#));
         // Neither handles rust, so normal code block
@@ -864,11 +890,19 @@ mod tests {
         let markdown = "```diagram\nA -> B\n```\n\n```diagram\nC -> D\n```";
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
             markdown,
-            Pipeline::new().with_processor(PlaceholderProcessor::new()),
+            Pipeline::new().with_processor(DeferringProcessor::new()),
         );
 
-        assert!(result.html.contains("{{DIAGRAM_0}}"));
-        assert!(result.html.contains("{{DIAGRAM_1}}"));
+        assert!(
+            result
+                .html
+                .contains(r#"<figure data-rendered="0"></figure>"#)
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<figure data-rendered="1"></figure>"#)
+        );
     }
 
     #[test]
@@ -876,7 +910,7 @@ mod tests {
         let markdown = "```\nplain text\n```";
         let result = MarkdownRenderer::<HtmlBackend>::new().render(
             markdown,
-            Pipeline::new().with_processor(PlaceholderProcessor::new()),
+            Pipeline::new().with_processor(DeferringProcessor::new()),
         );
 
         // Should render as normal code block without language class
@@ -1297,8 +1331,8 @@ Install with apt.
     #[test]
     fn test_frontmatter_does_not_invoke_registered_directives() {
         // Frontmatter text must not invoke registered directive handlers —
-        // they may have side effects (warnings, post-process replacements,
-        // I/O). The metadata short-circuit lives in process_event's Event::Text
+        // they may have side effects (warnings, reserved holes, I/O). The
+        // metadata short-circuit lives in process_event's Event::Text
         // arm; flush_text would otherwise dispatch to handlers regardless of
         // active scope.
         use std::sync::Arc;

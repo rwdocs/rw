@@ -7,31 +7,12 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::fills::GlobalFills;
+use super::fills::{GlobalFills, Source};
 use super::parser::ParsedDirective;
 use super::{
     ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Fills, InlineDirective,
     LeafDirective, Marker, Part,
 };
-
-/// Which handler list a namespace belongs to. Leaf and container handlers are
-/// registered in separate `Vec`s, so an index alone does not identify a
-/// handler — a leaf at index 0 and a container at index 0 must not share a
-/// namespace.
-#[derive(Clone, Copy)]
-enum HandlerList {
-    Leaf = 0,
-    Container = 1,
-}
-
-/// The namespace identifying the handler at `index` of `list`.
-///
-/// Interleaves the list discriminant with the index, so no two handlers share
-/// a namespace.
-fn handler_namespace(list: HandlerList, index: usize) -> u32 {
-    let index = u32::try_from(index).expect("handler index exceeds the namespace field");
-    1 + (index << 1 | list as u32)
-}
 
 /// Type alias for the file reading callback function.
 pub type ReadFileFn = dyn Fn(&Path) -> io::Result<String> + Send;
@@ -52,10 +33,10 @@ pub(crate) enum BlockDispatch {
     Markdown(String),
     /// Literal HTML interleaved with holes. See [`DirectiveOutput::Deferred`].
     ///
-    /// `namespace` identifies the handler that produced the parts: its hole
-    /// keys are handler-local, and the walker pairs each with this namespace to
-    /// get the global key it records.
-    Deferred { parts: Vec<Part>, namespace: u32 },
+    /// `source` identifies the handler that produced the parts: its hole keys
+    /// are handler-local, and the walker pairs each with this source to get the
+    /// global key it records.
+    Deferred { parts: Vec<Part>, source: Source },
     /// Literal text the walker renders as an ordinary paragraph (`<p>…</p>`).
     PassThrough(String),
 }
@@ -351,7 +332,7 @@ impl DirectiveProcessor {
                     DirectiveOutput::Markdown(md) => BlockDispatch::Markdown(md),
                     DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
                         parts,
-                        namespace: handler_namespace(HandlerList::Container, idx),
+                        source: Source::Container(idx),
                     },
                     DirectiveOutput::Skip => {
                         // Handler declined: the opener renders literally, so
@@ -391,7 +372,7 @@ impl DirectiveProcessor {
                     DirectiveOutput::Markdown(md) => BlockDispatch::Markdown(md),
                     DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
                         parts,
-                        namespace: handler_namespace(HandlerList::Leaf, idx),
+                        source: Source::Leaf(idx),
                     },
                     DirectiveOutput::Skip => {
                         BlockDispatch::PassThrough(format!("::{name}{syntax}"))
@@ -547,21 +528,21 @@ impl DirectiveProcessor {
     /// backend renders during the walk, so they never defer.
     ///
     /// Each handler fills a fresh [`Fills`] under its own local keys, which are
-    /// then merged under the handler's namespace — the same one paired with its
+    /// then merged under the handler's `Source` — the same one paired with its
     /// `Part::Hole` keys at dispatch — so handlers keep choosing simple local
-    /// keys without risk of overwriting each other. Both directions of the
-    /// namespacing live here.
+    /// keys without risk of overwriting each other. Both directions of that
+    /// pairing live here.
     pub(crate) fn collect_fills(&mut self) -> GlobalFills {
         let mut collected = GlobalFills::default();
         for (idx, handler) in self.leaf_handlers.iter_mut().enumerate() {
             let mut fills = Fills::new();
             handler.fills(&mut fills);
-            collected.merge(handler_namespace(HandlerList::Leaf, idx), fills);
+            collected.merge(Source::Leaf(idx), fills);
         }
         for (idx, handler) in self.container_handlers.iter_mut().enumerate() {
             let mut fills = Fills::new();
             handler.fills(&mut fills);
-            collected.merge(handler_namespace(HandlerList::Container, idx), fills);
+            collected.merge(Source::Container(idx), fills);
         }
         collected
     }
@@ -646,20 +627,6 @@ mod tests {
         fn end(&mut self, _line: usize) -> Option<String> {
             Some("</div>".to_owned())
         }
-    }
-
-    #[test]
-    fn handler_namespaces_are_distinct_across_lists_and_indices() {
-        let namespaces = [
-            handler_namespace(HandlerList::Leaf, 0),
-            handler_namespace(HandlerList::Leaf, 1),
-            handler_namespace(HandlerList::Container, 0),
-            handler_namespace(HandlerList::Container, 1),
-        ];
-        let mut sorted = namespaces.to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), namespaces.len(), "got: {namespaces:?}");
     }
 
     #[test]

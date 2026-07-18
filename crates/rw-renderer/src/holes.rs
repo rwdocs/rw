@@ -15,8 +15,8 @@
 //! Do **not** insert any step that rewrites the walk buffer before `assemble`:
 //! an insertion, deletion, or replacement anywhere ahead of a recorded offset
 //! shifts the bytes out from under it, and every later hole splices into the
-//! wrong place. `CodeBlockProcessor::post_process` rewrites the buffer
-//! (sentinel replacement), which is why it runs *after* assembly.
+//! wrong place. Appending is the only safe mutation. Assembly is deliberately
+//! the sole post-walk transformation — keep it that way.
 
 use crate::directive::fills::{GlobalFills, GlobalKey};
 
@@ -42,11 +42,6 @@ impl Holes {
         self.entries.push((offset, key));
     }
 
-    /// Whether any hole was reserved.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     /// Build the final document: copy spans of `source`, writing each fill at
     /// its reserved offset through `write_fill`.
     ///
@@ -59,8 +54,23 @@ impl Holes {
     /// tracked, which is an estimate: `write_fill` decides what actually lands
     /// in the buffer, so it may write more (escaping) or nothing at all.
     ///
-    /// With no holes, `source` is returned untouched — no copy at all. This is
-    /// what keeps a page with no deferred content free.
+    /// With no holes, `source` is moved through untouched: no output buffer is
+    /// allocated and no bytes are copied.
+    ///
+    /// # Contract: every reserved hole must be filled
+    ///
+    /// [`Deferred`](crate::directive::DirectiveOutput::Deferred) /
+    /// [`ProcessResult::Deferred`](crate::ProcessResult::Deferred) are public
+    /// extension points — an implementor reserving a hole (by returning
+    /// `Deferred`) is responsible for supplying its content in `fills` before
+    /// this runs. A key present in `self.entries` but missing from `fills` is
+    /// an internal renderer bug, not a recoverable condition: in debug builds
+    /// it trips `debug_assert!` below; in release it silently writes nothing
+    /// for that hole, so the deferred content just vanishes from the page with
+    /// no warning and no visible marker. This is deliberate:
+    /// `RenderResult::warnings` is a user-facing
+    /// channel that gates `--strict` publishes, and a missed fill is a bug in
+    /// `rw`'s own code, not something a document author did wrong.
     pub(crate) fn assemble(
         self,
         source: String,
@@ -91,11 +101,12 @@ impl Holes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::directive::fills::Source;
     use crate::directive::{Fills, HoleKey};
 
-    /// Namespace the test fills are collected under. Any single value works —
-    /// namespacing is the processor's concern, not `Holes`'.
-    const NS: u32 = 1;
+    /// Source the test fills are collected under. Any single value works —
+    /// distinguishing sources is the processor's concern, not `Holes`'.
+    const SOURCE: Source = Source::Leaf(0);
 
     /// Build the merged fills for `entries`, as the processor would.
     fn fills(entries: &[(HoleKey, &str)]) -> GlobalFills {
@@ -104,7 +115,7 @@ mod tests {
             local.set(*key, (*html).to_owned());
         }
         let mut global = GlobalFills::default();
-        global.merge(NS, local);
+        global.merge(SOURCE, local);
         global
     }
 
@@ -116,7 +127,6 @@ mod tests {
     #[test]
     fn no_holes_returns_source_unchanged() {
         let holes = Holes::default();
-        assert!(holes.is_empty());
         let out = holes.assemble("<p>hi</p>".to_owned(), &fills(&[]), passthrough);
         assert_eq!(out, "<p>hi</p>");
     }
@@ -124,7 +134,7 @@ mod tests {
     #[test]
     fn single_hole_splices_at_offset() {
         let mut holes = Holes::default();
-        holes.reserve(3, GlobalKey(NS, 1));
+        holes.reserve(3, GlobalKey(SOURCE, 1));
         assert_eq!(
             holes.assemble("abcdef".to_owned(), &fills(&[(1, "MID")]), passthrough),
             "abcMIDdef"
@@ -134,8 +144,8 @@ mod tests {
     #[test]
     fn hole_at_start_and_end() {
         let mut holes = Holes::default();
-        holes.reserve(0, GlobalKey(NS, 1));
-        holes.reserve(3, GlobalKey(NS, 2));
+        holes.reserve(0, GlobalKey(SOURCE, 1));
+        holes.reserve(3, GlobalKey(SOURCE, 2));
         assert_eq!(
             holes.assemble("abc".to_owned(), &fills(&[(1, "<"), (2, ">")]), passthrough),
             "<abc>"
@@ -145,8 +155,8 @@ mod tests {
     #[test]
     fn two_holes_at_same_offset_keep_reservation_order() {
         let mut holes = Holes::default();
-        holes.reserve(2, GlobalKey(NS, 1));
-        holes.reserve(2, GlobalKey(NS, 2));
+        holes.reserve(2, GlobalKey(SOURCE, 1));
+        holes.reserve(2, GlobalKey(SOURCE, 2));
         assert_eq!(
             holes.assemble("ab".to_owned(), &fills(&[(1, "["), (2, "]")]), passthrough),
             "ab[]"
@@ -154,18 +164,18 @@ mod tests {
     }
 
     #[test]
-    fn holes_in_different_namespaces_do_not_collide() {
+    fn holes_from_different_sources_do_not_collide() {
         let mut holes = Holes::default();
-        holes.reserve(1, GlobalKey(1, 0));
-        holes.reserve(1, GlobalKey(2, 0));
+        holes.reserve(1, GlobalKey(Source::Leaf(0), 0));
+        holes.reserve(1, GlobalKey(Source::Container(0), 0));
 
         let mut first = Fills::new();
         first.set(0, "[one]".to_owned());
         let mut second = Fills::new();
         second.set(0, "[two]".to_owned());
         let mut global = GlobalFills::default();
-        global.merge(1, first);
-        global.merge(2, second);
+        global.merge(Source::Leaf(0), first);
+        global.merge(Source::Container(0), second);
 
         assert_eq!(
             holes.assemble("ab".to_owned(), &global, passthrough),
@@ -176,7 +186,7 @@ mod tests {
     #[test]
     fn fills_go_through_the_writer() {
         let mut holes = Holes::default();
-        holes.reserve(2, GlobalKey(NS, 1));
+        holes.reserve(2, GlobalKey(SOURCE, 1));
         // A backend that drops markup (SearchDocumentBackend) drops fills too.
         let dropped = holes.assemble("ab".to_owned(), &fills(&[(1, "<b>")]), |_, _| {});
         assert_eq!(dropped, "ab");
@@ -187,7 +197,7 @@ mod tests {
     #[should_panic(expected = "was reserved but never filled")]
     fn unfilled_hole_panics_in_debug() {
         let mut holes = Holes::default();
-        holes.reserve(1, GlobalKey(NS, 99));
+        holes.reserve(1, GlobalKey(SOURCE, 99));
         // Key 1 is filled; key 99 — the one actually reserved — is not.
         let _ = holes.assemble("ab".to_owned(), &fills(&[(1, "unused")]), passthrough);
     }
@@ -197,7 +207,7 @@ mod tests {
     #[should_panic(expected = "holes must be reserved in document order")]
     fn out_of_order_reservation_panics_in_debug() {
         let mut holes = Holes::default();
-        holes.reserve(5, GlobalKey(NS, 1));
-        holes.reserve(2, GlobalKey(NS, 2));
+        holes.reserve(5, GlobalKey(SOURCE, 1));
+        holes.reserve(2, GlobalKey(SOURCE, 2));
     }
 }

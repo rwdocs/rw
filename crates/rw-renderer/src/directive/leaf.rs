@@ -70,6 +70,9 @@ pub trait LeafDirective: Send {
     ///
     /// Called once, after the walk completes, before assembly. Override when
     /// `process()` returned [`DirectiveOutput::Deferred`].
+    ///
+    /// Called on every registered handler whether or not it deferred
+    /// anything.
     fn fills(&mut self, _fills: &mut Fills) {}
 
     /// Get warnings generated during processing.
