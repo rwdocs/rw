@@ -203,16 +203,11 @@ impl Default for DiagramsConfig {
 pub struct LiveReloadConfig {
     /// Whether live reload is enabled.
     pub enabled: bool,
-    /// File patterns to watch for changes.
-    pub watch_patterns: Option<Vec<String>>,
 }
 
 impl Default for LiveReloadConfig {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            watch_patterns: None,
-        }
+        Self { enabled: true }
     }
 }
 
@@ -624,17 +619,12 @@ port = 9000
 
     #[test]
     fn test_parse_live_reload_config() {
-        let toml = r#"
+        let toml = r"
 [live_reload]
 enabled = false
-watch_patterns = ["**/*.md", "**/*.toml"]
-"#;
+";
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.live_reload.enabled);
-        assert_eq!(
-            config.live_reload.watch_patterns,
-            Some(vec!["**/*.md".to_owned(), "**/*.toml".to_owned()])
-        );
     }
 
     #[test]
