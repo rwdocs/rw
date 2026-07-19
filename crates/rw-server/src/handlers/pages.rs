@@ -5,14 +5,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, UNIX_EPOCH};
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
-use chrono::{DateTime, Utc};
 use rw_renderer::TocEntry;
 use rw_site::{BreadcrumbItem, SectionAnchor};
+use rw_storage::mtime_to_datetime;
 use serde::Serialize;
 
 use crate::error::HandlerError;
@@ -150,8 +149,7 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
     }
 
     // Get last modified time from render result
-    let source_mtime = UNIX_EPOCH + Duration::from_secs_f64(result.source_mtime);
-    let last_modified: DateTime<Utc> = source_mtime.into();
+    let last_modified = mtime_to_datetime(result.source_mtime);
 
     // Build response using render result fields directly
     // Add leading slash to path for JSON response (frontend expects URLs with leading slash)
@@ -274,6 +272,26 @@ mod tests {
         let resp = server.get("/_api/pages/guide").await;
 
         assert_eq!(resp.status, StatusCode::OK, "body: {}", resp.text());
+    }
+
+    #[tokio::test]
+    async fn page_with_unusable_mtime_still_renders() {
+        // A manifest written by another tool can record a wrong-unit epoch
+        // timestamp; 1.75e18 is nanoseconds in a seconds field. Converting it
+        // used to panic and take down the request for the page.
+        let storage = MockStorage::new()
+            .with_file("guide", "Guide", "# Guide\n\nContent.")
+            .with_mtime("guide", 1.75e18);
+        let server = TestServer::with_storage(storage).await;
+
+        let resp = server.get("/_api/pages/guide").await;
+
+        assert_eq!(resp.status, StatusCode::OK, "body: {}", resp.text());
+        assert_eq!(
+            resp.json()["meta"]["lastModified"],
+            "1970-01-01T00:00:00+00:00",
+            "an unusable mtime is reported as unknown, not as a crash"
+        );
     }
 
     #[tokio::test]

@@ -38,4 +38,4 @@ pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandl
 pub use metadata::{Metadata, MetadataError};
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
-pub use storage::{Document, Storage, StorageError, StorageErrorKind};
+pub use storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};
