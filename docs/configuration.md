@@ -20,7 +20,6 @@ dpi = 192                       # DPI for diagrams (retina)
 
 [live_reload]
 enabled = true                  # Enable live reload (default: true)
-watch_patterns = ["**/*.md"]    # Patterns to watch
 
 [metadata]
 name = "meta.yaml"              # Metadata file name (default: meta.yaml)

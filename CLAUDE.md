@@ -55,8 +55,7 @@ crates/
 │           ├── update.rs     # `update` self-updater command (axoupdater)
 │           ├── confluence/
 │           │   ├── mod.rs         # `confluence` subcommand group
-│           │   ├── update.rs      # `confluence update` command
-│           │   └── generate_tokens.rs  # `confluence generate-tokens` command
+│           │   └── render.rs      # `confluence render` command
 │           ├── backstage/
 │           │   ├── mod.rs         # `backstage` subcommand group
 │           │   └── publish.rs     # `backstage publish` command
@@ -123,29 +122,15 @@ crates/
 │       ├── renderer.rs       # PageRenderer for Confluence XHTML output
 │       ├── tags.rs           # ConfluenceTagGenerator for diagram macros
 │       ├── error.rs          # ConfluenceError
-│       ├── client/           # Confluence REST API client
-│       │   ├── mod.rs        # ConfluenceClient
-│       │   ├── pages.rs      # Page operations
-│       │   ├── comments.rs   # Comment operations
-│       │   └── attachments.rs # Attachment operations
-│       ├── oauth/            # OAuth 1.0 RSA-SHA1 authentication
-│       │   ├── mod.rs        # OAuth1Auth
-│       │   ├── key.rs        # RSA key loading
-│       │   ├── signature.rs  # Signature generation
-│       │   └── token_generator.rs  # Three-legged OAuth flow
-│       ├── comment_preservation/  # Comment preservation module
-│       │   ├── mod.rs        # Public API (preserve_comments, PreserveResult)
-│       │   ├── tree.rs       # TreeNode with text_signature, marker detection
-│       │   ├── parser.rs     # XML parser with namespace handling
-│       │   ├── matcher.rs    # Tree matching (80% similarity threshold)
-│       │   ├── transfer.rs   # Marker transfer with global fallback
-│       │   ├── serializer.rs # XML serializer with CDATA support
-│       │   └── entities.rs   # HTML entity conversion
-│       └── updater/          # Confluence page updater
-│           ├── mod.rs        # PageUpdater, UpdateConfig
-│           ├── executor.rs   # Update workflow implementation
-│           ├── result.rs     # UpdateResult, DryRunResult
-│           └── error.rs      # UpdateError
+│       ├── render.rs         # render() — markdown to publish-ready bundle
+│       └── comment_preservation/  # Comment preservation module
+│           ├── mod.rs        # Public API (preserve_comments, PreserveResult)
+│           ├── tree.rs       # TreeNode with text_signature, marker detection
+│           ├── parser.rs     # XML parser with namespace handling
+│           ├── matcher.rs    # Tree matching (80% similarity threshold)
+│           ├── transfer.rs   # Marker transfer with global fallback
+│           ├── serializer.rs # XML serializer with CDATA support
+│           └── entities.rs   # HTML entity conversion
 │
 ├── rw-embedded-preview/   # Embedded preview shell (Backstage-like wrapper; runtime --embedded flag)
 │   └── src/

@@ -19,17 +19,4 @@ dpi = 192                          # DPI for diagram rendering (default: 192 for
 
 # Live reload for development (enabled by default)
 [live_reload]
-enabled = true                                 # Enable/disable live reload
-watch_patterns = ["**/*.md", "**/*.png"]       # Patterns to watch for changes
-
-# Confluence integration (for publishing to Confluence)
-# Generate tokens using: rw generate-tokens
-[confluence]
-base_url = "https://confluence.example.com"
-access_token = "your-oauth-access-token"
-access_secret = "your-oauth-access-secret"
-consumer_key = "rw"                # OAuth consumer key (default: rw)
-
-# Test settings for Confluence commands
-[confluence.test]
-space_key = "DOCS"                 # Default space key for test commands
+enabled = true          # Enable/disable live reload
