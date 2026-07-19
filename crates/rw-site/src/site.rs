@@ -5,7 +5,6 @@
 //! and the lazy reload pattern.
 
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -614,36 +613,24 @@ impl Site {
             return Ok(builder.build());
         }
 
-        // Track URL paths to page indices for parent lookup
-        let mut url_to_idx: HashMap<String, usize> = HashMap::new();
-
-        // Process documents in sorted order. Documents are sorted parent-first,
-        // so each page's parent namespace is resolved before the page itself.
-        // `namespaces[idx]` holds each page's resolved (inherited) namespace.
-        // Storage backends are contracted to produce only validated namespace
-        // strings (rw-storage-fs validates in build_document; the S3 bundle
-        // round-trips an already-validated value). expect() surfaces a
-        // contract violation as a clear panic instead of silently coercing
-        // bad data to "default".
-        let mut namespaces: Vec<Namespace> = Vec::new();
+        // Documents are sorted parent-first, so each page's parent — and
+        // therefore its inherited namespace — is resolved before the page
+        // itself. Storage backends are contracted to produce only validated
+        // namespace strings (rw-storage-fs validates in build_document; the
+        // S3 bundle round-trips an already-validated value). unwrap_or_else()
+        // surfaces a contract violation as a clear panic instead of silently
+        // coercing bad data to "default".
         for doc in &documents {
-            let parent_idx = Self::find_parent_from_url(&doc.path, &url_to_idx);
-
-            let namespace: Namespace = doc
-                .namespace
-                .as_deref()
-                .map(|s| {
-                    s.parse().unwrap_or_else(|e| {
-                        panic!(
-                            "storage produced invalid namespace {s:?} for page {:?}: {e}",
-                            doc.path
-                        )
-                    })
+            let namespace: Option<Namespace> = doc.namespace.as_deref().map(|s| {
+                s.parse().unwrap_or_else(|e| {
+                    panic!(
+                        "storage produced invalid namespace {s:?} for page {:?}: {e}",
+                        doc.path
+                    )
                 })
-                .or_else(|| parent_idx.map(|p| namespaces[p].clone()))
-                .unwrap_or_default();
+            });
 
-            let idx = builder.add_page(
+            builder.add_page(
                 Page {
                     title: doc.title.clone(),
                     path: doc.path.clone(),
@@ -653,45 +640,19 @@ impl Site {
                     pages: doc.pages.clone(),
                     is_dir: doc.is_dir,
                 },
-                parent_idx,
                 doc.page_kind.as_deref(),
-                namespace.clone(),
+                namespace,
             );
-            namespaces.push(namespace);
-            url_to_idx.insert(doc.path.clone(), idx);
         }
-
-        // The implicit root section uses the namespace resolved for the
-        // root-path ("") document, or the default when there is no root page.
-        let root_namespace = url_to_idx
-            .get("")
-            .map_or_else(Namespace::default, |&idx| namespaces[idx].clone());
 
         // Apply custom page ordering from `pages` metadata
         for doc in &documents {
-            if let Some(pages) = &doc.pages
-                && let Some(&idx) = url_to_idx.get(&doc.path)
-            {
-                builder.reorder_children(idx, pages);
+            if let Some(pages) = &doc.pages {
+                builder.reorder_children_at(&doc.path, pages);
             }
         }
 
-        Ok(builder.root_namespace(root_namespace).build())
-    }
-
-    /// Find parent page index from URL path.
-    ///
-    /// Walks up the path hierarchy to find the nearest existing ancestor.
-    fn find_parent_from_url(url_path: &str, url_to_idx: &HashMap<String, usize>) -> Option<usize> {
-        let mut current = url_path;
-        while !current.is_empty() {
-            let parent_url = current.rsplit_once('/').map_or("", |(parent, _)| parent);
-            if let Some(&idx) = url_to_idx.get(parent_url) {
-                return Some(idx);
-            }
-            current = parent_url;
-        }
-        None
+        Ok(builder.build())
     }
 }
 
