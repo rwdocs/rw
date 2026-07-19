@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A page that has both `X.md` and `X/index.md` now consistently uses `X/index.md` everywhere, instead of showing one file's title in the navigation sidebar while serving the other file's content. Which of the two won was decided by the multi-threaded startup scan and could differ between runs of the same site, so the mismatch came and went with no change to the files. `X/index.md` was already the documented winner when the page was read; the scan now agrees. Sites without such a pair are unaffected, and `rw` still warns when it finds one.
+
+- Editing a `README.md` homepage (a project with no `docs/index.md`) now updates the navigation sidebar to the README's real title on live reload, instead of replacing it with "Home". The live-reload path resolved the homepage without the README fallback the initial scan uses, so it never found the README at all, and fell back to titling the page from its URL.
+
 - A `:::tab` group missing its closing `:::` no longer leaks raw markers into the page. Previously the group rendered as literal `<rw-tabs data-id="0">` text with no tab bar and no styling at all; it now renders as a normal, fully-styled tab group. An unclosed group runs to the end of the block containing it, so anything written after it becomes part of the last tab's panel — hidden until the reader selects that tab. Close the group with `:::` to keep following content outside it.
 
 - An unclosed `:::tab` group inside a blockquote or a list item now closes inside that block instead of after it. Its closing tags were appended at the very end of the document, landing after the `</blockquote>` or `</li></ul>` — the tag counts balanced but the nesting was crossed, so the browser silently ended the tab panel at the block boundary and dropped the stray closers. Well-formed documents are unaffected, and an unclosed group at the top level still runs to the end of the document as before.

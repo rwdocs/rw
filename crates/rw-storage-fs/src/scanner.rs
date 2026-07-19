@@ -120,9 +120,17 @@ impl Scanner {
 
     /// Group source files into document references by `url_path`.
     ///
-    /// Metadata collisions on one url path are resolved deterministically by
-    /// `MetaRank` (lower wins: canonical bare form, then the `index.` variant,
-    /// then a sibling), so the chosen `meta_path` matches `meta()`'s resolution.
+    /// Both kinds of collision on one url path are resolved deterministically,
+    /// so the result does not depend on the order the parallel walk yielded
+    /// files in.
+    ///
+    /// Metadata collisions are resolved by `MetaRank` (lower wins: canonical
+    /// bare form, then the `index.` variant, then a sibling), so the chosen
+    /// `meta_path` matches `meta()`'s resolution.
+    ///
+    /// Content collisions — a url path with both `X.md` and `X/index.md` —
+    /// prefer `index.md`, matching `PathResolver::resolve_content`, so the
+    /// scanned document and the file `read()` serves are the same one.
     fn group_into_documents(files: Vec<SourceFile>) -> Vec<DocumentRef> {
         use crate::source::MetaRank;
 
@@ -144,10 +152,16 @@ impl Scanner {
                     if doc.content_path.is_some() {
                         tracing::warn!(
                             url_path = %doc.url_path,
-                            "Multiple content files for same url_path, using last"
+                            "Multiple content files for same url_path, preferring index.md"
                         );
                     }
-                    doc.content_path = Some(file.path);
+                    // index.md wins over the standalone sibling, matching
+                    // PathResolver::resolve_content. Without this the winner
+                    // is whichever the parallel walk yielded last.
+                    let incoming_is_index = file.path.file_name().is_some_and(|n| n == "index.md");
+                    if doc.content_path.is_none() || incoming_is_index {
+                        doc.content_path = Some(file.path);
+                    }
                 }
                 SourceKind::Metadata => {
                     // Content files have meta_rank None; metadata always Some.
@@ -510,6 +524,37 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .ends_with("index.meta.yaml")
+        );
+    }
+
+    #[test]
+    fn group_prefers_index_md_when_the_standalone_arrives_last() {
+        // The losing order: `both.md` after `both/index.md`. A last-writer-wins
+        // grouping picks the standalone here, so this pins the precedence
+        // deterministically — unlike a filesystem scan, whose parallel walk
+        // yields the two in an arbitrary order.
+        let files = vec![
+            SourceFile {
+                url_path: "both".to_owned(),
+                kind: SourceKind::Content,
+                path: PathBuf::from("/docs/both/index.md"),
+                meta_rank: None,
+            },
+            SourceFile {
+                url_path: "both".to_owned(),
+                kind: SourceKind::Content,
+                path: PathBuf::from("/docs/both.md"),
+                meta_rank: None,
+            },
+        ];
+
+        let refs = Scanner::group_into_documents(files);
+
+        assert_eq!(refs.len(), 1);
+        assert_eq!(
+            refs[0].content_path.as_deref(),
+            Some(Path::new("/docs/both/index.md")),
+            "index.md must win over the standalone sibling regardless of order"
         );
     }
 
