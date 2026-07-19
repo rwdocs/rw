@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 use crate::meta_includes::{MetaIncludeSource, is_meta_include_pattern, resolve_meta_include};
 
 static INCLUDE_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^(\s*)!include\s+(.+)$").unwrap());
+    LazyLock::new(|| Regex::new(r"(?m)^([ \t]*)!include\s+(.+)$").unwrap());
 
 /// Indent content with the given whitespace prefix, preserving empty lines.
 fn indent_content(content: &str, indent: &str) -> String {
@@ -375,6 +375,80 @@ mod tests {
         assert!(result.warnings.is_empty());
         // Empty lines should remain empty (not indented)
         assert!(result.source.contains("  Line1\n\n  Line3"));
+    }
+
+    #[test]
+    fn test_include_after_blank_line_keeps_line_structure() {
+        let temp_dir = std::env::temp_dir();
+        let include_path = temp_dir.join("after_blank_line.iuml");
+        std::fs::write(&include_path, "line1\nline2\nline3").unwrap();
+
+        let source = "@startuml\n\n!include after_blank_line.iuml\n@enduml";
+        let mut warnings = Vec::new();
+        let result = resolve_includes(
+            source,
+            std::slice::from_ref(&temp_dir),
+            None,
+            0,
+            &mut warnings,
+        );
+
+        std::fs::remove_file(&include_path).unwrap();
+
+        assert!(warnings.is_empty());
+        assert_eq!(result, "@startuml\n\nline1\nline2\nline3\n@enduml");
+    }
+
+    #[test]
+    fn test_indented_include_after_blank_line_indents_without_injecting_blanks() {
+        let temp_dir = std::env::temp_dir();
+        let include_path = temp_dir.join("indented_after_blank.iuml");
+        std::fs::write(&include_path, "line1\nline2").unwrap();
+
+        let source = "@startuml\n\n  !include indented_after_blank.iuml\n@enduml";
+        let mut warnings = Vec::new();
+        let result = resolve_includes(
+            source,
+            std::slice::from_ref(&temp_dir),
+            None,
+            0,
+            &mut warnings,
+        );
+
+        std::fs::remove_file(&include_path).unwrap();
+
+        assert!(warnings.is_empty());
+        assert_eq!(result, "@startuml\n\n  line1\n  line2\n@enduml");
+    }
+
+    #[test]
+    fn test_crlf_include_after_blank_line_not_indented_by_carriage_return() {
+        let temp_dir = std::env::temp_dir();
+        let include_path = temp_dir.join("crlf_after_blank.iuml");
+        std::fs::write(&include_path, "line1\nline2").unwrap();
+
+        let source = "@startuml\r\n\r\n!include crlf_after_blank.iuml\r\n@enduml";
+        let mut warnings = Vec::new();
+        let result = resolve_includes(
+            source,
+            std::slice::from_ref(&temp_dir),
+            None,
+            0,
+            &mut warnings,
+        );
+
+        std::fs::remove_file(&include_path).unwrap();
+
+        assert!(warnings.is_empty());
+        // Characterizes CRLF handling; it cannot fail independently of the LF
+        // cases above, since both corruptions came from `\n` being in the
+        // capture's character class. Kept because this is the crate's only
+        // CRLF coverage, and because it pins a pre-existing wart: `(.+)$`
+        // swallows the include line's `\r` and the replacement never restores
+        // it, so `@enduml` below arrives with a bare `\n`. A positional-splice
+        // rewrite of the `String::replace` calls would change that byte —
+        // deliberately, not silently.
+        assert_eq!(result, "@startuml\r\n\r\nline1\nline2\n@enduml");
     }
 
     use crate::meta_includes::{EntityInfo, MetaIncludeSource};
