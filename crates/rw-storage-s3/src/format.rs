@@ -70,6 +70,9 @@ impl From<Vec<Document>> for Manifest {
 
 #[cfg(test)]
 mod tests {
+    use chrono::DateTime;
+    use rw_storage::mtime_to_datetime;
+
     use super::*;
 
     #[test]
@@ -207,6 +210,28 @@ mod tests {
         let deserialized: Manifest = serde_json::from_str(&json).unwrap();
 
         assert_eq!(deserialized.mtimes.get("guide"), Some(&1_713_000_000.0));
+    }
+
+    #[test]
+    fn manifest_mtimes_convert_through_a_hand_edited_manifest() {
+        // JSON has no NaN or Infinity literals and serde_json rejects
+        // out-of-range numbers, so what actually reaches us from a hand-edited
+        // or foreign manifest is a finite value — one that may still be
+        // negative, or a wrong-unit epoch timestamp far outside chrono's range.
+        let json = r#"{"version":1,"documents":[],"mtimes":{"past":-1.0,"nanos":1.75e18}}"#;
+
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            mtime_to_datetime(manifest.mtimes["nanos"]),
+            DateTime::UNIX_EPOCH,
+            "a nanosecond timestamp in a seconds field denotes no instant"
+        );
+        assert_eq!(
+            mtime_to_datetime(manifest.mtimes["past"]).to_rfc3339(),
+            "1969-12-31T23:59:59+00:00",
+            "a negative mtime is a real instant before the epoch"
+        );
     }
 
     #[test]

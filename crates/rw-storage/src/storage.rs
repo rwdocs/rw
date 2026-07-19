@@ -15,6 +15,8 @@
 
 use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
+
 use crate::event::{StorageEventReceiver, WatchHandle};
 use crate::metadata::Metadata;
 
@@ -292,6 +294,14 @@ pub trait Storage: Send + Sync {
 
     /// Get modification time as seconds since Unix epoch.
     ///
+    /// The returned value is unvalidated: a backend reads it from wherever it
+    /// keeps it (a `stat` call, a git commit, a manifest written by another
+    /// tool) and reports it as-is. Any guarantee about its sign or finiteness
+    /// is that backend's own, not the trait's. Convert it with
+    /// [`mtime_to_datetime`] rather than converting it by hand — both
+    /// `Duration::from_secs_f64` and chrono's `From<SystemTime>` panic on
+    /// values an untrusted backend can produce.
+    ///
     /// # Arguments
     ///
     /// * `path` - URL path (e.g., "guide", "domain/billing", "" for root)
@@ -348,11 +358,115 @@ pub trait Storage: Send + Sync {
     }
 }
 
+/// Convert an mtime in seconds since the Unix epoch into a [`DateTime<Utc>`].
+///
+/// Returns a `DateTime` rather than a `SystemTime` because that is what every
+/// caller reports, and because the panic this exists to prevent is spread
+/// across *both* steps of the conversion. `Duration::from_secs_f64` panics on
+/// negative and non-finite input; chrono's `From<SystemTime>` then panics again
+/// for anything outside its ±262143-year range — which a `SystemTime` holds
+/// happily. Handing back a `SystemTime` would leave that second panic to the
+/// caller, so the two steps stay together.
+///
+/// [`Storage::mtime`] values are unvalidated — an `S3Storage` manifest is
+/// written by another tool and can be hand-edited or truncated — so this
+/// tolerates anything an `f64` can hold.
+///
+/// A negative value is a real instant before the epoch and converts to one.
+/// A value that denotes no representable instant — NaN, an infinity, or a
+/// magnitude beyond chrono's range — becomes the Unix epoch, which is already
+/// how an unknown mtime is reported. Note that a seconds/nanoseconds mix-up
+/// (`1.75e18`, a nanosecond timestamp in a seconds field) lands here.
+#[must_use]
+pub fn mtime_to_datetime(mtime: f64) -> DateTime<Utc> {
+    let seconds = mtime.floor();
+    // Keeps the cast below in range; chrono rejects far smaller values anyway.
+    if !seconds.is_finite() || seconds.abs() >= 9.0e18 {
+        return DateTime::UNIX_EPOCH;
+    }
+    // The fraction is nominally in [0, 1), but `mtime - seconds` is not exact:
+    // for a tiny negative mtime (|mtime| <= 2^-54, e.g. -1e-20) it rounds to
+    // exactly 1.0, scaling to a full 1e9 nanoseconds. chrono reads that as the
+    // leap-second slot and renders `:60`, a second that most date parsers
+    // reject — so clamp it into the range `from_timestamp` expects.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "`seconds` is range-checked above; the fraction is non-negative and below 1"
+    )]
+    let (seconds, nanoseconds) = (
+        seconds as i64,
+        (((mtime - seconds) * 1e9) as u32).min(999_999_999),
+    );
+
+    DateTime::from_timestamp(seconds, nanoseconds).unwrap_or(DateTime::UNIX_EPOCH)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
     use super::*;
+
+    /// Magnitudes that denote no representable instant. The wrong-unit epoch
+    /// timestamps are the realistic case: a foreign tool writing microseconds
+    /// or nanoseconds into a seconds field. (Milliseconds still land inside
+    /// chrono's range, so they convert to a real — if absurd — date.) NaN and the
+    /// infinities cannot arrive from a manifest (see the note in
+    /// `rw-storage-s3`'s `format.rs`) — they are here because `Storage` is a
+    /// trait and an `f64` can hold them.
+    const UNREPRESENTABLE_MTIMES: [f64; 8] = [
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        1e300,
+        -1e300,
+        1.75e15,
+        1.75e18,
+        -1.75e18,
+    ];
+
+    #[test]
+    fn unrepresentable_mtimes_degrade_to_the_epoch() {
+        for mtime in UNREPRESENTABLE_MTIMES {
+            assert_eq!(
+                mtime_to_datetime(mtime),
+                DateTime::UNIX_EPOCH,
+                "{mtime:e} should degrade to the epoch, not panic"
+            );
+        }
+    }
+
+    #[test]
+    fn negative_mtime_is_a_real_instant_before_the_epoch() {
+        let converted = mtime_to_datetime(-1.0);
+
+        assert_eq!(
+            converted.to_rfc3339(),
+            "1969-12-31T23:59:59+00:00",
+            "a negative mtime denotes a pre-epoch instant, not an unknown one"
+        );
+    }
+
+    #[test]
+    fn tiny_negative_mtime_does_not_render_a_leap_second() {
+        // `-1e-20 - (-1.0)` rounds to exactly 1.0, which chrono reads as the
+        // leap-second slot; `:60` is a second most date parsers reject.
+        let converted = mtime_to_datetime(-1e-20);
+
+        assert_eq!(
+            converted.to_rfc3339(),
+            "1969-12-31T23:59:59.999999999+00:00"
+        );
+    }
+
+    #[test]
+    fn ordinary_mtime_converts_to_its_instant() {
+        // Expectation spelled out independently of the conversion under test.
+        let converted = mtime_to_datetime(1_752_000_000.5);
+
+        assert_eq!(converted.to_rfc3339(), "2025-07-08T18:40:00.500+00:00");
+    }
 
     #[test]
     fn test_document_root() {

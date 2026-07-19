@@ -3,9 +3,6 @@ mod types;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, UNIX_EPOCH};
-
-use chrono::{DateTime, Utc};
 
 use napi::Result;
 use napi_derive::napi;
@@ -15,7 +12,7 @@ use rw_config::Config;
 use rw_site::{
     NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
 };
-use rw_storage::Storage;
+use rw_storage::{Storage, mtime_to_datetime};
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{S3Config, S3Storage};
 
@@ -407,12 +404,11 @@ pub async fn render_comment_body(markdown: String) -> Result<String> {
 }
 
 /// Formats a raw mtime (seconds since the Unix epoch) as an RFC-3339 string,
-/// e.g. `2026-07-09T10:35:00+00:00`. Unknown mtimes are passed in as `0.0` and
-/// render as the Unix epoch.
+/// e.g. `2026-07-09T10:35:00+00:00`. An unknown mtime is passed in as `0.0`;
+/// it and any value that denotes no representable date render as the Unix
+/// epoch.
 fn mtime_to_rfc3339(mtime: f64) -> String {
-    let t = UNIX_EPOCH + Duration::from_secs_f64(mtime);
-    let dt: DateTime<Utc> = t.into();
-    dt.to_rfc3339()
+    mtime_to_datetime(mtime).to_rfc3339()
 }
 
 fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {

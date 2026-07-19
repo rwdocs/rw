@@ -4322,7 +4322,6 @@ name = "rw-server"
 version = "0.1.33"
 dependencies = [
  "axum",
- "chrono",
  "http-body-util",
  "pretty_assertions",
  "rw-assets",
@@ -4382,6 +4381,7 @@ dependencies = [
 name = "rw-storage"
 version = "0.1.33"
 dependencies = [
+ "chrono",
  "parking_lot",
  "serde",
  "serde_json",
@@ -4413,6 +4413,7 @@ version = "0.1.33"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
+ "chrono",
  "parking_lot",
  "pretty_assertions",
  "rw-kroki",

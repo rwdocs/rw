@@ -3099,7 +3099,6 @@ dependencies = [
 name = "rw-napi"
 version = "0.1.33"
 dependencies = [
- "chrono",
  "napi",
  "napi-build",
  "napi-derive",
@@ -3154,6 +3153,7 @@ dependencies = [
 name = "rw-storage"
 version = "0.1.33"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
  "thiserror",
