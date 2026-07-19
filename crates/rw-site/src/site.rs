@@ -9,14 +9,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::page::{
-    BreadcrumbItem, Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext,
-    RenderError, SearchDocument,
+    Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext, RenderError,
+    SearchDocument,
 };
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
 use rw_kroki::{EntityInfo, MetaIncludeSource};
 use rw_renderer::TitleResolver;
-use rw_sections::{Namespace, Sections};
+use rw_sections::Namespace;
 use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
@@ -261,16 +261,6 @@ impl Site {
         Ok(entries)
     }
 
-    /// Returns the current [`Sections`] map for cross-section link resolution.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] if the initial site load fails.
-    pub fn sections(&self) -> Result<Arc<Sections>, StorageError> {
-        let snapshot = self.reload_if_needed()?;
-        Ok(Arc::clone(snapshot.state.sections()))
-    }
-
     /// Returns `(section_ref, subpath)` for the section that contains
     /// `page_path`.
     ///
@@ -359,19 +349,6 @@ impl Site {
             .state
             .get_page(path)
             .and_then(|p| p.pages.clone())
-    }
-
-    /// Returns the [`BreadcrumbItem`] trail for a page.
-    ///
-    /// The trail starts with "Home" (path `""`) and includes each ancestor
-    /// up to but not including the page itself. Returns an empty `Vec` for
-    /// the root page.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] if the initial site load fails.
-    pub fn get_breadcrumbs(&self, path: &str) -> Result<Vec<BreadcrumbItem>, StorageError> {
-        Ok(self.reload_if_needed()?.state.get_breadcrumbs(path))
     }
 
     /// Returns the current snapshot, reloading from storage if stale.

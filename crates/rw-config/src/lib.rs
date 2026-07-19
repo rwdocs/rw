@@ -81,9 +81,6 @@ pub struct Config {
     /// Resolved diagrams configuration (set after loading).
     #[serde(skip)]
     pub diagrams_resolved: DiagramsConfig,
-    /// Path to the config file (set after loading).
-    #[serde(skip)]
-    pub config_path: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -390,7 +387,6 @@ impl Config {
                 cache_enabled: true,
             },
             diagrams_resolved: DiagramsConfig::default(),
-            config_path: None,
         }
     }
 
@@ -404,7 +400,6 @@ impl Config {
 
         let config_dir = path.parent().unwrap_or(Path::new("."));
         config.resolve_paths(config_dir);
-        config.config_path = Some(path.to_path_buf());
 
         Ok(config)
     }
