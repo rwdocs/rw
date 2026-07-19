@@ -31,9 +31,8 @@ mod scanner;
 mod source;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf, absolute};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -51,7 +50,7 @@ use rw_storage::{
     StorageEventKind, StorageEventReceiver, WatchHandle,
 };
 use scanner::{DocumentRef, Scanner};
-use source::{Classification, SourceFile, SourceKind, classify_relpath, file_path_to_url};
+use source::{Classification, PathResolver, file_path_to_url};
 
 /// Backend identifier for error messages.
 const BACKEND: &str = "Fs";
@@ -102,18 +101,14 @@ struct CachedMeta {
 /// # }
 /// ```
 pub struct FsStorage {
-    /// Root directory for document storage.
-    source_dir: PathBuf,
+    /// Cloned into the watch drain thread, which resolves through the same rules.
+    resolver: PathResolver,
     /// Scanner for document discovery.
     scanner: Scanner,
     /// Mtime cache for incremental metadata extraction.
     mtime_cache: RwLock<HashMap<PathBuf, CachedMeta>>,
     /// Glob patterns for file watching (`**/*.md` and metadata files).
     watch_patterns: Vec<Pattern>,
-    /// Metadata file name (e.g., "meta.yaml").
-    meta_filename: String,
-    /// Path to README.md used as homepage fallback (parent of `source_dir`).
-    readme_path: Option<PathBuf>,
     /// How this storage computes modification times (filesystem or git).
     mtime: MtimeStrategy,
 }
@@ -177,24 +172,14 @@ impl FsStorage {
     /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
     #[must_use]
     pub fn with_meta_filename(source_dir: PathBuf, meta_filename: &str) -> Self {
-        let watch_patterns = vec![
-            Pattern::new("**/*.md").expect("invalid glob pattern"),
-            Pattern::new(&format!("**/{meta_filename}")).expect("invalid glob pattern"),
-            Pattern::new(&format!("**/*.{meta_filename}")).expect("invalid glob pattern"),
-        ];
-
         let scanner = Scanner::new(&source_dir, meta_filename);
-
-        // Auto-detect README.md in parent directory as homepage fallback
-        let readme_path = source_dir.parent().map(|p| p.join("README.md"));
+        let resolver = PathResolver::new(source_dir, meta_filename);
 
         Self {
-            source_dir,
+            watch_patterns: resolver.watch_patterns(),
             scanner,
+            resolver,
             mtime_cache: RwLock::new(HashMap::new()),
-            watch_patterns,
-            meta_filename: meta_filename.to_owned(),
-            readme_path,
             mtime: MtimeStrategy::Filesystem,
         }
     }
@@ -210,10 +195,10 @@ impl FsStorage {
         self.mtime = match source {
             MtimeSource::Filesystem => MtimeStrategy::Filesystem,
             MtimeSource::Git => {
-                let vcs = Vcs::new(&self.source_dir);
+                let vcs = Vcs::new(self.resolver.source_dir());
                 if !vcs.has_repo() {
                     tracing::warn!(
-                        source_dir = %self.source_dir.display(),
+                        source_dir = %self.resolver.source_dir().display(),
                         "git modification times requested but no git repository was \
                          found; page times will fall back to filesystem times",
                     );
@@ -236,79 +221,19 @@ impl FsStorage {
         Ok(())
     }
 
-    /// Resolve URL path to content file path.
-    ///
-    /// For root path (`""`):
-    /// 1. `source_dir/index.md`
-    /// 2. `readme_path` (README.md in parent directory)
-    ///
-    /// For other paths:
-    /// 1. `{path}/index.md` (directory structure preferred)
-    /// 2. `{path}.md` (standalone file fallback)
-    ///
-    /// Returns `None` if no content file exists.
+    /// Resolve URL path to content file path. See [`PathResolver::resolve_content`].
     fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
-        if url_path.is_empty() {
-            let index = self.source_dir.join("index.md");
-            if index.exists() {
-                return Some(index);
-            }
-            if let Some(ref readme) = self.readme_path
-                && readme.exists()
-            {
-                return Some(readme.clone());
-            }
-            return None;
-        }
-
-        // Prefer directory/index.md
-        let index_path = self.source_dir.join(format!("{url_path}/index.md"));
-        if index_path.exists() {
-            return Some(index_path);
-        }
-
-        // Fall back to standalone file
-        let file_path = self.source_dir.join(format!("{url_path}.md"));
-        file_path.exists().then_some(file_path)
+        self.resolver.resolve_content(url_path)
     }
 
-    /// Resolve a directory's metadata file (directory form).
-    ///
-    /// Two candidates in precedence order: the canonical
-    /// `<dir>/<meta_filename>`, then the `<dir>/index.<meta_filename>` variant.
-    /// Returns `None` if neither exists.
+    /// Resolve a directory's metadata file. See [`PathResolver::resolve_dir_meta`].
     fn resolve_dir_meta(&self, url_path: &str) -> Option<PathBuf> {
-        let dir = if url_path.is_empty() {
-            self.source_dir.clone()
-        } else {
-            self.source_dir.join(url_path)
-        };
-
-        let canonical = dir.join(&self.meta_filename);
-        if canonical.exists() {
-            return Some(canonical);
-        }
-
-        let index_variant = dir.join(format!("index.{}", self.meta_filename));
-        index_variant.exists().then_some(index_variant)
+        self.resolver.resolve_dir_meta(url_path)
     }
 
-    /// Resolve a page's own metadata file (leaf query).
-    ///
-    /// Directory form first (see [`Self::resolve_dir_meta`]), then the sibling
-    /// `<url_path>.<meta_filename>`. The canonical directory form wins when
-    /// multiple exist. The root (`""`) has no sibling form.
+    /// Resolve a page's own metadata file. See [`PathResolver::resolve_meta`].
     fn resolve_meta(&self, url_path: &str) -> Option<PathBuf> {
-        if let Some(dir_meta) = self.resolve_dir_meta(url_path) {
-            return Some(dir_meta);
-        }
-        if url_path.is_empty() {
-            return None;
-        }
-        let sibling = self
-            .source_dir
-            .join(format!("{url_path}.{}", self.meta_filename));
-        sibling.exists().then_some(sibling)
+        self.resolver.resolve_meta(url_path)
     }
 
     /// Build a `Document` from a `DocumentRef`.
@@ -440,61 +365,11 @@ impl FsStorage {
     /// prefix, e.g. `docs/guide.md`), relative to `source_dir` (e.g. `guide.md`),
     /// or absolute, plus the README homepage. Returns one entry normally, several
     /// when the input is ambiguous (distinct existing pages), or none when it
-    /// names no page. Uses [`SourceFile::classify`] — the scanner's own routine —
-    /// so the url path matches the live site exactly.
+    /// names no page. Uses the scanner's own classification routine, so the url
+    /// path matches the live site exactly.
     #[must_use]
     pub fn url_paths_for_source(&self, file_path: &Path) -> Vec<String> {
-        let mut urls: Vec<String> = Vec::new();
-        let mut push = |u: String| {
-            if !urls.contains(&u) {
-                urls.push(u);
-            }
-        };
-
-        // README homepage maps to the root url — but only when it is actually
-        // the served homepage. `resolve_content("")` applies the same
-        // index.md-then-README precedence the scanner uses, so a project with a
-        // real `docs/index.md` (which shadows the README) does not map README.md
-        // to the root here.
-        if let Some(readme) = &self.readme_path
-            && (file_path == Path::new("README.md")
-                || absolute(file_path).ok() == absolute(readme).ok())
-            && self.resolve_content("").as_deref() == Some(readme.as_path())
-        {
-            push(String::new());
-        }
-
-        let mut rels: Vec<PathBuf> = Vec::new();
-        if file_path.is_absolute() {
-            if let Ok(rel) = file_path.strip_prefix(&self.source_dir) {
-                rels.push(rel.to_path_buf());
-            }
-        } else {
-            rels.push(file_path.to_path_buf());
-            if let Some(name) = self.source_dir.file_name()
-                && let Ok(stripped) = file_path.strip_prefix(name)
-            {
-                rels.push(stripped.to_path_buf());
-            }
-        }
-
-        for rel in rels {
-            let file = self.source_dir.join(&rel);
-            if !file.is_file() {
-                continue;
-            }
-            let Some(name) = file.file_name().map(OsStr::to_os_string) else {
-                continue;
-            };
-            if let Some(sf) =
-                SourceFile::classify(file, &name, &self.source_dir, &self.meta_filename)
-                && sf.kind == SourceKind::Content
-            {
-                push(sf.url_path);
-            }
-        }
-
-        urls
+        self.resolver.url_paths_for_source(file_path)
     }
 
     /// Set up a file watcher for README.md (outside `source_dir`).
@@ -537,73 +412,31 @@ impl FsStorage {
     }
 }
 
-/// Read the first existing metadata file for a url path, in resolution order:
-/// `<dir>/<meta_filename>`, `<dir>/index.<meta_filename>`, then the sibling
-/// `<url_path>.<meta_filename>`. Mirrors `FsStorage::resolve_meta`.
-fn read_meta_yaml(source_dir: &Path, url_path: &str, meta_filename: &str) -> Option<String> {
-    let dir = if url_path.is_empty() {
-        source_dir.to_path_buf()
-    } else {
-        source_dir.join(url_path)
-    };
-
-    let mut candidates = vec![
-        dir.join(meta_filename),
-        dir.join(format!("index.{meta_filename}")),
-    ];
-    if !url_path.is_empty() {
-        candidates.push(source_dir.join(format!("{url_path}.{meta_filename}")));
-    }
-
-    candidates
-        .into_iter()
-        .find_map(|p| fs::read_to_string(p).ok())
-}
-
-/// Resolve metadata for a URL path from filesystem.
+/// Read and parse metadata for a URL path from the filesystem.
 ///
-/// Uses `Meta::resolve()` to extract title and pages from markdown and meta.yaml.
-/// Used by the watch drain thread to populate `StorageEventKind::Modified`.
-fn resolve_meta(source_dir: &Path, url_path: &str, meta_filename: &str) -> Meta {
-    let meta_yaml = read_meta_yaml(source_dir, url_path, meta_filename);
+/// Distinct from [`PathResolver::resolve_meta`], which only *locates* a file:
+/// this reads and parses it. Used by the watch drain thread to populate
+/// `StorageEventKind::Modified`.
+///
+/// Both candidate searches go through `resolver`, which is also what `read()`,
+/// `exists()`, and `meta()` resolve through — so the watch path cannot probe in
+/// a different order than a request does. It is NOT automatically aligned with
+/// the *scan* path (`Scanner` + `MetaRank`), which encodes the same precedence
+/// in a different shape; `scan_and_resolver_agree_across_the_precedence_matrix`
+/// pins the two together.
+fn resolve_event_meta(resolver: &PathResolver, url_path: &str) -> Meta {
+    let meta_yaml = resolver
+        .resolve_meta(url_path)
+        .and_then(|p| fs::read_to_string(p).ok());
 
-    let md_paths = if url_path.is_empty() {
-        vec![source_dir.join("index.md")]
-    } else {
-        vec![
-            source_dir.join(format!("{url_path}/index.md")),
-            source_dir.join(format!("{url_path}.md")),
-        ]
-    };
+    let content_path = resolver.resolve_content(url_path);
+    let markdown = content_path
+        .as_deref()
+        .and_then(|p| fs::read_to_string(p).ok());
 
-    let (markdown, filename) = md_paths
-        .iter()
-        .find_map(|p| {
-            fs::read_to_string(p).ok().map(|content| {
-                let name = p
-                    .file_name()
-                    .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
-                (content, name)
-            })
-        })
-        .unwrap_or_default();
+    let fallback = resolver.content_fallback_name(url_path, content_path.as_deref());
 
-    let slug = if filename.is_empty() {
-        url_path.rsplit('/').next().unwrap_or(url_path)
-    } else {
-        &filename
-    };
-    let fallback = if slug.is_empty() { "home" } else { slug };
-
-    Meta::resolve(
-        if markdown.is_empty() {
-            None
-        } else {
-            Some(&markdown)
-        },
-        meta_yaml.as_deref(),
-        fallback,
-    )
+    Meta::resolve(markdown.as_deref(), meta_yaml.as_deref(), &fallback)
 }
 
 /// Whether a path (relative to `source_dir`) has any dot-prefixed component.
@@ -623,17 +456,14 @@ fn is_hidden_rel_path(rel_path: &std::path::Path) -> bool {
 ///
 /// Resolves the file path to a URL path and populates the event kind with
 /// resolved metadata (title, pages) for `Modified` events.
-fn to_storage_event(
-    event: &DebouncedEvent,
-    source_dir: &Path,
-    meta_filename: &str,
-) -> StorageEvent {
-    let url_path = if let Ok(rel_path) = event.path.strip_prefix(source_dir) {
+fn to_storage_event(event: &DebouncedEvent, resolver: &PathResolver) -> StorageEvent {
+    let url_path = if let Ok(rel_path) = event.path.strip_prefix(resolver.source_dir()) {
         let filename = rel_path
             .file_name()
             .map(|f| f.to_string_lossy())
             .unwrap_or_default();
-        classify_relpath(rel_path, &filename, meta_filename)
+        resolver
+            .classify_relpath(rel_path, &filename)
             .map_or_else(|| file_path_to_url(rel_path), Classification::into_url_path)
     } else {
         // Outside source_dir (e.g., README.md) -> root
@@ -643,7 +473,7 @@ fn to_storage_event(
     let kind = match event.kind {
         RawEventKind::Created => StorageEventKind::Created,
         RawEventKind::Modified => {
-            let meta = resolve_meta(source_dir, &url_path, meta_filename);
+            let meta = resolve_event_meta(resolver, &url_path);
             StorageEventKind::Modified {
                 title: meta.title,
                 pages: meta.pages,
@@ -716,14 +546,12 @@ impl Storage for FsStorage {
         );
 
         // Inject README.md as homepage if no root document found
-        if let Some(ref readme_path) = self.readme_path
-            && !documents.iter().any(|d| d.path.is_empty())
-            && readme_path.exists()
+        if !documents.iter().any(|d| d.path.is_empty())
+            && let Some(meta) = self.resolver.homepage_fallback_meta()
         {
-            let markdown = fs::read_to_string(readme_path).ok();
-            let meta = Meta::resolve(markdown.as_deref(), None, "home");
             let origin = self
-                .source_dir
+                .resolver
+                .source_dir()
                 .file_name()
                 .and_then(|n| n.to_str())
                 .map(ToOwned::to_owned);
@@ -794,7 +622,7 @@ impl Storage for FsStorage {
         let debouncer = std::sync::Arc::new(EventDebouncer::new(Duration::from_millis(100)));
 
         // Setup notify watcher
-        let source_dir = self.source_dir.clone();
+        let source_dir = self.resolver.source_dir().to_path_buf();
         let patterns = self.watch_patterns.clone();
         let debouncer_for_watcher = std::sync::Arc::clone(&debouncer);
 
@@ -842,9 +670,9 @@ impl Storage for FsStorage {
         // watch if docs/ appears later. README edits are handled by the README
         // watcher. `is_dir()` (not `exists()`) matches the upgrade helper: a
         // non-directory at the path must not abort the watch with a hard error.
-        let mut recursive_active = if self.source_dir.is_dir() {
+        let mut recursive_active = if self.resolver.source_dir().is_dir() {
             watcher
-                .watch(&self.source_dir, RecursiveMode::Recursive)
+                .watch(self.resolver.source_dir(), RecursiveMode::Recursive)
                 .map_err(|e| {
                     StorageError::new(StorageErrorKind::Other)
                         .with_backend(BACKEND)
@@ -858,17 +686,17 @@ impl Storage for FsStorage {
         // Keep watcher alive in Arc
         let watcher = std::sync::Arc::new(parking_lot::Mutex::new(watcher));
 
-        // Set up a second watcher for README.md (outside source_dir)
+        // Set up a second watcher for README.md. The README lives in the parent
+        // of source_dir, so it falls outside the recursive watch above and needs
+        // its own non-recursive watcher.
         let readme_watcher = self
-            .readme_path
-            .as_deref()
-            .filter(|p| p.exists())
+            .resolver
+            .existing_readme()
             .map(|p| Self::watch_readme(p, &debouncer))
             .transpose()?;
 
         // Spawn thread to drain debouncer and send to channel
-        let source_dir_for_drain = self.source_dir.clone();
-        let meta_filename_for_drain = self.meta_filename.clone();
+        let resolver_for_drain = self.resolver.clone();
         std::thread::spawn(move || {
             // Own the watcher in this thread; the drain loop also locks it to
             // upgrade to a recursive watch once source_dir appears.
@@ -894,15 +722,18 @@ impl Storage for FsStorage {
                     recursive_active = try_upgrade_recursive_watch(
                         &watcher_guard,
                         &debouncer,
-                        &source_dir_for_drain,
+                        resolver_for_drain.source_dir(),
                     );
                     // The directory exists but the watch could not be started
                     // (e.g. permissions, or the inotify watch limit): warn once
                     // so the broken live-reload is not silent. The poll keeps
                     // retrying every tick, so this may yet recover.
-                    if !recursive_active && source_dir_for_drain.is_dir() && !upgrade_warned {
+                    if !recursive_active
+                        && resolver_for_drain.source_dir().is_dir()
+                        && !upgrade_warned
+                    {
                         tracing::warn!(
-                            dir = %source_dir_for_drain.display(),
+                            dir = %resolver_for_drain.source_dir().display(),
                             "failed to start recursive watch on source directory; \
                              retrying every poll — live reload may lag for it"
                         );
@@ -911,8 +742,7 @@ impl Storage for FsStorage {
                 }
 
                 for event in debouncer.drain_ready() {
-                    let storage_event =
-                        to_storage_event(&event, &source_dir_for_drain, &meta_filename_for_drain);
+                    let storage_event = to_storage_event(&event, &resolver_for_drain);
 
                     if event_tx.send(storage_event).is_err() {
                         // Receiver dropped, exit thread
@@ -1160,20 +990,6 @@ mod tests {
         assert_eq!(doc.title, "Payments"); // titlecased from url segment
         assert_eq!(doc.page_kind, Some("component".to_owned()));
         assert_eq!(doc.namespace, Some("billing".to_owned()));
-    }
-
-    #[test]
-    fn test_resolve_dir_meta_prefers_bare_over_index() {
-        let temp_dir = create_test_dir();
-        let dir = temp_dir.path().join("dir");
-        fs::create_dir(&dir).unwrap();
-        fs::write(dir.join("meta.yaml"), "kind: domain").unwrap();
-        fs::write(dir.join("index.meta.yaml"), "kind: ignored").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let resolved = storage.resolve_dir_meta("dir").unwrap();
-        assert!(resolved.ends_with("meta.yaml"));
-        assert!(!resolved.ends_with("index.meta.yaml"));
     }
 
     #[test]
@@ -1679,22 +1495,6 @@ mod tests {
 
         assert!(resolved.is_some());
         assert!(resolved.unwrap().ends_with("index.md"));
-    }
-
-    #[test]
-    fn test_resolve_content_prefers_directory_index() {
-        let temp_dir = create_test_dir();
-        let domain_dir = temp_dir.path().join("domain");
-        fs::create_dir(&domain_dir).unwrap();
-        fs::write(domain_dir.join("index.md"), "# Domain Index").unwrap();
-        // Also create a standalone file (should be ignored)
-        fs::write(temp_dir.path().join("domain.md"), "# Domain Standalone").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let resolved = storage.resolve_content("domain");
-
-        assert!(resolved.is_some());
-        assert!(resolved.unwrap().ends_with("domain/index.md"));
     }
 
     #[test]
@@ -2489,7 +2289,8 @@ mod tests {
             path: PathBuf::from("/docs/systems/payments.meta.yaml"),
             kind: RawEventKind::Removed,
         };
-        let storage_event = to_storage_event(&event, source_dir, "meta.yaml");
+        let resolver = PathResolver::new(source_dir.to_path_buf(), "meta.yaml");
+        let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "systems/payments");
     }
 
@@ -2502,7 +2303,8 @@ mod tests {
             path: PathBuf::from("/docs/dir/index.meta.yaml"),
             kind: RawEventKind::Removed,
         };
-        let storage_event = to_storage_event(&event, source_dir, "meta.yaml");
+        let resolver = PathResolver::new(source_dir.to_path_buf(), "meta.yaml");
+        let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "dir"); // NOT "dir/index"
     }
 
@@ -2515,7 +2317,8 @@ mod tests {
             path: PathBuf::from("/docs/dir/meta.yaml"),
             kind: RawEventKind::Removed,
         };
-        let storage_event = to_storage_event(&event, source_dir, "meta.yaml");
+        let resolver = PathResolver::new(source_dir.to_path_buf(), "meta.yaml");
+        let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "dir");
     }
 
@@ -2534,7 +2337,8 @@ mod tests {
             path: temp_dir.path().join("payments.meta.yaml"),
             kind: RawEventKind::Modified,
         };
-        let storage_event = to_storage_event(&event, temp_dir.path(), "meta.yaml");
+        let resolver = PathResolver::new(temp_dir.path().to_path_buf(), "meta.yaml");
+        let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "payments");
         match storage_event.kind {
             StorageEventKind::Modified { title, .. } => {
@@ -2542,6 +2346,78 @@ mod tests {
             }
             other => panic!("expected Modified, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_modified_event_on_readme_homepage_uses_its_h1() {
+        // Regression test for the drift this refactor removes: the free
+        // `resolve_meta` had no README fallback, so a live-reload on a
+        // README-only project (no docs/index.md) reported the root page's
+        // title as the "home" slug fallback instead of the README's own H1.
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let project_root = create_test_dir();
+        let source_dir = project_root.path().join("docs"); // does not exist
+        fs::write(project_root.path().join("README.md"), "# Readme Home Title").unwrap();
+
+        let event = DebouncedEvent {
+            path: project_root.path().join("README.md"),
+            kind: RawEventKind::Modified,
+        };
+        let resolver = PathResolver::new(source_dir, "meta.yaml");
+        let storage_event = to_storage_event(&event, &resolver);
+        assert_eq!(storage_event.path, "");
+        match storage_event.kind {
+            StorageEventKind::Modified { title, .. } => {
+                assert_eq!(title, "Readme Home Title");
+            }
+            other => panic!("expected Modified, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn readme_homepage_without_h1_titles_the_same_on_scan_and_event() {
+        // Pins the two paths to one fallback name. An H1-less README is titled
+        // by `scan` (via the injected homepage document) and by the watch path
+        // (via `content_fallback_name`); both now read HOMEPAGE_FALLBACK_NAME,
+        // and this asserts they cannot drift back onto separate literals.
+        use crate::debouncer::{DebouncedEvent, RawEventKind};
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let docs = root.join("docs");
+        fs::create_dir_all(&docs).unwrap();
+        fs::write(root.join("README.md"), "Body with no heading.").unwrap();
+
+        let storage = FsStorage::new(docs.clone());
+        let scan_title = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path.is_empty())
+            .expect("README homepage document")
+            .title;
+
+        let resolver = PathResolver::new(docs, "meta.yaml");
+        let event = DebouncedEvent {
+            path: root.join("README.md"),
+            kind: RawEventKind::Modified,
+        };
+        let StorageEventKind::Modified {
+            title: event_title, ..
+        } = to_storage_event(&event, &resolver).kind
+        else {
+            panic!("expected Modified");
+        };
+
+        assert_eq!(
+            scan_title, "Home",
+            "H1-less README titles from HOMEPAGE_FALLBACK_NAME"
+        );
+        assert_eq!(
+            scan_title, event_title,
+            "scan and watch paths must title an H1-less README identically"
+        );
     }
 
     #[test]
@@ -2742,5 +2618,67 @@ mod tests {
 
         let domain = docs.iter().find(|d| d.path == "domain").unwrap();
         assert!(domain.is_dir, "domain/index.md URL is a directory");
+    }
+
+    /// The scan path (`Scanner` + `MetaRank` ordinal tie-break) and the watch
+    /// path (`PathResolver` probe order) encode the same precedence in
+    /// different shapes.
+    /// Nothing in the type system links them, so pin them against each other
+    /// across the full matrix.
+    ///
+    /// Deliberately does not cover the root url of a README-homepage site: `scan`
+    /// injects that document itself and passes no meta.yaml, while the resolver
+    /// would find `docs/meta.yaml` for the root. The two disagree there; nothing
+    /// yet depends on them agreeing. Widening this test to the root url is the
+    /// check that would catch it. (No issue filed — file one before relying on it.)
+    #[test]
+    fn scan_and_resolver_agree_across_the_precedence_matrix() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Every metadata form, each on its own url so ranks never tie.
+        fs::create_dir_all(root.join("canonical")).unwrap();
+        fs::write(root.join("canonical/index.md"), "# Canonical").unwrap();
+        fs::write(root.join("canonical/meta.yaml"), "title: Canonical").unwrap();
+        fs::write(root.join("canonical/index.meta.yaml"), "title: Loser").unwrap();
+
+        fs::create_dir_all(root.join("variant")).unwrap();
+        fs::write(root.join("variant/index.md"), "# Variant").unwrap();
+        fs::write(root.join("variant/index.meta.yaml"), "title: Variant").unwrap();
+
+        fs::write(root.join("sibling.md"), "# Sibling").unwrap();
+        fs::write(root.join("sibling.meta.yaml"), "title: Sibling").unwrap();
+
+        // Content precedence: index.md must beat the standalone of the same name.
+        fs::create_dir_all(root.join("both")).unwrap();
+        fs::write(root.join("both/index.md"), "# Both Index").unwrap();
+        fs::write(root.join("both.md"), "# Both Standalone").unwrap();
+
+        let storage = FsStorage::new(root.to_path_buf());
+        let resolver = PathResolver::new(root.to_path_buf(), "meta.yaml");
+        let refs = storage.scanner.scan();
+
+        let mut urls: Vec<_> = refs.iter().map(|r| r.url_path.clone()).collect();
+        urls.sort();
+        assert_eq!(
+            urls,
+            ["both", "canonical", "sibling", "variant"],
+            "the fixture's pages, so the loop below cannot agree vacuously"
+        );
+
+        for doc_ref in &refs {
+            assert_eq!(
+                doc_ref.meta_path,
+                resolver.resolve_meta(&doc_ref.url_path),
+                "scan and resolver disagree on the metadata file for url {:?}",
+                doc_ref.url_path
+            );
+            assert_eq!(
+                doc_ref.content_path,
+                resolver.resolve_content(&doc_ref.url_path),
+                "scan and resolver disagree on the content file for url {:?}",
+                doc_ref.url_path
+            );
+        }
     }
 }
