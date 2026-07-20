@@ -2,6 +2,10 @@
 
 RW uses `rw.toml` for configuration. The file is automatically discovered in the current directory or any parent directory.
 
+An explicitly supplied root is used as given and is **not** walked up from. `rw serve --config path/to/rw.toml` (short `-c`) uses exactly that file; `rw serve --project-dir path/to/project` and `rw backstage publish --project-dir path/to/project` root the project at that directory, reading `path/to/project/rw.toml` if it exists and otherwise using defaults rooted there; and `createSite({ projectDir })` in `@rwdocs/core` does the same. Walking up applies only to automatic discovery, so a project cannot silently inherit configuration from a parent directory it does not own.
+
+`--project-dir` is what points `rw` at a project you are not in: it roots the whole project — the docs source directory, the `.rw/` data directory, the `README.md` homepage, and PlantUML include directories. To say where the markdown lives *within* a project, set `[docs] source_dir` in `rw.toml` instead. `--project-dir` and `--config` both name where the project is rooted, so they cannot be combined.
+
 ## Full config example
 
 ```toml
@@ -72,6 +76,9 @@ rw serve --port 9000
 
 # Use explicit config file
 rw serve --config /path/to/rw.toml
+
+# Serve a project you are not in
+rw serve --project-dir /path/to/project
 ```
 
 ## Port selection

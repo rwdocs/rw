@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::Args;
-use rw_config::{CliSettings, Config};
+use rw_config::Config;
 use rw_storage::Storage;
 use rw_storage_fs::{FsStorage, MtimeSource};
 use rw_storage_s3::{BundlePublisher, PublishReport};
@@ -19,13 +19,22 @@ pub(crate) struct PublishArgs {
     #[command(flatten)]
     s3: S3Args,
 
-    /// Override source directory.
-    #[arg(short, long)]
-    source_dir: Option<PathBuf>,
-
     /// Path to configuration file (default: auto-discover rw.toml).
     #[arg(short, long)]
     config: Option<PathBuf>,
+
+    /// Root the project at this directory instead of discovering `rw.toml`
+    /// upward from the current directory.
+    ///
+    /// Reads `<dir>/rw.toml` if present and otherwise uses defaults rooted
+    /// there. The directory is used as given and is never walked up from, so a
+    /// project cannot silently inherit configuration from a parent it does not
+    /// own.
+    ///
+    /// Long-form only: the freed `-s` is deliberately not rebound, so an old
+    /// `-s <dir>` command line fails instead of quietly meaning something else.
+    #[arg(long, conflicts_with = "config")]
+    project_dir: Option<PathBuf>,
 
     /// Exit with a non-zero status when diagram warnings are emitted.
     ///
@@ -38,11 +47,12 @@ impl PublishArgs {
     pub(crate) fn execute(self) -> Result<(), CliError> {
         let output = Output::new();
 
-        let cli_settings = CliSettings {
-            source_dir: self.source_dir,
-            ..CliSettings::default()
+        // `--project-dir` and `--config` are mutually exclusive (enforced by
+        // clap), so at most one of these branches can apply.
+        let config = match self.project_dir.as_deref() {
+            Some(dir) => Config::load_from_dir(dir, None)?,
+            None => Config::load(self.config.as_deref(), None)?,
         };
-        let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
 
         output.info(&format!(
             "Source: {}",
@@ -59,6 +69,7 @@ impl PublishArgs {
         // selected explicitly here.
         let storage: Arc<dyn Storage> = Arc::new(
             FsStorage::with_meta_filename(
+                config.project_dir.clone(),
                 config.docs_resolved.source_dir.clone(),
                 &config.metadata.name,
             )

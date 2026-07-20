@@ -153,14 +153,16 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             (Arc::new(storage), renderer_config, cache)
         } else if let Some(project_dir) = config.project_dir {
             let project_path = PathBuf::from(&project_dir);
-            let config_path = project_path.join("rw.toml");
-            let config_file = if config_path.exists() {
-                Some(config_path.as_path())
-            } else {
-                None
-            };
-            let rw_config = Config::load(config_file, None)
-                .map_err(|e| napi::Error::from_reason(format!("Failed to load rw.toml: {e}")))?;
+            // Root config at the caller's directory. `Config::load(None, ..)`
+            // would discover `rw.toml` by walking up from the Node process's
+            // cwd, which is unrelated to the site the host asked for.
+            let rw_config = Config::load_from_dir(&project_path, None)
+                // Not "failed to load rw.toml": `load_from_dir` also rejects a
+                // `projectDir` that does not exist, where there is no rw.toml
+                // to have failed on.
+                .map_err(|e| {
+                    napi::Error::from_reason(format!("Failed to load configuration: {e}"))
+                })?;
 
             let mtime_source = match config.mtime_source.as_deref() {
                 None | Some("filesystem") => MtimeSource::Filesystem,
@@ -176,6 +178,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
             };
             let storage = Arc::new(
                 FsStorage::with_meta_filename(
+                    rw_config.project_dir.clone(),
                     rw_config.docs_resolved.source_dir.clone(),
                     &rw_config.metadata.name,
                 )

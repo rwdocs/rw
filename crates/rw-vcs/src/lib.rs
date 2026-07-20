@@ -25,11 +25,10 @@ impl Vcs {
     /// inside a git repository.
     #[must_use]
     pub fn new(path: &Path) -> Self {
-        // `gix::discover` errors when `path` is not an accessible directory —
-        // e.g. a README-only site whose default `docs/` source dir does not
-        // exist. Discovery already walks *upward* to find `.git`, so handing it
-        // the nearest existing ancestor finds the same repository without the
-        // spurious failure that would drop every page to filesystem mtimes.
+        // `gix::discover` errors when `path` is not an accessible directory.
+        // Discovery already walks *upward* to find `.git`, so handing it the
+        // nearest existing ancestor finds the same repository instead of
+        // failing and dropping every page to filesystem mtimes.
         let start = Self::nearest_existing_dir(path).unwrap_or(path);
         let repo = gix::discover(start).ok().map(Repository::into_sync);
         Self { repo }
@@ -484,13 +483,12 @@ mod tests {
     }
 
     #[test]
-    fn test_discovers_repo_when_source_dir_missing() {
-        // README-only project shape: nothing is committed under a `docs/` dir
-        // because it never exists, yet the Vcs is constructed pointing at it.
-        // Discovery must climb to the existing parent and find the repo — a
-        // `gix::discover` failure here drops every page to the filesystem
-        // checkout time instead of the git commit time. (The end-to-end
-        // git-vs-fs time proof lives in rw-storage-fs's git-mode test.)
+    fn discovers_repo_when_given_a_nonexistent_path() {
+        // Public contract: `Vcs::new` accepts a non-existent path and still
+        // discovers the enclosing repository by climbing to the nearest
+        // existing ancestor. No caller in this workspace passes a non-existent
+        // path today — `rw-storage-fs` passes the project directory — but
+        // `Vcs::new` is public API and this test guards that contract.
         let dir = create_git_repo();
         let file = dir.path().join("README.md");
         fs::write(&file, "# Hello").unwrap();

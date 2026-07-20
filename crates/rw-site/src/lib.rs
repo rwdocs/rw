@@ -78,7 +78,7 @@
 //! use rw_storage_fs::FsStorage;
 //!
 //! // Create a site backed by the local filesystem
-//! let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
+//! let storage = Arc::new(FsStorage::new(PathBuf::from("."), PathBuf::from("docs")));
 //! let config = PageRendererConfig::default();
 //! let cache = Arc::new(NullCache);
 //! let site = Arc::new(Site::new(storage, cache, config));

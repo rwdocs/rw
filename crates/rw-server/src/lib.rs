@@ -21,6 +21,7 @@
 //!     let config = ServerConfig {
 //!         host: "127.0.0.1".to_owned(),
 //!         port: 7979,
+//!         project_dir: PathBuf::from("."),
 //!         source_dir: PathBuf::from("docs"),
 //!         cache_dir: Some(PathBuf::from(".rw/cache")),
 //!         kroki_url: Some("https://kroki.io".to_owned()),
@@ -86,6 +87,9 @@ pub struct ServerConfig {
     pub host: String,
     /// Port to listen on.
     pub port: u16,
+    /// Project root — the directory containing `rw.toml`. The `README.md`
+    /// homepage fallback is resolved from it.
+    pub project_dir: PathBuf,
     /// Documentation source directory.
     pub source_dir: PathBuf,
     /// Cache directory (`None` disables caching).
@@ -118,6 +122,7 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_owned(),
             port: 7979,
+            project_dir: PathBuf::from("."),
             source_dir: PathBuf::from("docs"),
             cache_dir: None,
             kroki_url: None,
@@ -220,6 +225,7 @@ pub async fn run_server(
 ) -> Result<(), ServerError> {
     // Create shared storage backend
     let storage: Arc<dyn rw_storage::Storage> = Arc::new(FsStorage::with_meta_filename(
+        config.project_dir.clone(),
         config.source_dir.clone(),
         &config.meta_filename,
     ));
@@ -341,6 +347,7 @@ pub fn server_config_from_rw_config(
     ServerConfig {
         host: config.server.host.clone(),
         port: config.server.port,
+        project_dir: config.project_dir.clone(),
         source_dir: config.docs_resolved.source_dir.clone(),
         cache_dir: if config.docs_resolved.cache_enabled {
             Some(config.docs_resolved.cache_dir())

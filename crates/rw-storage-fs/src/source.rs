@@ -262,14 +262,30 @@ pub(crate) struct PathResolver {
     source_dir: PathBuf,
     /// Metadata file name (e.g. "meta.yaml").
     meta_filename: String,
-    /// README.md in the parent of `source_dir`, used as homepage fallback.
-    readme_path: Option<PathBuf>,
+    /// `README.md` in the project directory, used as the homepage fallback when
+    /// `source_dir/index.md` does not exist.
+    ///
+    /// This is only the candidate path; whether a file is actually there is
+    /// answered by [`PathResolver::existing_readme`].
+    readme_path: PathBuf,
 }
 
 impl PathResolver {
-    /// Build a resolver, auto-detecting the README homepage fallback.
-    pub(crate) fn new(source_dir: PathBuf, meta_filename: &str) -> Self {
-        let readme_path = source_dir.parent().map(|p| p.join("README.md"));
+    /// Build a resolver.
+    ///
+    /// `project_dir` is the project root — `rw_config::Config::project_dir`,
+    /// the directory containing `rw.toml`. The `README.md` homepage fallback
+    /// lives there.
+    ///
+    /// Do **not** derive it from `source_dir`: a nested (`docs/site`) or
+    /// absolute `docs.source_dir` puts `parent()` somewhere that isn't the
+    /// project root. See `rw_config::Config::project_dir`.
+    ///
+    /// The two directories differ in reference style because they differ in
+    /// use: `source_dir` is stored on the resolver, so it is taken owned, while
+    /// `project_dir` is only joined once to form `readme_path`.
+    pub(crate) fn new(project_dir: &Path, source_dir: PathBuf, meta_filename: &str) -> Self {
+        let readme_path = project_dir.join("README.md");
         Self {
             source_dir,
             meta_filename: meta_filename.to_owned(),
@@ -297,7 +313,7 @@ impl PathResolver {
     ///
     /// For root path (`""`):
     /// 1. `source_dir/index.md`
-    /// 2. `readme_path` (README.md in parent directory)
+    /// 2. `readme_path` (`README.md` in the project directory)
     ///
     /// For other paths:
     /// 1. `{path}/index.md` (directory structure preferred)
@@ -310,10 +326,8 @@ impl PathResolver {
             if index.exists() {
                 return Some(index);
             }
-            if let Some(ref readme) = self.readme_path
-                && readme.exists()
-            {
-                return Some(readme.clone());
+            if self.readme_path.exists() {
+                return Some(self.readme_path.clone());
             }
             return None;
         }
@@ -404,7 +418,7 @@ impl PathResolver {
             // `resolve_content` returns a clone of it. Do NOT make that method
             // canonicalize or rebuild the path without making this a
             // canonicalized comparison too.
-            if self.readme_path.as_deref() == Some(path) {
+            if self.readme_path == path {
                 return HOMEPAGE_FALLBACK_NAME.to_owned();
             }
             if let Some(name) = path.file_name() {
@@ -437,9 +451,9 @@ impl PathResolver {
         // index.md-then-README precedence the scanner uses, so a project with a
         // real `docs/index.md` (which shadows the README) does not map README.md
         // to the root here.
-        if let Some(readme) = &self.readme_path
-            && (file_path == Path::new("README.md")
-                || absolute(file_path).ok() == absolute(readme).ok())
+        let readme = &self.readme_path;
+        if (file_path == Path::new("README.md")
+            || absolute(file_path).ok() == absolute(readme).ok())
             && self.resolve_content("").as_deref() == Some(readme.as_path())
         {
             push(String::new());
@@ -483,7 +497,7 @@ impl PathResolver {
     /// that is never served, and this still returns it. Callers that need the
     /// actually-served homepage go through [`Self::resolve_content`] with `""`.
     pub(crate) fn existing_readme(&self) -> Option<&Path> {
-        self.readme_path.as_deref().filter(|p| p.exists())
+        self.readme_path.exists().then_some(&*self.readme_path)
     }
 
     /// Metadata for the injected README homepage document, when a README exists.
@@ -827,7 +841,7 @@ mod tests {
         std::fs::write(root.join("guide/meta.yaml"), "title: Canonical").unwrap();
         std::fs::write(root.join("guide/index.meta.yaml"), "title: Variant").unwrap();
 
-        let resolver = PathResolver::new(root.to_path_buf(), "meta.yaml");
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
 
         assert_eq!(
             resolver.resolve_meta("guide"),
@@ -841,7 +855,7 @@ mod tests {
         let root = dir.path();
         std::fs::write(root.join("payments.meta.yaml"), "title: Payments").unwrap();
 
-        let resolver = PathResolver::new(root.to_path_buf(), "meta.yaml");
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
 
         assert_eq!(
             resolver.resolve_meta("payments"),
@@ -857,7 +871,7 @@ mod tests {
         std::fs::write(root.join("domain/index.md"), "# Domain").unwrap();
         std::fs::write(root.join("domain.md"), "# Standalone").unwrap();
 
-        let resolver = PathResolver::new(root.to_path_buf(), "meta.yaml");
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
 
         assert_eq!(
             resolver.resolve_content("domain"),
@@ -873,7 +887,7 @@ mod tests {
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::write(root.join("README.md"), "Body.").unwrap();
 
-        let resolver = PathResolver::new(docs, "meta.yaml");
+        let resolver = PathResolver::new(root, docs, "meta.yaml");
         let homepage = resolver.resolve_content("").unwrap();
 
         // Not "readme.md" — the README homepage is titled like `scan` titles it.
@@ -886,7 +900,7 @@ mod tests {
     #[test]
     fn fallback_name_for_resolved_file_is_its_lowercased_filename() {
         // No file is created: the name comes from the path, not from disk.
-        let resolver = PathResolver::new(PathBuf::from("/docs"), "meta.yaml");
+        let resolver = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "meta.yaml");
 
         assert_eq!(
             resolver.content_fallback_name("guide", Some(Path::new("/docs/Guide.md"))),
@@ -896,7 +910,7 @@ mod tests {
 
     #[test]
     fn fallback_name_without_resolution_is_the_urls_last_segment() {
-        let resolver = PathResolver::new(PathBuf::from("/docs"), "meta.yaml");
+        let resolver = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "meta.yaml");
 
         assert_eq!(resolver.content_fallback_name("a/b/setup", None), "setup");
         assert_eq!(resolver.content_fallback_name("guide", None), "guide");
@@ -904,7 +918,7 @@ mod tests {
 
     #[test]
     fn fallback_name_without_resolution_at_root_is_the_shared_const() {
-        let resolver = PathResolver::new(PathBuf::from("/docs"), "meta.yaml");
+        let resolver = PathResolver::new(Path::new("/"), PathBuf::from("/docs"), "meta.yaml");
 
         assert_eq!(
             resolver.content_fallback_name("", None),
@@ -920,7 +934,7 @@ mod tests {
         std::fs::create_dir_all(&docs).unwrap();
         std::fs::write(root.join("README.md"), "# Readme Home").unwrap();
 
-        let resolver = PathResolver::new(docs, "meta.yaml");
+        let resolver = PathResolver::new(root, docs, "meta.yaml");
 
         assert_eq!(resolver.resolve_content(""), Some(root.join("README.md")));
     }

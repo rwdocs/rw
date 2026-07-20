@@ -35,17 +35,20 @@ fn main() {
 }
 
 fn create_site_with_config(
-    source_dir: PathBuf,
+    project_dir: PathBuf,
     cache: Arc<dyn Cache>,
     config: PageRendererConfig,
 ) -> Site {
-    let storage = Arc::new(FsStorage::new(source_dir));
+    // These fixtures keep their markdown at the project root rather than in a
+    // `docs/` subdirectory, so the project dir and the source dir are the same
+    // directory here.
+    let storage = Arc::new(FsStorage::new(project_dir.clone(), project_dir));
     Site::new(storage, cache, config)
 }
 
-fn create_site(source_dir: PathBuf) -> Site {
+fn create_site(project_dir: PathBuf) -> Site {
     create_site_with_config(
-        source_dir,
+        project_dir,
         Arc::new(NullCache),
         PageRendererConfig::default(),
     )

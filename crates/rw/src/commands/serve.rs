@@ -11,16 +11,25 @@ use crate::error::CliError;
 use crate::output::Output;
 
 /// Arguments for the serve command.
-#[derive(Args)]
+#[derive(Args, Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct ServeArgs {
     /// Path to configuration file (default: auto-discover rw.toml).
     #[arg(short, long)]
     config: Option<PathBuf>,
 
-    /// Documentation source directory (overrides config).
-    #[arg(short, long)]
-    source_dir: Option<PathBuf>,
+    /// Root the project at this directory instead of discovering `rw.toml`
+    /// upward from the current directory.
+    ///
+    /// Reads `<dir>/rw.toml` if present and otherwise uses defaults rooted
+    /// there. The directory is used as given and is never walked up from, so a
+    /// project cannot silently inherit configuration from a parent it does not
+    /// own.
+    ///
+    /// Long-form only: the freed `-s` is deliberately not rebound, so an old
+    /// `-s <dir>` command line fails instead of quietly meaning something else.
+    #[arg(long, conflicts_with = "config")]
+    project_dir: Option<PathBuf>,
 
     /// Host to bind to (overrides config).
     #[arg(long)]
@@ -81,14 +90,17 @@ impl ServeArgs {
         let cli_settings = CliSettings {
             host: self.host,
             port: self.port,
-            source_dir: self.source_dir,
             cache_enabled,
             kroki_url: self.kroki_url,
             live_reload_enabled,
         };
 
-        // Load config
-        let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
+        // `--project-dir` and `--config` are mutually exclusive (enforced by
+        // clap), so at most one of these branches can apply.
+        let config = match self.project_dir.as_deref() {
+            Some(dir) => Config::load_from_dir(dir, Some(&cli_settings))?,
+            None => Config::load(self.config.as_deref(), Some(&cli_settings))?,
+        };
 
         ensure_data_dir(&config.docs_resolved.data_dir)?;
 
@@ -223,9 +235,11 @@ mod tests {
     }
 
     fn parse(argv: &[&str]) -> ServeArgs {
-        TestCli::try_parse_from(argv)
-            .expect("args should parse")
-            .args
+        try_parse(argv).expect("args should parse")
+    }
+
+    fn try_parse(argv: &[&str]) -> Result<ServeArgs, clap::Error> {
+        TestCli::try_parse_from(argv).map(|cli| cli.args)
     }
 
     #[test]
@@ -259,5 +273,30 @@ mod tests {
     fn browser_url_rewrites_unspecified_ipv6_to_loopback() {
         let addr = "[::]:7991".parse().unwrap();
         assert_eq!(browser_url(addr), "http://[::1]:7991");
+    }
+
+    #[test]
+    fn project_dir_flag_is_accepted() {
+        let args = try_parse(&["rw", "--project-dir", "/somewhere"]).expect("parse");
+        assert_eq!(args.project_dir.as_deref(), Some(Path::new("/somewhere")));
+    }
+
+    #[test]
+    fn project_dir_has_no_short_flag() {
+        // `-s` is deliberately not rebound: an old `-s docs` command line must
+        // fail loudly rather than silently mean something new.
+        assert!(try_parse(&["rw", "-s", "/somewhere"]).is_err());
+    }
+
+    #[test]
+    fn source_dir_flag_is_rejected() {
+        assert!(try_parse(&["rw", "--source-dir", "docs"]).is_err());
+    }
+
+    #[test]
+    fn project_dir_conflicts_with_config() {
+        let err = try_parse(&["rw", "--project-dir", "/a", "--config", "/b/rw.toml"])
+            .expect_err("must conflict");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 }

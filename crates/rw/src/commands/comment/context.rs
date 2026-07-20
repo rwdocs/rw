@@ -27,6 +27,7 @@ impl Context {
 /// Build an [`FsStorage`] over the project's docs directory.
 fn build_storage(config: &Config) -> FsStorage {
     FsStorage::with_meta_filename(
+        config.project_dir.clone(),
         config.docs_resolved.source_dir.clone(),
         &config.metadata.name,
     )
@@ -107,7 +108,7 @@ mod tests {
         fs::write(billing.join("meta.yaml"), "kind: domain\n").unwrap();
         fs::write(billing.join("overview.md"), "# Overview\n").unwrap();
 
-        let storage = Arc::new(FsStorage::new(docs));
+        let storage = Arc::new(FsStorage::new(dir.path().to_path_buf(), docs));
         let site = Site::new(
             storage as Arc<dyn rw_storage::Storage>,
             Arc::new(NullCache),

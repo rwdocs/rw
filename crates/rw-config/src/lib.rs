@@ -40,8 +40,6 @@ pub struct CliSettings {
     pub host: Option<String>,
     /// Override server port.
     pub port: Option<u16>,
-    /// Override docs source directory.
-    pub source_dir: Option<PathBuf>,
     /// Override cache enabled flag.
     pub cache_enabled: Option<bool>,
     /// Override Kroki URL for diagram rendering.
@@ -81,6 +79,25 @@ pub struct Config {
     /// Resolved diagrams configuration (set after loading).
     #[serde(skip)]
     pub diagrams_resolved: DiagramsConfig,
+
+    /// Directory the project is rooted at — the directory containing `rw.toml`,
+    /// or, when no config file is involved, the directory the caller rooted the
+    /// configuration at.
+    ///
+    /// This is the base [`Self::resolve_paths`] resolves against, so
+    /// [`DocsConfig::source_dir`], [`DocsConfig::data_dir`], and
+    /// [`DiagramsConfig::include_dirs`] are all derived from it. A CLI override
+    /// breaks that relationship in one direction: `source_dir` can be replaced
+    /// outright without moving the project root, so it is not safe to assume
+    /// `source_dir` sits inside `project_dir`.
+    ///
+    /// Stored as supplied, not canonicalized: a relative path in yields a
+    /// relative project dir out, matching the paths derived from it.
+    // `#[serde(skip)]` is load-bearing: `Config` is `#[serde(default)]`, so
+    // without it a stray `project_dir = "…"` key in an `rw.toml` would
+    // deserialize straight into this field.
+    #[serde(skip)]
+    pub project_dir: PathBuf,
 }
 
 impl Default for Config {
@@ -220,6 +237,10 @@ pub enum ConfigError {
     /// File not found.
     #[error("Configuration file not found: {}", .0.display())]
     NotFound(PathBuf),
+    /// Explicitly supplied project directory does not exist, or is not a
+    /// directory.
+    #[error("Project directory not found: {}", .0.display())]
+    ProjectDirNotFound(PathBuf),
     /// I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -273,7 +294,7 @@ impl Config {
         config_path: Option<&Path>,
         cli_settings: Option<&CliSettings>,
     ) -> Result<Self, ConfigError> {
-        let mut config = if let Some(path) = config_path {
+        let config = if let Some(path) = config_path {
             if !path.exists() {
                 return Err(ConfigError::NotFound(path.to_path_buf()));
             }
@@ -284,15 +305,46 @@ impl Config {
             Self::default_with_cwd()
         };
 
-        if let Some(settings) = cli_settings {
-            config.apply_cli_settings(settings);
+        config.finish(cli_settings)
+    }
+
+    /// Load configuration rooted at `dir`.
+    ///
+    /// Loads `dir/rw.toml` if it exists; otherwise returns defaults rooted at
+    /// `dir`. Either way [`Config::project_dir`] is `dir` — see that field for
+    /// what the derived paths do and do not inherit from it.
+    ///
+    /// Unlike [`Self::load`]'s discovery branch, this does **not** walk up to a
+    /// parent directory. The caller has said where the project is; an
+    /// embedding host pointing at one entity's directory must not silently
+    /// inherit an `rw.toml` from a directory it does not own. This matches
+    /// `load`'s explicit-path branch, which does not walk either.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError::ProjectDirNotFound`] if `dir` does not exist or
+    /// is not a directory, an error if `dir/rw.toml` exists but cannot be read
+    /// or parsed, or an error if the resulting configuration fails validation.
+    pub fn load_from_dir(
+        dir: &Path,
+        cli_settings: Option<&CliSettings>,
+    ) -> Result<Self, ConfigError> {
+        // A missing directory must not resolve to defaults rooted at it, or the
+        // caller materializes the mistake instead of reporting it. An explicit
+        // config path already errors when the file is absent; this is the same
+        // contract for an explicit root.
+        if !dir.is_dir() {
+            return Err(ConfigError::ProjectDirNotFound(dir.to_path_buf()));
         }
 
-        config.apply_env_var_fallback();
+        let config_path = dir.join(CONFIG_FILENAME);
+        let config = if config_path.exists() {
+            Self::load_from_file(&config_path)?
+        } else {
+            Self::default_with_base(dir)
+        };
 
-        config.validate()?;
-
-        Ok(config)
+        config.finish(cli_settings)
     }
 
     /// Apply CLI settings to the configuration.
@@ -304,9 +356,6 @@ impl Config {
             self.server.port = port;
             // An explicit `-p`/`--port` is a hard requirement — no port fallback.
             self.server.port_explicit = true;
-        }
-        if let Some(source_dir) = &settings.source_dir {
-            self.docs_resolved.source_dir.clone_from(source_dir);
         }
         if let Some(cache_enabled) = settings.cache_enabled {
             self.docs_resolved.cache_enabled = cache_enabled;
@@ -369,6 +418,7 @@ impl Config {
                 cache_enabled: true,
             },
             diagrams_resolved: DiagramsConfig::default(),
+            project_dir: base.to_path_buf(),
         }
     }
 
@@ -380,8 +430,8 @@ impl Config {
         // Expand environment variables before path resolution
         config.expand_env_vars()?;
 
-        let config_dir = path.parent().unwrap_or(Path::new("."));
-        config.resolve_paths(config_dir);
+        config.project_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+        config.resolve_paths();
 
         Ok(config)
     }
@@ -442,17 +492,23 @@ impl Config {
         Ok(())
     }
 
-    /// Resolve relative paths in `docs` and `diagrams` against `config_dir`.
+    /// Resolve relative paths in `docs` and `diagrams` against
+    /// [`Config::project_dir`], which must already be set.
+    ///
+    /// Do **not** reintroduce a base parameter: reading the field keeps exactly
+    /// one value in play, so the field and the paths derived from it cannot
+    /// disagree.
     ///
     /// `[diagrams].kroki_url` is optional; downstream consumers decide how to
     /// react when absent. Does not validate field presence — callers must run
     /// [`Self::validate`] afterwards.
-    fn resolve_paths(&mut self, config_dir: &Path) {
-        let resolve = |path: Option<&str>, default: &str| config_dir.join(path.unwrap_or(default));
+    fn resolve_paths(&mut self) {
+        let project_dir = self.project_dir.clone();
+        let resolve = |path: Option<&str>, default: &str| project_dir.join(path.unwrap_or(default));
 
         self.docs_resolved = DocsConfig {
             source_dir: resolve(self.docs.source_dir.as_deref(), "docs"),
-            data_dir: config_dir.join(DATA_DIR_NAME),
+            data_dir: project_dir.join(DATA_DIR_NAME),
             cache_enabled: self.docs.cache_enabled.unwrap_or(true),
         };
 
@@ -462,7 +518,7 @@ impl Config {
                     .include_dirs
                     .iter()
                     .flatten()
-                    .map(|d| config_dir.join(d))
+                    .map(|d| project_dir.join(d))
                     .collect();
                 DiagramsConfig {
                     kroki_url: diagrams.kroki_url.clone(),
@@ -471,6 +527,21 @@ impl Config {
             }
             None => DiagramsConfig::default(),
         };
+    }
+
+    /// Apply the caller's overrides and the env-var fallback, then validate.
+    ///
+    /// Shared by [`Self::load`] and [`Self::load_from_dir`], which differ only
+    /// in how they choose a config source. Add new load-time steps here, not in
+    /// the callers: a step added to one entry point alone is silently skipped
+    /// by the other.
+    fn finish(mut self, cli_settings: Option<&CliSettings>) -> Result<Self, ConfigError> {
+        if let Some(settings) = cli_settings {
+            self.apply_cli_settings(settings);
+        }
+        self.apply_env_var_fallback();
+        self.validate()?;
+        Ok(self)
     }
 }
 
@@ -608,7 +679,8 @@ kroki_url = "https://kroki.io"
 include_dirs = ["diagrams", "shared/diagrams"]
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.resolve_paths(Path::new("/project"));
+        config.project_dir = PathBuf::from("/project");
+        config.resolve_paths();
 
         assert_eq!(
             config.docs_resolved.source_dir,
@@ -635,7 +707,8 @@ include_dirs = ["diagrams", "shared/diagrams"]
 include_dirs = ["plantuml-includes"]
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.resolve_paths(Path::new("/test"));
+        config.project_dir = PathBuf::from("/test");
+        config.resolve_paths();
         assert!(config.diagrams_resolved.kroki_url.is_none());
         assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
     }
@@ -653,7 +726,8 @@ access_secret = "y"
         // upgrades from configs that still contain the deleted [confluence] section.
         let mut config: Config =
             toml::from_str(toml).expect("stale [confluence] should be silently ignored");
-        config.resolve_paths(Path::new("/test"));
+        config.project_dir = PathBuf::from("/test");
+        config.resolve_paths();
 
         // The stale section must NOT leak into resolved state.
         assert!(config.diagrams_resolved.kroki_url.is_none());
@@ -668,7 +742,8 @@ access_secret = "y"
 source_dir = "documentation"
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
-        config.resolve_paths(Path::new("/project"));
+        config.project_dir = PathBuf::from("/project");
+        config.resolve_paths();
 
         assert!(config.diagrams_resolved.kroki_url.is_none());
         assert!(config.diagrams_resolved.include_dirs.is_empty());
@@ -700,23 +775,6 @@ source_dir = "documentation"
 
         assert_eq!(config.server.port, 9000);
         assert_eq!(config.server.host, "127.0.0.1"); // Unchanged
-    }
-
-    #[test]
-    fn test_apply_cli_settings_source_dir() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        let overrides = CliSettings {
-            source_dir: Some(PathBuf::from("/custom/docs")),
-            ..Default::default()
-        };
-
-        config.apply_cli_settings(&overrides);
-
-        assert_eq!(
-            config.docs_resolved.source_dir,
-            PathBuf::from("/custom/docs")
-        );
-        assert_eq!(config.docs_resolved.data_dir, PathBuf::from("/test/.rw")); // Unchanged
     }
 
     #[test]
@@ -1076,5 +1134,168 @@ host = "127.0.0.1"
             Some("https://env.example".to_owned())
         );
         assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
+    }
+
+    #[test]
+    fn project_dir_is_the_config_file_parent() {
+        let (dir, toml_path) =
+            rw_toml_tempdir("project-dir-parent", "[docs]\nsource_dir = \"docs\"\n");
+        let config = Config::load_from_file(&toml_path).expect("load config");
+
+        assert_eq!(config.project_dir, dir.path());
+        assert_eq!(config.docs_resolved.source_dir, dir.path().join("docs"));
+        assert_eq!(
+            config.docs_resolved.data_dir,
+            dir.path().join(DATA_DIR_NAME)
+        );
+    }
+
+    #[test]
+    fn project_dir_is_the_base_for_a_nested_source_dir() {
+        let (dir, toml_path) =
+            rw_toml_tempdir("project-dir-nested", "[docs]\nsource_dir = \"docs/site\"\n");
+        let config = Config::load_from_file(&toml_path).expect("load config");
+
+        // The project dir is the toml's parent, NOT the source dir's parent.
+        assert_eq!(config.project_dir, dir.path());
+        assert_eq!(
+            config.docs_resolved.source_dir,
+            dir.path().join("docs/site")
+        );
+    }
+
+    #[test]
+    fn project_dir_is_not_read_from_the_toml() {
+        // Pins `#[serde(skip)]` on `project_dir` in isolation: parse with a bare
+        // `toml::from_str::<Config>()`, NOT `Config::load_from_file`, which would
+        // unconditionally overwrite `project_dir` from the path's parent
+        // afterwards and pass regardless of the attribute.
+        let toml = "project_dir = \"/definitely/elsewhere\"\n";
+        let config: Config = toml::from_str(toml).unwrap();
+
+        assert_eq!(config.project_dir, PathBuf::from("."));
+    }
+
+    #[test]
+    fn load_from_dir_loads_the_toml_in_that_dir() {
+        let _env = EnvGuard::new();
+        let (dir, _toml_path) =
+            rw_toml_tempdir("from-dir-present", "[docs]\nsource_dir = \"content\"\n");
+
+        let config = Config::load_from_dir(dir.path(), None).expect("load from dir");
+
+        assert_eq!(config.project_dir, dir.path());
+        assert_eq!(config.docs_resolved.source_dir, dir.path().join("content"));
+    }
+
+    #[test]
+    fn load_from_dir_uses_defaults_rooted_at_dir_when_no_toml() {
+        let _env = EnvGuard::new();
+        let dir = tempfile::Builder::new()
+            .prefix("rw-config-test-from-dir-absent-")
+            .tempdir()
+            .expect("create tempdir");
+
+        let config = Config::load_from_dir(dir.path(), None).expect("load from dir");
+
+        assert_eq!(config.project_dir, dir.path());
+        assert_eq!(config.docs_resolved.source_dir, dir.path().join("docs"));
+        assert_eq!(
+            config.docs_resolved.data_dir,
+            dir.path().join(DATA_DIR_NAME)
+        );
+    }
+
+    #[test]
+    fn load_from_dir_does_not_walk_up_to_a_parent_toml() {
+        let _env = EnvGuard::new();
+        // A parent with an rw.toml, and a child without one. An embedding host
+        // pointing at the child must not inherit config it does not own.
+        let (parent, _toml_path) = rw_toml_tempdir(
+            "from-dir-no-walk",
+            "[docs]\nsource_dir = \"parent-content\"\n",
+        );
+        let child = parent.path().join("child");
+        std::fs::create_dir(&child).expect("create child dir");
+
+        let config = Config::load_from_dir(&child, None).expect("load from dir");
+
+        assert_eq!(config.project_dir, child);
+        assert_eq!(config.docs_resolved.source_dir, child.join("docs"));
+    }
+
+    #[test]
+    fn load_from_dir_rejects_a_missing_directory() {
+        let _env = EnvGuard::new();
+        // A mistyped `--project-dir` (or `projectDir`) must fail loudly. Without
+        // the check it resolves to defaults rooted at a directory that is not
+        // there, and the caller then materializes it: `rw serve` creates
+        // `<typo>/.rw/`, and `rw backstage publish` can push an empty bundle
+        // over good published docs.
+        let dir = tempfile::Builder::new()
+            .prefix("rw-config-test-from-dir-missing-")
+            .tempdir()
+            .expect("create tempdir");
+
+        let err = Config::load_from_dir(&dir.path().join("not-here"), None)
+            .expect_err("a missing project directory must be rejected");
+
+        assert_matches!(err, ConfigError::ProjectDirNotFound(_));
+    }
+
+    #[test]
+    fn load_from_dir_rejects_a_path_that_is_not_a_directory() {
+        let _env = EnvGuard::new();
+        // Same class as the missing case: `dir.join("rw.toml")` under a *file*
+        // is a path that cannot exist, so without the check this silently
+        // succeeds with a nonsense root.
+        let (dir, toml_path) = rw_toml_tempdir("from-dir-not-a-dir", "");
+
+        let err = Config::load_from_dir(&toml_path, None)
+            .expect_err("a file must be rejected as a project directory");
+
+        assert_matches!(err, ConfigError::ProjectDirNotFound(_));
+        drop(dir);
+    }
+
+    #[test]
+    fn load_from_dir_applies_cli_settings_and_validates() {
+        let _env = EnvGuard::new();
+        let (dir, _toml_path) = rw_toml_tempdir("from-dir-cli", "[docs]\nsource_dir = \"docs\"\n");
+        let settings = CliSettings {
+            kroki_url: Some("https://kroki.example".to_owned()),
+            ..CliSettings::default()
+        };
+
+        let config = Config::load_from_dir(dir.path(), Some(&settings)).expect("load from dir");
+
+        assert_eq!(
+            config.diagrams_resolved.kroki_url.as_deref(),
+            Some("https://kroki.example")
+        );
+
+        // The other half of `finish`: a config that fails validation must not
+        // load. Without this, dropping `self.validate()?` from `finish` would
+        // leave this test green.
+        let (bad_dir, _bad_toml) = rw_toml_tempdir("from-dir-invalid", "[server]\nport = 0\n");
+
+        assert_matches!(
+            Config::load_from_dir(bad_dir.path(), None),
+            Err(ConfigError::Validation(_))
+        );
+    }
+
+    #[test]
+    fn include_dirs_resolve_against_project_dir() {
+        let (dir, toml_path) = rw_toml_tempdir(
+            "project-dir-includes",
+            "[diagrams]\nkroki_url = \"https://kroki.io\"\ninclude_dirs = [\"puml\"]\n",
+        );
+        let config = Config::load_from_file(&toml_path).expect("load config");
+
+        assert_eq!(
+            config.diagrams_resolved.include_dirs,
+            vec![dir.path().join("puml")]
+        );
     }
 }

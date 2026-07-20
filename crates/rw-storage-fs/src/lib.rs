@@ -16,7 +16,7 @@
 //! use rw_storage::Storage;
 //! use rw_storage_fs::FsStorage;
 //!
-//! let storage = FsStorage::new(PathBuf::from("docs"));
+//! let storage = FsStorage::new(PathBuf::from("."), PathBuf::from("docs"));
 //! let documents = storage.scan()?;
 //! for doc in documents {
 //!     println!("{}: {}", doc.path, doc.title);
@@ -90,7 +90,7 @@ struct CachedMeta {
 /// use rw_storage::Storage;
 /// use rw_storage_fs::FsStorage;
 ///
-/// let storage = FsStorage::new(PathBuf::from("docs"));
+/// let storage = FsStorage::new(PathBuf::from("."), PathBuf::from("docs"));
 /// let documents = storage.scan()?;
 /// for doc in documents {
 ///     println!("{}: {}", doc.path, doc.title);
@@ -101,6 +101,11 @@ struct CachedMeta {
 pub struct FsStorage {
     /// Cloned into the watch drain thread, which resolves through the same rules.
     resolver: PathResolver,
+    /// Project root — see `rw_config::Config::project_dir`. Stored for git
+    /// repository discovery in [`FsStorage::with_mtime_source`]; the `README.md`
+    /// homepage candidate is baked into `resolver` at construction and does not
+    /// read this field.
+    project_dir: PathBuf,
     /// Scanner for document discovery.
     scanner: Scanner,
     /// Mtime cache for incremental metadata extraction.
@@ -151,10 +156,11 @@ impl FsStorage {
     ///
     /// # Arguments
     ///
+    /// * `project_dir` - see [`with_meta_filename`](Self::with_meta_filename)
     /// * `source_dir` - Root directory containing markdown files
     #[must_use]
-    pub fn new(source_dir: PathBuf) -> Self {
-        Self::with_meta_filename(source_dir, DEFAULT_META_FILENAME)
+    pub fn new(project_dir: PathBuf, source_dir: PathBuf) -> Self {
+        Self::with_meta_filename(project_dir, source_dir, DEFAULT_META_FILENAME)
     }
 
     /// Create a new filesystem storage with a custom metadata filename.
@@ -163,20 +169,27 @@ impl FsStorage {
     ///
     /// # Arguments
     ///
+    /// * `project_dir` - Project root; the `README.md` homepage fallback and
+    ///   git repository discovery are resolved from it
     /// * `source_dir` - Root directory containing markdown files
     /// * `meta_filename` - Name of metadata files (e.g., "meta.yaml")
     ///
     /// Modification times default to [`MtimeSource::Filesystem`]; call
     /// [`with_mtime_source`](Self::with_mtime_source) to opt into git times.
     #[must_use]
-    pub fn with_meta_filename(source_dir: PathBuf, meta_filename: &str) -> Self {
+    pub fn with_meta_filename(
+        project_dir: PathBuf,
+        source_dir: PathBuf,
+        meta_filename: &str,
+    ) -> Self {
         let scanner = Scanner::new(&source_dir, meta_filename);
-        let resolver = PathResolver::new(source_dir, meta_filename);
+        let resolver = PathResolver::new(&project_dir, source_dir, meta_filename);
 
         Self {
             watch_patterns: resolver.watch_patterns(),
             scanner,
             resolver,
+            project_dir,
             mtime_cache: RwLock::new(HashMap::new()),
             mtime: MtimeStrategy::Filesystem,
         }
@@ -185,7 +198,7 @@ impl FsStorage {
     /// Selects the modification-time source (default
     /// [`Filesystem`](MtimeSource::Filesystem)).
     ///
-    /// [`Git`](MtimeSource::Git) discovers the repository from `source_dir` and
+    /// [`Git`](MtimeSource::Git) discovers the repository from `project_dir` and
     /// uses commit times; [`Filesystem`](MtimeSource::Filesystem) does a plain
     /// `stat` and touches no git state.
     #[must_use]
@@ -193,10 +206,10 @@ impl FsStorage {
         self.mtime = match source {
             MtimeSource::Filesystem => MtimeStrategy::Filesystem,
             MtimeSource::Git => {
-                let vcs = Vcs::new(self.resolver.source_dir());
+                let vcs = Vcs::new(&self.project_dir);
                 if !vcs.has_repo() {
                     tracing::warn!(
-                        source_dir = %self.resolver.source_dir().display(),
+                        project_dir = %self.project_dir.display(),
                         "git modification times requested but no git repository was \
                          found; page times will fall back to filesystem times",
                     );
@@ -814,6 +827,30 @@ mod tests {
     }
 
     #[test]
+    fn readme_homepage_is_found_at_the_project_root_with_a_nested_source_dir() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let project_dir = temp.path().to_path_buf();
+        let source_dir = project_dir.join("docs").join("site");
+        std::fs::create_dir_all(&source_dir).expect("create nested source dir");
+        std::fs::write(project_dir.join("README.md"), "# From the project root\n")
+            .expect("write README");
+        // Decoy: a README resolved from `source_dir.parent()` would land here.
+        std::fs::write(
+            project_dir.join("docs").join("README.md"),
+            "# Wrong README\n",
+        )
+        .expect("write decoy README");
+
+        let storage = FsStorage::new(project_dir, source_dir);
+        let content = storage.read("").expect("read homepage");
+
+        assert!(
+            content.contains("From the project root"),
+            "expected the project-root README, got: {content}"
+        );
+    }
+
+    #[test]
     fn test_sidecar_combines_metadata_and_content() {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Original H1\n\nBody.").unwrap();
@@ -823,7 +860,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         let doc = docs.iter().find(|d| d.path == "guide").unwrap();
@@ -845,7 +882,7 @@ mod tests {
         // Sibling form for the same url path "foo".
         fs::write(temp_dir.path().join("foo.meta.yaml"), "title: Sibling Foo").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let meta = storage.meta("foo").unwrap().unwrap();
         assert_eq!(meta.title, Some("Directory Foo".to_owned()));
     }
@@ -857,7 +894,7 @@ mod tests {
         fs::create_dir(&dir).unwrap();
         fs::write(dir.join("index.meta.yaml"), "kind: domain").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         let doc = docs.iter().find(|d| d.path == "my-domain").unwrap();
@@ -875,7 +912,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let meta = storage.meta("payments").unwrap().unwrap();
 
         assert_eq!(meta.title, Some("Payments Service".to_owned()));
@@ -896,7 +933,7 @@ mod tests {
         fs::create_dir(&foo_dir).unwrap();
         fs::write(foo_dir.join("bar.md"), "# Bar").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let meta = storage.meta("foo/bar").unwrap();
 
         // The sibling foo.meta.yaml must NOT cascade its title into foo/bar:
@@ -918,7 +955,7 @@ mod tests {
         fs::write(dir.join("index.meta.yaml"), "title: Dir Title").unwrap();
         fs::write(dir.join("child.md"), "# Child").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         // "dir" still has its own metadata.
         assert_eq!(
@@ -944,7 +981,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         assert!(storage.exists("payments"));
     }
 
@@ -957,7 +994,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         let doc = docs.iter().find(|d| d.path == "payments").unwrap();
@@ -971,7 +1008,7 @@ mod tests {
     fn test_scan_empty_dir() {
         let temp_dir = create_test_dir();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert!(docs.is_empty());
@@ -979,7 +1016,7 @@ mod tests {
 
     #[test]
     fn test_scan_missing_dir() {
-        let storage = FsStorage::new(PathBuf::from("/nonexistent"));
+        let storage = FsStorage::new(PathBuf::from("/nonexistent"), PathBuf::from("/nonexistent"));
         let docs = storage.scan().unwrap();
 
         assert!(docs.is_empty());
@@ -991,7 +1028,7 @@ mod tests {
         fs::write(temp_dir.path().join("guide.md"), "# User Guide\n\nContent.").unwrap();
         fs::write(temp_dir.path().join("api.md"), "# API Reference\n\nDocs.").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 2);
@@ -1008,7 +1045,7 @@ mod tests {
         fs::write(domain_dir.join("index.md"), "# Domain\n\nOverview.").unwrap();
         fs::write(domain_dir.join("guide.md"), "# Domain Guide\n\nSteps.").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 2);
@@ -1026,7 +1063,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
@@ -1042,7 +1079,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
@@ -1055,7 +1092,7 @@ mod tests {
         fs::write(temp_dir.path().join(".hidden.md"), "# Hidden").unwrap();
         fs::write(temp_dir.path().join("visible.md"), "# Visible").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
@@ -1070,7 +1107,7 @@ mod tests {
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
         fs::write(domain_dir.join("meta.yaml"), "kind: domain").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
@@ -1089,7 +1126,11 @@ mod tests {
         fs::write(domain_dir.join("config.yml"), "kind: section").unwrap();
         fs::write(domain_dir.join("meta.yaml"), "ignored").unwrap(); // Should be ignored
 
-        let storage = FsStorage::with_meta_filename(temp_dir.path().to_path_buf(), "config.yml");
+        let storage = FsStorage::with_meta_filename(
+            temp_dir.path().to_path_buf(),
+            temp_dir.path().to_path_buf(),
+            "config.yml",
+        );
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
@@ -1104,7 +1145,7 @@ mod tests {
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
         fs::write(temp_dir.path().join("meta.yaml"), "title: Home Title").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
@@ -1122,7 +1163,7 @@ mod tests {
         // No index.md, only meta.yaml
         fs::write(domain_dir.join("meta.yaml"), "title: Domain Title").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
@@ -1141,7 +1182,7 @@ mod tests {
         // No title but has kind in meta.yaml
         fs::write(domain_dir.join("meta.yaml"), "kind: domain").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
@@ -1157,7 +1198,7 @@ mod tests {
         fs::create_dir(&domain_dir).unwrap();
         // No meta.yaml, no index.md
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         assert!(docs.is_empty());
@@ -1175,7 +1216,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let meta = storage.meta("domain").unwrap();
 
         assert!(meta.is_some());
@@ -1190,7 +1231,7 @@ mod tests {
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
         fs::write(temp_dir.path().join("meta.yaml"), "title: Home").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let meta = storage.meta("").unwrap();
 
         assert!(meta.is_some());
@@ -1203,7 +1244,7 @@ mod tests {
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
         // No meta.yaml
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let result = storage.meta("").unwrap();
 
         assert!(result.is_none());
@@ -1221,7 +1262,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let meta = storage.meta("domain").unwrap().unwrap();
 
         assert_eq!(meta.title, Some("Domain".to_owned()));
@@ -1250,7 +1291,7 @@ mod tests {
         fs::create_dir(&child).unwrap();
         fs::write(child.join("index.md"), "# Child").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         // Nothing cascades down, so there is no metadata at all for the child.
         assert!(storage.meta("parent/child").unwrap().is_none());
@@ -1268,7 +1309,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let meta = storage.meta("guide").unwrap().unwrap();
 
         assert_eq!(meta.title, Some("Guide".to_owned()));
@@ -1279,7 +1320,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide\n\nContent here.").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let content = storage.read("guide").unwrap();
 
         assert_eq!(content, "# Guide\n\nContent here.");
@@ -1293,7 +1334,7 @@ mod tests {
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
         fs::write(domain_dir.join("guide.md"), "# Domain Guide").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         // Read the domain index
         let content = storage.read("domain").unwrap();
         assert_eq!(content, "# Domain");
@@ -1307,7 +1348,7 @@ mod tests {
     fn test_read_missing_file() {
         let temp_dir = create_test_dir();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let result = storage.read("nonexistent");
 
         assert!(result.is_err());
@@ -1321,7 +1362,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         assert!(storage.exists("guide"));
     }
@@ -1330,7 +1371,7 @@ mod tests {
     fn test_exists_returns_false_for_missing_file() {
         let temp_dir = create_test_dir();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         assert!(!storage.exists("nonexistent"));
     }
@@ -1342,7 +1383,7 @@ mod tests {
         fs::create_dir(&subdir).unwrap();
         fs::write(subdir.join("index.md"), "# Subdir").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         assert!(storage.exists("subdir"));
     }
@@ -1352,7 +1393,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Original Title").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         // First scan
         let docs1 = storage.scan().unwrap();
@@ -1368,7 +1409,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Original Title").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         // First scan
         let docs1 = storage.scan().unwrap();
@@ -1393,7 +1434,7 @@ mod tests {
         fs::write(guide_dir.join("index.md"), "# H1 Title").unwrap();
         fs::write(guide_dir.join("meta.yaml"), "title: YAML Title").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         // First scan — meta.yaml title wins over H1
         let docs1 = storage.scan().unwrap();
@@ -1419,7 +1460,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let resolved = storage.resolve_content("");
 
         assert!(resolved.is_some());
@@ -1431,7 +1472,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let resolved = storage.resolve_content("guide");
 
         assert!(resolved.is_some());
@@ -1442,7 +1483,7 @@ mod tests {
     fn test_resolve_content_not_found() {
         let temp_dir = create_test_dir();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let resolved = storage.resolve_content("nonexistent");
 
         assert!(resolved.is_none());
@@ -1491,7 +1532,8 @@ mod tests {
         let source_dir = dir.path().to_path_buf();
 
         // Git mode: the 2020 commit time (well before 1_600_000_000 = 2020-09).
-        let git = FsStorage::new(source_dir.clone()).with_mtime_source(MtimeSource::Git);
+        let git = FsStorage::new(source_dir.clone(), source_dir.clone())
+            .with_mtime_source(MtimeSource::Git);
         let git_mtime = git.mtime("guide").unwrap();
         assert!(
             git_mtime < 1_600_000_000.0,
@@ -1499,7 +1541,7 @@ mod tests {
         );
 
         // Filesystem mode (the default): the file's on-disk mtime = ~now.
-        let fs = FsStorage::new(source_dir);
+        let fs = FsStorage::new(source_dir.clone(), source_dir);
         let fs_mtime = fs.mtime("guide").unwrap();
         assert!(
             fs_mtime > 1_600_000_000.0,
@@ -1510,10 +1552,10 @@ mod tests {
     #[test]
     fn git_mode_resolves_commit_time_for_readme_only_project() {
         // README-only site: no docs/ dir, so the default source_dir points at a
-        // non-existent <repo>/docs. Git discovery must climb to the repo root
-        // and still report the README's commit time — not the fs checkout time.
-        // Use dir.path() as-is (do NOT canonicalize): discovery climbs to it, so
-        // gix's workdir and the resolved README path share the same form and
+        // non-existent <repo>/docs. Git discovery runs from the project dir (the
+        // repo root) and must report the README's commit time — not the fs
+        // checkout time. Use dir.path() as-is (do NOT canonicalize): gix's
+        // workdir and the resolved README path must share the same form so
         // repo_relative_path strips cleanly on every platform. Canonicalizing
         // introduces the Windows `\\?\` verbatim prefix (and the macOS
         // /var -> /private/var swap) that gix's workdir lacks, defeating the
@@ -1522,7 +1564,8 @@ mod tests {
         let missing_source_dir = dir.path().join("docs");
         assert!(!missing_source_dir.exists());
 
-        let storage = FsStorage::new(missing_source_dir).with_mtime_source(MtimeSource::Git);
+        let storage = FsStorage::new(dir.path().to_path_buf(), missing_source_dir)
+            .with_mtime_source(MtimeSource::Git);
 
         // The homepage ("") resolves to the root README; its mtime must be the
         // 2020 commit time (< 2020-09), proving git discovery succeeded.
@@ -1542,7 +1585,8 @@ mod tests {
         let dir = create_test_dir();
         fs::write(dir.path().join("guide.md"), "# Guide").unwrap();
 
-        let storage = FsStorage::new(dir.path().to_path_buf()).with_mtime_source(MtimeSource::Git);
+        let storage = FsStorage::new(dir.path().to_path_buf(), dir.path().to_path_buf())
+            .with_mtime_source(MtimeSource::Git);
         let mtime = storage.mtime("guide").unwrap();
 
         let now = std::time::SystemTime::now()
@@ -1560,7 +1604,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let mtime = storage.mtime("guide").unwrap();
 
         // mtime should be a recent timestamp (within last minute)
@@ -1576,7 +1620,7 @@ mod tests {
     fn test_mtime_missing_file() {
         let temp_dir = create_test_dir();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let result = storage.mtime("nonexistent");
 
         assert!(result.is_err());
@@ -1590,7 +1634,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("guide.md"), "# Guide").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let result = storage.read("../etc/passwd");
 
         assert!(result.is_err());
@@ -1603,7 +1647,7 @@ mod tests {
     fn test_read_rejects_nested_path_traversal() {
         let temp_dir = create_test_dir();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let result = storage.read("subdir/../../etc/passwd");
 
         assert!(result.is_err());
@@ -1615,7 +1659,7 @@ mod tests {
     fn test_mtime_rejects_path_traversal() {
         let temp_dir = create_test_dir();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let result = storage.mtime("../etc/passwd");
 
         assert!(result.is_err());
@@ -1628,7 +1672,7 @@ mod tests {
     fn test_exists_rejects_path_traversal() {
         let temp_dir = create_test_dir();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         // Path traversal should return false (treated as non-existent)
         assert!(!storage.exists("../etc/passwd"));
@@ -1637,7 +1681,7 @@ mod tests {
     #[test]
     fn test_watch_returns_receiver_and_handle() {
         let temp_dir = create_test_dir();
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         let result = storage.watch();
         assert!(result.is_ok());
@@ -1650,16 +1694,21 @@ mod tests {
         let missing = temp_dir.path().join("docs");
         assert!(!missing.exists());
 
-        let storage = FsStorage::new(missing);
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), missing);
         // watch() must not fail just because docs/ is absent.
         assert!(storage.watch().is_ok());
     }
 
     #[test]
     fn test_watch_succeeds_with_relative_missing_source_dir() {
-        // Relative source_dir whose parent() is the empty path must not error.
-        // Assert only Ok — do not depend on any README.md in the test's cwd.
-        let storage = FsStorage::new(PathBuf::from("nonexistent-docs-rw-test"));
+        // A relative, non-existent source_dir must not error. The project_dir
+        // is a tempdir so the README candidate can't resolve to a real file in
+        // whatever cwd the test happens to run from.
+        let temp = create_test_dir();
+        let storage = FsStorage::new(
+            temp.path().to_path_buf(),
+            PathBuf::from("nonexistent-docs-rw-test"),
+        );
         assert!(storage.watch().is_ok());
     }
 
@@ -1670,7 +1719,7 @@ mod tests {
         fs::write(temp_dir.path().join("README.md"), "# Atlas").unwrap();
         let missing = temp_dir.path().join("docs");
 
-        let storage = FsStorage::new(missing);
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), missing);
         let docs = storage.scan().unwrap();
 
         let home = docs.iter().find(|d| d.path.is_empty());
@@ -1757,7 +1806,7 @@ mod tests {
         // Ensure directory exists before watching
         assert!(temp_path.exists());
 
-        let storage = FsStorage::new(temp_path.clone());
+        let storage = FsStorage::new(temp_path.clone(), temp_path.clone());
         let (rx, _handle) = storage.watch().unwrap();
 
         // Wait for watcher to be ready
@@ -1790,7 +1839,7 @@ mod tests {
         let docs = temp_dir.path().join("docs");
         assert!(!docs.exists());
 
-        let storage = FsStorage::new(docs.clone());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), docs.clone());
         let (rx, _handle) = storage.watch().unwrap();
 
         // Create docs/ and a page inside it.
@@ -1817,7 +1866,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("existing.md"), "# Original").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let (rx, _handle) = storage.watch().unwrap();
 
         // Wait for watcher to be ready
@@ -1843,7 +1892,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("to-delete.md"), "# Delete Me").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let (rx, _handle) = storage.watch().unwrap();
 
         // Wait for watcher to be ready
@@ -1867,7 +1916,7 @@ mod tests {
     #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_respects_patterns() {
         let temp_dir = create_test_dir();
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         let (rx, _handle) = storage.watch().unwrap();
 
@@ -1900,7 +1949,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(temp_dir.path().join("file.md"), "# Original").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let (rx, _handle) = storage.watch().unwrap();
 
         // Wait for watcher to be ready
@@ -1930,7 +1979,7 @@ mod tests {
     #[ignore = "timing-sensitive, can be flaky in test environments"]
     fn test_watch_handle_stops_watching() {
         let temp_dir = create_test_dir();
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
 
         let (rx, handle) = storage.watch().unwrap();
 
@@ -1957,7 +2006,7 @@ mod tests {
     /// Create a test directory with `docs/` subdirectory and README.md,
     /// returning `(temp_dir, project_root, FsStorage)`.
     ///
-    /// `FsStorage` auto-detects README.md in `source_dir`'s parent directory.
+    /// `FsStorage` resolves the README homepage fallback from `project_dir`.
     fn create_readme_test_dir(readme_content: &str) -> (tempfile::TempDir, PathBuf, FsStorage) {
         let temp_dir = create_test_dir();
         let project_root = temp_dir.path().to_path_buf();
@@ -1965,7 +2014,7 @@ mod tests {
         fs::create_dir(&source_dir).unwrap();
         fs::write(project_root.join("README.md"), readme_content).unwrap();
 
-        let storage = FsStorage::new(source_dir);
+        let storage = FsStorage::new(project_root.clone(), source_dir);
         (temp_dir, project_root, storage)
     }
 
@@ -2075,7 +2124,7 @@ mod tests {
         fs::create_dir(&old_dir).unwrap();
         fs::write(old_dir.join("index.md"), "# Page").unwrap();
 
-        let storage = FsStorage::new(base.clone());
+        let storage = FsStorage::new(base.clone(), base.clone());
         let (rx, _handle) = storage.watch().unwrap();
 
         // Wait for watcher to be ready
@@ -2113,7 +2162,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(docs_dir);
+        let storage = FsStorage::new(dir.path().to_path_buf(), docs_dir);
         let docs = storage.scan().unwrap();
 
         let guides = docs.iter().find(|d| d.path == "guides").unwrap();
@@ -2138,7 +2187,7 @@ mod tests {
         .unwrap();
         fs::write(docs_dir.join("guides/alpha.md"), "# Alpha").unwrap();
 
-        let storage = FsStorage::new(docs_dir);
+        let storage = FsStorage::new(dir.path().to_path_buf(), docs_dir);
         let docs = storage.scan().unwrap();
 
         let guides = docs.iter().find(|d| d.path == "guides").unwrap();
@@ -2152,7 +2201,7 @@ mod tests {
         fs::create_dir_all(&docs_dir).unwrap();
         fs::write(docs_dir.join("guide.md"), "# Guide").unwrap();
 
-        let storage = FsStorage::new(docs_dir);
+        let storage = FsStorage::new(dir.path().to_path_buf(), docs_dir);
         let docs = storage.scan().unwrap();
 
         let guide = docs.iter().find(|d| d.path == "guide").unwrap();
@@ -2171,7 +2220,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
         let doc = docs.iter().find(|d| d.path == "billing").unwrap();
         assert_eq!(doc.namespace.as_deref(), Some("payments"));
@@ -2183,7 +2232,7 @@ mod tests {
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
         fs::write(temp_dir.path().join("meta.yaml"), "namespace: bad/value").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let err = storage.scan().unwrap_err();
         let msg = err.to_string();
         assert!(
@@ -2200,7 +2249,7 @@ mod tests {
         fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
         fs::write(temp_dir.path().join("meta.yaml"), "namespace: bad/value").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let err = storage.scan().unwrap_err();
         let msg = err.to_string();
         assert!(
@@ -2218,7 +2267,7 @@ mod tests {
             path: PathBuf::from("/docs/systems/payments.meta.yaml"),
             kind: RawEventKind::Removed,
         };
-        let resolver = PathResolver::new(source_dir.to_path_buf(), "meta.yaml");
+        let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
         let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "systems/payments");
     }
@@ -2232,7 +2281,7 @@ mod tests {
             path: PathBuf::from("/docs/dir/index.meta.yaml"),
             kind: RawEventKind::Removed,
         };
-        let resolver = PathResolver::new(source_dir.to_path_buf(), "meta.yaml");
+        let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
         let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "dir"); // NOT "dir/index"
     }
@@ -2246,7 +2295,7 @@ mod tests {
             path: PathBuf::from("/docs/dir/meta.yaml"),
             kind: RawEventKind::Removed,
         };
-        let resolver = PathResolver::new(source_dir.to_path_buf(), "meta.yaml");
+        let resolver = PathResolver::new(source_dir, source_dir.to_path_buf(), "meta.yaml");
         let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "dir");
     }
@@ -2266,7 +2315,8 @@ mod tests {
             path: temp_dir.path().join("payments.meta.yaml"),
             kind: RawEventKind::Modified,
         };
-        let resolver = PathResolver::new(temp_dir.path().to_path_buf(), "meta.yaml");
+        let resolver =
+            PathResolver::new(temp_dir.path(), temp_dir.path().to_path_buf(), "meta.yaml");
         let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "payments");
         match storage_event.kind {
@@ -2293,7 +2343,7 @@ mod tests {
             path: project_root.path().join("README.md"),
             kind: RawEventKind::Modified,
         };
-        let resolver = PathResolver::new(source_dir, "meta.yaml");
+        let resolver = PathResolver::new(project_root.path(), source_dir, "meta.yaml");
         let storage_event = to_storage_event(&event, &resolver);
         assert_eq!(storage_event.path, "");
         match storage_event.kind {
@@ -2318,7 +2368,7 @@ mod tests {
         fs::create_dir_all(&docs).unwrap();
         fs::write(root.join("README.md"), "Body with no heading.").unwrap();
 
-        let storage = FsStorage::new(docs.clone());
+        let storage = FsStorage::new(root.to_path_buf(), docs.clone());
         let scan_title = storage
             .scan()
             .unwrap()
@@ -2327,7 +2377,7 @@ mod tests {
             .expect("README homepage document")
             .title;
 
-        let resolver = PathResolver::new(docs, "meta.yaml");
+        let resolver = PathResolver::new(root, docs, "meta.yaml");
         let event = DebouncedEvent {
             path: root.join("README.md"),
             kind: RawEventKind::Modified,
@@ -2383,7 +2433,7 @@ mod tests {
         fs::create_dir_all(root.join("elsewhere")).unwrap();
         fs::write(root.join("elsewhere/x.md"), "# X").unwrap();
 
-        let storage = FsStorage::new(docs);
+        let storage = FsStorage::new(root.to_path_buf(), docs);
         (tmp, storage)
     }
 
@@ -2453,7 +2503,7 @@ mod tests {
         fs::create_dir_all(&docs).unwrap();
         fs::write(docs.join("guide.md"), "# Guide").unwrap();
         fs::write(tmp.path().join("README.md"), "# Home").unwrap();
-        let storage = FsStorage::new(docs);
+        let storage = FsStorage::new(tmp.path().to_path_buf(), docs);
         assert_eq!(
             storage.url_paths_for_source(Path::new("README.md")),
             vec![String::new()]
@@ -2536,7 +2586,7 @@ mod tests {
         fs::create_dir(&domain).unwrap();
         fs::write(domain.join("index.md"), "# Domain").unwrap();
 
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
 
         let guide = docs.iter().find(|d| d.path == "guide").unwrap();
@@ -2583,8 +2633,8 @@ mod tests {
         fs::write(root.join("both/index.md"), "# Both Index").unwrap();
         fs::write(root.join("both.md"), "# Both Standalone").unwrap();
 
-        let storage = FsStorage::new(root.to_path_buf());
-        let resolver = PathResolver::new(root.to_path_buf(), "meta.yaml");
+        let storage = FsStorage::new(root.to_path_buf(), root.to_path_buf());
+        let resolver = PathResolver::new(root, root.to_path_buf(), "meta.yaml");
         let refs = storage.scanner.scan();
 
         let mut urls: Vec<_> = refs.iter().map(|r| r.url_path.clone()).collect();

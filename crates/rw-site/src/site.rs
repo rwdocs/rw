@@ -112,7 +112,7 @@ impl TitleResolver for SiteTitleResolver {
 /// use rw_cache::NullCache;
 /// use rw_storage_fs::FsStorage;
 ///
-/// let storage = Arc::new(FsStorage::new(PathBuf::from("docs")));
+/// let storage = Arc::new(FsStorage::new(PathBuf::from("."), PathBuf::from("docs")));
 /// let site = Arc::new(Site::new(
 ///     storage,
 ///     Arc::new(NullCache),
@@ -1700,7 +1700,11 @@ mod tests {
             extract_title: true,
             ..Default::default()
         };
-        let site = Site::new(Arc::new(FsStorage::new(docs.clone())), cache, config);
+        let site = Site::new(
+            Arc::new(FsStorage::new(dir.path().to_path_buf(), docs.clone())),
+            cache,
+            config,
+        );
 
         // First render: cache miss, display text is B's current title.
         let r1 = site.render("a").unwrap();
@@ -1803,7 +1807,7 @@ mod tests {
         )
         .unwrap();
 
-        let storage = FsStorage::new(docs);
+        let storage = FsStorage::new(dir.path().to_path_buf(), docs);
         let config = PageRendererConfig::default();
         let site = Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config);
         let snapshot = site.reload_if_needed().unwrap();
@@ -1827,7 +1831,7 @@ mod tests {
         std::fs::write(specs.join("notif.md"), "# Notif\n\n[inbox](./inbox.md)").unwrap();
         std::fs::write(specs.join("inbox.md"), "# Inbox").unwrap();
 
-        let storage = FsStorage::new(docs);
+        let storage = FsStorage::new(temp.path().to_path_buf(), docs);
         let config = PageRendererConfig {
             extract_title: true,
             ..Default::default()

@@ -1,13 +1,27 @@
 # Embedding
 
-This page covers two concerns for embedding `@rwdocs/viewer` (or rendering pages
-through `@rwdocs/core`) in a host application: resolving cross-entity links via
-`resolveSectionRefs`, and durable comment keys for hosts that store their own
-comments.
+This page covers three concerns for embedding `@rwdocs/viewer` (or rendering pages
+through `@rwdocs/core`) in a host application: pointing `@rwdocs/core` at a site
+with `projectDir`, resolving cross-entity links via `resolveSectionRefs`, and
+durable comment keys for hosts that store their own comments.
 
 When you embed the viewer in a host application that stores **its own**
 comments — for example the Backstage plugin pair — each comment needs a stable
 identifier for the page it annotates.
+
+## `projectDir` roots every path
+
+`createSite({ projectDir })` in `@rwdocs/core` names the project root, and every
+path RW uses is derived from it: the docs source directory, the `.rw/` directory
+holding the render cache and the comments database, and the PlantUML `!include`
+search directories. If `projectDir` contains an `rw.toml`, that file is loaded
+and its relative paths resolve against `projectDir`; if it does not, defaults
+rooted at `projectDir` are used.
+
+RW does **not** walk up from `projectDir` looking for an `rw.toml` in a parent
+directory, and it does not consult the Node process's working directory. A host
+that mounts several sites can therefore point each `createSite` call at its own
+directory without one site's configuration leaking into another.
 
 ## `resolveSectionRefs` must map the site-root ref
 

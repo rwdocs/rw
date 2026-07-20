@@ -26,8 +26,11 @@ fn main() {
     divan::main();
 }
 
-fn create_site(source_dir: PathBuf) -> Site {
-    let storage = Arc::new(FsStorage::new(source_dir));
+fn create_site(project_dir: PathBuf) -> Site {
+    // This fixture keeps its markdown at the project root rather than in a
+    // `docs/` subdirectory, so the project dir and the source dir are the same
+    // directory here.
+    let storage = Arc::new(FsStorage::new(project_dir.clone(), project_dir));
     let config = PageRendererConfig::default();
     Site::new(storage, Arc::new(rw_cache::NullCache), config)
 }
