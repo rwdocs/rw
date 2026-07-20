@@ -70,7 +70,6 @@ export declare function createSite(config: SiteConfig): RwSite
 
 export interface DiagramsConfig {
   krokiUrl?: string
-  dpi?: number
 }
 
 export interface NavigationResponse {

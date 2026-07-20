@@ -57,7 +57,6 @@ pub(crate) struct RenderContext {
 /// // Enable diagram rendering via a Kroki instance
 /// let config = PageRendererConfig {
 ///     kroki_url: Some("https://kroki.io".to_owned()),
-///     dpi: 144,
 ///     ..Default::default()
 /// };
 /// ```
@@ -74,8 +73,6 @@ pub struct PageRendererConfig {
     /// Directories to search when resolving `PlantUML` `!include` directives.
     /// Defaults to empty (no include resolution).
     pub include_dirs: Vec<PathBuf>,
-    /// DPI for rendered diagram images. Defaults to `192` (retina).
-    pub dpi: u32,
 }
 
 impl Default for PageRendererConfig {
@@ -84,7 +81,6 @@ impl Default for PageRendererConfig {
             extract_title: true,
             kroki_url: None,
             include_dirs: Vec::new(),
-            dpi: 192,
         }
     }
 }
@@ -282,7 +278,7 @@ pub(crate) fn apply_breadcrumb_sections(breadcrumbs: &mut [BreadcrumbItem], sect
 /// Fingerprint of the diagram configuration that affects rendered output.
 ///
 /// Folded into the page-cache etag so that changing `kroki_url` (including
-/// unset→set), `dpi`, or `include_dirs` invalidates cached pages — otherwise a
+/// unset→set) or `include_dirs` invalidates cached pages — otherwise a
 /// page rendered while diagrams were misconfigured would be served from cache
 /// even after the config is fixed.
 ///
@@ -292,12 +288,11 @@ pub(crate) fn apply_breadcrumb_sections(breadcrumbs: &mut [BreadcrumbItem], sect
 /// hash identically across restarts of the same binary; a stdlib change would
 /// only cause a one-time safe re-render, and a crate version bump wipes the
 /// cache anyway.
-fn diagram_config_fingerprint(kroki_url: Option<&str>, dpi: u32, include_dirs: &[PathBuf]) -> u64 {
+fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf]) -> u64 {
     let mut hasher = DefaultHasher::new();
     // `Option<&str>` hashes `None` and `Some(_)` distinctly, so presence and
     // value are both captured.
     kroki_url.hash(&mut hasher);
-    dpi.hash(&mut hasher);
     // Order is significant (include search order), so do not sort.
     include_dirs.hash(&mut hasher);
     hasher.finish()
@@ -315,7 +310,6 @@ pub(crate) struct PageRenderer {
     extract_title: bool,
     kroki_url: Option<String>,
     include_dirs: Vec<PathBuf>,
-    dpi: u32,
     diagram_config_fingerprint: u64,
 }
 
@@ -326,11 +320,8 @@ impl PageRenderer {
         cache: Arc<dyn Cache>,
         config: PageRendererConfig,
     ) -> Self {
-        let diagram_config_fingerprint = diagram_config_fingerprint(
-            config.kroki_url.as_deref(),
-            config.dpi,
-            &config.include_dirs,
-        );
+        let diagram_config_fingerprint =
+            diagram_config_fingerprint(config.kroki_url.as_deref(), &config.include_dirs);
         Self {
             storage,
             page_bucket: cache.bucket("pages"),
@@ -338,7 +329,6 @@ impl PageRenderer {
             extract_title: config.extract_title,
             kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
-            dpi: config.dpi,
             diagram_config_fingerprint,
         }
     }
@@ -417,7 +407,7 @@ impl PageRenderer {
         // fingerprint (a cross-page change — another page's title/description/
         // section that this render resolves — invalidates this page even though
         // its own file is unchanged), and the diagram-config fingerprint (a
-        // `kroki_url`/`dpi`/`include_dirs` change invalidates every page so a
+        // A `kroki_url`/`include_dirs` change invalidates every page so a
         // page rendered under a broken diagram config is not served stale).
         // `mtime` (f64) never contains ':', and both fingerprints are decimal
         // digits, so the ':' delimiter stays unambiguous.
@@ -619,7 +609,6 @@ impl PageRenderer {
 
         let mut processor = DiagramProcessor::new(url)
             .include_dirs(&self.include_dirs)
-            .dpi(self.dpi)
             .with_cache(self.cache.bucket("diagrams"));
 
         if let Some(source) = meta_include_source {
@@ -858,24 +847,22 @@ mod tests {
     fn diagram_config_fingerprint_distinguishes_inputs() {
         use std::path::PathBuf;
 
-        let base = diagram_config_fingerprint(None, 192, &[]);
+        let base = diagram_config_fingerprint(None, &[]);
 
         // Presence of kroki_url matters (unset vs set).
-        assert_ne!(base, diagram_config_fingerprint(Some("http://k"), 192, &[]));
+        assert_ne!(base, diagram_config_fingerprint(Some("http://k"), &[]));
         // Value of kroki_url matters (switching servers).
         assert_ne!(
-            diagram_config_fingerprint(Some("http://a"), 192, &[]),
-            diagram_config_fingerprint(Some("http://b"), 192, &[]),
+            diagram_config_fingerprint(Some("http://a"), &[]),
+            diagram_config_fingerprint(Some("http://b"), &[]),
         );
-        // dpi matters.
-        assert_ne!(base, diagram_config_fingerprint(None, 300, &[]));
         // include_dirs matter.
         assert_ne!(
             base,
-            diagram_config_fingerprint(None, 192, &[PathBuf::from("/inc")]),
+            diagram_config_fingerprint(None, &[PathBuf::from("/inc")]),
         );
         // Stable for identical inputs.
-        assert_eq!(base, diagram_config_fingerprint(None, 192, &[]));
+        assert_eq!(base, diagram_config_fingerprint(None, &[]));
     }
 
     #[test]

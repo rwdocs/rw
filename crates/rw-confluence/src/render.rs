@@ -19,8 +19,6 @@ pub struct RenderOptions {
     /// Directories to search for `PlantUML` `!include` resolution.
     pub include_dirs: Vec<PathBuf>,
     /// DPI for diagram rendering. `None` means "use the renderer's
-    /// default" (today 192, owned by `rw-kroki`).
-    pub dpi: Option<u32>,
     /// Pull title from the first H1 heading. Default `false`.
     pub extract_title: bool,
     /// Prepend a Confluence TOC macro to the rendered XHTML. Default
@@ -87,13 +85,10 @@ pub fn render(
         }
     }
 
-    let mut page_renderer = PageRenderer::new()
+    let page_renderer = PageRenderer::new()
         .prepend_toc(opts.prepend_toc)
         .extract_title(opts.extract_title)
         .include_dirs(opts.include_dirs);
-    if let Some(dpi) = opts.dpi {
-        page_renderer = page_renderer.dpi(dpi);
-    }
 
     let render_result = page_renderer.render(markdown, opts.kroki_url.as_deref(), Some(out_dir));
 

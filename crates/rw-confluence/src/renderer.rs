@@ -13,7 +13,7 @@
 //!
 //! # Usage
 //!
-//! Create a `PageRenderer` with builder methods (`prepend_toc`, `extract_title`, `dpi`),
+//! Create a `PageRenderer` with builder methods (`prepend_toc`, `extract_title`),
 //! then call `render(markdown, kroki_url, diagram_dir)` to produce Confluence XHTML.
 
 use rw_kroki::{DiagramOutput, DiagramProcessor};
@@ -36,7 +36,6 @@ pub(crate) struct PageRenderer {
     prepend_toc: bool,
     extract_title: bool,
     include_dirs: Vec<PathBuf>,
-    dpi: Option<u32>,
 }
 
 impl Default for PageRenderer {
@@ -53,7 +52,6 @@ impl PageRenderer {
             prepend_toc: false,
             extract_title: false,
             include_dirs: Vec::new(),
-            dpi: None,
         }
     }
 
@@ -78,15 +76,6 @@ impl PageRenderer {
         dirs: impl IntoIterator<Item = impl Into<PathBuf>>,
     ) -> Self {
         self.include_dirs = dirs.into_iter().map(Into::into).collect();
-        self
-    }
-
-    /// Set DPI for `PlantUML` diagram rendering.
-    ///
-    /// Default is 192 (2x for retina displays). Set to 96 for standard resolution.
-    #[must_use]
-    pub(crate) fn dpi(mut self, dpi: u32) -> Self {
-        self.dpi = Some(dpi);
         self
     }
 
@@ -128,12 +117,7 @@ impl PageRenderer {
 
     /// Create a diagram processor with common configuration.
     fn create_diagram_processor(&self, kroki_url: &str) -> DiagramProcessor {
-        let mut processor = DiagramProcessor::new(kroki_url).include_dirs(&self.include_dirs);
-
-        if let Some(dpi) = self.dpi {
-            processor = processor.dpi(dpi);
-        }
-        processor
+        DiagramProcessor::new(kroki_url).include_dirs(&self.include_dirs)
     }
 
     /// Build the settings-only renderer.

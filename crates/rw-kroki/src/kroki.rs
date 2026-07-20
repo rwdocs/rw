@@ -27,7 +27,9 @@ pub struct RenderedDiagram {
     pub index: usize,
     pub filename: String,
     pub width: u32,
-    pub height: u32,
+    /// Language this was rendered from. Only PlantUML-family output is
+    /// oversized, so the caller needs it to decide whether to scale.
+    pub language: DiagramLanguage,
 }
 
 /// Result of rendering a single diagram to SVG.
@@ -37,6 +39,8 @@ pub struct RenderedSvg {
     pub index: usize,
     /// SVG content as a string.
     pub svg: String,
+    /// Language this was rendered from — see [`RenderedDiagram::language`].
+    pub language: DiagramLanguage,
 }
 
 /// Result of rendering a single diagram to PNG (as base64 data URI).
@@ -46,6 +50,8 @@ pub struct RenderedPngDataUri {
     pub index: usize,
     /// PNG data as base64-encoded data URI.
     pub data_uri: String,
+    /// Language this was rendered from — see [`RenderedDiagram::language`].
+    pub language: DiagramLanguage,
 }
 
 /// Diagram info for rendering.
@@ -165,6 +171,22 @@ fn get_png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
     Some((width, height))
 }
 
+/// Extract width and height from a `data:image/png;base64,...` URI.
+///
+/// Only the IHDR chunk is needed, so this decodes just the leading bytes rather
+/// than the whole image — inline diagrams are cached as data URIs, so this runs
+/// on every cache hit as well as every fresh render.
+pub(crate) fn png_data_uri_dimensions(data_uri: &str) -> Option<(u32, u32)> {
+    const PNG_HEADER_LEN: usize = 24;
+    // 4 base64 chars encode 3 bytes; round up so the slice covers the header.
+    const B64_PREFIX_LEN: usize = PNG_HEADER_LEN.div_ceil(3) * 4;
+
+    let b64 = data_uri.strip_prefix("data:image/png;base64,")?;
+    let prefix = b64.get(..B64_PREFIX_LEN)?;
+    let bytes = BASE64_STANDARD.decode(prefix).ok()?;
+    get_png_dimensions(&bytes)
+}
+
 /// Send a diagram to Kroki and return the response body as bytes.
 ///
 /// Handles HTTP errors by reading the response body for error details.
@@ -206,19 +228,25 @@ fn render_one_png(
     diagram: &DiagramRequest,
     server_url: &str,
     output_dir: &Path,
-    dpi: u32,
 ) -> Result<RenderedDiagram, DiagramError> {
     let data = send_diagram_request(agent, diagram, server_url, "png")?;
 
-    let (width, height) =
+    // Height is unused: consumers size diagrams by width and let aspect ratio
+    // follow, but a malformed PNG header must still fail the render here.
+    let (width, _) =
         get_png_dimensions(&data).ok_or_else(|| diagram.error(DiagramErrorKind::InvalidPng))?;
 
     let endpoint = diagram.language.kroki_endpoint();
     let key = DiagramKey {
         source: &diagram.source,
         endpoint,
+        // The attachment is content-addressed, so the key must only carry
+        // inputs that change the bytes. A PlantUML source already contains its
+        // injected `skinparam dpi`, so the raw setting adds nothing here; for
+        // every other language it changes nothing about the render, and keying
+        // on it renamed byte-identical attachments on every DPI change.
+        dpi: diagram.language.render_dpi(),
         format: "png",
-        dpi,
     };
     let hash = &key.compute_hash()[..12];
     let filename = format!("diagram_{hash}.png");
@@ -230,7 +258,7 @@ fn render_one_png(
         index: diagram.index,
         filename,
         width,
-        height,
+        language: diagram.language,
     })
 }
 
@@ -253,7 +281,6 @@ pub fn render_all(
     diagrams: &[DiagramRequest],
     server_url: &str,
     output_dir: &Path,
-    dpi: u32,
     agent: &Agent,
 ) -> PartialRenderResult<RenderedDiagram> {
     if diagrams.is_empty() {
@@ -267,7 +294,7 @@ pub fn render_all(
 
     let results: Vec<Result<RenderedDiagram, DiagramError>> = diagrams
         .par_iter()
-        .map(|d| render_one_png(agent, d, server_url, output_dir, dpi))
+        .map(|d| render_one_png(agent, d, server_url, output_dir))
         .collect();
 
     partition_results(results)
@@ -286,6 +313,7 @@ fn render_one_svg(
     Ok(RenderedSvg {
         index: diagram.index,
         svg,
+        language: diagram.language,
     })
 }
 
@@ -307,6 +335,7 @@ fn render_one_png_data_uri(
     Ok(RenderedPngDataUri {
         index: diagram.index,
         data_uri,
+        language: diagram.language,
     })
 }
 
@@ -476,6 +505,59 @@ mod tests {
 
         let dims = get_png_dimensions(&png_data);
         assert_eq!(dims, Some((100, 50)));
+    }
+
+    /// Builds the attachment key exactly as `render_one_png` does.
+    fn png_filename_hash(language: DiagramLanguage, source: &str) -> String {
+        let key = DiagramKey {
+            source,
+            endpoint: language.kroki_endpoint(),
+            dpi: language.render_dpi(),
+            format: "png",
+        };
+        key.compute_hash()[..12].to_owned()
+    }
+
+    /// Pins the published attachment name. Changing how the key is built would
+    /// re-upload every `PlantUML` attachment ever published and orphan the old
+    /// ones, so it must not happen by accident.
+    #[test]
+    fn plantuml_attachment_name_is_unchanged() {
+        let source = "@startuml\nskinparam dpi 192\nAlice -> Bob\n@enduml";
+        assert_eq!(
+            png_filename_hash(DiagramLanguage::PlantUml, source),
+            "0332e48adfdd"
+        );
+    }
+
+    /// The render DPI is part of the key, and it now follows from the language
+    /// alone — so two languages that render at different sizes cannot collide,
+    /// and no setting can rename an attachment out from under a published page.
+    #[test]
+    fn attachment_name_follows_the_language() {
+        let source = "A -> B";
+        assert_ne!(
+            png_filename_hash(DiagramLanguage::PlantUml, source),
+            png_filename_hash(DiagramLanguage::Mermaid, source),
+        );
+    }
+
+    #[test]
+    fn test_png_data_uri_dimensions() {
+        // 200x100 PNG header, base64'd — only the IHDR chunk is needed.
+        let uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAABkAAAAAAA=";
+        assert_eq!(png_data_uri_dimensions(uri), Some((200, 100)));
+    }
+
+    #[test]
+    fn test_png_data_uri_dimensions_rejects_non_png_uri() {
+        // An SVG data URI reaches this only through a bug; it must not be
+        // mistaken for a PNG whose first bytes happen to decode.
+        assert_eq!(
+            png_data_uri_dimensions("data:image/svg+xml;base64,PHN2Zy8+"),
+            None
+        );
+        assert_eq!(png_data_uri_dimensions("data:image/png;base64,AAAA"), None);
     }
 
     #[test]

@@ -2,6 +2,8 @@
 //!
 //! Supports multiple diagram languages via Kroki: `PlantUML`, Mermaid, `GraphViz`, etc.
 
+use crate::consts::{DEFAULT_DPI, STANDARD_DPI};
+
 /// Supported diagram languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagramLanguage {
@@ -88,6 +90,24 @@ impl DiagramLanguage {
     #[must_use]
     pub fn needs_plantuml_preprocessing(self) -> bool {
         matches!(self, Self::PlantUml | Self::C4PlantUml)
+    }
+
+    /// The DPI this language's output has to be scaled back down from.
+    ///
+    /// Only the languages that get a `skinparam dpi` injected into their source
+    /// are rendered oversized, so only those need correcting. Everything else
+    /// renders at a size Kroki alone decides, and reporting [`STANDARD_DPI`] for
+    /// them makes the scaling a no-op.
+    ///
+    /// This is the single definition of that rule: the HTML and Confluence
+    /// paths each used to apply the correction themselves, and drifted apart.
+    #[must_use]
+    pub fn render_dpi(self) -> u32 {
+        if self.needs_plantuml_preprocessing() {
+            DEFAULT_DPI
+        } else {
+            STANDARD_DPI
+        }
     }
 }
 

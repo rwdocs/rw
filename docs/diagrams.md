@@ -14,12 +14,10 @@ Add a `[diagrams]` section to your `rw.toml`:
 [diagrams]
 kroki_url = "https://kroki.io"  # Kroki server URL (required)
 include_dirs = ["."]            # PlantUML !include search paths
-dpi = 192                       # DPI for diagrams (default: 192, retina)
 ```
 
 - **`kroki_url`** -- URL of the Kroki server. Required when the `[diagrams]` section is present.
 - **`include_dirs`** -- Directories to search when resolving PlantUML `!include` directives.
-- **`dpi`** -- DPI for rendered diagrams. The default of 192 produces retina-quality output.
 
 ### Without `rw.toml`
 
@@ -153,7 +151,11 @@ The file `common/common-styles.iuml` will be found and included before rendering
 
 Diagrams are rendered server-side via Kroki and embedded as SVGs. Key details:
 
-- The default DPI of 192 produces retina-quality output suitable for high-resolution displays.
+- PlantUML and C4 diagrams are rendered at twice their display size and scaled back down
+  in the page, which is what keeps them crisp on high-resolution displays. Other formats
+  render at Kroki's own size and are shown as-is. This is automatic and not configurable:
+  it is a no-op for SVG (the default output, which scales losslessly anyway) and the
+  values in between were never useful.
 - PlantUML diagrams use the Roboto font by default (`skinparam defaultFontName Roboto`).
 - Rendering is performed in parallel for pages with multiple diagrams.
 - Rendered diagrams are cached to avoid redundant requests to the Kroki server.

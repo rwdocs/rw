@@ -39,7 +39,6 @@ pub(super) fn build_site(config: &Config) -> Site {
     let renderer_config = PageRendererConfig {
         kroki_url: config.diagrams_resolved.kroki_url.clone(),
         include_dirs: config.diagrams_resolved.include_dirs.clone(),
-        dpi: config.diagrams_resolved.dpi,
         ..PageRendererConfig::default()
     };
     Site::new(storage, cache, renderer_config)

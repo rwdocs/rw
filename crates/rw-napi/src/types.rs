@@ -8,7 +8,6 @@ use serde_json::Value;
 pub struct DiagramsConfig {
     #[napi(js_name = "krokiUrl")]
     pub kroki_url: Option<String>,
-    pub dpi: Option<u32>,
 }
 
 #[napi(object)]
