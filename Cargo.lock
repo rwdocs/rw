@@ -4291,7 +4291,6 @@ version = "0.1.33"
 dependencies = [
  "pulldown-cmark",
  "serde",
- "serde_json",
  "serde_yaml",
 ]
 

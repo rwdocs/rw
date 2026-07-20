@@ -161,7 +161,6 @@ export interface PageMetaResponse {
   lastModified: string
   description?: string
   kind?: string
-  vars?: any
   sectionRef: string
   /**
    * Page path relative to its section root. Stable across whole-section

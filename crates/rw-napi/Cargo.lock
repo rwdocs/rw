@@ -3091,7 +3091,6 @@ version = "0.1.33"
 dependencies = [
  "pulldown-cmark",
  "serde",
- "serde_json",
  "serde_yaml",
 ]
 
@@ -3110,7 +3109,6 @@ dependencies = [
  "rw-storage",
  "rw-storage-fs",
  "rw-storage-s3",
- "serde_json",
  "tokio",
 ]
 
@@ -3155,7 +3153,6 @@ version = "0.1.33"
 dependencies = [
  "chrono",
  "serde",
- "serde_json",
  "thiserror",
 ]
 

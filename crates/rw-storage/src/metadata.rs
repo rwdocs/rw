@@ -1,17 +1,14 @@
 //! Page metadata types for storage backends.
 //!
 //! Provides the [`Metadata`] struct for storing page-level configuration.
-//! This module contains only data types - parsing and inheritance logic
-//! is implemented by individual storage backends.
+//! This module contains only data types - parsing logic is implemented by
+//! individual storage backends.
 //!
 //! # Metadata Fields
 //!
 //! - `title`: Custom page title (overrides H1 extraction)
 //! - `description`: Page description for display
 //! - `page_kind`: Page kind (e.g., "domain", "guide")
-//! - `vars`: Custom variables for templating
-
-use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -42,10 +39,6 @@ pub struct Metadata {
     )]
     pub page_kind: Option<String>,
 
-    /// Custom variables for templating or frontend use.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub vars: HashMap<String, serde_json::Value>,
-
     /// Ordered list of child page slugs for navigation ordering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pages: Option<Vec<String>>,
@@ -58,7 +51,6 @@ impl Metadata {
         self.title.is_none()
             && self.description.is_none()
             && self.page_kind.is_none()
-            && self.vars.is_empty()
             && self.pages.is_none()
     }
 }
@@ -81,7 +73,6 @@ mod tests {
         assert!(meta.title.is_none());
         assert!(meta.description.is_none());
         assert!(meta.page_kind.is_none());
-        assert!(meta.vars.is_empty());
     }
 
     #[test]
@@ -112,17 +103,6 @@ mod tests {
     fn test_is_empty_with_page_kind() {
         let meta = Metadata {
             page_kind: Some("domain".to_owned()),
-            ..Default::default()
-        };
-        assert!(!meta.is_empty());
-    }
-
-    #[test]
-    fn test_is_empty_with_vars() {
-        let mut vars = HashMap::new();
-        vars.insert("key".to_owned(), serde_json::json!("value"));
-        let meta = Metadata {
-            vars,
             ..Default::default()
         };
         assert!(!meta.is_empty());

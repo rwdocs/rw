@@ -1,7 +1,7 @@
 //! Mock storage implementation for testing.
 //!
 //! Provides [`MockStorage`] for unit testing without filesystem access.
-//! This implementation returns metadata exactly as set - no inheritance logic.
+//! Metadata is returned exactly as configured, with no cascading or merging.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -34,8 +34,8 @@ impl std::fmt::Debug for ScanHook {
 /// Stores documents and content in memory. Use the builder methods
 /// to configure the mock with test data.
 ///
-/// Unlike `FsStorage`, this implementation does NOT apply metadata inheritance.
-/// Metadata is returned exactly as set via `with_metadata()`.
+/// Metadata is returned exactly as set via `with_metadata()` — no inheritance
+/// or merging is applied.
 ///
 /// # Example
 ///
@@ -263,8 +263,7 @@ impl MockStorage {
 
     /// Add metadata for a URL path.
     ///
-    /// Note: Unlike `FsStorage`, metadata is returned exactly as set.
-    /// No inheritance logic is applied.
+    /// Metadata is returned exactly as set, with no inheritance applied.
     #[must_use]
     pub fn with_metadata(self, path: impl Into<String>, metadata: Metadata) -> Self {
         self.metadata.write().insert(path.into(), metadata);
@@ -436,12 +435,11 @@ impl Storage for MockStorage {
     }
 
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
-        // Simple lookup - no inheritance
+        // Simple lookup, returning metadata exactly as configured
         Ok(self.metadata.read().get(path).map(|m| Metadata {
             title: m.title.clone(),
             description: m.description.clone(),
             page_kind: m.page_kind.clone(),
-            vars: m.vars.clone(),
             pages: m.pages.clone(),
         }))
     }
@@ -600,9 +598,7 @@ mod tests {
     fn test_meta_no_inheritance() {
         // MockStorage does NOT implement inheritance
         let root_meta = Metadata {
-            vars: [("org".to_owned(), serde_json::json!("acme"))]
-                .into_iter()
-                .collect(),
+            title: Some("Root Title".to_owned()),
             ..Default::default()
         };
         let storage = MockStorage::new().with_metadata("", root_meta);

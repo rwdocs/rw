@@ -54,9 +54,6 @@ struct PageMeta {
     /// Page kind (from metadata, indicates a section).
     #[serde(skip_serializing_if = "Option::is_none", rename = "kind")]
     page_kind: Option<String>,
-    /// Custom variables (from metadata).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    vars: Option<serde_json::Value>,
     /// Section ref for this page's section.
     section_ref: String,
     /// Page path relative to its section root (stable across section moves).
@@ -152,18 +149,10 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
 
     // Build response using render result fields directly
     // Add leading slash to path for JSON response (frontend expects URLs with leading slash)
-    let (description, page_kind, vars) = if let Some(ref meta) = result.metadata {
-        (
-            meta.description.clone(),
-            meta.page_kind.clone(),
-            if meta.vars.is_empty() {
-                None
-            } else {
-                Some(serde_json::to_value(&meta.vars).unwrap_or_default())
-            },
-        )
+    let (description, page_kind) = if let Some(ref meta) = result.metadata {
+        (meta.description.clone(), meta.page_kind.clone())
     } else {
-        (None, None, None)
+        (None, None)
     };
 
     let (section_ref, subpath) = state.site.section_location(&path)?;
@@ -180,7 +169,6 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
             last_modified: last_modified.to_rfc3339(),
             description,
             page_kind,
-            vars,
             section_ref,
             subpath,
         },
@@ -224,7 +212,6 @@ mod tests {
                 last_modified: "2025-01-01T00:00:00Z".to_owned(),
                 description: None,
                 page_kind: None,
-                vars: None,
                 section_ref: "section:default/root".to_owned(),
                 subpath: "guide".to_owned(),
             },
@@ -384,7 +371,6 @@ mod tests {
             last_modified: "2025-01-01T00:00:00Z".to_owned(),
             description: None,
             page_kind: None,
-            vars: None,
             section_ref: "section:default/root".to_owned(),
             subpath: "guide".to_owned(),
         };
@@ -397,17 +383,13 @@ mod tests {
         assert_eq!(json["lastModified"], "2025-01-01T00:00:00Z");
         assert_eq!(json["sectionRef"], "section:default/root");
         assert_eq!(json["subpath"], "guide");
-        // description, kind, and vars should be omitted when None
+        // description and kind should be omitted when None
         assert!(json.get("description").is_none());
         assert!(json.get("kind").is_none());
-        assert!(json.get("vars").is_none());
     }
 
     #[test]
     fn test_page_meta_serialization_with_metadata() {
-        let mut vars = std::collections::HashMap::new();
-        vars.insert("owner".to_owned(), serde_json::json!("team-a"));
-
         let meta = PageMeta {
             title: Some("Domain Guide".to_owned()),
             path: "/domain".to_owned(),
@@ -415,7 +397,6 @@ mod tests {
             last_modified: "2025-01-01T00:00:00Z".to_owned(),
             description: Some("Domain overview".to_owned()),
             page_kind: Some("domain".to_owned()),
-            vars: Some(serde_json::to_value(vars).unwrap()),
             section_ref: "domain:default/domain".to_owned(),
             // This page IS the section root (path == section scope), so its
             // section-relative subpath is the empty string.
@@ -427,7 +408,6 @@ mod tests {
         assert_eq!(json["title"], "Domain Guide");
         assert_eq!(json["description"], "Domain overview");
         assert_eq!(json["kind"], "domain");
-        assert_eq!(json["vars"]["owner"], "team-a");
         assert_eq!(json["sectionRef"], "domain:default/domain");
         assert_eq!(json["subpath"], "");
     }

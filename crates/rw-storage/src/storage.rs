@@ -325,10 +325,10 @@ pub trait Storage: Send + Sync {
         Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
     }
 
-    /// Read metadata for a URL path with inheritance applied.
+    /// Read metadata for a URL path.
     ///
-    /// Returns full [`Metadata`] with vars merged from ancestors.
-    /// Each backend handles its own format and inheritance strategy.
+    /// Returns only what the page's own metadata declares — nothing is
+    /// inherited from ancestor paths. Each backend handles its own format.
     ///
     /// # Arguments
     ///
@@ -337,7 +337,7 @@ pub trait Storage: Send + Sync {
     /// # Returns
     ///
     /// - `Ok(Some(metadata))` - Metadata exists and was parsed successfully
-    /// - `Ok(None)` - No metadata file exists for this path or any ancestor
+    /// - `Ok(None)` - No metadata file exists for this path
     ///
     /// # Errors
     ///

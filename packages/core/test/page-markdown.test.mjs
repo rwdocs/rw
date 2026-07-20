@@ -25,8 +25,8 @@ function fixtureSite() {
   return createSite({ projectDir: root })
 }
 
-// Frontmatter is part of the page, not noise to strip: it carries the title,
-// kind and vars an agent can use.
+// Frontmatter is part of the page, not noise to strip: it carries the title
+// and kind an agent can use.
 const GUIDE_SOURCE = [
   '---',
   'title: Guide',

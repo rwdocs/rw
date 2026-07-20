@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use serde::Deserialize;
 
 #[derive(Debug, Default, Deserialize)]
@@ -9,8 +7,6 @@ pub(crate) struct MetaFields {
     pub namespace: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
-    #[serde(default)]
-    pub vars: HashMap<String, serde_json::Value>,
     pub pages: Option<Vec<String>>,
 }
 
@@ -20,16 +16,13 @@ impl MetaFields {
         serde_yaml::from_str(yaml).unwrap_or_default()
     }
 
-    /// Merge `other` onto self. `other` fields win when Some; vars merged at key level.
+    /// Merge `other` onto self. `other` fields win when Some.
     pub(crate) fn merge(mut self, other: Self) -> Self {
         self.kind = other.kind.or(self.kind);
         self.namespace = other.namespace.or(self.namespace);
         self.title = other.title.or(self.title);
         self.description = other.description.or(self.description);
         self.pages = other.pages.or(self.pages);
-        for (key, value) in other.vars {
-            self.vars.insert(key, value);
-        }
         self
     }
 }
@@ -54,28 +47,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_with_vars() {
-        let yaml = "vars:\n  owner: team-a\n  priority: 1";
-        let fields = MetaFields::from_yaml(yaml);
-        assert_eq!(
-            fields.vars.get("owner").and_then(|v| v.as_str()),
-            Some("team-a")
-        );
-        assert_eq!(
-            fields
-                .vars
-                .get("priority")
-                .and_then(serde_json::Value::as_u64),
-            Some(1)
-        );
-    }
-
-    #[test]
     fn parse_invalid_yaml_returns_default() {
         let fields = MetaFields::from_yaml(": : invalid: [unclosed");
         assert!(fields.title.is_none());
         assert!(fields.kind.is_none());
-        assert!(fields.vars.is_empty());
     }
 
     #[test]
@@ -83,7 +58,6 @@ mod tests {
         let fields = MetaFields::from_yaml("");
         assert!(fields.title.is_none());
         assert!(fields.kind.is_none());
-        assert!(fields.vars.is_empty());
     }
 
     #[test]
@@ -112,55 +86,6 @@ mod tests {
         };
         let merged = base.merge(overlay);
         assert_eq!(merged.title.as_deref(), Some("Base Title"));
-    }
-
-    #[test]
-    fn merge_vars_key_level() {
-        let mut base_vars = HashMap::new();
-        base_vars.insert(
-            "a".to_owned(),
-            serde_json::Value::String("base-a".to_owned()),
-        );
-        base_vars.insert(
-            "b".to_owned(),
-            serde_json::Value::String("base-b".to_owned()),
-        );
-
-        let mut overlay_vars = HashMap::new();
-        overlay_vars.insert(
-            "a".to_owned(),
-            serde_json::Value::String("overlay-a".to_owned()),
-        );
-        overlay_vars.insert(
-            "c".to_owned(),
-            serde_json::Value::String("overlay-c".to_owned()),
-        );
-
-        let base = MetaFields {
-            vars: base_vars,
-            ..Default::default()
-        };
-        let overlay = MetaFields {
-            vars: overlay_vars,
-            ..Default::default()
-        };
-        let merged = base.merge(overlay);
-
-        assert_eq!(
-            merged.vars.get("a").and_then(|v| v.as_str()),
-            Some("overlay-a"),
-            "overlay key wins"
-        );
-        assert_eq!(
-            merged.vars.get("b").and_then(|v| v.as_str()),
-            Some("base-b"),
-            "base-only key preserved"
-        );
-        assert_eq!(
-            merged.vars.get("c").and_then(|v| v.as_str()),
-            Some("overlay-c"),
-            "overlay-only key present"
-        );
     }
 
     #[test]

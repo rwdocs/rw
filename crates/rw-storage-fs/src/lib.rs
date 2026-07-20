@@ -5,7 +5,7 @@
 //!
 //! - Recursive directory scanning for markdown files
 //! - Metadata extraction (title, description, kind) with mtime caching
-//! - Metadata loading from YAML sidecar files with inheritance
+//! - Metadata loading from YAML sidecar files
 //! - File watching with event debouncing
 //!
 //! # Example
@@ -26,7 +26,6 @@
 //! ```
 
 mod debouncer;
-mod inheritance;
 mod scanner;
 mod source;
 use parking_lot::RwLock;
@@ -44,7 +43,6 @@ use rw_sections::Namespace;
 use rw_vcs::{Vcs, fs_mtime};
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
-use inheritance::{build_ancestor_chain, merge_metadata};
 use rw_storage::{
     Document, Metadata, MetadataError, Storage, StorageError, StorageErrorKind, StorageEvent,
     StorageEventKind, StorageEventReceiver, WatchHandle,
@@ -224,11 +222,6 @@ impl FsStorage {
     /// Resolve URL path to content file path. See [`PathResolver::resolve_content`].
     fn resolve_content(&self, url_path: &str) -> Option<PathBuf> {
         self.resolver.resolve_content(url_path)
-    }
-
-    /// Resolve a directory's metadata file. See [`PathResolver::resolve_dir_meta`].
-    fn resolve_dir_meta(&self, url_path: &str) -> Option<PathBuf> {
-        self.resolver.resolve_dir_meta(url_path)
     }
 
     /// Resolve a page's own metadata file. See [`PathResolver::resolve_meta`].
@@ -762,76 +755,44 @@ impl Storage for FsStorage {
     fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
         Self::validate_path(path)?;
 
-        // Build ancestor chain: ["", "domain", "domain/billing"] for "domain/billing/api"
-        let ancestors = build_ancestor_chain(path);
+        // Metadata does not cascade: a page carries only what its own
+        // metadata file declares.
+        let Some(meta_path) = self.resolve_meta(path) else {
+            return Ok(None);
+        };
 
-        // Walk ancestors from root to leaf, merging metadata
-        let mut accumulated: Option<Metadata> = None;
-        let mut has_own_meta = false;
-
-        for ancestor in &ancestors {
-            // Leaf may use its sibling `<name>.<meta_filename>`; ancestors use
-            // the directory form only, so a sibling never cascades downward.
-            let resolved = if ancestor == path {
-                self.resolve_meta(ancestor)
-            } else {
-                self.resolve_dir_meta(ancestor)
-            };
-            let Some(meta_path) = resolved else {
-                continue;
-            };
-
-            let content = match fs::read_to_string(&meta_path) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!(
-                        path = %ancestor,
-                        error = %e,
-                        "Failed to read metadata file, skipping"
-                    );
-                    continue;
-                }
-            };
-
-            let meta: Result<Metadata, MetadataError> = if content.trim().is_empty() {
-                Ok(Metadata::default())
-            } else {
-                serde_yaml::from_str(content.trim())
-                    .map_err(|e| MetadataError::Parse(format!("Invalid YAML: {e}")))
-            };
-            let meta = match meta {
-                Ok(m) if !m.is_empty() => m,
-                Ok(_) => continue, // Empty metadata
-                Err(e) => {
-                    tracing::warn!(
-                        path = %ancestor,
-                        error = %e,
-                        "Failed to parse metadata, skipping"
-                    );
-                    continue;
-                }
-            };
-
-            // Track if this is the requested path's own metadata
-            if ancestor == path {
-                has_own_meta = true;
+        let content = match fs::read_to_string(&meta_path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    path = %path,
+                    error = %e,
+                    "Failed to read metadata file, skipping"
+                );
+                return Ok(None);
             }
+        };
 
-            accumulated = Some(match accumulated {
-                Some(parent) => merge_metadata(&parent, &meta),
-                None => meta,
-            });
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
         }
 
-        // If the requested path doesn't have its own metadata file,
-        // clear title/description/page_kind (only vars are inherited)
-        if !has_own_meta && let Some(ref mut meta) = accumulated {
-            meta.title = None;
-            meta.description = None;
-            meta.page_kind = None;
-        }
+        let parsed: Result<Metadata, MetadataError> = serde_yaml::from_str(trimmed)
+            .map_err(|e| MetadataError::Parse(format!("Invalid YAML: {e}")));
 
-        Ok(accumulated)
+        match parsed {
+            Ok(meta) if !meta.is_empty() => Ok(Some(meta)),
+            Ok(_) => Ok(None),
+            Err(e) => {
+                tracing::warn!(
+                    path = %path,
+                    error = %e,
+                    "Failed to parse metadata, skipping"
+                );
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -910,7 +871,7 @@ mod tests {
         let temp_dir = create_test_dir();
         fs::write(
             temp_dir.path().join("payments.meta.yaml"),
-            "title: Payments Service\nkind: component\nvars:\n  team: billing",
+            "title: Payments Service\nkind: component",
         )
         .unwrap();
 
@@ -919,14 +880,17 @@ mod tests {
 
         assert_eq!(meta.title, Some("Payments Service".to_owned()));
         assert_eq!(meta.page_kind, Some("component".to_owned()));
-        assert_eq!(meta.vars.get("team"), Some(&serde_json::json!("billing")));
     }
 
     #[test]
     fn test_meta_sibling_does_not_cascade_to_descendants() {
         let temp_dir = create_test_dir();
-        // Sibling meta at url path "foo" with a var.
-        fs::write(temp_dir.path().join("foo.meta.yaml"), "vars:\n  a: 1").unwrap();
+        // Sibling meta at url path "foo" with a distinctive title.
+        fs::write(
+            temp_dir.path().join("foo.meta.yaml"),
+            "title: Sibling Title",
+        )
+        .unwrap();
         // A real nested page under directory "foo".
         let foo_dir = temp_dir.path().join("foo");
         fs::create_dir(&foo_dir).unwrap();
@@ -935,29 +899,40 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
         let meta = storage.meta("foo/bar").unwrap();
 
-        // The sibling foo.meta.yaml must NOT cascade `a` into foo/bar: either
-        // foo/bar resolves to no metadata at all, or its metadata lacks `a`.
-        let cascaded = meta.is_some_and(|m| m.vars.contains_key("a"));
+        // The sibling foo.meta.yaml must NOT cascade its title into foo/bar:
+        // either foo/bar resolves to no metadata at all, or its metadata's
+        // title isn't the sibling's.
+        let cascaded = meta.is_some_and(|m| m.title.as_deref() == Some("Sibling Title"));
         assert!(
             !cascaded,
-            "sibling meta is leaf-only and must not cascade vars to descendants"
+            "sibling meta is leaf-only and must not cascade its title to descendants"
         );
     }
 
     #[test]
-    fn test_meta_index_variant_cascades_like_directory() {
+    fn test_meta_index_variant_does_not_cascade_to_descendants() {
         let temp_dir = create_test_dir();
         let dir = temp_dir.path().join("dir");
         fs::create_dir(&dir).unwrap();
-        // Directory metadata via the index.meta.yaml variant.
-        fs::write(dir.join("index.meta.yaml"), "vars:\n  a: 1").unwrap();
+        // Directory metadata via the index.meta.yaml variant, for "dir" itself.
+        fs::write(dir.join("index.meta.yaml"), "title: Dir Title").unwrap();
         fs::write(dir.join("child.md"), "# Child").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let meta = storage.meta("dir/child").unwrap().unwrap();
 
-        // index.meta.yaml is directory metadata, so `a` cascades to dir/child.
-        assert_eq!(meta.vars.get("a"), Some(&serde_json::json!(1)));
+        // "dir" still has its own metadata.
+        assert_eq!(
+            storage.meta("dir").unwrap().unwrap().title,
+            Some("Dir Title".to_owned())
+        );
+
+        // But it must not cascade down to a child page.
+        let meta = storage.meta("dir/child").unwrap();
+        let cascaded = meta.is_some_and(|m| m.title.as_deref() == Some("Dir Title"));
+        assert!(
+            !cascaded,
+            "index.meta.yaml directory metadata must not cascade its title to descendants"
+        );
     }
 
     #[test]
@@ -1235,114 +1210,68 @@ mod tests {
     }
 
     #[test]
-    fn test_meta_inheritance_merges_vars() {
+    fn meta_reads_the_pages_own_fields() {
         let temp_dir = create_test_dir();
-        // Root metadata
-        fs::write(
-            temp_dir.path().join("meta.yaml"),
-            "vars:\n  org: acme\n  env: prod",
-        )
-        .unwrap();
-
-        // Nested directory
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
         fs::write(
             domain_dir.join("meta.yaml"),
-            "title: Domain\nvars:\n  env: dev\n  team: core",
+            "title: Domain\ndescription: Domain docs\nkind: domain\npages:\n  - overview\n  - api",
         )
         .unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
         let meta = storage.meta("domain").unwrap().unwrap();
 
-        // Title from child (not inherited)
         assert_eq!(meta.title, Some("Domain".to_owned()));
-        // Vars merged: org from parent, env overridden by child, team from child
-        assert_eq!(meta.vars.get("org"), Some(&serde_json::json!("acme")));
-        assert_eq!(meta.vars.get("env"), Some(&serde_json::json!("dev")));
-        assert_eq!(meta.vars.get("team"), Some(&serde_json::json!("core")));
+        assert_eq!(meta.description, Some("Domain docs".to_owned()));
+        assert_eq!(meta.page_kind, Some("domain".to_owned()));
+        assert_eq!(
+            meta.pages,
+            Some(vec!["overview".to_owned(), "api".to_owned()])
+        );
     }
 
     #[test]
-    fn test_meta_inheritance_title_not_inherited() {
+    fn meta_does_not_inherit_any_field_from_an_ancestor() {
         let temp_dir = create_test_dir();
-        // Root metadata with title
-        fs::write(temp_dir.path().join("meta.yaml"), "title: Root Title").unwrap();
-
-        // Child without title
-        let child_dir = temp_dir.path().join("child");
-        fs::create_dir(&child_dir).unwrap();
-        fs::write(child_dir.join("index.md"), "# Child").unwrap();
-        fs::write(child_dir.join("meta.yaml"), "kind: section").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let meta = storage.meta("child").unwrap().unwrap();
-
-        // Title should NOT be inherited
-        assert!(meta.title.is_none());
-        assert_eq!(meta.page_kind, Some("section".to_owned()));
-    }
-
-    #[test]
-    fn test_meta_deep_inheritance() {
-        let temp_dir = create_test_dir();
-        // Root
-        fs::write(temp_dir.path().join("meta.yaml"), "vars:\n  a: 1").unwrap();
-
-        // Level 1 - no metadata
-        let level1 = temp_dir.path().join("level1");
-        fs::create_dir(&level1).unwrap();
-
-        // Level 2 - has metadata
-        let level2 = level1.join("level2");
-        fs::create_dir(&level2).unwrap();
-        fs::write(level2.join("index.md"), "# L2").unwrap();
-        fs::write(level2.join("meta.yaml"), "vars:\n  b: 2").unwrap();
-
-        // Level 3 - no metadata
-        let level3 = level2.join("level3");
-        fs::create_dir(&level3).unwrap();
-        fs::write(level3.join("index.md"), "# L3").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let meta = storage.meta("level1/level2/level3").unwrap().unwrap();
-
-        // Should inherit from root and level2
-        assert_eq!(meta.vars.get("a"), Some(&serde_json::json!(1)));
-        assert_eq!(meta.vars.get("b"), Some(&serde_json::json!(2)));
-    }
-
-    #[test]
-    fn test_meta_no_own_metadata_only_inherits_vars() {
-        let temp_dir = create_test_dir();
-        // Parent with all fields
         let parent = temp_dir.path().join("parent");
         fs::create_dir(&parent).unwrap();
         fs::write(parent.join("index.md"), "# Parent").unwrap();
         fs::write(
             parent.join("meta.yaml"),
-            "title: Parent Title\ndescription: Parent Desc\nkind: domain\nvars:\n  key: value",
+            "title: Parent Title\ndescription: Parent Desc\nkind: domain\npages:\n  - child",
         )
         .unwrap();
 
-        // Child with NO metadata file (only index.md)
+        // Child has content but declares no metadata of its own.
         let child = parent.join("child");
         fs::create_dir(&child).unwrap();
         fs::write(child.join("index.md"), "# Child").unwrap();
-        // No meta.yaml for child
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf());
-        let meta = storage.meta("parent/child").unwrap().unwrap();
 
-        // Only vars should be inherited
-        assert_eq!(meta.vars.get("key"), Some(&serde_json::json!("value")));
+        // Nothing cascades down, so there is no metadata at all for the child.
+        assert!(storage.meta("parent/child").unwrap().is_none());
+    }
 
-        // title/description/page_kind should NOT be inherited
-        assert!(meta.title.is_none());
-        assert!(meta.description.is_none());
-        assert!(meta.page_kind.is_none());
+    #[test]
+    fn meta_ignores_a_legacy_vars_key_and_reads_the_rest() {
+        let temp_dir = create_test_dir();
+        let guide = temp_dir.path().join("guide");
+        fs::create_dir(&guide).unwrap();
+        fs::write(guide.join("index.md"), "# Guide").unwrap();
+        fs::write(
+            guide.join("meta.yaml"),
+            "title: Guide\nvars:\n  owner: team-a\n  env: prod",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf());
+        let meta = storage.meta("guide").unwrap().unwrap();
+
+        assert_eq!(meta.title, Some("Guide".to_owned()));
     }
 
     #[test]

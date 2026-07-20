@@ -407,18 +407,10 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
         .section_location(path)
         .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
 
-    let (description, page_kind, vars) = if let Some(ref meta) = result.metadata {
-        (
-            meta.description.clone(),
-            meta.page_kind.clone(),
-            if meta.vars.is_empty() {
-                None
-            } else {
-                Some(serde_json::to_value(&meta.vars).unwrap_or_default())
-            },
-        )
+    let (description, page_kind) = if let Some(ref meta) = result.metadata {
+        (meta.description.clone(), meta.page_kind.clone())
     } else {
-        (None, None, None)
+        (None, None)
     };
 
     Ok(PageResponse {
@@ -433,7 +425,6 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
             last_modified,
             description,
             page_kind,
-            vars,
             section_ref,
             subpath,
         },

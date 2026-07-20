@@ -1860,7 +1860,7 @@ mod tests {
         assert_eq!(
             markdown.as_deref(),
             Some(source),
-            "frontmatter carries title/kind/vars an agent can use"
+            "frontmatter carries title/kind an agent can use"
         );
     }
 

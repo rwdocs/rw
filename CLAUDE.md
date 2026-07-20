@@ -190,7 +190,6 @@ crates/
 │       ├── scanner.rs        # Scanner for document discovery (stack-based iteration)
 │       ├── source.rs         # SourceFile, SourceKind (file classification)
 │       ├── debouncer.rs      # EventDebouncer for file system events
-│       ├── inheritance.rs    # Metadata inheritance (build_ancestor_chain, merge_metadata)
 │       └── yaml.rs           # YAML parsing helpers
 │
 ├── rw-napi/               # Node.js native addon (napi-rs bindings, excluded from workspace)

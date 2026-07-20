@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use napi_derive::napi;
 use rw_site::{Section, SectionAnchor};
-use serde_json::Value;
 
 #[napi(object)]
 pub struct DiagramsConfig {
@@ -176,7 +175,6 @@ pub struct PageMetaResponse {
     pub description: Option<String>,
     #[napi(js_name = "kind")]
     pub page_kind: Option<String>,
-    pub vars: Option<Value>,
     #[napi(js_name = "sectionRef")]
     pub section_ref: String,
     /// Page path relative to its section root. Stable across whole-section

@@ -39,7 +39,7 @@ pub struct Manifest {
 pub struct PageBundle {
     /// Markdown content with includes resolved.
     pub content: String,
-    /// Fully resolved metadata (inheritance already applied).
+    /// The page's own resolved metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
 }
@@ -118,9 +118,6 @@ mod tests {
                 title: Some("Hello".to_owned()),
                 description: None,
                 page_kind: None,
-                vars: [("team".to_owned(), serde_json::json!("platform"))]
-                    .into_iter()
-                    .collect(),
                 pages: None,
             }),
         };

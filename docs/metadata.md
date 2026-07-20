@@ -6,7 +6,7 @@ Pages can have metadata defined in three ways:
 2. **Directory sidecar** — `meta.yaml` in a directory, applying to that directory's page
 3. **Named sidecar** — `<name>.meta.yaml`, applying to the page at `<name>` (a sibling `<name>.md`, or a content-less entity with no markdown)
 
-When both a markdown file and its sidecar exist, frontmatter values override the sidecar. Variables (`vars`) are deep-merged at the key level.
+When both a markdown file and its sidecar exist, frontmatter values override the sidecar.
 
 ## Examples
 
@@ -17,8 +17,6 @@ When both a markdown file and its sidecar exist, frontmatter values override the
 title: "My Domain"
 description: "Domain overview"
 kind: domain
-vars:
-  owner: team-a
 ---
 
 # Page content starts here
@@ -31,9 +29,6 @@ vars:
 title: "My Domain"
 description: "Domain overview"
 kind: domain
-vars:
-  owner: team-a
-  priority: 1
 ```
 
 ## Fields
@@ -44,7 +39,6 @@ These fields are available in both frontmatter and meta.yaml:
 - `description` -- page description for display
 - `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections. Also accepts `type` as an alias.
 - `namespace` -- Backstage catalog namespace for the section (see below).
-- `vars` -- custom variables (key-value pairs)
 - `pages` -- ordered list of child page slugs for navigation sidebar ordering (directory-level only)
 
 ### `namespace`
@@ -98,14 +92,10 @@ The page title is resolved in this order:
 
 ## Inheritance
 
-Metadata is inherited from parent directories:
-
-- `title` -- never inherited
-- `description` -- never inherited
-- `kind` -- never inherited
-- `namespace` -- inherited (child can override)
-- `pages` -- never inherited
-- `vars` -- deep merged (child values override parent keys)
+Metadata does not inherit from parent directories: `title`, `description`,
+`kind`, and `pages` apply only to the page or directory that declares them, not
+to anything beneath it. `namespace` is the one exception — it inherits down
+the tree, as described above.
 
 ## Named sidecar files (`<name>.meta.yaml`)
 
@@ -127,9 +117,6 @@ way `<name>.md` declares content there. Two uses:
 The suffix follows the configured metadata filename: with the default it is
 `<name>.meta.yaml`; if you configure a custom filename such as `config.yml`, the
 named form is `<name>.config.yml`.
-
-Named sidecars are **leaf-only**: unlike a directory `meta.yaml`, a
-`<name>.meta.yaml` does not cascade `vars` to any descendant pages.
 
 **Precedence.** If both a directory `meta.yaml` and a sibling `<name>.meta.yaml`
 resolve to the same page, the directory form wins.

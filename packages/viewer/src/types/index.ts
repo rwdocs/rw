@@ -78,7 +78,6 @@ export interface PageMeta {
   lastModified: string; // ISO 8601
   description?: string;
   kind?: string;
-  vars?: Record<string, unknown>;
   /** Section ref for this page's section (e.g., "domain:default/billing"). */
   sectionRef: string;
   /**

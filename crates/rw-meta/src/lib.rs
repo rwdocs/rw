@@ -1,8 +1,6 @@
 mod fields;
 mod head;
 
-use std::collections::HashMap;
-
 use fields::MetaFields;
 use head::Head;
 
@@ -17,8 +15,6 @@ pub struct Meta {
     pub title: String,
     /// Page description.
     pub description: Option<String>,
-    /// Custom variables (key-level merge from meta.yaml and frontmatter).
-    pub vars: HashMap<String, serde_json::Value>,
     /// Ordered list of child page slugs for navigation ordering.
     pub pages: Option<Vec<String>>,
 }
@@ -29,7 +25,7 @@ impl Meta {
     /// Internally:
     /// 1. Parses meta.yaml into base fields
     /// 2. Extracts frontmatter and first H1 from markdown via pulldown-cmark
-    /// 3. Merges frontmatter over meta.yaml (frontmatter wins per field, vars key-level merge)
+    /// 3. Merges frontmatter over meta.yaml (frontmatter wins per field)
     /// 4. Resolves title: frontmatter.title > meta.title > H1 > titlecase(filename)
     #[must_use]
     pub fn resolve(markdown: Option<&str>, meta_yaml: Option<&str>, filename: &str) -> Self {
@@ -59,7 +55,6 @@ impl Meta {
             namespace: merged.namespace,
             title,
             description: merged.description,
-            vars: merged.vars,
             pages: merged.pages,
         }
     }
@@ -173,28 +168,6 @@ mod tests {
         assert_eq!(meta.description.as_deref(), Some("Meta YAML desc"));
     }
 
-    #[test]
-    fn resolve_vars_merged() {
-        let md = "---\nvars:\n  a: frontmatter-a\n  c: frontmatter-c\n---\n";
-        let meta_yaml = "vars:\n  a: meta-a\n  b: meta-b";
-        let meta = Meta::resolve(Some(md), Some(meta_yaml), "page.md");
-        assert_eq!(
-            meta.vars.get("a").and_then(|v| v.as_str()),
-            Some("frontmatter-a"),
-            "frontmatter key wins"
-        );
-        assert_eq!(
-            meta.vars.get("b").and_then(|v| v.as_str()),
-            Some("meta-b"),
-            "meta-only key preserved"
-        );
-        assert_eq!(
-            meta.vars.get("c").and_then(|v| v.as_str()),
-            Some("frontmatter-c"),
-            "frontmatter-only key present"
-        );
-    }
-
     // --- resolve: error handling ---
 
     #[test]
@@ -244,7 +217,6 @@ mod tests {
         assert_eq!(meta.title, "Some Page");
         assert!(meta.description.is_none());
         assert!(meta.kind.is_none());
-        assert!(meta.vars.is_empty());
     }
 
     #[test]
