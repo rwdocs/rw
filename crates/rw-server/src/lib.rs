@@ -106,17 +106,15 @@ pub struct ServerConfig {
     pub comments_db: PathBuf,
     /// Enable embedded preview mode (serves Backstage-like shell at /).
     pub embedded_preview: bool,
-    /// The `.rw` state directory (holds `server.json`, `comments/`, cache).
-    pub project_dir: PathBuf,
+    /// The `.rw` data directory (holds `server.json`, `comments/`, cache).
+    pub data_dir: PathBuf,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        // The project state dir holds the comments DB (and cache, server-info
-        // file), so derive `comments_db` from `project_dir` rather than
-        // repeating the directory name. The name itself is defined once in
-        // `rw_config::PROJECT_DIR_NAME`.
-        let project_dir = PathBuf::from(rw_config::PROJECT_DIR_NAME);
+        // Derive `comments_db` from `data_dir` rather than repeating `.rw`
+        // here — the name is defined once in `rw_config::DATA_DIR_NAME`.
+        let data_dir = PathBuf::from(rw_config::DATA_DIR_NAME);
         Self {
             host: "127.0.0.1".to_owned(),
             port: 7979,
@@ -128,9 +126,9 @@ impl Default for ServerConfig {
             verbose: false,
             version: String::new(),
             meta_filename: "meta.yaml".to_owned(),
-            comments_db: SqliteCommentStore::default_path(&project_dir),
+            comments_db: SqliteCommentStore::default_path(&data_dir),
             embedded_preview: false,
-            project_dir,
+            data_dir,
         }
     }
 }
@@ -281,7 +279,7 @@ pub async fn run_server(
 
     // Write the runtime server-info file (non-fatal: an unwritable .rw should
     // not stop serving). The guard removes the file when `run_server` returns.
-    let _info_guard = server_info.and_then(|info| match info.write(&config.project_dir) {
+    let _info_guard = server_info.and_then(|info| match info.write(&config.data_dir) {
         Ok(guard) => Some(guard),
         Err(err) => {
             tracing::warn!(error = %err, "failed to write server info file");
@@ -355,8 +353,8 @@ pub fn server_config_from_rw_config(
         verbose,
         version,
         meta_filename: config.metadata.name.clone(),
-        comments_db: SqliteCommentStore::default_path(&config.docs_resolved.project_dir),
-        project_dir: config.docs_resolved.project_dir.clone(),
+        comments_db: SqliteCommentStore::default_path(&config.docs_resolved.data_dir),
+        data_dir: config.docs_resolved.data_dir.clone(),
         ..Default::default()
     }
 }
@@ -366,9 +364,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn server_config_default_project_dir_is_dot_rw() {
+    fn server_config_default_data_dir_is_dot_rw() {
         let cfg = ServerConfig::default();
-        assert_eq!(cfg.project_dir, std::path::PathBuf::from(".rw"));
+        assert_eq!(cfg.data_dir, std::path::PathBuf::from(".rw"));
     }
 
     #[tokio::test]

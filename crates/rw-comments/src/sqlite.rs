@@ -86,10 +86,10 @@ pub struct SqliteCommentStore {
 
 impl SqliteCommentStore {
     /// Default on-disk location for the comment store relative to a project's
-    /// `.rw/` directory — `<project_dir>/comments/sqlite.db`.
+    /// `.rw/` data directory — `<data_dir>/comments/sqlite.db`.
     #[must_use]
-    pub fn default_path(project_dir: &Path) -> PathBuf {
-        project_dir.join("comments").join("sqlite.db")
+    pub fn default_path(data_dir: &Path) -> PathBuf {
+        data_dir.join("comments").join("sqlite.db")
     }
 
     /// Opens (or creates) a `SQLite` database at `path` and runs migrations.
@@ -663,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    fn default_path_joins_project_dir() {
+    fn default_path_joins_data_dir() {
         let p = SqliteCommentStore::default_path(Path::new("/proj/.rw"));
         assert_eq!(p, PathBuf::from("/proj/.rw/comments/sqlite.db"));
     }

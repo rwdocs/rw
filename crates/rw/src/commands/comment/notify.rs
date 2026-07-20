@@ -11,8 +11,8 @@ use std::time::Duration;
 use rw_server_info::ServerInfo;
 
 /// Notify a running server (if any) that comments changed. Never fails.
-pub(super) fn notify_server(project_dir: &Path) {
-    let Ok(Some(info)) = ServerInfo::read(project_dir) else {
+pub(super) fn notify_server(data_dir: &Path) {
+    let Ok(Some(info)) = ServerInfo::read(data_dir) else {
         return;
     };
     let url = format!("http://{}:{}/_api/_internal/events", info.host, info.port);

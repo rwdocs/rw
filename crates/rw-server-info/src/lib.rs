@@ -58,22 +58,22 @@ impl ServerInfo {
         }
     }
 
-    /// Path to the server-info file inside the `.rw` state directory.
+    /// Path to the server-info file inside the `.rw` data directory.
     #[must_use]
-    pub fn path(rw_dir: &Path) -> PathBuf {
-        rw_dir.join(FILE_NAME)
+    pub fn path(data_dir: &Path) -> PathBuf {
+        data_dir.join(FILE_NAME)
     }
 
-    /// Atomically write the file into `rw_dir` (created if missing) with mode
+    /// Atomically write the file into `data_dir` (created if missing) with mode
     /// `0600` on Unix. Returns a guard that removes the file when dropped.
     ///
     /// # Errors
     /// Returns [`ServerInfoError`] if the directory cannot be created or the
     /// file cannot be written.
-    pub fn write(&self, rw_dir: &Path) -> Result<ServerInfoGuard, ServerInfoError> {
-        fs::create_dir_all(rw_dir)?;
-        let final_path = Self::path(rw_dir);
-        let tmp_path = rw_dir.join(format!("{FILE_NAME}.{}.tmp", std::process::id()));
+    pub fn write(&self, data_dir: &Path) -> Result<ServerInfoGuard, ServerInfoError> {
+        fs::create_dir_all(data_dir)?;
+        let final_path = Self::path(data_dir);
+        let tmp_path = data_dir.join(format!("{FILE_NAME}.{}.tmp", std::process::id()));
 
         let json = serde_json::to_vec_pretty(self)?;
         write_file_private(&tmp_path, &json)?;
@@ -90,13 +90,13 @@ impl ServerInfo {
         })
     }
 
-    /// Read and parse the file from `rw_dir`. `Ok(None)` if it does not exist.
+    /// Read and parse the file from `data_dir`. `Ok(None)` if it does not exist.
     ///
     /// # Errors
     /// Returns [`ServerInfoError`] if the file exists but cannot be read or
     /// parsed.
-    pub fn read(rw_dir: &Path) -> Result<Option<ServerInfo>, ServerInfoError> {
-        let path = Self::path(rw_dir);
+    pub fn read(data_dir: &Path) -> Result<Option<ServerInfo>, ServerInfoError> {
+        let path = Self::path(data_dir);
         match fs::read(&path) {
             Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -129,7 +129,7 @@ pub struct ServerInfoGuard {
 impl Drop for ServerInfoGuard {
     fn drop(&mut self) {
         // Only remove the file if its token still matches the one we wrote. If
-        // a second server started against the same project dir and overwrote
+        // a second server started against the same data dir and overwrote
         // it (last-writer-wins), the token differs and the file belongs to
         // that server — leave it. Any read/parse error also means "don't
         // delete" (the file is gone, or owned by something else).
@@ -209,15 +209,15 @@ mod tests {
     #[test]
     fn write_then_read_round_trips_and_creates_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        let rw_dir = tmp.path().join(".rw"); // does not exist yet
+        let data_dir = tmp.path().join(".rw"); // does not exist yet
         let addr = "127.0.0.1:7979".parse().unwrap();
         let info = ServerInfo::new(addr, "0.0.1");
 
-        let _guard = info.write(&rw_dir).unwrap();
-        let read = ServerInfo::read(&rw_dir).unwrap().expect("file present");
+        let _guard = info.write(&data_dir).unwrap();
+        let read = ServerInfo::read(&data_dir).unwrap().expect("file present");
         assert_eq!(read, info);
         // no leftover temp file
-        let leftovers: Vec<_> = std::fs::read_dir(&rw_dir)
+        let leftovers: Vec<_> = std::fs::read_dir(&data_dir)
             .unwrap()
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -235,10 +235,10 @@ mod tests {
     fn written_file_is_0600() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
-        let rw_dir = tmp.path().to_path_buf();
+        let data_dir = tmp.path().to_path_buf();
         let info = ServerInfo::new("127.0.0.1:1".parse().unwrap(), "v");
-        let _guard = info.write(&rw_dir).unwrap();
-        let mode = std::fs::metadata(ServerInfo::path(&rw_dir))
+        let _guard = info.write(&data_dir).unwrap();
+        let mode = std::fs::metadata(ServerInfo::path(&data_dir))
             .unwrap()
             .permissions()
             .mode()
@@ -249,11 +249,11 @@ mod tests {
     #[test]
     fn guard_removes_file_on_drop() {
         let tmp = tempfile::tempdir().unwrap();
-        let rw_dir = tmp.path().to_path_buf();
+        let data_dir = tmp.path().to_path_buf();
         let info = ServerInfo::new("127.0.0.1:1".parse().unwrap(), "v");
-        let path = ServerInfo::path(&rw_dir);
+        let path = ServerInfo::path(&data_dir);
         {
-            let _guard = info.write(&rw_dir).unwrap();
+            let _guard = info.write(&data_dir).unwrap();
             assert!(path.exists());
         }
         assert!(!path.exists(), "guard should remove the file on drop");
@@ -262,23 +262,23 @@ mod tests {
     #[test]
     fn guard_does_not_remove_file_owned_by_another_server() {
         let tmp = tempfile::tempdir().unwrap();
-        let rw_dir = tmp.path().to_path_buf();
-        let path = ServerInfo::path(&rw_dir);
+        let data_dir = tmp.path().to_path_buf();
+        let path = ServerInfo::path(&data_dir);
 
         let info_a = ServerInfo::new("127.0.0.1:1".parse().unwrap(), "a");
-        let guard_a = info_a.write(&rw_dir).unwrap();
+        let guard_a = info_a.write(&data_dir).unwrap();
 
         // A second server overwrites the file (last-writer-wins). Its token
         // differs (random uuid-v4 per `new`).
         let info_b = ServerInfo::new("127.0.0.1:2".parse().unwrap(), "b");
-        let guard_b = info_b.write(&rw_dir).unwrap();
+        let guard_b = info_b.write(&data_dir).unwrap();
         assert_ne!(info_a.token, info_b.token);
 
         // Dropping A's guard must NOT delete B's file.
         drop(guard_a);
         assert!(path.exists(), "guard A wrongly deleted server B's file");
         assert_eq!(
-            ServerInfo::read(&rw_dir).unwrap().unwrap().token,
+            ServerInfo::read(&data_dir).unwrap().unwrap().token,
             info_b.token
         );
 
@@ -290,11 +290,11 @@ mod tests {
     #[test]
     fn read_missing_is_none_malformed_is_err() {
         let tmp = tempfile::tempdir().unwrap();
-        let rw_dir = tmp.path().to_path_buf();
-        assert!(ServerInfo::read(&rw_dir).unwrap().is_none());
+        let data_dir = tmp.path().to_path_buf();
+        assert!(ServerInfo::read(&data_dir).unwrap().is_none());
 
-        std::fs::write(ServerInfo::path(&rw_dir), b"not json").unwrap();
-        assert!(ServerInfo::read(&rw_dir).is_err());
+        std::fs::write(ServerInfo::path(&data_dir), b"not json").unwrap();
+        assert!(ServerInfo::read(&data_dir).is_err());
     }
 
     #[test]
