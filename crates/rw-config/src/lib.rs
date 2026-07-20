@@ -53,10 +53,10 @@ pub struct CliSettings {
 /// Configuration filename to search for.
 const CONFIG_FILENAME: &str = "rw.toml";
 
-/// Name of the per-project state directory. Everything RW writes for a project
+/// Name of the per-project data directory. Everything RW writes for a project
 /// — the cache, the comments DB, and the server-info file — lives under it, so
-/// the resolved `project_dir` is the single source for all of those paths.
-pub const PROJECT_DIR_NAME: &str = ".rw";
+/// the resolved `data_dir` is the single source for all of those paths.
+pub const DATA_DIR_NAME: &str = ".rw";
 
 /// Application configuration.
 #[derive(Debug, Deserialize)]
@@ -153,8 +153,8 @@ struct DocsConfigRaw {
 pub struct DocsConfig {
     /// Source directory for markdown files.
     pub source_dir: PathBuf,
-    /// Project directory for rw data (.rw/).
-    pub project_dir: PathBuf,
+    /// Absolute path to the project's data directory — see [`DATA_DIR_NAME`].
+    pub data_dir: PathBuf,
     /// Whether caching is enabled.
     pub cache_enabled: bool,
 }
@@ -163,7 +163,7 @@ impl DocsConfig {
     /// Cache directory path (.rw/cache/).
     #[must_use]
     pub fn cache_dir(&self) -> PathBuf {
-        self.project_dir.join("cache")
+        self.data_dir.join("cache")
     }
 }
 
@@ -365,7 +365,7 @@ impl Config {
             metadata: MetadataConfig::default(),
             docs_resolved: DocsConfig {
                 source_dir: base.join("docs"),
-                project_dir: base.join(PROJECT_DIR_NAME),
+                data_dir: base.join(DATA_DIR_NAME),
                 cache_enabled: true,
             },
             diagrams_resolved: DiagramsConfig::default(),
@@ -452,7 +452,7 @@ impl Config {
 
         self.docs_resolved = DocsConfig {
             source_dir: resolve(self.docs.source_dir.as_deref(), "docs"),
-            project_dir: config_dir.join(PROJECT_DIR_NAME),
+            data_dir: config_dir.join(DATA_DIR_NAME),
             cache_enabled: self.docs.cache_enabled.unwrap_or(true),
         };
 
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 7979);
         assert_eq!(config.docs_resolved.source_dir, PathBuf::from("/test/docs"));
-        assert_eq!(config.docs_resolved.project_dir, PathBuf::from("/test/.rw"));
+        assert_eq!(config.docs_resolved.data_dir, PathBuf::from("/test/.rw"));
         assert_eq!(
             config.docs_resolved.cache_dir(),
             PathBuf::from("/test/.rw/cache")
@@ -614,10 +614,7 @@ include_dirs = ["diagrams", "shared/diagrams"]
             config.docs_resolved.source_dir,
             PathBuf::from("/project/documentation")
         );
-        assert_eq!(
-            config.docs_resolved.project_dir,
-            PathBuf::from("/project/.rw")
-        );
+        assert_eq!(config.docs_resolved.data_dir, PathBuf::from("/project/.rw"));
         assert_eq!(
             config.diagrams_resolved.kroki_url,
             Some("https://kroki.io".to_owned())
@@ -719,7 +716,7 @@ source_dir = "documentation"
             config.docs_resolved.source_dir,
             PathBuf::from("/custom/docs")
         );
-        assert_eq!(config.docs_resolved.project_dir, PathBuf::from("/test/.rw")); // Unchanged
+        assert_eq!(config.docs_resolved.data_dir, PathBuf::from("/test/.rw")); // Unchanged
     }
 
     #[test]

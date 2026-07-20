@@ -90,8 +90,7 @@ impl ServeArgs {
         // Load config
         let config = Config::load(self.config.as_deref(), Some(&cli_settings))?;
 
-        // Ensure project directory exists with .gitignore
-        ensure_project_dir(&config.docs_resolved.project_dir)?;
+        ensure_data_dir(&config.docs_resolved.data_dir)?;
 
         // Bind up front so we report the port the server actually listens on.
         // An explicit port (`-p` or `[server].port`) is a hard requirement; the
@@ -179,11 +178,12 @@ impl ServeArgs {
     }
 }
 
-/// Ensure the `.rw/` project directory exists with a `.gitignore`.
-fn ensure_project_dir(project_dir: &Path) -> Result<(), CliError> {
-    std::fs::create_dir_all(project_dir)?;
+/// Ensure the `.rw/` data directory exists, with a `.gitignore` that keeps
+/// everything rw writes there out of version control.
+fn ensure_data_dir(data_dir: &Path) -> Result<(), CliError> {
+    std::fs::create_dir_all(data_dir)?;
 
-    let gitignore_path = project_dir.join(".gitignore");
+    let gitignore_path = data_dir.join(".gitignore");
     if !gitignore_path.exists() {
         let _ = std::fs::write(&gitignore_path, "# Automatically created by rw\n*\n");
     }
