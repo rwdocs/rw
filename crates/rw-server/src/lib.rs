@@ -25,7 +25,6 @@
 //!         cache_dir: Some(PathBuf::from(".rw/cache")),
 //!         kroki_url: Some("https://kroki.io".to_owned()),
 //!         include_dirs: vec![PathBuf::from(".")],
-//!         dpi: 192,
 //!         live_reload_enabled: true,
 //!         verbose: false,
 //!         version: "1.0.0".to_owned(),
@@ -95,8 +94,6 @@ pub struct ServerConfig {
     pub kroki_url: Option<String>,
     /// `PlantUML` include directories.
     pub include_dirs: Vec<PathBuf>,
-    /// Diagram DPI.
-    pub dpi: u32,
     /// Enable live reload.
     pub live_reload_enabled: bool,
     /// Enable verbose output.
@@ -127,7 +124,6 @@ impl Default for ServerConfig {
             cache_dir: None,
             kroki_url: None,
             include_dirs: Vec::new(),
-            dpi: 192,
             live_reload_enabled: false,
             verbose: false,
             version: String::new(),
@@ -241,7 +237,6 @@ pub async fn run_server(
         extract_title: true,
         kroki_url: config.kroki_url.clone(),
         include_dirs: config.include_dirs.clone(),
-        dpi: config.dpi,
     };
     let site = Arc::new(Site::new(Arc::clone(&storage), cache, site_config));
 
@@ -356,7 +351,6 @@ pub fn server_config_from_rw_config(
         },
         kroki_url: config.diagrams_resolved.kroki_url.clone(),
         include_dirs: config.diagrams_resolved.include_dirs.clone(),
-        dpi: config.diagrams_resolved.dpi,
         live_reload_enabled: config.live_reload.enabled,
         verbose,
         version,

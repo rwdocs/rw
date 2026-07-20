@@ -6,22 +6,22 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use rw_renderer::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, Fills, ProcessResult};
 use ureq::Agent;
 
 use crate::cache::DiagramKey;
-use crate::consts::{DEFAULT_DPI, DEFAULT_TIMEOUT};
+use crate::consts::DEFAULT_TIMEOUT;
 use crate::html_embed::{annotate_svg_links, scale_svg_dimensions, strip_google_fonts_import};
 use crate::kroki::{
-    DiagramError, DiagramRequest, create_agent, render_all, render_all_png_data_uri_partial,
-    render_all_svg_partial,
+    DiagramError, DiagramRequest, create_agent, png_data_uri_dimensions, render_all,
+    render_all_png_data_uri_partial, render_all_svg_partial,
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::meta_includes::MetaIncludeSource;
 use crate::output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
 use crate::plantuml::{PrepareResult, prepare_diagram_source, resolve_includes};
+use crate::scale::to_display_px;
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_sections::Sections;
 
@@ -34,10 +34,6 @@ struct ProcessorConfig {
     kroki_url: String,
     /// Directories to search for `PlantUML` `!include` files.
     include_dirs: Vec<PathBuf>,
-    /// DPI for diagram rendering (default: 192).
-    dpi: u32,
-    /// HTTP timeout for Kroki requests (default: 30 seconds).
-    timeout: Duration,
     /// Cache for diagram rendering (defaults to no-op cache).
     cache: Box<dyn CacheBucket>,
     /// Output mode for diagram rendering.
@@ -60,7 +56,10 @@ struct ProcessorConfig {
 ///
 /// Create the processor with a required Kroki URL, then configure using builder methods:
 /// - [`include_dirs`](Self::include_dirs): Set directories for `PlantUML` `!include` resolution
-/// - [`dpi`](Self::dpi): Set DPI for diagram rendering (default: 192)
+///
+/// Diagram sizing is not configurable: `PlantUML` output is rendered oversized
+/// and scaled back down for retina displays, which
+/// [`DiagramLanguage::render_dpi`] decides per language.
 ///
 /// # Example
 ///
@@ -70,8 +69,7 @@ struct ProcessorConfig {
 ///
 /// let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
 ///
-/// let processor = DiagramProcessor::new("https://kroki.io")
-///     .dpi(192);
+/// let processor = DiagramProcessor::new("https://kroki.io");
 ///
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new();
 /// let pipeline = Pipeline::new().with_processor(processor);
@@ -117,8 +115,6 @@ impl DiagramProcessor {
             config: ProcessorConfig {
                 kroki_url: kroki_url.into(),
                 include_dirs: Vec::new(),
-                dpi: DEFAULT_DPI,
-                timeout: DEFAULT_TIMEOUT,
                 cache: rw_cache::NullCache.bucket("diagrams"),
                 output: DiagramOutput::default(),
                 agent: create_agent(DEFAULT_TIMEOUT),
@@ -145,43 +141,6 @@ impl DiagramProcessor {
     #[must_use]
     pub fn include_dirs(mut self, dirs: &[PathBuf]) -> Self {
         self.config.include_dirs = dirs.to_vec();
-        self
-    }
-
-    /// Set DPI for diagram rendering.
-    ///
-    /// Default is 192 (2x for retina displays). Set to 96 for standard resolution.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use rw_kroki::DiagramProcessor;
-    /// let processor = DiagramProcessor::new("https://kroki.io")
-    ///     .dpi(96); // Standard resolution
-    /// ```
-    #[must_use]
-    pub fn dpi(mut self, dpi: u32) -> Self {
-        self.config.dpi = dpi;
-        self
-    }
-
-    /// Set HTTP timeout for Kroki requests.
-    ///
-    /// Default is 30 seconds. Increase for slow networks or large diagrams.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use std::time::Duration;
-    /// # use rw_kroki::DiagramProcessor;
-    ///
-    /// let processor = DiagramProcessor::new("https://kroki.io")
-    ///     .timeout(Duration::from_secs(60)); // 60 second timeout
-    /// ```
-    #[must_use]
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.config.timeout = timeout;
-        self.config.agent = create_agent(timeout);
         self
     }
 
@@ -271,6 +230,30 @@ impl DiagramProcessor {
         format!(r#"<figure class="diagram"{id_attr}><rw-diagram>{svg}</rw-diagram></figure>"#)
     }
 
+    /// Wrap a PNG data URI in a diagram `<figure>`, sized for `dpi`.
+    ///
+    /// Kroki renders at `dpi`, so a high-DPI diagram comes back with twice the
+    /// pixels it should occupy; the SVG path corrects for this in
+    /// [`scale_svg_dimensions`], and this is the same correction for PNG. The
+    /// attributes also give the image an aspect-ratio box, so surrounding
+    /// content doesn't reflow once it decodes.
+    ///
+    /// A data URI whose header won't parse falls back to an unsized `<img>`,
+    /// which renders as before rather than not at all.
+    fn png_figure(id_attr: &str, data_uri: &str, dpi: u32) -> String {
+        let size = png_data_uri_dimensions(data_uri).map(|(w, h)| {
+            format!(
+                r#" width="{}" height="{}""#,
+                to_display_px(w, dpi),
+                to_display_px(h, dpi)
+            )
+        });
+        format!(
+            r#"<figure class="diagram"{id_attr}><img src="{data_uri}"{} alt="diagram"></figure>"#,
+            size.unwrap_or_default()
+        )
+    }
+
     /// Prepare diagram source for rendering.
     ///
     /// For `PlantUML` diagrams, this resolves `!include` directives and injects config.
@@ -280,7 +263,7 @@ impl DiagramProcessor {
             prepare_diagram_source(
                 &diagram.source,
                 &config.include_dirs,
-                config.dpi,
+                diagram.language.render_dpi(),
                 config.meta_include_source.as_deref(),
             )
         } else {
@@ -427,15 +410,20 @@ struct CacheInfo {
     source: String,
     endpoint: &'static str,
     format: &'static str,
+    /// DPI this diagram's output is scaled by — see
+    /// [`DiagramLanguage::render_dpi`]. Part of the cache key, so entries
+    /// written under a different scaling rule are orphaned rather than served
+    /// at the wrong size.
+    dpi: u32,
 }
 
 impl CacheInfo {
-    fn key(&self, dpi: u32) -> DiagramKey<'_> {
+    fn key(&self) -> DiagramKey<'_> {
         DiagramKey {
             source: &self.source,
             endpoint: self.endpoint,
             format: self.format,
-            dpi,
+            dpi: self.dpi,
         }
     }
 }
@@ -509,11 +497,12 @@ impl DiagramProcessor {
         for (diagram, source) in prepared {
             let endpoint = diagram.language.kroki_endpoint();
             let format = diagram.format.as_str();
+            let dpi = diagram.language.render_dpi();
             let key = DiagramKey {
                 source: &source,
                 endpoint,
                 format,
-                dpi: config.dpi,
+                dpi,
             };
             let hash = key.compute_hash();
 
@@ -528,11 +517,7 @@ impl DiagramProcessor {
                         let annotated = Self::annotate_links(config, &cached_content, refs);
                         Self::svg_figure(&id_attr, &annotated)
                     }
-                    DiagramFormat::Png => {
-                        format!(
-                            r#"<figure class="diagram"{id_attr}><img src="{cached_content}" alt="diagram"></figure>"#
-                        )
-                    }
+                    DiagramFormat::Png => Self::png_figure(&id_attr, &cached_content, dpi),
                 };
                 figures.add(diagram.index, figure);
             } else {
@@ -542,6 +527,7 @@ impl DiagramProcessor {
                     source: source.clone(),
                     endpoint,
                     format,
+                    dpi,
                 };
                 let request = DiagramRequest::new(diagram.index, source, diagram.language);
 
@@ -577,11 +563,12 @@ impl DiagramProcessor {
 
         let result = render_all_svg_partial(&requests, &config.kroki_url, &config.agent);
         for r in result.rendered {
+            let dpi = r.language.render_dpi();
             let clean_svg = strip_google_fonts_import(r.svg.trim());
-            let scaled_svg = scale_svg_dimensions(&clean_svg, config.dpi);
+            let scaled_svg = scale_svg_dimensions(&clean_svg, dpi);
 
             if let Some(info) = cache_map.get(&r.index) {
-                let hash = info.key(config.dpi).compute_hash();
+                let hash = info.key().compute_hash();
                 config.cache.set_string(&hash, "", &scaled_svg);
             }
 
@@ -608,15 +595,12 @@ impl DiagramProcessor {
         let result = render_all_png_data_uri_partial(&requests, &config.kroki_url, &config.agent);
         for r in result.rendered {
             if let Some(info) = cache_map.get(&r.index) {
-                let hash = info.key(config.dpi).compute_hash();
+                let hash = info.key().compute_hash();
                 config.cache.set_string(&hash, "", &r.data_uri);
             }
 
             let id_attr = figures.id_attr(r.index);
-            let figure = format!(
-                r#"<figure class="diagram"{id_attr}><img src="{}" alt="diagram"></figure>"#,
-                r.data_uri
-            );
+            let figure = Self::png_figure(&id_attr, &r.data_uri, r.language.render_dpi());
             figures.add(r.index, figure);
         }
         figures.add_errors(result.errors)
@@ -648,16 +632,14 @@ impl DiagramProcessor {
 
         let server_url = config.kroki_url.trim_end_matches('/');
 
-        let result = render_all(
-            &diagram_requests,
-            server_url,
-            output_dir,
-            config.dpi,
-            &config.agent,
-        );
+        let result = render_all(&diagram_requests, server_url, output_dir, &config.agent);
         for r in result.rendered {
-            let info = RenderedDiagramInfo::new(r.filename, r.width, r.height);
-            let tag = tag_generator(&info, config.dpi);
+            // Only PlantUML-family output is oversized, so each diagram is
+            // scaled by its own DPI rather than the configured one. The tag
+            // generator receives the result, never the DPI.
+            let display_width = to_display_px(r.width, r.language.render_dpi());
+            let info = RenderedDiagramInfo::new(r.filename, display_width);
+            let tag = tag_generator(&info);
             figures.add(r.index, tag);
         }
         let transient = figures.add_errors(result.errors);
@@ -809,6 +791,7 @@ pub(crate) fn to_extracted_diagrams(blocks: &[ExtractedCodeBlock]) -> Vec<Extrac
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consts::STANDARD_DPI;
 
     /// Render markdown through a [`DiagramProcessor`] pointed at an
     /// unreachable Kroki (connecting to a closed loopback port fails fast in
@@ -839,7 +822,7 @@ mod tests {
     fn render_diagrams_files(markdown: &str) -> String {
         use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 
-        let tag_generator: TagGenerator = Arc::new(|info: &RenderedDiagramInfo, _dpi: u32| {
+        let tag_generator: TagGenerator = Arc::new(|info: &RenderedDiagramInfo| {
             format!(r#"<img src="{}" alt="diagram">"#, info.filename())
         });
         let processor = DiagramProcessor::new("http://127.0.0.1:1").output(DiagramOutput::Files {
@@ -1135,6 +1118,106 @@ mod tests {
             r#" data-diagram-id="a&quot;b&amp;c""#
         );
         assert_eq!(diagram_id_attr(None), "");
+    }
+
+    /// Only PlantUML-family sources get `skinparam dpi` injected, so only their
+    /// output comes back oversized. Scaling anything else shrinks a diagram that
+    /// was already the right size — Mermaid rendered at half size until this was
+    /// keyed off the language.
+    #[test]
+    fn display_dpi_scales_plantuml_family_only() {
+        for lang in [DiagramLanguage::PlantUml, DiagramLanguage::C4PlantUml] {
+            assert_eq!(lang.render_dpi(), 192, "{lang:?} is oversized");
+        }
+        for lang in [
+            DiagramLanguage::Mermaid,
+            DiagramLanguage::GraphViz,
+            DiagramLanguage::Vega,
+        ] {
+            assert_eq!(
+                lang.render_dpi(),
+                STANDARD_DPI,
+                "{lang:?} renders at natural size and must not be scaled"
+            );
+        }
+    }
+
+    /// A 200x100 PNG header, base64'd — enough for the IHDR chunk the sizing
+    /// reads. Not a decodable image, which is fine: nothing here renders it.
+    const PNG_200X100: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAABkAAAAAAA=";
+
+    /// Kroki renders at `dpi`, so a 192-DPI diagram comes back at twice the size
+    /// it should occupy on screen. Without the halving here it rendered at its
+    /// full 200px pixel width — the same bug the SVG path avoids via
+    /// `scale_svg_dimensions`.
+    #[test]
+    fn png_figure_halves_dimensions_at_retina_dpi() {
+        let html = DiagramProcessor::png_figure("", PNG_200X100, 192);
+        assert!(
+            html.contains(r#" width="100" height="50""#),
+            "expected 200x100 halved to 100x50, got: {html}"
+        );
+    }
+
+    #[test]
+    fn png_figure_keeps_dimensions_at_standard_dpi() {
+        let html = DiagramProcessor::png_figure("", PNG_200X100, 96);
+        assert!(
+            html.contains(r#" width="200" height="100""#),
+            "expected 200x100 unscaled, got: {html}"
+        );
+    }
+
+    /// The cache stores the data URI alone, so a cached diagram has to recover
+    /// its size from the image bytes just like a freshly rendered one.
+    #[test]
+    fn png_figure_sizes_cached_and_fresh_identically() {
+        let id_attr = r#" data-diagram-id="pic""#;
+        assert_eq!(
+            DiagramProcessor::png_figure(id_attr, PNG_200X100, 192),
+            format!(
+                r#"<figure class="diagram"{id_attr}><img src="{PNG_200X100}" width="100" height="50" alt="diagram"></figure>"#
+            )
+        );
+    }
+
+    /// `display_dpi` and `png_figure` are both correct in isolation; this pins
+    /// the wiring between them, which is where the original bug lived — a right
+    /// formula handed the wrong DPI. Passing `config.dpi` at either call site
+    /// again would halve the Mermaid diagram and this would fail.
+    ///
+    /// Covers the cache-hit path only: the fresh-render path needs a live Kroki
+    /// server, so its scaling stays unpinned.
+    #[test]
+    fn cached_png_is_scaled_by_language_not_config_dpi() {
+        let plantuml = render_diagrams_cached(
+            "```plantuml {format=png}\n@startuml\nA -> B\n@enduml\n```\n",
+            PNG_200X100,
+        );
+        assert!(
+            plantuml.contains(r#" width="100" height="50""#),
+            "PlantUML is rendered at 192 DPI and must be halved, got: {plantuml}"
+        );
+
+        let mermaid = render_diagrams_cached(
+            "```mermaid {format=png}\ngraph LR\n  A --> B\n```\n",
+            PNG_200X100,
+        );
+        assert!(
+            mermaid.contains(r#" width="200" height="100""#),
+            "Mermaid renders at natural size and must not be scaled, got: {mermaid}"
+        );
+    }
+
+    /// Falling back to an unsized `<img>` keeps a diagram visible when its
+    /// header is unreadable, rather than dropping it.
+    #[test]
+    fn png_figure_without_parsable_header_omits_dimensions() {
+        let html = DiagramProcessor::png_figure("", "data:image/png;base64,ABC", 192);
+        assert_eq!(
+            html,
+            r#"<figure class="diagram"><img src="data:image/png;base64,ABC" alt="diagram"></figure>"#
+        );
     }
 
     /// The populated-`id_attr` case is pinned end-to-end by
@@ -1556,27 +1639,6 @@ mod tests {
 
         assert!(result.contains("Bob -> Charlie"));
         assert!(!result.contains("!include"));
-    }
-
-    #[test]
-    fn test_timeout_builder() {
-        // Test that timeout builder method works and can be chained
-        let processor = DiagramProcessor::new("https://kroki.io")
-            .timeout(Duration::from_mins(1))
-            .dpi(96);
-
-        // Verify the processor was created successfully and can process diagrams
-        assert!(processor.extracted().is_empty());
-        assert!(processor.warnings().is_empty());
-    }
-
-    #[test]
-    fn test_timeout_builder_short_timeout() {
-        // Test with a very short timeout
-        let processor =
-            DiagramProcessor::new("https://kroki.io").timeout(Duration::from_millis(100));
-
-        assert!(processor.extracted().is_empty());
     }
 
     #[test]

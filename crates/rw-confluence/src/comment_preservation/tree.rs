@@ -51,8 +51,12 @@ impl TreeNode {
         self
     }
 
-    /// Set children (used in tests).
-    #[allow(dead_code)]
+    /// Set children.
+    ///
+    /// Test-only: the parser builds children by pushing onto [`Self::children`]
+    /// as it walks the document, so this exists purely to keep tree literals in
+    /// tests readable.
+    #[cfg(test)]
     #[must_use]
     pub fn with_children(mut self, children: Vec<TreeNode>) -> Self {
         self.children = children;

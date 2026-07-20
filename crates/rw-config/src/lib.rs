@@ -173,28 +173,15 @@ impl DocsConfig {
 struct DiagramsConfigRaw {
     kroki_url: Option<String>,
     include_dirs: Option<Vec<String>>,
-    dpi: Option<u32>,
 }
 
 /// Resolved diagram rendering configuration with absolute paths.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DiagramsConfig {
     /// Kroki server URL for diagram rendering.
     pub kroki_url: Option<String>,
     /// Directories to search for `PlantUML` `!include` directives.
     pub include_dirs: Vec<PathBuf>,
-    /// DPI for diagram rendering.
-    pub dpi: u32,
-}
-
-impl Default for DiagramsConfig {
-    fn default() -> Self {
-        Self {
-            kroki_url: None,
-            include_dirs: Vec::new(),
-            dpi: 192,
-        }
-    }
 }
 
 /// Live reload configuration.
@@ -430,26 +417,11 @@ impl Config {
 
     /// Validate diagrams configuration.
     fn validate_diagrams(&self) -> Result<(), ConfigError> {
-        const MAX_DPI: u32 = 1000;
-
         // `kroki_url` is optional — when absent, diagram fences render as
         // syntax-highlighted code (matching `rw serve`'s default).
         if let Some(ref kroki_url) = self.diagrams_resolved.kroki_url {
             require_non_empty(kroki_url, "diagrams.kroki_url")?;
             require_http_url(kroki_url, "diagrams.kroki_url")?;
-        }
-
-        // DPI validation: must be positive and reasonable
-        let dpi = self.diagrams_resolved.dpi;
-        if dpi == 0 {
-            return Err(ConfigError::Validation(
-                "diagrams.dpi must be greater than 0".to_owned(),
-            ));
-        }
-        if dpi > MAX_DPI {
-            return Err(ConfigError::Validation(format!(
-                "diagrams.dpi cannot exceed {MAX_DPI}"
-            )));
         }
 
         Ok(())
@@ -495,7 +467,6 @@ impl Config {
                 DiagramsConfig {
                     kroki_url: diagrams.kroki_url.clone(),
                     include_dirs,
-                    dpi: diagrams.dpi.unwrap_or(192),
                 }
             }
             None => DiagramsConfig::default(),
@@ -562,7 +533,6 @@ mod tests {
             PathBuf::from("/test/.rw/cache")
         );
         assert!(config.docs_resolved.cache_enabled);
-        assert_eq!(config.diagrams_resolved.dpi, 192);
         assert!(config.live_reload.enabled);
     }
 
@@ -666,12 +636,10 @@ include_dirs = ["diagrams", "shared/diagrams"]
         let toml = r#"
 [diagrams]
 include_dirs = ["plantuml-includes"]
-dpi = 96
 "#;
         let mut config: Config = toml::from_str(toml).unwrap();
         config.resolve_paths(Path::new("/test"));
         assert!(config.diagrams_resolved.kroki_url.is_none());
-        assert_eq!(config.diagrams_resolved.dpi, 96);
         assert_eq!(config.diagrams_resolved.include_dirs.len(), 1);
     }
 
@@ -985,21 +953,6 @@ host = "127.0.0.1"
         config.diagrams_resolved.kroki_url = Some("https://kroki.io".to_owned());
         assert!(config.validate().is_ok());
     }
-
-    #[test]
-    fn test_validate_diagrams_dpi_zero() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.dpi = 0;
-        assert_validation_error(&config, &["dpi", "greater than 0"]);
-    }
-
-    #[test]
-    fn test_validate_diagrams_dpi_too_high() {
-        let mut config = Config::default_with_base(Path::new("/test"));
-        config.diagrams_resolved.dpi = 2000;
-        assert_validation_error(&config, &["dpi", "1000"]);
-    }
-
     #[test]
     fn test_env_var_fallback_no_config_no_flag() {
         let _guard = EnvGuard::new();

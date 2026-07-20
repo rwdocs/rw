@@ -14,6 +14,7 @@ use rw_renderer::escape_html;
 use rw_sections::Sections;
 
 use crate::consts::STANDARD_DPI;
+use crate::scale::to_display_f64;
 
 static GOOGLE_FONTS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?").unwrap()
@@ -53,12 +54,10 @@ pub fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
         return svg.to_owned();
     }
 
-    let scale = f64::from(STANDARD_DPI) / f64::from(dpi);
-
     // Helper to scale a dimension value and format the result
     let scale_dim = |caps: &regex::Captures| {
         let value: f64 = caps[2].parse().unwrap_or(0.0);
-        (value * scale).round() as u32
+        to_display_f64(value, dpi).round() as u32
     };
 
     // Scale XML attributes (width="136", height="210")

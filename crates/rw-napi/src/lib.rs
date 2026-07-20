@@ -52,13 +52,8 @@ fn apply_diagrams_config(
     renderer_config: &mut PageRendererConfig,
     diagrams: Option<&DiagramsConfig>,
 ) {
-    if let Some(diagrams) = diagrams {
-        if let Some(ref url) = diagrams.kroki_url {
-            renderer_config.kroki_url = Some(url.clone());
-        }
-        if let Some(dpi) = diagrams.dpi {
-            renderer_config.dpi = dpi;
-        }
+    if let Some(url) = diagrams.and_then(|d| d.kroki_url.as_ref()) {
+        renderer_config.kroki_url = Some(url.clone());
     }
 }
 
@@ -198,7 +193,6 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 extract_title: true,
                 kroki_url: rw_config.diagrams_resolved.kroki_url,
                 include_dirs: rw_config.diagrams_resolved.include_dirs,
-                dpi: rw_config.diagrams_resolved.dpi,
             };
             apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
             (storage, renderer_config, Arc::new(NullCache))
@@ -545,7 +539,6 @@ mod tests {
     fn apply_diagrams_config_sets_kroki_url() {
         let diagrams = Some(DiagramsConfig {
             kroki_url: Some("https://kroki.io".to_owned()),
-            dpi: None,
         });
         let mut renderer_config = PageRendererConfig::default();
         apply_diagrams_config(&mut renderer_config, diagrams.as_ref());
@@ -553,29 +546,14 @@ mod tests {
             renderer_config.kroki_url,
             Some("https://kroki.io".to_owned())
         );
-        assert_eq!(renderer_config.dpi, 192); // default unchanged
-    }
-
-    #[test]
-    fn apply_diagrams_config_sets_dpi() {
-        let diagrams = Some(DiagramsConfig {
-            kroki_url: None,
-            dpi: Some(96),
-        });
-        let mut renderer_config = PageRendererConfig::default();
-        apply_diagrams_config(&mut renderer_config, diagrams.as_ref());
-        assert!(renderer_config.kroki_url.is_none());
-        assert_eq!(renderer_config.dpi, 96);
     }
 
     #[test]
     fn apply_diagrams_config_none_is_noop() {
         let mut renderer_config = PageRendererConfig::default();
         let before_kroki = renderer_config.kroki_url.clone();
-        let before_dpi = renderer_config.dpi;
         apply_diagrams_config(&mut renderer_config, None);
         assert_eq!(renderer_config.kroki_url, before_kroki);
-        assert_eq!(renderer_config.dpi, before_dpi);
     }
 
     #[test]

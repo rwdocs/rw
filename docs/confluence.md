@@ -17,7 +17,6 @@ rw confluence render <markdown_file> --out <dir|->
 | `--out <dir>` or `--out -` | required | Bundle directory, or `-` for stdout-only mode. |
 | `--kroki-url <url>` | from `[diagrams]` config | Override Kroki server. |
 | `-I, --include-dir <path>` | from `[diagrams]` config, repeatable | PlantUML `!include` search path. |
-| `--dpi <n>` | from `[diagrams]` config, default 192 | Diagram DPI. |
 | `--no-extract-title` | off (title extracted by default) | Skip extracting the title from the first H1 (no `title:` line on stderr). |
 | `--no-toc` | TOC prepended by default | Skip the `<ac:structured-macro name="toc">`. |
 | `--config <path>` | auto-discover `rw.toml` | Pick up `[diagrams]` defaults. |

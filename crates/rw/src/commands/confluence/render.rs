@@ -27,10 +27,6 @@ pub(crate) struct RenderArgs {
     #[arg(short = 'I', long = "include-dir")]
     include_dirs: Vec<PathBuf>,
 
-    /// DPI for diagram rendering. Default 192.
-    #[arg(long)]
-    dpi: Option<u32>,
-
     /// Do not extract the title from the first H1 heading. Title extraction
     /// is enabled by default.
     #[arg(long)]
@@ -69,7 +65,6 @@ impl RenderArgs {
                 dirs.extend(self.include_dirs);
                 dirs
             },
-            dpi: Some(self.dpi.unwrap_or(config.diagrams_resolved.dpi)),
             extract_title: !self.no_extract_title,
             prepend_toc: !self.no_toc,
             current_xhtml,

@@ -39,6 +39,7 @@ mod meta_includes;
 mod output;
 mod plantuml;
 mod processor;
+mod scale;
 mod search;
 
 pub use meta_includes::{EntityInfo, MetaIncludeSource};

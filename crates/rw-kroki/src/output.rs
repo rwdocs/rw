@@ -7,24 +7,27 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::consts::STANDARD_DPI;
-
 /// Information about a rendered diagram for tag generation.
 #[derive(Debug)]
 pub struct RenderedDiagramInfo {
     filename: String,
-    width: u32,
-    height: u32,
+    display_width: u32,
 }
 
 impl RenderedDiagramInfo {
     /// Create a new rendered diagram info.
+    ///
+    /// `display_width` is the width the diagram should occupy on the page, not
+    /// the pixel width of the file. High-DPI diagrams are rendered larger than
+    /// they are shown, and the correction is applied here rather than passed on
+    /// to the tag generator: a generator that forgot it, or applied it with the
+    /// configured DPI where the language never received one, emitted diagrams
+    /// at the wrong size.
     #[must_use]
-    pub fn new(filename: String, width: u32, height: u32) -> Self {
+    pub fn new(filename: String, display_width: u32) -> Self {
         Self {
             filename,
-            width,
-            height,
+            display_width,
         }
     }
 
@@ -34,38 +37,19 @@ impl RenderedDiagramInfo {
         &self.filename
     }
 
-    /// Physical width in pixels.
+    /// Width the diagram should be displayed at, in CSS pixels.
     #[must_use]
-    pub fn width(&self) -> u32 {
-        self.width
-    }
-
-    /// Physical height in pixels.
-    #[must_use]
-    pub fn height(&self) -> u32 {
-        self.height
-    }
-
-    /// Calculate display width for a given rendering DPI.
-    ///
-    /// High-DPI diagrams (e.g., 192 DPI) should be displayed at half their
-    /// physical size to appear crisp on retina displays.
-    #[must_use]
-    pub fn display_width(&self, dpi: u32) -> u32 {
-        self.width * STANDARD_DPI / dpi
-    }
-
-    /// Calculate display height for a given rendering DPI.
-    #[must_use]
-    pub fn display_height(&self, dpi: u32) -> u32 {
-        self.height * STANDARD_DPI / dpi
+    pub fn display_width(&self) -> u32 {
+        self.display_width
     }
 }
 
 /// Callback that generates an HTML tag for a rendered diagram.
 ///
-/// Arguments: `(info, dpi)` → HTML string to fill the diagram's reserved hole.
-pub type TagGenerator = Arc<dyn Fn(&RenderedDiagramInfo, u32) -> String + Send + Sync>;
+/// Arguments: `(info)` → HTML string to fill the diagram's reserved hole. The
+/// info carries display dimensions, so a generator never sees a render DPI and
+/// cannot scale by the wrong one.
+pub type TagGenerator = Arc<dyn Fn(&RenderedDiagramInfo) -> String + Send + Sync>;
 
 /// Output mode for diagram rendering.
 #[derive(Default)]
@@ -108,55 +92,42 @@ mod tests {
 
     fn img_tag_generator(prefix: &str) -> TagGenerator {
         let prefix = prefix.to_owned();
-        Arc::new(move |info: &RenderedDiagramInfo, dpi: u32| {
+        Arc::new(move |info: &RenderedDiagramInfo| {
             format!(
                 r#"<img src="{}{}" width="{}" alt="diagram">"#,
                 prefix,
                 info.filename(),
-                info.display_width(dpi)
+                info.display_width()
             )
         })
     }
 
+    /// The info carries a display width, so a generator just formats it — the
+    /// DPI correction happened before it was constructed (see `scale`).
     #[test]
     fn test_img_tag_generator() {
         let generator = img_tag_generator("/diagrams/");
-        let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
-        // At 192 DPI (2x), width should be halved: 400 * 96 / 192 = 200
-        let tag = generator(&info, 192);
+        let info = RenderedDiagramInfo::new("test.png".to_owned(), 200);
         assert_eq!(
-            tag,
+            generator(&info),
             r#"<img src="/diagrams/test.png" width="200" alt="diagram">"#
-        );
-    }
-
-    #[test]
-    fn test_img_tag_generator_96_dpi() {
-        let generator = img_tag_generator("/assets/");
-        let info = RenderedDiagramInfo::new("diagram.png".to_owned(), 300, 150);
-        // At 96 DPI, width unchanged: 300 * 96 / 96 = 300
-        let tag = generator(&info, 96);
-        assert_eq!(
-            tag,
-            r#"<img src="/assets/diagram.png" width="300" alt="diagram">"#
         );
     }
 
     #[test]
     fn test_figure_tag_generator() {
         let prefix = "/diagrams/".to_owned();
-        let generator: TagGenerator = Arc::new(move |info: &RenderedDiagramInfo, dpi: u32| {
+        let generator: TagGenerator = Arc::new(move |info: &RenderedDiagramInfo| {
             format!(
                 r#"<figure class="diagram"><img src="{}{}" width="{}" alt="diagram"></figure>"#,
                 prefix,
                 info.filename(),
-                info.display_width(dpi)
+                info.display_width()
             )
         });
-        let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
-        let tag = generator(&info, 192);
+        let info = RenderedDiagramInfo::new("test.png".to_owned(), 200);
         assert_eq!(
-            tag,
+            generator(&info),
             r#"<figure class="diagram"><img src="/diagrams/test.png" width="200" alt="diagram"></figure>"#
         );
     }
@@ -168,24 +139,10 @@ mod tests {
     }
 
     #[test]
-    fn test_display_width_192_dpi() {
-        let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
-        // At 192 DPI (2x), width should be halved: 400 * 96 / 192 = 200
-        assert_eq!(info.display_width(192), 200);
-    }
-
-    #[test]
-    fn test_display_width_96_dpi() {
-        let info = RenderedDiagramInfo::new("test.png".to_owned(), 300, 150);
-        // At 96 DPI, width unchanged: 300 * 96 / 96 = 300
-        assert_eq!(info.display_width(96), 300);
-    }
-
-    #[test]
-    fn test_display_height_192_dpi() {
-        let info = RenderedDiagramInfo::new("test.png".to_owned(), 400, 200);
-        // At 192 DPI (2x), height should be halved: 200 * 96 / 192 = 100
-        assert_eq!(info.display_height(192), 100);
+    fn info_reports_what_it_was_built_with() {
+        let info = RenderedDiagramInfo::new("d.png".to_owned(), 300);
+        assert_eq!(info.filename(), "d.png");
+        assert_eq!(info.display_width(), 300);
     }
 
     #[test]
