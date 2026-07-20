@@ -95,6 +95,7 @@
 //! ```
 
 pub(crate) mod page;
+pub(crate) mod path;
 pub(crate) mod site;
 pub(crate) mod site_state;
 
@@ -128,3 +129,5 @@ pub use site_state::{NavItem, Navigation, PageEntry, ScopeInfo, SectionEntry};
 ///
 /// Contains the heading `title`, `id` (anchor), and `level` (2–6).
 pub use rw_renderer::TocEntry;
+
+pub use path::to_url_path;

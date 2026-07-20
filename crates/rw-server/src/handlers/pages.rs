@@ -10,12 +10,11 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use rw_renderer::TocEntry;
-use rw_site::{BreadcrumbItem, SectionAnchor};
+use rw_site::{BreadcrumbItem, SectionAnchor, to_url_path};
 use rw_storage::mtime_to_datetime;
 use serde::Serialize;
 
 use crate::error::HandlerError;
-use crate::handlers::to_url_path;
 use crate::state::AppState;
 
 /// Response for GET /_api/pages/{path}.

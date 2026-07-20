@@ -7,11 +7,10 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Query, State};
-use rw_site::{NavItem, ScopeInfo, Section, SectionAnchor};
+use rw_site::{NavItem, ScopeInfo, Section, SectionAnchor, to_url_path};
 use serde::{Deserialize, Serialize};
 
 use crate::error::HandlerError;
-use crate::handlers::to_url_path;
 use crate::state::AppState;
 
 /// Query parameters for GET /_api/navigation.

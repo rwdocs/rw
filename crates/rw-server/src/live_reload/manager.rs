@@ -7,10 +7,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-use rw_site::Site;
+use rw_site::{Site, to_url_path};
 use rw_storage::{Storage, StorageEventKind, WatchHandle};
-
-use crate::handlers::to_url_path;
 
 /// Event sent to connected WebSocket clients.
 ///

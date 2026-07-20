@@ -11,6 +11,7 @@ use rw_cache_s3::S3Cache;
 use rw_config::Config;
 use rw_site::{
     NavItem, PageEntry, PageRendererConfig, ScopeInfo, SectionAnchor, SectionEntry, Site,
+    to_url_path,
 };
 use rw_storage::{Storage, mtime_to_datetime};
 use rw_storage_fs::{FsStorage, MtimeSource};
@@ -54,15 +55,6 @@ fn apply_diagrams_config(
 ) {
     if let Some(url) = diagrams.and_then(|d| d.kroki_url.as_ref()) {
         renderer_config.kroki_url = Some(url.clone());
-    }
-}
-
-/// Convert internal path (no leading slash) to URL path (with leading slash).
-fn to_url_path(path: &str) -> String {
-    if path.is_empty() {
-        "/".to_owned()
-    } else {
-        format!("/{path}")
     }
 }
 
@@ -472,17 +464,6 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn to_url_path_empty_returns_root() {
-        assert_eq!(to_url_path(""), "/");
-    }
-
-    #[test]
-    fn to_url_path_adds_leading_slash() {
-        assert_eq!(to_url_path("guide"), "/guide");
-        assert_eq!(to_url_path("guide/setup"), "/guide/setup");
-    }
 
     #[test]
     fn convert_nav_item_leaf() {
