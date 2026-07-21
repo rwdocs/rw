@@ -32,9 +32,9 @@
 //!   `:::` for a container). Because they ride the event walk, they respect
 //!   markdown block structure — a delimiter indented into a code block or
 //!   inside a fenced block is left literal, and each delimiter must stand as
-//!   its own blank-line-separated paragraph. Handlers emit HTML directly, or,
-//!   for `::include`-style leaves, expand into raw markdown that is re-parsed
-//!   in context.
+//!   its own blank-line-separated paragraph. Handlers emit HTML directly, a
+//!   [`Marker`] the backend renders itself, or deferred content assembled after
+//!   the walk (below).
 //!
 //! - **Assembly** fills the holes reserved during the walk. A leaf or container
 //!   handler whose markup depends on content it has not seen yet — a tab strip

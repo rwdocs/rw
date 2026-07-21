@@ -6,7 +6,7 @@ use super::{Marker, Part};
 
 /// Output from directive processing.
 ///
-/// Directives can produce five kinds of output:
+/// Directives can produce four kinds of output:
 ///
 /// - [`Html`](Self::Html): a single HTML blob passed verbatim to the backend's `raw_html`.
 /// - [`Marker`](Self::Marker): a semantic [`Marker`](super::Marker) wrapping a body of text.
@@ -14,7 +14,6 @@ use super::{Marker, Part};
 ///   (`marker_open + text(body) + marker_close`), so each backend decides what the marker
 ///   looks like — Confluence emits a native macro where HTML emits a `<span>`. Use this for
 ///   any inline directive that wraps a label.
-/// - [`Markdown`](Self::Markdown): markdown that needs recursive processing (used by `::include`).
 /// - [`Deferred`](Self::Deferred): literal HTML interleaved with holes the handler fills after
 ///   the walk, via [`fills`](super::ContainerDirective::fills). Use this when the content depends
 ///   on material the walk has not reached yet — a tab bar needs every tab's label but is emitted
@@ -31,9 +30,6 @@ use super::{Marker, Part};
 ///
 /// // Semantic marker — each backend renders it its own way.
 /// let _ = DirectiveOutput::marker(Marker::new("status").with_attr("color", "green"), "On Track");
-///
-/// // Markdown for recursive processing.
-/// let _ = DirectiveOutput::markdown("# Included Content\n\nSome text.");
 ///
 /// // Literal HTML plus a hole filled after the walk.
 /// let _ = DirectiveOutput::deferred(vec![Part::Hole(0), Part::Html("<p>body</p>".into())]);
@@ -53,10 +49,6 @@ pub enum DirectiveOutput {
         /// Body text — emitted via `text` (HTML-escaped by the backend).
         body: String,
     },
-    /// Markdown that needs to be processed through the full pipeline.
-    ///
-    /// Used by `::include` to inline file contents for recursive processing.
-    Markdown(String),
     /// Literal HTML interleaved with holes to be filled after the walk.
     ///
     /// Used by directives whose opening content depends on material that has
@@ -107,24 +99,6 @@ impl DirectiveOutput {
         }
     }
 
-    /// Create a markdown output (for includes).
-    ///
-    /// The returned markdown will be processed through the full pipeline,
-    /// including directive expansion, pulldown-cmark parsing, and rendering.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rw_renderer::directive::DirectiveOutput;
-    ///
-    /// let output = DirectiveOutput::markdown("# Title\n\nParagraph.");
-    /// assert!(matches!(output, DirectiveOutput::Markdown(_)));
-    /// ```
-    #[must_use]
-    pub fn markdown(s: impl Into<String>) -> Self {
-        Self::Markdown(s.into())
-    }
-
     /// Create a deferred output: literal HTML interleaved with holes.
     ///
     /// Each [`Part::Hole`] reserves a position in the output; the handler
@@ -154,12 +128,6 @@ mod tests {
     fn test_html() {
         let output = DirectiveOutput::html("<p>test</p>");
         assert_eq!(output, DirectiveOutput::Html("<p>test</p>".to_owned()));
-    }
-
-    #[test]
-    fn test_markdown() {
-        let output = DirectiveOutput::markdown("# Heading");
-        assert_eq!(output, DirectiveOutput::Markdown("# Heading".to_owned()));
     }
 
     #[test]

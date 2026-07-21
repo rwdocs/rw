@@ -51,8 +51,10 @@ pub trait InlineDirective: Send {
     /// to emit a semantic marker each backend renders itself, or
     /// [`DirectiveOutput::Skip`] to pass through unchanged.
     ///
-    /// Note: [`DirectiveOutput::Markdown`] is supported but uncommon for inline
-    /// directives since they typically produce simple HTML.
+    /// [`DirectiveOutput::Deferred`] is not supported: inline directives have no
+    /// `fills` hook, so a reserved hole could never be filled. Returning it
+    /// warns and emits only the literal parts, dropping the holes — return
+    /// [`DirectiveOutput::Marker`] instead.
     fn process(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput;
 }
 

@@ -12,8 +12,7 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Fills};
 /// `::name` token that shares a paragraph with other text, or one indented into
 /// a code block, is treated as literal text and left to the markdown parser.
 ///
-/// They can return markdown (for `::include`, which is re-parsed in context) or
-/// HTML (for `::youtube`).
+/// They return HTML (for `::youtube`), a semantic marker, or deferred content.
 ///
 /// # Deferred Content
 ///
@@ -59,8 +58,8 @@ pub trait LeafDirective: Send {
     ///
     /// Returns:
     /// - [`DirectiveOutput::Html`] for HTML output that passes through pulldown-cmark
-    /// - [`DirectiveOutput::Markdown`] for content that needs full pipeline processing
-    ///   (used by `::include` to inline file contents)
+    /// - [`DirectiveOutput::Marker`] for a semantic marker each backend renders
+    ///   its own way
     /// - [`DirectiveOutput::Deferred`] for content that is not known during the
     ///   walk — it reserves holes that [`fills`](Self::fills) supplies afterwards
     /// - [`DirectiveOutput::Skip`] to pass through unchanged
@@ -104,55 +103,6 @@ mod tests {
         }
     }
 
-    struct TestInclude {
-        warnings: Vec<String>,
-    }
-
-    impl TestInclude {
-        fn new() -> Self {
-            Self {
-                warnings: Vec::new(),
-            }
-        }
-    }
-
-    impl LeafDirective for TestInclude {
-        fn name(&self) -> &'static str {
-            "include"
-        }
-
-        fn process(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput {
-            let path = match ctx.resolve_path(args.content()) {
-                Ok(p) => p,
-                Err(e) => {
-                    self.warnings.push(format!(
-                        "line {}: invalid include '{}': {}",
-                        ctx.line(),
-                        args.content(),
-                        e
-                    ));
-                    return DirectiveOutput::Skip;
-                }
-            };
-            match ctx.read(&path) {
-                Ok(contents) => DirectiveOutput::markdown(contents),
-                Err(e) => {
-                    self.warnings.push(format!(
-                        "line {}: failed to include '{}': {}",
-                        ctx.line(),
-                        args.content(),
-                        e
-                    ));
-                    DirectiveOutput::Skip
-                }
-            }
-        }
-
-        fn warnings(&self) -> &[String] {
-            &self.warnings
-        }
-    }
-
     #[test]
     fn test_leaf_directive() {
         let mut youtube = TestYoutube;
@@ -168,96 +118,6 @@ mod tests {
         let output = youtube.process(args, &ctx);
 
         assert_matches!(output, DirectiveOutput::Html(s) if s.contains("dQw4w9WgXcQ"));
-    }
-
-    #[test]
-    fn test_include_success() {
-        let mut include = TestInclude::new();
-
-        let ctx = DirectiveContext {
-            source_path: None,
-            base_dir: Path::new("."),
-            line: 5,
-            read_file: &|_| Ok("# Included Content".to_owned()),
-        };
-
-        let args = DirectiveArgs::parse("snippet.md", "");
-        let output = include.process(args, &ctx);
-
-        assert_eq!(
-            output,
-            DirectiveOutput::Markdown("# Included Content".to_owned())
-        );
-        assert!(include.warnings().is_empty());
-    }
-
-    #[test]
-    fn test_include_failure() {
-        let mut include = TestInclude::new();
-
-        let ctx = DirectiveContext {
-            source_path: None,
-            base_dir: Path::new("."),
-            line: 10,
-            read_file: &|_| {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "not found",
-                ))
-            },
-        };
-
-        let args = DirectiveArgs::parse("missing.md", "");
-        let output = include.process(args, &ctx);
-
-        assert_eq!(output, DirectiveOutput::Skip);
-        assert_eq!(include.warnings().len(), 1);
-        assert!(include.warnings()[0].contains("line 10"));
-        assert!(include.warnings()[0].contains("missing.md"));
-    }
-
-    #[test]
-    fn test_include_rejects_absolute_path_without_reading() {
-        let mut include = TestInclude::new();
-
-        // read_file callback that panics if invoked — proves the file
-        // is never read on resolution failure.
-        let ctx = DirectiveContext {
-            source_path: None,
-            base_dir: Path::new("/docs"),
-            line: 7,
-            read_file: &|p| panic!("read_file should not be called; got {p:?}"),
-        };
-
-        let args = DirectiveArgs::parse("/etc/passwd", "");
-        let output = include.process(args, &ctx);
-
-        assert_eq!(output, DirectiveOutput::Skip);
-        assert_eq!(include.warnings().len(), 1);
-        assert!(include.warnings()[0].contains("line 7"));
-        assert!(include.warnings()[0].contains("/etc/passwd"));
-        assert!(include.warnings()[0].contains("invalid include"));
-    }
-
-    #[test]
-    fn test_include_rejects_traversal_without_reading() {
-        let mut include = TestInclude::new();
-
-        let ctx = DirectiveContext {
-            source_path: None,
-            base_dir: Path::new("/docs"),
-            line: 12,
-            read_file: &|p| panic!("read_file should not be called; got {p:?}"),
-        };
-
-        let args = DirectiveArgs::parse("../secret.md", "");
-        let output = include.process(args, &ctx);
-
-        assert_eq!(output, DirectiveOutput::Skip);
-        assert_eq!(include.warnings().len(), 1);
-        assert!(include.warnings()[0].contains("line 12"));
-        assert!(include.warnings()[0].contains("../secret.md"));
-        assert!(include.warnings()[0].contains("invalid include"));
     }
 
     #[test]

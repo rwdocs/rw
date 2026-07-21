@@ -84,10 +84,6 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     scopes: Vec<Scope>,
     /// Lifecycle of the current paragraph's `<p>`/`</p>` emission.
     paragraph: ParagraphState,
-    /// Current depth of `DirectiveOutput::Markdown` reparse recursion.
-    block_depth: usize,
-    /// Cached `max_include_depth` from the directive processor (or 10).
-    block_depth_limit: usize,
     /// Canonical section refs referenced by prose links in this document.
     section_refs: BTreeSet<String>,
     _backend: PhantomData<B>,
@@ -103,9 +99,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         processors: &'r mut [Box<dyn CodeBlockProcessor>],
         directives: Option<&'r mut DirectiveProcessor>,
     ) -> Self {
-        let block_depth_limit = directives
-            .as_deref()
-            .map_or(10, DirectiveProcessor::max_include_depth);
         Self {
             cfg,
             processors,
@@ -126,8 +119,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             spare_heading_buffers: None,
             scopes: Vec::new(),
             paragraph: ParagraphState::None,
-            block_depth: 0,
-            block_depth_limit,
             section_refs: BTreeSet::new(),
             _backend: PhantomData,
         }
@@ -334,10 +325,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// from empty.
     ///
     /// Content always wins over capacity: if the walker has meanwhile buffered
-    /// text (a nested flush, or a restored outer buffer), that buffer stays and
-    /// `buf`'s allocation is dropped. Discarding a spare allocation costs one
-    /// `malloc` later; discarding buffered text would silently drop it from the
-    /// rendered page.
+    /// text, that buffer stays and `buf`'s allocation is dropped. No caller
+    /// reaches that today — every one recycles into a buffer it just emptied —
+    /// but the guard keeps the optimization from being silently lossy if one
+    /// ever does. Discarding a spare allocation costs one `malloc` later;
+    /// discarding buffered text would drop it from the rendered page.
     fn recycle_text_buffer(&mut self, mut buf: String) {
         if !self.text_buffer.is_empty() {
             return;
@@ -419,14 +411,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     self.marker_open(&marker);
                     self.text(&body);
                     self.marker_close(&marker);
-                }
-                DirectiveOutput::Markdown(md) => {
-                    if let Some(p) = self.directives.as_deref_mut() {
-                        p.push_warning(format!(
-                            "inline directive ':{name}' returned Markdown; emitted as raw HTML (re-parsing of inline-directive Markdown output is not supported)"
-                        ));
-                    }
-                    self.raw_html(&md);
                 }
                 DirectiveOutput::Deferred(parts) => {
                     if let Some(p) = self.directives.as_deref_mut() {
@@ -523,48 +507,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 self.text(&body);
                 self.marker_close(&marker);
             }
-            BlockDispatch::Markdown(md) => self.reparse_block_markdown(&md),
             BlockDispatch::Deferred { parts, source } => self.emit_parts(parts, source),
             BlockDispatch::PassThrough(text) => self.emit_text_paragraph(&text),
         }
-    }
-
-    /// Re-parse a block directive's `Markdown` output in context, feeding the
-    /// nested events back through `self.process_event`. Saves/restores the
-    /// paragraph state around the loop (belt-and-suspenders) and enforces the
-    /// include-depth limit.
-    fn reparse_block_markdown(&mut self, md: &str) {
-        if self.block_depth >= self.block_depth_limit {
-            if let Some(p) = self.directives.as_deref_mut() {
-                p.push_warning(format!(
-                    "Maximum include depth ({}) exceeded",
-                    self.block_depth_limit
-                ));
-            }
-            return;
-        }
-        self.block_depth += 1;
-
-        let saved_paragraph = self.paragraph;
-        let saved_buffer = std::mem::take(&mut self.text_buffer);
-        self.paragraph = ParagraphState::None;
-
-        // The parser borrows only `md` (a `&str` that outlives the loop), not
-        // `self`, so the nested events can stream straight through
-        // `process_event` without being materialized first.
-        for event in self.cfg.create_parser(md) {
-            self.process_event(event);
-        }
-        self.flush_text_buffer();
-
-        // Restore the outer buffer, then offer the nested one's allocation
-        // back rather than dropping it — otherwise every re-parsed block
-        // directive pays a fresh allocate-and-grow cycle. `recycle_text_buffer`
-        // keeps the restored buffer if it still holds text.
-        let nested_buffer = std::mem::replace(&mut self.text_buffer, saved_buffer);
-        self.recycle_text_buffer(nested_buffer);
-        self.paragraph = saved_paragraph;
-        self.block_depth -= 1;
     }
 
     /// How deeply the current position is nested in blockquotes and lists.
@@ -574,9 +519,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// ends. Counting blockquote and list levels together is enough: the two
     /// stacks only ever grow and shrink in properly nested order, so the sum is
     /// monotonic with actual nesting.
-    ///
-    /// Distinct from `self.block_depth`, which counts `Markdown` reparse
-    /// recursion, not document structure.
     fn enclosing_block_depth(&self) -> usize {
         self.alert_stack.len() + self.list_stack.len()
     }

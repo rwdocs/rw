@@ -63,14 +63,13 @@ pub trait ContainerDirective: Send {
     ///
     /// Returns the opening output:
     /// - [`DirectiveOutput::Html`] to emit opening HTML tags
+    /// - [`DirectiveOutput::Marker`] for a semantic marker each backend renders
+    ///   its own way
     /// - [`DirectiveOutput::Deferred`] when part of the opening is not known
     ///   yet — it reserves holes that [`fills`](Self::fills) supplies after the
     ///   walk (a tab bar needs every tab's label, but is emitted before the
     ///   first tab)
     /// - [`DirectiveOutput::Skip`] to pass through (don't handle)
-    ///
-    /// Note: [`DirectiveOutput::Markdown`] is supported for advanced use cases
-    /// where the opening needs markdown processing.
     fn start(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput;
 
     /// Handle closing `:::`.

@@ -29,8 +29,6 @@ pub(crate) enum BlockDispatch {
     Html(String),
     /// A semantic marker — `marker_open + text(body) + marker_close`.
     Marker { marker: Marker, body: String },
-    /// Markdown that the walker must re-parse in context.
-    Markdown(String),
     /// Literal HTML interleaved with holes. See [`DirectiveOutput::Deferred`].
     ///
     /// `source` identifies the handler that produced the parts: its hole keys
@@ -78,10 +76,6 @@ pub struct DirectiveProcessorConfig {
     ///
     /// Default: `std::fs::read_to_string`
     pub read_file: Option<Box<ReadFileFn>>,
-    /// Maximum include depth to prevent infinite recursion.
-    ///
-    /// Default: 10
-    pub max_include_depth: usize,
 }
 
 impl Default for DirectiveProcessorConfig {
@@ -98,7 +92,6 @@ impl DirectiveProcessorConfig {
             base_dir: PathBuf::from("."),
             source_path: None,
             read_file: None,
-            max_include_depth: 10,
         }
     }
 
@@ -123,13 +116,6 @@ impl DirectiveProcessorConfig {
         F: Fn(&Path) -> io::Result<String> + Send + 'static,
     {
         self.read_file = Some(Box::new(read_file));
-        self
-    }
-
-    /// Set the maximum include depth.
-    #[must_use]
-    pub fn with_max_include_depth(mut self, depth: usize) -> Self {
-        self.max_include_depth = depth;
         self
     }
 
@@ -276,12 +262,6 @@ impl DirectiveProcessor {
         self
     }
 
-    /// Maximum recursive include depth, surfaced to the walker (which now owns
-    /// the recursion for `DirectiveOutput::Markdown`).
-    pub(crate) fn max_include_depth(&self) -> usize {
-        self.config.max_include_depth
-    }
-
     /// Dispatch a parsed block directive (leaf or container): invoke the
     /// registered handler, perform the `active_containers` push/pop and warning
     /// bookkeeping, and return owned [`BlockDispatch`] data for the walker to
@@ -329,7 +309,6 @@ impl DirectiveProcessor {
                     DirectiveOutput::Marker { marker, body } => {
                         BlockDispatch::Marker { marker, body }
                     }
-                    DirectiveOutput::Markdown(md) => BlockDispatch::Markdown(md),
                     DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
                         parts,
                         source: Source::Container(idx),
@@ -369,7 +348,6 @@ impl DirectiveProcessor {
                     DirectiveOutput::Marker { marker, body } => {
                         BlockDispatch::Marker { marker, body }
                     }
-                    DirectiveOutput::Markdown(md) => BlockDispatch::Markdown(md),
                     DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
                         parts,
                         source: Source::Leaf(idx),
@@ -549,7 +527,7 @@ impl DirectiveProcessor {
 
     /// Record a warning. Called by the walker's `flush_text` when it
     /// encounters cases it can't fully honor (e.g., an inline directive
-    /// returning `DirectiveOutput::Markdown`).
+    /// returning `DirectiveOutput::Deferred`, whose holes it cannot fill).
     pub(crate) fn push_warning(&mut self, msg: String) {
         self.warnings.push(msg);
     }
@@ -730,12 +708,10 @@ mod tests {
     fn test_config_builder() {
         let config = DirectiveProcessorConfig::new()
             .with_base_dir("/docs")
-            .with_source_path("/docs/guide.md")
-            .with_max_include_depth(5);
+            .with_source_path("/docs/guide.md");
 
         assert_eq!(config.base_dir, PathBuf::from("/docs"));
         assert_eq!(config.source_path, Some(PathBuf::from("/docs/guide.md")));
-        assert_eq!(config.max_include_depth, 5);
     }
 
     #[test]
@@ -873,26 +849,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_block_marker_and_markdown() {
-        // A container whose start() returns Markdown must surface as
-        // BlockDispatch::Markdown AND push onto active_containers (so the
-        // following end() fires the handler's `end()`).
-        struct MarkdownContainer;
-
-        impl ContainerDirective for MarkdownContainer {
-            fn name(&self) -> &'static str {
-                "mdwrap"
-            }
-
-            fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                DirectiveOutput::markdown("expanded body")
-            }
-
-            fn end(&mut self, _line: usize) -> Option<String> {
-                Some("<!--mdwrap-end-->".to_owned())
-            }
-        }
-
+    fn dispatch_block_marker() {
         // A leaf whose process() returns a Marker triple must surface as
         // BlockDispatch::Marker with all three fields intact.
         struct MarkerLeaf;
@@ -914,23 +871,7 @@ mod tests {
             }
         }
 
-        let mut processor = DirectiveProcessor::new()
-            .with_container(MarkdownContainer)
-            .with_leaf(MarkerLeaf);
-
-        let start = crate::directive::parser::parse_container_line(":::mdwrap").unwrap();
-        match processor.dispatch_block(start, 0) {
-            BlockDispatch::Markdown(md) => assert_eq!(md, "expanded body"),
-            other => panic!("expected Markdown, got {other:?}"),
-        }
-
-        // Proves the container name was pushed: the closing ::: pops it and
-        // dispatches the handler's end().
-        let end = crate::directive::parser::parse_container_line(":::").unwrap();
-        match processor.dispatch_block(end, 0) {
-            BlockDispatch::Html(html) => assert_eq!(html, "<!--mdwrap-end-->"),
-            other => panic!("expected Html from container end(), got {other:?}"),
-        }
+        let mut processor = DirectiveProcessor::new().with_leaf(MarkerLeaf);
 
         let leaf = crate::directive::parser::parse_leaf_line("::marker[x]").unwrap();
         match processor.dispatch_block(leaf, 0) {
@@ -1020,6 +961,16 @@ mod tests {
                 .html
                 .contains(r#"<span class="status status-red">Outage</span>"#),
             "got: {}",
+            result.html
+        );
+        // The push onto `active_containers` sits outside the `match output`, so
+        // it must fire for a non-`Html` start too. If it did not, the closing
+        // `:::` would pop an empty stack: a "stray :::" warning plus a literal
+        // `:::` in the output. The marker span alone would still render.
+        assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+        assert!(
+            !result.html.contains(":::"),
+            "closing ::: leaked: {}",
             result.html
         );
     }
