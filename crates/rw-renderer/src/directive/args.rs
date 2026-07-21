@@ -2,8 +2,6 @@
 //!
 //! Parses the `[content]{#id .class key="value"}` syntax from directives.
 
-use std::collections::HashMap;
-
 /// Parsed arguments from directive syntax.
 ///
 /// Represents the content and attributes extracted from a directive:
@@ -28,8 +26,14 @@ pub struct DirectiveArgs {
     pub(crate) id: Option<String>,
     /// Classes from attributes: `{.class1 .class2}`.
     pub(crate) classes: Vec<String>,
-    /// Key-value attributes: `{key="value"}`.
-    pub(crate) attrs: HashMap<String, String>,
+    /// Key-value attributes: `{key="value"}`, in source order.
+    ///
+    /// A `Vec` rather than a `HashMap`. Directives carry a handful of
+    /// attributes at most, so hashing earns nothing at this size, iteration
+    /// order is the author's instead of `RandomState`'s, and the struct is 24
+    /// bytes smaller (measured: 120 → 96). Write through [`set`](Self::set) to
+    /// preserve last-write-wins.
+    pub(crate) attrs: Vec<(String, String)>,
 }
 
 impl DirectiveArgs {
@@ -72,7 +76,7 @@ impl DirectiveArgs {
                 remaining = &remaining[end..];
             } else if let Some((key, value, rest)) = parse_key_value(remaining) {
                 // Key-value: key="value" or key='value' or key=value
-                args.attrs.insert(key.to_owned(), value.to_owned());
+                args.set(key, value);
                 remaining = rest;
             } else {
                 // Advance one codepoint — byte indexing would split a
@@ -84,6 +88,18 @@ impl DirectiveArgs {
         }
 
         args
+    }
+
+    /// Set an attribute, replacing any existing value for `key`.
+    ///
+    /// Reproduces `HashMap::insert`: a repeated key overwrites in place rather
+    /// than appending a second entry, so the last occurrence wins.
+    fn set(&mut self, key: &str, value: &str) {
+        if let Some(entry) = self.attrs.iter_mut().find(|(k, _)| k == key) {
+            value.clone_into(&mut entry.1);
+        } else {
+            self.attrs.push((key.to_owned(), value.to_owned()));
+        }
     }
 
     /// Get the content from brackets: `[content]`.
@@ -107,7 +123,10 @@ impl DirectiveArgs {
     /// Get an attribute value by key.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.attrs.get(key).map(String::as_str)
+        self.attrs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 
     /// Reconstruct the original syntax string `[content]{attrs}`.
@@ -146,11 +165,14 @@ impl DirectiveArgs {
             attrs_parts.push(format!(".{class}"));
         }
 
-        // Sort keys for deterministic output in tests
-        let mut keys: Vec<_> = self.attrs.keys().collect();
-        keys.sort();
-        for key in keys {
-            let value = &self.attrs[key];
+        // Sort by key. `attrs` is already in a deterministic (author) order, so
+        // this is not about determinism — it pins the reconstructed literal's
+        // attribute order, which pass-through output and its characterization
+        // tests depend on. Emitting author order instead would be a deliberate
+        // behavior change; don't make it incidentally.
+        let mut sorted: Vec<_> = self.attrs.iter().collect();
+        sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (key, value) in sorted {
             // Use double quotes and escape internal quotes if needed
             let escaped = value.replace('"', r#"\""#);
             attrs_parts.push(format!(r#"{key}="{escaped}""#));
@@ -303,6 +325,18 @@ mod tests {
     fn test_get_nonexistent() {
         let args = DirectiveArgs::parse("", "foo=bar");
         assert_eq!(args.get("baz"), None);
+    }
+
+    /// A repeated key keeps only the last value, contributes exactly one entry,
+    /// and appears once in the reconstructed syntax. `HashMap::insert`
+    /// semantics that a `Vec` representation must preserve — the length and
+    /// `to_syntax` assertions are what a naive `push` would break.
+    #[test]
+    fn test_duplicate_key_last_value_wins() {
+        let args = DirectiveArgs::parse("", r#"lang="en" lang="fr""#);
+        assert_eq!(args.get("lang"), Some("fr"));
+        assert_eq!(args.attrs.len(), 1, "duplicate key must not add an entry");
+        assert_eq!(args.to_syntax(), r#"{lang="fr"}"#);
     }
 
     #[test]

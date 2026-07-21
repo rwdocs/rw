@@ -288,7 +288,7 @@ impl CodeBlockProcessor for DiagramProcessor {
         };
 
         // Parse format attribute with validation
-        let format = attrs.map.get("format").map_or(DiagramFormat::default(), |value| {
+        let format = attrs.get("format").map_or(DiagramFormat::default(), |value| {
             DiagramFormat::parse(value).unwrap_or_else(|| {
                 self.warnings.push(format!(
                     "diagram {index}: unknown format value '{value}', using default 'svg' (valid: svg, png)"
@@ -298,16 +298,21 @@ impl CodeBlockProcessor for DiagramProcessor {
         });
 
         // Warn about unknown attributes
-        for key in attrs.map.keys().filter(|k| *k != "format") {
+        for key in attrs.keys().filter(|&k| k != "format") {
             self.warnings.push(format!(
                 "diagram {index}: unknown attribute '{key}' ignored (valid: format)"
             ));
         }
 
-        // Only `format` and `endpoint` are read downstream (to_extracted_diagram),
-        // so store just those instead of cloning the whole brace map — its other
+        // Store just these instead of cloning the whole brace map — its other
         // keys were already warned about above and are never read again.
-        let stored_attrs = HashMap::from([
+        //
+        // Only `format` is actually read back, by `to_extracted_diagram`.
+        // `endpoint` is dead: every consumer recomputes it from the diagram's
+        // language (see `kroki.rs`), and the sole reader of this entry is a
+        // test. Left in place because removing it is a behavior change to a
+        // pinned test, not a rename.
+        let stored_attrs = Vec::from([
             ("format".to_owned(), format.as_str().to_owned()),
             (
                 "endpoint".to_owned(),
@@ -766,9 +771,8 @@ impl Figures {
 pub(crate) fn to_extracted_diagram(block: &ExtractedCodeBlock) -> Option<ExtractedDiagram> {
     let language = DiagramLanguage::parse(&block.language)?;
     let format = block
-        .attrs()
-        .get("format")
-        .and_then(|s| DiagramFormat::parse(s))
+        .attr("format")
+        .and_then(DiagramFormat::parse)
         .unwrap_or_default();
 
     Some(ExtractedDiagram {
@@ -1350,14 +1354,11 @@ mod tests {
     fn test_process_with_format_png() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = FenceAttrs::default();
-        attrs.map.insert("format".to_owned(), "png".to_owned());
+        attrs.insert("format".to_owned(), "png".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
-        assert_eq!(
-            processor.extracted()[0].attrs().get("format"),
-            Some(&"png".to_owned())
-        );
+        assert_eq!(processor.extracted()[0].attr("format"), Some("png"));
         assert!(processor.warnings().is_empty());
     }
 
@@ -1365,15 +1366,12 @@ mod tests {
     fn test_process_with_invalid_format() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = FenceAttrs::default();
-        attrs.map.insert("format".to_owned(), "jpeg".to_owned());
+        attrs.insert("format".to_owned(), "jpeg".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
         // Should default to svg
-        assert_eq!(
-            processor.extracted()[0].attrs().get("format"),
-            Some(&"svg".to_owned())
-        );
+        assert_eq!(processor.extracted()[0].attr("format"), Some("svg"));
         assert_eq!(processor.warnings().len(), 1);
         assert!(processor.warnings()[0].contains("unknown format value 'jpeg'"));
     }
@@ -1382,7 +1380,7 @@ mod tests {
     fn test_process_with_unknown_attribute() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let mut attrs = FenceAttrs::default();
-        attrs.map.insert("size".to_owned(), "large".to_owned());
+        attrs.insert("size".to_owned(), "large".to_owned());
 
         processor.process("plantuml", &attrs, "source", 0);
 
@@ -1410,7 +1408,7 @@ mod tests {
             "plantuml".to_owned(),
             "@startuml\nA -> B\n@enduml".to_owned(),
             None,
-            HashMap::from([("format".to_owned(), "png".to_owned())]),
+            Vec::from([("format".to_owned(), "png".to_owned())]),
         );
 
         let diagram = to_extracted_diagram(&block).unwrap();
@@ -1428,7 +1426,7 @@ mod tests {
             "rust".to_owned(),
             "fn main() {}".to_owned(),
             None,
-            HashMap::new(),
+            Vec::new(),
         );
 
         assert!(to_extracted_diagram(&block).is_none());
@@ -1442,21 +1440,21 @@ mod tests {
                 "plantuml".to_owned(),
                 "source1".to_owned(),
                 None,
-                HashMap::new(),
+                Vec::new(),
             ),
             ExtractedCodeBlock::new(
                 1,
                 "rust".to_owned(), // Not a diagram
                 "source2".to_owned(),
                 None,
-                HashMap::new(),
+                Vec::new(),
             ),
             ExtractedCodeBlock::new(
                 2,
                 "mermaid".to_owned(),
                 "source3".to_owned(),
                 None,
-                HashMap::new(),
+                Vec::new(),
             ),
         ];
 
@@ -1476,10 +1474,7 @@ mod tests {
 
         processor.process("plantuml", &attrs, "source", 0);
 
-        assert_eq!(
-            processor.extracted()[0].attrs().get("endpoint"),
-            Some(&"plantuml".to_owned())
-        );
+        assert_eq!(processor.extracted()[0].attr("endpoint"), Some("plantuml"));
     }
 
     #[test]

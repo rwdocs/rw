@@ -63,7 +63,7 @@
 //! }
 //! ```
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use crate::directive::Fills;
 
@@ -101,8 +101,8 @@ pub struct ExtractedCodeBlock {
     /// map entry so a bare `id=foo` token can't populate it and a consumer reads
     /// it without stringly-typed lookups.
     id: Option<String>,
-    /// Attributes parsed from fence (e.g., `format=png` → {"format": "png"}).
-    attrs: HashMap<String, String>,
+    /// Attributes parsed from fence (e.g., `format=png` → `[("format", "png")]`).
+    attrs: Vec<(String, String)>,
 }
 
 impl ExtractedCodeBlock {
@@ -113,7 +113,7 @@ impl ExtractedCodeBlock {
         language: String,
         source: String,
         id: Option<String>,
-        attrs: HashMap<String, String>,
+        attrs: Vec<(String, String)>,
     ) -> Self {
         Self {
             index,
@@ -130,10 +130,13 @@ impl ExtractedCodeBlock {
         self.id.as_deref()
     }
 
-    /// Attributes parsed from the fence info string.
+    /// Look up an attribute value parsed from the fence info string.
     #[must_use]
-    pub fn attrs(&self) -> &HashMap<String, String> {
-        &self.attrs
+    pub fn attr(&self, key: &str) -> Option<&str> {
+        self.attrs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -252,8 +255,48 @@ pub struct FenceAttrs {
     pub id: Option<String>,
     /// Classes from `{.class}`, in source order.
     pub classes: Vec<String>,
-    /// `key=value` attributes (and valueless flags, value `""`) from the block.
-    pub map: HashMap<String, String>,
+    /// `key=value` attributes (and valueless flags, value `""`) from the block,
+    /// in source order.
+    ///
+    /// A `Vec` rather than a `HashMap`. Fences carry a handful of attributes at
+    /// most, so hashing earns nothing at this size, iteration order is the
+    /// author's instead of `RandomState`'s, and the struct is 24 bytes smaller
+    /// (measured: 96 → 72). Write through [`insert`](Self::insert) to preserve
+    /// last-write-wins.
+    pub map: Vec<(String, String)>,
+}
+
+impl FenceAttrs {
+    /// Look up an attribute value by key.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.map
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Set an attribute, replacing any existing value for `key`.
+    ///
+    /// Reproduces `HashMap::insert`'s last-write-wins: a repeated key
+    /// overwrites in place rather than appending a second entry, so the last
+    /// token wins. Unlike `HashMap::insert` it does not hand back the displaced
+    /// value — no caller wants it.
+    pub fn insert(&mut self, key: String, value: String) {
+        if let Some(entry) = self.map.iter_mut().find(|(k, _)| *k == key) {
+            entry.1 = value;
+        } else {
+            self.map.push((key, value));
+        }
+    }
+
+    /// Attribute keys, in source order.
+    ///
+    /// No `#[must_use]`: `impl Iterator` already carries one, and doubling it
+    /// trips `clippy::double_must_use`.
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.map.iter().map(|(k, _)| k.as_str())
+    }
 }
 
 /// Parse a fence info string into its language and attribute block.
@@ -310,10 +353,10 @@ fn parse_attr_block(inner: &str, attrs: &mut FenceAttrs) {
                 if let Some((key, value)) = token.split_once('=') {
                     if !key.is_empty() {
                         let value = value.trim_matches('"').trim_matches('\'');
-                        attrs.map.insert(key.to_owned(), value.to_owned());
+                        attrs.insert(key.to_owned(), value.to_owned());
                     }
                 } else {
-                    attrs.map.insert(token.to_owned(), String::new());
+                    attrs.insert(token.to_owned(), String::new());
                 }
             }
         }
@@ -555,6 +598,29 @@ mod tests {
         assert_eq!(attrs, FenceAttrs::default());
     }
 
+    /// A valueless flag stores the empty string, so `get` reports it present
+    /// with an empty value rather than absent. `parse_attr_block`'s bare-token
+    /// branch is otherwise unexercised — every other fence test uses `#id`,
+    /// `.class`, or `key=value`.
+    #[test]
+    fn parse_brace_valueless_flag_stores_empty_value() {
+        let (_lang, attrs) = parse_fence_info("mermaid {standalone}");
+        assert_eq!(attrs.get("standalone"), Some(""));
+        assert_eq!(attrs.keys().collect::<Vec<_>>(), ["standalone"]);
+    }
+
+    /// `keys` yields every key once, in the order the author wrote them —
+    /// the order kroki's "unknown attribute" warnings are emitted in.
+    #[test]
+    fn keys_yields_author_order_and_get_misses_are_none() {
+        let (_lang, attrs) = parse_fence_info("mermaid {zebra=1 alpha=2 zebra=3}");
+        // Author order, not sorted; the repeated key keeps its first position
+        // while taking its last value.
+        assert_eq!(attrs.keys().collect::<Vec<_>>(), ["zebra", "alpha"]);
+        assert_eq!(attrs.get("zebra"), Some("3"));
+        assert_eq!(attrs.get("absent"), None);
+    }
+
     #[test]
     fn parse_brace_id() {
         let (lang, attrs) = parse_fence_info("mermaid {#architecture}");
@@ -570,14 +636,26 @@ mod tests {
         assert_eq!(lang, "plantuml");
         assert_eq!(attrs.id.as_deref(), Some("a"));
         assert_eq!(attrs.classes, vec!["b".to_owned(), "c".to_owned()]);
-        assert_eq!(attrs.map.get("format"), Some(&"png".to_owned()));
-        assert_eq!(attrs.map.get("k"), Some(&"v".to_owned()));
+        assert_eq!(attrs.get("format"), Some("png"));
+        assert_eq!(attrs.get("k"), Some("v"));
     }
 
     #[test]
     fn parse_brace_last_id_wins() {
         let (_lang, attrs) = parse_fence_info("mermaid {#a #b}");
         assert_eq!(attrs.id.as_deref(), Some("b"));
+    }
+
+    /// A repeated `key=value` in one brace block keeps only the last value.
+    /// This is `HashMap::insert` semantics; a `Vec` representation must match it
+    /// by overwriting in place rather than appending a second entry — hence the
+    /// length assertion, which a naive `push` would fail while `get` still
+    /// happened to return the right value.
+    #[test]
+    fn parse_brace_last_duplicate_key_wins() {
+        let (_lang, attrs) = parse_fence_info("mermaid {format=svg format=png}");
+        assert_eq!(attrs.get("format"), Some("png"));
+        assert_eq!(attrs.map.len(), 1, "duplicate key must not add an entry");
     }
 
     #[test]
@@ -593,7 +671,7 @@ mod tests {
     fn parse_brace_format_only() {
         let (_lang, attrs) = parse_fence_info("mermaid {format=svg}");
         assert_eq!(attrs.id, None);
-        assert_eq!(attrs.map.get("format"), Some(&"svg".to_owned()));
+        assert_eq!(attrs.get("format"), Some("svg"));
     }
 
     #[test]
@@ -631,7 +709,7 @@ mod tests {
     #[test]
     fn parse_quoted_kv_value_trimmed() {
         let (_lang, attrs) = parse_fence_info("mermaid {caption=\"User\"}");
-        assert_eq!(attrs.map.get("caption"), Some(&"User".to_owned()));
+        assert_eq!(attrs.get("caption"), Some("User"));
     }
 
     #[test]
@@ -641,14 +719,14 @@ mod tests {
             "plantuml".to_owned(),
             "@startuml\nA -> B\n@enduml".to_owned(),
             None,
-            HashMap::from([("format".to_owned(), "png".to_owned())]),
+            Vec::from([("format".to_owned(), "png".to_owned())]),
         );
 
         assert_eq!(block.index, 0);
         assert_eq!(block.language, "plantuml");
         assert_eq!(block.source, "@startuml\nA -> B\n@enduml");
         assert_eq!(block.id(), None);
-        assert_eq!(block.attrs().get("format"), Some(&"png".to_owned()));
+        assert_eq!(block.attr("format"), Some("png"));
     }
 
     struct TestProcessor {
