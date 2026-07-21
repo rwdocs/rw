@@ -16,7 +16,7 @@ Publish the same markdown to Confluence pages or embed in Backstage with native 
 - **Status badges** — inline colored pill labels with Confluence status-macro parity
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents
-- **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, and custom variables
+- **Page metadata** — YAML frontmatter or sidecar files for titles, descriptions, and navigation order
 - **Confluence rendering** — produce publish-ready bundles (XHTML + diagrams) for any Confluence publishing tool
 - **Backstage integration** — embed docs with native Backstage plugins
 
