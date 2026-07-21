@@ -1,17 +1,22 @@
 //! Per-instance state for currently-active inline-capture scopes.
 //!
-//! [`Scope`] is the dispatch type the renderer pushes onto its stack when
-//! a heading / image / fenced code block / metadata block opens, and pops
-//! when it closes. The renderer's inline event methods (`text`,
-//! `inline_code`, `raw_html`, `soft_break`, `hard_break`) and
-//! `with_markup_buffer` dispatch on `self.scopes.last_mut()` to choose
-//! where to write.
+//! [`Scope`] is the dispatch type the renderer pushes onto its stack when a
+//! heading or an image opens, and pops when it closes. The renderer's inline
+//! event methods (`text`, `inline_code`, `raw_html`, `soft_break`,
+//! `hard_break`) and `with_markup_buffer` dispatch on `self.scopes.last_mut()`
+//! to choose where to write.
+//!
+//! Fenced code blocks and metadata blocks used to be scopes here too. They are
+//! now the [`Parser`](crate::parser::Parser)'s: a fence is accumulated into a
+//! single [`Event::CodeBlock`](crate::event::Event::CodeBlock) and a metadata
+//! block is swallowed whole. Splitting the stack that way is safe because the
+//! two families never interleave — a fence cannot occur inside a heading or
+//! inside alt text, so the Parser's single-slot state can never nest with what
+//! is left here.
 //!
 //! Cross-instance accumulators (TOC entries, title, `id_counts`,
 //! `seen_first_h1`) live on [`HeadingAccumulator`](crate::toc::HeadingAccumulator),
 //! not here.
-
-use crate::code_block::FenceAttrs;
 
 /// Per-instance state for a currently-active inline-capture scope.
 ///
@@ -53,20 +58,4 @@ pub(crate) enum Scope {
         dest_url: String,
         title: String,
     },
-    /// An open fenced code block. Only `text` (and `soft_break` → `\n`)
-    /// reach this scope — pulldown-cmark doesn't emit markup or raw HTML
-    /// inside a fenced block. On pop, the renderer runs code-block
-    /// processors with `self.code_block_index`. `ProcessResult::Inline` and
-    /// `PassThrough` emit their result immediately; `Deferred` — e.g. a
-    /// diagram — emits nothing here and reserves a hole instead,
-    /// filled later by the processor's `fills` in the post-walk assembly
-    /// pass. This is why `output` doesn't grow at a diagram fence.
-    CodeBlock {
-        language: Option<String>,
-        buffer: String,
-        attrs: FenceAttrs,
-    },
-    /// An open YAML frontmatter / metadata block. Suppresses every inline
-    /// event — nothing should appear in `output`.
-    Metadata,
 }

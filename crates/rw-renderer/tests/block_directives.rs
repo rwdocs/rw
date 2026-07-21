@@ -849,3 +849,40 @@ y
         result.html
     );
 }
+
+#[test]
+fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
+    // The Parser splits inline directives out of the text runs it tokenizes,
+    // but a container line nobody claimed comes back through
+    // `BlockDispatch::PassThrough` as a literal reconstructed from its parsed
+    // args — text that was never tokenized. That is why the Walker keeps one
+    // scanner: it re-runs the tokenizer over exactly this reconstruction.
+    let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
+    let result = MarkdownRenderer::<HtmlBackend>::new().render(
+        ":::foo[:status[Stable]{color=green}]\n\nBody.\n\n:::",
+        Pipeline::new().with_directives(directives),
+    );
+    assert_eq!(
+        result.html,
+        concat!(
+            r#"<p>:::foo[<span class="status status-green">Stable</span>]</p>"#,
+            "<p>Body.</p><p>:::</p>",
+        ),
+    );
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn unknown_inline_directives_warn_in_document_order() {
+    // Warnings gate `--strict` publishing and leave no trace in the HTML, so
+    // an output comparison cannot see them: their text and their order are
+    // asserted here in full. `:status` is registered and must stay silent.
+    let result = render_status(":alpha[x] then :beta[y] then :status[z]");
+    assert_eq!(
+        result.warnings,
+        vec![
+            "unknown inline directive ':alpha' — no handler registered (or handler returned Skip)",
+            "unknown inline directive ':beta' — no handler registered (or handler returned Skip)",
+        ]
+    );
+}

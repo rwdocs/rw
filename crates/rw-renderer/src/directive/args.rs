@@ -18,7 +18,7 @@
 /// assert_eq!(args.classes(), &["foo", "bar"]);
 /// assert_eq!(args.get("lang"), Some("en"));
 /// ```
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct DirectiveArgs {
     /// Content from brackets: `[content]` (empty string if not provided).
     pub(crate) content: String,

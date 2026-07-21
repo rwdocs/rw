@@ -1,8 +1,8 @@
 //! Directive processor for `CommonMark` directives.
 //!
-//! Registries for inline/leaf/container handlers, dispatched during the
-//! pulldown-cmark event walk, plus collection of the deferred content that
-//! fills their reserved holes once the walk completes.
+//! Registries for inline/leaf/container handlers, dispatched during the render
+//! walk, plus collection of the deferred content that fills their reserved
+//! holes once the walk completes.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -139,17 +139,16 @@ fn default_read_file(path: &Path) -> io::Result<String> {
 
 /// Processor for `CommonMark` directives.
 ///
-/// Dispatches directive handlers during the pulldown-cmark event walk and
-/// collects the content filling their deferred holes once the walk completes.
+/// Dispatches directive handlers during the render walk and collects the
+/// content filling their deferred holes once the walk completes.
 ///
 /// # Example
 ///
 /// Register handlers, then drive them through
-/// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render): block
-/// directives (leaf and container) expand during the pulldown-cmark event
-/// walk, and inline directives (`:name[…]`) expand from `Event::Text`
-/// content — inline code spans, code blocks, and raw HTML pass through
-/// unchanged.
+/// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render): every
+/// directive kind — leaf, container, and inline `:name[…]` — is recognized as
+/// the markdown is tokenized and dispatched here, while inline code spans, code
+/// blocks, and raw HTML pass through unchanged.
 ///
 /// ```
 /// use rw_renderer::directive::{
@@ -366,8 +365,8 @@ impl DirectiveProcessor {
     /// Dispatch an inline directive by name.
     ///
     /// Returns [`DirectiveOutput::Skip`] when no handler is registered for
-    /// `name`. Called by [`MarkdownRenderer`](crate::MarkdownRenderer) while
-    /// flushing buffered text content from the pulldown-cmark event stream.
+    /// `name`. Called by [`MarkdownRenderer`](crate::MarkdownRenderer) when an
+    /// inline-directive event reaches the walk.
     ///
     /// Line number is currently not threaded through; `DirectiveContext::line`
     /// returns `0` for inline-directive calls. No existing inline handler
@@ -525,9 +524,9 @@ impl DirectiveProcessor {
         collected
     }
 
-    /// Record a warning. Called by the walker's `flush_text` when it
-    /// encounters cases it can't fully honor (e.g., an inline directive
-    /// returning `DirectiveOutput::Deferred`, whose holes it cannot fill).
+    /// Record a warning. Called by the walker when it dispatches an inline
+    /// directive it can't fully honor: an unregistered name, or a handler
+    /// returning `DirectiveOutput::Deferred`, whose holes it cannot fill.
     pub(crate) fn push_warning(&mut self, msg: String) {
         self.warnings.push(msg);
     }
@@ -609,9 +608,9 @@ mod tests {
 
     #[test]
     fn test_inline_directive() {
-        // Inline directives are expanded by the walker's `flush_text` (during
-        // the pulldown-cmark event walk), not by `process`. Drive the full
-        // `MarkdownRenderer` pipeline so the wiring runs end-to-end.
+        // Inline directives are split out by the parser and dispatched by the
+        // walker, not by `process`. Drive the full `MarkdownRenderer` pipeline
+        // so the wiring runs end-to-end.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
@@ -681,9 +680,9 @@ mod tests {
     fn test_code_fence_skipping() {
         // End-to-end: a fenced code block should preserve inline directive
         // syntax literally, while the same directive on a regular paragraph
-        // line should expand. The walker's `flush_text` is responsible for
-        // skipping `Tag::CodeBlock` content; `process` no longer touches
-        // inline syntax at all.
+        // line should expand. A fence's body is accumulated by the parser and
+        // never scanned for directive syntax; `process` does not touch inline
+        // syntax at all.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
@@ -718,8 +717,8 @@ mod tests {
     fn inline_directive_after_leaf_token_in_paragraph_still_expands() {
         // Regression guard: a `::leaf` token mid-line must not stop the
         // scanner from finding a later `:inline` directive on the same line.
-        // Driven through the full pipeline because inline expansion now
-        // happens in the walker's `flush_text`, not in `process`.
+        // Driven through the full pipeline because the scan happens in the
+        // parser, not in `process`.
 
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();

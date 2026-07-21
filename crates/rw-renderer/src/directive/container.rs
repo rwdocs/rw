@@ -13,8 +13,8 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput, Fills};
 ///
 /// # Processing
 ///
-/// Container handlers are invoked during the pulldown-cmark event walk, and any
-/// content they could not emit yet is assembled once the walk completes:
+/// Container handlers are invoked during the render walk, and any content they
+/// could not emit yet is assembled once the walk completes:
 ///
 /// 1. **Event walk**: when the opening and closing delimiter paragraphs are
 ///    recognized, [`start`](Self::start) and [`end`](Self::end) are called to

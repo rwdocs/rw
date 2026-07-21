@@ -3,11 +3,11 @@
 //!
 //! # Architecture
 //!
-//! [`MarkdownRenderer`] walks [pulldown-cmark] events and delegates
-//! format-specific rendering to a [`RenderBackend`] implementation.
-//! This crate ships [`HtmlBackend`] for semantic HTML5 output with relative
-//! link resolution; other backends (e.g., Confluence XHTML) can be
-//! implemented downstream.
+//! [`MarkdownRenderer`] tokenizes markdown with [pulldown-cmark], walks the
+//! resulting event stream, and delegates format-specific rendering to a
+//! [`RenderBackend`] implementation. This crate ships [`HtmlBackend`] for
+//! semantic HTML5 output with relative link resolution; other backends (e.g.,
+//! Confluence XHTML) can be implemented downstream.
 //!
 //! All output is delegated to the backend — the renderer handles event
 //! walking and state management only. Backends override whichever
@@ -23,11 +23,12 @@
 //!   passes through for normal syntax highlighting.
 //!
 //! - **Directives** ([`directive`] module) — [CommonMark generic directives]
-//!   syntax (`:inline`, `::leaf`, `:::container`). Directives are recognized
-//!   during the event walk and dispatched straight to the backend. A handler
-//!   whose markup depends on content the walk has not reached yet — a tab strip
-//!   needs every tab's label — returns [`DirectiveOutput::Deferred`](directive::DirectiveOutput::Deferred), reserving
-//!   a hole at the current output offset.
+//!   syntax (`:inline`, `::leaf`, `:::container`). Directive syntax is
+//!   recognized during tokenization, so a directive arrives as its own event
+//!   and is dispatched straight to the backend. A handler whose markup depends
+//!   on content the walk has not reached yet — a tab strip needs every tab's
+//!   label — returns [`DirectiveOutput::Deferred`](directive::DirectiveOutput::Deferred),
+//!   reserving a hole at the current output offset.
 //!
 //! Both extension points share the same deferral mechanism: a single assembly
 //! pass after the walk splices each reserved hole's content in, supplied by
@@ -129,9 +130,11 @@ mod code_block;
 mod comment;
 mod config;
 pub mod directive;
+mod event;
 mod holes;
 mod html;
 mod link;
+mod parser;
 mod pipeline;
 mod renderer;
 mod scope;

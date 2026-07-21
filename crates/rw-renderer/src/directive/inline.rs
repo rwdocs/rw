@@ -7,9 +7,10 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput};
 /// Handler for inline directives: `:name[content]{attrs}`
 ///
 /// Inline directives appear within text flow and produce inline HTML elements.
-/// They are expanded during the pulldown-cmark event walk — as the renderer
-/// flushes text (`flush_text`) it scans `Event::Text` content for `:name[…]`
-/// syntax and dispatches to the handler; there is no separate pre-pass.
+/// They are recognized while the markdown is tokenized: `:name[…]` is split out
+/// of the surrounding text and handed to the renderer as a directive of its
+/// own, which dispatches it here. The text around it is therefore literal by
+/// the time it is rendered, and there is no separate pre-pass over the source.
 ///
 /// # Backend-Specific Output
 ///

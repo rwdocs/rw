@@ -1,4 +1,14 @@
-//! Per-render scratch state for [`MarkdownRenderer`](crate::MarkdownRenderer).
+//! Interpreter half of the render pipeline: turns rw
+//! [`Event`](crate::event::Event)s into backend output.
+//!
+//! The boundary with [`Parser`](crate::parser::Parser) is syntax versus
+//! meaning. The Parser tokenizes: it coalesces text runs, recognizes directive
+//! syntax, accumulates fenced code blocks, and swallows metadata blocks, so
+//! nothing arriving here needs re-scanning. The Walker interprets what arrives
+//! — it is the half that holds the directive registry, the section index and
+//! the backend, and it owns the state that spans events (open containers, list
+//! and alert stacks, the heading accumulator, the code-block counter, the hole
+//! table).
 //!
 //! `Walker` is constructed fresh inside every call to
 //! [`MarkdownRenderer::render`](crate::MarkdownRenderer::render). That's how
@@ -15,52 +25,35 @@
 //!
 //! Two distinct borrow patterns are load-bearing inside `Walker` methods.
 //! Both are explained in detail on the methods that use them:
-//! pattern B (tightly-scoped reborrow) lives in [`Walker::flush_text`];
-//! pattern A (field-disjoint borrows) lives in the `TagEnd::CodeBlock` arm
-//! of [`Walker::end_tag`]. Don't "simplify" either pattern without reading
-//! the comments first; both will fail to compile if hoisted.
+//! pattern B (tightly-scoped reborrow) lives in
+//! [`Walker::emit_inline_directive`];
+//! pattern A (field-disjoint borrows) lives in the `Event::CodeBlock` arm
+//! of [`Walker::handle`]. Don't "simplify" either pattern without
+//! reading the comments first; both will fail to compile if hoisted.
 
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 
-use pulldown_cmark::{CodeBlockKind, Event, LinkType, Tag, TagEnd};
-
 use crate::backend::{AlertKind, RenderBackend};
-use crate::code_block::{CodeBlockProcessor, FenceAttrs, ProcessResult, parse_fence_info};
+use crate::code_block::{CodeBlockProcessor, ProcessResult};
 use crate::config::RenderConfig;
+use crate::directive::DirectiveArgs;
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
 use crate::directive::Fills;
 use crate::directive::Marker;
 use crate::directive::Part;
 use crate::directive::fills::{GlobalKey, Source};
-use crate::directive::parser::{
-    ParsedDirective, parse_container_line, parse_leaf_line, parse_line,
-};
+use crate::directive::parser::{ParsedDirective, parse_line};
 use crate::directive::processor::BlockDispatch;
+use crate::event::{Event, LinkKind, Tag, TagEnd};
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
 use crate::scope::Scope;
 use crate::table::TableState;
 use crate::toc::HeadingAccumulator;
-use crate::util::heading_level_to_num;
 use crate::wikilink::{self, WikilinkResolution};
-
-/// Lifecycle of a paragraph's `<p>`/`</p>` emission.
-///
-/// `Tag::Paragraph` defers the `<p>` (we may discover the paragraph is a
-/// block-directive delimiter, which emits no `<p>`); the `<p>` is committed —
-/// or skipped under the `CodeBlock` guard — on the first non-text content.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ParagraphState {
-    /// No paragraph open.
-    None,
-    /// `Tag::Paragraph` seen; `<p>` deferred until we know it's not a directive.
-    Deferred,
-    /// `<p>` emitted; `</p>` owed at `TagEnd::Paragraph`.
-    Open,
-}
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
@@ -74,16 +67,12 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     heading: HeadingAccumulator,
     alert_stack: Vec<Option<AlertKind>>,
     code_block_index: usize,
-    skip_wikilink_text: bool,
-    text_buffer: String,
     /// The previous heading's `(toc_text, rendered_html)` buffers, cleared and
     /// parked for the next one. Headings can't nest, so a single spare pair
     /// covers the whole document: without it every heading allocates two
     /// zero-capacity `String`s and grows them from empty.
     spare_heading_buffers: Option<(String, String)>,
     scopes: Vec<Scope>,
-    /// Lifecycle of the current paragraph's `<p>`/`</p>` emission.
-    paragraph: ParagraphState,
     /// Canonical section refs referenced by prose links in this document.
     section_refs: BTreeSet<String>,
     _backend: PhantomData<B>,
@@ -114,11 +103,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             heading: HeadingAccumulator::new(cfg.extract_title, B::TITLE_AS_METADATA),
             alert_stack: Vec::new(),
             code_block_index: 0,
-            skip_wikilink_text: false,
-            text_buffer: String::new(),
             spare_heading_buffers: None,
             scopes: Vec::new(),
-            paragraph: ParagraphState::None,
             section_refs: BTreeSet::new(),
             _backend: PhantomData,
         }
@@ -232,111 +218,112 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
-    pub(crate) fn process_event(&mut self, event: Event<'_>) {
-        // Block-directive paragraph deferral: a paragraph whose entire text is a
-        // `:::`/`::` delimiter emits no <p>/</p>. Decide at End(Paragraph); commit
-        // the <p> on the first non-text content.
-        if self.paragraph == ParagraphState::Deferred {
-            if matches!(&event, Event::End(TagEnd::Paragraph)) {
-                self.finish_pending_paragraph();
-                return;
-            }
-            let still_buffering = matches!(&event, Event::Text(_))
-                && !matches!(
-                    self.scopes.last(),
-                    Some(Scope::CodeBlock { .. } | Scope::Metadata)
-                )
-                && !self.skip_wikilink_text;
-            if !still_buffering {
-                self.commit_paragraph();
-            }
-        }
-
-        // Inline-directive expansion needs to see a full `:name[content]`
-        // span, but pulldown-cmark splits text at delimiters like `[` and
-        // `]`. We buffer adjacent `Event::Text` content outside code blocks
-        // and metadata, and flush it through `flush_text` immediately
-        // before processing any non-text event.
-        let in_code_or_metadata = matches!(
-            self.scopes.last(),
-            Some(Scope::CodeBlock { .. } | Scope::Metadata)
-        );
-        let should_buffer =
-            matches!(&event, Event::Text(_)) && !in_code_or_metadata && !self.skip_wikilink_text;
-
-        if !should_buffer {
-            self.flush_text_buffer();
-        }
-
+    /// Interpret one event.
+    ///
+    /// `Event::Text` arrives already segmented: the Parser joins adjacent text
+    /// into a run, splits inline directives out of it, and lends each piece
+    /// borrowed — so a text event is literal by construction and needs no
+    /// scanning here. The run-vs-markup ordering is likewise already settled
+    /// by the time an event arrives.
+    pub(crate) fn handle(&mut self, event: Event<'_>) {
         match event {
             Event::Start(tag) => self.start_tag(tag),
             Event::End(tag) => self.end_tag(tag),
-            Event::Text(text) => {
-                if self.skip_wikilink_text {
-                    self.skip_wikilink_text = false;
-                    return;
-                }
-                // Short-circuit before flush_text_buffer would otherwise run
-                // the directive scanner (parse_line / dispatch_inline_named)
-                // over YAML content, polluting result.warnings and firing
-                // handler side effects. The Scope::Metadata arm of self.text
-                // only suppresses the final B::text — by then the side
-                // effects have already happened.
-                if matches!(self.scopes.last(), Some(Scope::Metadata)) {
-                    return;
-                }
-                let in_code = matches!(self.scopes.last(), Some(Scope::CodeBlock { .. }));
-                if in_code {
-                    self.text(&text);
-                } else {
-                    self.text_buffer.push_str(&text);
-                }
-            }
+            Event::Text(text) => self.text(&text),
             Event::Code(code) => {
                 self.inline_code(&code);
             }
-            Event::Html(html) | Event::InlineHtml(html) => self.raw_html(&html),
+            Event::RawHtml(html) => self.raw_html(&html),
             Event::SoftBreak => self.soft_break(),
             Event::HardBreak => self.hard_break(),
             Event::Rule => self.horizontal_rule(),
             Event::TaskListMarker(checked) => self.task_list_marker(checked),
-            Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
-                // Not supported
+            Event::CodeBlock(payload) => {
+                let index = self.code_block_index;
+                self.code_block_index += 1;
+
+                // Borrow discipline (pattern A): field-disjoint borrows.
+                // `self.processors` (mutably via iter_mut) and `self.output` /
+                // `self.holes` (mutably in the body) are distinct fields of
+                // Walker, so NLL splits the borrow per field. This works only
+                // because the body names those fields directly — wrapping the
+                // pushes or the reservation in a helper taking `&mut self`
+                // would reborrow the whole struct and conflict with iter_mut.
+                // That is why this reserves via `self.holes.reserve(...)`
+                // rather than the `reserve_hole` helper.
+                debug_assert!(
+                    self.scopes.is_empty(),
+                    "code block processed inside a scope: hole offsets would reference the wrong buffer"
+                );
+                let mut handled = false;
+                if let Some(lang_str) = payload.language.as_deref() {
+                    for (proc_idx, processor) in self.processors.iter_mut().enumerate() {
+                        match processor.process(lang_str, &payload.attrs, &payload.source, index) {
+                            ProcessResult::Deferred => {
+                                // Reserve at the current end of the append-only
+                                // buffer and write nothing. Scopes are empty
+                                // here: a code block cannot occur inside a
+                                // heading or alt text, and blockquotes/list
+                                // items are not scopes.
+                                let key = u32::try_from(index)
+                                    .expect("code block index exceeds hole key width");
+                                self.holes.reserve(
+                                    self.output.len(),
+                                    GlobalKey(Source::CodeBlock(proc_idx), key),
+                                );
+                                handled = true;
+                                break;
+                            }
+                            ProcessResult::Inline(html) => {
+                                // Deliberately NOT B::raw_html: `SearchDiagramProcessor`
+                                // returns a diagram's text description through this path
+                                // and `SearchDocumentBackend::raw_html` is a no-op, so
+                                // routing it through the backend would delete every
+                                // diagram from the search index.
+                                self.output.push_str(&html);
+                                handled = true;
+                                break;
+                            }
+                            ProcessResult::PassThrough => {}
+                        }
+                    }
+                }
+
+                if !handled {
+                    B::code_block(
+                        payload.language.as_deref(),
+                        &payload.source,
+                        &mut self.output,
+                    );
+                }
             }
-        }
-    }
-
-    /// Flush buffered text through inline-directive expansion (if any handlers
-    /// are registered) and into the backend via [`text`](Self::text) /
-    /// [`raw_html`](Self::raw_html).
-    pub(crate) fn flush_text_buffer(&mut self) {
-        if self.text_buffer.is_empty() {
-            return;
-        }
-        let buf = std::mem::take(&mut self.text_buffer);
-        self.flush_text(&buf);
-        self.recycle_text_buffer(buf);
-    }
-
-    /// Return a taken text buffer's allocation so the next run of text reuses
-    /// it. The `mem::take`s around the walker leave a zero-capacity `String`
-    /// behind, so without this every run of text re-allocates and re-grows
-    /// from empty.
-    ///
-    /// Content always wins over capacity: if the walker has meanwhile buffered
-    /// text, that buffer stays and `buf`'s allocation is dropped. No caller
-    /// reaches that today — every one recycles into a buffer it just emptied —
-    /// but the guard keeps the optimization from being silently lossy if one
-    /// ever does. Discarding a spare allocation costs one `malloc` later;
-    /// discarding buffered text would drop it from the rendered page.
-    fn recycle_text_buffer(&mut self, mut buf: String) {
-        if !self.text_buffer.is_empty() {
-            return;
-        }
-        buf.clear();
-        if buf.capacity() > self.text_buffer.capacity() {
-            self.text_buffer = buf;
+            // Block directives arrive already parsed: the decision is made
+            // against the fully coalesced run, which only the Parser has. Each
+            // payload's fields are *moved* back into a `ParsedDirective` — the
+            // shape `dispatch_block` takes — never cloned.
+            Event::ContainerDirectiveStart(payload) => {
+                self.handle_block_directive(ParsedDirective::ContainerStart {
+                    name: payload.name,
+                    args: payload.args,
+                    colon_count: payload.colon_count,
+                });
+            }
+            Event::ContainerDirectiveEnd { colon_count } => {
+                self.handle_block_directive(ParsedDirective::ContainerEnd { colon_count });
+            }
+            Event::LeafDirective(payload) => {
+                self.handle_block_directive(ParsedDirective::Leaf {
+                    name: payload.name,
+                    args: payload.args,
+                });
+            }
+            Event::InlineDirective(payload) => self.emit_inline_directive(
+                &payload.name,
+                payload.args,
+                &payload
+                    .raw
+                    .expect("the Parser always sets raw on inline directives"),
+            ),
         }
     }
 
@@ -358,12 +345,22 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.spare_heading_buffers = Some((toc_text, rendered_html));
     }
 
+    /// Emit a reconstructed literal, expanding inline directives on the way,
+    /// through [`text`](Self::text) / [`raw_html`](Self::raw_html).
+    ///
+    /// The Parser segments ordinary text runs itself, so this scanner survives
+    /// for exactly one caller: the `BlockDispatch::PassThrough` re-entry in
+    /// [`emit_text_paragraph`](Self::emit_text_paragraph), which renders a
+    /// block directive nobody claimed as ordinary prose. That literal was
+    /// rebuilt from a `DirectiveArgs`, never tokenized, so it legitimately has
+    /// to be re-scanned — `:::foo[:kbd[X]]` with `foo` unregistered still
+    /// expands the inner `:kbd`.
+    ///
+    /// That single caller runs only under a registered processor — it is
+    /// reached from [`handle_block_directive`](Self::handle_block_directive),
+    /// which has already unwrapped `self.directives` — so this needs no
+    /// directives-off branch of its own.
     fn flush_text(&mut self, text: &str) {
-        if self.directives.is_none() {
-            self.text(text);
-            return;
-        }
-
         let mut remaining = text;
         while !remaining.is_empty() {
             let Some((directive, start, end)) = parse_line(remaining) else {
@@ -378,7 +375,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             let matched = &remaining[start..end];
 
             // `parse_line` only yields inline directives; block delimiters are
-            // handled in `finish_pending_paragraph` during the event walk, so
+            // decided against the coalesced run in `Parser::decide_block`, so
             // anything non-inline is emitted verbatim.
             let ParsedDirective::Inline { name, args } = directive else {
                 self.text(matched);
@@ -386,105 +383,82 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 continue;
             };
 
-            // Tightly-scoped processor borrow: dispatch and capture the name
-            // before relinquishing the borrow.
-            //
-            // Borrow discipline (pattern B): release the `&mut self.directives`
-            // reborrow at the end of this block before any `&mut self` method
-            // call below. The compiler can't prove those methods don't touch
-            // self.directives, so holding the directives
-            // borrow across the call would fail. The outcome must be owned data,
-            // not a borrow.
-            let output = {
-                let processor = self
-                    .directives
-                    .as_deref_mut()
-                    .expect("checked above: directives is Some");
-                processor.dispatch_inline_named(&name, args)
-            };
-
-            match output {
-                DirectiveOutput::Html(html) => {
-                    self.raw_html(&html);
-                }
-                DirectiveOutput::Marker { marker, body } => {
-                    self.marker_open(&marker);
-                    self.text(&body);
-                    self.marker_close(&marker);
-                }
-                DirectiveOutput::Deferred(parts) => {
-                    if let Some(p) = self.directives.as_deref_mut() {
-                        p.push_warning(format!(
-                            "inline directive ':{name}' returned Deferred; its holes were dropped (inline directives cannot defer content — return Marker instead)"
-                        ));
-                    }
-                    // Emit the literal pieces so their content isn't lost, but
-                    // skip the holes: `InlineDirective` has no `fills()` hook,
-                    // so a reserved hole could never be filled.
-                    for part in parts {
-                        if let Part::Html(html) = part {
-                            self.raw_html(&html);
-                        }
-                    }
-                }
-                DirectiveOutput::Skip => {
-                    if let Some(p) = self.directives.as_deref_mut() {
-                        p.push_warning(format!(
-                            "unknown inline directive ':{name}' — no handler registered (or handler returned Skip)"
-                        ));
-                    }
-                    self.text(matched);
-                }
-            }
+            self.emit_inline_directive(&name, args, matched);
 
             remaining = &remaining[end..];
         }
     }
 
-    /// Emit the deferred `<p>` (respecting the dormant `CodeBlock` guard) and
-    /// mark the paragraph open so `TagEnd::Paragraph` emits `</p>`. Under the
-    /// `CodeBlock` guard the `<p>` is skipped and the state falls back to
-    /// `None`.
-    fn commit_paragraph(&mut self) {
-        if matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
-            self.paragraph = ParagraphState::None;
-        } else {
-            B::paragraph_start(&mut self.output);
-            self.paragraph = ParagraphState::Open;
+    /// Dispatch one inline directive and render the result. Shared by the
+    /// `Event::InlineDirective` arm and by `flush_text`'s re-entry path.
+    ///
+    /// `raw` is the directive's byte-exact source slice, which is what an
+    /// unclaimed directive is emitted as: `DirectiveArgs::to_syntax` is not a
+    /// round-trip, so rebuilding the syntax would not reproduce the source.
+    fn emit_inline_directive(&mut self, name: &str, args: DirectiveArgs, raw: &str) {
+        // Tightly-scoped processor borrow: dispatch and capture the outcome
+        // before relinquishing the borrow.
+        //
+        // Borrow discipline (pattern B): release the `&mut self.directives`
+        // reborrow at the end of this block before any `&mut self` method
+        // call below. The compiler can't prove those methods don't touch
+        // self.directives, so holding the directives
+        // borrow across the call would fail. The outcome must be owned data,
+        // not a borrow.
+        let output = {
+            let processor = self
+                .directives
+                .as_deref_mut()
+                .expect("inline directives only ever arrive when a processor is registered");
+            processor.dispatch_inline_named(name, args)
+        };
+
+        match output {
+            DirectiveOutput::Html(html) => {
+                self.raw_html(&html);
+            }
+            DirectiveOutput::Marker { marker, body } => {
+                self.marker_open(&marker);
+                self.text(&body);
+                self.marker_close(&marker);
+            }
+            DirectiveOutput::Deferred(parts) => {
+                if let Some(p) = self.directives.as_deref_mut() {
+                    p.push_warning(format!(
+                        "inline directive ':{name}' returned Deferred; its holes were dropped (inline directives cannot defer content — return Marker instead)"
+                    ));
+                }
+                // Emit the literal pieces so their content isn't lost, but
+                // skip the holes: `InlineDirective` has no `fills()` hook,
+                // so a reserved hole could never be filled.
+                for part in parts {
+                    if let Part::Html(html) = part {
+                        self.raw_html(&html);
+                    }
+                }
+            }
+            DirectiveOutput::Skip => {
+                if let Some(p) = self.directives.as_deref_mut() {
+                    p.push_warning(format!(
+                        "unknown inline directive ':{name}' — no handler registered (or handler returned Skip)"
+                    ));
+                }
+                self.text(raw);
+            }
         }
-    }
-
-    /// Called at `End(Paragraph)` while the paragraph is still pending (text
-    /// only). If the coalesced buffer is a block-directive delimiter, dispatch
-    /// it (no `<p>`); otherwise render an ordinary paragraph.
-    fn finish_pending_paragraph(&mut self) {
-        self.paragraph = ParagraphState::None;
-        let text = std::mem::take(&mut self.text_buffer);
-
-        // First-byte early-out: only a paragraph whose trimmed text starts with
-        // `:` can be a block directive, so skip both parsers (which already
-        // reject non-`:` input) for the common prose case.
-        if self.directives.is_some()
-            && text.trim_start().starts_with(':')
-            && let Some(parsed) = parse_container_line(&text).or_else(|| parse_leaf_line(&text))
-        {
-            self.handle_block_directive(parsed);
-        } else {
-            self.emit_text_paragraph(&text);
-        }
-
-        self.recycle_text_buffer(text);
     }
 
     /// Render `text` as an ordinary paragraph: emit `<p>`, flush the text
     /// through inline-directive expansion, then `</p>`.
+    ///
+    /// Only for the re-entry path — a block directive the processor handed back
+    /// as [`BlockDispatch::PassThrough`], which arrives outside any paragraph
+    /// event pair and so owes both tags itself. A paragraph the Parser
+    /// recognized as prose emits its own `Start`/`End(Paragraph)` instead.
     fn emit_text_paragraph(&mut self, text: &str) {
-        self.commit_paragraph();
+        B::paragraph_start(&mut self.output);
         self.flush_text(text);
-        if self.paragraph == ParagraphState::Open {
-            self.paragraph = ParagraphState::None;
-            B::paragraph_end(&mut self.output);
-        }
+        B::paragraph_end(&mut self.output);
     }
 
     /// Dispatch a recognized block directive through the processor and render
@@ -497,7 +471,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             let processor = self
                 .directives
                 .as_deref_mut()
-                .expect("checked above: directives is Some");
+                .expect("block directives only ever arrive when a processor is registered");
             processor.dispatch_block(parsed, depth)
         };
         match dispatch {
@@ -542,15 +516,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn start_tag(&mut self, tag: Tag<'_>) {
         match tag {
             Tag::Paragraph => {
-                // Defer the <p>: see process_event's pending-paragraph block.
-                debug_assert!(
-                    self.paragraph == ParagraphState::None,
-                    "nested pending paragraph"
-                );
-                self.paragraph = ParagraphState::Deferred;
+                // Unconditional: the Parser has already withheld this event for
+                // every paragraph that turned out to be a block-directive
+                // delimiter, so one arriving here always owes a `<p>`.
+                B::paragraph_start(&mut self.output);
             }
-            Tag::Heading { level, .. } => {
-                let level_num = heading_level_to_num(level);
+            Tag::Heading { level: level_num } => {
                 // Decide once, at start: is_skipped_title flips to false
                 // after the first H1 closes, so TagEnd::Heading would get a
                 // different answer and skip nothing (or skip the wrong
@@ -565,8 +536,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 });
             }
             Tag::BlockQuote(kind) => {
-                if let Some(bq_kind) = kind {
-                    let alert_kind = AlertKind::from(bq_kind);
+                if let Some(alert_kind) = kind {
                     self.alert_stack.push(Some(alert_kind));
                     B::alert_start(alert_kind, &mut self.output);
                 } else {
@@ -574,30 +544,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     B::blockquote_start(&mut self.output);
                 }
             }
-            Tag::CodeBlock(kind) => {
-                let (language, attrs) = match kind {
-                    CodeBlockKind::Fenced(ref info) if !info.is_empty() => {
-                        let (lang, attrs) = parse_fence_info(info);
-                        (if lang.is_empty() { None } else { Some(lang) }, attrs)
-                    }
-                    _ => (None, FenceAttrs::default()),
-                };
-                self.scopes.push(Scope::CodeBlock {
-                    language,
-                    buffer: String::new(),
-                    attrs,
-                });
-            }
             Tag::List(start) => {
                 self.list_stack.push(start.is_some());
                 B::list_start(start.is_some(), start, &mut self.output);
             }
             Tag::Item => {
                 B::list_item_start(&mut self.output);
-            }
-            Tag::FootnoteDefinition(_) | Tag::HtmlBlock => {}
-            Tag::MetadataBlock(_) => {
-                self.scopes.push(Scope::Metadata);
             }
             Tag::DefinitionList => {
                 B::definition_list_start(&mut self.output);
@@ -635,10 +587,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 self.with_markup_buffer(B::strikethrough_start);
             }
             Tag::Link {
-                link_type: LinkType::WikiLink { has_pothole },
+                kind: LinkKind::Wiki { has_pothole },
                 dest_url,
-                ..
-            } if self.cfg.wikilinks => {
+            } => {
                 let resolution = wikilink::resolve(self.cfg, &dest_url);
                 match &resolution {
                     WikilinkResolution::Resolved {
@@ -664,11 +615,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
                 if !has_pothole {
                     let display = wikilink::display_text(self.cfg, &resolution);
-                    self.skip_wikilink_text = true;
                     self.text(&display);
                 }
             }
-            Tag::Link { dest_url, .. } => {
+            Tag::Link {
+                kind: LinkKind::Other,
+                dest_url,
+            } => {
                 let dest_url = link::strip_origin(self.cfg, &dest_url);
                 let base = link::link_base(self.cfg);
                 let href = B::transform_link(&dest_url, base);
@@ -679,9 +632,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
             }
-            Tag::Image {
-                dest_url, title, ..
-            } => {
+            Tag::Image { dest_url, title } => {
                 let dest_url = link::strip_origin(self.cfg, &dest_url).into_owned();
                 self.scopes.push(Scope::Image {
                     alt_text: String::new(),
@@ -702,12 +653,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn end_tag(&mut self, tag: TagEnd) {
         match tag {
             TagEnd::Paragraph => {
-                if self.paragraph == ParagraphState::Open {
-                    self.paragraph = ParagraphState::None;
-                    B::paragraph_end(&mut self.output);
-                }
+                B::paragraph_end(&mut self.output);
             }
-            TagEnd::Heading(_level) => {
+            TagEnd::Heading => {
                 if !matches!(self.scopes.last(), Some(Scope::Heading { .. })) {
                     debug_assert!(false, "TagEnd::Heading without matching Scope::Heading");
                     return;
@@ -734,7 +682,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     self.store_heading_buffers(toc_text, done.rendered_html);
                 }
             }
-            TagEnd::BlockQuote(_) => {
+            TagEnd::BlockQuote => {
                 self.close_containers_for_block_end();
                 match self.alert_stack.pop() {
                     Some(Some(alert_kind)) => {
@@ -745,67 +693,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     }
                 }
             }
-            TagEnd::CodeBlock => {
-                if !matches!(self.scopes.last(), Some(Scope::CodeBlock { .. })) {
-                    debug_assert!(false, "TagEnd::CodeBlock without matching Scope::CodeBlock");
-                    return;
-                }
-                let Some(Scope::CodeBlock {
-                    language,
-                    buffer,
-                    attrs,
-                }) = self.scopes.pop()
-                else {
-                    unreachable!("peeked match guarantees pop returns Some(Scope::CodeBlock)");
-                };
-                let index = self.code_block_index;
-                self.code_block_index += 1;
-
-                // Borrow discipline (pattern A): field-disjoint borrows.
-                // `self.processors` (mutably via iter_mut) and `self.output` /
-                // `self.holes` (mutably in the body) are distinct fields of
-                // Walker, so NLL splits the borrow per field. This works only
-                // because the body names those fields directly — wrapping the
-                // pushes or the reservation in a helper taking `&mut self`
-                // would reborrow the whole struct and conflict with iter_mut.
-                // That is why this reserves via `self.holes.reserve(...)`
-                // rather than the `reserve_hole` helper.
-                debug_assert!(
-                    self.scopes.is_empty(),
-                    "code block processed inside a scope: hole offsets would reference the wrong buffer"
-                );
-                let mut handled = false;
-                if let Some(lang_str) = language.as_deref() {
-                    for (proc_idx, processor) in self.processors.iter_mut().enumerate() {
-                        match processor.process(lang_str, &attrs, &buffer, index) {
-                            ProcessResult::Deferred => {
-                                // Reserve at the current end of the append-only
-                                // buffer and write nothing. Scopes are empty
-                                // here: Scope::CodeBlock was popped above, and
-                                // blockquotes/list items are not scopes.
-                                let key = u32::try_from(index)
-                                    .expect("code block index exceeds hole key width");
-                                self.holes.reserve(
-                                    self.output.len(),
-                                    GlobalKey(Source::CodeBlock(proc_idx), key),
-                                );
-                                handled = true;
-                                break;
-                            }
-                            ProcessResult::Inline(html) => {
-                                self.output.push_str(&html);
-                                handled = true;
-                                break;
-                            }
-                            ProcessResult::PassThrough => {}
-                        }
-                    }
-                }
-
-                if !handled {
-                    B::code_block(language.as_deref(), &buffer, &mut self.output);
-                }
-            }
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
                 B::list_end(ordered, &mut self.output);
@@ -813,17 +700,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             TagEnd::Item => {
                 self.close_containers_for_block_end();
                 B::list_item_end(&mut self.output);
-            }
-            TagEnd::FootnoteDefinition | TagEnd::HtmlBlock => {}
-            TagEnd::MetadataBlock(_) => {
-                if !matches!(self.scopes.last(), Some(Scope::Metadata)) {
-                    debug_assert!(
-                        false,
-                        "TagEnd::MetadataBlock without matching Scope::Metadata"
-                    );
-                    return;
-                }
-                self.scopes.pop();
             }
             TagEnd::Image => {
                 if !matches!(self.scopes.last(), Some(Scope::Image { .. })) {
@@ -898,8 +774,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 B::text(text, rendered_html);
             }
             Some(Scope::Image { alt_text, .. }) => alt_text.push_str(text),
-            Some(Scope::CodeBlock { buffer, .. }) => buffer.push_str(text),
-            Some(Scope::Metadata) => {}
             None => B::text(text, &mut self.output),
         }
     }
@@ -916,11 +790,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             }
             // CommonMark: alt text is plain text — append code body without `<code>` wrap.
             Some(Scope::Image { alt_text, .. }) => alt_text.push_str(code),
-            // Dormant: pulldown-cmark doesn't emit InlineCode inside a fenced code block.
-            Some(Scope::CodeBlock { .. }) => {
-                debug_assert!(false, "inline_code inside a fenced code block");
-            }
-            Some(Scope::Metadata) => {}
             None => B::inline_code(code, &mut self.output),
         }
     }
@@ -975,8 +844,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             Some(Scope::Heading { rendered_html, .. }) => B::soft_break(rendered_html),
             // Soft breaks inside alt text collapse to a single space (CommonMark plain-text rule).
             Some(Scope::Image { alt_text, .. }) => alt_text.push(' '),
-            Some(Scope::CodeBlock { buffer, .. }) => buffer.push('\n'),
-            Some(Scope::Metadata) => {}
             None => B::soft_break(&mut self.output),
         }
     }
@@ -986,20 +853,14 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             Some(Scope::Heading { rendered_html, .. }) => B::hard_break(rendered_html),
             // Hard breaks inside alt text collapse to a single space.
             Some(Scope::Image { alt_text, .. }) => alt_text.push(' '),
-            // Dormant: pulldown-cmark doesn't emit HardBreak inside fenced code.
-            Some(Scope::CodeBlock { .. }) => {
-                debug_assert!(false, "hard_break inside a fenced code block");
-            }
-            Some(Scope::Metadata) => {}
             None => B::hard_break(&mut self.output),
         }
     }
 
     /// Run `f` against the buffer of the currently-active markup-accepting
     /// scope, or against `self.output` if no scope is active.
-    /// `Image` / `Metadata` are no-ops — the closure is never invoked and
-    /// the buffer is never exposed. `CodeBlock` is dormant
-    /// (`debug_assert! + drop`).
+    /// `Image` is a no-op — the closure is never invoked and the buffer is
+    /// never exposed.
     ///
     /// Inside a `Heading`, markup lands in the heading's rendered HTML but
     /// `toc_text` is intentionally left alone: it feeds the TOC entry title and
@@ -1011,18 +872,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     ///
     /// **This is the only path from inline-markup events to a `&mut String`.**
     /// Do NOT add a `markup_buffer_mut() -> Option<&mut String>` accessor:
-    /// the closure form is what makes "alt text drops markup" and
-    /// "metadata block suppresses output" structural rather than convention.
-    /// An accessor lets callers forget to no-op those scopes and silently
-    /// leak markup into `<img alt="…">` or into the suppressed metadata
-    /// block.
+    /// the closure form is what makes "alt text drops markup" structural
+    /// rather than convention. An accessor lets callers forget to no-op that
+    /// scope and silently leak markup into `<img alt="…">`.
     fn with_markup_buffer(&mut self, f: impl FnOnce(&mut String)) {
         match self.scopes.last_mut() {
             Some(Scope::Heading { rendered_html, .. }) => f(rendered_html),
-            Some(Scope::Image { .. } | Scope::Metadata) => {}
-            Some(Scope::CodeBlock { .. }) => {
-                debug_assert!(false, "markup-gated event inside a fenced code block");
-            }
+            Some(Scope::Image { .. }) => {}
             None => f(&mut self.output),
         }
     }
@@ -1046,38 +902,6 @@ mod tests {
     }
 
     #[test]
-    fn recycle_text_buffer_keeps_content_over_capacity() {
-        // No path reaches this today (every caller recycles into an empty
-        // buffer), but the guard is what keeps the optimization from being
-        // silently lossy if one ever does: buffered text must survive, even
-        // when the incoming allocation is roomier.
-        let config = cfg();
-        let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut directives = None;
-        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
-
-        walker.text_buffer = String::from("pending");
-        walker.recycle_text_buffer(String::with_capacity(4096));
-        assert_eq!(walker.text_buffer, "pending");
-    }
-
-    #[test]
-    fn recycle_text_buffer_reclaims_capacity_when_idle() {
-        let config = cfg();
-        let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut directives = None;
-        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
-
-        walker.text_buffer = String::new();
-        walker.recycle_text_buffer(String::from("spent buffer"));
-        assert!(walker.text_buffer.is_empty());
-        assert!(
-            walker.text_buffer.capacity() > 0,
-            "the spent buffer's allocation should have been kept for reuse"
-        );
-    }
-
-    #[test]
     fn finish_returns_empty_result_when_no_events_processed() {
         let config = cfg();
         let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
@@ -1098,7 +922,11 @@ mod tests {
         let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
         let mut directives = None;
         let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
-        walker.scopes.push(Scope::Metadata);
+        walker.scopes.push(Scope::Image {
+            alt_text: String::new(),
+            dest_url: String::new(),
+            title: String::new(),
+        });
         walker.finish();
     }
 

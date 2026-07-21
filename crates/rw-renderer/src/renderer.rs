@@ -61,15 +61,14 @@ pub struct RenderResult {
 
 /// Generic markdown renderer with pluggable backend.
 ///
-/// Walks pulldown-cmark events and produces HTML or XHTML depending on the
-/// [`RenderBackend`] implementation (`B`). Common elements (tables, lists,
-/// inline formatting) are handled generically; format-specific elements are
-/// delegated to `B`.
+/// Tokenizes markdown and interprets the result into HTML or XHTML depending
+/// on the [`RenderBackend`] implementation (`B`). Common elements (tables,
+/// lists, inline formatting) are handled generically; format-specific elements
+/// are delegated to `B`.
 ///
 /// The entry point is [`render`](Self::render): it accepts raw markdown and a
-/// [`Pipeline`], and runs the full pipeline — block-directive preprocessing,
-/// parse + event walk (with inline-directive expansion), and hole
-/// assembly.
+/// [`Pipeline`], and runs the full pipeline — tokenizing (markdown and
+/// directive syntax alike), interpreting, and hole assembly.
 ///
 /// # Code block processors and directives
 ///
@@ -214,11 +213,11 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// This is the entry point. It runs the full pipeline:
     ///
-    /// 1. **Parse & walk** — feeds raw markdown through pulldown-cmark and the
-    ///    backend. Block directives (leaf `::name`, container `:::name … :::`)
-    ///    are recognized in the event walk, and inline directives (`:name[…]`)
-    ///    expand during text flush — there is no separate line-based
-    ///    preprocessing pass.
+    /// 1. **Tokenize & interpret** — the `Parser` turns raw markdown into rw
+    ///    events, recognizing directive syntax (leaf `::name`, container
+    ///    `:::name … :::`, inline `:name[…]`) as it goes, and the `Walker`
+    ///    interprets those events into backend output. There is no separate
+    ///    line-based preprocessing pass.
     /// 2. **Finalize & assemble** — reports unclosed containers, then splices
     ///    every reserved hole's content (from directive handlers and
     ///    code-block processors, e.g. rendered diagrams) into the output in
@@ -226,19 +225,24 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// The supplied `Pipeline` is consumed: build a fresh one per render.
     pub fn render(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
-        // Parse raw markdown directly — block directives are now recognized in
-        // the event walk (see `Walker`), inline directives during text flush.
-        let parser = self.config.create_parser(markdown);
+        let mut parser = crate::parser::Parser::new(
+            markdown,
+            self.config.parser_options(),
+            self.config.wikilinks,
+            pipeline.directives.is_some(),
+        );
         let mut result = {
             let mut walker = crate::walker::Walker::<B>::new(
                 &self.config,
                 &mut pipeline.processors,
                 pipeline.directives.as_mut(),
             );
-            for event in parser {
-                walker.process_event(event);
+            // `parser` and `walker` are disjoint locals, so the two `&mut`
+            // borrows never conflict — which is what makes the lending
+            // `next` usable without a `LendingIterator` trait.
+            while let Some(event) = parser.next() {
+                walker.handle(event);
             }
-            walker.flush_text_buffer();
             walker.finish()
         };
 
@@ -1332,9 +1336,8 @@ Install with apt.
     fn test_frontmatter_does_not_invoke_registered_directives() {
         // Frontmatter text must not invoke registered directive handlers —
         // they may have side effects (warnings, reserved holes, I/O). The
-        // metadata short-circuit lives in process_event's Event::Text
-        // arm; flush_text would otherwise dispatch to handlers regardless of
-        // active scope.
+        // parser swallows a metadata block whole, so its text never reaches
+        // the run the directive scan runs over.
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1953,7 +1956,7 @@ Install with apt.
         let r2 = renderer.render(md, Pipeline::new().with_processor(CountingProcessor));
 
         // Full HTML equality catches per-render state leaks beyond the
-        // code-block-index bug (e.g., list_stack, alert_stack, text_buffer).
+        // code-block-index bug (e.g., list_stack, alert_stack, scopes).
         assert_eq!(
             r1.html, r2.html,
             "reused renderer must produce identical HTML for identical input"
@@ -2082,14 +2085,13 @@ Install with apt.
 
     /// Wikilink-bearing document renders identically across renderer reuse.
     ///
-    /// Spec-style test: under well-formed event streams pulldown-cmark
-    /// emits the `WikiLink` raw-target Text event immediately after the
-    /// tag opens, so `skip_wikilink_text` is consumed back to `false`
-    /// within the same render — this test would pass even pre-refactor.
-    /// Its value is documenting that the Walker-construction-per-render
-    /// guarantee covers wikilink paths, so future changes to the
-    /// wikilink event handling can't accidentally introduce reuse-
-    /// dependent state.
+    /// Spec-style test: under well-formed event streams cmark emits the
+    /// `WikiLink` raw-target Text event immediately after the tag opens, so
+    /// the parser's `skip_wikilink_text` is consumed back to `false` within
+    /// the same render — this test would pass even pre-refactor. Its value is
+    /// documenting that the construct-both-halves-per-render guarantee covers
+    /// wikilink paths, so future changes to the wikilink event handling can't
+    /// accidentally introduce reuse-dependent state.
     #[test]
     fn test_wikilink_input_renders_identically_across_renderer_reuse() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new().with_wikilinks(true);

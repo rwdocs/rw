@@ -89,11 +89,16 @@ crates/
 ├── rw-renderer/           # Reusable markdown renderer library
 │   └── src/
 │       ├── lib.rs            # Public API exports
-│       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend>
+│       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend> (façade)
+│       ├── event.rs          # Event vocabulary (Tag, TagEnd, DirectivePayload)
+│       ├── parser.rs         # Parser: tokenizes markdown + directive syntax
+│       ├── walker.rs         # Walker: interprets events into backend output
 │       ├── backend.rs        # RenderBackend trait definition
 │       ├── code_block.rs     # CodeBlockProcessor trait for extensible code block handling
 │       ├── bundle.rs         # bundle_markdown() for resolving code block references
-│       ├── state.rs          # Shared state structs (CodeBlockState, TableState, etc.)
+│       ├── scope.rs          # Inline-capture scopes (heading, image alt text)
+│       ├── table.rs          # TableState
+│       ├── toc.rs            # HeadingAccumulator (TOC entries, title, heading ids)
 │       ├── html.rs           # HtmlBackend implementation
 │       ├── holes.rs          # Deferred-content holes reserved during the walk
 │       ├── directive/        # Pluggable directives API (CommonMark syntax)

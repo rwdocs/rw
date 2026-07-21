@@ -163,11 +163,10 @@ mod tests {
 
     /// Render `input` through the full `MarkdownRenderer` pipeline.
     ///
-    /// Inline directives are expanded during the pulldown-cmark event walk
-    /// (in the walker's `flush_text`), so they only take effect
-    /// end-to-end. `MarkdownRenderer` wraps single-paragraph
-    /// input in `<p>…</p>` — the assertions below contain the resulting
-    /// HTML as a substring.
+    /// Inline directives are recognized by the parser and dispatched by the
+    /// walker, so they only take effect end-to-end. `MarkdownRenderer` wraps
+    /// single-paragraph input in `<p>…</p>` — the assertions below contain the
+    /// resulting HTML as a substring.
     fn render(input: &str) -> String {
         let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
         let renderer = MarkdownRenderer::<HtmlBackend>::new();

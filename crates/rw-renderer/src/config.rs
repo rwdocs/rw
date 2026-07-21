@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use pulldown_cmark::{Options, Parser};
+use pulldown_cmark::Options;
 use rw_sections::Sections;
 
 /// Resolves page paths to their display titles for wikilink rendering.
@@ -108,12 +108,6 @@ impl RenderConfig {
             opts |= Options::ENABLE_WIKILINKS;
         }
         opts
-    }
-
-    /// Creates a pulldown-cmark `Parser` with the renderer's current options.
-    #[must_use]
-    pub(crate) fn create_parser<'a>(&self, markdown: &'a str) -> Parser<'a> {
-        Parser::new_ext(markdown, self.parser_options())
     }
 }
 

@@ -14,22 +14,25 @@
 //!
 //! # Architecture
 //!
-//! Directives are recognized during the pulldown-cmark event walk — there is
-//! no separate pre-pass over the source text. As the renderer iterates the
-//! event stream it dispatches each directive type to its handler, and a final
-//! assembly pass fills in the content no handler could emit during the walk:
+//! Directive syntax is recognized as the markdown is tokenized — there is no
+//! separate pre-pass over the source text. Each recognized directive reaches
+//! the renderer as an event of its own, which dispatches it to its handler, and
+//! a final assembly pass fills in the content no handler could emit during the
+//! walk:
 //!
-//! - **Inline directives** are expanded while flushing text: the renderer scans
-//!   `Event::Text` content for `:name[…]` syntax and dispatches handlers
-//!   directly into its backend. Inline code spans, code blocks, and raw HTML
-//!   pass through unchanged. An inline directive that wraps a label in
-//!   backend-specific markup returns [`DirectiveOutput::Marker`] — a semantic
-//!   [`Marker`] the backend renders itself via `marker_open`/`marker_close` —
-//!   rather than emitting markup that would reach every backend verbatim.
+//! - **Inline directives** are split out of the surrounding text: `:name[…]`
+//!   arrives as its own event and is dispatched straight into the backend, so
+//!   the text around it is literal by construction. Inline code spans, code
+//!   blocks, and raw HTML pass through unchanged. An inline directive that
+//!   wraps a label in backend-specific markup returns
+//!   [`DirectiveOutput::Marker`] — a semantic [`Marker`] the backend renders
+//!   itself via `marker_open`/`marker_close` — rather than emitting markup that
+//!   would reach every backend verbatim.
 //!
 //! - **Leaf and container directives** are recognized when their delimiter
-//!   paragraph appears in the event stream (`::name` for a leaf, `:::name` …
-//!   `:::` for a container). Because they ride the event walk, they respect
+//!   paragraph is tokenized (`::name` for a leaf, `:::name` … `:::` for a
+//!   container), and likewise arrive as events. Because they ride the same
+//!   stream as the markdown structure around them, they respect
 //!   markdown block structure — a delimiter indented into a code block or
 //!   inside a fenced block is left literal, and each delimiter must stand as
 //!   its own blank-line-separated paragraph. Handlers emit HTML directly, a
