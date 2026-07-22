@@ -7,7 +7,8 @@
 //!
 //! Takes only what a tokenizer needs, by value: it deliberately does **not**
 //! hold a `&RenderConfig`, because `sections` and `title_resolver` are
-//! interpretation.
+//! interpretation. The cmark feature set is its own too: [`cmark_options`]
+//! defines rw's markdown dialect.
 
 use std::ops::Range;
 
@@ -87,18 +88,17 @@ impl RunSegment {
     }
 }
 
-/// Two immutable syntax-enablement flags plus two absorbing-state flags;
-/// folding either pair into an enum would name the same two states twice.
-#[allow(clippy::struct_excessive_bools)]
+/// One immutable syntax-enablement flag plus two absorbing-state flags;
+/// folding the latter pair into an enum would name the same two states twice.
+///
+/// Wikilink enablement is not among them: [`new`](Self::new) folds it into
+/// cmark's [`Options`] via [`cmark_options`], after which cmark alone decides
+/// whether `[[…]]` is a link.
 pub(crate) struct Parser<'a> {
     inner: cmark::Parser<'a>,
-    /// `[[wikilink]]` syntax is enabled. Passed by value: the Parser needs the
-    /// flag to classify a link, not the config that set it.
-    wikilinks: bool,
     /// Directive syntax is enabled — i.e. the render pipeline carries a
-    /// `DirectiveProcessor`. Passed by value for the same reason as
-    /// `wikilinks`: the Parser needs to know whether `:::name` is syntax or
-    /// prose, not which handlers are registered for it.
+    /// `DirectiveProcessor`. Passed by value: the Parser needs to know whether
+    /// `:::name` is syntax or prose, not which handlers are registered for it.
     ///
     /// Without it a directive-free pipeline would receive directive events it
     /// has no processor to dispatch, and the literal source text — which the
@@ -141,16 +141,28 @@ pub(crate) struct Parser<'a> {
     skip_wikilink_text: bool,
 }
 
+/// rw's markdown dialect: the cmark features every render enables, plus
+/// wikilinks when `wikilinks` is set.
+///
+/// Scoped to rendering. Other passes over the same document — frontmatter and
+/// title extraction among them — parse with their own, narrower option sets,
+/// so this is not a site-wide definition of the markdown rw accepts.
+fn cmark_options(wikilinks: bool) -> Options {
+    let mut opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+        | Options::ENABLE_TABLES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_GFM;
+    if wikilinks {
+        opts |= Options::ENABLE_WIKILINKS;
+    }
+    opts
+}
+
 impl<'a> Parser<'a> {
-    pub(crate) fn new(
-        markdown: &'a str,
-        options: Options,
-        wikilinks: bool,
-        directives: bool,
-    ) -> Self {
+    pub(crate) fn new(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
         Self {
-            inner: cmark::Parser::new_ext(markdown, options),
-            wikilinks,
+            inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks)),
             directives,
             run: String::new(),
             run_cursor: 0,
@@ -466,10 +478,9 @@ impl<'a> Parser<'a> {
             cmark::Event::FootnoteReference(_)
             | cmark::Event::InlineMath(_)
             | cmark::Event::DisplayMath(_) => {
-                // `RenderConfig::parser_options` enables neither
-                // `ENABLE_FOOTNOTES` nor `ENABLE_MATH`, so cmark cannot emit
-                // these. Verified against a document containing all three
-                // syntaxes.
+                // `cmark_options` enables neither `ENABLE_FOOTNOTES` nor
+                // `ENABLE_MATH`, so cmark cannot emit these. Verified against
+                // a document containing all three syntaxes.
                 debug_assert!(
                     false,
                     "cmark emitted a footnote/math event, which rw's parser options never enable"
@@ -577,11 +588,15 @@ impl<'a> Parser<'a> {
             cmark::Tag::Strikethrough => Tag::Strikethrough,
             cmark::Tag::Superscript => Tag::Superscript,
             cmark::Tag::Subscript => Tag::Subscript,
+            // No flag test here: cmark produces `LinkType::WikiLink` only when
+            // `ENABLE_WIKILINKS` is set, and `cmark_options` sets it from the
+            // caller's `wikilinks`. Reaching this arm therefore *is* the
+            // wikilinks-enabled case.
             cmark::Tag::Link {
                 link_type: cmark::LinkType::WikiLink { has_pothole },
                 dest_url,
                 ..
-            } if self.wikilinks => {
+            } => {
                 if !has_pothole {
                     self.skip_wikilink_text = true;
                 }
@@ -704,14 +719,26 @@ mod tests {
     use super::*;
     use crate::event::{Event, Tag, TagEnd};
 
-    fn opts() -> Options {
-        crate::config::RenderConfig::new().parser_options()
+    #[test]
+    fn cmark_options_defaults_include_gfm_and_metadata() {
+        let opts = cmark_options(false);
+        assert!(opts.contains(Options::ENABLE_TABLES));
+        assert!(opts.contains(Options::ENABLE_STRIKETHROUGH));
+        assert!(opts.contains(Options::ENABLE_TASKLISTS));
+        assert!(opts.contains(Options::ENABLE_GFM));
+        assert!(opts.contains(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS));
+        assert!(!opts.contains(Options::ENABLE_WIKILINKS));
+    }
+
+    #[test]
+    fn cmark_options_enables_wikilinks_when_flag_on() {
+        assert!(cmark_options(true).contains(Options::ENABLE_WIKILINKS));
     }
 
     /// Collect the whole stream, owning nothing borrowed — `next` lends, so
     /// each event must be consumed before the next call.
     fn debug_stream(markdown: &str) -> Vec<String> {
-        let mut parser = Parser::new(markdown, opts(), false, true);
+        let mut parser = Parser::new(markdown, false, true);
         let mut out = Vec::new();
         while let Some(event) = parser.next() {
             out.push(format!("{event:?}"));
@@ -721,7 +748,7 @@ mod tests {
 
     #[test]
     fn a_fence_arrives_as_one_code_block_event_with_its_body() {
-        let mut parser = Parser::new("```rust\nfn a() {}\n```\n", opts(), false, true);
+        let mut parser = Parser::new("```rust\nfn a() {}\n```\n", false, true);
         let mut seen = None;
         while let Some(event) = parser.next() {
             if let Event::CodeBlock(payload) = event {
@@ -746,7 +773,7 @@ mod tests {
 
     #[test]
     fn structure_translates_to_rw_tags() {
-        let mut parser = Parser::new("# H\n", opts(), false, true);
+        let mut parser = Parser::new("# H\n", false, true);
         assert_eq!(parser.next(), Some(Event::Start(Tag::Heading { level: 1 })));
         assert_eq!(parser.next(), Some(Event::Text("H".into())));
         assert_eq!(parser.next(), Some(Event::End(TagEnd::Heading)));
@@ -754,9 +781,7 @@ mod tests {
     }
 
     fn debug_stream_wikilinks(markdown: &str) -> Vec<String> {
-        let mut cfg = crate::config::RenderConfig::new();
-        cfg.wikilinks = true;
-        let mut parser = Parser::new(markdown, cfg.parser_options(), true, true);
+        let mut parser = Parser::new(markdown, true, true);
         let mut out = Vec::new();
         while let Some(event) = parser.next() {
             out.push(format!("{event:?}"));
@@ -793,6 +818,29 @@ mod tests {
         assert!(
             stream.iter().any(|e| e.contains("and more prose")),
             "suppression must not leak past the link: {stream:?}"
+        );
+    }
+
+    #[test]
+    fn wikilink_syntax_stays_prose_when_wikilinks_are_off() {
+        // `start_tag`'s wikilink arm tests no flag of its own: it relies on
+        // cmark emitting `LinkType::WikiLink` only when `cmark_options` set
+        // `ENABLE_WIKILINKS`. That invariant is pulldown-cmark's, not rw's, so
+        // pin it here — a cmark release that emitted a wikilink with the option
+        // off would otherwise turn `[[target]]` into a link on every site that
+        // has wikilinks disabled.
+        let stream = debug_stream("[[target]]");
+        assert!(
+            !stream.iter().any(|e| e.contains("Wiki")),
+            "wikilinks are off, so no Wiki link may be emitted: {stream:?}"
+        );
+        assert_eq!(
+            stream,
+            [
+                "Start(Paragraph)",
+                r#"Text(Borrowed("[[target]]"))"#,
+                "End(Paragraph)",
+            ]
         );
     }
 
@@ -841,7 +889,7 @@ mod tests {
         // buffer), but the guard is what keeps the optimization from being
         // silently lossy if one ever does: buffered text must survive, even
         // when the incoming allocation is roomier.
-        let mut parser = Parser::new("", opts(), false, true);
+        let mut parser = Parser::new("", false, true);
 
         parser.run = String::from("pending");
         parser.recycle_run(String::with_capacity(4096));
@@ -850,7 +898,7 @@ mod tests {
 
     #[test]
     fn recycle_run_reclaims_capacity_when_idle() {
-        let mut parser = Parser::new("", opts(), false, true);
+        let mut parser = Parser::new("", false, true);
 
         parser.run = String::new();
         parser.recycle_run(String::from("spent buffer"));
@@ -902,7 +950,7 @@ mod tests {
         // after the scan would produce this same stream, only slower, so the
         // placement is a performance property no black-box assertion here can
         // enforce. Named for what it checks rather than for the gate.
-        let mut parser = Parser::new("Press :kbd[Ctrl+C] to copy.", opts(), false, false);
+        let mut parser = Parser::new("Press :kbd[Ctrl+C] to copy.", false, false);
         let mut out = Vec::new();
         while let Some(event) = parser.next() {
             out.push(format!("{event:?}"));
@@ -928,7 +976,7 @@ mod tests {
         // contain the byte-exact slice.
         let raw = r#":foo[x]{.a.b key="v" bareword}"#;
         let markdown = format!("before {raw} after");
-        let mut parser = Parser::new(&markdown, opts(), false, true);
+        let mut parser = Parser::new(&markdown, false, true);
         let mut seen = None;
         while let Some(event) = parser.next() {
             if let Event::InlineDirective(payload) = event {
@@ -966,7 +1014,7 @@ mod tests {
         // The paragraph is offered to the block parsers first (its trimmed
         // text starts with `:`); both must decline, leaving an ordinary
         // paragraph whose run is then scanned for inline directives.
-        let mut parser = Parser::new(":status[On Track]{color=green}", opts(), false, true);
+        let mut parser = Parser::new(":status[On Track]{color=green}", false, true);
         assert_eq!(parser.next(), Some(Event::Start(Tag::Paragraph)));
         let Some(Event::InlineDirective(payload)) = parser.next() else {
             panic!("expected an inline directive");

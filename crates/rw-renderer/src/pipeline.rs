@@ -1,8 +1,8 @@
 //! Per-render extensions for [`MarkdownRenderer`]: code-block processors
 //! and the directive processor. See [`Pipeline`] for the API.
 //!
-//! Settings that live for the lifetime of the renderer (base path, GFM
-//! flag, wikilinks, sections, title resolver) stay on
+//! Settings that live for the lifetime of the renderer (base path, wikilinks,
+//! sections, title resolver) stay on
 //! [`MarkdownRenderer`](crate::MarkdownRenderer) and are configured via
 //! its builder methods.
 

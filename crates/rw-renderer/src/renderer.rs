@@ -227,7 +227,6 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     pub fn render(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
         let mut parser = crate::parser::Parser::new(
             markdown,
-            self.config.parser_options(),
             self.config.wikilinks,
             pipeline.directives.is_some(),
         );

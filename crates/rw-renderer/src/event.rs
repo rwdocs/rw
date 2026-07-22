@@ -14,9 +14,9 @@
 //! # Why cmark variants are missing
 //!
 //! * `FootnoteDefinition`, `FootnoteReference`, `InlineMath`, `DisplayMath` —
-//!   rw's parser options (`RenderConfig::parser_options`) enable neither
-//!   footnotes nor math, so cmark never emits them. Verified against a
-//!   document containing all four syntaxes.
+//!   rw's parser options (`parser::cmark_options`) enable neither footnotes
+//!   nor math, so cmark never emits them. Verified against a document
+//!   containing all four syntaxes.
 //! * `HtmlBlock` — emitted, but the Walker only ever no-ops on it. The Parser
 //!   drops it. Its raw contents still arrive, as [`Event::RawHtml`].
 //! * `MetadataBlock` — the Parser swallows the whole block, including its

@@ -8,7 +8,6 @@
 
 use std::sync::Arc;
 
-use pulldown_cmark::Options;
 use rw_sections::Sections;
 
 /// Resolves page paths to their display titles for wikilink rendering.
@@ -93,48 +92,5 @@ impl RenderConfig {
             sections: None,
             title_resolver: None,
         }
-    }
-
-    /// Returns pulldown-cmark `Options`: the always-on GFM features and
-    /// metadata blocks, plus wikilinks when configured.
-    #[must_use]
-    pub(crate) fn parser_options(&self) -> Options {
-        let mut opts = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
-            | Options::ENABLE_TABLES
-            | Options::ENABLE_STRIKETHROUGH
-            | Options::ENABLE_TASKLISTS
-            | Options::ENABLE_GFM;
-        if self.wikilinks {
-            opts |= Options::ENABLE_WIKILINKS;
-        }
-        opts
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pulldown_cmark::Options;
-
-    fn cfg() -> RenderConfig {
-        RenderConfig::new()
-    }
-
-    #[test]
-    fn parser_options_defaults_include_gfm_and_metadata() {
-        let opts = cfg().parser_options();
-        assert!(opts.contains(Options::ENABLE_TABLES));
-        assert!(opts.contains(Options::ENABLE_STRIKETHROUGH));
-        assert!(opts.contains(Options::ENABLE_TASKLISTS));
-        assert!(opts.contains(Options::ENABLE_GFM));
-        assert!(opts.contains(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS));
-        assert!(!opts.contains(Options::ENABLE_WIKILINKS));
-    }
-
-    #[test]
-    fn parser_options_enables_wikilinks_when_flag_on() {
-        let mut c = cfg();
-        c.wikilinks = true;
-        assert!(c.parser_options().contains(Options::ENABLE_WIKILINKS));
     }
 }
