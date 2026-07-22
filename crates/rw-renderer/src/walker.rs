@@ -321,13 +321,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     directives.dispatch_leaf(&payload.name, payload.args)
                 });
             }
-            Event::InlineDirective(payload) => self.emit_inline_directive(
-                &payload.name,
-                payload.args,
-                &payload
-                    .raw
-                    .expect("the Parser always sets raw on inline directives"),
-            ),
+            Event::InlineDirective(payload) => {
+                self.emit_inline_directive(&payload.name, payload.args, &payload.raw);
+            }
         }
     }
 

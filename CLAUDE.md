@@ -90,7 +90,7 @@ crates/
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend> (façade)
-│       ├── event.rs          # Event vocabulary (Tag, TagEnd, DirectivePayload)
+│       ├── event.rs          # Event vocabulary (Tag, TagEnd, directive payloads)
 │       ├── parser.rs         # Parser: tokenizes markdown + directive syntax
 │       ├── walker.rs         # Walker: interprets events into backend output
 │       ├── backend.rs        # RenderBackend trait definition

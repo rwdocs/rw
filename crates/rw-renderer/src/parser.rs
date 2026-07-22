@@ -21,7 +21,9 @@ use crate::directive::DirectiveArgs;
 use crate::directive::parser::{
     ContainerLine, Directive, InlineMatch, parse_container_line, parse_leaf_line, parse_line,
 };
-use crate::event::{CodeBlockPayload, DirectivePayload, Event, LinkKind, Tag, TagEnd};
+use crate::event::{
+    BlockDirectivePayload, CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, Tag, TagEnd,
+};
 use crate::util::heading_level_to_num;
 
 /// A fenced or indented code block being accumulated.
@@ -106,8 +108,8 @@ pub(crate) struct Parser<'a> {
     ///
     /// Without it a directive-free pipeline would receive directive events it
     /// has no processor to dispatch, and the literal source text — which the
-    /// Walker emits verbatim today — is not recoverable from a block
-    /// `DirectivePayload` (its `raw` is `None`).
+    /// Walker emits verbatim — is not recoverable from a
+    /// `BlockDirectivePayload`, which carries no source slice.
     directives: bool,
     /// The coalesced text run. cmark splits text at every `[`, `]`, entity and
     /// escape, and rw's directive syntax is only recognizable joined.
@@ -322,10 +324,11 @@ impl<'a> Parser<'a> {
     ///
     /// # Why the inlining is pinned here and on [`start_tag`](Self::start_tag)
     ///
-    /// [`Event`] is 160 bytes, so every hand-off between `next`, `translate`,
-    /// `dispatch` and `start_tag` that LLVM does not collapse is a real
-    /// ~168-byte `sret` copy — and `next` runs once per emitted event, which is
-    /// the renderer's innermost loop. Left to itself LLVM makes the opposite
+    /// [`Event`] is 144 bytes, and `Option<Event>` is 144 too — its
+    /// discriminant rides in a spare niche — so every hand-off between `next`,
+    /// `translate`, `dispatch` and `start_tag` that LLVM does not collapse is a
+    /// real 144-byte `sret` copy, and `next` runs once per emitted event, which
+    /// is the renderer's innermost loop. Left to itself LLVM makes the opposite
     /// choice on both counts: it outlines `dispatch` (so the event `translate`
     /// just built is copied out and straight back in, twice per event) while
     /// inlining the sprawling `start_tag` (whose `cmark::Tag` match is the
@@ -662,31 +665,25 @@ impl<'a> Parser<'a> {
 fn run_segment_event(run: &str, segment: RunSegment) -> Event<'_> {
     match segment {
         RunSegment::Text(range) => Event::Text(CowStr::Borrowed(&run[range])),
-        RunSegment::Inline { name, args, raw } => Event::InlineDirective(DirectivePayload {
+        RunSegment::Inline { name, args, raw } => Event::InlineDirective(InlineDirectivePayload {
             name,
             args,
-            colon_count: 0,
-            raw: Some(CowStr::Borrowed(&run[raw])),
+            raw: CowStr::Borrowed(&run[raw]),
         }),
     }
 }
 
 /// Project a `:::` line onto the event vocabulary, moving its fields.
-///
-/// `raw` is `None`: a block directive no handler claims is reconstructed from
-/// its `DirectiveArgs` by the processor, not re-emitted as source (see
-/// [`DirectivePayload::raw`]).
 impl From<ContainerLine> for Event<'_> {
     fn from(line: ContainerLine) -> Self {
         match line {
             ContainerLine::Start {
                 directive,
                 colon_count,
-            } => Event::ContainerDirectiveStart(DirectivePayload {
+            } => Event::ContainerDirectiveStart(BlockDirectivePayload {
                 name: directive.name,
                 args: directive.args,
                 colon_count,
-                raw: None,
             }),
             ContainerLine::End { colon_count } => Event::ContainerDirectiveEnd { colon_count },
         }
@@ -698,14 +695,12 @@ impl Event<'_> {
     ///
     /// Named rather than a [`From`] impl: [`Directive`] is also the payload of
     /// [`ContainerLine::Start`] and [`InlineMatch`], so it has three plausible
-    /// projections and no canonical one. `raw` is `None` for the reason given
-    /// on [`From<ContainerLine>`](Event::from).
+    /// projections and no canonical one.
     fn leaf(directive: Directive) -> Self {
-        Event::LeafDirective(DirectivePayload {
+        Event::LeafDirective(BlockDirectivePayload {
             name: directive.name,
             args: directive.args,
             colon_count: 0,
-            raw: None,
         })
     }
 }
@@ -928,9 +923,9 @@ mod tests {
             [
                 "Start(Paragraph)",
                 r#"Text(Borrowed("a "))"#,
-                r#"InlineDirective(DirectivePayload { name: "one", args: DirectiveArgs { content: "1", id: None, classes: [], attrs: [] }, colon_count: 0, raw: Some(Borrowed(":one[1]")) })"#,
+                r#"InlineDirective(InlineDirectivePayload { name: "one", args: DirectiveArgs { content: "1", id: None, classes: [], attrs: [] }, raw: Borrowed(":one[1]") })"#,
                 r#"Text(Borrowed(" b "))"#,
-                r#"InlineDirective(DirectivePayload { name: "two", args: DirectiveArgs { content: "2", id: None, classes: [], attrs: [] }, colon_count: 0, raw: Some(Borrowed(":two[2]")) })"#,
+                r#"InlineDirective(InlineDirectivePayload { name: "two", args: DirectiveArgs { content: "2", id: None, classes: [], attrs: [] }, raw: Borrowed(":two[2]") })"#,
                 "End(Paragraph)",
             ]
         );
@@ -976,7 +971,7 @@ mod tests {
         let mut seen = None;
         while let Some(event) = parser.next() {
             if let Event::InlineDirective(payload) = event {
-                seen = payload.raw.as_deref().map(str::to_owned);
+                seen = Some(payload.raw.to_string());
             }
         }
         assert_eq!(seen.as_deref(), Some(raw), "raw must be byte-exact");
@@ -1016,11 +1011,7 @@ mod tests {
             panic!("expected an inline directive");
         };
         assert_eq!(payload.name, "status");
-        assert_eq!(payload.colon_count, 0);
-        assert_eq!(
-            payload.raw.as_deref(),
-            Some(":status[On Track]{color=green}")
-        );
+        assert_eq!(&*payload.raw, ":status[On Track]{color=green}");
         assert_eq!(parser.next(), Some(Event::End(TagEnd::Paragraph)));
         assert_eq!(parser.next(), None);
     }
@@ -1036,7 +1027,7 @@ mod tests {
             [
                 "Start(Paragraph)",
                 r#"Text(Borrowed("See "))"#,
-                r#"InlineDirective(DirectivePayload { name: "note", args: DirectiveArgs { content: "a & b", id: None, classes: [], attrs: [] }, colon_count: 0, raw: Some(Borrowed(":note[a & b]")) })"#,
+                r#"InlineDirective(InlineDirectivePayload { name: "note", args: DirectiveArgs { content: "a & b", id: None, classes: [], attrs: [] }, raw: Borrowed(":note[a & b]") })"#,
                 r#"Text(Borrowed(" end"))"#,
                 "End(Paragraph)",
             ]
@@ -1054,7 +1045,7 @@ mod tests {
             [
                 "Start(Paragraph)",
                 r#"Text(Borrowed("See "))"#,
-                r#"InlineDirective(DirectivePayload { name: "note", args: DirectiveArgs { content: "a [b] c", id: None, classes: [], attrs: [] }, colon_count: 0, raw: Some(Borrowed(":note[a [b] c]")) })"#,
+                r#"InlineDirective(InlineDirectivePayload { name: "note", args: DirectiveArgs { content: "a [b] c", id: None, classes: [], attrs: [] }, raw: Borrowed(":note[a [b] c]") })"#,
                 r#"Text(Borrowed(" end"))"#,
                 "End(Paragraph)",
             ]
@@ -1071,7 +1062,7 @@ mod tests {
         assert_eq!(
             stream,
             [
-                r#"ContainerDirectiveStart(DirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", id: Some("a"), classes: [], attrs: [] }, colon_count: 3, raw: None })"#,
+                r#"ContainerDirectiveStart(BlockDirectivePayload { name: "tab", args: DirectiveArgs { content: "Label", id: Some("a"), classes: [], attrs: [] }, colon_count: 3 })"#,
                 "Start(Paragraph)",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",
@@ -1106,7 +1097,7 @@ mod tests {
             [
                 "Start(Paragraph)",
                 r#"Text(Borrowed("Note: press "))"#,
-                r#"InlineDirective(DirectivePayload { name: "kbd", args: DirectiveArgs { content: "Ctrl+C", id: None, classes: [], attrs: [] }, colon_count: 0, raw: Some(Borrowed(":kbd[Ctrl+C]")) })"#,
+                r#"InlineDirective(InlineDirectivePayload { name: "kbd", args: DirectiveArgs { content: "Ctrl+C", id: None, classes: [], attrs: [] }, raw: Borrowed(":kbd[Ctrl+C]") })"#,
                 "End(Paragraph)",
             ]
         );
