@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use pulldown_cmark::Alignment;
 
 use crate::RenderBackend;
-use crate::backend::AlertKind;
+use rw_parser::AlertKind;
 
 /// Render backend that produces search-optimized plain text.
 ///

@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use rw_parser::Parser;
 use rw_sections::Sections;
 
 use crate::backend::RenderBackend;
@@ -225,7 +226,7 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///
     /// The supplied `Pipeline` is consumed: build a fresh one per render.
     pub fn render(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
-        let mut parser = crate::parser::Parser::new(
+        let mut parser = Parser::new(
             markdown,
             self.config.wikilinks,
             pipeline.directives.is_some(),
@@ -283,8 +284,9 @@ mod tests {
 
     use super::*;
     use crate::HtmlBackend;
-    use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
+    use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
     use crate::directive::Fills;
+    use rw_parser::FenceAttrs;
     use rw_sections::{Namespace, Section};
 
     fn render_html(markdown: &str) -> RenderResult {

@@ -9,55 +9,10 @@ use std::fmt::Write;
 
 use crate::directive::Marker;
 
-use pulldown_cmark::{Alignment, BlockQuoteKind};
+use pulldown_cmark::Alignment;
 
 use crate::escape_into;
-
-/// Alert variant for GitHub-style blockquotes (`> [!NOTE]`, `> [!TIP]`, etc.).
-///
-/// Converted from [`pulldown_cmark::BlockQuoteKind`] when the parser
-/// encounters a blockquote with an alert marker. Passed to
-/// [`RenderBackend::alert_start`] and [`RenderBackend::alert_end`] so
-/// backends can render format-appropriate alert markup.
-///
-/// # Examples
-///
-/// Markdown alerts render as styled callout boxes:
-///
-/// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
-///
-/// let result = MarkdownRenderer::<HtmlBackend>::new()
-///     .render("> [!WARNING]\n> Do not delete this file.", Pipeline::new());
-///
-/// assert!(result.html.contains(r#"class="alert alert-warning""#));
-/// assert!(result.html.contains("Do not delete this file."));
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AlertKind {
-    /// Informational note — highlights something the reader should be aware of.
-    Note,
-    /// Helpful advice — suggests a better approach or useful trick.
-    Tip,
-    /// Critical information — something the reader must not overlook.
-    Important,
-    /// Potential issue — something that could go wrong.
-    Warning,
-    /// Dangerous action — something that could cause data loss or security issues.
-    Caution,
-}
-
-impl From<BlockQuoteKind> for AlertKind {
-    fn from(kind: BlockQuoteKind) -> Self {
-        match kind {
-            BlockQuoteKind::Note => AlertKind::Note,
-            BlockQuoteKind::Tip => AlertKind::Tip,
-            BlockQuoteKind::Important => AlertKind::Important,
-            BlockQuoteKind::Warning => AlertKind::Warning,
-            BlockQuoteKind::Caution => AlertKind::Caution,
-        }
-    }
-}
+use rw_parser::AlertKind;
 
 /// Format-specific rendering operations.
 ///

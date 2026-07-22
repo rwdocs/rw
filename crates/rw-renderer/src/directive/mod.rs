@@ -90,7 +90,6 @@
 //! assert!(result.html.contains("<kbd>Ctrl+C</kbd>"));
 //! ```
 
-mod args;
 mod container;
 mod context;
 pub(crate) mod fills;
@@ -98,10 +97,8 @@ mod inline;
 mod leaf;
 mod marker;
 mod output;
-pub(crate) mod parser;
 pub(crate) mod processor;
 
-pub use args::DirectiveArgs;
 pub use container::ContainerDirective;
 pub use context::{DirectiveContext, ResolveError};
 pub use fills::{Fills, HoleKey, Part};
@@ -110,3 +107,6 @@ pub use leaf::LeafDirective;
 pub use marker::Marker;
 pub use output::DirectiveOutput;
 pub use processor::{DirectiveProcessor, DirectiveProcessorConfig};
+/// Re-exported from [`rw_parser`]: the `[content]{attrs}` a directive was
+/// written with is syntax, and every handler trait here takes it.
+pub use rw_parser::DirectiveArgs;

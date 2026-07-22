@@ -7,10 +7,10 @@ use std::ops::Range;
 use super::DirectiveArgs;
 
 /// One directive occurrence: its name and its arguments.
-#[derive(Debug)]
-pub(crate) struct Directive {
-    pub(crate) name: String,
-    pub(crate) args: DirectiveArgs,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Directive {
+    pub name: String,
+    pub args: DirectiveArgs,
 }
 
 /// What a `:::` line does.
@@ -30,10 +30,10 @@ pub(crate) enum ContainerLine {
 /// An inline directive found in a line, and the byte range it occupies.
 ///
 /// `range` is absolute within the line handed to [`parse_line`].
-#[derive(Debug)]
-pub(crate) struct InlineMatch {
-    pub(crate) directive: Directive,
-    pub(crate) range: Range<usize>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineMatch {
+    pub directive: Directive,
+    pub range: Range<usize>,
 }
 
 /// Parse a line for an inline directive (`:name`).
@@ -48,7 +48,7 @@ pub(crate) struct InlineMatch {
 /// Multi-colon runs (`::`, `:::`, …) are skipped wholesale — those belong
 /// to leaf / container tokens. Returns `None` when no inline directive
 /// remains in the input.
-pub(crate) fn parse_line(line: &str) -> Option<InlineMatch> {
+pub fn parse_line(line: &str) -> Option<InlineMatch> {
     let mut search_from = 0;
     loop {
         let rel = line[search_from..].find(':')?;

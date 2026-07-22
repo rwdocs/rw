@@ -2,35 +2,45 @@
 //!
 //! The Parser recognizes **syntax** — markdown structure and rw's directive
 //! syntax — and holds no directive registry, no handlers, and no knowledge of
-//! what any directive name means. Every interpretation decision is the
-//! [`Walker`](crate::walker::Walker)'s.
+//! what any directive name means. Every interpretation decision belongs to
+//! the consumer.
 //!
-//! Takes only what a tokenizer needs, by value: it deliberately does **not**
-//! hold a `&RenderConfig`, because `sections` and `title_resolver` are
-//! interpretation. The cmark feature set is its own too: [`cmark_options`]
-//! defines rw's markdown dialect.
+//! Takes only what a tokenizer needs, by value. The cmark feature set is its
+//! own too: `cmark_options` defines rw's markdown dialect.
 
 use std::ops::Range;
 
 use pulldown_cmark as cmark;
-use pulldown_cmark::{CodeBlockKind, CowStr, Options};
+use pulldown_cmark::{CodeBlockKind, CowStr, HeadingLevel, Options};
 
-use crate::backend::AlertKind;
-use crate::code_block::{FenceAttrs, parse_fence_info};
+use crate::alert::AlertKind;
 use crate::directive::DirectiveArgs;
-use crate::directive::parser::{
+use crate::directive::line::{
     ContainerLine, Directive, InlineMatch, parse_container_line, parse_leaf_line, parse_line,
 };
 use crate::event::{
     BlockDirectivePayload, CodeBlockPayload, Event, InlineDirectivePayload, LinkKind, Tag, TagEnd,
 };
-use crate::util::heading_level_to_num;
+use crate::fence::{FenceAttrs, parse_fence_info};
+
+/// Convert heading level enum to number (1-6).
+#[must_use]
+fn heading_level_to_num(level: HeadingLevel) -> u8 {
+    match level {
+        HeadingLevel::H1 => 1,
+        HeadingLevel::H2 => 2,
+        HeadingLevel::H3 => 3,
+        HeadingLevel::H4 => 4,
+        HeadingLevel::H5 => 5,
+        HeadingLevel::H6 => 6,
+    }
+}
 
 /// A fenced or indented code block being accumulated.
 ///
 /// A single slot, not a stack: code blocks do not nest, and cannot occur
-/// inside a heading or alt text — which is why splitting the old `Scope` stack
-/// between Parser and Walker is safe.
+/// inside a heading or alt text, so this can never need to interleave with a
+/// consumer's own nesting state.
 struct CodeBlockAccum {
     language: Option<String>,
     attrs: FenceAttrs,
@@ -94,22 +104,21 @@ impl From<InlineMatch> for RunSegment {
     }
 }
 
-/// One immutable syntax-enablement flag plus two absorbing-state flags;
-/// folding the latter pair into an enum would name the same two states twice.
+/// A lending tokenizer over one markdown source.
 ///
-/// Wikilink enablement is not among them: [`new`](Self::new) folds it into
-/// cmark's [`Options`] via [`cmark_options`], after which cmark alone decides
-/// whether `[[…]]` is a link.
-pub(crate) struct Parser<'a> {
+/// Pull events with [`next`](Self::next) until it returns `None`. Each event
+/// borrows the Parser, so consume it before asking for the next one — that is
+/// what keeps a text run borrowed out of a reused buffer rather than allocated
+/// per segment.
+pub struct Parser<'a> {
     inner: cmark::Parser<'a>,
-    /// Directive syntax is enabled — i.e. the render pipeline carries a
-    /// `DirectiveProcessor`. Passed by value: the Parser needs to know whether
-    /// `:::name` is syntax or prose, not which handlers are registered for it.
+    /// Recognize directive syntax. When false, `:name[…]`, `::name` and
+    /// `:::name` stay prose and no directive event is ever emitted.
     ///
-    /// Without it a directive-free pipeline would receive directive events it
-    /// has no processor to dispatch, and the literal source text — which the
-    /// Walker emits verbatim — is not recoverable from a
-    /// `BlockDirectivePayload`, which carries no source slice.
+    /// A consumer that cannot act on directives must switch them off here
+    /// rather than ignore the events: a block directive's source text is not
+    /// recoverable from a `BlockDirectivePayload`, which carries no source
+    /// slice, so an ignored event loses the line.
     directives: bool,
     /// The coalesced text run. cmark splits text at every `[`, `]`, entity and
     /// escape, and rw's directive syntax is only recognizable joined.
@@ -136,10 +145,10 @@ pub(crate) struct Parser<'a> {
     /// Inside a YAML metadata block: every event is swallowed.
     in_metadata: bool,
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
-    /// pothole-less `[[wikilink]]`, and the Walker emits its own resolved text
+    /// pothole-less `[[wikilink]]`, whose display text rw resolves itself
     /// instead.
     ///
-    /// One-shot, and Parser-only. A Walker-side copy could never clear itself:
+    /// One-shot, and Parser-only. A consumer-side copy could never clear itself:
     /// the reset belongs on the very `Text` event this flag makes the Parser
     /// swallow.
     skip_wikilink_text: bool,
@@ -164,7 +173,23 @@ fn cmark_options(wikilinks: bool) -> Options {
 }
 
 impl<'a> Parser<'a> {
-    pub(crate) fn new(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
+    /// Tokenize `markdown`.
+    ///
+    /// `wikilinks` enables `[[target]]` syntax; with it off, cmark leaves the
+    /// brackets as literal text. `directives` enables rw's `:name` /
+    /// `::name` / `:::name` syntax; with it off, those stay prose. Both are
+    /// off in plain `CommonMark`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rw_parser::{Event, Parser, Tag};
+    ///
+    /// let mut parser = Parser::new("hi", false, false);
+    /// assert_eq!(parser.next(), Some(Event::Start(Tag::Paragraph)));
+    /// ```
+    #[must_use]
+    pub fn new(markdown: &'a str, wikilinks: bool, directives: bool) -> Self {
         Self {
             inner: cmark::Parser::new_ext(markdown, cmark_options(wikilinks)),
             directives,
@@ -188,10 +213,15 @@ impl<'a> Parser<'a> {
     ///
     /// # Release order
     ///
-    /// Everything owed comes out before cmark is pulled again, in the order
-    /// the Walker needs it: the held `<p>`, then the run it encloses, then the
-    /// event that interrupted the run. See [`Deferred`].
-    pub(crate) fn next(&mut self) -> Option<Event<'_>> {
+    /// Everything owed comes out before cmark is pulled again, in the order a
+    /// consumer needs it: the held `<p>`, then the run it encloses, then the
+    /// event that interrupted the run. See `Deferred`.
+    // The name is deliberate despite the lint: this is the lending counterpart
+    // of `Iterator::next`, and calling it anything else would only disguise
+    // that. The signature already refuses `Iterator`, so there is nothing to
+    // confuse it with.
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Option<Event<'_>> {
         loop {
             // The previous call lent the whole run out; that borrow has since
             // expired, so reclaim the buffer. `clear` keeps the allocation —
@@ -249,11 +279,7 @@ impl<'a> Parser<'a> {
                 // arrives as `Html`, not `Text`) or has already been flushed by
                 // the inner `End(Paragraph)`. Kept anyway: there is no finish
                 // hook to fall back on, so a hole in that argument would
-                // silently truncate a document's last run. It is the exact
-                // analogue of the `walker.flush_text_buffer()` that used to
-                // follow the event loop, inline-directive scan included, so if
-                // cmark ever did leave a block unclosed this reproduces the old
-                // behaviour rather than inventing new behaviour.
+                // silently truncate a document's last run.
                 //
                 // Re-polling `inner` after it returned `None` is sound:
                 // `pulldown_cmark::Parser` is a `FusedIterator`.
@@ -272,7 +298,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Cut the next segment out of the run and advance the cursor past it —
-    /// one iteration of the Walker's former `flush_text` loop per call.
+    /// one segment per call.
     ///
     /// Text preceding a directive is lent first, the directive itself parked in
     /// [`pending`](Self::pending) until the call after.
@@ -289,7 +315,9 @@ impl<'a> Parser<'a> {
         debug_assert!(from < len, "take_run_segment with nothing left to lend");
 
         // Directive syntax off: the run is prose, lent whole. Gating the scan
-        // rather than the result mirrors the Walker's former early-out.
+        // rather than its result is a performance choice, not a behavioural
+        // one — scanning and then discarding the match yields this same
+        // stream, only slower.
         if !self.directives {
             self.run_cursor = len;
             return RunSegment::Text(from..len);
@@ -383,10 +411,12 @@ impl<'a> Parser<'a> {
     ///
     /// The decision has to live here, next to the run: cmark splits
     /// `:::tab[Label]{#a}` into five `Text` events, so only the joined form is
-    /// recognizable. Reproduces the Walker's former `finish_pending_paragraph`,
-    /// first-byte early-out included — only a paragraph whose trimmed text
-    /// starts with `:` can be a block directive, so both parsers (which
-    /// already reject non-`:` input) are skipped for the common prose case.
+    /// recognizable, which is why the paragraph is held back until then.
+    ///
+    /// The first-byte early-out costs nothing in behaviour: only a paragraph
+    /// whose trimmed text starts with `:` can be a block directive, so both
+    /// parsers (which already reject non-`:` input) are skipped for the common
+    /// prose case.
     fn decide_block(&mut self) -> Event<'a> {
         self.deferred = Deferred::None;
         debug_assert!(
@@ -445,7 +475,7 @@ impl<'a> Parser<'a> {
     /// `&mut self` lifetime happens on return from [`next`](Self::next).
     fn translate(&mut self, event: cmark::Event<'a>) -> Option<Event<'a>> {
         // A metadata block is swallowed whole, its text included, so the
-        // Walker's directive scanner never sees YAML.
+        // directive scanner never sees YAML.
         if self.in_metadata {
             if matches!(event, cmark::Event::End(cmark::TagEnd::MetadataBlock(_))) {
                 self.in_metadata = false;
@@ -468,8 +498,8 @@ impl<'a> Parser<'a> {
                 Some(Event::Text(text))
             }
             cmark::Event::Code(code) => Some(Event::Code(code)),
-            // Block and inline raw HTML are one event: the Walker renders both
-            // identically, through `B::raw_html`.
+            // Block and inline raw HTML are one event: rw renders both
+            // identically.
             cmark::Event::Html(html) | cmark::Event::InlineHtml(html) => Some(Event::RawHtml(html)),
             cmark::Event::SoftBreak => Some(Event::SoftBreak),
             cmark::Event::HardBreak => Some(Event::HardBreak),
@@ -518,15 +548,14 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 // Dormant: between a code block's start and end, cmark emits
-                // nothing but text. This mirrors the `debug_assert!`s the
-                // Walker used to carry on its `Scope::CodeBlock` arms.
+                // nothing but text.
                 debug_assert!(false, "unexpected event inside a code block");
             }
         }
         None
     }
 
-    /// Translate an opening tag, or absorb the ones the Walker never sees.
+    /// Translate an opening tag, or absorb the ones no consumer ever sees.
     ///
     /// `#[inline(never)]`: keeping this match out of
     /// [`next`](Self::next) is half of the pair documented on
@@ -558,15 +587,13 @@ impl<'a> Parser<'a> {
                 self.in_metadata = true;
                 return None;
             }
-            // The Walker only ever no-opped on these. An HTML block's raw
+            // Nothing rw renders reacts to these. An HTML block's raw
             // contents still arrive, as `Event::RawHtml`; footnote definitions
             // cannot occur at all (`ENABLE_FOOTNOTES` is never set).
             //
-            // Absorbing them silently is where this arm differs from the old
-            // walker, which drained its text buffer at *every* non-`Text`
-            // event, these included. The two agree only because an HTML block
-            // always emits at least one `Html` event between its tags, and that
-            // event drains the run. An empty `HtmlBlock` pair — or any new
+            // Absorbing them is safe only because an HTML block always emits
+            // at least one `Html` event between its tags, and that event
+            // drains the run. An empty `HtmlBlock` pair — or any new
             // event type added to this arm — would let two runs from different
             // blocks coalesce, and `parse_line` could then synthesize a
             // directive spanning the block boundary. Drain explicitly before
@@ -578,7 +605,7 @@ impl<'a> Parser<'a> {
             cmark::Tag::DefinitionListTitle => Tag::DefinitionListTitle,
             cmark::Tag::DefinitionListDefinition => Tag::DefinitionListDefinition,
             // Moved, never copied: the alignments vector is cmark's, and the
-            // Walker hands it straight to `TableState::start`.
+            // consumer needs the alignments exactly as cmark computed them.
             cmark::Tag::Table(alignments) => Tag::Table(alignments),
             cmark::Tag::TableHead => Tag::TableHead,
             cmark::Tag::TableRow => Tag::TableRow,
@@ -721,6 +748,25 @@ mod tests {
         assert!(!opts.contains(Options::ENABLE_WIKILINKS));
     }
 
+    /// `ENABLE_HEADING_ATTRIBUTES` makes cmark claim a trailing `{…}` on a
+    /// heading line as heading metadata — the same braces a directive uses for
+    /// its attributes. With it on, `# a :status[X]{color=green}` reaches the
+    /// directive scanner already stripped of `{color=green}`, and the badge
+    /// silently loses its colour.
+    ///
+    /// Renderer tests would catch that, but only as a rendering failure three
+    /// crates away. What they would *not* catch is the flag arriving on one
+    /// arm only: every one of them runs with wikilinks off, so setting it
+    /// inside the `wikilinks` branch passes the whole suite. Hence the loop,
+    /// and hence asserting the dialect here rather than inferring it from
+    /// output.
+    #[test]
+    fn cmark_options_leaves_heading_attributes_off() {
+        for wikilinks in [false, true] {
+            assert!(!cmark_options(wikilinks).contains(Options::ENABLE_HEADING_ATTRIBUTES));
+        }
+    }
+
     #[test]
     fn cmark_options_enables_wikilinks_when_flag_on() {
         assert!(cmark_options(true).contains(Options::ENABLE_WIKILINKS));
@@ -757,7 +803,7 @@ mod tests {
         let stream = debug_stream("---\ntitle: T\n---\n\nbody\n");
         assert!(
             !stream.iter().any(|e| e.contains("title: T")),
-            "metadata text must never reach the Walker: {stream:?}"
+            "metadata text must never be emitted: {stream:?}"
         );
         assert!(stream.iter().any(|e| e.contains("body")));
     }
@@ -782,7 +828,7 @@ mod tests {
 
     #[test]
     fn a_potholeless_wikilink_swallows_the_display_text_cmark_supplies() {
-        // The Walker emits its own resolved display text at Start(Link), so
+        // rw resolves its own display text from the link target, so
         // cmark's must not also arrive.
         let stream = debug_stream_wikilinks("[[target]]");
         assert!(
@@ -855,7 +901,7 @@ mod tests {
 
     #[test]
     fn a_paragraph_releases_p_then_run_then_trigger() {
-        // For `:foo **bold**` the order the Walker owes is <p>, then the run,
+        // For `:foo **bold**` the order owed is <p>, then the run,
         // then the trigger — three items, which is why deferral is a state
         // machine and not a slot.
         let stream = debug_stream(":foo **bold**\n");
@@ -934,7 +980,7 @@ mod tests {
     #[test]
     fn directives_off_keeps_directive_syntax_as_prose() {
         // A pipeline with no processor cannot dispatch a directive event, so
-        // `:kbd[…]` must reach the Walker as ordinary text.
+        // `:kbd[…]` must be emitted as ordinary text.
         //
         // This pins the *result* only. `take_run_segment` gates the scan
         // itself — it returns before calling `parse_line` — but a gate placed
@@ -1056,7 +1102,7 @@ mod tests {
     fn a_tab_container_opens_and_closes_around_its_body() {
         // cmark splits the opener into five `Text` events (at `[`, at `]`, and
         // again before `{`) and puts both delimiters in paragraphs of their
-        // own. What reaches the Walker is one start, the body, one end — and
+        // own. What is emitted is one start, the body, one end — and
         // no paragraph tags for either delimiter.
         let stream = debug_stream(":::tab[Label]{#a}\n\nbody\n\n:::\n");
         assert_eq!(

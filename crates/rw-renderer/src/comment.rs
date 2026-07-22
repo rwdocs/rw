@@ -10,8 +10,9 @@ use std::fmt::Write;
 
 use pulldown_cmark::Alignment;
 
-use crate::backend::{AlertKind, RenderBackend};
+use crate::backend::RenderBackend;
 use crate::{HtmlBackend, MarkdownRenderer, Pipeline, escape_html};
+use rw_parser::AlertKind;
 
 /// Render a comment `body` (markdown) to safe HTML for display.
 ///

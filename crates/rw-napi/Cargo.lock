@@ -3113,10 +3113,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-parser"
+version = "0.1.33"
+dependencies = [
+ "pulldown-cmark",
+]
+
+[[package]]
 name = "rw-renderer"
 version = "0.1.33"
 dependencies = [
  "pulldown-cmark",
+ "rw-parser",
  "rw-sections",
  "serde",
  "thiserror",

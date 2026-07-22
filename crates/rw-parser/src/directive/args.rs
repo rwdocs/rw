@@ -10,7 +10,7 @@
 /// # Example
 ///
 /// ```
-/// use rw_renderer::directive::DirectiveArgs;
+/// use rw_parser::DirectiveArgs;
 ///
 /// let args = DirectiveArgs::parse("hello", r#"#my-id .foo .bar lang="en""#);
 /// assert_eq!(args.content(), "hello");
@@ -136,7 +136,7 @@ impl DirectiveArgs {
     /// # Example
     ///
     /// ```
-    /// use rw_renderer::directive::DirectiveArgs;
+    /// use rw_parser::DirectiveArgs;
     ///
     /// let args = DirectiveArgs::parse("hello", r#"#my-id .foo lang="en""#);
     /// let syntax = args.to_syntax();

@@ -20,6 +20,7 @@ rw-confluence = { path = "crates/rw-confluence" }
 rw-kroki = { path = "crates/rw-kroki" }
 rw-embedded-preview = { path = "crates/rw-embedded-preview" }
 rw-meta = { path = "crates/rw-meta" }
+rw-parser = { path = "crates/rw-parser" }
 rw-renderer = { path = "crates/rw-renderer" }
 rw-sections = { path = "crates/rw-sections" }
 rw-server = { path = "crates/rw-server" }

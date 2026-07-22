@@ -1,0 +1,13 @@
+[package]
+name = "rw-parser"
+description = "Tokenizer for rw's markdown dialect: CommonMark plus directive syntax"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+pulldown-cmark = { workspace = true }

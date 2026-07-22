@@ -1,7 +1,7 @@
 //! Interpreter half of the render pipeline: turns rw
-//! [`Event`](crate::event::Event)s into backend output.
+//! [`Event`](rw_parser::Event)s into backend output.
 //!
-//! The boundary with [`Parser`](crate::parser::Parser) is syntax versus
+//! The boundary with [`Parser`](rw_parser::Parser) is syntax versus
 //! meaning. The Parser tokenizes: it coalesces text runs, recognizes directive
 //! syntax, accumulates fenced code blocks, and swallows metadata blocks, so
 //! nothing arriving here needs re-scanning. The Walker interprets what arrives
@@ -37,7 +37,7 @@
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 
-use crate::backend::{AlertKind, RenderBackend};
+use crate::backend::RenderBackend;
 use crate::code_block::{CodeBlockProcessor, ProcessResult};
 use crate::config::RenderConfig;
 use crate::directive::DirectiveArgs;
@@ -47,9 +47,7 @@ use crate::directive::Fills;
 use crate::directive::Marker;
 use crate::directive::Part;
 use crate::directive::fills::{GlobalKey, Source};
-use crate::directive::parser::{InlineMatch, parse_line};
 use crate::directive::processor::BlockDispatch;
-use crate::event::{Event, LinkKind, Tag, TagEnd};
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
@@ -57,6 +55,9 @@ use crate::scope::Scope;
 use crate::table::TableState;
 use crate::toc::HeadingAccumulator;
 use crate::wikilink::{self, WikilinkResolution};
+use rw_parser::AlertKind;
+use rw_parser::{Event, LinkKind, Tag, TagEnd};
+use rw_parser::{InlineMatch, parse_line};
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,

@@ -86,13 +86,23 @@ crates/
 │   └── src/
 │       └── lib.rs            # get(), iter(), mime_for() API
 │
+├── rw-parser/             # Tokenizer: rw's markdown dialect (CommonMark + directives)
+│   └── src/                 # Depends only on pulldown-cmark; knows no handlers
+│       ├── lib.rs            # Public API; documents Event's lossy cases
+│       ├── parser.rs         # Parser: lending next() -> Option<Event<'_>>
+│       ├── event.rs          # Event vocabulary (Tag, TagEnd, directive payloads)
+│       ├── alert.rs          # AlertKind (GitHub-style `> [!NOTE]` blockquotes)
+│       ├── fence.rs          # FenceAttrs + parse_fence_info (code fence info string)
+│       └── directive/        # Directive syntax only — no dispatch
+│           ├── mod.rs        # Module exports
+│           ├── args.rs       # DirectiveArgs parsing ([content]{attrs})
+│           └── line.rs       # Line parsers (:name, ::name, :::name)
+│
 ├── rw-renderer/           # Reusable markdown renderer library
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend> (façade)
-│       ├── event.rs          # Event vocabulary (Tag, TagEnd, directive payloads)
-│       ├── parser.rs         # Parser: tokenizes markdown + directive syntax
-│       ├── walker.rs         # Walker: interprets events into backend output
+│       ├── walker.rs         # Walker: interprets rw-parser events into backend output
 │       ├── backend.rs        # RenderBackend trait definition
 │       ├── code_block.rs     # CodeBlockProcessor trait for extensible code block handling
 │       ├── bundle.rs         # bundle_markdown() for resolving code block references
@@ -102,15 +112,13 @@ crates/
 │       ├── html.rs           # HtmlBackend implementation
 │       ├── holes.rs          # Deferred-content holes reserved during the walk
 │       ├── directive/        # Pluggable directives API (CommonMark syntax)
-│       │   ├── mod.rs        # Module exports
-│       │   ├── args.rs       # DirectiveArgs parsing ([content]{attrs})
+│       │   ├── mod.rs        # Module exports; re-exports DirectiveArgs
 │       │   ├── context.rs    # DirectiveContext (file system access)
 │       │   ├── output.rs     # DirectiveOutput (Html/Marker/Deferred/Skip)
 │       │   ├── fills.rs      # Fills collector for deferred hole content
 │       │   ├── inline.rs     # InlineDirective trait (:name)
 │       │   ├── leaf.rs       # LeafDirective trait (::name)
 │       │   ├── container.rs  # ContainerDirective trait (:::name)
-│       │   ├── parser.rs     # Directive syntax parsing
 │       │   └── processor.rs  # DirectiveProcessor coordination
 │       ├── status/            # Status badge inline directive
 │       │   ├── mod.rs        # Module exports
@@ -118,7 +126,7 @@ crates/
 │       ├── tabs/             # Tabbed content blocks
 │       │   ├── mod.rs        # Module exports
 │       │   └── directive.rs  # TabsDirective (ContainerDirective impl)
-│       └── util.rs           # heading_level_to_num()
+│       └── util.rs           # escape_into(), escape_html(), slugify_into()
 │
 ├── rw-confluence/         # Confluence integration
 │   └── src/
@@ -238,7 +246,7 @@ packages/
 **Data flow (Confluence)**: Markdown → Rust (pulldown-cmark parsing, PlantUML
 extraction, Confluence rendering, Kroki diagram rendering, API calls) → Confluence
 
-**Data flow (HTML)**: Markdown → Rust (pulldown-cmark parsing, HTML rendering
+**Data flow (HTML)**: Markdown → Rust (rw-parser tokenizing, HTML rendering
 with syntax highlighting, ToC generation, HTTP serving) → Browser
 
 **Data flow (NAPI)**: Node.js → rw-napi (napi-rs bindings) → rw-site, rw-renderer,

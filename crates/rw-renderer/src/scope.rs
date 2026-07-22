@@ -7,8 +7,8 @@
 //! to choose where to write.
 //!
 //! Fenced code blocks and metadata blocks used to be scopes here too. They are
-//! now the [`Parser`](crate::parser::Parser)'s: a fence is accumulated into a
-//! single [`Event::CodeBlock`](crate::event::Event::CodeBlock) and a metadata
+//! now the [`Parser`](rw_parser::Parser)'s: a fence is accumulated into a
+//! single [`Event::CodeBlock`](rw_parser::Event::CodeBlock) and a metadata
 //! block is swallowed whole. Splitting the stack that way is safe because the
 //! two families never interleave — a fence cannot occur inside a heading or
 //! inside alt text, so the Parser's single-slot state can never nest with what

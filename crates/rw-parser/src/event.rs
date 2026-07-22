@@ -1,11 +1,9 @@
-//! The event vocabulary produced by [`Parser`](crate::parser::Parser) and
-//! consumed by [`Walker`](crate::walker::Walker).
+//! The event vocabulary produced by [`Parser`](crate::parser::Parser).
 //!
 //! # The boundary
 //!
-//! The Parser **tokenizes**; the Walker **interprets**. These types name
-//! syntax, never meaning: a `ContainerDirectiveStart` says a `:::name[…]{…}`
-//! opener was seen, not that any handler exists for `name`.
+//! These types name syntax, never meaning: a `ContainerDirectiveStart` says a
+//! `:::name[…]{…}` opener was seen, not that any handler exists for `name`.
 //!
 //! Follows `pulldown_cmark`'s structural shape — `Start(Tag)` / `End(TagEnd)`
 //! plus leaf events — extended with rw's own syntactic constructs
@@ -17,19 +15,19 @@
 //!   rw's parser options (`parser::cmark_options`) enable neither footnotes
 //!   nor math, so cmark never emits them. Verified against a document
 //!   containing all four syntaxes.
-//! * `HtmlBlock` — emitted, but the Walker only ever no-ops on it. The Parser
-//!   drops it. Its raw contents still arrive, as [`Event::RawHtml`].
-//! * `MetadataBlock` — the Parser swallows the whole block, including its
-//!   text, so the directive scanner never sees YAML.
+//! * `HtmlBlock` — emitted, but dropped here. Its raw contents still arrive,
+//!   as [`Event::RawHtml`].
+//! * `MetadataBlock` — the whole block is swallowed, its text included, so the
+//!   directive scanner never sees YAML.
 //!
-//! `Event` is `pub(crate)` for this step and becomes public API when
-//! `rw-parser` is extracted, so it is designed as a public type.
+//! The last two make this a *lossy* projection rather than a faithful one; the
+//! crate docs list every case.
 
 use pulldown_cmark::{Alignment, CowStr};
 
-use crate::backend::AlertKind;
-use crate::code_block::FenceAttrs;
+use crate::alert::AlertKind;
 use crate::directive::DirectiveArgs;
+use crate::fence::FenceAttrs;
 
 /// A single syntactic event.
 ///
@@ -39,12 +37,13 @@ use crate::directive::DirectiveArgs;
 /// [`Parser::next`](crate::parser::Parser::next), and a run-borrowed event is
 /// simply built at that shorter lifetime.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Event<'a> {
+pub enum Event<'a> {
     Start(Tag<'a>),
     End(TagEnd),
     Text(CowStr<'a>),
     Code(CowStr<'a>),
-    /// Raw HTML, block or inline — the Walker renders both identically.
+    /// Raw HTML, block or inline. One variant, because rw renders both
+    /// identically; a consumer needing the distinction cannot recover it here.
     RawHtml(CowStr<'a>),
     SoftBreak,
     HardBreak,
@@ -67,10 +66,9 @@ pub(crate) enum Event<'a> {
 
     /// A fenced or indented code block, body included.
     ///
-    /// A leaf rather than `Start`/`Text`/`End`: both Walker-side consumers
-    /// (`CodeBlockProcessor::process` and `B::code_block`) need the body
-    /// whole, so a split shape would only make the Walker re-accumulate what
-    /// the Parser already assembled.
+    /// A leaf rather than `Start`/`Text`/`End`: a code block is consumed whole
+    /// — to be handed to a processor, or emitted — so a split shape would only
+    /// make every consumer re-accumulate what the Parser already assembled.
     CodeBlock(CodeBlockPayload),
 }
 
@@ -78,10 +76,10 @@ pub(crate) enum Event<'a> {
 ///
 /// Carries `raw` where [`BlockDirectivePayload`] carries `colon_count`.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct InlineDirectivePayload<'a> {
+pub struct InlineDirectivePayload<'a> {
     /// Owned, moved out of the `Directive` the syntax parser produced.
-    pub(crate) name: String,
-    pub(crate) args: DirectiveArgs,
+    pub name: String,
+    pub args: DirectiveArgs,
     /// The byte-exact source slice.
     ///
     /// An inline directive no handler claims is emitted as this slice, never
@@ -89,42 +87,41 @@ pub(crate) struct InlineDirectivePayload<'a> {
     /// it drops empty brackets, sorts attributes by key and re-quotes their
     /// values, respaces `{.a.b}`, and discards unrecognized barewords. Block
     /// directives carry no slice and are reconstructed instead.
-    pub(crate) raw: CowStr<'a>,
+    pub raw: CowStr<'a>,
 }
 
 /// The syntax of one leaf or container-opening directive occurrence.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct BlockDirectivePayload {
+pub struct BlockDirectivePayload {
     /// Owned, moved out of the `Directive` the syntax parser produced.
-    pub(crate) name: String,
-    pub(crate) args: DirectiveArgs,
+    pub name: String,
+    pub args: DirectiveArgs,
     /// A container opener's leading colon count: `:::name` and `::::name` open
     /// the same container, and only the source says which was written.
     ///
-    /// Unread.
-    /// [`DirectiveProcessor::dispatch_container_start`](crate::directive::DirectiveProcessor::dispatch_container_start)
-    /// reconstructs an unclaimed opener with a hardcoded `:::`, so `::::name`
-    /// round-trips as `:::name` — this is the datum that would fix it. Fixed
-    /// at `0` for a leaf, where it says nothing: `parse_leaf_line` accepts
-    /// exactly two colons.
-    pub(crate) colon_count: usize,
+    /// No consumer reads it today: rw's renderer reconstructs an unclaimed
+    /// opener in `DirectiveProcessor::dispatch_container_start` with a
+    /// hardcoded `:::`, so `::::name` round-trips as `:::name` — this is the
+    /// datum that would fix it. Fixed at `0` for a leaf, where it says
+    /// nothing: `parse_leaf_line` accepts exactly two colons.
+    pub colon_count: usize,
 }
 
 /// A code block and its body.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct CodeBlockPayload {
+pub struct CodeBlockPayload {
     /// As `parse_fence_info` returns it today; `None` for a bare fence.
-    pub(crate) language: Option<String>,
-    pub(crate) attrs: FenceAttrs,
+    pub language: Option<String>,
+    pub attrs: FenceAttrs,
     /// Moved out of the Parser's accumulator. `String`, not `CowStr`: it can
     /// never be borrowed, and `CowStr` would cost an `into_boxed_str` realloc
     /// per fence for nothing.
-    pub(crate) source: String,
+    pub source: String,
 }
 
 /// The start of a nesting construct.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Tag<'a> {
+pub enum Tag<'a> {
     Paragraph,
     /// Level 1..=6, already narrowed from cmark's `HeadingLevel`.
     Heading {
@@ -157,13 +154,13 @@ pub(crate) enum Tag<'a> {
     },
 }
 
-/// Which of the two link shapes the Walker must render.
+/// Which of the two link shapes was written.
 ///
-/// Replaces cmark's `LinkType`, on which the Walker discriminates exactly
-/// once: wikilinks resolve through `Sections`, everything else through
-/// `transform_link`.
+/// Replaces cmark's `LinkType`, whose finer distinctions rw does not act on:
+/// a wikilink resolves through a section registry the Parser has no access
+/// to, and every other link is transformed the same way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LinkKind {
+pub enum LinkKind {
     /// `[[target]]`. `has_pothole` is true for `[[target|display]]`, whose
     /// display text cmark supplies itself.
     Wiki {
@@ -175,14 +172,14 @@ pub(crate) enum LinkKind {
 /// The end of a nesting construct: rw's own projection of [`Tag`].
 ///
 /// Not `pulldown_cmark::TagEnd`. rw's `Tag` drops cmark variants and reshapes
-/// others, so cmark's `TagEnd` would force the Walker to write arms for ends
-/// whose starts can never arrive, and would re-import `HeadingLevel` — a type
-/// this vocabulary claims to have dropped.
+/// others, so cmark's `TagEnd` would force an exhaustive match to write arms
+/// for ends whose starts can never arrive, and would re-import `HeadingLevel`
+/// — a type this vocabulary claims to have dropped.
 ///
-/// Unit variants except `List`, which carries the ordered flag `B::list_end`
-/// needs (as cmark's own `TagEnd::List` does).
+/// Unit variants except `List`, which carries the ordered flag a consumer
+/// needs to close the right kind of list (as cmark's own `TagEnd::List` does).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TagEnd {
+pub enum TagEnd {
     Paragraph,
     Heading,
     List(bool),
@@ -204,19 +201,22 @@ pub(crate) enum TagEnd {
     Image,
 }
 
-/// `Event`'s size is a reviewed invariant, not an accident — it is moved out
-/// of `next` and into `handle` on the plain-prose hot path, and becomes public
-/// API when `rw-parser` is extracted. Mirrors cmark's own assertion form
-/// (`lib.rs:422`); the `target_pointer_width` gate keeps it off 32-bit.
+/// `Event`'s size is a reviewed invariant, not an accident — an event is moved
+/// out of `next` and into the consumer on the plain-prose hot path. Mirrors
+/// cmark's own assertion form; the `target_pointer_width` gate keeps it off
+/// 32-bit.
 ///
 /// 144 is exactly [`InlineDirectivePayload`], the widest variant: the
 /// discriminant rides in a niche inside the payload and costs nothing. A
 /// change here is a layout regression to investigate, not a constant to
-/// recompute. Reaching cmark's own 80 would mean
-/// boxing the payloads — rejected, because each `Box::new` is a heap
-/// allocation today's code does not make (~5 per render against the benchmark
-/// fixtures, on a 113 baseline), trading a hard requirement for an unmeasured
-/// one. Revisit only if `CodSpeed` shows the moves dominate; the escape hatch
-/// is boxing-with-recycling, which buys the size back without the allocation.
+/// recompute.
+///
+/// Boxing the payloads would take this to roughly 48 bytes, below cmark's own
+/// 80. It was tried and measured: render time moved less than 0.5% on both
+/// benchmark fixtures — inside their run-to-run spread, and with the two
+/// fixtures straddling zero — while adding exactly 5 heap allocations per
+/// render against a gated baseline of 113. So the size is not what makes an
+/// event cost what it costs, and shrinking it buys nothing worth an
+/// allocation. Don't re-run that experiment; measure something else.
 #[cfg(target_pointer_width = "64")]
 const _STATIC_ASSERT_EVENT_SIZE: [(); 144] = [(); std::mem::size_of::<Event<'static>>()];

@@ -120,7 +120,8 @@ impl std::fmt::Debug for Pipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::code_block::{FenceAttrs, ProcessResult};
+    use crate::code_block::ProcessResult;
+    use rw_parser::FenceAttrs;
 
     struct DummyProcessor;
     impl CodeBlockProcessor for DummyProcessor {

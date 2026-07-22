@@ -11,7 +11,8 @@ use std::ops::Range;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
-use crate::code_block::{CodeBlockProcessor, parse_fence_info};
+use crate::code_block::CodeBlockProcessor;
+use rw_parser::parse_fence_info;
 
 /// Bundle markdown by resolving external references in code blocks.
 ///
@@ -123,7 +124,8 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::code_block::{FenceAttrs, ProcessResult};
+    use crate::code_block::ProcessResult;
+    use rw_parser::FenceAttrs;
 
     /// Test processor that uppercases content for "upper" language.
     struct UpperCaseProcessor;

@@ -3,11 +3,13 @@
 //!
 //! # Architecture
 //!
-//! [`MarkdownRenderer`] tokenizes markdown with [pulldown-cmark], walks the
+//! [`MarkdownRenderer`] tokenizes markdown with [`rw_parser`], walks the
 //! resulting event stream, and delegates format-specific rendering to a
-//! [`RenderBackend`] implementation. This crate ships [`HtmlBackend`] for
-//! semantic HTML5 output with relative link resolution; other backends (e.g.,
-//! Confluence XHTML) can be implemented downstream.
+//! [`RenderBackend`] implementation. What rw's markdown *is* — `CommonMark`
+//! plus directive syntax — is `rw_parser`'s to define; this crate decides what
+//! it renders to, and ships [`HtmlBackend`] for semantic HTML5 output with
+//! relative link resolution. Other backends (e.g. Confluence XHTML) can be
+//! implemented downstream.
 //!
 //! All output is delegated to the backend — the renderer handles event
 //! walking and state management only. Backends override whichever
@@ -34,7 +36,6 @@
 //! pass after the walk splices each reserved hole's content in, supplied by
 //! [`CodeBlockProcessor::fills`] or the directive handler's `fills` hook.
 //!
-//! [pulldown-cmark]: https://docs.rs/pulldown-cmark
 //! [CommonMark generic directives]: https://talk.commonmark.org/t/generic-directives-plugins-syntax/444
 //!
 //! ## Wikilinks
@@ -130,11 +131,9 @@ mod code_block;
 mod comment;
 mod config;
 pub mod directive;
-mod event;
 mod holes;
 mod html;
 mod link;
-mod parser;
 mod pipeline;
 mod renderer;
 mod scope;
@@ -147,9 +146,9 @@ mod util;
 mod walker;
 mod wikilink;
 
-pub use backend::{AlertKind, RenderBackend};
+pub use backend::RenderBackend;
 pub use bundle::bundle_markdown;
-pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, ProcessResult};
+pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use comment::render_comment_body;
 pub use config::TitleResolver;
 /// Re-exported from [`directive`] for [`CodeBlockProcessor::fills`]
@@ -163,6 +162,10 @@ pub use pipeline::Pipeline;
 /// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.
 pub use pulldown_cmark::Alignment;
 pub use renderer::{MarkdownRenderer, RenderResult};
+/// Re-exported from [`rw_parser`], which defines rw's markdown syntax. They
+/// appear in [`RenderBackend`] and [`CodeBlockProcessor`] signatures, so a
+/// backend or processor needs them without depending on the parser directly.
+pub use rw_parser::{AlertKind, FenceAttrs};
 /// Re-exported from [`rw_sections`] for use with
 /// [`MarkdownRenderer::with_sections`].
 ///
