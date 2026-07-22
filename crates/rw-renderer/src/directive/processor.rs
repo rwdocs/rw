@@ -8,7 +8,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use super::fills::{GlobalFills, Source};
-use super::parser::ParsedDirective;
 use super::{
     ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Fills, InlineDirective,
     LeafDirective, Marker, Part,
@@ -261,104 +260,123 @@ impl DirectiveProcessor {
         self
     }
 
-    /// Dispatch a parsed block directive (leaf or container): invoke the
-    /// registered handler, perform the `active_containers` push/pop and warning
-    /// bookkeeping, and return owned [`BlockDispatch`] data for the walker to
-    /// render. `ctx.line()` is always `0` — block directives carry no line
-    /// number (no shipped handler reads it).
+    /// Dispatch a container-directive opener: invoke the registered handler
+    /// and return owned [`BlockDispatch`] data for the walker to render.
+    /// `ctx.line()` is always `0` — block directives carry no line number (no
+    /// shipped handler reads it).
+    ///
+    /// An opener that starts a new scope — see
+    /// [`opened_scope`](ContainerDirective::opened_scope) — pushes an
+    /// `active_containers` frame. A continuation opener, several `:::tab`s
+    /// sharing one closer, pushes nothing, so a single closer balances the
+    /// group.
     ///
     /// `depth` is the walker's enclosing block nesting (blockquote and list
-    /// levels) at this directive. Container frames remember it so an unclosed
+    /// levels) at this directive. A frame remembers it so an unclosed
     /// container is balanced when its enclosing block ends — see
     /// [`close_containers_nested_in`](Self::close_containers_nested_in).
-    pub(crate) fn dispatch_block(
+    ///
+    /// The literal reconstruction of an unhandled opener hardcodes three
+    /// colons, so `::::name` renders as `:::name` while
+    /// [`dispatch_container_end`](Self::dispatch_container_end) repeats its
+    /// closer's count in full. Pinned debt, not intent — see
+    /// `unregistered_container_opener_drops_extra_colons_closer_keeps_them`
+    /// in `tests/block_directives.rs`.
+    pub(crate) fn dispatch_container_start(
         &mut self,
-        directive: ParsedDirective,
+        name: &str,
+        args: DirectiveArgs,
         depth: usize,
     ) -> BlockDispatch {
-        match directive {
-            ParsedDirective::ContainerStart { name, args, .. } => {
-                let Some(idx) = self
-                    .container_handlers
-                    .iter()
-                    .position(|h| h.name() == name)
-                else {
-                    // Unregistered: render the opener literally and track the
-                    // scope so its closing ::: renders literally too, rather
-                    // than closing an enclosing registered container.
-                    self.active_containers
-                        .push(ContainerFrame::Literal { depth });
-                    return BlockDispatch::PassThrough(format!(":::{name}{}", args.to_syntax()));
-                };
-                let syntax = args.to_syntax();
-                let ctx = self.config.create_context(0);
-                let output = self.container_handlers[idx].start(args, &ctx);
-                // Read before the match: do NOT move this into the arms or after
-                // any other handler call — it reflects only the latest start().
-                let opened = self.container_handlers[idx].opened_scope();
-                // Every arm but `Skip` renders through the handler, so an
-                // opened scope is the handler's to close. `Skip` is the
-                // exception: it pushes a `Literal` frame of its own below.
-                if opened && !matches!(output, DirectiveOutput::Skip) {
-                    self.active_containers
-                        .push(ContainerFrame::Handled { idx, depth });
-                }
-                match output {
-                    DirectiveOutput::Html(html) => BlockDispatch::Html(html),
-                    DirectiveOutput::Marker { marker, body } => {
-                        BlockDispatch::Marker { marker, body }
-                    }
-                    DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
-                        parts,
-                        source: Source::Container(idx),
-                    },
-                    DirectiveOutput::Skip => {
-                        // Handler declined: the opener renders literally, so
-                        // track a Literal scope for its matching close.
-                        self.active_containers
-                            .push(ContainerFrame::Literal { depth });
-                        BlockDispatch::PassThrough(format!(":::{name}{syntax}"))
-                    }
-                }
-            }
-            ParsedDirective::ContainerEnd { colon_count } => match self.active_containers.pop() {
-                Some(ContainerFrame::Handled { idx, .. }) => {
-                    let html = self.container_handlers[idx].end(0).unwrap_or_default();
-                    BlockDispatch::Html(html)
-                }
-                Some(ContainerFrame::Literal { .. }) => {
-                    // Matching close for an unhandled opener — render literally.
-                    BlockDispatch::PassThrough(":".repeat(colon_count))
-                }
-                None => {
-                    self.warnings
-                        .push("stray ::: with no opening directive".to_owned());
-                    BlockDispatch::PassThrough(":".repeat(colon_count))
-                }
+        let Some(idx) = self
+            .container_handlers
+            .iter()
+            .position(|h| h.name() == name)
+        else {
+            // Unregistered: render the opener literally and track the
+            // scope so its closing ::: renders literally too, rather
+            // than closing an enclosing registered container.
+            self.active_containers
+                .push(ContainerFrame::Literal { depth });
+            return BlockDispatch::PassThrough(format!(":::{name}{}", args.to_syntax()));
+        };
+        let syntax = args.to_syntax();
+        let ctx = self.config.create_context(0);
+        let output = self.container_handlers[idx].start(args, &ctx);
+        // Read before the match: do NOT move this into the arms or after
+        // any other handler call — it reflects only the latest start().
+        let opened = self.container_handlers[idx].opened_scope();
+        // Every arm but `Skip` renders through the handler, so an
+        // opened scope is the handler's to close. `Skip` is the
+        // exception: it pushes a `Literal` frame of its own below.
+        if opened && !matches!(output, DirectiveOutput::Skip) {
+            self.active_containers
+                .push(ContainerFrame::Handled { idx, depth });
+        }
+        match output {
+            DirectiveOutput::Html(html) => BlockDispatch::Html(html),
+            DirectiveOutput::Marker { marker, body } => BlockDispatch::Marker { marker, body },
+            DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
+                parts,
+                source: Source::Container(idx),
             },
-            ParsedDirective::Leaf { name, args } => {
-                let Some(idx) = self.leaf_handlers.iter().position(|h| h.name() == name) else {
-                    return BlockDispatch::PassThrough(format!("::{name}{}", args.to_syntax()));
-                };
-                let syntax = args.to_syntax();
-                let ctx = self.config.create_context(0);
-                match self.leaf_handlers[idx].process(args, &ctx) {
-                    DirectiveOutput::Html(html) => BlockDispatch::Html(html),
-                    DirectiveOutput::Marker { marker, body } => {
-                        BlockDispatch::Marker { marker, body }
-                    }
-                    DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
-                        parts,
-                        source: Source::Leaf(idx),
-                    },
-                    DirectiveOutput::Skip => {
-                        BlockDispatch::PassThrough(format!("::{name}{syntax}"))
-                    }
-                }
+            DirectiveOutput::Skip => {
+                // Handler declined: the opener renders literally, so
+                // track a Literal scope for its matching close.
+                self.active_containers
+                    .push(ContainerFrame::Literal { depth });
+                BlockDispatch::PassThrough(format!(":::{name}{syntax}"))
             }
-            ParsedDirective::Inline { .. } => {
-                unreachable!("dispatch_block only handles block (leaf/container) directives")
+        }
+    }
+
+    /// Dispatch a container-directive closer: pop the innermost open scope and
+    /// return owned [`BlockDispatch`] data for the walker to render. The
+    /// handler's `end()` is called with line `0` — block directives carry no
+    /// line number (no shipped handler reads it).
+    ///
+    /// A closer with nothing on the stack is a stray delimiter. It warns and
+    /// renders literally rather than being swallowed, so the document still
+    /// shows what the author wrote.
+    pub(crate) fn dispatch_container_end(&mut self, colon_count: usize) -> BlockDispatch {
+        match self.active_containers.pop() {
+            Some(ContainerFrame::Handled { idx, .. }) => {
+                let html = self.container_handlers[idx].end(0).unwrap_or_default();
+                BlockDispatch::Html(html)
             }
+            Some(ContainerFrame::Literal { .. }) => {
+                // Matching close for an unhandled opener — render literally.
+                BlockDispatch::PassThrough(":".repeat(colon_count))
+            }
+            None => {
+                self.warnings
+                    .push("stray ::: with no opening directive".to_owned());
+                BlockDispatch::PassThrough(":".repeat(colon_count))
+            }
+        }
+    }
+
+    /// Dispatch a leaf directive: invoke the registered handler and return
+    /// owned [`BlockDispatch`] data for the walker to render. `ctx.line()` is
+    /// always `0` — block directives carry no line number (no shipped handler
+    /// reads it).
+    ///
+    /// A leaf opens no scope, so there is no `active_containers` bookkeeping
+    /// and no enclosing depth to record.
+    pub(crate) fn dispatch_leaf(&mut self, name: &str, args: DirectiveArgs) -> BlockDispatch {
+        let Some(idx) = self.leaf_handlers.iter().position(|h| h.name() == name) else {
+            return BlockDispatch::PassThrough(format!("::{name}{}", args.to_syntax()));
+        };
+        let syntax = args.to_syntax();
+        let ctx = self.config.create_context(0);
+        match self.leaf_handlers[idx].process(args, &ctx) {
+            DirectiveOutput::Html(html) => BlockDispatch::Html(html),
+            DirectiveOutput::Marker { marker, body } => BlockDispatch::Marker { marker, body },
+            DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
+                parts,
+                source: Source::Leaf(idx),
+            },
+            DirectiveOutput::Skip => BlockDispatch::PassThrough(format!("::{name}{syntax}")),
         }
     }
 
@@ -387,9 +405,10 @@ impl DirectiveProcessor {
     /// appending it to `out`.
     ///
     /// A container whose closing `:::` is missing never reaches `end()` through
-    /// [`dispatch_block`](Self::dispatch_block), so without this its opening
-    /// tags would be left dangling and the rest of the document would nest
-    /// inside them — for tabs, inside a `hidden` panel, making it invisible.
+    /// [`dispatch_container_end`](Self::dispatch_container_end), so without this
+    /// its opening tags would be left dangling and the rest of the document
+    /// would nest inside them — for tabs, inside a `hidden` panel, making it
+    /// invisible.
     /// Innermost scope first, so the emitted tags close in the right order.
     ///
     /// Frames are read, not drained: [`finalize`](Self::finalize) still needs
@@ -737,21 +756,17 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_block_container_start_and_end() {
-        use crate::directive::parser::parse_container_line;
-
+    fn dispatch_container_start_and_end() {
         let mut processor = DirectiveProcessor::new().with_container(TestNote);
 
-        let start = parse_container_line(":::note[Important]").unwrap();
-        match processor.dispatch_block(start, 0) {
+        match processor.dispatch_container_start("note", DirectiveArgs::parse("Important", ""), 0) {
             BlockDispatch::Html(html) => {
                 assert!(html.contains(r#"<div class="note" data-title="Important">"#));
             }
             other => panic!("expected Html, got {other:?}"),
         }
 
-        let end = parse_container_line(":::").unwrap();
-        match processor.dispatch_block(end, 0) {
+        match processor.dispatch_container_end(3) {
             BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
             other => panic!("expected Html, got {other:?}"),
         }
@@ -759,27 +774,26 @@ mod tests {
 
     #[test]
     fn unregistered_container_nested_in_registered_does_not_corrupt_stack() {
-        use crate::directive::parser::parse_container_line;
         let mut processor = DirectiveProcessor::new().with_container(TestNote);
 
         // Outer registered container opens its scope.
-        match processor.dispatch_block(parse_container_line(":::note[Important]").unwrap(), 0) {
+        match processor.dispatch_container_start("note", DirectiveArgs::parse("Important", ""), 0) {
             BlockDispatch::Html(html) => assert!(html.contains(r#"data-title="Important""#)),
             other => panic!("expected Html, got {other:?}"),
         }
         // Inner UNREGISTERED container: rendered literally, tracked separately.
-        match processor.dispatch_block(parse_container_line(":::unknown").unwrap(), 0) {
-            BlockDispatch::PassThrough(s) => assert!(s.starts_with(":::unknown"), "got {s}"),
+        match processor.dispatch_container_start("unknown", DirectiveArgs::default(), 0) {
+            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::unknown"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
         // First close pairs with the inner unregistered opener -> literal,
         // it must NOT close the outer note.
-        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
+        match processor.dispatch_container_end(3) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
             other => panic!("expected literal PassThrough for inner close, got {other:?}"),
         }
         // Second close pairs with the outer note -> note.end().
-        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
+        match processor.dispatch_container_end(3) {
             BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
             other => panic!("expected note end() Html, got {other:?}"),
         }
@@ -792,21 +806,17 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_block_unregistered_container_pair_passthrough() {
-        use crate::directive::parser::parse_container_line;
+    fn dispatch_container_unregistered_pair_passthrough() {
         let mut processor = DirectiveProcessor::new();
 
         // Unregistered opener: rendered literally, scope tracked so its close pairs with it.
-        match processor.dispatch_block(parse_container_line(":::foo[x]{.c}").unwrap(), 0) {
-            BlockDispatch::PassThrough(s) => {
-                assert!(s.starts_with(":::foo[x]"), "got {s}");
-                assert!(s.contains(".c"), "got {s}");
-            }
+        match processor.dispatch_container_start("foo", DirectiveArgs::parse("x", ".c"), 0) {
+            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::foo[x]{.c}"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
 
         // Its matching close renders literally and does NOT warn about a stray.
-        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
+        match processor.dispatch_container_end(3) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
@@ -818,12 +828,11 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_block_genuine_stray_close_warns() {
-        use crate::directive::parser::parse_container_line;
+    fn dispatch_container_end_genuine_stray_close_warns() {
         let mut processor = DirectiveProcessor::new();
 
         // A close with no opener on the stack is a genuine stray.
-        match processor.dispatch_block(parse_container_line("::::").unwrap(), 0) {
+        match processor.dispatch_container_end(4) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, "::::"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
@@ -831,24 +840,22 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_block_leaf_html_and_unregistered() {
+    fn dispatch_leaf_html_and_unregistered() {
         let mut processor = DirectiveProcessor::new().with_leaf(TestYoutube);
 
-        let leaf = crate::directive::parser::parse_leaf_line("::youtube[abc]").unwrap();
-        match processor.dispatch_block(leaf, 0) {
+        match processor.dispatch_leaf("youtube", DirectiveArgs::parse("abc", "")) {
             BlockDispatch::Html(html) => assert!(html.contains("abc")),
             other => panic!("expected Html, got {other:?}"),
         }
 
-        let unreg = crate::directive::parser::parse_leaf_line("::missing[y]").unwrap();
-        match processor.dispatch_block(unreg, 0) {
-            BlockDispatch::PassThrough(s) => assert!(s.starts_with("::missing[y]"), "got {s}"),
+        match processor.dispatch_leaf("missing", DirectiveArgs::parse("y", "")) {
+            BlockDispatch::PassThrough(s) => assert_eq!(s, "::missing[y]"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
     }
 
     #[test]
-    fn dispatch_block_marker() {
+    fn dispatch_leaf_marker() {
         // A leaf whose process() returns a Marker triple must surface as
         // BlockDispatch::Marker with all three fields intact.
         struct MarkerLeaf;
@@ -872,8 +879,7 @@ mod tests {
 
         let mut processor = DirectiveProcessor::new().with_leaf(MarkerLeaf);
 
-        let leaf = crate::directive::parser::parse_leaf_line("::marker[x]").unwrap();
-        match processor.dispatch_block(leaf, 0) {
+        match processor.dispatch_leaf("marker", DirectiveArgs::parse("x", "")) {
             BlockDispatch::Marker { marker, body } => {
                 assert_eq!(marker.name, "marker");
                 assert_eq!(marker.attr("flavor"), Some("leaf"));
@@ -923,8 +929,7 @@ mod tests {
 
     #[test]
     fn test_container_marker_renders_through_the_walker() {
-        // Covers the container arm of dispatch_block that returns
-        // DirectiveOutput::Marker.
+        // Covers dispatch_container_start's DirectiveOutput::Marker arm.
         struct StatusContainer;
 
         impl ContainerDirective for StatusContainer {
@@ -1022,12 +1027,9 @@ mod tests {
     fn continuation_container_closed_emits_no_unclosed_warning() {
         let mut processor = DirectiveProcessor::new().with_container(MockContinuation::new());
 
-        let open_a = crate::directive::parser::parse_container_line(":::mock[A]").unwrap();
-        let _ = processor.dispatch_block(open_a, 0);
-        let open_b = crate::directive::parser::parse_container_line(":::mock[B]").unwrap();
-        let _ = processor.dispatch_block(open_b, 0);
-        let end = crate::directive::parser::parse_container_line(":::").unwrap();
-        let _ = processor.dispatch_block(end, 0);
+        let _ = processor.dispatch_container_start("mock", DirectiveArgs::parse("A", ""), 0);
+        let _ = processor.dispatch_container_start("mock", DirectiveArgs::parse("B", ""), 0);
+        let _ = processor.dispatch_container_end(3);
 
         processor.finalize();
 
@@ -1042,13 +1044,11 @@ mod tests {
     fn continuation_container_unclosed_emits_one_unclosed_warning() {
         let mut processor = DirectiveProcessor::new().with_container(MockContinuation::new());
 
-        let open_a = crate::directive::parser::parse_container_line(":::mock[A]").unwrap();
-        let _ = processor.dispatch_block(open_a, 0);
+        let _ = processor.dispatch_container_start("mock", DirectiveArgs::parse("A", ""), 0);
         // Second opener CONTINUES the scope (opened_scope() == false). Without
         // the fix this would push a second entry and finalize() would warn
         // twice; the single genuinely-open scope must yield exactly one warning.
-        let open_b = crate::directive::parser::parse_container_line(":::mock[B]").unwrap();
-        let _ = processor.dispatch_block(open_b, 0);
+        let _ = processor.dispatch_container_start("mock", DirectiveArgs::parse("B", ""), 0);
 
         processor.finalize();
 
@@ -1062,8 +1062,6 @@ mod tests {
 
     #[test]
     fn skip_container_nested_in_registered_does_not_corrupt_stack() {
-        use crate::directive::parser::parse_container_line;
-
         struct SkipContainer;
         impl ContainerDirective for SkipContainer {
             fn name(&self) -> &'static str {
@@ -1081,16 +1079,16 @@ mod tests {
             .with_container(TestNote)
             .with_container(SkipContainer);
 
-        let _ = processor.dispatch_block(parse_container_line(":::note[T]").unwrap(), 0);
-        match processor.dispatch_block(parse_container_line(":::skipme").unwrap(), 0) {
-            BlockDispatch::PassThrough(s) => assert!(s.starts_with(":::skipme"), "got {s}"),
+        let _ = processor.dispatch_container_start("note", DirectiveArgs::parse("T", ""), 0);
+        match processor.dispatch_container_start("skipme", DirectiveArgs::default(), 0) {
+            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::skipme"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
-        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
+        match processor.dispatch_container_end(3) {
             BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
             other => panic!("expected literal PassThrough, got {other:?}"),
         }
-        match processor.dispatch_block(parse_container_line(":::").unwrap(), 0) {
+        match processor.dispatch_container_end(3) {
             BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
             other => panic!("expected note end(), got {other:?}"),
         }
@@ -1098,9 +1096,8 @@ mod tests {
 
     #[test]
     fn unclosed_unregistered_container_emits_no_warning() {
-        use crate::directive::parser::parse_container_line;
         let mut processor = DirectiveProcessor::new();
-        let _ = processor.dispatch_block(parse_container_line(":::foo").unwrap(), 0);
+        let _ = processor.dispatch_container_start("foo", DirectiveArgs::default(), 0);
         processor.finalize();
         assert!(
             processor.warnings().is_empty(),
@@ -1111,9 +1108,8 @@ mod tests {
 
     #[test]
     fn unclosed_registered_container_emits_unclosed_warning() {
-        use crate::directive::parser::parse_container_line;
         let mut processor = DirectiveProcessor::new().with_container(TestNote);
-        let _ = processor.dispatch_block(parse_container_line(":::note").unwrap(), 0);
+        let _ = processor.dispatch_container_start("note", DirectiveArgs::default(), 0);
         processor.finalize();
         let unclosed: Vec<_> = processor
             .warnings()

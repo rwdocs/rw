@@ -23,13 +23,16 @@
 //!
 //! # Borrow discipline
 //!
-//! Two distinct borrow patterns are load-bearing inside `Walker` methods.
-//! Both are explained in detail on the methods that use them:
-//! pattern B (tightly-scoped reborrow) lives in
-//! [`Walker::emit_inline_directive`];
-//! pattern A (field-disjoint borrows) lives in the `Event::CodeBlock` arm
-//! of [`Walker::handle`]. Don't "simplify" either pattern without
-//! reading the comments first; both will fail to compile if hoisted.
+//! Two borrow patterns recur inside `Walker` methods, each explained in
+//! detail where it is first used: pattern A (field-disjoint borrows) in the
+//! `Event::CodeBlock` arm of [`Walker::handle`], also used by
+//! `close_containers_for_block_end`; pattern B (tightly-scoped reborrow) in
+//! [`Walker::emit_inline_directive`], also used by `handle_block_directive`.
+//!
+//! A third constraint applies wherever a dispatch closure is built: whatever
+//! the closure would read off `self` has to be read before it, or the capture
+//! collides with the `&mut self` receiver. Don't "simplify" any of them
+//! without reading the comments first; each will fail to compile if hoisted.
 
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
@@ -299,22 +302,23 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             }
             // Block directives arrive already parsed: the decision is made
             // against the fully coalesced run, which only the Parser has. Each
-            // payload's fields are *moved* back into a `ParsedDirective` — the
-            // shape `dispatch_block` takes — never cloned.
+            // payload's args are moved into the dispatch, never cloned.
             Event::ContainerDirectiveStart(payload) => {
-                self.handle_block_directive(ParsedDirective::ContainerStart {
-                    name: payload.name,
-                    args: payload.args,
-                    colon_count: payload.colon_count,
+                // Read before the closure: calling this inside would capture
+                // `&*self` and collide with the `&mut self` receiver.
+                let depth = self.enclosing_block_depth();
+                self.handle_block_directive(move |directives| {
+                    directives.dispatch_container_start(&payload.name, payload.args, depth)
                 });
             }
             Event::ContainerDirectiveEnd { colon_count } => {
-                self.handle_block_directive(ParsedDirective::ContainerEnd { colon_count });
+                self.handle_block_directive(move |directives| {
+                    directives.dispatch_container_end(colon_count)
+                });
             }
             Event::LeafDirective(payload) => {
-                self.handle_block_directive(ParsedDirective::Leaf {
-                    name: payload.name,
-                    args: payload.args,
+                self.handle_block_directive(move |directives| {
+                    directives.dispatch_leaf(&payload.name, payload.args)
                 });
             }
             Event::InlineDirective(payload) => self.emit_inline_directive(
@@ -357,9 +361,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// expands the inner `:kbd`.
     ///
     /// That single caller runs only under a registered processor — it is
-    /// reached from [`handle_block_directive`](Self::handle_block_directive),
-    /// which has already unwrapped `self.directives` — so this needs no
-    /// directives-off branch of its own.
+    /// reached through
+    /// [`render_block_dispatch`](Self::render_block_dispatch), which carries
+    /// that as a precondition — so this needs no directives-off branch of its
+    /// own.
     fn flush_text(&mut self, text: &str) {
         let mut remaining = text;
         while !remaining.is_empty() {
@@ -465,15 +470,34 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// the result. Pattern-B borrow discipline: the `&mut self.directives`
     /// reborrow is dropped (owned `BlockDispatch` returned) before any
     /// `&mut self` method call.
-    fn handle_block_directive(&mut self, parsed: ParsedDirective) {
-        let depth = self.enclosing_block_depth();
+    fn handle_block_directive(
+        &mut self,
+        dispatch_with: impl FnOnce(&mut DirectiveProcessor) -> BlockDispatch,
+    ) {
         let dispatch = {
             let processor = self
                 .directives
                 .as_deref_mut()
                 .expect("block directives only ever arrive when a processor is registered");
-            processor.dispatch_block(parsed, depth)
+            dispatch_with(processor)
         };
+        self.render_block_dispatch(dispatch);
+    }
+
+    /// Render what the processor handed back.
+    ///
+    /// Kept out of [`handle_block_directive`](Self::handle_block_directive),
+    /// which is generic over its dispatch closure and so monomorphizes once
+    /// per call site: holding this `match` there would emit one copy per
+    /// backend *per call site* instead of one per backend.
+    ///
+    /// # Precondition
+    ///
+    /// Only call this with a dispatch obtained under a registered processor.
+    /// A [`BlockDispatch::PassThrough`] literal is re-scanned for inline
+    /// directives by [`flush_text`](Self::flush_text), which unwraps
+    /// `self.directives` without a directives-off branch.
+    fn render_block_dispatch(&mut self, dispatch: BlockDispatch) {
         match dispatch {
             BlockDispatch::Html(html) => self.raw_html(&html),
             BlockDispatch::Marker { marker, body } => {

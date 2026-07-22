@@ -387,6 +387,35 @@ fn unregistered_container_renders_literally_no_warning() {
 }
 
 #[test]
+fn unregistered_container_opener_drops_extra_colons_closer_keeps_them() {
+    // Pinned debt, not a statement of intent: the literal opener is built with
+    // a hardcoded ":::" while the matching closer repeats its colon count, so a
+    // four-colon opener round-trips as three. Only a render from source can
+    // show that round trip: `dispatch_container_start` is never given the
+    // opener's colon count, so no unit-level caller can pair a source colon
+    // count against the output.
+    let result = MarkdownRenderer::<HtmlBackend>::new().render(
+        "::::foo[x]{.c}\n\nBody.\n\n::::",
+        Pipeline::new().with_directives(DirectiveProcessor::new()),
+    );
+    assert!(
+        result.html.contains("<p>:::foo[x]{.c}</p>"),
+        "opener should lose its fourth colon; got: {}",
+        result.html
+    );
+    assert!(
+        result.html.contains("<p>::::</p>"),
+        "closer should keep all four colons; got: {}",
+        result.html
+    );
+    assert!(
+        result.warnings.is_empty(),
+        "the four-colon close pairs with its own opener; got: {:?}",
+        result.warnings
+    );
+}
+
+#[test]
 fn frontmatter_directive_shaped_text_is_inert() {
     let md = "---\ntitle: x\nnote: ':::tab[oops]'\n---\n\nBody.";
     let result = render_tabs(md);

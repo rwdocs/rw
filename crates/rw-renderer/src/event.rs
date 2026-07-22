@@ -59,6 +59,9 @@ pub(crate) enum Event<'a> {
     ContainerDirectiveStart(DirectivePayload<'a>),
     /// A bare `:::` run closing a container.
     ContainerDirectiveEnd {
+        /// `usize`, not a narrower type: a literal closer is reconstructed as
+        /// `":".repeat(colon_count)`, so the count is output-visible and a
+        /// 300-colon line must survive it.
         colon_count: usize,
     },
 
@@ -79,9 +82,10 @@ pub(crate) struct DirectivePayload<'a> {
     pub(crate) args: DirectiveArgs,
     /// Leading colon count; `0` for inline and leaf directives.
     ///
-    /// `usize`, not a narrower type: a literal closer is reconstructed as
-    /// `":".repeat(colon_count)`, so the count is output-visible and a
-    /// 300-colon line must survive it. Free — the struct's padding absorbs it.
+    /// Unread: a container opener's literal reconstruction hardcodes three
+    /// colons (see
+    /// [`DirectiveProcessor::dispatch_container_start`](crate::directive::DirectiveProcessor::dispatch_container_start)).
+    /// Free — the struct's padding absorbs it.
     pub(crate) colon_count: usize,
     /// The byte-exact source slice, **inline directives only** (`None` for
     /// block directives).
@@ -91,7 +95,9 @@ pub(crate) struct DirectivePayload<'a> {
     /// round-trip: it drops empty brackets, sorts and re-quotes attribute
     /// keys, respaces `{.a.b}`, and discards unrecognized barewords. Block
     /// directives *are* reconstructed, which is what preserves the
-    /// `::::name` colon-loss recorded under Known debt.
+    /// `::::name` colon-loss pinned by
+    /// `unregistered_container_opener_drops_extra_colons_closer_keeps_them`
+    /// in `tests/block_directives.rs`.
     pub(crate) raw: Option<CowStr<'a>>,
 }
 

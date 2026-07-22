@@ -459,6 +459,22 @@ mod tests {
     }
 
     #[test]
+    fn test_container_with_content_and_attrs() {
+        let result = parse_container_line(":::tab[macOS]{#os .wide}");
+        let directive = result.unwrap();
+
+        match directive {
+            ParsedDirective::ContainerStart { name, args, .. } => {
+                assert_eq!(name, "tab");
+                assert_eq!(args.content, "macOS");
+                assert_eq!(args.id(), Some("os"));
+                assert_eq!(args.classes(), ["wide"]);
+            }
+            _ => panic!("expected container start"),
+        }
+    }
+
+    #[test]
     fn test_container_with_brackets() {
         let result = parse_container_line("::: details[Click to expand]");
         let directive = result.unwrap();
