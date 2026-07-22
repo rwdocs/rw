@@ -47,7 +47,7 @@ use crate::directive::Fills;
 use crate::directive::Marker;
 use crate::directive::Part;
 use crate::directive::fills::{GlobalKey, Source};
-use crate::directive::parser::{ParsedDirective, parse_line};
+use crate::directive::parser::{InlineMatch, parse_line};
 use crate::directive::processor::BlockDispatch;
 use crate::event::{Event, LinkKind, Tag, TagEnd};
 use crate::holes::Holes;
@@ -368,29 +368,20 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn flush_text(&mut self, text: &str) {
         let mut remaining = text;
         while !remaining.is_empty() {
-            let Some((directive, start, end)) = parse_line(remaining) else {
+            let Some(InlineMatch { directive, range }) = parse_line(remaining) else {
                 self.text(remaining);
                 return;
             };
 
-            if start > 0 {
-                self.text(&remaining[..start]);
+            if range.start > 0 {
+                self.text(&remaining[..range.start]);
             }
 
-            let matched = &remaining[start..end];
+            let matched = &remaining[range.start..range.end];
 
-            // `parse_line` only yields inline directives; block delimiters are
-            // decided against the coalesced run in `Parser::decide_block`, so
-            // anything non-inline is emitted verbatim.
-            let ParsedDirective::Inline { name, args } = directive else {
-                self.text(matched);
-                remaining = &remaining[end..];
-                continue;
-            };
+            self.emit_inline_directive(&directive.name, directive.args, matched);
 
-            self.emit_inline_directive(&name, args, matched);
-
-            remaining = &remaining[end..];
+            remaining = &remaining[range.end..];
         }
     }
 

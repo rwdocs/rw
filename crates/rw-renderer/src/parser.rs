@@ -19,7 +19,7 @@ use crate::backend::AlertKind;
 use crate::code_block::{FenceAttrs, parse_fence_info};
 use crate::directive::DirectiveArgs;
 use crate::directive::parser::{
-    ParsedDirective, parse_container_line, parse_leaf_line, parse_line,
+    ContainerLine, Directive, InlineMatch, parse_container_line, parse_leaf_line, parse_line,
 };
 use crate::event::{CodeBlockPayload, DirectivePayload, Event, LinkKind, Tag, TagEnd};
 use crate::util::heading_level_to_num;
@@ -78,12 +78,16 @@ enum RunSegment {
     },
 }
 
-impl RunSegment {
-    /// Where in the run this segment ends — the cursor's next resume point.
-    fn end(&self) -> usize {
-        match self {
-            Self::Text(range) => range.end,
-            Self::Inline { raw, .. } => raw.end,
+/// Lend a matched directive as a segment, moving its name and args.
+///
+/// `range` must already be absolute within the run buffer, which is what
+/// [`RunSegment::Inline::raw`] indexes.
+impl From<InlineMatch> for RunSegment {
+    fn from(matched: InlineMatch) -> Self {
+        RunSegment::Inline {
+            name: matched.directive.name,
+            args: matched.directive.args,
+            raw: matched.range,
         }
     }
 }
@@ -111,22 +115,20 @@ pub(crate) struct Parser<'a> {
     /// How much of [`run`](Self::run) has already been lent out. The buffer is
     /// cleared (never reallocated) on the call after the borrow expires.
     run_cursor: usize,
-    /// A segment already cut from the run, owed once the text preceding it has
-    /// been lent.
+    /// An inline directive already cut from the run, owed once the text
+    /// preceding it has been lent.
     ///
     /// One slot: a single `parse_line` call yields at most one match, and the
-    /// run is fully drained before cmark is pulled again. Usually an inline
-    /// directive — the exception is a match `parse_line` reports as some other
-    /// kind, which [`take_run_segment`](Self::take_run_segment) parks as
-    /// verbatim `Text`.
+    /// run is fully drained before cmark is pulled again. Only a directive is
+    /// ever parked — text is lent directly.
     ///
     /// The slot exists to keep the parse, not to queue work — `parse_line`
     /// allocates the directive's name and args, so re-parsing at the cursor
     /// after lending the text before it would cost an allocation set per inline
     /// directive. The cursor stays the resume point: it is parked *before*
-    /// this segment and moves past it when the slot is taken, so the run
-    /// buffer this segment's range indexes cannot be recycled underneath it.
-    pending: Option<RunSegment>,
+    /// this directive and moves past it when the slot is taken, so the run
+    /// buffer `range` indexes cannot be recycled underneath it.
+    pending: Option<InlineMatch>,
     deferred: Deferred<'a>,
     code_block: Option<CodeBlockAccum>,
     /// Inside a YAML metadata block: every event is swallowed.
@@ -275,9 +277,9 @@ impl<'a> Parser<'a> {
     ///
     /// Only called with `run_cursor < run.len()`.
     fn take_run_segment(&mut self) -> RunSegment {
-        if let Some(segment) = self.pending.take() {
-            self.run_cursor = segment.end();
-            return segment;
+        if let Some(matched) = self.pending.take() {
+            self.run_cursor = matched.range.end;
+            return matched.into();
         }
 
         let from = self.run_cursor;
@@ -291,33 +293,28 @@ impl<'a> Parser<'a> {
             return RunSegment::Text(from..len);
         }
 
-        let Some((directive, start, end)) = parse_line(&self.run[from..]) else {
+        let Some(InlineMatch { directive, range }) = parse_line(&self.run[from..]) else {
             self.run_cursor = len;
             return RunSegment::Text(from..len);
         };
 
-        let matched = match directive {
-            ParsedDirective::Inline { name, args } => RunSegment::Inline {
-                name,
-                args,
-                raw: from + start..from + end,
-            },
-            // `parse_line` only yields inline directives; block delimiters were
-            // already decided against the whole run in `decide_block`, so
-            // anything else is lent verbatim.
-            _ => RunSegment::Text(from + start..from + end),
+        let matched = InlineMatch {
+            directive,
+            range: from + range.start..from + range.end,
         };
+        let start = matched.range.start;
 
-        if start > 0 {
-            // The cursor stops short of `matched`, which the slot now owns:
-            // recycling is gated on the cursor reaching the end of the run.
-            self.run_cursor = from + start;
+        if start > from {
+            // The cursor stops short of the directive, which the slot now
+            // owns: recycling is gated on the cursor reaching the end of the
+            // run.
+            self.run_cursor = start;
             self.pending = Some(matched);
-            return RunSegment::Text(from..from + start);
+            return RunSegment::Text(from..start);
         }
 
-        self.run_cursor = from + end;
-        matched
+        self.run_cursor = matched.range.end;
+        matched.into()
     }
 
     /// Route one translated event: return it, or absorb it into the run and
@@ -400,8 +397,8 @@ impl<'a> Parser<'a> {
 
         let matched = if self.directives && text.trim_start().starts_with(':') {
             parse_container_line(&text)
-                .or_else(|| parse_leaf_line(&text))
-                .and_then(block_directive_event)
+                .map(Event::from)
+                .or_else(|| parse_leaf_line(&text).map(Event::leaf))
         } else {
             None
         };
@@ -674,43 +671,42 @@ fn run_segment_event(run: &str, segment: RunSegment) -> Event<'_> {
     }
 }
 
-/// Project a block-parser result onto the event vocabulary, moving its fields.
+/// Project a `:::` line onto the event vocabulary, moving its fields.
 ///
-/// `raw` is `None` for all three: a block directive no handler claims is
-/// reconstructed from its `DirectiveArgs` by the processor, not re-emitted as
-/// source (see [`DirectivePayload::raw`]).
-///
-/// `None` for [`ParsedDirective::Inline`], which neither `parse_container_line`
-/// nor `parse_leaf_line` can produce — the caller then renders the run as an
-/// ordinary paragraph, exactly as it would for an unrecognized line.
-fn block_directive_event<'e>(parsed: ParsedDirective) -> Option<Event<'e>> {
-    match parsed {
-        ParsedDirective::ContainerStart {
-            name,
-            args,
-            colon_count,
-        } => Some(Event::ContainerDirectiveStart(DirectivePayload {
-            name,
-            args,
-            colon_count,
-            raw: None,
-        })),
-        ParsedDirective::ContainerEnd { colon_count } => {
-            Some(Event::ContainerDirectiveEnd { colon_count })
+/// `raw` is `None`: a block directive no handler claims is reconstructed from
+/// its `DirectiveArgs` by the processor, not re-emitted as source (see
+/// [`DirectivePayload::raw`]).
+impl From<ContainerLine> for Event<'_> {
+    fn from(line: ContainerLine) -> Self {
+        match line {
+            ContainerLine::Start {
+                directive,
+                colon_count,
+            } => Event::ContainerDirectiveStart(DirectivePayload {
+                name: directive.name,
+                args: directive.args,
+                colon_count,
+                raw: None,
+            }),
+            ContainerLine::End { colon_count } => Event::ContainerDirectiveEnd { colon_count },
         }
-        ParsedDirective::Leaf { name, args } => Some(Event::LeafDirective(DirectivePayload {
-            name,
-            args,
+    }
+}
+
+impl Event<'_> {
+    /// Project a `::name` line onto the event vocabulary, moving its fields.
+    ///
+    /// Named rather than a [`From`] impl: [`Directive`] is also the payload of
+    /// [`ContainerLine::Start`] and [`InlineMatch`], so it has three plausible
+    /// projections and no canonical one. `raw` is `None` for the reason given
+    /// on [`From<ContainerLine>`](Event::from).
+    fn leaf(directive: Directive) -> Self {
+        Event::LeafDirective(DirectivePayload {
+            name: directive.name,
+            args: directive.args,
             colon_count: 0,
             raw: None,
-        })),
-        ParsedDirective::Inline { .. } => {
-            debug_assert!(
-                false,
-                "the block parsers cannot produce an inline directive"
-            );
-            None
-        }
+        })
     }
 }
 

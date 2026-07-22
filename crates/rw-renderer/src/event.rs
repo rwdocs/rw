@@ -77,7 +77,7 @@ pub(crate) enum Event<'a> {
 /// The syntax of one directive occurrence.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DirectivePayload<'a> {
-    /// As `ParsedDirective` produces it today.
+    /// Owned, moved out of the `Directive` the syntax parser produced.
     pub(crate) name: String,
     pub(crate) args: DirectiveArgs,
     /// Leading colon count; `0` for inline and leaf directives.
