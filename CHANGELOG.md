@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `--project-dir <dir>` on `rw serve` and `rw backstage publish` points `rw` at a project you are not in, rooting configuration, the docs directory, `.rw/`, and PlantUML includes at `<dir>`. Long-form only, and conflicts with `-c`/`--config`. See [Configuration](docs/configuration.md).
 
+### Changed
+
+- **Breaking (pre-1.0):** a tab group is now an outer `::::tabs` container wrapping self-closing `:::tab[Label]` items, replacing the form where several `:::tab` shared one closing `:::`. Migrate `:::tab[A] … :::tab[B] … :::` to `::::tabs` / `:::tab[A] … :::` / `:::tab[B] … :::` / `::::`. Rendered HTML is unchanged.
+
 ### Removed
 
 - **Breaking (pre-1.0):** the page metadata `vars` field is gone from `meta.yaml`, `<name>.meta.yaml` sidecars, frontmatter, the page API response, `@rwdocs/core`'s napi bindings, and the viewer's TypeScript types. Nothing ever read it. A file that still sets `vars` keeps loading; rw ignores the key.
@@ -29,8 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Diagrams written with `{format=png}` no longer render at roughly twice their intended size; they now carry their display width and height, which also stops the page reflowing as they decode. SVG diagrams (the default) were never affected, and rw corrects cached diagrams without re-rendering.
 - A page that has both `X.md` and `X/index.md` now uses `X/index.md` everywhere, instead of showing one file's title in the navigation sidebar while serving the other file's content. `rw` still warns when it finds such a pair.
 - Editing a `README.md` homepage (a project with no `docs/index.md`) now updates the navigation sidebar to the README's real title on live reload, instead of replacing it with "Home".
-- A `:::tab` group missing its closing `:::` now renders as a normal, styled tab group instead of leaking raw `<rw-tabs>` markers into the page. It runs to the end of the block containing it, so close it with `:::` to keep following content outside.
-- An unclosed `:::tab` group inside a blockquote or a list item now closes inside that block instead of after it, where the crossed nesting silently truncated the tab panel. Well-formed documents are unaffected.
 - Diagrams on the same page no longer borrow each other's clip paths, gradients, and markers; each one now renders inside its own shadow root. A script or test that reached a diagram's SVG in `@rwdocs/core`'s `renderPage()` output with `querySelector` must now go through the wrapper's `shadowRoot`. See [Diagram Rendering](docs/diagrams.md).
 - Resolving the inline comment you're navigating on and pressing `n` now steps to the next comment instead of jumping back to the first; `p` steps back instead of jumping to the last.
 - The `re-anchored` badge on a comment no longer squeezes the author's name onto extra lines. It now sits in the thread header next to the position counter, shortened to `fuzzy`, and carries an accessible name for screen readers.

@@ -388,7 +388,7 @@ fn container_opening_line_split_by_cmark_is_still_recognized() {
     //
     // The `{#a}` is inert — `TabsDirective` never reads `args.id`, so the id
     // is the generated `tabs-0`. It is here solely to force the extra split.
-    let result = render_tabs(":::tab[Label]{#a}\n\nBody.\n\n:::");
+    let result = render_tabs("::::tabs\n\n:::tab[Label]{#a}\n\nBody.\n\n:::\n\n::::");
     assert!(
         result.html.contains(r#"role="tablist""#),
         "got: {}",

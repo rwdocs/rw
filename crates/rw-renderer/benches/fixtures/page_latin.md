@@ -95,11 +95,15 @@ covered by the runbook; anything that clears the cache wholesale should be done
 with a maintainer present. See the [capacity guide](capacity.md) for sizing
 guidance.
 
+::::tabs
+
 :::tab[Health check]
 
 A node reports ready once its queue is attached and the cache directory is
 writable. Readiness is not the same as liveness: a node whose queue is full
 stays live but stops accepting new work.
+
+:::
 
 :::tab[Draining]
 
@@ -108,6 +112,8 @@ the queue. A drain that exceeds the grace period is escalated to an abort, which
 is safe because an unfinished render was never cached.
 
 :::
+
+::::
 
 ## Limits
 

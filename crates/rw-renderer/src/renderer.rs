@@ -1041,15 +1041,21 @@ mod tests {
         // Block directives are blank-line separated: each `:::` delimiter is
         // its own paragraph so pulldown-cmark emits it standalone.
         let result = renderer.render(
-            r":::tab[macOS]
+            r"::::tabs
+
+:::tab[macOS]
 
 Install with Homebrew.
+
+:::
 
 :::tab[Linux]
 
 Install with apt.
 
-:::",
+:::
+
+::::",
             Pipeline::new().with_directives(processor),
         );
 
@@ -1298,7 +1304,7 @@ Install with apt.
         // Unclosed tabs should produce warning. Block directives are blank-line
         // separated, so the `:::tab` delimiter stands alone as its own paragraph.
         let result = renderer.render(
-            ":::tab[Test]\n\nContent",
+            "::::tabs\n\n:::tab[Test]\n\nContent",
             Pipeline::new().with_directives(processor),
         );
 
@@ -2136,10 +2142,11 @@ Install with apt.
         use crate::TabsDirective;
         use crate::directive::DirectiveProcessor;
 
-        // Markdown with an unclosed :::tab container — emits one warning per
-        // render via DirectiveProcessor::finalize. Block directives are
-        // blank-line separated, so the `:::tab` delimiter stands alone.
-        let md = ":::tab[A]\n\nbody";
+        // Markdown with an unclosed ::::tabs group (its one tab closes
+        // normally) — emits one warning per render via
+        // DirectiveProcessor::finalize. Block directives are blank-line
+        // separated, so each delimiter stands alone.
+        let md = "::::tabs\n\n:::tab[A]\n\nbody\n\n:::";
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 

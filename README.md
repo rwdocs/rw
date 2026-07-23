@@ -12,7 +12,7 @@ Publish the same markdown to Confluence pages or embed in Backstage with native 
 - **CommonMark** — standard markdown via pulldown-cmark
 - **Live reload** — edit markdown, see changes instantly in the browser
 - **Diagram rendering** — PlantUML, Mermaid, GraphViz, and 14+ formats via Kroki
-- **Tabbed content** — group related content with `:::tab` syntax
+- **Tabbed content** — group related content with `::::tabs` / `:::tab` syntax
 - **Status badges** — inline colored pill labels with Confluence status-macro parity
 - **GitHub-style alerts** — `[!NOTE]`, `[!TIP]`, `[!WARNING]`, and more
 - **Navigation and TOC** — automatic sidebar, breadcrumbs, and table of contents

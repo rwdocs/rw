@@ -1,42 +1,48 @@
 //! Tabbed content blocks for markdown.
 //!
-//! Implements `CommonMark` directive syntax for tabs:
+//! Implements `CommonMark` directive syntax for tabs: an outer `::::tabs` group
+//! wrapping self-closing `:::tab[Label]` items.
 //!
 //! ```markdown
+//! ::::tabs
 //! :::tab[macOS]
 //! Install with Homebrew.
+//! :::
 //! :::tab[Linux]
 //! Install with apt.
 //! :::
+//! ::::
 //! ```
 //!
 //! # Architecture
 //!
 //! A tab bar can only be rendered once every tab in the group is known, which
-//! is not until the walk passes the group's closing `:::`. Tabs therefore emit
-//! no markup for the bar during the walk; they reserve a *hole* — a recorded
-//! offset in the output buffer — and fill it afterwards:
+//! is not until the walk passes the group's closing `::::`. `::::tabs`
+//! therefore emits no markup for the bar during the walk; it reserves a
+//! *hole* — a recorded offset in the output buffer — and fills it afterwards:
 //!
-//! 1. **Event walk**: each `:::tab[Label]` returns
+//! 1. **Event walk**: `::::tabs` returns
 //!    [`DirectiveOutput::Deferred`](crate::directive::DirectiveOutput::Deferred),
-//!    reserving a hole for the group's tab bar (first tab only) and one for its
-//!    own panel opening, and recording the label.
+//!    reserving a hole for the group's tab bar. Each nested `:::tab[Label]` is
+//!    an ordinary self-closing container: its `start` emits the panel's
+//!    opening `<div role="tabpanel">` inline and records the label, its `end`
+//!    the panel's closing `</div>`.
 //!
 //! 2. **Assembly**: after the walk, `fills()` renders the accessible ARIA
-//!    markup for every hole, and the walker splices it in at the recorded
-//!    offsets. No intermediate markers are ever emitted, so nothing can leak
+//!    markup for the tab bar, and the walker splices it in at the recorded
+//!    offset. No intermediate markers are ever emitted, so nothing can leak
 //!    into the output.
 //!
 //! # Unclosed groups
 //!
-//! A group left unclosed by missing `:::` extends to the end of the document:
-//! the directive processor closes it at end of input, so its markup stays
-//! balanced (and a warning is emitted). Because the group has no explicit end,
-//! everything after the last `:::tab[…]` is part of that tab's panel — content
-//! the author meant to follow the group is absorbed into the last tab. That
-//! panel is `hidden` unless its tab is the selected one, so the trailing
-//! content can disappear from view until the reader clicks that tab. The fix is
-//! to close the group with `:::`.
+//! A `::::tabs` group left unclosed by a missing `::::` extends to the end of
+//! the document (or its enclosing blockquote/list item): the directive
+//! processor closes it there, so its markup stays balanced (and a warning is
+//! emitted). A `:::tab` item left unclosed behaves the same way at the item
+//! level. In that case, everything after the last `:::tab` is absorbed into
+//! that panel — which is `hidden` unless it's the selected (first) tab, so
+//! the trailing content can disappear from view until the reader clicks that
+//! tab. The fix is to close each `:::tab` and the enclosing `::::tabs`.
 //!
 //! Register [`TabsDirective`] on a
 //! [`DirectiveProcessor`](crate::directive::DirectiveProcessor), then render
@@ -48,7 +54,7 @@
 //! use rw_renderer::TabsDirective;
 //!
 //! let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
-//! let md = ":::tab[macOS]\n\nInstall with Homebrew.\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::";
+//! let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
 //! let result = MarkdownRenderer::<HtmlBackend>::new()
 //!     .render(md, Pipeline::new().with_directives(directives));
 //! assert!(result.html.contains(r#"role="tablist""#));

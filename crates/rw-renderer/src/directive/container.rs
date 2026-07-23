@@ -59,6 +59,13 @@ pub trait ContainerDirective: Send {
     /// This is matched against the directive syntax: `:::name`
     fn name(&self) -> &str;
 
+    /// Whether this handler claims directive `name`. Default: exact match on
+    /// [`name`](Self::name). A handler that renders a *family* of names (e.g.
+    /// tabs' `tabs` group and its `tab` items) overrides this.
+    fn matches(&self, name: &str) -> bool {
+        name == self.name()
+    }
+
     /// Handle opening `:::name[content]{attrs}`.
     ///
     /// Returns the opening output:
@@ -70,6 +77,21 @@ pub trait ContainerDirective: Send {
     /// - [`DirectiveOutput::Skip`] to pass through (don't handle)
     fn start(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput;
 
+    /// Handle opening `:::name[content]{attrs}`, told which `name` was matched.
+    ///
+    /// Default delegates to [`start`](Self::start); handlers that answer to
+    /// more than one name (see [`matches`](Self::matches)) override this to
+    /// branch on `name`. The processor always calls this, never `start`
+    /// directly.
+    fn start_named(
+        &mut self,
+        _name: &str,
+        args: DirectiveArgs,
+        ctx: &DirectiveContext,
+    ) -> DirectiveOutput {
+        self.start(args, ctx)
+    }
+
     /// Handle closing `:::`.
     ///
     /// Returns closing HTML, or `None` to emit nothing.
@@ -78,17 +100,6 @@ pub trait ContainerDirective: Send {
     /// matching `start()`. If this method panics, it indicates a bug in either
     /// the processor or the handler's state management.
     fn end(&mut self, line: usize) -> Option<String>;
-
-    /// Whether the most recent `start()` opened a NEW scope that a later `:::`
-    /// must close. Default `true`. Continuation-style handlers (e.g. tabs, where
-    /// several `:::tab` openers share one closing `:::`) return `false` when
-    /// `start()` merely continued an already-open scope.
-    ///
-    /// Queried by the processor immediately after `start()`, so it reflects only
-    /// the most recent call.
-    fn opened_scope(&self) -> bool {
-        true
-    }
 
     /// Supply content for holes this directive reserved during the walk.
     ///

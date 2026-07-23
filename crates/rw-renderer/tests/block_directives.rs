@@ -45,7 +45,7 @@ fn render_status(md: &str) -> RenderResult {
 
 #[test]
 fn container_with_block_body_renders() {
-    let md = ":::tab[macOS]\n\nInstall with Homebrew.\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::";
+    let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
     let result = render_tabs(md);
     assert!(
         result.html.contains(r#"role="tablist""#),
@@ -67,7 +67,7 @@ fn container_with_block_body_renders() {
 
 #[test]
 fn bracketed_attr_delimiter_is_recognized() {
-    let md = ":::tab[Label with spaces]\n\nBody.\n\n:::";
+    let md = "::::tabs\n\n:::tab[Label with spaces]\n\nBody.\n\n:::\n\n::::";
     let result = render_tabs(md);
     assert!(
         result.html.contains(">Label with spaces</button>"),
@@ -105,7 +105,7 @@ fn delimiter_then_bold_commits_as_normal_paragraph() {
 
 #[test]
 fn multi_tab_group_renders_without_spurious_warning() {
-    let md = ":::tab[A]\n\nContent A\n\n:::tab[B]\n\nContent B\n\n:::";
+    let md = "::::tabs\n\n:::tab[A]\n\nContent A\n\n:::\n\n:::tab[B]\n\nContent B\n\n:::\n\n::::";
     let result = render_tabs(md);
     assert!(
         result.html.contains(r#"<div class="tabs" id="tabs-0">"#),
@@ -128,7 +128,7 @@ fn multi_tab_group_renders_without_spurious_warning() {
 
 #[test]
 fn three_tab_group_renders_without_spurious_warning() {
-    let md = ":::tab[A]\n\nContent A\n\n:::tab[B]\n\nContent B\n\n:::tab[C]\n\nContent C\n\n:::";
+    let md = "::::tabs\n\n:::tab[A]\n\nContent A\n\n:::\n\n:::tab[B]\n\nContent B\n\n:::\n\n:::tab[C]\n\nContent C\n\n:::\n\n::::";
     let result = render_tabs(md);
     assert!(
         result.html.contains(r#"role="tablist""#),
@@ -146,17 +146,25 @@ fn three_tab_group_renders_without_spurious_warning() {
 }
 
 #[test]
-fn unclosed_multi_tab_group_warns_exactly_once() {
-    // Two tab openers, NO final ::: — the group is genuinely unclosed and must
-    // produce exactly one "unclosed" warning, not one per extra tab.
-    let md = ":::tab[A]\n\nContent A\n\n:::tab[B]\n\nContent B";
+fn unclosed_nested_tab_group_warns() {
+    // The group's own `::::` is missing, so it — and its still-open last `tab`
+    // — both run to end of input. Both the group frame and its unclosed last
+    // item deterministically warn, so the count is pinned: exactly one
+    // `:::tabs (` (group) and exactly one `:::tab (` (item) warning.
+    let md = "::::tabs\n\n:::tab[A]\n\nContent A\n\n:::\n\n:::tab[B]\n\nContent B";
     let result = render_tabs(md);
-    let unclosed: Vec<_> = result
-        .warnings
-        .iter()
-        .filter(|w| w.contains("unclosed"))
-        .collect();
-    assert_eq!(unclosed.len(), 1, "got: {:?}", result.warnings);
+    assert_eq!(
+        unclosed_group_warning_count(&result),
+        1,
+        "got: {:?}",
+        result.warnings
+    );
+    assert_eq!(
+        unclosed_item_warning_count(&result),
+        1,
+        "got: {:?}",
+        result.warnings
+    );
 }
 
 /// Index of the last `</div>` in `html`, or a panic naming the offender.
@@ -173,12 +181,37 @@ fn unclosed_warning_count(result: &RenderResult) -> usize {
         .count()
 }
 
+/// Count of "unclosed container directive `:::tabs` (…)" warnings — the group
+/// frame. Anchored on the trailing space, so it doesn't also count the item
+/// warning below (`":::tabs ("` is never a substring match for `":::tab ("`).
+fn unclosed_group_warning_count(result: &RenderResult) -> usize {
+    result
+        .warnings
+        .iter()
+        .filter(|w| w.contains("unclosed container directive :::tabs ("))
+        .count()
+}
+
+/// Count of "unclosed container directive `:::tab` (…)" warnings — a single
+/// `:::tab` item. `":::tab ("` does not match `":::tabs ("` (the character
+/// after `tab` is `s`, not a space), so this cleanly excludes the group
+/// warning above.
+fn unclosed_item_warning_count(result: &RenderResult) -> usize {
+    result
+        .warnings
+        .iter()
+        .filter(|w| w.contains("unclosed container directive :::tab ("))
+        .count()
+}
+
 #[test]
 fn unclosed_tab_inside_blockquote_closes_before_the_blockquote() {
     // A container left open must be closed when its *enclosing block* ends,
     // not at end of input — otherwise its </div>s land after </blockquote>
     // and the nesting is crossed.
-    let md = "> intro\n>\n> :::tab[A]\n>\n> body\n\nafter\n";
+    // The tab item closes properly inside the blockquote; the enclosing
+    // `::::tabs` group is what's left genuinely unclosed.
+    let md = "> intro\n>\n> ::::tabs\n>\n> :::tab[A]\n>\n> body\n>\n> :::\n\nafter\n";
     let result = render_tabs(md);
     let html = &result.html;
 
@@ -200,7 +233,9 @@ fn unclosed_tab_inside_blockquote_closes_before_the_blockquote() {
 
 #[test]
 fn unclosed_tab_inside_list_item_closes_before_the_item() {
-    let md = "- item\n\n  :::tab[A]\n\n  body\n\n- second\n";
+    // Same shape as the blockquote case above: the tab item closes; the group
+    // is what's left unclosed by the missing `::::`.
+    let md = "- item\n\n  ::::tabs\n\n  :::tab[A]\n\n  body\n\n  :::\n\n- second\n";
     let result = render_tabs(md);
     let html = &result.html;
 
@@ -224,8 +259,11 @@ fn unclosed_tab_inside_list_item_closes_before_the_item() {
 #[test]
 fn unclosed_tab_at_top_level_still_closes_at_end_of_input() {
     // Top-level containers have no enclosing block, so end-of-input closing
-    // stays correct: trailing content belongs to the open panel.
-    let md = ":::tab[A]\n\nA\n\nAFTER\n";
+    // stays correct: trailing content belongs to the open panel. Both the
+    // group and its last (only) tab are left open here, matching the original
+    // input's total absence of any closing colon, so trailing content stays
+    // nested inside both until end of input closes them together.
+    let md = "::::tabs\n\n:::tab[A]\n\nA\n\nAFTER\n";
     let result = render_tabs(md);
     let html = &result.html;
 
@@ -234,15 +272,30 @@ fn unclosed_tab_at_top_level_still_closes_at_end_of_input() {
         html.contains("<p>AFTER</p></div></div>"),
         "trailing content left the open panel: {html}"
     );
-    assert_eq!(unclosed_warning_count(&result), 1, "{:?}", result.warnings);
+    // Both the group and its last item are left open, and each warns exactly
+    // once — see `unclosed_nested_tab_group_warns`.
+    assert_eq!(
+        unclosed_group_warning_count(&result),
+        1,
+        "got: {:?}",
+        result.warnings
+    );
+    assert_eq!(
+        unclosed_item_warning_count(&result),
+        1,
+        "got: {:?}",
+        result.warnings
+    );
 }
 
 #[test]
 fn closing_delimiter_after_the_enclosing_blockquote_does_not_close_twice() {
     // The container was already balanced at `</blockquote>`, so the stray `:::`
     // outside it must not reach the handler's `end()` a second time — a double
-    // close would emit the tab group twice.
-    let md = "> :::tab[A]\n>\n> body\n\n:::\n\nafter\n";
+    // close would emit the tab group twice. Neither the group nor the item
+    // closes inside the blockquote, so both are force-closed at the blockquote
+    // boundary and the lone trailing `:::` is a genuine stray.
+    let md = "> ::::tabs\n>\n> :::tab[A]\n>\n> body\n\n:::\n\nafter\n";
     let result = render_tabs(md);
     let html = &result.html;
 
@@ -256,12 +309,27 @@ fn closing_delimiter_after_the_enclosing_blockquote_does_not_close_twice() {
         html.matches("</div>").count(),
         "unbalanced divs: {html}"
     );
-    assert_eq!(unclosed_warning_count(&result), 1, "{:?}", result.warnings);
+    // Neither the group nor the item closes inside the blockquote, so both
+    // are force-closed at the blockquote boundary — one warning each, plus
+    // the unrelated stray-`:::` warning for the trailing colon (not asserted
+    // here; see the test's own comment above).
+    assert_eq!(
+        unclosed_group_warning_count(&result),
+        1,
+        "got: {:?}",
+        result.warnings
+    );
+    assert_eq!(
+        unclosed_item_warning_count(&result),
+        1,
+        "got: {:?}",
+        result.warnings
+    );
 }
 
 #[test]
 fn closed_tab_group_inside_blockquote_is_unaffected() {
-    let md = "> intro\n>\n> :::tab[A]\n>\n> body\n>\n> :::\n>\n> tail\n\nafter\n";
+    let md = "> intro\n>\n> ::::tabs\n>\n> :::tab[A]\n>\n> body\n>\n> :::\n>\n> ::::\n>\n> tail\n\nafter\n";
     let result = render_tabs(md);
     let html = &result.html;
 
@@ -275,7 +343,8 @@ fn closed_tab_group_inside_blockquote_is_unaffected() {
 
 #[test]
 fn closed_tab_group_inside_list_item_is_unaffected() {
-    let md = "- item\n\n  :::tab[A]\n\n  body\n\n  :::\n\n  tail\n\n- second\n";
+    let md =
+        "- item\n\n  ::::tabs\n\n  :::tab[A]\n\n  body\n\n  :::\n\n  ::::\n\n  tail\n\n- second\n";
     let result = render_tabs(md);
     let html = &result.html;
 
@@ -289,13 +358,12 @@ fn closed_tab_group_inside_list_item_is_unaffected() {
 
 #[test]
 fn two_separate_closed_tab_groups_emit_no_warnings() {
-    // Two independent closed groups in one document. The second group's first
-    // `:::tab` must re-open a fresh scope (group state resets after the first
-    // group closes), not be treated as a continuation. Pre-fix this emitted two
-    // spurious "unclosed" warnings.
-    let md = ":::tab[A]\n\nx\n\n:::tab[B]\n\ny\n\n:::\n\n\
+    // Two independent closed groups in one document. The second group's
+    // `::::tabs` must open a fresh scope (group state resets after the first
+    // group closes), not be mistaken for a continuation of the first.
+    let md = "::::tabs\n\n:::tab[A]\n\nx\n\n:::\n\n:::tab[B]\n\ny\n\n:::\n\n::::\n\n\
               between\n\n\
-              :::tab[C]\n\nz\n\n:::tab[D]\n\nw\n\n:::";
+              ::::tabs\n\n:::tab[C]\n\nz\n\n:::\n\n:::tab[D]\n\nw\n\n:::\n\n::::";
     let result = render_tabs(md);
     assert_eq!(
         result.html.matches(r#"role="tablist""#).count(),
@@ -309,7 +377,7 @@ fn two_separate_closed_tab_groups_emit_no_warnings() {
 
 #[test]
 fn tabs_html_has_no_stray_blank_runs() {
-    let md = ":::tab[A]\n\nBody.\n\n:::";
+    let md = "::::tabs\n\n:::tab[A]\n\nBody.\n\n:::\n\n::::";
     let result = render_tabs(md);
     // The tab panel sits flush against the body paragraph. Asserts the
     // whitespace invariant (no stray newline before the body <p>) without
@@ -347,7 +415,7 @@ fn directive_inside_fenced_code_stays_literal() {
 
 #[test]
 fn container_inside_blockquote_is_recognized() {
-    let md = "> :::tab[Q]\n>\n> Body.\n>\n> :::";
+    let md = "> ::::tabs\n>\n> :::tab[Q]\n>\n> Body.\n>\n> :::\n>\n> ::::";
     let result = render_tabs(md);
     assert!(result.html.contains("<blockquote>"), "got: {}", result.html);
     assert_between(
@@ -360,7 +428,7 @@ fn container_inside_blockquote_is_recognized() {
 
 #[test]
 fn container_inside_loose_list_is_recognized() {
-    let md = "- item\n\n  :::tab[L]\n\n  Body.\n\n  :::";
+    let md = "- item\n\n  ::::tabs\n\n  :::tab[L]\n\n  Body.\n\n  :::\n\n  ::::";
     let result = render_tabs(md);
     assert!(result.html.contains("<li>"), "got: {}", result.html);
     assert_between(&result.html, r#"role="tablist""#, "<li>", "</li>");
@@ -430,7 +498,7 @@ fn frontmatter_directive_shaped_text_is_inert() {
 
 #[test]
 fn empty_container_body_has_no_stray_paragraph() {
-    let md = ":::tab[Empty]\n\n:::";
+    let md = "::::tabs\n\n:::tab[Empty]\n\n:::\n\n::::";
     let result = render_tabs(md);
     assert!(
         result.html.contains(r#"role="tablist""#),
@@ -484,7 +552,7 @@ fn two_consecutive_normal_paragraphs_do_not_leak_state() {
 #[test]
 fn directive_immediately_followed_by_paragraph() {
     // A container directly followed by ordinary content renders both correctly.
-    let md = ":::tab[A]\n\nInside.\n\n:::\n\nAfter the tabs.";
+    let md = "::::tabs\n\n:::tab[A]\n\nInside.\n\n:::\n\n::::\n\nAfter the tabs.";
     let result = render_tabs(md);
     assert!(result.html.contains("Inside."), "got: {}", result.html);
     assert!(
@@ -529,7 +597,7 @@ fn nested_same_name_containers_render_balanced() {
 
 #[test]
 fn unclosed_container_warns() {
-    let md = ":::tab[Open]\n\nbody";
+    let md = "::::tabs\n\n:::tab[Open]\n\nbody";
     let result = render_tabs(md);
     assert!(
         result.warnings.iter().any(|w| w.contains("unclosed")),
@@ -545,10 +613,10 @@ fn tab_label_is_html_escaped_and_quotes_stripped() {
     // consumes that whole line as an HTML block before the directive scanner
     // sees it. `<` / `&` that don't start an HTML block reach the directive
     // and are escaped on the way out.)
-    let r1 = render_tabs(":::tab[a < b & c]\n\nx\n\n:::");
+    let r1 = render_tabs("::::tabs\n\n:::tab[a < b & c]\n\nx\n\n:::\n\n::::");
     assert!(r1.html.contains("a &lt; b &amp; c"), "got: {}", r1.html);
     // Surrounding quotes are stripped from the label.
-    let r2 = render_tabs(":::tab[\"macOS и Linux\"]\n\nx\n\n:::");
+    let r2 = render_tabs("::::tabs\n\n:::tab[\"macOS и Linux\"]\n\nx\n\n:::\n\n::::");
     assert!(
         r2.html.contains(">macOS и Linux</button>"),
         "got: {}",
@@ -761,7 +829,7 @@ fn deferred_inline_directive_warns_instead_of_reserving_a_hole() {
 fn tabs_emit_no_markup_into_a_search_document() {
     let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
-        ":::tab[macOS]\n\nmac body\n\n:::tab[Linux]\n\nlinux body\n\n:::\n",
+        "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n\n:::\n\n::::\n",
         Pipeline::new().with_directives(directives),
     );
 
@@ -782,7 +850,7 @@ fn tabs_emit_no_markup_into_a_search_document() {
 fn unclosed_tabs_emit_no_markup_into_a_search_document() {
     let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
-        ":::tab[macOS]\n\nmac body\n\n:::tab[Linux]\n\nlinux body\n",
+        "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n",
         Pipeline::new().with_directives(directives),
     );
 
@@ -837,6 +905,8 @@ fn code_block_and_directive_holes_interleave_in_one_document() {
     // own hole) verifies both hole sources landed correctly, not just the
     // code-block processor's.
     let markdown = "\
+::::tabs
+
 :::tab[One]
 
 ```demo
@@ -844,6 +914,8 @@ x
 ```
 
 :::
+
+::::
 
 ```demo
 y
@@ -913,5 +985,83 @@ fn unknown_inline_directives_warn_in_document_order() {
             "unknown inline directive ':alpha' — no handler registered (or handler returned Skip)",
             "unknown inline directive ':beta' — no handler registered (or handler returned Skip)",
         ]
+    );
+}
+
+#[test]
+fn nested_tabs_render_byte_identical_to_the_old_continuation_output() {
+    // The proposal-aligned nested input must produce exactly the bytes the old
+    // continuation input produced (the viewer depends on this markup).
+    const EXPECTED: &str = r#"<div class="tabs" id="tabs-0"><div class="tabs-buttons" role="tablist"><button role="tab" id="tab-0-0" aria-controls="panel-0-0" aria-selected="true" tabindex="0">macOS</button><button role="tab" id="tab-0-1" aria-controls="panel-0-1" aria-selected="false" tabindex="-1">Linux</button></div><div role="tabpanel" id="panel-0-0" aria-labelledby="tab-0-0"><p>Install with Homebrew.</p></div><div role="tabpanel" id="panel-0-1" aria-labelledby="tab-0-1" hidden><p>Install with apt.</p></div></div>"#;
+    let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n\
+              :::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
+    let result = render_tabs(md);
+    assert_eq!(result.html, EXPECTED, "got: {}", result.html);
+    assert!(
+        result.warnings.is_empty(),
+        "warnings: {:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn old_continuation_syntax_no_longer_groups() {
+    // The removed shared-closer form now yields lone tabs (warned, unwrapped),
+    // not a tab group.
+    let result = render_tabs(":::tab[A]\n\nx\n\n:::tab[B]\n\ny\n\n:::");
+    assert!(
+        !result.html.contains(r#"role="tablist""#),
+        "old continuation form must no longer render a tab group: {}",
+        result.html
+    );
+}
+
+#[test]
+fn nested_tab_groups_render_both_bars_without_panic() {
+    // A `::::tabs` group nested inside a `:::tab` panel of an outer group must
+    // not drop the outer group's reserved bar hole: with a single `Option`
+    // slot, opening the inner group overwrites the outer one, the inner
+    // group's `end()` finalizes it, and the outer group's hole is never
+    // filled — panicking assembly in debug, silently vanishing in release.
+    let md = "::::tabs\n\n:::tab[Outer A]\n\n::::tabs\n\n:::tab[Inner X]\n\nbody\n\n:::\n\n::::\n\n:::\n\n::::";
+    let result = render_tabs(md);
+
+    assert_eq!(
+        result.html.matches(r#"role="tablist""#).count(),
+        2,
+        "expected both group bars rendered: {}",
+        result.html
+    );
+    assert!(
+        result.html.contains(r#"id="tabs-0""#),
+        "got: {}",
+        result.html
+    );
+    assert!(
+        result.html.contains(r#"id="tabs-1""#),
+        "got: {}",
+        result.html
+    );
+    assert_eq!(
+        result.html.matches("<div").count(),
+        result.html.matches("</div>").count(),
+        "unbalanced divs: {}",
+        result.html
+    );
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+}
+
+#[test]
+fn unclosed_tab_item_warning_names_tab_not_tabs() {
+    // Item B and the enclosing group are both left unclosed. The unclosed
+    // ITEM must be reported as `:::tab`, not misnamed `:::tabs` (the single
+    // handler's `name()`, which is always "tabs").
+    let md = "::::tabs\n\n:::tab[A]\n\nA\n\n:::\n\n:::tab[B]\n\nB\n\nAFTER\n";
+    let result = render_tabs(md);
+
+    assert!(
+        result.warnings.iter().any(|w| w.contains(":::tab (")),
+        "expected an accurately-named unclosed `:::tab` warning: {:?}",
+        result.warnings
     );
 }

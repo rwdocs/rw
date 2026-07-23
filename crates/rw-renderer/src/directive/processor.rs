@@ -47,8 +47,16 @@ pub(crate) enum BlockDispatch {
 /// [`DirectiveProcessor::close_containers_nested_in`].
 enum ContainerFrame {
     /// A registered handler opened a scope; call `container_handlers[idx].end()`
-    /// when the closing `:::` is reached.
-    Handled { idx: usize, depth: usize },
+    /// when the closing `:::` is reached. `name` is the opener's own name as
+    /// written (e.g. `"tab"`), not the handler's `name()` — a handler whose
+    /// `matches()` accepts more than one name (like `TabsDirective`, for both
+    /// `tabs` and `tab`) would otherwise misreport an unclosed opener under
+    /// its single registered name.
+    Handled {
+        idx: usize,
+        depth: usize,
+        name: String,
+    },
     /// The opening delimiter rendered literally (unregistered name, or the
     /// handler returned `Skip`); render the closing `:::` literally too.
     Literal { depth: usize },
@@ -173,11 +181,11 @@ pub struct DirectiveProcessor {
     /// Stack of open container scopes (one [`ContainerFrame`] per textual
     /// `:::name` … `:::` nesting level) used to pair closing delimiters.
     active_containers: Vec<ContainerFrame>,
-    /// Handler indices of containers already balanced early, when their
+    /// Opener names of containers already balanced early, when their
     /// enclosing blockquote or list item ended. They are off
     /// `active_containers` (so they are neither closed nor popped twice) but
     /// [`finalize`](DirectiveProcessor::finalize) still owes each one warning.
-    closed_at_block_end: Vec<usize>,
+    closed_at_block_end: Vec<String>,
     warnings: Vec<String>,
 }
 
@@ -249,6 +257,9 @@ impl DirectiveProcessor {
     #[must_use]
     pub fn with_container<D: ContainerDirective + 'static>(mut self, handler: D) -> Self {
         let name = handler.name().to_owned();
+        // Guard is name-based (not `matches`): it catches a second handler
+        // registered under the same primary name, not one that merely aliases
+        // a name another handler already `matches`.
         if self.container_handlers.iter().any(|h| h.name() == name) {
             self.warnings.push(format!(
                 "container directive ':::{name}' is registered more than once; only the first handler will be dispatched"
@@ -263,11 +274,8 @@ impl DirectiveProcessor {
     /// `ctx.line()` is always `0` — block directives carry no line number (no
     /// shipped handler reads it).
     ///
-    /// An opener that starts a new scope — see
-    /// [`opened_scope`](ContainerDirective::opened_scope) — pushes an
-    /// `active_containers` frame. A continuation opener, several `:::tab`s
-    /// sharing one closer, pushes nothing, so a single closer balances the
-    /// group.
+    /// Any handled, non-`Skip` opener pushes an `active_containers` frame that
+    /// its matching closer pops.
     ///
     /// `depth` is the walker's enclosing block nesting (blockquote and list
     /// levels) at this directive. A frame remembers it so an unclosed
@@ -286,11 +294,7 @@ impl DirectiveProcessor {
         args: DirectiveArgs,
         depth: usize,
     ) -> BlockDispatch {
-        let Some(idx) = self
-            .container_handlers
-            .iter()
-            .position(|h| h.name() == name)
-        else {
+        let Some(idx) = self.container_handlers.iter().position(|h| h.matches(name)) else {
             // Unregistered: render the opener literally and track the
             // scope so its closing ::: renders literally too, rather
             // than closing an enclosing registered container.
@@ -300,16 +304,15 @@ impl DirectiveProcessor {
         };
         let syntax = args.to_syntax();
         let ctx = self.config.create_context(0);
-        let output = self.container_handlers[idx].start(args, &ctx);
-        // Read before the match: do NOT move this into the arms or after
-        // any other handler call — it reflects only the latest start().
-        let opened = self.container_handlers[idx].opened_scope();
-        // Every arm but `Skip` renders through the handler, so an
-        // opened scope is the handler's to close. `Skip` is the
-        // exception: it pushes a `Literal` frame of its own below.
-        if opened && !matches!(output, DirectiveOutput::Skip) {
-            self.active_containers
-                .push(ContainerFrame::Handled { idx, depth });
+        let output = self.container_handlers[idx].start_named(name, args, &ctx);
+        // A handled opener owns its scope unless it declined (`Skip`, which
+        // pushes its own Literal frame below).
+        if !matches!(output, DirectiveOutput::Skip) {
+            self.active_containers.push(ContainerFrame::Handled {
+                idx,
+                depth,
+                name: name.to_owned(),
+            });
         }
         match output {
             DirectiveOutput::Html(html) => BlockDispatch::Html(html),
@@ -481,11 +484,11 @@ impl DirectiveProcessor {
                 .expect("checked above: the stack has a frame at or below `depth`");
             // Literal frames rendered their opener as plain text: nothing to
             // balance, and finalize owes them no warning either.
-            if let ContainerFrame::Handled { idx, .. } = frame {
+            if let ContainerFrame::Handled { idx, name, .. } = frame {
                 if let Some(html) = self.container_handlers[idx].end(0) {
                     write_html(&html, out);
                 }
-                self.closed_at_block_end.push(idx);
+                self.closed_at_block_end.push(name);
             }
         }
     }
@@ -495,19 +498,18 @@ impl DirectiveProcessor {
         // self.container_handlers / pushing to self.warnings below.
         let frames = std::mem::take(&mut self.active_containers);
         let closed_early = std::mem::take(&mut self.closed_at_block_end);
-        let handled = frames
+        let names = frames
             .into_iter()
             .filter_map(|frame| match frame {
                 // Literal frames: the opener rendered as plain text, so there is
                 // no managed container to warn about.
-                ContainerFrame::Handled { idx, .. } => Some(idx),
+                ContainerFrame::Handled { name, .. } => Some(name),
                 ContainerFrame::Literal { .. } => None,
             })
             // Containers balanced early at a blockquote/list-item boundary are
             // off the stack but just as unclosed: they still owe one warning.
             .chain(closed_early);
-        for idx in handled {
-            let name = self.container_handlers[idx].name().to_owned();
+        for name in names {
             self.warnings.push(format!(
                 "unclosed container directive :::{name} (missing closing :::)"
             ));
@@ -819,87 +821,6 @@ mod tests {
             BlockDispatch::PassThrough(s) => assert_eq!(s, "::missing[y]"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
-    }
-
-    // Continuation-style container: the first `:::mock` opens a new scope; each
-    // subsequent `:::mock` only continues the already-open scope (reporting
-    // `opened_scope() == false`), so a single `:::` closes the whole thing.
-    // Mirrors how `TabsDirective` shares one closing `:::` across many `:::tab`.
-    struct MockContinuation {
-        depth: usize,
-        last_start_opened: bool,
-    }
-
-    impl MockContinuation {
-        fn new() -> Self {
-            Self {
-                depth: 0,
-                last_start_opened: false,
-            }
-        }
-    }
-
-    impl ContainerDirective for MockContinuation {
-        fn name(&self) -> &'static str {
-            "mock"
-        }
-
-        fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-            if self.depth == 0 {
-                self.depth = 1;
-                self.last_start_opened = true;
-                DirectiveOutput::html("<mock>")
-            } else {
-                self.last_start_opened = false;
-                DirectiveOutput::html("<mock-continue>")
-            }
-        }
-
-        fn end(&mut self, _line: usize) -> Option<String> {
-            self.depth = 0;
-            Some("</mock>".to_owned())
-        }
-
-        fn opened_scope(&self) -> bool {
-            self.last_start_opened
-        }
-    }
-
-    #[test]
-    fn continuation_container_closed_emits_no_unclosed_warning() {
-        let mut processor = DirectiveProcessor::new().with_container(MockContinuation::new());
-
-        let _ = processor.dispatch_container_start("mock", DirectiveArgs::parse("A", ""), 0);
-        let _ = processor.dispatch_container_start("mock", DirectiveArgs::parse("B", ""), 0);
-        let _ = processor.dispatch_container_end(3);
-
-        processor.finalize();
-
-        assert!(
-            !processor.warnings().iter().any(|w| w.contains("unclosed")),
-            "got: {:?}",
-            processor.warnings(),
-        );
-    }
-
-    #[test]
-    fn continuation_container_unclosed_emits_one_unclosed_warning() {
-        let mut processor = DirectiveProcessor::new().with_container(MockContinuation::new());
-
-        let _ = processor.dispatch_container_start("mock", DirectiveArgs::parse("A", ""), 0);
-        // Second opener CONTINUES the scope (opened_scope() == false). Without
-        // the fix this would push a second entry and finalize() would warn
-        // twice; the single genuinely-open scope must yield exactly one warning.
-        let _ = processor.dispatch_container_start("mock", DirectiveArgs::parse("B", ""), 0);
-
-        processor.finalize();
-
-        let unclosed: Vec<_> = processor
-            .warnings()
-            .into_iter()
-            .filter(|w| w.contains("unclosed"))
-            .collect();
-        assert_eq!(unclosed.len(), 1, "got: {unclosed:?}");
     }
 
     #[test]
