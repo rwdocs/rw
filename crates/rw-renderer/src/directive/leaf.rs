@@ -58,8 +58,6 @@ pub trait LeafDirective: Send {
     ///
     /// Returns:
     /// - [`DirectiveOutput::Html`] for HTML output that passes through pulldown-cmark
-    /// - [`DirectiveOutput::Marker`] for a semantic marker each backend renders
-    ///   its own way
     /// - [`DirectiveOutput::Deferred`] for content that is not known during the
     ///   walk — it reserves holes that [`fills`](Self::fills) supplies afterwards
     /// - [`DirectiveOutput::Skip`] to pass through unchanged

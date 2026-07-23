@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use super::fills::{GlobalFills, Source};
 use super::{
     ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, Fills, InlineDirective,
-    LeafDirective, Marker, Part,
+    LeafDirective, Part,
 };
 
 /// Type alias for the file reading callback function.
@@ -26,8 +26,6 @@ pub(crate) enum BlockDispatch {
     /// Emit verbatim via the backend's `raw_html`. An empty string emits nothing
     /// (e.g. a container `end()` that returns `None`).
     Html(String),
-    /// A semantic marker — `marker_open + text(body) + marker_close`.
-    Marker { marker: Marker, body: String },
     /// Literal HTML interleaved with holes. See [`DirectiveOutput::Deferred`].
     ///
     /// `source` identifies the handler that produced the parts: its hole keys
@@ -315,7 +313,6 @@ impl DirectiveProcessor {
         }
         match output {
             DirectiveOutput::Html(html) => BlockDispatch::Html(html),
-            DirectiveOutput::Marker { marker, body } => BlockDispatch::Marker { marker, body },
             DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
                 parts,
                 source: Source::Container(idx),
@@ -371,7 +368,6 @@ impl DirectiveProcessor {
         let ctx = self.config.create_context(0);
         match self.leaf_handlers[idx].process(args, &ctx) {
             DirectiveOutput::Html(html) => BlockDispatch::Html(html),
-            DirectiveOutput::Marker { marker, body } => BlockDispatch::Marker { marker, body },
             DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
                 parts,
                 source: Source::Leaf(idx),
@@ -646,35 +642,6 @@ mod tests {
     }
 
     #[test]
-    fn test_inline_directive_unknown_marker_degrades_to_body_text() {
-        // A backend that doesn't recognize a marker name must write nothing for
-        // it, rendering the label unstyled rather than leaking markup it can't
-        // translate.
-        struct MarkerDirective;
-
-        impl InlineDirective for MarkerDirective {
-            fn name(&self) -> &'static str {
-                "marker"
-            }
-
-            fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                DirectiveOutput::marker(Marker::new("unrecognized"), args.content())
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_inline(MarkerDirective);
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(":marker[label]", Pipeline::new().with_directives(processor));
-
-        assert!(result.html.contains("label"), "got: {}", result.html);
-        assert!(
-            !result.html.contains("unrecognized"),
-            "marker name leaked into output: {}",
-            result.html,
-        );
-    }
-
-    #[test]
     fn test_multiple_inline_directives() {
         let processor = DirectiveProcessor::new().with_inline(TestKbd);
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
@@ -852,131 +819,6 @@ mod tests {
             BlockDispatch::PassThrough(s) => assert_eq!(s, "::missing[y]"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn dispatch_leaf_marker() {
-        // A leaf whose process() returns a Marker triple must surface as
-        // BlockDispatch::Marker with all three fields intact.
-        struct MarkerLeaf;
-
-        impl LeafDirective for MarkerLeaf {
-            fn name(&self) -> &'static str {
-                "marker"
-            }
-
-            fn process(
-                &mut self,
-                _args: DirectiveArgs,
-                _ctx: &DirectiveContext,
-            ) -> DirectiveOutput {
-                DirectiveOutput::Marker {
-                    marker: Marker::new("marker").with_attr("flavor", "leaf"),
-                    body: "the body".to_owned(),
-                }
-            }
-        }
-
-        let mut processor = DirectiveProcessor::new().with_leaf(MarkerLeaf);
-
-        match processor.dispatch_leaf("marker", DirectiveArgs::parse("x", "")) {
-            BlockDispatch::Marker { marker, body } => {
-                assert_eq!(marker.name, "marker");
-                assert_eq!(marker.attr("flavor"), Some("leaf"));
-                assert_eq!(body, "the body");
-            }
-            other => panic!("expected Marker, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_block_marker_renders_through_the_walker() {
-        // Covers the walker's BlockDispatch::Marker arm end-to-end: a leaf
-        // directive returning a Marker must reach the backend as
-        // marker_open + text(body) + marker_close, in that order. Inspecting
-        // the BlockDispatch value alone would not catch a swapped open/close
-        // or a dropped body.
-        struct StatusLeaf;
-
-        impl LeafDirective for StatusLeaf {
-            fn name(&self) -> &'static str {
-                "badge"
-            }
-
-            fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                DirectiveOutput::marker(
-                    Marker::new(crate::STATUS_MARKER).with_attr("color", "blue"),
-                    args.content(),
-                )
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_leaf(StatusLeaf);
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(
-            "::badge[Shipped]",
-            Pipeline::new().with_directives(processor),
-        );
-
-        assert!(
-            result
-                .html
-                .contains(r#"<span class="status status-blue">Shipped</span>"#),
-            "got: {}",
-            result.html
-        );
-    }
-
-    #[test]
-    fn test_container_marker_renders_through_the_walker() {
-        // Covers dispatch_container_start's DirectiveOutput::Marker arm.
-        struct StatusContainer;
-
-        impl ContainerDirective for StatusContainer {
-            fn name(&self) -> &'static str {
-                "banner"
-            }
-
-            fn start(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                DirectiveOutput::marker(
-                    Marker::new(crate::STATUS_MARKER).with_attr("color", "red"),
-                    args.content(),
-                )
-            }
-
-            fn opened_scope(&self) -> bool {
-                true
-            }
-
-            fn end(&mut self, _depth: usize) -> Option<String> {
-                Some(String::new())
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_container(StatusContainer);
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(
-            ":::banner[Outage]\n\ntext\n\n:::",
-            Pipeline::new().with_directives(processor),
-        );
-
-        assert!(
-            result
-                .html
-                .contains(r#"<span class="status status-red">Outage</span>"#),
-            "got: {}",
-            result.html
-        );
-        // The push onto `active_containers` sits outside the `match output`, so
-        // it must fire for a non-`Html` start too. If it did not, the closing
-        // `:::` would pop an empty stack: a "stray :::" warning plus a literal
-        // `:::` in the output. The marker span alone would still render.
-        assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
-        assert!(
-            !result.html.contains(":::"),
-            "closing ::: leaked: {}",
-            result.html
-        );
     }
 
     // Continuation-style container: the first `:::mock` opens a new scope; each

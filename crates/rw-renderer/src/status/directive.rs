@@ -5,11 +5,8 @@
 
 use std::fmt;
 
-use crate::directive::{DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective, Marker};
-
-/// Semantic name of the marker `StatusDirective` emits. Backends match on this
-/// to render a status badge their own way.
-pub const STATUS_MARKER: &str = "status";
+/// The directive name the walker recognizes as the built-in status badge.
+pub(crate) const STATUS_NAME: &str = "status";
 
 /// One of the six Confluence-native status colors. [`Default`] is Grey;
 /// [`From<&str>`] parses a name case-insensitively and returns the default
@@ -47,14 +44,6 @@ impl From<&str> for StatusColor {
     }
 }
 
-/// Reads a status marker's `color` attribute. Both backends translate the same
-/// marker, so the derivation lives here rather than being repeated per backend.
-impl From<&Marker> for StatusColor {
-    fn from(marker: &Marker) -> Self {
-        Self::from(marker.attr("color").unwrap_or_default())
-    }
-}
-
 impl fmt::Display for StatusColor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -65,56 +54,6 @@ impl fmt::Display for StatusColor {
             Self::Blue => "blue",
             Self::Purple => "purple",
         })
-    }
-}
-
-/// Inline directive for status badges: `:status[Label]{color=NAME}`.
-///
-/// `process` emits a backend-neutral [`Marker`] named [`STATUS_MARKER`] with a
-/// normalized `color` attribute. `HtmlBackend` renders it as
-/// `<span class="status status-X">…</span>`; the Confluence backend translates
-/// the same marker into a native `status` macro.
-///
-/// # Example
-///
-/// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline, StatusDirective};
-/// use rw_renderer::directive::DirectiveProcessor;
-///
-/// let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
-/// let renderer = MarkdownRenderer::<HtmlBackend>::new();
-///
-/// let result = renderer.render(
-///     ":status[On Track]{color=green}",
-///     Pipeline::new().with_directives(processor),
-/// );
-/// assert!(result.html.contains(r#"<span class="status status-green">On Track</span>"#));
-/// ```
-#[derive(Debug, Default)]
-pub struct StatusDirective;
-
-impl StatusDirective {
-    /// Create a new status directive handler.
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl InlineDirective for StatusDirective {
-    fn name(&self) -> &'static str {
-        "status"
-    }
-
-    fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-        let color = StatusColor::from(args.get("color").unwrap_or_default());
-        // The label goes in the marker body, not in an attr: the renderer
-        // routes bodies through `text`, which the backend HTML-escapes. Attrs
-        // are not escaped — a backend interpolating one must validate it.
-        DirectiveOutput::marker(
-            Marker::new(STATUS_MARKER).with_attr("color", color.to_string()),
-            args.content().trim(),
-        )
     }
 }
 
@@ -168,10 +107,11 @@ mod tests {
     /// single-paragraph input in `<p>…</p>` — the assertions below contain the
     /// resulting HTML as a substring.
     fn render(input: &str) -> String {
-        let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        renderer
-            .render(input, Pipeline::new().with_directives(processor))
+        MarkdownRenderer::<HtmlBackend>::new()
+            .render(
+                input,
+                Pipeline::new().with_directives(DirectiveProcessor::new()),
+            )
             .html
     }
 
@@ -254,8 +194,9 @@ mod tests {
 
     #[test]
     fn test_status_inside_heading_renders_into_the_heading_body() {
-        // The marker is markup, so it routes to the heading's rendered_html
-        // buffer — not to the TOC text or the slug id.
+        // The badge's wrapper markup lands in the heading body; its label flows
+        // through `text`, so it also contributes to the slug id and TOC title
+        // (asserted by `test_status_inside_heading_sets_slug_and_toc`).
         let html = render("# Ship :status[On Track]{color=green}\n");
         assert!(
             html.contains(r#"<span class="status status-green">On Track</span>"#),
@@ -278,43 +219,70 @@ mod tests {
     }
 
     #[test]
-    fn test_html_backend_unset_color_renders_grey() {
-        use crate::directive::Marker;
-        use crate::{HtmlBackend, RenderBackend};
-
-        // Matches the Confluence backend rather than emitting a `status-`
-        // class no stylesheet matches.
-        let mut out = String::new();
-        HtmlBackend::marker_open(&Marker::new(STATUS_MARKER), &mut out);
-        assert_eq!(out, r#"<span class="status status-grey">"#);
-    }
-
-    #[test]
-    fn test_html_backend_color_cannot_inject_markup() {
-        use crate::directive::Marker;
-        use crate::{HtmlBackend, RenderBackend};
-
-        // Normalizing through StatusColor means the emitted class is one of
-        // six literals by construction, whatever the attribute holds.
-        let mut out = String::new();
-        HtmlBackend::marker_open(
-            &Marker::new(STATUS_MARKER).with_attr("color", r#"x"><script>alert(1)</script>"#),
-            &mut out,
+    fn test_status_inside_heading_sets_slug_and_toc() {
+        // Discriminator: the badge label must reach the heading's plain-text
+        // channel (id slug + TOC title), not only the rendered markup. A design
+        // that routes the whole badge through the markup buffer drops the label
+        // here and silently changes the heading id.
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "# Ship :status[On Track]{color=green}",
+            Pipeline::new().with_directives(DirectiveProcessor::new()),
         );
-        assert_eq!(out, r#"<span class="status status-grey">"#);
+        assert!(
+            result.html.contains(r#"id="ship-on-track""#),
+            "heading id must include the badge label; got: {}",
+            result.html
+        );
+        assert_eq!(
+            result.toc.first().map(|e| e.title.as_str()),
+            Some("Ship On Track"),
+            "TOC title must include the badge label; got: {:?}",
+            result.toc
+        );
+        // The badge still renders as markup inside the heading body.
+        assert!(
+            result
+                .html
+                .contains(r#"<span class="status status-green">On Track</span>"#),
+            "got: {}",
+            result.html
+        );
     }
 
     #[test]
-    fn test_html_backend_ignores_unrecognized_marker() {
-        use crate::directive::Marker;
-        use crate::{HtmlBackend, RenderBackend};
+    fn test_status_renders_with_an_empty_processor() {
+        // Status is built-in: registering ANY processor (even one with no inline
+        // handlers of its own) suffices — matches the Confluence pipeline's shape,
+        // which never registers a `:status` handler either. Paired with
+        // `test_status_stays_literal_without_a_processor` to pin the gate.
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "Delivery is :status[On Track]{color=green}.",
+            Pipeline::new().with_directives(DirectiveProcessor::new()),
+        );
+        assert!(
+            result
+                .html
+                .contains(r#"<span class="status status-green">On Track</span>"#),
+            "got: {}",
+            result.html
+        );
+    }
 
-        let mut open = String::new();
-        let mut close = String::new();
-        let marker = Marker::new("kbd");
-        HtmlBackend::marker_open(&marker, &mut open);
-        HtmlBackend::marker_close(&marker, &mut close);
-        assert!(open.is_empty(), "got: {open}");
-        assert!(close.is_empty(), "got: {close}");
+    #[test]
+    fn test_status_stays_literal_without_a_processor() {
+        // No processor (e.g. comment bodies) => directive syntax is not tokenized,
+        // so status stays literal instead of being stripped to its label.
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .render(":status[On Track]{color=green}", Pipeline::new());
+        assert!(
+            result.html.contains(":status[On Track]{color=green}"),
+            "status should stay literal without a processor; got: {}",
+            result.html
+        );
+        assert!(
+            !result.html.contains("status-green"),
+            "got: {}",
+            result.html
+        );
     }
 }

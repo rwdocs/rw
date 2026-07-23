@@ -175,7 +175,7 @@ pub use rw_parser::{AlertKind, FenceAttrs};
 /// configuration.
 pub use rw_sections::Sections;
 pub use search_document::SearchDocumentBackend;
-pub use status::{STATUS_MARKER, StatusColor, StatusDirective};
+pub use status::StatusColor;
 pub use tabs::TabsDirective;
 pub use toc::TocEntry;
 pub use util::{escape_html, escape_into};

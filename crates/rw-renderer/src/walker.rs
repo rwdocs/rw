@@ -44,7 +44,6 @@ use crate::directive::DirectiveArgs;
 use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
 use crate::directive::Fills;
-use crate::directive::Marker;
 use crate::directive::Part;
 use crate::directive::fills::{GlobalKey, Source};
 use crate::directive::processor::BlockDispatch;
@@ -52,6 +51,7 @@ use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
 use crate::scope::Scope;
+use crate::status::{STATUS_NAME, StatusColor};
 use crate::table::TableState;
 use crate::toc::HeadingAccumulator;
 use crate::wikilink::{self, WikilinkResolution};
@@ -389,6 +389,20 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// unclaimed directive is emitted as: `DirectiveArgs::to_syntax` is not a
     /// round-trip, so rebuilding the syntax would not reproduce the source.
     fn emit_inline_directive(&mut self, name: &str, args: DirectiveArgs, raw: &str) {
+        // `:status` is a walker built-in, not a registered directive: dispatch it
+        // directly instead of through `self.directives`, so it renders even when
+        // no processor handles it. The open/close tags route through
+        // `with_markup_buffer` like any other inline tag, so status obeys the same
+        // scope rules (e.g. inside a heading), while the label goes through
+        // `self.text` for escaping and heading-slug/alt-text capture.
+        if name == STATUS_NAME {
+            let color = StatusColor::from(args.get("color").unwrap_or_default());
+            self.with_markup_buffer(|out| B::status_open(color, out));
+            self.text(args.content().trim());
+            self.with_markup_buffer(B::status_close);
+            return;
+        }
+
         // Tightly-scoped processor borrow: dispatch and capture the outcome
         // before relinquishing the borrow.
         //
@@ -410,15 +424,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             DirectiveOutput::Html(html) => {
                 self.raw_html(&html);
             }
-            DirectiveOutput::Marker { marker, body } => {
-                self.marker_open(&marker);
-                self.text(&body);
-                self.marker_close(&marker);
-            }
             DirectiveOutput::Deferred(parts) => {
                 if let Some(p) = self.directives.as_deref_mut() {
                     p.push_warning(format!(
-                        "inline directive ':{name}' returned Deferred; its holes were dropped (inline directives cannot defer content — return Marker instead)"
+                        "inline directive ':{name}' returned Deferred; its holes were dropped (inline directives cannot defer content — return Html instead)"
                     ));
                 }
                 // Emit the literal pieces so their content isn't lost, but
@@ -488,11 +497,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn render_block_dispatch(&mut self, dispatch: BlockDispatch) {
         match dispatch {
             BlockDispatch::Html(html) => self.raw_html(&html),
-            BlockDispatch::Marker { marker, body } => {
-                self.marker_open(&marker);
-                self.text(&body);
-                self.marker_close(&marker);
-            }
             BlockDispatch::Deferred { parts, source } => self.emit_parts(parts, source),
             BlockDispatch::PassThrough(text) => self.emit_text_paragraph(&text),
         }
@@ -838,17 +842,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 Part::Hole(key) => self.reserve_hole(GlobalKey(source, key)),
             }
         }
-    }
-
-    /// Route a marker's opening to the backend. A marker is markup, so it
-    /// follows the same scope rules as every other inline tag.
-    fn marker_open(&mut self, marker: &Marker) {
-        self.with_markup_buffer(|out| B::marker_open(marker, out));
-    }
-
-    /// Route a marker's closing to the backend. See [`marker_open`](Self::marker_open).
-    fn marker_close(&mut self, marker: &Marker) {
-        self.with_markup_buffer(|out| B::marker_close(marker, out));
     }
 
     fn soft_break(&mut self) {

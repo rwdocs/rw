@@ -153,6 +153,7 @@ impl RenderBackend for SearchDocumentBackend {
 
 #[cfg(test)]
 mod tests {
+    use crate::directive::DirectiveProcessor;
     use crate::{MarkdownRenderer, Pipeline, SearchDocumentBackend};
 
     #[test]
@@ -229,21 +230,36 @@ mod tests {
 
     #[test]
     fn status_badge_label_indexed_without_markup() {
-        // Markers route through marker_open/marker_close, whose defaults are
-        // no-ops — so a badge contributes its label to the index and nothing else.
-        use crate::StatusDirective;
-        use crate::directive::DirectiveProcessor;
-
-        let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
+        // Status routes through status_open/status_close, whose defaults on
+        // this backend are no-ops — so a badge contributes its label to the
+        // index and nothing else.
         let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
             "Delivery is :status[On Track]{color=green} today.",
-            Pipeline::new().with_directives(processor),
+            Pipeline::new().with_directives(DirectiveProcessor::new()),
         );
         assert!(result.html.contains("On Track"), "got: {}", result.html);
         assert!(!result.html.contains('<'), "markup leaked: {}", result.html);
         assert!(
             !result.html.contains("status-green"),
             "got: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn status_badge_label_with_metachars_indexed_raw() {
+        // Discriminator: the search backend's `text` is a raw push, not an HTML
+        // escape. The badge label must reach the index verbatim — a design
+        // that HTML-escapes the label in a backend `status` method would index
+        // "A &amp; B" instead of "A & B".
+        let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
+            "Risk :status[A & B]{color=red} today.",
+            Pipeline::new().with_directives(DirectiveProcessor::new()),
+        );
+        assert!(result.html.contains("A & B"), "got: {}", result.html);
+        assert!(
+            !result.html.contains("&amp;"),
+            "entity leaked: {}",
             result.html
         );
     }

@@ -12,13 +12,6 @@ use super::{DirectiveArgs, DirectiveContext, DirectiveOutput};
 /// own, which dispatches it here. The text around it is therefore literal by
 /// the time it is rendered, and there is no separate pre-pass over the source.
 ///
-/// # Backend-Specific Output
-///
-/// An inline directive that wraps a label in backend-specific markup should
-/// return [`DirectiveOutput::Marker`] rather than `Html`, so each backend
-/// renders it its own way. `Html` reaches every backend verbatim, including
-/// Confluence's XHTML storage format.
-///
 /// # Thread Safety
 ///
 /// Handlers implement `Send` only (not `Sync`) since each document gets its own
@@ -48,14 +41,13 @@ pub trait InlineDirective: Send {
 
     /// Process the inline directive.
     ///
-    /// Returns [`DirectiveOutput::Html`] to emit HTML, [`DirectiveOutput::Marker`]
-    /// to emit a semantic marker each backend renders itself, or
+    /// Returns [`DirectiveOutput::Html`] to emit HTML, or
     /// [`DirectiveOutput::Skip`] to pass through unchanged.
     ///
     /// [`DirectiveOutput::Deferred`] is not supported: inline directives have no
     /// `fills` hook, so a reserved hole could never be filled. Returning it
     /// warns and emits only the literal parts, dropping the holes — return
-    /// [`DirectiveOutput::Marker`] instead.
+    /// [`DirectiveOutput::Html`] instead.
     fn process(&mut self, args: DirectiveArgs, ctx: &DirectiveContext) -> DirectiveOutput;
 }
 

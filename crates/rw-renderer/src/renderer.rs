@@ -1268,15 +1268,13 @@ Install with apt.
 
     #[test]
     fn test_with_directives_status() {
-        use crate::StatusDirective;
         use crate::directive::DirectiveProcessor;
 
-        let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
         let result = renderer.render(
             "Billing is :status[On Track]{color=green} this quarter.",
-            Pipeline::new().with_directives(processor),
+            Pipeline::new().with_directives(DirectiveProcessor::new()),
         );
 
         assert!(

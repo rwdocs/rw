@@ -9,8 +9,7 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use crate::directive::Marker;
-use crate::status::{STATUS_MARKER, StatusColor};
+use crate::status::StatusColor;
 
 use crate::backend::RenderBackend;
 use crate::util::escape_into;
@@ -45,24 +44,17 @@ pub struct HtmlBackend;
 impl RenderBackend for HtmlBackend {
     const TITLE_AS_METADATA: bool = false;
 
-    /// Renders a status marker as a colored pill span. Any other marker name
-    /// writes nothing, leaving the body to render as plain text.
+    /// Renders a status badge as a colored pill span.
     ///
-    /// The color is normalized through [`StatusColor`] rather than
-    /// interpolated verbatim, so an unset or unrecognized value renders grey —
-    /// matching the Confluence backend — and an attribute value can never
-    /// inject markup into the class attribute.
-    fn marker_open(marker: &Marker, out: &mut String) {
-        if marker.name == STATUS_MARKER {
-            let color = StatusColor::from(marker);
-            write!(out, r#"<span class="status status-{color}">"#).unwrap();
-        }
+    /// `color` is a closed enum ([`StatusColor`]), never raw interpolated
+    /// attribute text, so there is no value that can inject markup into the
+    /// class attribute — see the `status_open`/`status_close` tests below.
+    fn status_open(color: StatusColor, out: &mut String) {
+        write!(out, r#"<span class="status status-{color}">"#).unwrap();
     }
 
-    fn marker_close(marker: &Marker, out: &mut String) {
-        if marker.name == STATUS_MARKER {
-            out.push_str("</span>");
-        }
+    fn status_close(out: &mut String) {
+        out.push_str("</span>");
     }
 
     fn code_block(lang: Option<&str>, content: &str, out: &mut String) {
@@ -397,5 +389,30 @@ mod tests {
         assert!(out.contains(r#"class="alert alert-caution""#));
         assert!(out.contains(r#"<svg class="alert-icon""#));
         assert!(out.contains("Caution"));
+    }
+
+    #[test]
+    fn status_open_emits_colored_span() {
+        let mut out = String::new();
+        HtmlBackend::status_open(StatusColor::Green, &mut out);
+        assert_eq!(out, r#"<span class="status status-green">"#);
+    }
+
+    // `StatusColor` is a closed enum, not a raw string, so `status_open`
+    // cannot be handed markup to inject into the class attribute — there is
+    // no variant whose `Display` output is anything but one of the fixed
+    // `status-<color>` tokens exercised here and below.
+    #[test]
+    fn status_open_renders_grey() {
+        let mut out = String::new();
+        HtmlBackend::status_open(StatusColor::Grey, &mut out);
+        assert_eq!(out, r#"<span class="status status-grey">"#);
+    }
+
+    #[test]
+    fn status_close_emits_span_close() {
+        let mut out = String::new();
+        HtmlBackend::status_close(&mut out);
+        assert_eq!(out, "</span>");
     }
 }

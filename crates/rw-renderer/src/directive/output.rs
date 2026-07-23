@@ -2,18 +2,13 @@
 //!
 //! Defines the output variants that directive handlers can return.
 
-use super::{Marker, Part};
+use super::Part;
 
 /// Output from directive processing.
 ///
-/// Directives can produce four kinds of output:
+/// Directives can produce three kinds of output:
 ///
 /// - [`Html`](Self::Html): a single HTML blob passed verbatim to the backend's `raw_html`.
-/// - [`Marker`](Self::Marker): a semantic [`Marker`](super::Marker) wrapping a body of text.
-///   The renderer emits it as three separate backend calls
-///   (`marker_open + text(body) + marker_close`), so each backend decides what the marker
-///   looks like — Confluence emits a native macro where HTML emits a `<span>`. Use this for
-///   any inline directive that wraps a label.
 /// - [`Deferred`](Self::Deferred): literal HTML interleaved with holes the handler fills after
 ///   the walk, via [`fills`](super::ContainerDirective::fills). Use this when the content depends
 ///   on material the walk has not reached yet — a tab bar needs every tab's label but is emitted
@@ -23,13 +18,10 @@ use super::{Marker, Part};
 /// # Example
 ///
 /// ```
-/// use rw_renderer::directive::{DirectiveOutput, Marker, Part};
+/// use rw_renderer::directive::{DirectiveOutput, Part};
 ///
 /// // Single HTML blob.
 /// let _ = DirectiveOutput::html("<kbd>Ctrl+C</kbd>");
-///
-/// // Semantic marker — each backend renders it its own way.
-/// let _ = DirectiveOutput::marker(Marker::new("status").with_attr("color", "green"), "On Track");
 ///
 /// // Literal HTML plus a hole filled after the walk.
 /// let _ = DirectiveOutput::deferred(vec![Part::Hole(0), Part::Html("<p>body</p>".into())]);
@@ -41,14 +33,6 @@ use super::{Marker, Part};
 pub enum DirectiveOutput {
     /// HTML that passes through to the backend as a single `raw_html` call.
     Html(String),
-    /// A semantic marker wrapping body text. The renderer emits it as three separate
-    /// backend calls (`marker_open + text(body) + marker_close`).
-    Marker {
-        /// The semantic marker — backends dispatch on its name and read its attributes.
-        marker: Marker,
-        /// Body text — emitted via `text` (HTML-escaped by the backend).
-        body: String,
-    },
     /// Literal HTML interleaved with holes to be filled after the walk.
     ///
     /// Used by directives whose opening content depends on material that has
@@ -73,30 +57,6 @@ impl DirectiveOutput {
     #[must_use]
     pub fn html(s: impl Into<String>) -> Self {
         Self::Html(s.into())
-    }
-
-    /// Create a semantic marker wrapping body text.
-    ///
-    /// The renderer emits it as three separate backend calls so each backend
-    /// renders the marker its own way while the body flows through `text`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rw_renderer::directive::{DirectiveOutput, Marker};
-    ///
-    /// let output = DirectiveOutput::marker(
-    ///     Marker::new("status").with_attr("color", "green"),
-    ///     "On Track",
-    /// );
-    /// assert!(matches!(output, DirectiveOutput::Marker { .. }));
-    /// ```
-    #[must_use]
-    pub fn marker(marker: Marker, body: impl Into<String>) -> Self {
-        Self::Marker {
-            marker,
-            body: body.into(),
-        }
     }
 
     /// Create a deferred output: literal HTML interleaved with holes.

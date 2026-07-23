@@ -21,13 +21,13 @@
 //! either way, and say so.
 
 use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, Pipeline, RenderResult, StatusDirective, TabsDirective,
-};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline, RenderResult, TabsDirective};
 
 fn render_status(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(directives))
+    MarkdownRenderer::<HtmlBackend>::new().render(
+        md,
+        Pipeline::new().with_directives(DirectiveProcessor::new()),
+    )
 }
 
 fn render_tabs(md: &str) -> RenderResult {
@@ -41,10 +41,12 @@ fn render_tabs(md: &str) -> RenderResult {
 /// re-exports the `Sections` type but not the `Section` and `Namespace`
 /// needed to fill one, and `rw-sections` is not a dev-dependency here.
 fn render_status_wikilinks(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
     MarkdownRenderer::<HtmlBackend>::new()
         .with_wikilinks(true)
-        .render(md, Pipeline::new().with_directives(directives))
+        .render(
+            md,
+            Pipeline::new().with_directives(DirectiveProcessor::new()),
+        )
 }
 
 #[test]

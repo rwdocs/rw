@@ -114,15 +114,15 @@ crates/
 │       ├── directive/        # Pluggable directives API (CommonMark syntax)
 │       │   ├── mod.rs        # Module exports; re-exports DirectiveArgs
 │       │   ├── context.rs    # DirectiveContext (file system access)
-│       │   ├── output.rs     # DirectiveOutput (Html/Marker/Deferred/Skip)
+│       │   ├── output.rs     # DirectiveOutput (Html/Deferred/Skip)
 │       │   ├── fills.rs      # Fills collector for deferred hole content
 │       │   ├── inline.rs     # InlineDirective trait (:name)
 │       │   ├── leaf.rs       # LeafDirective trait (::name)
 │       │   ├── container.rs  # ContainerDirective trait (:::name)
 │       │   └── processor.rs  # DirectiveProcessor coordination
-│       ├── status/            # Status badge inline directive
+│       ├── status/            # Status badge, a built-in walker element (no directive registration)
 │       │   ├── mod.rs        # Module exports
-│       │   └── directive.rs  # StatusDirective, StatusColor, STATUS_MARKER
+│       │   └── directive.rs  # StatusColor, STATUS_NAME
 │       ├── tabs/             # Tabbed content blocks
 │       │   ├── mod.rs        # Module exports
 │       │   └── directive.rs  # TabsDirective (ContainerDirective impl)

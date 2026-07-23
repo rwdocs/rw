@@ -233,4 +233,13 @@ mod tests {
         // stray `<p> </p>`). Assert strictly so a future whitespace leak fails.
         assert_eq!(render_comment_body("   "), "");
     }
+
+    #[test]
+    fn status_directive_in_comment_body_is_literal() {
+        // Comment bodies render a restricted subset with directives OFF; a
+        // status-shaped string renders verbatim, not interpreted/stripped.
+        let html = render_comment_body("Use :status[Done]{color=green} here.");
+        assert!(html.contains(":status[Done]{color=green}"), "got: {html}");
+        assert!(!html.contains("status-green"), "got: {html}");
+    }
 }

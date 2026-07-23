@@ -39,19 +39,20 @@ use crate::directive::DirectiveProcessor;
 /// assert!(result.html.contains("Hello"));
 /// ```
 ///
-/// Pipeline with a directive processor:
+/// Status badges are a built-in of the walker, so any registered
+/// [`DirectiveProcessor`] — even an empty one, with no directives of its
+/// own registered — is enough for them to render; directive syntax only
+/// tokenizes when a processor is present at all:
 ///
 /// ```
-/// use rw_renderer::{
-///     HtmlBackend, MarkdownRenderer, Pipeline, StatusDirective,
-/// };
 /// use rw_renderer::directive::DirectiveProcessor;
-///
-/// let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
-/// let pipeline = Pipeline::new().with_directives(directives);
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 ///
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new();
-/// let result = renderer.render(":status[Done]{color=green}", pipeline);
+/// let result = renderer.render(
+///     ":status[Done]{color=green}",
+///     Pipeline::new().with_directives(DirectiveProcessor::new()),
+/// );
 /// assert!(result.html.contains("status-green"));
 /// ```
 pub struct Pipeline {

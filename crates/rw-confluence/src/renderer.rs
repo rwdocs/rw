@@ -18,7 +18,7 @@
 
 use rw_kroki::{DiagramOutput, DiagramProcessor};
 use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{MarkdownRenderer, Pipeline, RenderResult, StatusDirective, TocEntry};
+use rw_renderer::{MarkdownRenderer, Pipeline, RenderResult, TocEntry};
 use std::path::{Path, PathBuf};
 
 use crate::backend::ConfluenceBackend;
@@ -135,8 +135,11 @@ impl PageRenderer {
         kroki_url: Option<&str>,
         output_dir: Option<&std::path::Path>,
     ) -> Pipeline {
-        let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
-        let mut pipeline = Pipeline::new().with_directives(directives);
+        // Register an (empty) processor so directive syntax is tokenized: the
+        // built-in `:status` badge needs tokenization on, and the renderer gates
+        // that on a processor being present. No inline/leaf/container handlers are
+        // needed — status is handled by the walker, not a registered directive.
+        let mut pipeline = Pipeline::new().with_directives(DirectiveProcessor::new());
         if let (Some(url), Some(dir)) = (kroki_url, output_dir) {
             let processor = self
                 .create_diagram_processor(url)

@@ -5,8 +5,7 @@
 
 use std::fmt::Write;
 
-use rw_renderer::directive::Marker;
-use rw_renderer::{AlertKind, RenderBackend, STATUS_MARKER, StatusColor, escape_html};
+use rw_renderer::{AlertKind, RenderBackend, StatusColor, escape_html};
 
 /// Confluence render backend.
 ///
@@ -93,19 +92,11 @@ impl RenderBackend for ConfluenceBackend {
         out.push_str(if checked { "[x] " } else { "[ ] " });
     }
 
-    /// Translates the status marker emitted by the status directive into a
-    /// Confluence `status` structured macro. Any other marker name writes
-    /// nothing, leaving the body to render as plain text.
-    ///
-    /// The open marker becomes the macro prefix plus an open `title`
-    /// parameter; [`marker_close`](Self::marker_close) closes that parameter
-    /// and the macro — the label text in between flows through the normal
-    /// `text` path.
-    fn marker_open(marker: &Marker, out: &mut String) {
-        if marker.name != STATUS_MARKER {
-            return;
-        }
-        let color = StatusColor::from(marker);
+    /// Opens the Confluence `status` structured macro: the macro tag, the
+    /// `colour` parameter, and an open `title` parameter. [`status_close`](Self::status_close)
+    /// closes that `title` parameter and the macro; the label in between flows
+    /// through the normal `text` path.
+    fn status_open(color: StatusColor, out: &mut String) {
         // Confluence's `colour` parameter expects capitalized names.
         let confluence_color = match color {
             StatusColor::Grey => "Grey",
@@ -128,11 +119,9 @@ impl RenderBackend for ConfluenceBackend {
     }
 
     /// Closes the `title` parameter and the `status` macro opened by
-    /// [`marker_open`](Self::marker_open).
-    fn marker_close(marker: &Marker, out: &mut String) {
-        if marker.name == STATUS_MARKER {
-            out.push_str("</ac:parameter></ac:structured-macro>");
-        }
+    /// [`status_open`](Self::status_open).
+    fn status_close(out: &mut String) {
+        out.push_str("</ac:parameter></ac:structured-macro>");
     }
 }
 
@@ -255,10 +244,9 @@ mod tests {
     }
 
     #[test]
-    fn test_marker_open_status_emits_macro_prefix() {
+    fn status_open_emits_macro_prefix() {
         let mut out = String::new();
-        let marker = Marker::new(STATUS_MARKER).with_attr("color", "green");
-        ConfluenceBackend::marker_open(&marker, &mut out);
+        ConfluenceBackend::status_open(StatusColor::Green, &mut out);
         assert!(out.contains(r#"ac:name="status""#), "got: {out}");
         assert!(
             out.contains(r#"<ac:parameter ac:name="colour">Green</ac:parameter>"#),
@@ -271,41 +259,19 @@ mod tests {
     }
 
     #[test]
-    fn test_marker_close_status_emits_macro_suffix() {
+    fn status_open_renders_grey() {
         let mut out = String::new();
-        ConfluenceBackend::marker_close(&Marker::new(STATUS_MARKER), &mut out);
+        ConfluenceBackend::status_open(StatusColor::Grey, &mut out);
+        assert!(
+            out.contains(r#"<ac:parameter ac:name="colour">Grey</ac:parameter>"#),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn status_close_emits_macro_suffix() {
+        let mut out = String::new();
+        ConfluenceBackend::status_close(&mut out);
         assert_eq!(out, "</ac:parameter></ac:structured-macro>");
-    }
-
-    #[test]
-    fn test_marker_open_status_unknown_color_is_grey() {
-        let mut out = String::new();
-        let marker = Marker::new(STATUS_MARKER).with_attr("color", "mauve");
-        ConfluenceBackend::marker_open(&marker, &mut out);
-        assert!(
-            out.contains(r#"<ac:parameter ac:name="colour">Grey</ac:parameter>"#),
-            "got: {out}"
-        );
-    }
-
-    #[test]
-    fn test_marker_open_status_missing_color_is_grey() {
-        let mut out = String::new();
-        ConfluenceBackend::marker_open(&Marker::new(STATUS_MARKER), &mut out);
-        assert!(
-            out.contains(r#"<ac:parameter ac:name="colour">Grey</ac:parameter>"#),
-            "got: {out}"
-        );
-    }
-
-    #[test]
-    fn test_unrecognized_marker_emits_nothing() {
-        let mut open = String::new();
-        let mut close = String::new();
-        let marker = Marker::new("kbd");
-        ConfluenceBackend::marker_open(&marker, &mut open);
-        ConfluenceBackend::marker_close(&marker, &mut close);
-        assert!(open.is_empty(), "got: {open}");
-        assert!(close.is_empty(), "got: {close}");
     }
 }

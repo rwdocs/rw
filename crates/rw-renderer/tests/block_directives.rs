@@ -7,7 +7,7 @@ use rw_renderer::directive::{
 };
 use rw_renderer::{
     CodeBlockProcessor, FenceAttrs, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult,
-    RenderResult, SearchDocumentBackend, StatusDirective, TabsDirective,
+    RenderResult, SearchDocumentBackend, TabsDirective,
 };
 
 fn render_tabs(md: &str) -> RenderResult {
@@ -37,8 +37,10 @@ fn assert_between(html: &str, needle: &str, open: &str, close: &str) {
 }
 
 fn render_status(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(directives))
+    MarkdownRenderer::<HtmlBackend>::new().render(
+        md,
+        Pipeline::new().with_directives(DirectiveProcessor::new()),
+    )
 }
 
 #[test]
@@ -79,7 +81,7 @@ fn status_inline_alone_on_a_line_still_expands() {
     let result = render_status(":status[Done]{color=green}");
     // The inline directive must expand even when it is alone on a line (i.e. it
     // must not be mistaken for / swallowed by block-directive deferral).
-    // `status-green` comes from HtmlBackend::marker_open, so the class is the
+    // `status-green` comes from HtmlBackend::status_open, so the class is the
     // observable proof of expansion.
     assert!(
         result
@@ -368,10 +370,9 @@ fn container_inside_loose_list_is_recognized() {
 fn unregistered_container_renders_literally_no_warning() {
     // An unregistered :::foo … ::: pair must not produce a "stray" warning —
     // the closing ::: is matched with its own opener, not treated as unpaired.
-    let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
     let result = MarkdownRenderer::<HtmlBackend>::new().render(
         ":::foo[x]\n\nBody.\n\n:::",
-        Pipeline::new().with_directives(directives),
+        Pipeline::new().with_directives(DirectiveProcessor::new()),
     );
     assert!(
         result.html.contains("<p>:::foo[x]</p>"),
@@ -886,10 +887,9 @@ fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
     // `BlockDispatch::PassThrough` as a literal reconstructed from its parsed
     // args — text that was never tokenized. That is why the Walker keeps one
     // scanner: it re-runs the tokenizer over exactly this reconstruction.
-    let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
     let result = MarkdownRenderer::<HtmlBackend>::new().render(
         ":::foo[:status[Stable]{color=green}]\n\nBody.\n\n:::",
-        Pipeline::new().with_directives(directives),
+        Pipeline::new().with_directives(DirectiveProcessor::new()),
     );
     assert_eq!(
         result.html,
@@ -905,7 +905,7 @@ fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
 fn unknown_inline_directives_warn_in_document_order() {
     // Warnings gate `--strict` publishing and leave no trace in the HTML, so
     // an output comparison cannot see them: their text and their order are
-    // asserted here in full. `:status` is registered and must stay silent.
+    // asserted here in full. `:status` is built-in and must stay silent.
     let result = render_status(":alpha[x] then :beta[y] then :status[z]");
     assert_eq!(
         result.warnings,
