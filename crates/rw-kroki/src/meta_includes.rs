@@ -60,15 +60,9 @@ fn parse_include_path(path: &str) -> Option<ParsedIncludePath> {
         (false, rest)
     };
     let stem = rest.strip_suffix(".iuml")?;
-    let (entity_type, name) = if let Some(name) = stem.strip_prefix("sys_") {
-        ("system", name)
-    } else if let Some(name) = stem.strip_prefix("dmn_") {
-        ("domain", name)
-    } else if let Some(name) = stem.strip_prefix("svc_") {
-        ("service", name)
-    } else {
-        return None;
-    };
+    let (entity_type, name) = [("sys_", "system"), ("dmn_", "domain"), ("svc_", "service")]
+        .into_iter()
+        .find_map(|(prefix, entity_type)| Some((entity_type, stem.strip_prefix(prefix)?)))?;
     if name.is_empty() {
         return None;
     }
