@@ -254,7 +254,7 @@ rw-kroki (Rust) → Node.js objects
 
 ## Key Technical Details
 
-- **Rust requirements**: Edition 2024, Rust 1.91+
+- **Rust requirements**: Edition 2024, Rust 1.97+
 - **PlantUML**: Extracted from code blocks, rendered via Kroki, uploaded as attachments
 - **Diagram id isolation**: Kroki generators emit SVG ids unique only within one
   diagram, so `rw-kroki` wraps each inlined SVG in `<rw-diagram>` and the viewer
