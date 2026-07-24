@@ -242,4 +242,16 @@ mod tests {
         assert!(html.contains(":status[Done]{color=green}"), "got: {html}");
         assert!(!html.contains("status-green"), "got: {html}");
     }
+
+    #[test]
+    fn tabs_directive_in_comment_body_is_literal() {
+        // Comment bodies render a restricted subset with directives OFF; a
+        // tabs-shaped string renders verbatim, not interpreted into HTML chrome.
+        let html = render_comment_body("::::tabs\n\n:::tab[macOS]\n\nx\n\n:::\n\n::::");
+        assert_eq!(
+            html,
+            "<p>::::tabs</p><p>:::tab[macOS]</p><p>x</p><p>:::</p><p>::::</p>"
+        );
+        assert!(!html.contains("role=\"tablist\""), "chrome leaked: {html}");
+    }
 }

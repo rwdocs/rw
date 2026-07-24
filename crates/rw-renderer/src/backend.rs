@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use std::fmt::Write;
 
 use crate::status::StatusColor;
+use crate::tabs::TabInfo;
 
 use pulldown_cmark::Alignment;
 
@@ -337,4 +338,19 @@ pub trait RenderBackend {
 
     /// Closes the status badge wrapper opened by [`status_open`](Self::status_open).
     fn status_close(_out: &mut String) {}
+
+    /// Opens a tab group's bar. Deferred: collected as a fill after the walk
+    /// (unlike the three below, which emit inline), since the bar precedes the
+    /// panels yet needs every tab's label — known only at group close. Default
+    /// is a no-op (Confluence, search: no bar).
+    fn tabs_open(_group_id: usize, _tabs: &[TabInfo], _out: &mut String) {}
+
+    /// Opens one tab panel, emitted inline at the panel's position. Default no-op.
+    fn tab_panel_open(_group_id: usize, _tab: &TabInfo, _out: &mut String) {}
+
+    /// Closes a tab panel opened by [`tab_panel_open`](Self::tab_panel_open).
+    fn tab_panel_close(_out: &mut String) {}
+
+    /// Closes the tab-group container opened (conceptually) by the bar. Default no-op.
+    fn tabs_close(_out: &mut String) {}
 }

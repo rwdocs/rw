@@ -9,8 +9,8 @@
 //! From the first hole reservation until [`Holes::assemble`] runs, the walk
 //! buffer is **append-only**. Offsets are byte positions into that buffer, so
 //! appending is safe — it only extends the buffer, leaving every recorded
-//! offset naming the same byte. `close_unclosed_containers` appends after the
-//! walk for exactly this reason.
+//! offset naming the same byte. Container closes that the walk emits at a block
+//! or EOF boundary append for exactly this reason.
 //!
 //! Do **not** insert any step that rewrites the walk buffer before `assemble`:
 //! an insertion, deletion, or replacement anywhere ahead of a recorded offset

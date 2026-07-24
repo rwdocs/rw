@@ -7,11 +7,11 @@ use rw_renderer::directive::{
 };
 use rw_renderer::{
     CodeBlockProcessor, FenceAttrs, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult,
-    RenderResult, SearchDocumentBackend, TabsDirective,
+    RenderResult, SearchDocumentBackend,
 };
 
 fn render_tabs(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+    let directives = DirectiveProcessor::new();
     MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(directives))
 }
 
@@ -827,7 +827,7 @@ fn deferred_inline_directive_warns_instead_of_reserving_a_hole() {
 /// into the search index.
 #[test]
 fn tabs_emit_no_markup_into_a_search_document() {
-    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+    let directives = DirectiveProcessor::new();
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
         "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n\n:::\n\n::::\n",
         Pipeline::new().with_directives(directives),
@@ -848,7 +848,7 @@ fn tabs_emit_no_markup_into_a_search_document() {
 /// input take the same backend route as an in-walk `end()`.
 #[test]
 fn unclosed_tabs_emit_no_markup_into_a_search_document() {
-    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+    let directives = DirectiveProcessor::new();
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
         "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n",
         Pipeline::new().with_directives(directives),
@@ -925,7 +925,7 @@ y
     let result = MarkdownRenderer::<HtmlBackend>::new().render(
         markdown,
         Pipeline::new()
-            .with_directives(DirectiveProcessor::new().with_container(TabsDirective::new()))
+            .with_directives(DirectiveProcessor::new())
             .with_processor(DeferringProcessor::default()),
     );
 
@@ -1054,8 +1054,8 @@ fn nested_tab_groups_render_both_bars_without_panic() {
 #[test]
 fn unclosed_tab_item_warning_names_tab_not_tabs() {
     // Item B and the enclosing group are both left unclosed. The unclosed
-    // ITEM must be reported as `:::tab`, not misnamed `:::tabs` (the single
-    // handler's `name()`, which is always "tabs").
+    // ITEM must be reported as `:::tab`, not misnamed `:::tabs` — the walker
+    // names the unclosed warning from the close event's directive name.
     let md = "::::tabs\n\n:::tab[A]\n\nA\n\n:::\n\n:::tab[B]\n\nB\n\nAFTER\n";
     let result = render_tabs(md);
 

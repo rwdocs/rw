@@ -8,6 +8,7 @@
 //! Takes only what a tokenizer needs, by value. The cmark feature set is its
 //! own too: `cmark_options` defines rw's markdown dialect.
 
+use std::collections::VecDeque;
 use std::ops::Range;
 
 use pulldown_cmark as cmark;
@@ -45,6 +46,15 @@ struct CodeBlockAccum {
     language: Option<String>,
     attrs: FenceAttrs,
     buffer: String,
+}
+
+/// One open `:::` container scope tracked by the parser for pairing.
+struct OpenContainer {
+    name: String,
+    /// Blockquote + list nesting depth at the opener, used to decide which
+    /// boundary (an enclosing `End(BlockQuote)`/`End(Item)`, or EOF) synthesizes
+    /// this container's close.
+    block_depth: usize,
 }
 
 /// What the Parser owes before it may pull from cmark again.
@@ -142,6 +152,20 @@ pub struct Parser<'a> {
     pending: Option<InlineMatch>,
     deferred: Deferred<'a>,
     code_block: Option<CodeBlockAccum>,
+    /// Open container-directive scopes, innermost last, for pairing a `:::`
+    /// closer to its opener's name and synthesizing closes at block boundaries.
+    /// Each entry records the opener name and the block-nesting depth at which
+    /// it opened.
+    open_containers: Vec<OpenContainer>,
+    /// Blockquote + list nesting depth (NOT counting list items). Drives boundary
+    /// synthesis: a container is closed when the block it opened inside ends.
+    block_depth: usize,
+    /// Container closes synthesized at a block/EOF boundary, owed before the
+    /// boundary event that triggered them. A short FIFO (innermost-first),
+    /// drained at the top of [`next`](Self::next). At an `End(BlockQuote)` /
+    /// `End(Item)` the boundary `End` itself rides at the back of this queue, so
+    /// the synthesized closes precede it in the stream.
+    synth_closes: VecDeque<Event<'a>>,
     /// Inside a YAML metadata block: every event is swallowed.
     in_metadata: bool,
     /// Swallow the next `Text`: it is the display text cmark synthesises for a
@@ -198,6 +222,9 @@ impl<'a> Parser<'a> {
             pending: None,
             deferred: Deferred::None,
             code_block: None,
+            open_containers: Vec::new(),
+            block_depth: 0,
+            synth_closes: VecDeque::new(),
             in_metadata: false,
             skip_wikilink_text: false,
         }
@@ -229,6 +256,18 @@ impl<'a> Parser<'a> {
             if self.run_cursor > 0 && self.run_cursor >= self.run.len() {
                 self.run.clear();
                 self.run_cursor = 0;
+            }
+
+            // 0. Container closes synthesized at a block/EOF boundary. These are
+            //    owed before whatever the boundary itself emits — an
+            //    `End(BlockQuote)`/`End(Item)` rides at the back of this queue
+            //    behind them (see `translate`) — so they drain first, before
+            //    anything held in `deferred`. Emitted straight out, not through
+            //    `dispatch`: a `ContainerDirectiveEnd` never coalesces, and the
+            //    boundary `End` only reaches this queue once the run enclosed by
+            //    the block has already drained.
+            if let Some(event) = self.synth_closes.pop_front() {
+                return Some(event);
             }
 
             // 1. The held `<p>` — before the run it encloses.
@@ -287,7 +326,14 @@ impl<'a> Parser<'a> {
                     let segment = self.take_run_segment();
                     return Some(run_segment_event(&self.run, segment));
                 }
-                return None;
+                // Every container the author left open at EOF is synthesized
+                // closed, innermost first, before the stream ends. Enqueue them
+                // and loop: the top-of-`next` drain emits them in order.
+                if self.open_containers.is_empty() {
+                    return None;
+                }
+                self.enqueue_boundary_closes(0);
+                continue;
             };
             if let Some(event) = self.translate(event)
                 && let Some(event) = self.dispatch(event)
@@ -429,8 +475,7 @@ impl<'a> Parser<'a> {
         self.run_cursor = 0;
 
         let matched = if self.directives && text.trim_start().starts_with(':') {
-            parse_container_line(&text)
-                .map(Event::from)
+            self.container_line_event(&text)
                 .or_else(|| parse_leaf_line(&text).map(Event::leaf))
         } else {
             None
@@ -489,7 +534,21 @@ impl<'a> Parser<'a> {
 
         match event {
             cmark::Event::Start(tag) => self.start_tag(tag),
-            cmark::Event::End(tag) => Self::end_tag(tag).map(Event::End),
+            cmark::Event::End(tag) => {
+                let translated = self.end_tag(tag).map(Event::End);
+                // `end_tag` may have synthesized container closes owed *before*
+                // this boundary End (a blockquote or list item closing over an
+                // unclosed container). If so, hold the End at the back of the
+                // queue and return `None`: `next` loops, and its top-of-loop
+                // drain emits the closes first, then the End.
+                if !self.synth_closes.is_empty() {
+                    if let Some(event) = translated {
+                        self.synth_closes.push_back(event);
+                    }
+                    return None;
+                }
+                translated
+            }
             cmark::Event::Text(text) => {
                 if self.skip_wikilink_text {
                     self.skip_wikilink_text = false;
@@ -567,7 +626,12 @@ impl<'a> Parser<'a> {
             cmark::Tag::Heading { level, .. } => Tag::Heading {
                 level: heading_level_to_num(level),
             },
-            cmark::Tag::BlockQuote(kind) => Tag::BlockQuote(kind.map(AlertKind::from)),
+            cmark::Tag::BlockQuote(kind) => {
+                // A blockquote deepens block nesting: a container opened inside
+                // it must be closed at this level's `End(BlockQuote)`.
+                self.block_depth += 1;
+                Tag::BlockQuote(kind.map(AlertKind::from))
+            }
             cmark::Tag::CodeBlock(kind) => {
                 let (language, attrs) = match kind {
                     CodeBlockKind::Fenced(ref info) if !info.is_empty() => {
@@ -599,7 +663,13 @@ impl<'a> Parser<'a> {
             // directive spanning the block boundary. Drain explicitly before
             // absorbing if you extend this list.
             cmark::Tag::HtmlBlock | cmark::Tag::FootnoteDefinition(_) => return None,
-            cmark::Tag::List(start) => Tag::List(start),
+            cmark::Tag::List(start) => {
+                // A list deepens block nesting (the list, not its items): a
+                // container opened inside an item is closed at that item's
+                // `End(Item)`, computed against this depth.
+                self.block_depth += 1;
+                Tag::List(start)
+            }
             cmark::Tag::Item => Tag::Item,
             cmark::Tag::DefinitionList => Tag::DefinitionList,
             cmark::Tag::DefinitionListTitle => Tag::DefinitionListTitle,
@@ -645,7 +715,21 @@ impl<'a> Parser<'a> {
 
     /// Translate a closing tag. `None` for the ends whose starts the Parser
     /// absorbed — a code block or metadata block reaching here is malformed.
-    fn end_tag(tag: cmark::TagEnd) -> Option<TagEnd> {
+    ///
+    /// Takes `&mut self` to maintain [`block_depth`](Self::block_depth) and to
+    /// synthesize container closes at a block boundary. A blockquote or list
+    /// item closing takes any container the author left open inside it down with
+    /// it — innermost first — so the container's markup never crosses the
+    /// block's own closing tag. Depth counts blockquote and list levels (not
+    /// items); the closing quote/list is still counted when its containers are
+    /// collected, then decremented.
+    fn end_tag(&mut self, tag: cmark::TagEnd) -> Option<TagEnd> {
+        if matches!(tag, cmark::TagEnd::BlockQuote(_) | cmark::TagEnd::Item) {
+            self.enqueue_boundary_closes(self.block_depth);
+        }
+        if matches!(tag, cmark::TagEnd::BlockQuote(_) | cmark::TagEnd::List(_)) {
+            self.block_depth -= 1;
+        }
         let translated = match tag {
             cmark::TagEnd::Paragraph => TagEnd::Paragraph,
             cmark::TagEnd::Heading(_) => TagEnd::Heading,
@@ -681,6 +765,26 @@ impl<'a> Parser<'a> {
         };
         Some(translated)
     }
+
+    /// Enqueue synthesized closes for every open container at `depth` or deeper,
+    /// innermost first. Used at block boundaries and at EOF (`depth == 0`, which
+    /// flushes the whole stack). Each carries its opener's name so a consumer
+    /// can report which container was left open; `colon_count` is `0` because a
+    /// synthesized close corresponds to no source text.
+    fn enqueue_boundary_closes(&mut self, depth: usize) {
+        while self
+            .open_containers
+            .last()
+            .is_some_and(|c| c.block_depth >= depth)
+        {
+            let c = self.open_containers.pop().expect("checked by last()");
+            self.synth_closes.push_back(Event::ContainerDirectiveEnd {
+                name: Some(c.name),
+                colon_count: 0,
+                implicit: true,
+            });
+        }
+    }
 }
 
 /// Lend one resolved [`RunSegment`] as an event.
@@ -700,20 +804,35 @@ fn run_segment_event(run: &str, segment: RunSegment) -> Event<'_> {
     }
 }
 
-/// Project a `:::` line onto the event vocabulary, moving its fields.
-impl From<ContainerLine> for Event<'_> {
-    fn from(line: ContainerLine) -> Self {
-        match line {
+impl<'a> Parser<'a> {
+    /// Project a `:::` line onto the event vocabulary, maintaining the open
+    /// stack so a closer carries its opener's name.
+    fn container_line_event(&mut self, text: &str) -> Option<Event<'a>> {
+        let line = parse_container_line(text)?;
+        Some(match line {
             ContainerLine::Start {
                 directive,
                 colon_count,
-            } => Event::ContainerDirectiveStart(BlockDirectivePayload {
-                name: directive.name,
-                args: directive.args,
-                colon_count,
-            }),
-            ContainerLine::End { colon_count } => Event::ContainerDirectiveEnd { colon_count },
-        }
+            } => {
+                self.open_containers.push(OpenContainer {
+                    name: directive.name.clone(),
+                    block_depth: self.block_depth,
+                });
+                Event::ContainerDirectiveStart(BlockDirectivePayload {
+                    name: directive.name,
+                    args: directive.args,
+                    colon_count,
+                })
+            }
+            ContainerLine::End { colon_count } => {
+                let name = self.open_containers.pop().map(|c| c.name);
+                Event::ContainerDirectiveEnd {
+                    name,
+                    colon_count,
+                    implicit: false,
+                }
+            }
+        })
     }
 }
 
@@ -1112,8 +1231,82 @@ mod tests {
                 "Start(Paragraph)",
                 r#"Text(Borrowed("body"))"#,
                 "End(Paragraph)",
-                "ContainerDirectiveEnd { colon_count: 3 }",
+                r#"ContainerDirectiveEnd { name: Some("tab"), colon_count: 3, implicit: false }"#,
             ]
+        );
+    }
+
+    #[test]
+    fn an_unclosed_container_is_synthesized_closed_at_eof() {
+        let stream = debug_stream(":::note\n\nbody\n");
+        assert_eq!(
+            stream,
+            [
+                r#"ContainerDirectiveStart(BlockDirectivePayload { name: "note", args: DirectiveArgs { content: "", id: None, classes: [], attrs: [] }, colon_count: 3 })"#,
+                "Start(Paragraph)",
+                r#"Text(Borrowed("body"))"#,
+                "End(Paragraph)",
+                r#"ContainerDirectiveEnd { name: Some("note"), colon_count: 0, implicit: true }"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unclosed_container_in_a_blockquote_closes_before_the_quote_ends() {
+        let stream = debug_stream("> :::note\n>\n> body\n\nafter\n");
+        // The synthesized close must precede End(BlockQuote).
+        let close = stream
+            .iter()
+            .position(|e| e.contains("ContainerDirectiveEnd"))
+            .unwrap();
+        let quote_end = stream.iter().position(|e| e == "End(BlockQuote)").unwrap();
+        assert!(close < quote_end, "stream: {stream:?}");
+        assert!(
+            stream[close].contains("implicit: true"),
+            "stream: {stream:?}"
+        );
+    }
+
+    #[test]
+    fn a_stray_close_carries_no_name() {
+        let stream = debug_stream(":::\n");
+        assert!(
+            stream
+                .iter()
+                .any(|e| e.contains("ContainerDirectiveEnd { name: None")),
+            "stream: {stream:?}"
+        );
+    }
+
+    #[test]
+    fn nested_unclosed_containers_close_innermost_first_at_eof() {
+        // Two openers left open: the inner one closes before the outer, and both
+        // carry `implicit: true`.
+        let stream = debug_stream(":::note\n\n:::warn\n\nbody\n");
+        let ends: Vec<&String> = stream
+            .iter()
+            .filter(|e| e.contains("ContainerDirectiveEnd"))
+            .collect();
+        assert_eq!(ends.len(), 2, "stream: {stream:?}");
+        assert!(
+            ends[0].contains(r#"name: Some("warn")"#),
+            "stream: {stream:?}"
+        );
+        assert!(
+            ends[1].contains(r#"name: Some("note")"#),
+            "stream: {stream:?}"
+        );
+        assert!(ends.iter().all(|e| e.contains("implicit: true")));
+    }
+
+    #[test]
+    fn an_explicit_close_is_not_marked_implicit() {
+        let stream = debug_stream(":::note\n\nbody\n\n:::\n");
+        assert!(
+            stream.iter().any(|e| e.contains("ContainerDirectiveEnd")
+                && e.contains(r#"name: Some("note")"#)
+                && e.contains("implicit: false")),
+            "stream: {stream:?}"
         );
     }
 

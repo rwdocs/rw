@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `--project-dir <dir>` on `rw serve` and `rw backstage publish` points `rw` at a project you are not in, rooting configuration, the docs directory, `.rw/`, and PlantUML includes at `<dir>`. Long-form only, and conflicts with `-c`/`--config`. See [Configuration](docs/configuration.md).
+- `rw confluence render` now renders `::::tabs`/`:::tab[Label]` groups as bold-label sections — one per tab, all visible — instead of leaving the syntax as literal text, since Confluence's storage format has no tabs macro to reproduce browser tab-switching.
 
 ### Changed
 

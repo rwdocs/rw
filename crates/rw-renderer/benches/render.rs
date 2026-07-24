@@ -64,7 +64,7 @@ use divan::{Bencher, black_box};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{
     CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, Fills, HtmlBackend, MarkdownRenderer,
-    Pipeline, ProcessResult, TabsDirective,
+    Pipeline, ProcessResult,
 };
 
 fn main() {
@@ -139,12 +139,12 @@ impl CodeBlockProcessor for StubDiagrams {
 }
 
 /// The pipeline the production HTML path installs (`rw_site`'s
-/// `create_directives_pipeline`, plus diagrams): `:::tab` container and a
-/// diagram code-block processor. `:status` is built in and needs no
-/// registration. Built fresh per render, as production does — the render
-/// consumes the pipeline.
+/// `create_directives_pipeline`, plus diagrams): an empty directive processor
+/// (`:::tabs`/`:::tab` and `:status` are walker built-ins and need no
+/// registration) and a diagram code-block processor. Built fresh per render, as
+/// production does — the render consumes the pipeline.
 fn pipeline() -> Pipeline {
-    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+    let directives = DirectiveProcessor::new();
     Pipeline::new()
         .with_directives(directives)
         .with_processor(StubDiagrams::default())

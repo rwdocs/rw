@@ -36,39 +36,39 @@ pub(crate) enum BlockDispatch {
     PassThrough(String),
 }
 
-/// One entry per open container scope, recording how the matching closing
-/// `:::` should be rendered. Pushed for every `:::name` opener the user must
-/// close with its own `:::` — including unregistered or `Skip`-ing openers, so
-/// their close does not pop an enclosing registered container.
+/// What a container opener resolved to, recorded by the walker so it can render
+/// the matching close the parser now pairs for it.
 ///
-/// Every frame carries the walker's enclosing block-nesting depth (blockquote
-/// and list levels) at the moment the opener was seen. A container left open
-/// must be balanced when *that* block ends, not at end of input — see
-/// [`DirectiveProcessor::close_containers_nested_in`].
-enum ContainerFrame {
-    /// A registered handler opened a scope; call `container_handlers[idx].end()`
-    /// when the closing `:::` is reached. `name` is the opener's own name as
-    /// written (e.g. `"tab"`), not the handler's `name()` — a handler whose
-    /// `matches()` accepts more than one name (like `TabsDirective`, for both
-    /// `tabs` and `tab`) would otherwise misreport an unclosed opener under
-    /// its single registered name.
-    Handled {
-        idx: usize,
-        depth: usize,
-        name: String,
-    },
-    /// The opening delimiter rendered literally (unregistered name, or the
-    /// handler returned `Skip`); render the closing `:::` literally too.
-    Literal { depth: usize },
+/// The processor no longer owns a container stack: the parser emits a balanced,
+/// well-nested `ContainerDirectiveStart`/`ContainerDirectiveEnd` stream (closing
+/// unclosed containers at block and EOF boundaries itself), so pairing lives in
+/// the walker, which keeps one of these per open container.
+pub(crate) enum ContainerOutcome {
+    /// Registered handler at this index; close via
+    /// [`container_end`](DirectiveProcessor::container_end).
+    Handled(usize),
+    /// Unregistered name, or the handler returned `Skip`: the opener rendered
+    /// literally, so an explicit close renders literally too and a synthesized
+    /// (implicit) close renders nothing.
+    Literal,
+    /// A walker built-in (`::::tabs` / `:::tab`): the walker owns the tab state
+    /// and renders through the backend's tab methods, so the matching close is
+    /// handled there rather than by a registered handler. The [`TabScope`]
+    /// records which of the three tab shapes this close belongs to.
+    Native(TabScope),
 }
 
-impl ContainerFrame {
-    /// Enclosing block-nesting depth at the opener.
-    fn depth(&self) -> usize {
-        match *self {
-            Self::Handled { depth, .. } | Self::Literal { depth } => depth,
-        }
-    }
+/// Which tab shape a [`ContainerOutcome::Native`] opener resolved to, so its
+/// close renders correctly. Tab metadata (ids, labels, the reserved bar hole)
+/// lives in dedicated walker fields, not here.
+#[derive(Clone, Copy)]
+pub(crate) enum TabScope {
+    /// The `::::tabs` group container.
+    Group,
+    /// A `:::tab` item inside an open group.
+    Item,
+    /// A `:::tab` with no enclosing `::::tabs` (content rendered unwrapped).
+    LoneItem,
 }
 
 /// Configuration for the directive processor.
@@ -178,14 +178,6 @@ pub struct DirectiveProcessor {
     inline_handlers: Vec<Box<dyn InlineDirective>>,
     leaf_handlers: Vec<Box<dyn LeafDirective>>,
     container_handlers: Vec<Box<dyn ContainerDirective>>,
-    /// Stack of open container scopes (one [`ContainerFrame`] per textual
-    /// `:::name` … `:::` nesting level) used to pair closing delimiters.
-    active_containers: Vec<ContainerFrame>,
-    /// Opener names of containers already balanced early, when their
-    /// enclosing blockquote or list item ended. They are off
-    /// `active_containers` (so they are neither closed nor popped twice) but
-    /// [`finalize`](DirectiveProcessor::finalize) still owes each one warning.
-    closed_at_block_end: Vec<String>,
     warnings: Vec<String>,
 }
 
@@ -210,8 +202,6 @@ impl DirectiveProcessor {
             inline_handlers: Vec::new(),
             leaf_handlers: Vec::new(),
             container_handlers: Vec::new(),
-            active_containers: Vec::new(),
-            closed_at_block_end: Vec::new(),
             warnings: Vec::new(),
         }
     }
@@ -269,91 +259,65 @@ impl DirectiveProcessor {
         self
     }
 
-    /// Dispatch a container-directive opener: invoke the registered handler
-    /// and return owned [`BlockDispatch`] data for the walker to render.
-    /// `ctx.line()` is always `0` — block directives carry no line number (no
-    /// shipped handler reads it).
+    /// Dispatch a container-directive opener by name: invoke the registered
+    /// handler and return the [`ContainerOutcome`] the walker records — so it
+    /// can render the matching close the parser now pairs — plus owned
+    /// [`BlockDispatch`] data for the walker to render now. `ctx.line()` is
+    /// always `0` — block directives carry no line number (no shipped handler
+    /// reads it).
     ///
-    /// Any handled, non-`Skip` opener pushes an `active_containers` frame that
-    /// its matching closer pops.
+    /// No container stack is kept here any more: the parser emits a balanced
+    /// `ContainerDirectiveStart`/`ContainerDirectiveEnd` stream, so pairing —
+    /// and the depth bookkeeping that used to close unclosed containers at a
+    /// block boundary — belongs to the parser and the walker's outcome stack.
     ///
-    /// `depth` is the walker's enclosing block nesting (blockquote and list
-    /// levels) at this directive. A frame remembers it so an unclosed
-    /// container is balanced when its enclosing block ends — see
-    /// [`close_containers_nested_in`](Self::close_containers_nested_in).
-    ///
-    /// The literal reconstruction of an unhandled opener hardcodes three
-    /// colons, so `::::name` renders as `:::name` while
-    /// [`dispatch_container_end`](Self::dispatch_container_end) repeats its
-    /// closer's count in full. Pinned debt, not intent — see
+    /// The literal reconstruction of an unhandled opener hardcodes three colons,
+    /// so `::::name` renders as `:::name` while the walker repeats the closer's
+    /// count in full. Pinned debt, not intent — see
     /// `unregistered_container_opener_drops_extra_colons_closer_keeps_them`
     /// in `tests/block_directives.rs`.
     pub(crate) fn dispatch_container_start(
         &mut self,
         name: &str,
         args: DirectiveArgs,
-        depth: usize,
-    ) -> BlockDispatch {
+    ) -> (ContainerOutcome, BlockDispatch) {
         let Some(idx) = self.container_handlers.iter().position(|h| h.matches(name)) else {
-            // Unregistered: render the opener literally and track the
-            // scope so its closing ::: renders literally too, rather
-            // than closing an enclosing registered container.
-            self.active_containers
-                .push(ContainerFrame::Literal { depth });
-            return BlockDispatch::PassThrough(format!(":::{name}{}", args.to_syntax()));
+            // Unregistered: render the opener literally; its close renders
+            // literally too rather than closing an enclosing registered
+            // container.
+            return (
+                ContainerOutcome::Literal,
+                BlockDispatch::PassThrough(format!(":::{name}{}", args.to_syntax())),
+            );
         };
         let syntax = args.to_syntax();
         let ctx = self.config.create_context(0);
-        let output = self.container_handlers[idx].start_named(name, args, &ctx);
-        // A handled opener owns its scope unless it declined (`Skip`, which
-        // pushes its own Literal frame below).
-        if !matches!(output, DirectiveOutput::Skip) {
-            self.active_containers.push(ContainerFrame::Handled {
-                idx,
-                depth,
-                name: name.to_owned(),
-            });
-        }
-        match output {
-            DirectiveOutput::Html(html) => BlockDispatch::Html(html),
-            DirectiveOutput::Deferred(parts) => BlockDispatch::Deferred {
-                parts,
-                source: Source::Container(idx),
-            },
-            DirectiveOutput::Skip => {
-                // Handler declined: the opener renders literally, so
-                // track a Literal scope for its matching close.
-                self.active_containers
-                    .push(ContainerFrame::Literal { depth });
-                BlockDispatch::PassThrough(format!(":::{name}{syntax}"))
+        match self.container_handlers[idx].start_named(name, args, &ctx) {
+            DirectiveOutput::Html(html) => {
+                (ContainerOutcome::Handled(idx), BlockDispatch::Html(html))
             }
+            DirectiveOutput::Deferred(parts) => (
+                ContainerOutcome::Handled(idx),
+                BlockDispatch::Deferred {
+                    parts,
+                    source: Source::Container(idx),
+                },
+            ),
+            // Handler declined: the opener renders literally.
+            DirectiveOutput::Skip => (
+                ContainerOutcome::Literal,
+                BlockDispatch::PassThrough(format!(":::{name}{syntax}")),
+            ),
         }
     }
 
-    /// Dispatch a container-directive closer: pop the innermost open scope and
-    /// return owned [`BlockDispatch`] data for the walker to render. The
+    /// Render a container close previously opened as
+    /// [`ContainerOutcome::Handled(idx)`](ContainerOutcome::Handled). The
     /// handler's `end()` is called with line `0` — block directives carry no
-    /// line number (no shipped handler reads it).
-    ///
-    /// A closer with nothing on the stack is a stray delimiter. It warns and
-    /// renders literally rather than being swallowed, so the document still
-    /// shows what the author wrote.
-    pub(crate) fn dispatch_container_end(&mut self, colon_count: usize) -> BlockDispatch {
-        match self.active_containers.pop() {
-            Some(ContainerFrame::Handled { idx, .. }) => {
-                let html = self.container_handlers[idx].end(0).unwrap_or_default();
-                BlockDispatch::Html(html)
-            }
-            Some(ContainerFrame::Literal { .. }) => {
-                // Matching close for an unhandled opener — render literally.
-                BlockDispatch::PassThrough(":".repeat(colon_count))
-            }
-            None => {
-                self.warnings
-                    .push("stray ::: with no opening directive".to_owned());
-                BlockDispatch::PassThrough(":".repeat(colon_count))
-            }
-        }
+    /// line number (no shipped handler reads it). `None` from the handler emits
+    /// nothing.
+    pub(crate) fn container_end(&mut self, idx: usize) -> BlockDispatch {
+        BlockDispatch::Html(self.container_handlers[idx].end(0).unwrap_or_default())
     }
 
     /// Dispatch a leaf directive: invoke the registered handler and return
@@ -361,8 +325,7 @@ impl DirectiveProcessor {
     /// always `0` — block directives carry no line number (no shipped handler
     /// reads it).
     ///
-    /// A leaf opens no scope, so there is no `active_containers` bookkeeping
-    /// and no enclosing depth to record.
+    /// A leaf opens no scope, so there is no container pairing to record.
     pub(crate) fn dispatch_leaf(&mut self, name: &str, args: DirectiveArgs) -> BlockDispatch {
         let Some(idx) = self.leaf_handlers.iter().position(|h| h.name() == name) else {
             return BlockDispatch::PassThrough(format!("::{name}{}", args.to_syntax()));
@@ -398,122 +361,6 @@ impl DirectiveProcessor {
         };
         let ctx = self.config.create_context(0);
         self.inline_handlers[idx].process(args, &ctx)
-    }
-
-    /// Emit the closing markup for every container still open at end of input,
-    /// appending it to `out`.
-    ///
-    /// A container whose closing `:::` is missing never reaches `end()` through
-    /// [`dispatch_container_end`](Self::dispatch_container_end), so without this
-    /// its opening tags would be left dangling and the rest of the document
-    /// would nest inside them — for tabs, inside a `hidden` panel, making it
-    /// invisible.
-    /// Innermost scope first, so the emitted tags close in the right order.
-    ///
-    /// Frames are read, not drained: [`finalize`](Self::finalize) still needs
-    /// them to report one "unclosed container directive" warning per frame.
-    /// Only [`ContainerFrame::Handled`] frames have a handler to close; a
-    /// `Literal` opener rendered as plain text and has no markup to balance.
-    ///
-    /// Must run before hole assembly: appending only extends the walk buffer,
-    /// so every recorded hole offset stays valid.
-    ///
-    /// Closing tags are markup, so they reach `out` through `write_html` — the
-    /// backend's `raw_html` — exactly as an in-walk `end()` would.
-    pub(crate) fn close_unclosed_containers(
-        &mut self,
-        out: &mut String,
-        write_html: impl Fn(&str, &mut String),
-    ) {
-        // Collect indices first: calling `end()` needs `&mut self`, which would
-        // conflict with a live borrow of `self.active_containers`.
-        let open: Vec<usize> = self
-            .active_containers
-            .iter()
-            .rev()
-            .filter_map(|frame| match frame {
-                ContainerFrame::Handled { idx, .. } => Some(*idx),
-                ContainerFrame::Literal { .. } => None,
-            })
-            .collect();
-
-        for idx in open {
-            if let Some(html) = self.container_handlers[idx].end(0) {
-                write_html(&html, out);
-            }
-        }
-    }
-
-    /// Emit the closing markup for every container opened at block-nesting
-    /// depth `depth` or deeper, appending it to `out`.
-    ///
-    /// Called by the walker as a blockquote or list item is about to close,
-    /// *before* the enclosing `</blockquote>` / `</li>` is written. A container
-    /// left open inside such a block cannot wait for end of input: by then its
-    /// parent's closing tag has already been emitted, and the container's own
-    /// closing tags would land outside it, crossing the nesting.
-    ///
-    /// `active_containers` is a stack, so frames opened deeper than the block
-    /// that is ending are exactly the topmost ones — popping until the depth
-    /// test fails visits them innermost-first, the order their tags must close
-    /// in.
-    ///
-    /// Unlike [`close_unclosed_containers`](Self::close_unclosed_containers),
-    /// frames are *drained*: a closed handler must not be closed again at end of
-    /// input, nor be popped by a later stray `:::`. Their warnings are still
-    /// owed, so `Handled` frames move to `closed_at_block_end` for
-    /// [`finalize`](Self::finalize) to report.
-    ///
-    /// Closing markup is appended at the walker's current write position, so it
-    /// only ever extends the walk buffer — no hole offset recorded earlier
-    /// moves.
-    pub(crate) fn close_containers_nested_in(
-        &mut self,
-        depth: usize,
-        out: &mut String,
-        write_html: impl Fn(&str, &mut String),
-    ) {
-        while self
-            .active_containers
-            .last()
-            .is_some_and(|frame| frame.depth() >= depth)
-        {
-            let frame = self
-                .active_containers
-                .pop()
-                .expect("checked above: the stack has a frame at or below `depth`");
-            // Literal frames rendered their opener as plain text: nothing to
-            // balance, and finalize owes them no warning either.
-            if let ContainerFrame::Handled { idx, name, .. } = frame {
-                if let Some(html) = self.container_handlers[idx].end(0) {
-                    write_html(&html, out);
-                }
-                self.closed_at_block_end.push(name);
-            }
-        }
-    }
-
-    pub(crate) fn finalize(&mut self) {
-        // mem::take avoids borrowing self.active_containers while reading
-        // self.container_handlers / pushing to self.warnings below.
-        let frames = std::mem::take(&mut self.active_containers);
-        let closed_early = std::mem::take(&mut self.closed_at_block_end);
-        let names = frames
-            .into_iter()
-            .filter_map(|frame| match frame {
-                // Literal frames: the opener rendered as plain text, so there is
-                // no managed container to warn about.
-                ContainerFrame::Handled { name, .. } => Some(name),
-                ContainerFrame::Literal { .. } => None,
-            })
-            // Containers balanced early at a blockquote/list-item boundary are
-            // off the stack but just as unclosed: they still owe one warning.
-            .chain(closed_early);
-        for name in names {
-            self.warnings.push(format!(
-                "unclosed container directive :::{name} (missing closing :::)"
-            ));
-        }
     }
 
     /// Collect hole content from every leaf and container handler.
@@ -728,84 +575,37 @@ mod tests {
     fn dispatch_container_start_and_end() {
         let mut processor = DirectiveProcessor::new().with_container(TestNote);
 
-        match processor.dispatch_container_start("note", DirectiveArgs::parse("Important", ""), 0) {
+        let (outcome, dispatch) =
+            processor.dispatch_container_start("note", DirectiveArgs::parse("Important", ""));
+        assert!(matches!(outcome, ContainerOutcome::Handled(0)));
+        match dispatch {
             BlockDispatch::Html(html) => {
                 assert!(html.contains(r#"<div class="note" data-title="Important">"#));
             }
             other => panic!("expected Html, got {other:?}"),
         }
 
-        match processor.dispatch_container_end(3) {
+        // The walker records `Handled(idx)` and asks for the matching close by
+        // index — the processor keeps no stack of its own.
+        match processor.container_end(0) {
             BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
             other => panic!("expected Html, got {other:?}"),
         }
     }
 
     #[test]
-    fn unregistered_container_nested_in_registered_does_not_corrupt_stack() {
-        let mut processor = DirectiveProcessor::new().with_container(TestNote);
-
-        // Outer registered container opens its scope.
-        match processor.dispatch_container_start("note", DirectiveArgs::parse("Important", ""), 0) {
-            BlockDispatch::Html(html) => assert!(html.contains(r#"data-title="Important""#)),
-            other => panic!("expected Html, got {other:?}"),
-        }
-        // Inner UNREGISTERED container: rendered literally, tracked separately.
-        match processor.dispatch_container_start("unknown", DirectiveArgs::default(), 0) {
-            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::unknown"),
-            other => panic!("expected PassThrough, got {other:?}"),
-        }
-        // First close pairs with the inner unregistered opener -> literal,
-        // it must NOT close the outer note.
-        match processor.dispatch_container_end(3) {
-            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
-            other => panic!("expected literal PassThrough for inner close, got {other:?}"),
-        }
-        // Second close pairs with the outer note -> note.end().
-        match processor.dispatch_container_end(3) {
-            BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
-            other => panic!("expected note end() Html, got {other:?}"),
-        }
-        processor.finalize();
-        assert!(
-            processor.warnings().is_empty(),
-            "no warnings expected, got: {:?}",
-            processor.warnings()
-        );
-    }
-
-    #[test]
-    fn dispatch_container_unregistered_pair_passthrough() {
+    fn dispatch_container_unregistered_opener_is_literal() {
         let mut processor = DirectiveProcessor::new();
 
-        // Unregistered opener: rendered literally, scope tracked so its close pairs with it.
-        match processor.dispatch_container_start("foo", DirectiveArgs::parse("x", ".c"), 0) {
+        // Unregistered opener: the walker records `Literal` so its close renders
+        // literally too, and the opener passes through as its own source text.
+        let (outcome, dispatch) =
+            processor.dispatch_container_start("foo", DirectiveArgs::parse("x", ".c"));
+        assert!(matches!(outcome, ContainerOutcome::Literal));
+        match dispatch {
             BlockDispatch::PassThrough(s) => assert_eq!(s, ":::foo[x]{.c}"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
-
-        // Its matching close renders literally and does NOT warn about a stray.
-        match processor.dispatch_container_end(3) {
-            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
-            other => panic!("expected PassThrough, got {other:?}"),
-        }
-        assert!(
-            !processor.warnings().iter().any(|w| w.contains("stray")),
-            "unregistered open/close pair must not warn: {:?}",
-            processor.warnings()
-        );
-    }
-
-    #[test]
-    fn dispatch_container_end_genuine_stray_close_warns() {
-        let mut processor = DirectiveProcessor::new();
-
-        // A close with no opener on the stack is a genuine stray.
-        match processor.dispatch_container_end(4) {
-            BlockDispatch::PassThrough(s) => assert_eq!(s, "::::"),
-            other => panic!("expected PassThrough, got {other:?}"),
-        }
-        assert!(processor.warnings().iter().any(|w| w.contains("stray")));
     }
 
     #[test]
@@ -824,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn skip_container_nested_in_registered_does_not_corrupt_stack() {
+    fn dispatch_container_skip_is_literal() {
         struct SkipContainer;
         impl ContainerDirective for SkipContainer {
             fn name(&self) -> &'static str {
@@ -838,49 +638,17 @@ mod tests {
             }
         }
 
-        let mut processor = DirectiveProcessor::new()
-            .with_container(TestNote)
-            .with_container(SkipContainer);
+        let mut processor = DirectiveProcessor::new().with_container(SkipContainer);
 
-        let _ = processor.dispatch_container_start("note", DirectiveArgs::parse("T", ""), 0);
-        match processor.dispatch_container_start("skipme", DirectiveArgs::default(), 0) {
+        // A handler that returns `Skip` declines: the walker records `Literal`,
+        // and `end()` is never asked for — its close renders literally.
+        let (outcome, dispatch) =
+            processor.dispatch_container_start("skipme", DirectiveArgs::default());
+        assert!(matches!(outcome, ContainerOutcome::Literal));
+        match dispatch {
             BlockDispatch::PassThrough(s) => assert_eq!(s, ":::skipme"),
             other => panic!("expected PassThrough, got {other:?}"),
         }
-        match processor.dispatch_container_end(3) {
-            BlockDispatch::PassThrough(s) => assert_eq!(s, ":::"),
-            other => panic!("expected literal PassThrough, got {other:?}"),
-        }
-        match processor.dispatch_container_end(3) {
-            BlockDispatch::Html(html) => assert_eq!(html, "</div>"),
-            other => panic!("expected note end(), got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn unclosed_unregistered_container_emits_no_warning() {
-        let mut processor = DirectiveProcessor::new();
-        let _ = processor.dispatch_container_start("foo", DirectiveArgs::default(), 0);
-        processor.finalize();
-        assert!(
-            processor.warnings().is_empty(),
-            "unclosed unregistered container must be silent, got: {:?}",
-            processor.warnings()
-        );
-    }
-
-    #[test]
-    fn unclosed_registered_container_emits_unclosed_warning() {
-        let mut processor = DirectiveProcessor::new().with_container(TestNote);
-        let _ = processor.dispatch_container_start("note", DirectiveArgs::default(), 0);
-        processor.finalize();
-        let unclosed: Vec<_> = processor
-            .warnings()
-            .into_iter()
-            .filter(|w| w.contains("unclosed"))
-            .collect();
-        assert_eq!(unclosed.len(), 1, "got: {unclosed:?}");
-        assert!(unclosed[0].contains("note"), "got: {unclosed:?}");
     }
 
     #[test]

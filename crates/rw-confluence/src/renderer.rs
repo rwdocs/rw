@@ -194,4 +194,34 @@ mod tests {
             result.html
         );
     }
+
+    #[test]
+    fn tabs_render_as_bold_label_sections() {
+        let r = PageRenderer::new().render(
+            "::::tabs\n\n:::tab[macOS]\n\nAlpha\n\n:::\n\n:::tab[Linux]\n\nBeta\n\n:::\n\n::::",
+            None,
+            None,
+        );
+        assert!(
+            r.html.contains("<p><strong>macOS</strong></p>"),
+            "got: {}",
+            r.html
+        );
+        assert!(r.html.contains("Alpha"), "got: {}", r.html);
+        assert!(
+            r.html.contains("<p><strong>Linux</strong></p>"),
+            "got: {}",
+            r.html
+        );
+        assert!(
+            !r.html.contains("::::tabs"),
+            "literal syntax leaked: {}",
+            r.html
+        );
+        assert!(
+            !r.html.contains("role=\"tablist\""),
+            "html chrome leaked: {}",
+            r.html
+        );
+    }
 }

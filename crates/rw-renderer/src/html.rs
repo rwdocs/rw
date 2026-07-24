@@ -10,6 +10,7 @@ use std::borrow::Cow;
 use std::fmt::Write;
 
 use crate::status::StatusColor;
+use crate::tabs::TabInfo;
 
 use crate::backend::RenderBackend;
 use crate::util::escape_into;
@@ -128,6 +129,41 @@ impl RenderBackend for HtmlBackend {
             None => Cow::Borrowed(url),
         }
     }
+
+    fn tabs_open(group_id: usize, tabs: &[TabInfo], out: &mut String) {
+        let _ = write!(out, r#"<div class="tabs" id="tabs-{group_id}">"#);
+        out.push_str(r#"<div class="tabs-buttons" role="tablist">"#);
+        for tab in tabs {
+            let selected = tab.is_first;
+            let _ = write!(
+                out,
+                r#"<button role="tab" id="tab-{group_id}-{0}" aria-controls="panel-{group_id}-{0}" aria-selected="{selected}" tabindex="{tabindex}">"#,
+                tab.id,
+                selected = selected,
+                tabindex = if selected { "0" } else { "-1" },
+            );
+            escape_into(&tab.label, out);
+            out.push_str("</button>");
+        }
+        out.push_str("</div>");
+    }
+
+    fn tab_panel_open(group_id: usize, tab: &TabInfo, out: &mut String) {
+        let hidden = if tab.is_first { "" } else { " hidden" };
+        let _ = write!(
+            out,
+            r#"<div role="tabpanel" id="panel-{group_id}-{}" aria-labelledby="tab-{group_id}-{}"{hidden}>"#,
+            tab.id, tab.id
+        );
+    }
+
+    fn tab_panel_close(out: &mut String) {
+        out.push_str("</div>");
+    }
+
+    fn tabs_close(out: &mut String) {
+        out.push_str("</div>");
+    }
 }
 
 /// Resolve a markdown link URL relative to a base URL path (with leading `/`).
@@ -210,6 +246,7 @@ fn resolve_relative_path(relative: &str, base: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tabs::TabInfo;
 
     #[test]
     fn test_code_block_with_language() {
@@ -414,5 +451,89 @@ mod tests {
         let mut out = String::new();
         HtmlBackend::status_close(&mut out);
         assert_eq!(out, "</span>");
+    }
+
+    #[test]
+    fn tabs_open_matches_legacy_bar_markup() {
+        let tabs = [
+            TabInfo {
+                id: 0,
+                label: "macOS".to_owned(),
+                is_first: true,
+            },
+            TabInfo {
+                id: 1,
+                label: "Linux".to_owned(),
+                is_first: false,
+            },
+        ];
+        let mut out = String::new();
+        HtmlBackend::tabs_open(0, &tabs, &mut out);
+        assert_eq!(
+            out,
+            r#"<div class="tabs" id="tabs-0"><div class="tabs-buttons" role="tablist"><button role="tab" id="tab-0-0" aria-controls="panel-0-0" aria-selected="true" tabindex="0">macOS</button><button role="tab" id="tab-0-1" aria-controls="panel-0-1" aria-selected="false" tabindex="-1">Linux</button></div>"#
+        );
+    }
+
+    #[test]
+    fn tab_panel_open_hidden_for_non_first() {
+        let mut out = String::new();
+        HtmlBackend::tab_panel_open(
+            0,
+            &TabInfo {
+                id: 1,
+                label: "L".to_owned(),
+                is_first: false,
+            },
+            &mut out,
+        );
+        assert_eq!(
+            out,
+            r#"<div role="tabpanel" id="panel-0-1" aria-labelledby="tab-0-1" hidden>"#
+        );
+    }
+
+    #[test]
+    fn tab_panel_open_not_hidden_for_first() {
+        let mut out = String::new();
+        HtmlBackend::tab_panel_open(
+            0,
+            &TabInfo {
+                id: 0,
+                label: "L".to_owned(),
+                is_first: true,
+            },
+            &mut out,
+        );
+        assert_eq!(
+            out,
+            r#"<div role="tabpanel" id="panel-0-0" aria-labelledby="tab-0-0">"#
+        );
+    }
+
+    #[test]
+    fn tab_panel_close_emits_div_close() {
+        let mut out = String::new();
+        HtmlBackend::tab_panel_close(&mut out);
+        assert_eq!(out, "</div>");
+    }
+
+    #[test]
+    fn tabs_close_emits_div_close() {
+        let mut out = String::new();
+        HtmlBackend::tabs_close(&mut out);
+        assert_eq!(out, "</div>");
+    }
+
+    #[test]
+    fn tabs_open_escapes_label() {
+        let tabs = [TabInfo {
+            id: 0,
+            label: "a < b & c".to_owned(),
+            is_first: true,
+        }];
+        let mut out = String::new();
+        HtmlBackend::tabs_open(0, &tabs, &mut out);
+        assert!(out.contains("a &lt; b &amp; c"), "got: {out}");
     }
 }

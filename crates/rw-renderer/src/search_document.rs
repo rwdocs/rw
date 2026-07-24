@@ -265,6 +265,24 @@ mod tests {
     }
 
     #[test]
+    fn tabs_index_panel_content_not_labels() {
+        let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
+            "::::tabs\n\n:::tab[macOS]\n\nAlphaword\n\n:::\n\n::::",
+            Pipeline::new().with_directives(DirectiveProcessor::new()),
+        );
+        assert!(
+            result.html.contains("Alphaword"),
+            "panel content must index: {}",
+            result.html
+        );
+        assert!(
+            !result.html.contains("macOS"),
+            "labels must not index: {}",
+            result.html
+        );
+    }
+
+    #[test]
     fn alert_content_included() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .render("> [!WARNING]\n> Do not delete this file.", Pipeline::new());

@@ -123,9 +123,8 @@ crates/
 │       ├── status/            # Status badge, a built-in walker element (no directive registration)
 │       │   ├── mod.rs        # Module exports
 │       │   └── directive.rs  # StatusColor, STATUS_NAME
-│       ├── tabs/             # Tabbed content blocks
-│       │   ├── mod.rs        # Module exports
-│       │   └── directive.rs  # TabsDirective (ContainerDirective impl)
+│       ├── tabs/             # Tabbed content, a built-in walker element (no directive registration)
+│       │   └── mod.rs        # TabInfo, TABS_NAME/TAB_NAME
 │       └── util.rs           # escape_into(), escape_html(), slugify_into()
 │
 ├── rw-confluence/         # Confluence integration

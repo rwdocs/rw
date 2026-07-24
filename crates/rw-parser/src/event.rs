@@ -56,12 +56,19 @@ pub enum Event<'a> {
     LeafDirective(BlockDirectivePayload),
     /// `:::name[content]{attrs}` opening a container.
     ContainerDirectiveStart(BlockDirectivePayload),
-    /// A bare `:::` run closing a container.
+    /// A `:::` run closing a container, paired to its opener by the parser.
     ContainerDirectiveEnd {
+        /// The paired opener's name; `None` for a stray `:::` that closed
+        /// nothing on the open stack.
+        name: Option<String>,
         /// `usize`, not a narrower type: a literal closer is reconstructed as
         /// `":".repeat(colon_count)`, so the count is output-visible and a
-        /// 300-colon line must survive it.
+        /// 300-colon line must survive it. `0` for a parser-synthesized close.
         colon_count: usize,
+        /// `true` when the parser synthesized this close at a block or EOF
+        /// boundary (the source had no matching `:::`); `false` for an explicit
+        /// `:::` closer.
+        implicit: bool,
     },
 
     /// A fenced or indented code block, body included.

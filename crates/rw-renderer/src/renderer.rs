@@ -219,10 +219,11 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///    `:::name … :::`, inline `:name[…]`) as it goes, and the `Walker`
     ///    interprets those events into backend output. There is no separate
     ///    line-based preprocessing pass.
-    /// 2. **Finalize & assemble** — reports unclosed containers, then splices
-    ///    every reserved hole's content (from directive handlers and
-    ///    code-block processors, e.g. rendered diagrams) into the output in
-    ///    a single pass.
+    /// 2. **Assemble** — splices every reserved hole's content (from directive
+    ///    handlers and code-block processors, e.g. rendered diagrams) into the
+    ///    output in a single pass. Unclosed-container and stray-`:::` warnings
+    ///    are raised during the walk itself, as the parser's synthesized closes
+    ///    are rendered.
     ///
     /// The supplied `Pipeline` is consumed: build a fresh one per render.
     pub fn render(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
@@ -246,8 +247,10 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
             walker.finish()
         };
 
+        // The walk pushes any unclosed-container and stray-`:::` warnings as it
+        // renders the parser's synthesized/explicit closes, so this only drains
+        // what the processor and its handlers accumulated.
         if let Some(processor) = pipeline.directives.as_mut() {
-            processor.finalize();
             result.warnings.extend(processor.warnings());
         }
 
@@ -1031,10 +1034,10 @@ mod tests {
 
     #[test]
     fn test_with_directives_tabs() {
-        use crate::TabsDirective;
         use crate::directive::DirectiveProcessor;
 
-        let processor = DirectiveProcessor::new().with_container(TabsDirective::new());
+        // Tabs are a walker built-in; an empty processor only tokenizes syntax.
+        let processor = DirectiveProcessor::new();
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
@@ -1294,10 +1297,10 @@ Install with apt.
 
     #[test]
     fn test_directives_warnings_included() {
-        use crate::TabsDirective;
         use crate::directive::DirectiveProcessor;
 
-        let processor = DirectiveProcessor::new().with_container(TabsDirective::new());
+        // Tabs are a walker built-in; an empty processor only tokenizes syntax.
+        let processor = DirectiveProcessor::new();
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
@@ -2139,21 +2142,18 @@ Install with apt.
     // Task 9: Warning isolation test
     #[test]
     fn fresh_pipeline_yields_fresh_warnings_per_render() {
-        use crate::TabsDirective;
         use crate::directive::DirectiveProcessor;
 
         // Markdown with an unclosed ::::tabs group (its one tab closes
-        // normally) — emits one warning per render via
-        // DirectiveProcessor::finalize. Block directives are blank-line
-        // separated, so each delimiter stands alone.
+        // normally) — emits one warning per render, raised as the walk renders
+        // the parser's synthesized close. Tabs are a walker built-in, so no
+        // handler is registered. Block directives are blank-line separated, so
+        // each delimiter stands alone.
         let md = "::::tabs\n\n:::tab[A]\n\nbody\n\n:::";
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let make_pipeline = || {
-            Pipeline::new()
-                .with_directives(DirectiveProcessor::new().with_container(TabsDirective::new()))
-        };
+        let make_pipeline = || Pipeline::new().with_directives(DirectiveProcessor::new());
 
         let r1 = renderer.render(md, make_pipeline());
         let r2 = renderer.render(md, make_pipeline());

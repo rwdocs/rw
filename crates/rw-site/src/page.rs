@@ -14,8 +14,8 @@ use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_kroki::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
 use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, Pipeline, RenderBackend, SearchDocumentBackend, TabsDirective,
-    TocEntry, escape_html,
+    HtmlBackend, MarkdownRenderer, Pipeline, RenderBackend, SearchDocumentBackend, TocEntry,
+    escape_html,
 };
 use rw_sections::{SectionAnchor, Sections};
 
@@ -561,14 +561,14 @@ impl PageRenderer {
         Self::configure_renderer_settings(renderer, ctx)
     }
 
-    /// Pipeline preloaded with the directives shared by every render path
-    /// (tabs container; status is built in and needs no registration).
-    /// Callers add their own code-block processors on top (regular
+    /// Pipeline preloaded with the (empty) directive processor shared by every
+    /// render path. Status and tabs are walker built-ins and need no
+    /// registration; the processor is present only so directive syntax is
+    /// tokenized. Callers add their own code-block processors on top (regular
     /// `DiagramProcessor` for HTML rendering, `SearchDiagramProcessor` for
     /// search indexing).
     fn create_directives_pipeline() -> Pipeline {
-        let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
-        Pipeline::new().with_directives(directives)
+        Pipeline::new().with_directives(DirectiveProcessor::new())
     }
 
     /// Pipeline for HTML rendering: directives + the regular

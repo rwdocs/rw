@@ -21,45 +21,62 @@
 //! therefore emits no markup for the bar during the walk; it reserves a
 //! *hole* — a recorded offset in the output buffer — and fills it afterwards:
 //!
-//! 1. **Event walk**: `::::tabs` returns
-//!    [`DirectiveOutput::Deferred`](crate::directive::DirectiveOutput::Deferred),
-//!    reserving a hole for the group's tab bar. Each nested `:::tab[Label]` is
-//!    an ordinary self-closing container: its `start` emits the panel's
-//!    opening `<div role="tabpanel">` inline and records the label, its `end`
+//! 1. **Event walk**: on `::::tabs` the walker reserves a hole for the group's
+//!    tab bar. Each nested `:::tab[Label]` opens the panel inline through the
+//!    backend (`<div role="tabpanel">`) and records the label; its close emits
 //!    the panel's closing `</div>`.
 //!
-//! 2. **Assembly**: after the walk, `fills()` renders the accessible ARIA
-//!    markup for the tab bar, and the walker splices it in at the recorded
-//!    offset. No intermediate markers are ever emitted, so nothing can leak
-//!    into the output.
+//! 2. **Assembly**: after the walk, the walker renders the accessible ARIA
+//!    markup for each group's tab bar through the backend and splices it in at
+//!    the recorded offset. No intermediate markers are ever emitted, so nothing
+//!    can leak into the output.
 //!
 //! # Unclosed groups
 //!
 //! A `::::tabs` group left unclosed by a missing `::::` extends to the end of
-//! the document (or its enclosing blockquote/list item): the directive
-//! processor closes it there, so its markup stays balanced (and a warning is
+//! the document (or its enclosing blockquote/list item): the parser
+//! synthesizes the close there, so its markup stays balanced (and a warning is
 //! emitted). A `:::tab` item left unclosed behaves the same way at the item
 //! level. In that case, everything after the last `:::tab` is absorbed into
 //! that panel — which is `hidden` unless it's the selected (first) tab, so
 //! the trailing content can disappear from view until the reader clicks that
 //! tab. The fix is to close each `:::tab` and the enclosing `::::tabs`.
 //!
-//! Register [`TabsDirective`] on a
-//! [`DirectiveProcessor`](crate::directive::DirectiveProcessor), then render
-//! through [`MarkdownRenderer`](crate::MarkdownRenderer):
+//! # A walker built-in, not a registered directive
+//!
+//! Tabs are recognized by the [`Walker`](crate::MarkdownRenderer) itself — like
+//! the `:status` badge — rather than through a
+//! [`ContainerDirective`](crate::directive::ContainerDirective) registered on a
+//! [`DirectiveProcessor`](crate::directive::DirectiveProcessor). The walker owns
+//! the tab state and reserves the bar hole; the backend supplies the markup
+//! through its tab methods ([`tabs_open`](crate::RenderBackend::tabs_open),
+//! [`tab_panel_open`](crate::RenderBackend::tab_panel_open), and their closers),
+//! so a backend that does not support tabs (e.g. the search-document backend)
+//! renders their content without any chrome. A processor still has to be present
+//! on the [`Pipeline`](crate::Pipeline) so directive syntax is tokenized, but no
+//! tab handler needs registering:
 //!
 //! ```
 //! use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 //! use rw_renderer::directive::DirectiveProcessor;
-//! use rw_renderer::TabsDirective;
 //!
-//! let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
 //! let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
 //! let result = MarkdownRenderer::<HtmlBackend>::new()
-//!     .render(md, Pipeline::new().with_directives(directives));
+//!     .render(md, Pipeline::new().with_directives(DirectiveProcessor::new()));
 //! assert!(result.html.contains(r#"role="tablist""#));
 //! ```
 
-mod directive;
+/// One tab within a group, as handed to the backend's tab methods.
+pub struct TabInfo {
+    /// Document-global tab id, used in element ids.
+    pub id: usize,
+    /// Display label from `:::tab[Label]`.
+    pub label: String,
+    /// First tab in its group (selected, not `hidden`).
+    pub is_first: bool,
+}
 
-pub use directive::TabsDirective;
+/// Directive name of a tab group container (`::::tabs`).
+pub(crate) const TABS_NAME: &str = "tabs";
+/// Directive name of a tab item (`:::tab[Label]`).
+pub(crate) const TAB_NAME: &str = "tab";

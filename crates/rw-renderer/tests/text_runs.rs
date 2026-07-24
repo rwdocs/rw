@@ -21,7 +21,7 @@
 //! either way, and say so.
 
 use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline, RenderResult, TabsDirective};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline, RenderResult};
 
 fn render_status(md: &str) -> RenderResult {
     MarkdownRenderer::<HtmlBackend>::new().render(
@@ -31,7 +31,7 @@ fn render_status(md: &str) -> RenderResult {
 }
 
 fn render_tabs(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
+    let directives = DirectiveProcessor::new();
     MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(directives))
 }
 
@@ -386,7 +386,7 @@ fn container_opening_line_split_by_cmark_is_still_recognized() {
     // recognized only because the paragraph's runs are joined before
     // `parse_container_line` sees them.
     //
-    // The `{#a}` is inert — `TabsDirective` never reads `args.id`, so the id
+    // The `{#a}` is inert — the tab built-in never reads `args.id`, so the id
     // is the generated `tabs-0`. It is here solely to force the extra split.
     let result = render_tabs("::::tabs\n\n:::tab[Label]{#a}\n\nBody.\n\n:::\n\n::::");
     assert!(

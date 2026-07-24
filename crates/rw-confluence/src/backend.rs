@@ -5,7 +5,7 @@
 
 use std::fmt::Write;
 
-use rw_renderer::{AlertKind, RenderBackend, StatusColor, escape_html};
+use rw_renderer::{AlertKind, RenderBackend, StatusColor, TabInfo, escape_html};
 
 /// Confluence render backend.
 ///
@@ -122,6 +122,13 @@ impl RenderBackend for ConfluenceBackend {
     /// [`status_open`](Self::status_open).
     fn status_close(out: &mut String) {
         out.push_str("</ac:parameter></ac:structured-macro>");
+    }
+
+    /// Renders a tab as a bold-label section: `<p><strong>Label</strong></p>`,
+    /// always visible. Confluence storage format has no tabs macro; the bar,
+    /// panel close, and group close are the trait's no-ops.
+    fn tab_panel_open(_group_id: usize, tab: &TabInfo, out: &mut String) {
+        write!(out, "<p><strong>{}</strong></p>", escape_html(&tab.label)).unwrap();
     }
 }
 

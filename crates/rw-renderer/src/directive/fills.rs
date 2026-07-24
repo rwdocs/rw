@@ -31,6 +31,11 @@ pub(crate) enum Source {
     Leaf(usize),
     Container(usize),
     CodeBlock(usize),
+    /// The walker's built-in tabs rendering, which reserves holes without a
+    /// handler registry. A distinct variant (rather than reusing one of the
+    /// above) keeps its hole keys disambiguated from every handler's by
+    /// construction, the same as the other three.
+    Tabs,
 }
 
 /// Globally-unique key: a hole's owner paired with the owner's local key.
@@ -143,6 +148,18 @@ impl GlobalFills {
             if let Some(previous) = self.map.insert(GlobalKey(source, local), html) {
                 self.total_len -= previous.len();
             }
+        }
+    }
+
+    /// Insert one fill directly under its global key, without going through a
+    /// per-owner [`Fills`]. Used by the walker's built-in tab rendering, which
+    /// reserves holes (under [`Source::Tabs`]) with no handler registry to
+    /// collect from. Keeps the tracked `total_len` in step, mirroring
+    /// [`merge`](Self::merge).
+    pub(crate) fn insert(&mut self, key: GlobalKey, html: String) {
+        self.total_len += html.len();
+        if let Some(previous) = self.map.insert(key, html) {
+            self.total_len -= previous.len();
         }
     }
 

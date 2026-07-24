@@ -25,9 +25,9 @@
 //!
 //! Two borrow patterns recur inside `Walker` methods, each explained in
 //! detail where it is first used: pattern A (field-disjoint borrows) in the
-//! `Event::CodeBlock` arm of [`Walker::handle`], also used by
-//! `close_containers_for_block_end`; pattern B (tightly-scoped reborrow) in
-//! [`Walker::emit_inline_directive`], also used by `handle_block_directive`.
+//! `Event::CodeBlock` arm of [`Walker::handle`]; pattern B (tightly-scoped
+//! reborrow) in [`Walker::emit_inline_directive`], also used by
+//! `handle_block_directive`.
 //!
 //! A third constraint applies wherever a dispatch closure is built: whatever
 //! the closure would read off `self` has to be read before it, or the capture
@@ -45,19 +45,29 @@ use crate::directive::DirectiveOutput;
 use crate::directive::DirectiveProcessor;
 use crate::directive::Fills;
 use crate::directive::Part;
-use crate::directive::fills::{GlobalKey, Source};
-use crate::directive::processor::BlockDispatch;
+use crate::directive::fills::{GlobalKey, HoleKey, Source};
+use crate::directive::processor::{BlockDispatch, ContainerOutcome, TabScope};
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
 use crate::scope::Scope;
 use crate::status::{STATUS_NAME, StatusColor};
 use crate::table::TableState;
+use crate::tabs::{TAB_NAME, TABS_NAME, TabInfo};
 use crate::toc::HeadingAccumulator;
 use crate::wikilink::{self, WikilinkResolution};
 use rw_parser::AlertKind;
 use rw_parser::{Event, LinkKind, Tag, TagEnd};
 use rw_parser::{InlineMatch, parse_line};
+
+/// A tab group the walker is rendering as a built-in: its id, the tabs seen so
+/// far, and the reserved bar-hole its accessible `<div role="tablist">` markup
+/// fills at [`Walker::finish`] (once every label is known).
+struct TabGroup {
+    id: usize,
+    tabs: Vec<TabInfo>,
+    bar_hole: HoleKey,
+}
 
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
@@ -66,10 +76,23 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     output: String,
     /// Byte offsets where deferred directive content belongs.
     holes: Holes,
+    /// Completed tab groups awaiting their bar-hole fill at `finish`.
+    tab_groups: Vec<TabGroup>,
+    /// Open tab groups, innermost last (a `::::tabs` may nest in another's
+    /// panel), so an inner group never overwrites the outer's reserved bar hole.
+    tab_open: Vec<TabGroup>,
+    next_group_id: usize,
+    next_tab_id: usize,
+    next_tab_hole: HoleKey,
     list_stack: Vec<bool>,
     table: TableState,
     heading: HeadingAccumulator,
     alert_stack: Vec<Option<AlertKind>>,
+    /// One entry per open container directive, in nesting order, recording what
+    /// its opener resolved to so the matching close (which the parser now pairs
+    /// and emits — explicit or synthesized) renders correctly. A
+    /// `ContainerDirectiveEnd` with no entry here is a stray `:::`.
+    container_outcomes: Vec<ContainerOutcome>,
     code_block_index: usize,
     /// The previous heading's `(toc_text, rendered_html)` buffers, cleared and
     /// parked for the next one. Headings can't nest, so a single spare pair
@@ -102,10 +125,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             // the previous render's final size) but is out of scope here.
             output: String::with_capacity(4096),
             holes: Holes::default(),
+            tab_groups: Vec::new(),
+            tab_open: Vec::new(),
+            next_group_id: 0,
+            next_tab_id: 0,
+            next_tab_hole: 0,
             list_stack: Vec::new(),
             table: TableState::default(),
             heading: HeadingAccumulator::new(cfg.extract_title, B::TITLE_AS_METADATA),
             alert_stack: Vec::new(),
+            container_outcomes: Vec::new(),
             code_block_index: 0,
             spare_heading_buffers: None,
             scopes: Vec::new(),
@@ -120,26 +149,26 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// to the walk buffer must precede assembly, which is keyed to offsets in
     /// it:
     ///
-    /// 1. Close containers still open at end of input, appending their closing
-    ///    markup to `output`. Appending only extends the buffer, so every
-    ///    recorded hole offset stays valid.
-    /// 2. `mem::take` `output` into a local `html` — this owned `String` is
+    /// 1. `mem::take` `output` into a local `html` — this owned `String` is
     ///    moved into the returned `RenderResult`, so it must be freestanding.
-    /// 3. Collect fills from directive handlers and code-block processors, then
+    ///    (Containers left open no longer need balancing here: the parser
+    ///    synthesizes their closes at block/EOF boundaries, so the walk already
+    ///    emitted every closing tag.)
+    /// 2. Collect fills from directive handlers and code-block processors, then
     ///    assemble: one pass, copying spans of the buffer and writing each fill
     ///    at its reserved offset.
-    /// 4. Collect code-block processor warnings, transient-error state, and
-    ///    section refs. `has_transient_error` is populated only during step 3
+    /// 3. Collect code-block processor warnings, transient-error state, and
+    ///    section refs. `has_transient_error` is populated only during step 2
     ///    (by [`CodeBlockProcessor::fills`]). Section refs come from two
     ///    sources: `self.section_refs`, accumulated during the walk itself from
     ///    prose links and wikilinks, plus each processor's `section_refs()`
-    ///    (populated during step 3, e.g. from diagram `$link`s) — the two are
+    ///    (populated during step 2, e.g. from diagram `$link`s) — the two are
     ///    merged here. Warnings may also be pushed earlier — during the walk
     ///    (directive warnings are collected by the façade in `render`), or
     ///    before it, by [`CodeBlockProcessor::bundle`], which runs from the
     ///    separate [`bundle_markdown`](crate::bundle_markdown) entry point
     ///    (used by the S3 publish path) ahead of any walk.
-    /// 5. Take title and toc from the heading accumulator.
+    /// 4. Take title and toc from the heading accumulator.
     ///
     /// # Do not add a step that rewrites the buffer
     ///
@@ -166,12 +195,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             "Walker::finish called with unclosed blockquote/alert nesting: {} levels still open",
             self.alert_stack.len()
         );
-        // Balance any container left open by missing `:::`, while the buffer is
-        // still the walk buffer holes address. Appending only extends it, so
-        // every recorded hole offset (all `<= output.len()`) stays valid.
-        if let Some(processor) = self.directives.as_deref_mut() {
-            processor.close_unclosed_containers(&mut self.output, B::raw_html);
-        }
+        debug_assert!(
+            self.container_outcomes.is_empty(),
+            "Walker::finish called with unpaired container directives (malformed event stream): {} still open — the parser must synthesize a close for every open container at EOF",
+            self.container_outcomes.len()
+        );
+        debug_assert!(
+            self.tab_open.is_empty(),
+            "Walker::finish called with a tab group still open: its bar hole would go unfilled ({} still open)",
+            self.tab_open.len()
+        );
 
         let mut html = std::mem::take(&mut self.output);
         let holes = std::mem::take(&mut self.holes);
@@ -193,6 +226,17 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             let mut local = Fills::new();
             processor.fills(&mut local);
             fills.merge(Source::CodeBlock(idx), local);
+        }
+
+        // Built-in tab bars: each `::::tabs` reserved a hole at its opening
+        // offset (before its panels), and now that every label is known the
+        // accessible tab-bar markup fills it. `assemble` writes it through
+        // `B::raw_html` like every other fill, so the search backend (no-op
+        // `raw_html`) drops the bar labels by design.
+        for group in &self.tab_groups {
+            let mut bar = String::new();
+            B::tabs_open(group.id, &group.tabs, &mut bar);
+            fills.insert(GlobalKey(Source::Tabs, group.bar_hole), bar);
         }
 
         // Fills are markup the backend never saw during the walk, so they go in
@@ -305,18 +349,32 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             // against the fully coalesced run, which only the Parser has. Each
             // payload's args are moved into the dispatch, never cloned.
             Event::ContainerDirectiveStart(payload) => {
-                // Read before the closure: calling this inside would capture
-                // `&*self` and collide with the `&mut self` receiver.
-                let depth = self.enclosing_block_depth();
-                self.handle_block_directive(move |directives| {
-                    directives.dispatch_container_start(&payload.name, payload.args, depth)
-                });
+                // Tabs are a walker built-in (like `:status`), not a registered
+                // directive: recognize them before dispatching to the processor,
+                // so they render even though no handler is registered.
+                if payload.name == TABS_NAME {
+                    self.open_tab_group();
+                } else if payload.name == TAB_NAME {
+                    self.open_tab_item(&payload.args);
+                } else {
+                    // Pattern-B borrow: dispatch under the processor, release the
+                    // reborrow, then render. The outcome is recorded so the
+                    // parser's matching close renders correctly.
+                    let (outcome, dispatch) = {
+                        let processor = self.directives.as_deref_mut().expect(
+                            "block directives only ever arrive when a processor is registered",
+                        );
+                        processor.dispatch_container_start(&payload.name, payload.args)
+                    };
+                    self.container_outcomes.push(outcome);
+                    self.render_block_dispatch(dispatch);
+                }
             }
-            Event::ContainerDirectiveEnd { colon_count } => {
-                self.handle_block_directive(move |directives| {
-                    directives.dispatch_container_end(colon_count)
-                });
-            }
+            Event::ContainerDirectiveEnd {
+                name,
+                colon_count,
+                implicit,
+            } => self.close_container(name.as_deref(), colon_count, implicit),
             Event::LeafDirective(payload) => {
                 self.handle_block_directive(move |directives| {
                     directives.dispatch_leaf(&payload.name, payload.args)
@@ -502,29 +560,146 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
     }
 
-    /// How deeply the current position is nested in blockquotes and lists.
-    ///
-    /// A block directive records this when it opens a container scope, so a
-    /// container left unclosed can be balanced when the block enclosing it
-    /// ends. Counting blockquote and list levels together is enough: the two
-    /// stacks only ever grow and shrink in properly nested order, so the sum is
-    /// monotonic with actual nesting.
-    fn enclosing_block_depth(&self) -> usize {
-        self.alert_stack.len() + self.list_stack.len()
+    /// Push the "unclosed container directive" warning for `name`, if a
+    /// directive processor is registered. Shared by `close_container`'s
+    /// implicit-close arm and `close_tab_scope`, which warn on the same
+    /// condition with identical text.
+    fn warn_unclosed_container(&mut self, name: Option<&str>) {
+        if let Some(processor) = self.directives.as_deref_mut() {
+            processor.push_warning(format!(
+                "unclosed container directive :::{} (missing closing :::)",
+                name.unwrap_or_default()
+            ));
+        }
     }
 
-    /// Close container scopes opened inside the blockquote or list item that is
-    /// ending, before its own closing tag is written.
+    /// Render a `ContainerDirectiveEnd` the parser paired: pop the outcome its
+    /// opener recorded and emit the matching close.
     ///
-    /// Must be called while the level being closed is still on its stack — the
-    /// depth it computes is the one containers opened *directly inside* it
-    /// recorded.
-    fn close_containers_for_block_end(&mut self) {
-        let depth = self.enclosing_block_depth();
-        // Field-disjoint borrows (pattern A): `self.directives` and
-        // `self.output` are separate fields, so NLL splits the borrow.
-        if let Some(processor) = self.directives.as_deref_mut() {
-            processor.close_containers_nested_in(depth, &mut self.output, B::raw_html);
+    /// The parser guarantees a balanced, well-nested stream — every open
+    /// container is closed (explicitly, or by a synthesized `implicit` close at
+    /// its block/EOF boundary) before the enclosing block's own `End`, so the
+    /// outcome stack is always in step with it. Three cases:
+    ///
+    /// * [`Handled(idx)`](ContainerOutcome::Handled) — a registered handler;
+    ///   emit its `end()`. An `implicit` close of one is an unclosed container:
+    ///   warn (the parser closed it for the author).
+    /// * [`Literal`](ContainerOutcome::Literal) — the opener rendered as text.
+    ///   An explicit close renders its colons literally; an `implicit` one
+    ///   renders nothing (the opener was already plain prose).
+    /// * no outcome — a stray `:::` the parser paired to nothing: warn and
+    ///   render its colons literally.
+    fn close_container(&mut self, name: Option<&str>, colon_count: usize, implicit: bool) {
+        match self.container_outcomes.pop() {
+            Some(ContainerOutcome::Handled(idx)) => {
+                if implicit {
+                    self.warn_unclosed_container(name);
+                }
+                // Pattern-B borrow: release the reborrow before render.
+                let dispatch = {
+                    let processor = self
+                        .directives
+                        .as_deref_mut()
+                        .expect("a Handled outcome was recorded under a registered processor");
+                    processor.container_end(idx)
+                };
+                self.render_block_dispatch(dispatch);
+            }
+            Some(ContainerOutcome::Literal) => {
+                if !implicit {
+                    self.emit_text_paragraph(&":".repeat(colon_count));
+                }
+            }
+            Some(ContainerOutcome::Native(scope)) => {
+                self.close_tab_scope(scope, name, implicit);
+            }
+            None => {
+                if let Some(processor) = self.directives.as_deref_mut() {
+                    processor.push_warning("stray ::: with no opening directive".to_owned());
+                }
+                self.emit_text_paragraph(&":".repeat(colon_count));
+            }
+        }
+    }
+
+    /// Open a `::::tabs` group: reserve its deferred tab-bar hole at the current
+    /// (pre-panel) offset and start collecting tabs. Scopes are empty here —
+    /// tabs never open inside a heading or image — so the reservation offset
+    /// names the right place in `self.output`.
+    fn open_tab_group(&mut self) {
+        let id = self.next_group_id;
+        self.next_group_id += 1;
+        let bar_hole = self.next_tab_hole;
+        self.next_tab_hole += 1;
+        self.reserve_hole(GlobalKey(Source::Tabs, bar_hole));
+        self.tab_open.push(TabGroup {
+            id,
+            tabs: Vec::new(),
+            bar_hole,
+        });
+        self.container_outcomes
+            .push(ContainerOutcome::Native(TabScope::Group));
+    }
+
+    /// Open a `:::tab[Label]` item: emit its panel's opening tag inline (through
+    /// the backend) and record the label for the group's deferred bar. A `:::tab`
+    /// with no enclosing `::::tabs` renders its content unwrapped and warns.
+    fn open_tab_item(&mut self, args: &DirectiveArgs) {
+        let label = if args.content().is_empty() {
+            "Tab".to_owned()
+        } else {
+            strip_quotes(args.content()).to_owned()
+        };
+        let Some(group) = self.tab_open.last_mut() else {
+            if let Some(p) = self.directives.as_deref_mut() {
+                p.push_warning(
+                    "`:::tab` outside a `::::tabs` group; its content is rendered without tab chrome"
+                        .to_owned(),
+                );
+            }
+            self.container_outcomes
+                .push(ContainerOutcome::Native(TabScope::LoneItem));
+            return;
+        };
+        let tab_id = self.next_tab_id;
+        self.next_tab_id += 1;
+        let is_first = group.tabs.is_empty();
+        let group_id = group.id;
+        let info = TabInfo {
+            id: tab_id,
+            label,
+            is_first,
+        };
+        B::tab_panel_open(group_id, &info, &mut self.output);
+        group.tabs.push(info);
+        self.container_outcomes
+            .push(ContainerOutcome::Native(TabScope::Item));
+    }
+
+    /// Render the close of a built-in tab scope the parser paired. An `implicit`
+    /// close means the author left the container unclosed (the parser
+    /// synthesized the close at a block/EOF boundary), which warns — naming the
+    /// directive from the close event (`tab` for an item, `tabs` for a group),
+    /// matching a registered container's unclosed warning.
+    fn close_tab_scope(&mut self, scope: TabScope, name: Option<&str>, implicit: bool) {
+        if implicit {
+            self.warn_unclosed_container(name);
+        }
+        match scope {
+            TabScope::Item => B::tab_panel_close(&mut self.output),
+            TabScope::Group => {
+                if let Some(group) = self.tab_open.pop() {
+                    if group.tabs.is_empty()
+                        && let Some(processor) = self.directives.as_deref_mut()
+                    {
+                        processor.push_warning("`::::tabs` group has no `:::tab` items".to_owned());
+                    }
+                    B::tabs_close(&mut self.output);
+                    self.tab_groups.push(group);
+                }
+            }
+            // LoneItem: `open_tab_item` emitted no opening tag, so nothing closes.
+            TabScope::LoneItem => {}
         }
     }
 
@@ -698,23 +873,19 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     self.store_heading_buffers(toc_text, done.rendered_html);
                 }
             }
-            TagEnd::BlockQuote => {
-                self.close_containers_for_block_end();
-                match self.alert_stack.pop() {
-                    Some(Some(alert_kind)) => {
-                        B::alert_end(alert_kind, &mut self.output);
-                    }
-                    _ => {
-                        B::blockquote_end(&mut self.output);
-                    }
+            TagEnd::BlockQuote => match self.alert_stack.pop() {
+                Some(Some(alert_kind)) => {
+                    B::alert_end(alert_kind, &mut self.output);
                 }
-            }
+                _ => {
+                    B::blockquote_end(&mut self.output);
+                }
+            },
             TagEnd::List(ordered) => {
                 self.list_stack.pop();
                 B::list_end(ordered, &mut self.output);
             }
             TagEnd::Item => {
-                self.close_containers_for_block_end();
                 B::list_item_end(&mut self.output);
             }
             TagEnd::Image => {
@@ -895,6 +1066,17 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn task_list_marker(&mut self, checked: bool) {
         B::task_list_marker(checked, &mut self.output);
     }
+}
+
+/// Strip a single pair of surrounding quotes (single or double) from a tab
+/// label. `:::tab["macOS"]` displays as `macOS`.
+fn strip_quotes(s: &str) -> &str {
+    let is_quoted =
+        (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\''));
+    if is_quoted && s.len() >= 2 {
+        return &s[1..s.len() - 1];
+    }
+    s
 }
 
 #[cfg(test)]
