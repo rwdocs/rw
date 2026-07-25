@@ -52,6 +52,11 @@ struct CommentBackend;
 impl RenderBackend for CommentBackend {
     const TITLE_AS_METADATA: bool = false;
 
+    // A comment body is untrusted user text, not authored documentation: a
+    // reviewer who types `:status[Done]` must see those characters back, not a
+    // status badge rendered into their words.
+    const TOKENIZE_DIRECTIVES: bool = false;
+
     fn code_block(lang: Option<&str>, content: &str, out: &mut String) {
         // Fenced/indented code renders like the page backend (escapes content).
         HtmlBackend::code_block(lang, content, out);

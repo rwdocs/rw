@@ -1,14 +1,14 @@
 //! Interpreter half of the render pipeline: turns rw
-//! [`Event`](rw_parser::Event)s into backend output.
+//! [`Event`]s into backend output.
 //!
 //! The boundary with [`Parser`](rw_parser::Parser) is syntax versus
 //! meaning. The Parser tokenizes: it coalesces text runs, recognizes directive
 //! syntax, accumulates fenced code blocks, and swallows metadata blocks, so
 //! nothing arriving here needs re-scanning. The Walker interprets what arrives
-//! — it is the half that holds the directive registry, the section index and
-//! the backend, and it owns the state that spans events (open containers, list
-//! and alert stacks, the heading accumulator, the code-block counter, the hole
-//! table).
+//! — it is the half that holds the section index and the backend, and it owns
+//! the state that spans events (open containers, list and alert stacks, the
+//! heading accumulator, the code-block counter, the hole table, and any
+//! warnings raised during the walk).
 //!
 //! `Walker` is constructed fresh inside every call to
 //! [`MarkdownRenderer::render`](crate::MarkdownRenderer::render). That's how
@@ -16,23 +16,19 @@
 //! id-counts, "seen first H1" flag, scope stacks, buffers) starts empty —
 //! the renderer's own scratch cannot leak across renders.
 //!
-//! Borrows the long-lived `RenderConfig` and (mutably) the processor and
-//! directive extensions from the façade. Dropped on the way out — including
-//! on panic, which leaves the façade's `RenderConfig` untouched for
-//! subsequent renders.
+//! Borrows the long-lived `RenderConfig` and (mutably) the code-block processor
+//! extensions from the façade. Dropped on the way out — including on panic,
+//! which leaves the façade's `RenderConfig` untouched for subsequent renders.
 //!
 //! # Borrow discipline
 //!
-//! Two borrow patterns recur inside `Walker` methods, each explained in
-//! detail where it is first used: pattern A (field-disjoint borrows) in the
-//! `Event::CodeBlock` arm of [`Walker::handle`]; pattern B (tightly-scoped
-//! reborrow) in [`Walker::emit_inline_directive`], also used by
-//! `handle_block_directive`.
-//!
-//! A third constraint applies wherever a dispatch closure is built: whatever
-//! the closure would read off `self` has to be read before it, or the capture
-//! collides with the `&mut self` receiver. Don't "simplify" any of them
-//! without reading the comments first; each will fail to compile if hoisted.
+//! One borrow pattern recurs inside `Walker` methods, explained in detail
+//! where it is first used: pattern A (field-disjoint borrows) in the
+//! `Event::CodeBlock` arm of [`Walker::handle`], where `self.processors`
+//! (iterated mutably) and `self.output` / `self.holes` are borrowed as
+//! distinct fields. Don't "simplify" it without reading the comment first; it
+//! will fail to compile if the field accesses are hoisted into a helper taking
+//! `&mut self`.
 
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
@@ -40,13 +36,7 @@ use std::marker::PhantomData;
 use crate::backend::RenderBackend;
 use crate::code_block::{CodeBlockProcessor, ProcessResult};
 use crate::config::RenderConfig;
-use crate::directive::DirectiveArgs;
-use crate::directive::DirectiveOutput;
-use crate::directive::DirectiveProcessor;
-use crate::directive::Fills;
-use crate::directive::Part;
-use crate::directive::fills::{GlobalKey, HoleKey, Source};
-use crate::directive::processor::{BlockDispatch, ContainerOutcome, TabScope};
+use crate::fills::{Fills, GlobalFills, GlobalKey, HoleKey, Source};
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
@@ -57,8 +47,38 @@ use crate::tabs::{TAB_NAME, TABS_NAME, TabInfo};
 use crate::toc::HeadingAccumulator;
 use crate::wikilink::{self, WikilinkResolution};
 use rw_parser::AlertKind;
+use rw_parser::DirectiveArgs;
 use rw_parser::{Event, LinkKind, Tag, TagEnd};
 use rw_parser::{InlineMatch, parse_line};
+
+/// What a container opener resolved to, recorded so the parser's matching close
+/// renders correctly.
+///
+/// The parser emits a balanced, well-nested
+/// `ContainerDirectiveStart`/`ContainerDirectiveEnd` stream (closing unclosed
+/// containers at block and EOF boundaries itself), so pairing lives here: the
+/// walker keeps one of these per open container.
+pub(crate) enum ContainerOutcome {
+    /// Unrecognized name: opener rendered literally; an explicit close renders
+    /// its colons literally, a synthesized close renders nothing.
+    Literal,
+    /// A walker built-in (`::::tabs`/`:::tab`); the close renders through the
+    /// backend's tab methods. `TabScope` records which shape.
+    Native(TabScope),
+}
+
+/// Which tab shape a [`ContainerOutcome::Native`] opener resolved to, so its
+/// close renders correctly. Tab metadata (ids, labels, the reserved bar hole)
+/// lives in dedicated walker fields, not here.
+#[derive(Clone, Copy)]
+pub(crate) enum TabScope {
+    /// The `::::tabs` group container.
+    Group,
+    /// A `:::tab` item inside an open group.
+    Item,
+    /// A `:::tab` with no enclosing `::::tabs` (content rendered unwrapped).
+    LoneItem,
+}
 
 /// A tab group the walker is rendering as a built-in: its id, the tabs seen so
 /// far, and the reserved bar-hole its accessible `<div role="tablist">` markup
@@ -72,9 +92,13 @@ struct TabGroup {
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
     processors: &'r mut [Box<dyn CodeBlockProcessor>],
-    directives: Option<&'r mut DirectiveProcessor>,
+    /// Warnings raised during the walk (unknown inline directives, unclosed
+    /// containers, stray closes, empty tab groups), folded into the result at
+    /// [`finish`](Self::finish).
+    warnings: Vec<String>,
     output: String,
-    /// Byte offsets where deferred directive content belongs.
+    /// Byte offsets where deferred content belongs — from code-block
+    /// processors and from the built-in tab bars.
     holes: Holes,
     /// Completed tab groups awaiting their bar-hole fill at `finish`.
     tab_groups: Vec<TabGroup>,
@@ -113,12 +137,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     pub(crate) fn new(
         cfg: &'r RenderConfig,
         processors: &'r mut [Box<dyn CodeBlockProcessor>],
-        directives: Option<&'r mut DirectiveProcessor>,
     ) -> Self {
         Self {
             cfg,
             processors,
-            directives,
+            warnings: Vec::new(),
             // 4 KiB warm-start capacity for the output buffer — average-
             // page-sized documents fit without reallocating. A capacity-hint
             // API on the façade could carry per-call sizing (e.g., based on
@@ -151,21 +174,22 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     ///
     /// 1. `mem::take` `output` into a local `html` — this owned `String` is
     ///    moved into the returned `RenderResult`, so it must be freestanding.
-    ///    (Containers left open no longer need balancing here: the parser
-    ///    synthesizes their closes at block/EOF boundaries, so the walk already
-    ///    emitted every closing tag.)
-    /// 2. Collect fills from directive handlers and code-block processors, then
-    ///    assemble: one pass, copying spans of the buffer and writing each fill
-    ///    at its reserved offset.
-    /// 3. Collect code-block processor warnings, transient-error state, and
-    ///    section refs. `has_transient_error` is populated only during step 2
-    ///    (by [`CodeBlockProcessor::fills`]). Section refs come from two
-    ///    sources: `self.section_refs`, accumulated during the walk itself from
-    ///    prose links and wikilinks, plus each processor's `section_refs()`
+    ///    (Containers left open need no balancing here: the parser synthesizes
+    ///    their closes at block/EOF boundaries, so the walk already emitted
+    ///    every closing tag.)
+    /// 2. Collect fills from code-block processors and the built-in tab bars,
+    ///    then assemble: one pass, copying spans of the buffer and writing each
+    ///    fill at its reserved offset.
+    /// 3. Collect warnings, transient-error state, and section refs.
+    ///    `has_transient_error` is populated only during step 2 (by
+    ///    [`CodeBlockProcessor::fills`]). Section refs come from two sources:
+    ///    `self.section_refs`, accumulated during the walk itself from prose
+    ///    links and wikilinks, plus each processor's `section_refs()`
     ///    (populated during step 2, e.g. from diagram `$link`s) — the two are
-    ///    merged here. Warnings may also be pushed earlier — during the walk
-    ///    (directive warnings are collected by the façade in `render`), or
-    ///    before it, by [`CodeBlockProcessor::bundle`], which runs from the
+    ///    merged here. Warnings come from `self.warnings` (raised during the
+    ///    walk — unknown directives, unclosed containers, stray closes) plus
+    ///    each processor's `warnings()`; a processor's may also be pushed before
+    ///    the walk by [`CodeBlockProcessor::bundle`], which runs from the
     ///    separate [`bundle_markdown`](crate::bundle_markdown) entry point
     ///    (used by the S3 publish path) ahead of any walk.
     /// 4. Take title and toc from the heading accumulator.
@@ -210,18 +234,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         let holes = std::mem::take(&mut self.holes);
 
         // Collect fills unconditionally, without first checking whether any
-        // hole was reserved. Whether a handler has anything to contribute is
-        // the handler's own business, and hole bookkeeping is private to
-        // `Holes` — gating the call on it would couple this call site to state
-        // it has no reason to inspect. The empty path is cheap:
-        // `Fills`/`GlobalFills` wrap `HashMap::default()`, which does not
-        // allocate until the first insert, so a handler that sets nothing
-        // costs no allocation.
-        let mut fills = self
-            .directives
-            .as_deref_mut()
-            .map(DirectiveProcessor::collect_fills)
-            .unwrap_or_default();
+        // hole was reserved. Whether a processor has anything to contribute is
+        // its own business, and hole bookkeeping is private to `Holes` —
+        // gating the call on it would couple this call site to state it has no
+        // reason to inspect. The empty path is cheap: `Fills`/`GlobalFills`
+        // wrap `HashMap::default()`, which does not allocate until the first
+        // insert, so a processor that sets nothing costs no allocation.
+        let mut fills = GlobalFills::default();
         for (idx, processor) in self.processors.iter_mut().enumerate() {
             let mut local = Fills::new();
             processor.fills(&mut local);
@@ -245,12 +264,17 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         // that transforms the buffer — see this function's doc comment.
         html = holes.assemble(html, &fills, B::raw_html);
 
-        let warnings = self
+        // Code-block-processor warnings first, then the walk's own
+        // directive/container warnings. `--strict` publishing surfaces this
+        // list verbatim, so the order is user-visible — it is pinned by
+        // `warnings_order_processor_before_directive` in `renderer.rs`.
+        let mut warnings: Vec<String> = self
             .processors
             .iter()
             .flat_map(|p| p.warnings())
             .cloned()
             .collect();
+        warnings.extend(std::mem::take(&mut self.warnings));
         let has_transient_error = self.processors.iter().any(|p| p.has_transient_error());
         let mut section_refs = std::mem::take(&mut self.section_refs);
         for processor in self.processors.iter() {
@@ -347,27 +371,22 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             }
             // Block directives arrive already parsed: the decision is made
             // against the fully coalesced run, which only the Parser has. Each
-            // payload's args are moved into the dispatch, never cloned.
+            // payload's args are borrowed by the dispatch, never cloned.
             Event::ContainerDirectiveStart(payload) => {
-                // Tabs are a walker built-in (like `:status`), not a registered
-                // directive: recognize them before dispatching to the processor,
-                // so they render even though no handler is registered.
+                // Tabs are the only container built-in (like `:status` inline);
+                // every other container name is unrecognized, so it renders
+                // literally and its matching close renders literally too.
                 if payload.name == TABS_NAME {
                     self.open_tab_group();
                 } else if payload.name == TAB_NAME {
                     self.open_tab_item(&payload.args);
                 } else {
-                    // Pattern-B borrow: dispatch under the processor, release the
-                    // reborrow, then render. The outcome is recorded so the
-                    // parser's matching close renders correctly.
-                    let (outcome, dispatch) = {
-                        let processor = self.directives.as_deref_mut().expect(
-                            "block directives only ever arrive when a processor is registered",
-                        );
-                        processor.dispatch_container_start(&payload.name, payload.args)
-                    };
-                    self.container_outcomes.push(outcome);
-                    self.render_block_dispatch(dispatch);
+                    self.container_outcomes.push(ContainerOutcome::Literal);
+                    self.emit_text_paragraph(&format!(
+                        ":::{}{}",
+                        payload.name,
+                        payload.args.to_syntax()
+                    ));
                 }
             }
             Event::ContainerDirectiveEnd {
@@ -376,12 +395,17 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 implicit,
             } => self.close_container(name.as_deref(), colon_count, implicit),
             Event::LeafDirective(payload) => {
-                self.handle_block_directive(move |directives| {
-                    directives.dispatch_leaf(&payload.name, payload.args)
-                });
+                // A leaf directive always renders literally (routed through
+                // `emit_text_paragraph` so an inner inline built-in like
+                // `:status` still expands).
+                self.emit_text_paragraph(&format!(
+                    "::{}{}",
+                    payload.name,
+                    payload.args.to_syntax()
+                ));
             }
             Event::InlineDirective(payload) => {
-                self.emit_inline_directive(&payload.name, payload.args, &payload.raw);
+                self.emit_inline_directive(&payload.name, &payload.args, &payload.raw);
             }
         }
     }
@@ -407,19 +431,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// Emit a reconstructed literal, expanding inline directives on the way,
     /// through [`text`](Self::text) / [`raw_html`](Self::raw_html).
     ///
-    /// The Parser segments ordinary text runs itself, so this scanner survives
-    /// for exactly one caller: the `BlockDispatch::PassThrough` re-entry in
-    /// [`emit_text_paragraph`](Self::emit_text_paragraph), which renders a
-    /// block directive nobody claimed as ordinary prose. That literal was
-    /// rebuilt from a `DirectiveArgs`, never tokenized, so it legitimately has
-    /// to be re-scanned — `:::foo[:kbd[X]]` with `foo` unregistered still
-    /// expands the inner `:kbd`.
-    ///
-    /// That single caller runs only under a registered processor — it is
-    /// reached through
-    /// [`render_block_dispatch`](Self::render_block_dispatch), which carries
-    /// that as a precondition — so this needs no directives-off branch of its
-    /// own.
+    /// The Parser segments ordinary text runs itself, so this scanner has
+    /// exactly one caller: [`emit_text_paragraph`](Self::emit_text_paragraph),
+    /// which renders a leaf or unrecognized container directive as ordinary
+    /// prose. That literal was rebuilt from a `DirectiveArgs`, never tokenized,
+    /// so it legitimately has to be re-scanned — `:::foo[:status[X]]` with `foo`
+    /// unrecognized still expands the inner `:status`.
     fn flush_text(&mut self, text: &str) {
         let mut remaining = text;
         while !remaining.is_empty() {
@@ -434,24 +451,24 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
 
             let matched = &remaining[range.start..range.end];
 
-            self.emit_inline_directive(&directive.name, directive.args, matched);
+            self.emit_inline_directive(&directive.name, &directive.args, matched);
 
             remaining = &remaining[range.end..];
         }
     }
 
-    /// Dispatch one inline directive and render the result. Shared by the
-    /// `Event::InlineDirective` arm and by `flush_text`'s re-entry path.
+    /// Render one inline directive. Shared by the `Event::InlineDirective` arm
+    /// and by `flush_text`'s re-entry path.
     ///
-    /// `raw` is the directive's byte-exact source slice, which is what an
-    /// unclaimed directive is emitted as: `DirectiveArgs::to_syntax` is not a
-    /// round-trip, so rebuilding the syntax would not reproduce the source.
-    fn emit_inline_directive(&mut self, name: &str, args: DirectiveArgs, raw: &str) {
-        // `:status` is a walker built-in, not a registered directive: dispatch it
-        // directly instead of through `self.directives`, so it renders even when
-        // no processor handles it. The open/close tags route through
-        // `with_markup_buffer` like any other inline tag, so status obeys the same
-        // scope rules (e.g. inside a heading), while the label goes through
+    /// `:status` is the only inline built-in; every other name is unknown, so
+    /// it warns and renders literally. `raw` is the directive's byte-exact
+    /// source slice, which is what an unknown directive is emitted as:
+    /// `DirectiveArgs::to_syntax` is not a round-trip, so rebuilding the syntax
+    /// would not reproduce the source.
+    fn emit_inline_directive(&mut self, name: &str, args: &DirectiveArgs, raw: &str) {
+        // `:status` is a walker built-in. The open/close tags route through
+        // `with_markup_buffer` like any other inline tag, so status obeys the
+        // same scope rules (e.g. inside a heading), while the label goes through
         // `self.text` for escaping and heading-slug/alt-text capture.
         if name == STATUS_NAME {
             let color = StatusColor::from(args.get("color").unwrap_or_default());
@@ -460,117 +477,32 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             self.with_markup_buffer(B::status_close);
             return;
         }
-
-        // Tightly-scoped processor borrow: dispatch and capture the outcome
-        // before relinquishing the borrow.
-        //
-        // Borrow discipline (pattern B): release the `&mut self.directives`
-        // reborrow at the end of this block before any `&mut self` method
-        // call below. The compiler can't prove those methods don't touch
-        // self.directives, so holding the directives
-        // borrow across the call would fail. The outcome must be owned data,
-        // not a borrow.
-        let output = {
-            let processor = self
-                .directives
-                .as_deref_mut()
-                .expect("inline directives only ever arrive when a processor is registered");
-            processor.dispatch_inline_named(name, args)
-        };
-
-        match output {
-            DirectiveOutput::Html(html) => {
-                self.raw_html(&html);
-            }
-            DirectiveOutput::Deferred(parts) => {
-                if let Some(p) = self.directives.as_deref_mut() {
-                    p.push_warning(format!(
-                        "inline directive ':{name}' returned Deferred; its holes were dropped (inline directives cannot defer content — return Html instead)"
-                    ));
-                }
-                // Emit the literal pieces so their content isn't lost, but
-                // skip the holes: `InlineDirective` has no `fills()` hook,
-                // so a reserved hole could never be filled.
-                for part in parts {
-                    if let Part::Html(html) = part {
-                        self.raw_html(&html);
-                    }
-                }
-            }
-            DirectiveOutput::Skip => {
-                if let Some(p) = self.directives.as_deref_mut() {
-                    p.push_warning(format!(
-                        "unknown inline directive ':{name}' — no handler registered (or handler returned Skip)"
-                    ));
-                }
-                self.text(raw);
-            }
-        }
+        self.warnings
+            .push(format!("unknown inline directive ':{name}'"));
+        self.text(raw);
     }
 
     /// Render `text` as an ordinary paragraph: emit `<p>`, flush the text
     /// through inline-directive expansion, then `</p>`.
     ///
-    /// Only for the re-entry path — a block directive the processor handed back
-    /// as [`BlockDispatch::PassThrough`], which arrives outside any paragraph
-    /// event pair and so owes both tags itself. A paragraph the Parser
-    /// recognized as prose emits its own `Start`/`End(Paragraph)` instead.
+    /// Only for the literal-directive path — a leaf or unrecognized container
+    /// directive that renders as prose, arriving outside any paragraph event
+    /// pair and so owing both tags itself. A paragraph the Parser recognized as
+    /// prose emits its own `Start`/`End(Paragraph)` instead.
     fn emit_text_paragraph(&mut self, text: &str) {
         B::paragraph_start(&mut self.output);
         self.flush_text(text);
         B::paragraph_end(&mut self.output);
     }
 
-    /// Dispatch a recognized block directive through the processor and render
-    /// the result. Pattern-B borrow discipline: the `&mut self.directives`
-    /// reborrow is dropped (owned `BlockDispatch` returned) before any
-    /// `&mut self` method call.
-    fn handle_block_directive(
-        &mut self,
-        dispatch_with: impl FnOnce(&mut DirectiveProcessor) -> BlockDispatch,
-    ) {
-        let dispatch = {
-            let processor = self
-                .directives
-                .as_deref_mut()
-                .expect("block directives only ever arrive when a processor is registered");
-            dispatch_with(processor)
-        };
-        self.render_block_dispatch(dispatch);
-    }
-
-    /// Render what the processor handed back.
-    ///
-    /// Kept out of [`handle_block_directive`](Self::handle_block_directive),
-    /// which is generic over its dispatch closure and so monomorphizes once
-    /// per call site: holding this `match` there would emit one copy per
-    /// backend *per call site* instead of one per backend.
-    ///
-    /// # Precondition
-    ///
-    /// Only call this with a dispatch obtained under a registered processor.
-    /// A [`BlockDispatch::PassThrough`] literal is re-scanned for inline
-    /// directives by [`flush_text`](Self::flush_text), which unwraps
-    /// `self.directives` without a directives-off branch.
-    fn render_block_dispatch(&mut self, dispatch: BlockDispatch) {
-        match dispatch {
-            BlockDispatch::Html(html) => self.raw_html(&html),
-            BlockDispatch::Deferred { parts, source } => self.emit_parts(parts, source),
-            BlockDispatch::PassThrough(text) => self.emit_text_paragraph(&text),
-        }
-    }
-
-    /// Push the "unclosed container directive" warning for `name`, if a
-    /// directive processor is registered. Shared by `close_container`'s
-    /// implicit-close arm and `close_tab_scope`, which warn on the same
-    /// condition with identical text.
+    /// Push the "unclosed container directive" warning for `name`. Shared by
+    /// `close_container`'s implicit-close arm and `close_tab_scope`, which warn
+    /// on the same condition with identical text.
     fn warn_unclosed_container(&mut self, name: Option<&str>) {
-        if let Some(processor) = self.directives.as_deref_mut() {
-            processor.push_warning(format!(
-                "unclosed container directive :::{} (missing closing :::)",
-                name.unwrap_or_default()
-            ));
-        }
+        self.warnings.push(format!(
+            "unclosed container directive :::{} (missing closing :::)",
+            name.unwrap_or_default()
+        ));
     }
 
     /// Render a `ContainerDirectiveEnd` the parser paired: pop the outcome its
@@ -581,30 +513,15 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// its block/EOF boundary) before the enclosing block's own `End`, so the
     /// outcome stack is always in step with it. Three cases:
     ///
-    /// * [`Handled(idx)`](ContainerOutcome::Handled) — a registered handler;
-    ///   emit its `end()`. An `implicit` close of one is an unclosed container:
-    ///   warn (the parser closed it for the author).
     /// * [`Literal`](ContainerOutcome::Literal) — the opener rendered as text.
     ///   An explicit close renders its colons literally; an `implicit` one
     ///   renders nothing (the opener was already plain prose).
+    /// * [`Native`](ContainerOutcome::Native) — a walker built-in tab scope;
+    ///   the close renders through the backend's tab methods.
     /// * no outcome — a stray `:::` the parser paired to nothing: warn and
     ///   render its colons literally.
     fn close_container(&mut self, name: Option<&str>, colon_count: usize, implicit: bool) {
         match self.container_outcomes.pop() {
-            Some(ContainerOutcome::Handled(idx)) => {
-                if implicit {
-                    self.warn_unclosed_container(name);
-                }
-                // Pattern-B borrow: release the reborrow before render.
-                let dispatch = {
-                    let processor = self
-                        .directives
-                        .as_deref_mut()
-                        .expect("a Handled outcome was recorded under a registered processor");
-                    processor.container_end(idx)
-                };
-                self.render_block_dispatch(dispatch);
-            }
             Some(ContainerOutcome::Literal) => {
                 if !implicit {
                     self.emit_text_paragraph(&":".repeat(colon_count));
@@ -614,9 +531,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 self.close_tab_scope(scope, name, implicit);
             }
             None => {
-                if let Some(processor) = self.directives.as_deref_mut() {
-                    processor.push_warning("stray ::: with no opening directive".to_owned());
-                }
+                self.warnings
+                    .push("stray ::: with no opening directive".to_owned());
                 self.emit_text_paragraph(&":".repeat(colon_count));
             }
         }
@@ -651,12 +567,10 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             strip_quotes(args.content()).to_owned()
         };
         let Some(group) = self.tab_open.last_mut() else {
-            if let Some(p) = self.directives.as_deref_mut() {
-                p.push_warning(
-                    "`:::tab` outside a `::::tabs` group; its content is rendered without tab chrome"
-                        .to_owned(),
-                );
-            }
+            self.warnings.push(
+                "`:::tab` outside a `::::tabs` group; its content is rendered without tab chrome"
+                    .to_owned(),
+            );
             self.container_outcomes
                 .push(ContainerOutcome::Native(TabScope::LoneItem));
             return;
@@ -679,8 +593,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// Render the close of a built-in tab scope the parser paired. An `implicit`
     /// close means the author left the container unclosed (the parser
     /// synthesized the close at a block/EOF boundary), which warns — naming the
-    /// directive from the close event (`tab` for an item, `tabs` for a group),
-    /// matching a registered container's unclosed warning.
+    /// directive from the close event (`tab` for an item, `tabs` for a group).
     fn close_tab_scope(&mut self, scope: TabScope, name: Option<&str>, implicit: bool) {
         if implicit {
             self.warn_unclosed_container(name);
@@ -689,10 +602,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             TabScope::Item => B::tab_panel_close(&mut self.output),
             TabScope::Group => {
                 if let Some(group) = self.tab_open.pop() {
-                    if group.tabs.is_empty()
-                        && let Some(processor) = self.directives.as_deref_mut()
-                    {
-                        processor.push_warning("`::::tabs` group has no `:::tab` items".to_owned());
+                    if group.tabs.is_empty() {
+                        self.warnings
+                            .push("`::::tabs` group has no `:::tab` items".to_owned());
                     }
                     B::tabs_close(&mut self.output);
                     self.tab_groups.push(group);
@@ -1001,20 +913,6 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.holes.reserve(self.output.len(), key);
     }
 
-    /// Emit a deferred directive's parts: literal HTML inline, holes reserved
-    /// at the position the fill will occupy.
-    ///
-    /// `source` identifies the handler the parts came from; its local hole
-    /// keys become global here.
-    fn emit_parts(&mut self, parts: Vec<Part>, source: Source) {
-        for part in parts {
-            match part {
-                Part::Html(html) => self.raw_html(&html),
-                Part::Hole(key) => self.reserve_hole(GlobalKey(source, key)),
-            }
-        }
-    }
-
     fn soft_break(&mut self) {
         match self.scopes.last_mut() {
             Some(Scope::Heading { rendered_html, .. }) => B::soft_break(rendered_html),
@@ -1092,8 +990,7 @@ mod tests {
     fn finish_returns_empty_result_when_no_events_processed() {
         let config = cfg();
         let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut directives = None;
-        let walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
+        let walker = Walker::<HtmlBackend>::new(&config, &mut processors);
         let result = walker.finish();
         assert!(result.html.is_empty());
         assert!(result.title.is_none());
@@ -1107,8 +1004,7 @@ mod tests {
     fn finish_debug_asserts_scopes_empty() {
         let config = cfg();
         let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut directives = None;
-        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
+        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors);
         walker.scopes.push(Scope::Image {
             alt_text: String::new(),
             dest_url: String::new(),
@@ -1123,8 +1019,7 @@ mod tests {
     fn finish_debug_asserts_list_stack_empty() {
         let config = cfg();
         let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut directives = None;
-        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
+        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors);
         walker.list_stack.push(false);
         walker.finish();
     }
@@ -1135,8 +1030,7 @@ mod tests {
     fn finish_debug_asserts_alert_stack_empty() {
         let config = cfg();
         let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut directives = None;
-        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors, directives.as_mut());
+        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors);
         walker.alert_stack.push(None);
         walker.finish();
     }

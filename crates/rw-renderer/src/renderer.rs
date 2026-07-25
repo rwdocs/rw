@@ -71,11 +71,11 @@ pub struct RenderResult {
 /// [`Pipeline`], and runs the full pipeline — tokenizing (markdown and
 /// directive syntax alike), interpreting, and hole assembly.
 ///
-/// # Code block processors and directives
+/// # Code block processors
 ///
-/// Per-render extensions (code block processors, directive processor) are
-/// bundled in a [`Pipeline`] passed to [`render`](Self::render). Build a fresh
-/// [`Pipeline`] for each render call.
+/// Per-render extensions (code block processors) are bundled in a [`Pipeline`]
+/// passed to [`render`](Self::render). Build a fresh [`Pipeline`] for each
+/// render call.
 ///
 /// # Examples
 ///
@@ -219,42 +219,23 @@ impl<B: RenderBackend> MarkdownRenderer<B> {
     ///    `:::name … :::`, inline `:name[…]`) as it goes, and the `Walker`
     ///    interprets those events into backend output. There is no separate
     ///    line-based preprocessing pass.
-    /// 2. **Assemble** — splices every reserved hole's content (from directive
-    ///    handlers and code-block processors, e.g. rendered diagrams) into the
+    /// 2. **Assemble** — splices every reserved hole's content (from code-block
+    ///    processors, e.g. rendered diagrams, and the built-in tab bars) into the
     ///    output in a single pass. Unclosed-container and stray-`:::` warnings
     ///    are raised during the walk itself, as the parser's synthesized closes
     ///    are rendered.
     ///
     /// The supplied `Pipeline` is consumed: build a fresh one per render.
     pub fn render(&self, markdown: &str, mut pipeline: Pipeline) -> RenderResult {
-        let mut parser = Parser::new(
-            markdown,
-            self.config.wikilinks,
-            pipeline.directives.is_some(),
-        );
-        let mut result = {
-            let mut walker = crate::walker::Walker::<B>::new(
-                &self.config,
-                &mut pipeline.processors,
-                pipeline.directives.as_mut(),
-            );
-            // `parser` and `walker` are disjoint locals, so the two `&mut`
-            // borrows never conflict — which is what makes the lending
-            // `next` usable without a `LendingIterator` trait.
-            while let Some(event) = parser.next() {
-                walker.handle(event);
-            }
-            walker.finish()
-        };
-
-        // The walk pushes any unclosed-container and stray-`:::` warnings as it
-        // renders the parser's synthesized/explicit closes, so this only drains
-        // what the processor and its handlers accumulated.
-        if let Some(processor) = pipeline.directives.as_mut() {
-            result.warnings.extend(processor.warnings());
+        let mut parser = Parser::new(markdown, self.config.wikilinks, B::TOKENIZE_DIRECTIVES);
+        let mut walker = crate::walker::Walker::<B>::new(&self.config, &mut pipeline.processors);
+        // `parser` and `walker` are disjoint locals, so the two `&mut`
+        // borrows never conflict — which is what makes the lending
+        // `next` usable without a `LendingIterator` trait.
+        while let Some(event) = parser.next() {
+            walker.handle(event);
         }
-
-        result
+        walker.finish()
     }
 }
 
@@ -266,14 +247,13 @@ impl<B: RenderBackend> Default for MarkdownRenderer<B> {
 
 // Compile-time contract: this fires in every build (not only `cargo test`),
 // so a future change that breaks the auto-trait shape — e.g., adding an `Rc`
-// to `RenderConfig` or making a directive handler `!Send` — fails the build
-// instead of slipping past test-gated assertions.
+// to `RenderConfig`, or dropping `CodeBlockProcessor`'s `Send` supertrait —
+// fails the build instead of slipping past test-gated assertions.
 //
 // `MarkdownRenderer<B>` must stay `Send + Sync` so it can be parked in an
 // `Arc` and used by many request handlers. `Pipeline` must stay `Send` so a
 // caller can build it on one thread and hand it to a render running on
-// another; it is intentionally not `Sync` because directive handlers are
-// `Send`-only (each document gets its own handler).
+// another.
 const _: fn() = || {
     fn assert_send<T: Send>() {}
     fn assert_send_sync<T: Send + Sync>() {}
@@ -288,7 +268,7 @@ mod tests {
     use super::*;
     use crate::HtmlBackend;
     use crate::code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
-    use crate::directive::Fills;
+    use crate::fills::Fills;
     use rw_parser::FenceAttrs;
     use rw_sections::{Namespace, Section};
 
@@ -974,6 +954,28 @@ mod tests {
         assert!(result.warnings.is_empty());
     }
 
+    #[test]
+    fn warnings_order_processor_before_directive() {
+        // A single render emitting BOTH a code-block-processor warning and a
+        // walk-time directive warning (an unclosed `:::tab`) must list them
+        // processor-first, then directive. `--strict` publishing surfaces this
+        // list verbatim, so a flip is observable.
+        let result = MarkdownRenderer::<HtmlBackend>::new().render(
+            "::::tabs\n\n:::tab[A]\n\nbody",
+            Pipeline::new().with_processor(WarningProcessor::new(vec!["proc warning".into()])),
+        );
+
+        assert_eq!(
+            result.warnings,
+            vec![
+                "proc warning".to_owned(),
+                "unclosed container directive :::tab (missing closing :::)".to_owned(),
+                "unclosed container directive :::tabs (missing closing :::)".to_owned(),
+            ],
+            "processor warnings must precede directive warnings",
+        );
+    }
+
     struct TransientErrorProcessor {
         transient: bool,
     }
@@ -1033,12 +1035,7 @@ mod tests {
     // Directive integration tests
 
     #[test]
-    fn test_with_directives_tabs() {
-        use crate::directive::DirectiveProcessor;
-
-        // Tabs are a walker built-in; an empty processor only tokenizes syntax.
-        let processor = DirectiveProcessor::new();
-
+    fn tabs_render_through_an_empty_pipeline() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
         // Block directives are blank-line separated: each `:::` delimiter is
@@ -1059,7 +1056,7 @@ Install with apt.
 :::
 
 ::::",
-            Pipeline::new().with_directives(processor),
+            Pipeline::new(),
         );
 
         // Should have accessible tab structure
@@ -1071,219 +1068,12 @@ Install with apt.
     }
 
     #[test]
-    fn test_with_directives_inline() {
-        use crate::directive::{
-            DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor, InlineDirective,
-        };
-
-        struct KbdDirective;
-
-        impl InlineDirective for KbdDirective {
-            fn name(&self) -> &'static str {
-                "kbd"
-            }
-
-            fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
-
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        let result = renderer.render(
-            "Press :kbd[Ctrl+C] to copy.",
-            Pipeline::new().with_directives(processor),
-        );
-
-        assert!(result.html.contains("<kbd>Ctrl+C</kbd>"));
-    }
-
-    #[test]
-    fn test_inline_directive_after_punctuation_colon_still_expands() {
-        // Issue #390: a punctuation colon earlier on the line (`Note:`) used to
-        // blind the scanner to the real :kbd directive that followed.
-        use crate::directive::{
-            DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor, InlineDirective,
-        };
-
-        struct KbdDirective;
-        impl InlineDirective for KbdDirective {
-            fn name(&self) -> &'static str {
-                "kbd"
-            }
-            fn process(&mut self, args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-                DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        let result = renderer.render(
-            "Note: press :kbd[Ctrl+C] to copy.",
-            Pipeline::new().with_directives(processor),
-        );
-
-        assert!(
-            result.html.contains("<kbd>Ctrl+C</kbd>"),
-            "expected :kbd to expand after a non-directive colon; got: {}",
-            result.html,
-        );
-    }
-
-    #[test]
-    fn test_inline_directive_inside_code_span_not_expanded() {
-        use crate::directive::DirectiveProcessor;
-
-        struct KbdDirective;
-        impl crate::directive::InlineDirective for KbdDirective {
-            fn name(&self) -> &'static str {
-                "kbd"
-            }
-            fn process(
-                &mut self,
-                args: crate::directive::DirectiveArgs,
-                _ctx: &crate::directive::DirectiveContext,
-            ) -> crate::directive::DirectiveOutput {
-                crate::directive::DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        let result = renderer.render(
-            "Use `:kbd[Ctrl+C]` to copy.",
-            Pipeline::new().with_directives(processor),
-        );
-
-        assert!(
-            result.html.contains("<code>:kbd[Ctrl+C]</code>"),
-            "expected literal directive syntax inside <code>; got: {}",
-            result.html,
-        );
-        assert!(
-            !result.html.contains("<kbd>"),
-            "directive should NOT have been expanded inside the code span; got: {}",
-            result.html,
-        );
-    }
-
-    #[test]
-    fn test_inline_directive_outside_code_span_still_expands() {
-        use crate::directive::DirectiveProcessor;
-
-        struct KbdDirective;
-        impl crate::directive::InlineDirective for KbdDirective {
-            fn name(&self) -> &'static str {
-                "kbd"
-            }
-            fn process(
-                &mut self,
-                args: crate::directive::DirectiveArgs,
-                _ctx: &crate::directive::DirectiveContext,
-            ) -> crate::directive::DirectiveOutput {
-                crate::directive::DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        let result = renderer.render(
-            "Use :kbd[Ctrl+C] not `:kbd[Esc]`.",
-            Pipeline::new().with_directives(processor),
-        );
-
-        assert!(
-            result.html.contains("<kbd>Ctrl+C</kbd>"),
-            "directive outside code span should expand; got: {}",
-            result.html,
-        );
-        assert!(
-            result.html.contains("<code>:kbd[Esc]</code>"),
-            "directive inside code span should stay literal; got: {}",
-            result.html,
-        );
-    }
-
-    #[test]
-    fn test_inline_directive_in_indented_code_block_not_expanded() {
-        use crate::directive::DirectiveProcessor;
-
-        struct KbdDirective;
-        impl crate::directive::InlineDirective for KbdDirective {
-            fn name(&self) -> &'static str {
-                "kbd"
-            }
-            fn process(
-                &mut self,
-                args: crate::directive::DirectiveArgs,
-                _ctx: &crate::directive::DirectiveContext,
-            ) -> crate::directive::DirectiveOutput {
-                crate::directive::DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        let result = renderer.render(
-            "paragraph\n\n    :kbd[X]\n",
-            Pipeline::new().with_directives(processor),
-        );
-
-        assert!(
-            !result.html.contains("<kbd>"),
-            "directive inside indented code block should not expand; got: {}",
-            result.html,
-        );
-    }
-
-    #[test]
-    fn test_plain_code_span_unaffected() {
-        use crate::directive::DirectiveProcessor;
-
-        struct KbdDirective;
-        impl crate::directive::InlineDirective for KbdDirective {
-            fn name(&self) -> &'static str {
-                "kbd"
-            }
-            fn process(
-                &mut self,
-                args: crate::directive::DirectiveArgs,
-                _ctx: &crate::directive::DirectiveContext,
-            ) -> crate::directive::DirectiveOutput {
-                crate::directive::DirectiveOutput::html(format!("<kbd>{}</kbd>", args.content()))
-            }
-        }
-
-        let processor = DirectiveProcessor::new().with_inline(KbdDirective);
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-        let result = renderer.render(
-            "Plain `code` no directive.",
-            Pipeline::new().with_directives(processor),
-        );
-
-        assert!(
-            result.html.contains("<code>code</code>"),
-            "plain code span should render normally; got: {}",
-            result.html,
-        );
-    }
-
-    #[test]
-    fn test_with_directives_status() {
-        use crate::directive::DirectiveProcessor;
-
+    fn status_renders_through_an_empty_pipeline() {
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
         let result = renderer.render(
             "Billing is :status[On Track]{color=green} this quarter.",
-            Pipeline::new().with_directives(DirectiveProcessor::new()),
+            Pipeline::new(),
         );
 
         assert!(
@@ -1297,33 +1087,22 @@ Install with apt.
 
     #[test]
     fn test_directives_warnings_included() {
-        use crate::directive::DirectiveProcessor;
-
-        // Tabs are a walker built-in; an empty processor only tokenizes syntax.
-        let processor = DirectiveProcessor::new();
-
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
         // Unclosed tabs should produce warning. Block directives are blank-line
         // separated, so the `:::tab` delimiter stands alone as its own paragraph.
-        let result = renderer.render(
-            "::::tabs\n\n:::tab[Test]\n\nContent",
-            Pipeline::new().with_directives(processor),
-        );
+        let result = renderer.render("::::tabs\n\n:::tab[Test]\n\nContent", Pipeline::new());
 
         assert!(result.warnings.iter().any(|w| w.contains("unclosed")));
     }
 
     #[test]
     fn test_frontmatter_terminator_does_not_swallow_body() {
-        // Frontmatter must terminate at `---` and not bleed into body
-        // parsing. The stronger contract — that no directive handler runs
-        // on frontmatter content — is covered by
-        // test_frontmatter_does_not_invoke_registered_directives.
+        // Frontmatter must terminate at `---` and not bleed into body parsing.
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
         let result = renderer.render(
             "---\ntitle: hello\n---\n\n# Body\n\nParagraph.\n",
-            Pipeline::new().with_directives(crate::directive::DirectiveProcessor::new()),
+            Pipeline::new(),
         );
         assert!(result.html.contains("<h1"), "body heading should render");
         assert!(
@@ -1337,55 +1116,6 @@ Install with apt.
         assert!(
             !result.html.contains("title:"),
             "frontmatter keys should not appear in body"
-        );
-    }
-
-    #[test]
-    fn test_frontmatter_does_not_invoke_registered_directives() {
-        // Frontmatter text must not invoke registered directive handlers —
-        // they may have side effects (warnings, reserved holes, I/O). The
-        // parser swallows a metadata block whole, so its text never reaches
-        // the run the directive scan runs over.
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        use crate::directive::{
-            DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor, InlineDirective,
-        };
-
-        struct CountingDirective {
-            calls: Arc<AtomicUsize>,
-        }
-
-        impl InlineDirective for CountingDirective {
-            fn name(&self) -> &'static str {
-                "track"
-            }
-            fn process(
-                &mut self,
-                _args: DirectiveArgs,
-                _ctx: &DirectiveContext,
-            ) -> DirectiveOutput {
-                self.calls.fetch_add(1, Ordering::Relaxed);
-                DirectiveOutput::Html(String::new())
-            }
-        }
-
-        let calls = Arc::new(AtomicUsize::new(0));
-        let processor = DirectiveProcessor::new().with_inline(CountingDirective {
-            calls: Arc::clone(&calls),
-        });
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let _ = renderer.render(
-            "---\ntitle: hit me :track[here]\n---\n\n# Body :track[here]\n",
-            Pipeline::new().with_directives(processor),
-        );
-
-        // Exactly one invocation expected — from the body heading, not from frontmatter.
-        assert_eq!(
-            calls.load(Ordering::Relaxed),
-            1,
-            "directive handler should be invoked once (from body), not from frontmatter"
         );
     }
 
@@ -2139,28 +1869,21 @@ Install with apt.
         assert!(res2.html.contains("World"));
     }
 
-    // Task 9: Warning isolation test
     #[test]
     fn fresh_pipeline_yields_fresh_warnings_per_render() {
-        use crate::directive::DirectiveProcessor;
-
         // Markdown with an unclosed ::::tabs group (its one tab closes
         // normally) — emits one warning per render, raised as the walk renders
-        // the parser's synthesized close. Tabs are a walker built-in, so no
-        // handler is registered. Block directives are blank-line separated, so
-        // each delimiter stands alone.
+        // the parser's synthesized close. Tabs are a walker built-in. Block
+        // directives are blank-line separated, so each delimiter stands alone.
         let md = "::::tabs\n\n:::tab[A]\n\nbody\n\n:::";
 
         let renderer = MarkdownRenderer::<HtmlBackend>::new();
 
-        let make_pipeline = || Pipeline::new().with_directives(DirectiveProcessor::new());
+        let r1 = renderer.render(md, Pipeline::new());
+        let r2 = renderer.render(md, Pipeline::new());
 
-        let r1 = renderer.render(md, make_pipeline());
-        let r2 = renderer.render(md, make_pipeline());
-
-        // Each render emits exactly one warning. If processor state leaked
-        // across renders (the pre-refactor bug), r2 would see r1's warning
-        // plus its own.
+        // Each render emits exactly one warning. If walk state leaked across
+        // renders, r2 would see r1's warning plus its own.
         assert_eq!(r1.warnings.len(), 1, "r1 warnings: {:?}", r1.warnings);
         assert_eq!(r2.warnings.len(), 1, "r2 warnings: {:?}", r2.warnings);
         assert_eq!(r1.warnings, r2.warnings);

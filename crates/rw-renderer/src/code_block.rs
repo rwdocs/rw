@@ -65,7 +65,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::directive::Fills;
+use crate::fills::Fills;
 use rw_parser::FenceAttrs;
 
 /// Result of processing a code block.
@@ -177,7 +177,7 @@ pub trait CodeBlockProcessor: Send + Sync {
     ///
     /// Called once after the walk, before assembly. Keys are the code-block
     /// `index` values passed to [`process`](Self::process), narrowed to
-    /// [`HoleKey`](crate::directive::HoleKey).
+    /// [`HoleKey`](crate::HoleKey).
     ///
     /// Called on every registered processor whether or not it deferred
     /// anything.

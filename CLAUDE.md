@@ -102,6 +102,8 @@ crates/
 │   └── src/
 │       ├── lib.rs            # Public API exports
 │       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend> (façade)
+│       ├── config.rs         # RenderConfig: renderer-lifetime settings
+│       ├── pipeline.rs       # Pipeline: per-render code-block processor extensions
 │       ├── walker.rs         # Walker: interprets rw-parser events into backend output
 │       ├── backend.rs        # RenderBackend trait definition
 │       ├── code_block.rs     # CodeBlockProcessor trait for extensible code block handling
@@ -109,21 +111,17 @@ crates/
 │       ├── scope.rs          # Inline-capture scopes (heading, image alt text)
 │       ├── table.rs          # TableState
 │       ├── toc.rs            # HeadingAccumulator (TOC entries, title, heading ids)
+│       ├── link.rs           # Internal/external link resolution and annotation
+│       ├── wikilink.rs       # [[wikilink]] resolution against Sections
 │       ├── html.rs           # HtmlBackend implementation
+│       ├── search_document.rs # SearchDocumentBackend (plain text for indexing)
+│       ├── comment.rs        # render_comment_body(): restricted comment-body subset
 │       ├── holes.rs          # Deferred-content holes reserved during the walk
-│       ├── directive/        # Pluggable directives API (CommonMark syntax)
-│       │   ├── mod.rs        # Module exports; re-exports DirectiveArgs
-│       │   ├── context.rs    # DirectiveContext (file system access)
-│       │   ├── output.rs     # DirectiveOutput (Html/Deferred/Skip)
-│       │   ├── fills.rs      # Fills collector for deferred hole content
-│       │   ├── inline.rs     # InlineDirective trait (:name)
-│       │   ├── leaf.rs       # LeafDirective trait (::name)
-│       │   ├── container.rs  # ContainerDirective trait (:::name)
-│       │   └── processor.rs  # DirectiveProcessor coordination
-│       ├── status/            # Status badge, a built-in walker element (no directive registration)
+│       ├── fills.rs          # Fills/HoleKey: content supplied for reserved holes
+│       ├── status/           # Status badge, a built-in walker element
 │       │   ├── mod.rs        # Module exports
 │       │   └── directive.rs  # StatusColor, STATUS_NAME
-│       ├── tabs/             # Tabbed content, a built-in walker element (no directive registration)
+│       ├── tabs/             # Tabbed content, a built-in walker element
 │       │   └── mod.rs        # TabInfo, TABS_NAME/TAB_NAME
 │       └── util.rs           # escape_into(), escape_html(), slugify_into()
 │

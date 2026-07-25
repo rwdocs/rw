@@ -60,7 +60,6 @@ impl fmt::Display for StatusColor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::directive::DirectiveProcessor;
     use crate::{HtmlBackend, MarkdownRenderer, Pipeline};
 
     #[test]
@@ -108,10 +107,7 @@ mod tests {
     /// resulting HTML as a substring.
     fn render(input: &str) -> String {
         MarkdownRenderer::<HtmlBackend>::new()
-            .render(
-                input,
-                Pipeline::new().with_directives(DirectiveProcessor::new()),
-            )
+            .render(input, Pipeline::new())
             .html
     }
 
@@ -224,10 +220,8 @@ mod tests {
         // channel (id slug + TOC title), not only the rendered markup. A design
         // that routes the whole badge through the markup buffer drops the label
         // here and silently changes the heading id.
-        let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            "# Ship :status[On Track]{color=green}",
-            Pipeline::new().with_directives(DirectiveProcessor::new()),
-        );
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .render("# Ship :status[On Track]{color=green}", Pipeline::new());
         assert!(
             result.html.contains(r#"id="ship-on-track""#),
             "heading id must include the badge label; got: {}",
@@ -244,43 +238,6 @@ mod tests {
             result
                 .html
                 .contains(r#"<span class="status status-green">On Track</span>"#),
-            "got: {}",
-            result.html
-        );
-    }
-
-    #[test]
-    fn test_status_renders_with_an_empty_processor() {
-        // Status is built-in: registering ANY processor (even one with no inline
-        // handlers of its own) suffices — matches the Confluence pipeline's shape,
-        // which never registers a `:status` handler either. Paired with
-        // `test_status_stays_literal_without_a_processor` to pin the gate.
-        let result = MarkdownRenderer::<HtmlBackend>::new().render(
-            "Delivery is :status[On Track]{color=green}.",
-            Pipeline::new().with_directives(DirectiveProcessor::new()),
-        );
-        assert!(
-            result
-                .html
-                .contains(r#"<span class="status status-green">On Track</span>"#),
-            "got: {}",
-            result.html
-        );
-    }
-
-    #[test]
-    fn test_status_stays_literal_without_a_processor() {
-        // No processor (e.g. comment bodies) => directive syntax is not tokenized,
-        // so status stays literal instead of being stripped to its label.
-        let result = MarkdownRenderer::<HtmlBackend>::new()
-            .render(":status[On Track]{color=green}", Pipeline::new());
-        assert!(
-            result.html.contains(":status[On Track]{color=green}"),
-            "status should stay literal without a processor; got: {}",
-            result.html
-        );
-        assert!(
-            !result.html.contains("status-green"),
             "got: {}",
             result.html
         );

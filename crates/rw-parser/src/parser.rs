@@ -1,9 +1,8 @@
 //! Markdown tokenizer: wraps `pulldown_cmark` and emits rw's [`Event`].
 //!
 //! The Parser recognizes **syntax** — markdown structure and rw's directive
-//! syntax — and holds no directive registry, no handlers, and no knowledge of
-//! what any directive name means. Every interpretation decision belongs to
-//! the consumer.
+//! syntax — and has no knowledge of what any directive name means. Every
+//! interpretation decision belongs to the consumer.
 //!
 //! Takes only what a tokenizer needs, by value. The cmark feature set is its
 //! own too: `cmark_options` defines rw's markdown dialect.
@@ -1124,7 +1123,7 @@ mod tests {
     #[test]
     fn an_inline_directive_carries_its_byte_exact_raw_slice() {
         // `DirectiveArgs::to_syntax` is not a round-trip — this input alone
-        // loses `bareword` and re-quotes `key` — so an unregistered inline
+        // loses `bareword` and re-quotes `key` — so an unrecognized inline
         // directive must be emitted as the source slice, never rebuilt.
         //
         // Asserted against the payload rather than `debug_stream`, whose

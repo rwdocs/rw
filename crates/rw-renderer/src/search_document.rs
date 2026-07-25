@@ -153,7 +153,6 @@ impl RenderBackend for SearchDocumentBackend {
 
 #[cfg(test)]
 mod tests {
-    use crate::directive::DirectiveProcessor;
     use crate::{MarkdownRenderer, Pipeline, SearchDocumentBackend};
 
     #[test]
@@ -235,7 +234,7 @@ mod tests {
         // index and nothing else.
         let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
             "Delivery is :status[On Track]{color=green} today.",
-            Pipeline::new().with_directives(DirectiveProcessor::new()),
+            Pipeline::new(),
         );
         assert!(result.html.contains("On Track"), "got: {}", result.html);
         assert!(!result.html.contains('<'), "markup leaked: {}", result.html);
@@ -252,10 +251,8 @@ mod tests {
         // escape. The badge label must reach the index verbatim — a design
         // that HTML-escapes the label in a backend `status` method would index
         // "A &amp; B" instead of "A & B".
-        let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
-            "Risk :status[A & B]{color=red} today.",
-            Pipeline::new().with_directives(DirectiveProcessor::new()),
-        );
+        let result = MarkdownRenderer::<SearchDocumentBackend>::new()
+            .render("Risk :status[A & B]{color=red} today.", Pipeline::new());
         assert!(result.html.contains("A & B"), "got: {}", result.html);
         assert!(
             !result.html.contains("&amp;"),
@@ -268,7 +265,7 @@ mod tests {
     fn tabs_index_panel_content_not_labels() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
             "::::tabs\n\n:::tab[macOS]\n\nAlphaword\n\n:::\n\n::::",
-            Pipeline::new().with_directives(DirectiveProcessor::new()),
+            Pipeline::new(),
         );
         assert!(
             result.html.contains("Alphaword"),

@@ -1,18 +1,13 @@
 //! Stream-native leaf & container directive behavior, driven through the full
 //! `MarkdownRenderer` pipeline.
 
-use rw_renderer::directive::{
-    ContainerDirective, DirectiveArgs, DirectiveContext, DirectiveOutput, DirectiveProcessor,
-    Fills, InlineDirective, LeafDirective, Part,
-};
 use rw_renderer::{
-    CodeBlockProcessor, FenceAttrs, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult,
+    CodeBlockProcessor, FenceAttrs, Fills, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult,
     RenderResult, SearchDocumentBackend,
 };
 
 fn render_tabs(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new();
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(directives))
+    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new())
 }
 
 /// Assert `needle` lands strictly inside the `open`…`close` pair — i.e. the
@@ -37,10 +32,7 @@ fn assert_between(html: &str, needle: &str, open: &str, close: &str) {
 }
 
 fn render_status(md: &str) -> RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new().render(
-        md,
-        Pipeline::new().with_directives(DirectiveProcessor::new()),
-    )
+    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new())
 }
 
 #[test]
@@ -88,6 +80,51 @@ fn status_inline_alone_on_a_line_still_expands() {
             .html
             .contains(r#"<span class="status status-green">Done</span>"#),
         "got: {}",
+        result.html
+    );
+}
+
+#[test]
+fn inline_directive_inside_a_code_span_stays_literal() {
+    // A directive inside an inline code span must render verbatim, never
+    // expand (shipped behavior, CHANGELOG 0.1.25). The parser never tokenizes
+    // directive syntax inside a code span, so `:status` — the one inline
+    // built-in — proves it.
+    let result = render_status("A `:status[Done]{color=green}` B");
+    assert!(
+        result
+            .html
+            .contains("<code>:status[Done]{color=green}</code>"),
+        "directive inside a code span must stay literal; got: {}",
+        result.html
+    );
+    assert!(
+        !result.html.contains("status-green"),
+        "directive inside a code span must not expand; got: {}",
+        result.html
+    );
+}
+
+#[test]
+fn inline_directive_expands_outside_a_code_span_on_the_same_line() {
+    // The code span suppresses only what it encloses: on a line carrying both,
+    // the bare directive expands and the quoted one stays literal.
+    let result = render_status("Use :status[A]{color=green} not `:status[B]{color=red}`.");
+    assert!(
+        result
+            .html
+            .contains(r#"<span class="status status-green">A</span>"#),
+        "the bare directive must expand; got: {}",
+        result.html
+    );
+    assert!(
+        result.html.contains("<code>:status[B]{color=red}</code>"),
+        "the quoted directive must stay literal; got: {}",
+        result.html
+    );
+    assert!(
+        !result.html.contains("status-red"),
+        "the quoted directive must not expand; got: {}",
         result.html
     );
 }
@@ -291,8 +328,8 @@ fn unclosed_tab_at_top_level_still_closes_at_end_of_input() {
 #[test]
 fn closing_delimiter_after_the_enclosing_blockquote_does_not_close_twice() {
     // The container was already balanced at `</blockquote>`, so the stray `:::`
-    // outside it must not reach the handler's `end()` a second time — a double
-    // close would emit the tab group twice. Neither the group nor the item
+    // outside it must not close the tab group a second time — a double close
+    // would emit the group twice. Neither the group nor the item
     // closes inside the blockquote, so both are force-closed at the blockquote
     // boundary and the lone trailing `:::` is a genuine stray.
     let md = "> ::::tabs\n>\n> :::tab[A]\n>\n> body\n\n:::\n\nafter\n";
@@ -435,13 +472,11 @@ fn container_inside_loose_list_is_recognized() {
 }
 
 #[test]
-fn unregistered_container_renders_literally_no_warning() {
-    // An unregistered :::foo … ::: pair must not produce a "stray" warning —
+fn unrecognized_container_renders_literally_no_warning() {
+    // An unrecognized :::foo … ::: pair must not produce a "stray" warning —
     // the closing ::: is matched with its own opener, not treated as unpaired.
-    let result = MarkdownRenderer::<HtmlBackend>::new().render(
-        ":::foo[x]\n\nBody.\n\n:::",
-        Pipeline::new().with_directives(DirectiveProcessor::new()),
-    );
+    let result =
+        MarkdownRenderer::<HtmlBackend>::new().render(":::foo[x]\n\nBody.\n\n:::", Pipeline::new());
     assert!(
         result.html.contains("<p>:::foo[x]</p>"),
         "got: {}",
@@ -450,23 +485,21 @@ fn unregistered_container_renders_literally_no_warning() {
     assert!(result.html.contains("<p>:::</p>"), "got: {}", result.html);
     assert!(
         result.warnings.is_empty(),
-        "unregistered open/close pair must not warn; got: {:?}",
+        "unrecognized open/close pair must not warn; got: {:?}",
         result.warnings
     );
 }
 
 #[test]
-fn unregistered_container_opener_drops_extra_colons_closer_keeps_them() {
+fn unrecognized_container_opener_drops_extra_colons_closer_keeps_them() {
     // Pinned debt, not a statement of intent: the literal opener is built with
     // a hardcoded ":::" while the matching closer repeats its colon count, so a
     // four-colon opener round-trips as three. Only a render from source can
-    // show that round trip: `dispatch_container_start` is never given the
+    // show that round trip: the walker's container-open arm never reads the
     // opener's colon count, so no unit-level caller can pair a source colon
     // count against the output.
-    let result = MarkdownRenderer::<HtmlBackend>::new().render(
-        "::::foo[x]{.c}\n\nBody.\n\n::::",
-        Pipeline::new().with_directives(DirectiveProcessor::new()),
-    );
+    let result = MarkdownRenderer::<HtmlBackend>::new()
+        .render("::::foo[x]{.c}\n\nBody.\n\n::::", Pipeline::new());
     assert!(
         result.html.contains("<p>:::foo[x]{.c}</p>"),
         "opener should lose its fourth colon; got: {}",
@@ -494,6 +527,20 @@ fn frontmatter_directive_shaped_text_is_inert() {
         "got: {}",
         result.html
     );
+}
+
+#[test]
+fn frontmatter_inline_directive_shaped_text_raises_no_warning() {
+    // A frontmatter value shaped like an inline directive must never reach the
+    // inline scanner: `:foo` is not a built-in, so if the metadata block leaked
+    // into the walk it would warn "unknown inline directive ':foo'" and
+    // `--strict` publishing would fail on it (CHANGELOG 0.1.25). The container
+    // case above cannot catch that — a `:::`-shaped value is block syntax and
+    // never reaches the inline scanner even from body text.
+    let md = "---\ntitle: see :foo[x]\n---\n\nBody.";
+    let result = render_status(md);
+    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
+    assert_eq!(result.html, "<p>Body.</p>", "got: {}", result.html);
 }
 
 #[test]
@@ -564,38 +611,6 @@ fn directive_immediately_followed_by_paragraph() {
 }
 
 #[test]
-fn nested_same_name_containers_render_balanced() {
-    use rw_renderer::directive::ContainerDirective;
-    struct Details {
-        depth: usize,
-    }
-    impl ContainerDirective for Details {
-        fn name(&self) -> &'static str {
-            "details"
-        }
-        fn start(&mut self, _a: DirectiveArgs, _c: &DirectiveContext) -> DirectiveOutput {
-            self.depth += 1;
-            DirectiveOutput::html("<details>".to_owned())
-        }
-        fn end(&mut self, _line: usize) -> Option<String> {
-            self.depth -= 1;
-            Some("</details>".to_owned())
-        }
-    }
-    let directives = DirectiveProcessor::new().with_container(Details { depth: 0 });
-    let md = ":::details[Outer]\n\n:::details[Inner]\n\nx\n\n:::\n\n:::";
-    let result = MarkdownRenderer::<HtmlBackend>::new()
-        .render(md, Pipeline::new().with_directives(directives));
-    assert_eq!(
-        result.html.matches("</details>").count(),
-        2,
-        "got: {}",
-        result.html
-    );
-    assert!(result.warnings.is_empty(), "got: {:?}", result.warnings);
-}
-
-#[test]
 fn unclosed_container_warns() {
     let md = "::::tabs\n\n:::tab[Open]\n\nbody";
     let result = render_tabs(md);
@@ -624,213 +639,15 @@ fn tab_label_is_html_escaped_and_quotes_stripped() {
     );
 }
 
-/// A container that defers its opening tag, proving the walker reserves a hole
-/// during the walk and fills it afterwards.
-#[derive(Default)]
-struct DeferredContainer {
-    seen: usize,
-}
-
-impl ContainerDirective for DeferredContainer {
-    fn name(&self) -> &'static str {
-        "deferred"
-    }
-
-    fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-        self.seen += 1;
-        DirectiveOutput::Deferred(vec![Part::Hole(1), Part::Html("<p>body</p>".into())])
-    }
-
-    fn end(&mut self, _line: usize) -> Option<String> {
-        Some("</section>".to_owned())
-    }
-
-    fn fills(&mut self, fills: &mut Fills) {
-        // Content known only after the walk — here, the opener count.
-        fills.set(1, format!(r#"<section data-seen="{}">"#, self.seen));
-    }
-}
-
-#[test]
-fn deferred_container_fills_hole_after_walk() {
-    let processor = DirectiveProcessor::new().with_container(DeferredContainer::default());
-    let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-    // The leading paragraph puts the hole at a non-zero offset, so the
-    // splice position is actually exercised rather than degenerating to 0.
-    let result = renderer.render(
-        "intro\n\n:::deferred\n\ntext\n\n:::\n",
-        Pipeline::new().with_directives(processor),
-    );
-
-    // The fill lands after the intro paragraph and before the directive's own
-    // literal parts — exactly where the hole was reserved.
-    assert_between(
-        &result.html,
-        r#"<section data-seen="1">"#,
-        "intro</p>",
-        "<p>body</p>",
-    );
-}
-
-/// A leaf directive that defers its output, proving the walker reserves a hole
-/// during the walk and fills it afterwards.
-#[derive(Default)]
-struct DeferredLeaf {
-    seen: usize,
-}
-
-impl LeafDirective for DeferredLeaf {
-    fn name(&self) -> &'static str {
-        "deferredleaf"
-    }
-
-    fn process(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-        self.seen += 1;
-        DirectiveOutput::Deferred(vec![Part::Hole(1)])
-    }
-
-    fn fills(&mut self, fills: &mut Fills) {
-        // Content known only after the walk — here, the invocation count.
-        fills.set(1, format!(r#"<aside data-seen="{}"></aside>"#, self.seen));
-    }
-}
-
-#[test]
-fn deferred_leaf_fills_hole_after_walk() {
-    let processor = DirectiveProcessor::new().with_leaf(DeferredLeaf::default());
-    let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-    // The leading paragraph puts the hole at a non-zero offset, so the
-    // splice position is actually exercised rather than degenerating to 0.
-    let result = renderer.render(
-        "intro\n\n::deferredleaf\n",
-        Pipeline::new().with_directives(processor),
-    );
-
-    let fill = result
-        .html
-        .find(r#"<aside data-seen="1"></aside>"#)
-        .unwrap_or_else(|| panic!("hole was not filled: {}", result.html));
-    let intro_end = result
-        .html
-        .find("intro</p>")
-        .unwrap_or_else(|| panic!("intro paragraph missing: {}", result.html))
-        + "intro</p>".len();
-
-    assert!(
-        fill >= intro_end,
-        "fill landed before the intro paragraph closed: {}",
-        result.html
-    );
-}
-
-/// Two container directives that both pick local hole key `0` — the natural
-/// choice for a handler numbering its own holes from zero.
-struct LocalKeyZeroContainer {
-    name: &'static str,
-    fill: &'static str,
-}
-
-impl ContainerDirective for LocalKeyZeroContainer {
-    fn name(&self) -> &str {
-        self.name
-    }
-
-    fn start(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-        DirectiveOutput::Deferred(vec![Part::Hole(0)])
-    }
-
-    fn end(&mut self, _line: usize) -> Option<String> {
-        None
-    }
-
-    fn fills(&mut self, fills: &mut Fills) {
-        fills.set(0, self.fill.to_owned());
-    }
-}
-
-#[test]
-fn two_handlers_using_the_same_local_hole_key_do_not_collide() {
-    let processor = DirectiveProcessor::new()
-        .with_container(LocalKeyZeroContainer {
-            name: "alpha",
-            fill: "<p>ALPHA-FILL</p>",
-        })
-        .with_container(LocalKeyZeroContainer {
-            name: "beta",
-            fill: "<p>BETA-FILL</p>",
-        });
-    let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-    let result = renderer.render(
-        ":::alpha\n\na\n\n:::\n\n:::beta\n\nb\n\n:::\n",
-        Pipeline::new().with_directives(processor),
-    );
-
-    assert!(
-        result.html.contains("ALPHA-FILL"),
-        "first handler's fill was lost: {}",
-        result.html
-    );
-    assert!(
-        result.html.contains("BETA-FILL"),
-        "second handler's fill was lost: {}",
-        result.html
-    );
-}
-
-/// An inline directive that (incorrectly) defers content. Inline directives
-/// have no `fills()` hook, so a hole they reserve could never be filled.
-struct DeferringInline;
-
-impl InlineDirective for DeferringInline {
-    fn name(&self) -> &'static str {
-        "deferredinline"
-    }
-
-    fn process(&mut self, _args: DirectiveArgs, _ctx: &DirectiveContext) -> DirectiveOutput {
-        DirectiveOutput::Deferred(vec![Part::Html("LITERAL".into()), Part::Hole(0)])
-    }
-}
-
-#[test]
-fn deferred_inline_directive_warns_instead_of_reserving_a_hole() {
-    let processor = DirectiveProcessor::new().with_inline(DeferringInline);
-    let renderer = MarkdownRenderer::<HtmlBackend>::new();
-
-    // Inside a heading: inline directives commonly run within a scope, where
-    // reserving a hole would also trip `reserve_hole`'s empty-scopes assert.
-    let result = renderer.render(
-        "# Title :deferredinline[x]\n",
-        Pipeline::new().with_directives(processor),
-    );
-
-    assert!(
-        result.html.contains("LITERAL"),
-        "literal parts must still be emitted: {}",
-        result.html
-    );
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|w| w.contains("deferredinline") && w.contains("defer")),
-        "expected a warning naming the directive: {:?}",
-        result.warnings
-    );
-}
-
 /// Fills reach the buffer through the backend's `raw_html`, like every other
 /// emission — so a backend that drops markup drops fills too. Without that,
 /// the tab bar and panel `<div>`s (which are fills, not walk-time output) leak
 /// into the search index.
 #[test]
 fn tabs_emit_no_markup_into_a_search_document() {
-    let directives = DirectiveProcessor::new();
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
         "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n\n:::\n\n::::\n",
-        Pipeline::new().with_directives(directives),
+        Pipeline::new(),
     );
 
     assert!(
@@ -844,14 +661,13 @@ fn tabs_emit_no_markup_into_a_search_document() {
     assert!(!result.html.contains("tablist"), "got: {}", result.html);
 }
 
-/// The closing tags a missing `:::` forces the processor to emit at end of
-/// input take the same backend route as an in-walk `end()`.
+/// The closing tags a missing `:::` forces the walker to emit at end of input
+/// take the same backend route as an explicit tab-group close.
 #[test]
 fn unclosed_tabs_emit_no_markup_into_a_search_document() {
-    let directives = DirectiveProcessor::new();
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
         "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n",
-        Pipeline::new().with_directives(directives),
+        Pipeline::new(),
     );
 
     assert!(
@@ -897,12 +713,12 @@ fn code_block_and_directive_holes_interleave_in_one_document() {
     // Markup closing a tab group: the panel plus the group's opening tags.
     const TAB_GROUP_CLOSE: &str = "</div></div>";
 
-    // Two independent hole sources — a tab container and a code-block
+    // Two independent hole sources — the built-in tab group and a code-block
     // processor — reserving into the same buffer. Both reserve at the current
     // end of an append-only buffer, so their offsets are non-decreasing without
     // any coordination between them. Asserting the nested fill lands inside a
-    // real, filled panel element (`id="panel-0-0"`, from the tab container's
-    // own hole) verifies both hole sources landed correctly, not just the
+    // real, filled panel element (`id="panel-0-0"`, from the tab group's own
+    // bar hole) verifies both hole sources landed correctly, not just the
     // code-block processor's.
     let markdown = "\
 ::::tabs
@@ -924,9 +740,7 @@ y
 
     let result = MarkdownRenderer::<HtmlBackend>::new().render(
         markdown,
-        Pipeline::new()
-            .with_directives(DirectiveProcessor::new())
-            .with_processor(DeferringProcessor::default()),
+        Pipeline::new().with_processor(DeferringProcessor::default()),
     );
 
     // The nested block fills inside the tab panel, the trailing one outside it.
@@ -955,13 +769,13 @@ y
 #[test]
 fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
     // The Parser splits inline directives out of the text runs it tokenizes,
-    // but a container line nobody claimed comes back through
-    // `BlockDispatch::PassThrough` as a literal reconstructed from its parsed
-    // args — text that was never tokenized. That is why the Walker keeps one
-    // scanner: it re-runs the tokenizer over exactly this reconstruction.
+    // but an unrecognized container line renders literally, reconstructed from
+    // its parsed args — text that was never tokenized. That is why the Walker
+    // keeps one scanner: it re-runs the tokenizer over exactly this
+    // reconstruction, so the inner `:status` built-in still expands.
     let result = MarkdownRenderer::<HtmlBackend>::new().render(
         ":::foo[:status[Stable]{color=green}]\n\nBody.\n\n:::",
-        Pipeline::new().with_directives(DirectiveProcessor::new()),
+        Pipeline::new(),
     );
     assert_eq!(
         result.html,
@@ -982,16 +796,15 @@ fn unknown_inline_directives_warn_in_document_order() {
     assert_eq!(
         result.warnings,
         vec![
-            "unknown inline directive ':alpha' — no handler registered (or handler returned Skip)",
-            "unknown inline directive ':beta' — no handler registered (or handler returned Skip)",
+            "unknown inline directive ':alpha'",
+            "unknown inline directive ':beta'",
         ]
     );
 }
 
 #[test]
-fn nested_tabs_render_byte_identical_to_the_old_continuation_output() {
-    // The proposal-aligned nested input must produce exactly the bytes the old
-    // continuation input produced (the viewer depends on this markup).
+fn nested_tabs_render_the_expected_markup() {
+    // The viewer depends on these exact bytes.
     const EXPECTED: &str = r#"<div class="tabs" id="tabs-0"><div class="tabs-buttons" role="tablist"><button role="tab" id="tab-0-0" aria-controls="panel-0-0" aria-selected="true" tabindex="0">macOS</button><button role="tab" id="tab-0-1" aria-controls="panel-0-1" aria-selected="false" tabindex="-1">Linux</button></div><div role="tabpanel" id="panel-0-0" aria-labelledby="tab-0-0"><p>Install with Homebrew.</p></div><div role="tabpanel" id="panel-0-1" aria-labelledby="tab-0-1" hidden><p>Install with apt.</p></div></div>"#;
     let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n\
               :::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
@@ -1005,13 +818,14 @@ fn nested_tabs_render_byte_identical_to_the_old_continuation_output() {
 }
 
 #[test]
-fn old_continuation_syntax_no_longer_groups() {
-    // The removed shared-closer form now yields lone tabs (warned, unwrapped),
-    // not a tab group.
+fn tabs_sharing_one_closer_do_not_group() {
+    // A tab group is an outer `::::tabs` wrapping self-closing `:::tab` items.
+    // Several `:::tab` sharing one closing `:::` are lone tabs (warned,
+    // unwrapped), not a group.
     let result = render_tabs(":::tab[A]\n\nx\n\n:::tab[B]\n\ny\n\n:::");
     assert!(
         !result.html.contains(r#"role="tablist""#),
-        "old continuation form must no longer render a tab group: {}",
+        "tabs sharing one closer must not render a tab group: {}",
         result.html
     );
 }
@@ -1020,9 +834,9 @@ fn old_continuation_syntax_no_longer_groups() {
 fn nested_tab_groups_render_both_bars_without_panic() {
     // A `::::tabs` group nested inside a `:::tab` panel of an outer group must
     // not drop the outer group's reserved bar hole: with a single `Option`
-    // slot, opening the inner group overwrites the outer one, the inner
-    // group's `end()` finalizes it, and the outer group's hole is never
-    // filled — panicking assembly in debug, silently vanishing in release.
+    // slot, opening the inner group would overwrite the outer one, the inner
+    // group's close would finalize it, and the outer group's hole would never
+    // be filled — panicking assembly in debug, silently vanishing in release.
     let md = "::::tabs\n\n:::tab[Outer A]\n\n::::tabs\n\n:::tab[Inner X]\n\nbody\n\n:::\n\n::::\n\n:::\n\n::::";
     let result = render_tabs(md);
 

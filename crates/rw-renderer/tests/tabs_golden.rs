@@ -1,13 +1,10 @@
-//! Byte-identical golden tests for tab HTML. Must be green before AND after the
-//! Stage-2 walker-built-in refactor. Tabs are now a walker built-in, so no tab
-//! handler is registered — only an (empty) processor to tokenize directives.
+//! Byte-identical golden tests for tab HTML. The viewer styles this markup and
+//! published bundles carry it, so a change here is user-visible.
 
-use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 
 fn render(md: &str) -> rw_renderer::RenderResult {
-    let p = DirectiveProcessor::new();
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(p))
+    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new())
 }
 
 #[test]

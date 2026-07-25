@@ -3,14 +3,23 @@
 //! Implements `CommonMark` directive syntax for tabs: an outer `::::tabs` group
 //! wrapping self-closing `:::tab[Label]` items.
 //!
+//! Every delimiter is its own block, so blank lines separate them:
+//!
 //! ```markdown
 //! ::::tabs
+//!
 //! :::tab[macOS]
+//!
 //! Install with Homebrew.
+//!
 //! :::
+//!
 //! :::tab[Linux]
+//!
 //! Install with apt.
+//!
 //! :::
+//!
 //! ::::
 //! ```
 //!
@@ -42,27 +51,23 @@
 //! the trailing content can disappear from view until the reader clicks that
 //! tab. The fix is to close each `:::tab` and the enclosing `::::tabs`.
 //!
-//! # A walker built-in, not a registered directive
+//! # A walker built-in
 //!
-//! Tabs are recognized by the [`Walker`](crate::MarkdownRenderer) itself — like
-//! the `:status` badge — rather than through a
-//! [`ContainerDirective`](crate::directive::ContainerDirective) registered on a
-//! [`DirectiveProcessor`](crate::directive::DirectiveProcessor). The walker owns
-//! the tab state and reserves the bar hole; the backend supplies the markup
-//! through its tab methods ([`tabs_open`](crate::RenderBackend::tabs_open),
+//! Tabs are recognized by the walker itself — like the `:status` badge. The
+//! directive set is fixed and needs no registration: the walker owns the tab
+//! state and reserves the bar hole, and the backend supplies the markup through
+//! its tab methods ([`tabs_open`](crate::RenderBackend::tabs_open),
 //! [`tab_panel_open`](crate::RenderBackend::tab_panel_open), and their closers),
 //! so a backend that does not support tabs (e.g. the search-document backend)
-//! renders their content without any chrome. A processor still has to be present
-//! on the [`Pipeline`](crate::Pipeline) so directive syntax is tokenized, but no
-//! tab handler needs registering:
+//! renders their content without any chrome. An empty
+//! [`Pipeline`](crate::Pipeline) is enough — a backend that tokenizes directive
+//! syntax (the default) renders tabs with no extra setup:
 //!
 //! ```
 //! use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
-//! use rw_renderer::directive::DirectiveProcessor;
 //!
 //! let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
-//! let result = MarkdownRenderer::<HtmlBackend>::new()
-//!     .render(md, Pipeline::new().with_directives(DirectiveProcessor::new()));
+//! let result = MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new());
 //! assert!(result.html.contains(r#"role="tablist""#));
 //! ```
 

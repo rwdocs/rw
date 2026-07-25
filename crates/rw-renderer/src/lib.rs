@@ -24,19 +24,13 @@
 //!   hole at the current output offset; otherwise it returns inline HTML or
 //!   passes through for normal syntax highlighting.
 //!
-//! - **Directives** ([`directive`] module) — [CommonMark generic directives]
-//!   syntax (`:inline`, `::leaf`, `:::container`). Directive syntax is
-//!   recognized during tokenization, so a directive arrives as its own event
-//!   and is dispatched straight to the backend. A handler whose markup depends
-//!   on content the walk has not reached yet — a tab strip needs every tab's
-//!   label — returns [`DirectiveOutput::Deferred`](directive::DirectiveOutput::Deferred),
-//!   reserving a hole at the current output offset.
-//!
-//! Both extension points share the same deferral mechanism: a single assembly
-//! pass after the walk splices each reserved hole's content in, supplied by
-//! [`CodeBlockProcessor::fills`] or the directive handler's `fills` hook.
-//!
-//! [CommonMark generic directives]: https://talk.commonmark.org/t/generic-directives-plugins-syntax/444
+//! Directive syntax (`:status` inline badges, `::::tabs`/`:::tab` blocks) is
+//! recognized during tokenization by [`rw_parser`] and rendered as walker
+//! built-ins. The directive set is fixed; [`RenderBackend`] is the extension
+//! point for what those built-ins render to. A tab bar, whose markup depends on
+//! content the walk has not reached yet (it needs every tab's label), reserves
+//! a hole at its output offset and fills it after the walk, sharing the same
+//! assembly pass as a deferred code block.
 //!
 //! ## Wikilinks
 //!
@@ -130,7 +124,7 @@ mod bundle;
 mod code_block;
 mod comment;
 mod config;
-pub mod directive;
+mod fills;
 mod holes;
 mod html;
 mod link;
@@ -151,12 +145,10 @@ pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use comment::render_comment_body;
 pub use config::TitleResolver;
-/// Re-exported from [`directive`] for [`CodeBlockProcessor::fills`]
-/// implementations. Directives and code-block processors defer content through
-/// the same hole mechanism, so [`Fills`]/[`HoleKey`] belong to both extension
-/// points; this re-export lets a processor use them without reaching into the
-/// directive module. The `directive::` paths name the same types.
-pub use directive::{Fills, HoleKey};
+/// Types a [`CodeBlockProcessor::fills`] implementation uses to supply deferred
+/// content: [`Fills`] collects a processor's hole content after the walk, keyed
+/// by [`HoleKey`].
+pub use fills::{Fills, HoleKey};
 pub use html::HtmlBackend;
 pub use pipeline::Pipeline;
 /// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.

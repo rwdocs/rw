@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_kroki::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
-use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{
     HtmlBackend, MarkdownRenderer, Pipeline, RenderBackend, SearchDocumentBackend, TocEntry,
     escape_html,
@@ -522,9 +521,8 @@ impl PageRenderer {
         );
         // Search-document rendering uses SearchDiagramProcessor (text
         // descriptions) instead of the regular DiagramProcessor (HTML/SVG
-        // via Kroki) — so start from the directives-only base pipeline
-        // and add just the search processor.
-        let pipeline = Self::create_directives_pipeline().with_processor(search_processor);
+        // via Kroki).
+        let pipeline = Pipeline::new().with_processor(search_processor);
         let result = renderer.render(&markdown_text, pipeline);
 
         let title = metadata
@@ -561,20 +559,10 @@ impl PageRenderer {
         Self::configure_renderer_settings(renderer, ctx)
     }
 
-    /// Pipeline preloaded with the (empty) directive processor shared by every
-    /// render path. Status and tabs are walker built-ins and need no
-    /// registration; the processor is present only so directive syntax is
-    /// tokenized. Callers add their own code-block processors on top (regular
-    /// `DiagramProcessor` for HTML rendering, `SearchDiagramProcessor` for
-    /// search indexing).
-    fn create_directives_pipeline() -> Pipeline {
-        Pipeline::new().with_directives(DirectiveProcessor::new())
-    }
-
-    /// Pipeline for HTML rendering: directives + the regular
-    /// `DiagramProcessor` (when configured).
+    /// Pipeline for HTML rendering: the regular `DiagramProcessor` (when
+    /// configured).
     fn create_pipeline(&self, ctx: &RenderContext) -> Pipeline {
-        let mut pipeline = Self::create_directives_pipeline();
+        let mut pipeline = Pipeline::new();
         if let Some(processor) = self.create_diagram_processor(ctx.meta_include_source.clone()) {
             pipeline = pipeline.with_processor(processor.with_sections(Arc::clone(&ctx.sections)));
         }

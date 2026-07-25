@@ -18,7 +18,7 @@
 //! wrong place. Appending is the only safe mutation. Assembly is deliberately
 //! the sole post-walk transformation — keep it that way.
 
-use crate::directive::fills::{GlobalFills, GlobalKey};
+use crate::fills::{GlobalFills, GlobalKey};
 
 /// Byte offsets in the walk buffer where deferred content belongs.
 ///
@@ -59,9 +59,8 @@ impl Holes {
     ///
     /// # Contract: every reserved hole must be filled
     ///
-    /// [`Deferred`](crate::directive::DirectiveOutput::Deferred) /
-    /// [`ProcessResult::Deferred`](crate::ProcessResult::Deferred) are public
-    /// extension points — an implementor reserving a hole (by returning
+    /// [`ProcessResult::Deferred`](crate::ProcessResult::Deferred) is a public
+    /// extension point — an implementor reserving a hole (by returning
     /// `Deferred`) is responsible for supplying its content in `fills` before
     /// this runs. A key present in `self.entries` but missing from `fills` is
     /// an internal renderer bug, not a recoverable condition: in debug builds
@@ -101,12 +100,11 @@ impl Holes {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::directive::fills::Source;
-    use crate::directive::{Fills, HoleKey};
+    use crate::fills::{Fills, HoleKey, Source};
 
     /// Source the test fills are collected under. Any single value works —
     /// distinguishing sources is the processor's concern, not `Holes`'.
-    const SOURCE: Source = Source::Leaf(0);
+    const SOURCE: Source = Source::CodeBlock(0);
 
     /// Build the merged fills for `entries`, as the processor would.
     fn fills(entries: &[(HoleKey, &str)]) -> GlobalFills {
@@ -166,16 +164,16 @@ mod tests {
     #[test]
     fn holes_from_different_sources_do_not_collide() {
         let mut holes = Holes::default();
-        holes.reserve(1, GlobalKey(Source::Leaf(0), 0));
-        holes.reserve(1, GlobalKey(Source::Container(0), 0));
+        holes.reserve(1, GlobalKey(Source::CodeBlock(0), 0));
+        holes.reserve(1, GlobalKey(Source::Tabs, 0));
 
         let mut first = Fills::new();
         first.set(0, "[one]".to_owned());
         let mut second = Fills::new();
         second.set(0, "[two]".to_owned());
         let mut global = GlobalFills::default();
-        global.merge(Source::Leaf(0), first);
-        global.merge(Source::Container(0), second);
+        global.merge(Source::CodeBlock(0), first);
+        global.merge(Source::Tabs, second);
 
         assert_eq!(
             holes.assemble("ab".to_owned(), &global, passthrough),

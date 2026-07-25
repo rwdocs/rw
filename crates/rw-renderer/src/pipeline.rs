@@ -1,5 +1,5 @@
-//! Per-render extensions for [`MarkdownRenderer`]: code-block processors
-//! and the directive processor. See [`Pipeline`] for the API.
+//! Per-render extensions for [`MarkdownRenderer`](crate::MarkdownRenderer):
+//! code-block processors. See [`Pipeline`] for the API.
 //!
 //! Settings that live for the lifetime of the renderer (base path, wikilinks,
 //! sections, title resolver) stay on
@@ -7,67 +7,35 @@
 //! its builder methods.
 
 use crate::code_block::CodeBlockProcessor;
-use crate::directive::DirectiveProcessor;
 
-/// Per-render extensions: code-block processors and an optional
-/// [`DirectiveProcessor`].
+/// Per-render extensions: code-block processors.
 ///
 /// Construct one with [`Pipeline::new`] (or [`Pipeline::default`]),
-/// register extensions via [`Pipeline::with_processor`] /
-/// [`Pipeline::with_directives`], then pass it into
+/// register extensions via [`Pipeline::with_processor`], then pass it into
 /// [`MarkdownRenderer::render`](crate::MarkdownRenderer::render). The
 /// render call consumes the pipeline.
 ///
-/// `Pipeline` is `Send` but not `Sync`. Directive handlers
-/// ([`InlineDirective`](crate::directive::InlineDirective),
-/// [`LeafDirective`](crate::directive::LeafDirective),
-/// [`ContainerDirective`](crate::directive::ContainerDirective)) are
-/// `Send`-only by contract — each document gets its own handler — so
-/// sharing a `Pipeline` across threads is intentionally not possible.
-/// Build a fresh `Pipeline` per render.
-///
 /// # Examples
 ///
-/// Empty pipeline — used when no directives or code-block processors are
-/// needed:
+/// Empty pipeline — used when no code-block processors are needed:
 ///
 /// ```
 /// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
 ///
 /// let renderer = MarkdownRenderer::<HtmlBackend>::new();
-/// let result = renderer.render("Hello.", Pipeline::new());
-/// assert!(result.html.contains("Hello"));
-/// ```
-///
-/// Status badges are a built-in of the walker, so any registered
-/// [`DirectiveProcessor`] — even an empty one, with no directives of its
-/// own registered — is enough for them to render; directive syntax only
-/// tokenizes when a processor is present at all:
-///
-/// ```
-/// use rw_renderer::directive::DirectiveProcessor;
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
-///
-/// let renderer = MarkdownRenderer::<HtmlBackend>::new();
-/// let result = renderer.render(
-///     ":status[Done]{color=green}",
-///     Pipeline::new().with_directives(DirectiveProcessor::new()),
-/// );
+/// let result = renderer.render(":status[Done]{color=green}", Pipeline::new());
 /// assert!(result.html.contains("status-green"));
 /// ```
 pub struct Pipeline {
     pub(crate) processors: Vec<Box<dyn CodeBlockProcessor>>,
-    pub(crate) directives: Option<DirectiveProcessor>,
 }
 
 impl Pipeline {
-    /// Construct an empty pipeline: no code-block processors, no directive
-    /// processor.
+    /// Construct an empty pipeline: no code-block processors.
     #[must_use]
     pub fn new() -> Self {
         Self {
             processors: Vec::new(),
-            directives: None,
         }
     }
 
@@ -79,16 +47,6 @@ impl Pipeline {
     #[must_use]
     pub fn with_processor<P: CodeBlockProcessor + 'static>(mut self, processor: P) -> Self {
         self.processors.push(Box::new(processor));
-        self
-    }
-
-    /// Install the directive processor.
-    ///
-    /// At most one directive processor per pipeline; calling
-    /// `with_directives` twice replaces the previous one.
-    #[must_use]
-    pub fn with_directives(mut self, directives: DirectiveProcessor) -> Self {
-        self.directives = Some(directives);
         self
     }
 }
@@ -105,14 +63,6 @@ impl std::fmt::Debug for Pipeline {
             .field(
                 "processors",
                 &format_args!("[<{} processors>]", self.processors.len()),
-            )
-            .field(
-                "directives",
-                &if self.directives.is_some() {
-                    "Some(<DirectiveProcessor>)"
-                } else {
-                    "None"
-                },
             )
             .finish()
     }
@@ -138,10 +88,9 @@ mod tests {
     }
 
     #[test]
-    fn new_pipeline_has_no_processors_or_directives() {
+    fn new_pipeline_has_no_processors() {
         let p = Pipeline::new();
         assert!(p.processors.is_empty());
-        assert!(p.directives.is_none());
     }
 
     #[test]
@@ -153,73 +102,10 @@ mod tests {
     }
 
     #[test]
-    fn with_directives_sets_directive_processor() {
-        let p = Pipeline::new().with_directives(DirectiveProcessor::new());
-        assert!(p.directives.is_some());
-    }
-
-    #[test]
-    fn with_directives_replaces_existing() {
-        // Verify the second processor's directive handler actually wins
-        // observably — not just that `directives` is `Some` after replacement.
-        use crate::HtmlBackend;
-        use crate::MarkdownRenderer;
-        use crate::directive::{DirectiveArgs, DirectiveContext, DirectiveOutput, InlineDirective};
-
-        struct AlphaTag;
-        impl InlineDirective for AlphaTag {
-            fn name(&self) -> &'static str {
-                "tag"
-            }
-            fn process(
-                &mut self,
-                _args: DirectiveArgs,
-                _ctx: &DirectiveContext,
-            ) -> DirectiveOutput {
-                DirectiveOutput::html("<ALPHA>")
-            }
-        }
-        struct BetaTag;
-        impl InlineDirective for BetaTag {
-            fn name(&self) -> &'static str {
-                "tag"
-            }
-            fn process(
-                &mut self,
-                _args: DirectiveArgs,
-                _ctx: &DirectiveContext,
-            ) -> DirectiveOutput {
-                DirectiveOutput::html("<BETA>")
-            }
-        }
-
-        let pipeline = Pipeline::new()
-            .with_directives(DirectiveProcessor::new().with_inline(AlphaTag))
-            .with_directives(DirectiveProcessor::new().with_inline(BetaTag));
-
-        let renderer = MarkdownRenderer::<HtmlBackend>::new();
-        let result = renderer.render(":tag[x]", pipeline);
-
-        assert!(
-            result.html.contains("<BETA>"),
-            "second processor should win, got: {}",
-            result.html
-        );
-        assert!(
-            !result.html.contains("<ALPHA>"),
-            "first processor should be replaced, got: {}",
-            result.html
-        );
-    }
-
-    #[test]
     fn debug_format_does_not_panic() {
-        let p = Pipeline::new()
-            .with_processor(DummyProcessor)
-            .with_directives(DirectiveProcessor::new());
+        let p = Pipeline::new().with_processor(DummyProcessor);
         let s = format!("{p:?}");
         assert!(s.contains("Pipeline"));
         assert!(s.contains("processors"));
-        assert!(s.contains("directives"));
     }
 }

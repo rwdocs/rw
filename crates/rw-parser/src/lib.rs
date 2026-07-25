@@ -1,9 +1,9 @@
 //! Tokenizer for rw's markdown dialect: `CommonMark` plus directive syntax.
 //!
 //! [`Parser`] wraps `pulldown_cmark` and emits [`Event`]s. It recognizes
-//! **syntax** and nothing else — it holds no directive registry, consults no
-//! handler, and cannot tell a directive name some renderer knows from one
-//! nobody does. What any of it *means* is the caller's to decide.
+//! **syntax** and nothing else: it cannot tell a directive name a consumer
+//! acts on from one it ignores. What any of it *means* is the caller's to
+//! decide.
 //!
 //! ```
 //! use rw_parser::{Event, Parser, Tag};

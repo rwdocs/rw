@@ -40,6 +40,15 @@ pub trait RenderBackend {
     /// - `false` (HTML): first H1 renders normally, no level shifting.
     const TITLE_AS_METADATA: bool;
 
+    /// Whether the parser tokenizes rw directive syntax (`:name`, `::name`,
+    /// `:::name`) for this backend. Defaults to `true`.
+    ///
+    /// Set it `false` for a backend whose input is untrusted user text rather
+    /// than authored documentation — someone typing `:status[Done]` into a
+    /// review comment must see those characters back, not a rendered badge.
+    /// `:status[…]`/`::::tabs` then render as plain text.
+    const TOKENIZE_DIRECTIVES: bool = true;
+
     /// Writes a fenced code block to `out`.
     ///
     /// `lang` is the language identifier from the fence info string (e.g.,

@@ -17,7 +17,6 @@
 //! then call `render(markdown, kroki_url, diagram_dir)` to produce Confluence XHTML.
 
 use rw_kroki::{DiagramOutput, DiagramProcessor};
-use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{MarkdownRenderer, Pipeline, RenderResult, TocEntry};
 use std::path::{Path, PathBuf};
 
@@ -135,11 +134,7 @@ impl PageRenderer {
         kroki_url: Option<&str>,
         output_dir: Option<&std::path::Path>,
     ) -> Pipeline {
-        // Register an (empty) processor so directive syntax is tokenized: the
-        // built-in `:status` badge needs tokenization on, and the renderer gates
-        // that on a processor being present. No inline/leaf/container handlers are
-        // needed — status is handled by the walker, not a registered directive.
-        let mut pipeline = Pipeline::new().with_directives(DirectiveProcessor::new());
+        let mut pipeline = Pipeline::new();
         if let (Some(url), Some(dir)) = (kroki_url, output_dir) {
             let processor = self
                 .create_diagram_processor(url)

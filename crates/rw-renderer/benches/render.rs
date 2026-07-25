@@ -43,8 +43,7 @@
 //! code, so the mix matters as much as the overall proportion.
 //!
 //! The pipeline mirrors the production HTML serving path (`rw_site`'s page
-//! renderer): a `DirectiveProcessor` with the `:::tab` container and inline
-//! `:status` badge, plus a code-block processor for diagrams.
+//! renderer): a code-block processor for diagrams.
 //!
 //! `StubDiagrams` stands in for `rw-kroki`, which needs the network and so
 //! cannot be benched directly. It reproduces kroki's *contract* — claim the
@@ -61,7 +60,6 @@
 #![allow(clippy::doc_markdown)] // Product names (CodSpeed) and GitHub-flavored terms
 
 use divan::{Bencher, black_box};
-use rw_renderer::directive::DirectiveProcessor;
 use rw_renderer::{
     CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, Fills, HtmlBackend, MarkdownRenderer,
     Pipeline, ProcessResult,
@@ -138,16 +136,11 @@ impl CodeBlockProcessor for StubDiagrams {
     }
 }
 
-/// The pipeline the production HTML path installs (`rw_site`'s
-/// `create_directives_pipeline`, plus diagrams): an empty directive processor
-/// (`:::tabs`/`:::tab` and `:status` are walker built-ins and need no
-/// registration) and a diagram code-block processor. Built fresh per render, as
+/// The pipeline the production HTML path installs (`rw_site`'s `create_pipeline`,
+/// plus diagrams): a diagram code-block processor. Built fresh per render, as
 /// production does — the render consumes the pipeline.
 fn pipeline() -> Pipeline {
-    let directives = DirectiveProcessor::new();
-    Pipeline::new()
-        .with_directives(directives)
-        .with_processor(StubDiagrams::default())
+    Pipeline::new().with_processor(StubDiagrams::default())
 }
 
 /// Render the ASCII fixture. The renderer is built once (outside the timed
