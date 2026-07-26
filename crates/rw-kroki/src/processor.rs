@@ -19,10 +19,10 @@ use crate::kroki::{
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
 use crate::output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
-use crate::plantuml::{PrepareResult, prepare_diagram_source, resolve_includes};
 use crate::scale::to_display_px;
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
 use rw_diagrams::SiteModel;
+use rw_plantuml::{PrepareResult, prepare_diagram_source};
 use rw_sections::Sections;
 
 /// Configuration for diagram processing (immutable after setup).
@@ -273,46 +273,6 @@ impl DiagramProcessor {
             }
         }
     }
-
-    /// Warnings raised so far, in the order they were raised.
-    ///
-    /// Not deduplicated: one processor reused across many sources raises the
-    /// same warning once per source. Deduplicate at the point of display.
-    #[must_use]
-    pub fn warnings(&self) -> &[String] {
-        &self.warnings
-    }
-
-    /// Inline `PlantUML` `!include` directives found in a diagram fence's
-    /// source, returning `None` when there is nothing to change.
-    ///
-    /// `None` covers languages outside the `PlantUML` family and sources whose
-    /// includes all failed to resolve; in both cases the fence is left as the
-    /// author wrote it. Warnings from failed resolution accumulate on the
-    /// processor and are read back through [`warnings`](Self::warnings).
-    ///
-    /// Meta includes are deliberately left unresolved: they expand at request
-    /// time from live page metadata, which a published bundle does not carry.
-    pub fn bundle_source(&mut self, language: &str, source: &str) -> Option<String> {
-        let lang = DiagramLanguage::parse(language)?;
-        if !lang.needs_plantuml_preprocessing() {
-            return None;
-        }
-        let mut warnings = Vec::new();
-        let resolved = resolve_includes(
-            source,
-            &self.config.include_dirs,
-            None, // Skip meta includes — resolved at request time
-            0,
-            &mut warnings,
-        );
-        self.warnings.extend(warnings);
-        if resolved == source {
-            None
-        } else {
-            Some(resolved)
-        }
-    }
 }
 
 impl CodeBlockProcessor for DiagramProcessor {
@@ -416,9 +376,7 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 
     fn warnings(&self) -> &[String] {
-        // Delegates so there is one body: the inherent method shadows this one
-        // for concrete receivers, and two copies would diverge unnoticed.
-        Self::warnings(self)
+        &self.warnings
     }
 
     fn has_transient_error(&self) -> bool {
@@ -816,7 +774,6 @@ pub(crate) fn to_extracted_diagrams(blocks: &[ExtractedCodeBlock]) -> Vec<Extrac
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consts::STANDARD_DPI;
 
     /// Render markdown through a [`DiagramProcessor`] pointed at an
     /// unreachable Kroki (connecting to a closed loopback port fails fast in
@@ -1149,6 +1106,9 @@ mod tests {
     /// output comes back oversized. Scaling anything else shrinks a diagram that
     /// was already the right size — Mermaid rendered at half size until this was
     /// keyed off the language.
+    ///
+    /// Both DPI values are spelled out literally rather than compared against
+    /// `DEFAULT_DPI`/`STANDARD_DPI`, so changing either constant fails here.
     #[test]
     fn display_dpi_scales_plantuml_family_only() {
         for lang in [DiagramLanguage::PlantUml, DiagramLanguage::C4PlantUml] {
@@ -1161,7 +1121,7 @@ mod tests {
         ] {
             assert_eq!(
                 lang.render_dpi(),
-                STANDARD_DPI,
+                96,
                 "{lang:?} renders at natural size and must not be scaled"
             );
         }
@@ -1613,83 +1573,6 @@ mod tests {
         assert!(
             before < first && first < middle && middle < second && second < after,
             "figures out of source order: {html}"
-        );
-    }
-
-    #[test]
-    fn test_bundle_non_plantuml_returns_none() {
-        let mut processor = DiagramProcessor::new("https://kroki.io");
-        assert!(
-            processor
-                .bundle_source("mermaid", "graph TD\nA --> B")
-                .is_none()
-        );
-        assert!(processor.bundle_source("rust", "fn main() {}").is_none());
-        assert!(processor.bundle_source("graphviz", "digraph {}").is_none());
-    }
-
-    #[test]
-    fn test_bundle_plantuml_without_includes_returns_none() {
-        let mut processor = DiagramProcessor::new("https://kroki.io");
-        let source = "@startuml\nAlice -> Bob\n@enduml";
-        let result = processor.bundle_source("plantuml", source);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_bundle_c4plantuml_without_includes_returns_none() {
-        let mut processor = DiagramProcessor::new("https://kroki.io");
-        let source = "@startuml\nPerson(user, \"User\")\n@enduml";
-        let result = processor.bundle_source("c4plantuml", source);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_bundle_resolves_filesystem_include() {
-        let temp_dir = std::env::temp_dir();
-        let include_file = temp_dir.join("bundle_test.iuml");
-        std::fs::write(&include_file, "Bob -> Charlie").unwrap();
-
-        let mut processor =
-            DiagramProcessor::new("https://kroki.io").include_dirs(std::slice::from_ref(&temp_dir));
-        let source = "@startuml\n!include bundle_test.iuml\n@enduml";
-        let result = processor.bundle_source("plantuml", source).unwrap();
-
-        std::fs::remove_file(&include_file).unwrap();
-
-        assert!(result.contains("Bob -> Charlie"));
-        assert!(!result.contains("!include"));
-    }
-
-    #[test]
-    fn test_bundle_preserves_meta_includes() {
-        use std::sync::Arc;
-
-        use rw_diagrams::{Entity, SiteModel};
-
-        struct TestMetaSource;
-        impl SiteModel for TestMetaSource {
-            fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
-                if kind == "system" && name == "payment-gateway" {
-                    Some(Entity {
-                        title: "Payment Gateway".to_owned(),
-                        description: Some("Processes payments".to_owned()),
-                        url_path: Some("/domains/billing/systems/payment-gateway".to_owned()),
-                    })
-                } else {
-                    None
-                }
-            }
-        }
-
-        let mut processor = DiagramProcessor::new("https://kroki.io")
-            .with_meta_include_source(Arc::new(TestMetaSource));
-        let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
-        let result = processor.bundle_source("plantuml", source);
-        // Meta includes should NOT be resolved at bundle time
-        assert!(
-            result.is_none(),
-            "bundle() should not resolve meta includes"
         );
     }
 }

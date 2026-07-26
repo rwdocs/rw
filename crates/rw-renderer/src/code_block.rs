@@ -199,6 +199,11 @@ pub trait CodeBlockProcessor: Send + Sync {
 
     /// Get warnings generated during processing.
     ///
+    /// Not deduplicated: one processor sees every fence in a document, so a
+    /// shared broken include warns once per fence (and, if the processor
+    /// outlives one render, once per source thereafter). Callers that want each
+    /// unique issue reported once must deduplicate at the point of display.
+    ///
     /// Default implementation returns empty slice.
     fn warnings(&self) -> &[String] {
         &[]

@@ -3083,6 +3083,7 @@ dependencies = [
  "regex",
  "rw-cache",
  "rw-diagrams",
+ "rw-plantuml",
  "rw-renderer",
  "rw-sections",
  "sha2 0.11.0",
@@ -3122,6 +3123,14 @@ name = "rw-parser"
 version = "0.1.33"
 dependencies = [
  "pulldown-cmark",
+]
+
+[[package]]
+name = "rw-plantuml"
+version = "0.1.33"
+dependencies = [
+ "regex",
+ "rw-diagrams",
 ]
 
 [[package]]

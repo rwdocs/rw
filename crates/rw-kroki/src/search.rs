@@ -9,22 +9,10 @@ use std::sync::Arc;
 
 use rw_renderer::{CodeBlockProcessor, FenceAttrs, ProcessResult};
 
-use crate::language::DiagramLanguage;
-use crate::plantuml::resolve_includes;
 use rw_diagrams::SiteModel;
+use rw_plantuml::{resolve_includes, strip_plantuml_boilerplate};
 
-/// Lines starting with these prefixes are stripped from `PlantUML` source
-/// during search document generation.
-const PLANTUML_BOILERPLATE_PREFIXES: &[&str] = &[
-    "@start",
-    "@end",
-    "skinparam",
-    "!include",
-    "!define",
-    "!$",
-    "hide ",
-    "show ",
-];
+use crate::language::DiagramLanguage;
 
 /// Code block processor that strips diagram boilerplate for search indexing.
 ///
@@ -65,24 +53,6 @@ impl SearchDiagramProcessor {
     }
 }
 
-/// Check whether a line is `PlantUML` boilerplate.
-fn is_plantuml_boilerplate(line: &str) -> bool {
-    let trimmed = line.trim();
-    PLANTUML_BOILERPLATE_PREFIXES
-        .iter()
-        .any(|prefix| trimmed.starts_with(prefix))
-}
-
-/// Strip `PlantUML` boilerplate lines, keeping human-readable content.
-fn strip_plantuml_boilerplate(source: &str) -> String {
-    source
-        .lines()
-        .filter(|line| !is_plantuml_boilerplate(line))
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 impl CodeBlockProcessor for SearchDiagramProcessor {
     fn process(
         &mut self,
@@ -101,7 +71,6 @@ impl CodeBlockProcessor for SearchDiagramProcessor {
                 source,
                 &self.include_dirs,
                 self.meta_include_source.as_deref(),
-                0,
                 &mut self.warnings,
             );
             strip_plantuml_boilerplate(&resolved)

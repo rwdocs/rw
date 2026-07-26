@@ -12,7 +12,7 @@
 //! - [`language`]: Diagram type definitions (`DiagramLanguage`, `DiagramFormat`, `ExtractedDiagram`)
 //! - [`processor`]: `DiagramProcessor` implementing `CodeBlockProcessor` trait
 //! - [`kroki`]: Parallel HTTP rendering via Kroki service
-//! - [`plantuml`]: PlantUML-specific preprocessing
+//! - [`search`]: `SearchDiagramProcessor` producing plain text for the search index
 //! - [`html_embed`]: HTML embedding with SVG scaling and link annotation
 //!
 //! # Example
@@ -35,9 +35,7 @@ mod consts;
 mod html_embed;
 mod kroki;
 mod language;
-mod meta_includes;
 mod output;
-mod plantuml;
 mod processor;
 mod scale;
 mod search;

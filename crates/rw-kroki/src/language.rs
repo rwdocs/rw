@@ -3,6 +3,7 @@
 //! Supports multiple diagram languages via Kroki: `PlantUML`, Mermaid, `GraphViz`, etc.
 
 use crate::consts::{DEFAULT_DPI, STANDARD_DPI};
+use rw_plantuml::is_plantuml_fence;
 
 /// Supported diagram languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,12 +85,16 @@ impl DiagramLanguage {
         }
     }
 
-    /// Whether this diagram type requires PlantUML-specific preprocessing.
+    /// Whether this diagram type requires `PlantUML`-specific preprocessing:
+    /// `!include` resolution and config injection.
     ///
-    /// `PlantUML` and `C4PlantUML` need `!include` resolution and config injection.
+    /// Delegates to `rw_plantuml::is_plantuml_fence` so the fence-string
+    /// predicate and this one cannot define the family differently. That holds
+    /// only while [`Self::kroki_endpoint`] returns a spelling that predicate
+    /// accepts — `test_all_kroki_endpoints` pins the spellings.
     #[must_use]
     pub fn needs_plantuml_preprocessing(self) -> bool {
-        matches!(self, Self::PlantUml | Self::C4PlantUml)
+        is_plantuml_fence(self.kroki_endpoint())
     }
 
     /// The DPI this language's output has to be scaled back down from.

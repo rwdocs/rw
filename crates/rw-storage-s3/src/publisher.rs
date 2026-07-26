@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rw_kroki::DiagramProcessor;
 use rw_parser::rewrite_fences;
-use rw_storage::Storage;
+use rw_plantuml::bundle_source;
+use rw_storage::{Document, Storage};
 
 use crate::format::{self, MANIFEST_KEY, Manifest, PageBundle};
 use crate::s3::{self, S3Config};
@@ -37,7 +37,7 @@ pub struct BundlePublisher {
 /// Warnings are accumulated from `PlantUML` `!include` resolution
 /// (broken include paths, cyclic includes) across every page.
 /// Runtime diagnostics such as unknown attributes or invalid `format`
-/// values fire later, inside the Kroki render path, and are not
+/// values fire later, when a page is actually rendered, and are not
 /// captured here.
 ///
 /// Repeated identical warnings are deduplicated so a missing shared
@@ -67,9 +67,8 @@ impl BundlePublisher {
     /// any `!include` resolution warnings (see [`PublishReport`] for what
     /// is and isn't captured).
     ///
-    /// Uses a single shared `DiagramProcessor` so warnings from every page
-    /// accumulate in one place; identical warnings are deduplicated before
-    /// the report is returned.
+    /// Include-resolution warnings from every page accumulate in one vector;
+    /// identical warnings are deduplicated before the report is returned.
     pub async fn publish(
         &self,
         storage: &dyn Storage,
@@ -80,49 +79,34 @@ impl BundlePublisher {
         let client = s3::build_client(&self.config).await;
         let documents = storage.scan()?;
 
-        // Build bundles and submit uploads as each one is ready so memory
-        // stays bounded by MAX_CONCURRENT_UPLOADS rather than total site
-        // size. Bundle construction is sequential because the processor
-        // accumulates include-resolution warnings across pages.
         let mut tasks: tokio::task::JoinSet<Result<(), String>> = tokio::task::JoinSet::new();
         let config = Arc::new(self.config.clone());
-        let mut processor = DiagramProcessor::new("").include_dirs(include_dirs);
-        let mut num_bundles = 0;
 
-        for doc in &documents {
-            if !doc.has_content {
-                continue;
-            }
+        // Submit each upload as soon as its bundle is ready so memory stays
+        // bounded by MAX_CONCURRENT_UPLOADS rather than total site size.
+        let (num_bundles, warnings) = build_bundles(
+            storage,
+            &documents,
+            include_dirs,
+            async |key: String, bundle_json: Vec<u8>| {
+                if tasks.len() >= MAX_CONCURRENT_UPLOADS {
+                    tasks
+                        .join_next()
+                        .await
+                        .expect("task set is non-empty")
+                        .expect("upload task panicked")
+                        .map_err(BundlePublishError::S3)?;
+                }
 
-            let content = storage.read(&doc.path)?;
-            let resolved_content =
-                rewrite_fences(&content, |lang, src| processor.bundle_source(lang, src));
-            let metadata = storage.meta(&doc.path)?;
-
-            let bundle = PageBundle {
-                content: resolved_content,
-                metadata,
-            };
-
-            let bundle_json = serde_json::to_vec(&bundle)?;
-            let key = format::page_bundle_key(&doc.path);
-            num_bundles += 1;
-
-            if tasks.len() >= MAX_CONCURRENT_UPLOADS {
-                tasks
-                    .join_next()
-                    .await
-                    .expect("task set is non-empty")
-                    .expect("upload task panicked")
-                    .map_err(BundlePublishError::S3)?;
-            }
-
-            let client = client.clone();
-            let config = Arc::clone(&config);
-            tasks.spawn(async move {
-                s3::upload(&client, &config, &key, bundle_json, "application/json").await
-            });
-        }
+                let client = client.clone();
+                let config = Arc::clone(&config);
+                tasks.spawn(async move {
+                    s3::upload(&client, &config, &key, bundle_json, "application/json").await
+                });
+                Ok(())
+            },
+        )
+        .await?;
 
         while let Some(result) = tasks.join_next().await {
             result
@@ -155,16 +139,61 @@ impl BundlePublisher {
 
         Ok(PublishReport {
             uploaded: num_bundles + 1,
-            warnings: dedup_preserving_order(processor.warnings()),
+            warnings,
         })
     }
+}
+
+/// Build one page bundle per document that has content, handing each
+/// `(key, bundle_json)` pair to `on_bundle` as soon as it is ready.
+///
+/// Returns the number of bundles built and the deduplicated `!include`
+/// resolution warnings.
+///
+/// Bundles are handed over one at a time instead of collected so a caller that
+/// uploads them can keep only a bounded number in memory at once, whatever the
+/// size of the site. Construction is sequential because include-resolution
+/// warnings accumulate across pages, in document order.
+async fn build_bundles(
+    storage: &dyn Storage,
+    documents: &[Document],
+    include_dirs: &[PathBuf],
+    mut on_bundle: impl AsyncFnMut(String, Vec<u8>) -> Result<(), BundlePublishError>,
+) -> Result<(usize, Vec<String>), BundlePublishError> {
+    let mut warnings = Vec::new();
+    let mut num_bundles = 0;
+
+    for doc in documents {
+        if !doc.has_content {
+            continue;
+        }
+
+        let content = storage.read(&doc.path)?;
+        let resolved_content = rewrite_fences(&content, |lang, src| {
+            bundle_source(lang, src, include_dirs, &mut warnings)
+        });
+        let metadata = storage.meta(&doc.path)?;
+
+        let bundle = PageBundle {
+            content: resolved_content,
+            metadata,
+        };
+
+        let bundle_json = serde_json::to_vec(&bundle)?;
+        let key = format::page_bundle_key(&doc.path);
+        num_bundles += 1;
+
+        on_bundle(key, bundle_json).await?;
+    }
+
+    Ok((num_bundles, dedup_preserving_order(&warnings)))
 }
 
 /// Deduplicate warnings while preserving first-seen order.
 ///
 /// A single broken include referenced by many pages produces N identical
-/// warning strings via the shared `DiagramProcessor`; operators want to
-/// see each unique issue once, not once per page.
+/// warning strings; operators want to see each unique issue once, not once
+/// per page.
 fn dedup_preserving_order(warnings: &[String]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     warnings
@@ -179,13 +208,18 @@ mod tests {
     use super::*;
     use rw_storage::MockStorage;
 
-    /// Drive the same shared-processor loop `publish()` uses (minus S3) so the
-    /// test exercises the actual warning-collection path without needing a
-    /// network. Two pages reference the same broken include — the raw
-    /// processor accumulates one warning per page; dedup folds them.
-    #[test]
-    fn shared_processor_collects_diagram_warnings_across_pages() {
-        let markdown = "\
+    /// Exercises everything `publish()` does apart from the S3 calls: the
+    /// bundle-building loop, the fence rewrite that inlines `!include`s, and
+    /// the dedup that folds one broken shared include into a single warning.
+    /// Pages `a` and `b` share a broken include (two raw warnings, one
+    /// deduplicated); page `c` has a resolvable one and must come out inlined.
+    #[tokio::test]
+    async fn build_bundles_inlines_includes_and_dedups_warnings() {
+        let include_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(include_dir.path().join("shared.iuml"), "Bob -> Charlie")
+            .expect("write include");
+
+        let broken = "\
 # Page
 
 ```plantuml
@@ -195,36 +229,58 @@ A -> B
 @enduml
 ```
 ";
+        let resolvable = "\
+# Page
+
+```plantuml
+@startuml
+!include shared.iuml
+@enduml
+```
+";
         let storage = MockStorage::new()
             .with_document("a", "A")
-            .with_content("a", markdown)
+            .with_content("a", broken)
             .with_document("b", "B")
-            .with_content("b", markdown);
+            .with_content("b", broken)
+            .with_document("c", "C")
+            .with_content("c", resolvable);
 
-        let mut processor = DiagramProcessor::new("").include_dirs(&[]);
-        for doc in storage.scan().expect("scan") {
-            if !doc.has_content {
-                continue;
-            }
-            let content = storage.read(&doc.path).expect("read");
-            // The rewritten markdown is beside the point here; the assertions
-            // below are about what the closure accumulated on the way.
-            let _ = rewrite_fences(&content, |lang, src| processor.bundle_source(lang, src));
-        }
+        let documents = storage.scan().expect("scan");
+        let mut bundles = Vec::new();
+        let (num_bundles, warnings) = build_bundles(
+            &storage,
+            &documents,
+            &[include_dir.path().to_path_buf()],
+            async |key, json| {
+                bundles.push((key, json));
+                Ok(())
+            },
+        )
+        .await
+        .expect("build bundles");
 
-        let raw = processor.warnings();
+        assert_eq!(num_bundles, 3);
+        assert_eq!(warnings.len(), 1, "deduplicated warnings: {warnings:?}");
         assert!(
-            raw.len() >= 2,
-            "shared processor accumulates a warning per page, got {raw:?}",
+            warnings[0].contains("Include file not found")
+                && warnings[0].contains("nonexistent.iuml"),
+            "unexpected warning: {}",
+            warnings[0],
         );
 
-        let deduped = dedup_preserving_order(raw);
-        assert_eq!(deduped.len(), 1, "deduped warnings: {deduped:?}");
+        let (key, json) = bundles
+            .iter()
+            .find(|(key, _)| key == "pages/c.json")
+            .expect("a bundle per page with content");
+        let bundle = String::from_utf8(json.clone()).expect("bundle is UTF-8");
         assert!(
-            deduped[0].contains("Include file not found")
-                && deduped[0].contains("nonexistent.iuml"),
-            "unexpected warning: {}",
-            deduped[0],
+            bundle.contains("Bob -> Charlie"),
+            "{key} kept the include unresolved: {bundle}"
+        );
+        assert!(
+            !bundle.contains("!include"),
+            "{key} still carries an !include: {bundle}"
         );
     }
 

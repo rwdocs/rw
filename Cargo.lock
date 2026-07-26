@@ -4283,6 +4283,7 @@ dependencies = [
  "regex",
  "rw-cache",
  "rw-diagrams",
+ "rw-plantuml",
  "rw-renderer",
  "rw-sections",
  "sha2 0.11.0",
@@ -4305,6 +4306,15 @@ version = "0.1.33"
 dependencies = [
  "pretty_assertions",
  "pulldown-cmark",
+]
+
+[[package]]
+name = "rw-plantuml"
+version = "0.1.33"
+dependencies = [
+ "regex",
+ "rw-diagrams",
+ "tempfile",
 ]
 
 [[package]]
@@ -4430,11 +4440,12 @@ dependencies = [
  "chrono",
  "parking_lot",
  "pretty_assertions",
- "rw-kroki",
  "rw-parser",
+ "rw-plantuml",
  "rw-storage",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tokio",
  "tracing",

@@ -41,8 +41,14 @@ rw-kroki (Rust) → Node.js objects
 
 ## Key Technical Details
 
-- **Rust requirements**: Edition 2024, Rust 1.91+
+- **Rust requirements**: Edition 2024, Rust 1.96+
 - **PlantUML**: Extracted from code blocks, rendered via Kroki, uploaded as attachments
+- **PlantUML preprocessing**: `!include` resolution, meta-include C4 macro
+  emission, and search-text stripping live in `rw-plantuml`, which has no HTTP
+  client. `rw backstage publish` resolves includes through it, so
+  `rw-storage-s3`'s `publish` feature needs no diagram-rendering crate. A binary
+  that also renders diagrams — `rw` does, via `rw-site`/`rw-confluence` — links
+  `rw-kroki` anyway.
 - **Diagram id isolation**: Kroki generators emit SVG ids unique only within one
   diagram, so `rw-kroki` wraps each inlined SVG in `<rw-diagram>` and the viewer
   attaches a shadow root — one id scope per diagram. Consequence: `querySelector`

@@ -1,16 +1,18 @@
-//! `PlantUML` diagram processing utilities.
+//! `PlantUML` `!include` resolution and render-config injection.
 //!
-//! This module handles `PlantUML` source preprocessing before rendering via Kroki:
-//! - Resolves `!include` directives by searching include directories
-//! - Prepends DPI and font configuration for high-resolution output
+//! Resolves `!include` directives against the configured include directories
+//! and the site model. On top of that, [`prepare_diagram_source`] injects the
+//! caller's DPI plus the font settings a render needs, while [`bundle_source`]
+//! only resolves. Stdlib includes (`!include <tupadr3/common>`) are left alone.
 
 use std::path::PathBuf;
-
-use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
+use regex::Regex;
 use rw_diagrams::SiteModel;
+
+use crate::is_plantuml_fence;
+use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
 
 static INCLUDE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^([ \t]*)!include\s+(.+)$").unwrap());
@@ -42,8 +44,31 @@ pub struct PrepareResult {
     pub warnings: Vec<String>,
 }
 
-/// Resolve `PlantUML` !include directives in diagram source.
-pub(crate) fn resolve_includes(
+/// Resolve `PlantUML` `!include` directives in diagram source.
+///
+/// Include paths are searched in `include_dirs` order. When `meta_source` is
+/// given, meta includes (`systems/sys_payment_gateway.iuml`) are looked up
+/// there first; a miss falls back to the include directories like any other
+/// path. An include that resolves nowhere is left in place and a message is
+/// pushed onto `warnings` — except stdlib includes (`<tupadr3/common>`),
+/// and, when `meta_source` is `None`, meta-pattern paths: those are left in
+/// place silently, for a later pass that has a model to expand them.
+#[must_use]
+pub fn resolve_includes(
+    source: &str,
+    include_dirs: &[PathBuf],
+    meta_source: Option<&dyn SiteModel>,
+    warnings: &mut Vec<String>,
+) -> String {
+    resolve_includes_at(source, include_dirs, meta_source, 0, warnings)
+}
+
+/// Resolve includes `depth` levels below the fence.
+///
+/// There is no cycle detection: `depth > 10` is a fixed cap that stops
+/// runaway or cyclic includes after ten levels, leaving that level's
+/// `!include` lines unexpanded and a warning behind.
+fn resolve_includes_at(
     source: &str,
     include_dirs: &[PathBuf],
     meta_source: Option<&dyn SiteModel>,
@@ -82,7 +107,7 @@ pub(crate) fn resolve_includes(
             let full_path = dir.join(include_path);
             if let Ok(content) = std::fs::read_to_string(&full_path) {
                 let resolved_content =
-                    resolve_includes(&content, include_dirs, meta_source, depth + 1, warnings);
+                    resolve_includes_at(&content, include_dirs, meta_source, depth + 1, warnings);
                 // Indent included content to match the !include directive
                 let indented_content = indent_content(&resolved_content, leading_whitespace);
                 result = result.replace(full_match, &indented_content);
@@ -128,6 +153,9 @@ pub(crate) fn resolve_includes(
 /// * `source` - Raw `PlantUML` diagram source
 /// * `include_dirs` - Directories to search for `!include` files
 /// * `dpi` - DPI setting for rendering
+/// * `meta_source` - Site model that meta includes
+///   (`systems/sys_payment_gateway.iuml`) expand from; `None` leaves those
+///   includes in place, unexpanded and unwarned
 ///
 /// # Returns
 /// [`PrepareResult`] containing the prepared source and any warnings.
@@ -139,7 +167,7 @@ pub fn prepare_diagram_source(
     meta_source: Option<&dyn SiteModel>,
 ) -> PrepareResult {
     let mut warnings = Vec::new();
-    let resolved = resolve_includes(source, include_dirs, meta_source, 0, &mut warnings);
+    let resolved = resolve_includes(source, include_dirs, meta_source, &mut warnings);
 
     // Inject DPI and font config after @startuml directive
     let config_block = format!(
@@ -172,10 +200,37 @@ pub fn prepare_diagram_source(
     }
 }
 
+/// Inline `PlantUML` `!include` directives in a fence's source, returning
+/// `None` when there is nothing to change.
+///
+/// `None` covers fences outside the `PlantUML` family and sources whose
+/// includes all failed to resolve; in both cases the fence is left as the
+/// author wrote it. Failures are appended to `warnings`.
+///
+/// Meta includes are deliberately left unresolved: they expand at request time
+/// from live page metadata, which a published bundle does not carry.
+#[must_use]
+pub fn bundle_source(
+    language: &str,
+    source: &str,
+    include_dirs: &[PathBuf],
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    if !is_plantuml_fence(language) {
+        return None;
+    }
+    let resolved = resolve_includes(source, include_dirs, None, warnings);
+    (resolved != source).then_some(resolved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consts::DEFAULT_DPI;
+
+    /// Mirrors the DPI the diagram render path passes in practice. The
+    /// expectations below spell `dpi 192` out literally, so this and those have
+    /// to change together.
+    const DEFAULT_DPI: u32 = 192;
 
     #[test]
     fn test_prepare_diagram_source() {
@@ -250,16 +305,13 @@ mod tests {
     #[test]
     fn test_indented_include_resolved() {
         // Create a temp file for the include
-        let temp_dir = std::env::temp_dir();
-        let include_path = temp_dir.join("test_component.iuml");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let include_path = temp_dir.path().join("test_component.iuml");
         std::fs::write(&include_path, "Component(comp, \"Component\")").unwrap();
 
         let source = "@startuml\nSystem_Boundary(sys, \"System\")\n  !include test_component.iuml\nBoundary_End()\n@enduml";
         let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
-
-        // Cleanup
-        std::fs::remove_file(&include_path).unwrap();
+            prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
         assert!(result.warnings.is_empty());
         // Indented include should be resolved and content should be indented
@@ -304,16 +356,14 @@ mod tests {
     #[test]
     fn test_include_depth_exceeded() {
         // Create a self-referencing include to trigger depth limit
-        let temp_dir = std::env::temp_dir();
-        let include_path = temp_dir.join("recursive.iuml");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let include_path = temp_dir.path().join("recursive.iuml");
         // File includes itself
         std::fs::write(&include_path, "!include recursive.iuml\nContent").unwrap();
 
         let source = "@startuml\n!include recursive.iuml\n@enduml";
         let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
-
-        std::fs::remove_file(&include_path).unwrap();
+            prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
         // Should have warning about depth exceeded
         assert!(result.warnings.iter().any(|w| w.contains("depth exceeded")));
@@ -321,18 +371,15 @@ mod tests {
 
     #[test]
     fn test_multiple_includes_resolved() {
-        let temp_dir = std::env::temp_dir();
-        let include1 = temp_dir.join("part1.iuml");
-        let include2 = temp_dir.join("part2.iuml");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let include1 = temp_dir.path().join("part1.iuml");
+        let include2 = temp_dir.path().join("part2.iuml");
         std::fs::write(&include1, "Alice -> Bob").unwrap();
         std::fs::write(&include2, "Bob -> Charlie").unwrap();
 
         let source = "@startuml\n!include part1.iuml\n!include part2.iuml\n@enduml";
         let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
-
-        std::fs::remove_file(&include1).unwrap();
-        std::fs::remove_file(&include2).unwrap();
+            prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
         assert!(result.warnings.is_empty());
         assert!(result.source.contains("Alice -> Bob"));
@@ -342,18 +389,15 @@ mod tests {
 
     #[test]
     fn test_nested_includes() {
-        let temp_dir = std::env::temp_dir();
-        let outer = temp_dir.join("outer.iuml");
-        let inner = temp_dir.join("inner.iuml");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let outer = temp_dir.path().join("outer.iuml");
+        let inner = temp_dir.path().join("inner.iuml");
         std::fs::write(&inner, "InnerContent").unwrap();
         std::fs::write(&outer, "OuterBefore\n!include inner.iuml\nOuterAfter").unwrap();
 
         let source = "@startuml\n!include outer.iuml\n@enduml";
         let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
-
-        std::fs::remove_file(&outer).unwrap();
-        std::fs::remove_file(&inner).unwrap();
+            prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
         assert!(result.warnings.is_empty());
         assert!(result.source.contains("OuterBefore"));
@@ -363,15 +407,13 @@ mod tests {
 
     #[test]
     fn test_indented_content_empty_lines_preserved() {
-        let temp_dir = std::env::temp_dir();
-        let include_path = temp_dir.join("with_empty.iuml");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let include_path = temp_dir.path().join("with_empty.iuml");
         std::fs::write(&include_path, "Line1\n\nLine3").unwrap();
 
         let source = "@startuml\n  !include with_empty.iuml\n@enduml";
         let result =
-            prepare_diagram_source(source, std::slice::from_ref(&temp_dir), DEFAULT_DPI, None);
-
-        std::fs::remove_file(&include_path).unwrap();
+            prepare_diagram_source(source, &[temp_dir.path().to_path_buf()], DEFAULT_DPI, None);
 
         assert!(result.warnings.is_empty());
         // Empty lines should remain empty (not indented)
@@ -380,21 +422,18 @@ mod tests {
 
     #[test]
     fn test_include_after_blank_line_keeps_line_structure() {
-        let temp_dir = std::env::temp_dir();
-        let include_path = temp_dir.join("after_blank_line.iuml");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let include_path = temp_dir.path().join("after_blank_line.iuml");
         std::fs::write(&include_path, "line1\nline2\nline3").unwrap();
 
         let source = "@startuml\n\n!include after_blank_line.iuml\n@enduml";
         let mut warnings = Vec::new();
         let result = resolve_includes(
             source,
-            std::slice::from_ref(&temp_dir),
+            &[temp_dir.path().to_path_buf()],
             None,
-            0,
             &mut warnings,
         );
-
-        std::fs::remove_file(&include_path).unwrap();
 
         assert!(warnings.is_empty());
         assert_eq!(result, "@startuml\n\nline1\nline2\nline3\n@enduml");
@@ -402,21 +441,18 @@ mod tests {
 
     #[test]
     fn test_indented_include_after_blank_line_indents_without_injecting_blanks() {
-        let temp_dir = std::env::temp_dir();
-        let include_path = temp_dir.join("indented_after_blank.iuml");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let include_path = temp_dir.path().join("indented_after_blank.iuml");
         std::fs::write(&include_path, "line1\nline2").unwrap();
 
         let source = "@startuml\n\n  !include indented_after_blank.iuml\n@enduml";
         let mut warnings = Vec::new();
         let result = resolve_includes(
             source,
-            std::slice::from_ref(&temp_dir),
+            &[temp_dir.path().to_path_buf()],
             None,
-            0,
             &mut warnings,
         );
-
-        std::fs::remove_file(&include_path).unwrap();
 
         assert!(warnings.is_empty());
         assert_eq!(result, "@startuml\n\n  line1\n  line2\n@enduml");
@@ -424,21 +460,18 @@ mod tests {
 
     #[test]
     fn test_crlf_include_after_blank_line_not_indented_by_carriage_return() {
-        let temp_dir = std::env::temp_dir();
-        let include_path = temp_dir.join("crlf_after_blank.iuml");
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let include_path = temp_dir.path().join("crlf_after_blank.iuml");
         std::fs::write(&include_path, "line1\nline2").unwrap();
 
         let source = "@startuml\r\n\r\n!include crlf_after_blank.iuml\r\n@enduml";
         let mut warnings = Vec::new();
         let result = resolve_includes(
             source,
-            std::slice::from_ref(&temp_dir),
+            &[temp_dir.path().to_path_buf()],
             None,
-            0,
             &mut warnings,
         );
-
-        std::fs::remove_file(&include_path).unwrap();
 
         assert!(warnings.is_empty());
         // Characterizes CRLF handling; it cannot fail independently of the LF
@@ -511,6 +544,199 @@ mod tests {
             result
                 .source
                 .contains("!include systems/sys_payment_gateway.iuml")
+        );
+    }
+
+    #[test]
+    fn bundle_source_skips_non_plantuml_fences() {
+        // Every fixture carries a resolvable `!include`, so deleting the language
+        // guard makes `bundle_source` rewrite the source and return `Some` — these
+        // assertions fail. Fixtures without a resolvable include would pass either
+        // way and prove nothing.
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("shared.iuml"), "included content")
+            .expect("write include");
+        let include_dirs = [temp_dir.path().to_path_buf()];
+
+        let mut warnings = Vec::new();
+        assert_eq!(
+            bundle_source(
+                "mermaid",
+                "graph TD\nA --> B\n!include shared.iuml",
+                &include_dirs,
+                &mut warnings
+            ),
+            None
+        );
+        assert_eq!(
+            bundle_source(
+                "rust",
+                "fn main() {}\n!include shared.iuml",
+                &include_dirs,
+                &mut warnings
+            ),
+            None
+        );
+        assert_eq!(
+            bundle_source(
+                "graphviz",
+                "digraph {}\n!include shared.iuml",
+                &include_dirs,
+                &mut warnings
+            ),
+            None
+        );
+        assert_eq!(
+            bundle_source(
+                "console",
+                "$ cat notes.txt\n!include shared.iuml",
+                &include_dirs,
+                &mut warnings
+            ),
+            None
+        );
+        assert!(
+            warnings.is_empty(),
+            "non-PlantUML fences warn: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn bundle_source_returns_none_when_there_are_no_includes() {
+        let mut warnings = Vec::new();
+        assert_eq!(
+            bundle_source(
+                "plantuml",
+                "@startuml\nAlice -> Bob\n@enduml",
+                &[],
+                &mut warnings
+            ),
+            None
+        );
+        assert_eq!(
+            bundle_source(
+                "c4plantuml",
+                "@startuml\nPerson(user, \"User\")\n@enduml",
+                &[],
+                &mut warnings,
+            ),
+            None
+        );
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn bundle_source_inlines_a_filesystem_include() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("bundle_test.iuml"), "Bob -> Charlie")
+            .expect("write include");
+
+        let mut warnings = Vec::new();
+        let result = bundle_source(
+            "plantuml",
+            "@startuml\n!include bundle_test.iuml\n@enduml",
+            &[temp_dir.path().to_path_buf()],
+            &mut warnings,
+        );
+
+        assert_eq!(
+            result.as_deref(),
+            Some("@startuml\nBob -> Charlie\n@enduml"),
+        );
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn bundle_source_accepts_the_kroki_prefixed_spelling() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            temp_dir.path().join("kroki_prefixed.iuml"),
+            "Bob -> Charlie",
+        )
+        .expect("write include");
+
+        let mut warnings = Vec::new();
+        let result = bundle_source(
+            "kroki-plantuml",
+            "@startuml\n!include kroki_prefixed.iuml\n@enduml",
+            &[temp_dir.path().to_path_buf()],
+            &mut warnings,
+        );
+
+        assert_eq!(
+            result.as_deref(),
+            Some("@startuml\nBob -> Charlie\n@enduml"),
+        );
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn bundle_source_inlines_what_it_can_and_warns_about_the_rest() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp_dir.path().join("good.iuml"), "Bob -> Charlie").expect("write include");
+        let mut warnings = Vec::new();
+        let result = bundle_source(
+            "plantuml",
+            "@startuml\n!include good.iuml\n!include missing.iuml\n@enduml",
+            &[temp_dir.path().to_path_buf()],
+            &mut warnings,
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("@startuml\nBob -> Charlie\n!include missing.iuml\n@enduml"),
+        );
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("missing.iuml"), "{warnings:?}");
+    }
+
+    #[test]
+    fn bundle_source_leaves_meta_includes_for_request_time() {
+        struct OneSystem;
+        impl SiteModel for OneSystem {
+            fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
+                (kind == "system" && name == "payment-gateway").then(|| Entity {
+                    title: "Payment Gateway".to_owned(),
+                    description: Some("Processes payments".to_owned()),
+                    url_path: None,
+                })
+            }
+        }
+
+        // The model is reachable, and `resolve_includes` would expand this
+        // include if handed it — `bundle_source` passes `None` on purpose.
+        let mut with_model = Vec::new();
+        let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
+        let expanded = resolve_includes(source, &[], Some(&OneSystem), &mut with_model);
+        assert!(
+            expanded.contains("Payment Gateway"),
+            "fixture is inert: {expanded}"
+        );
+
+        let mut warnings = Vec::new();
+        assert_eq!(bundle_source("plantuml", source, &[], &mut warnings), None);
+        assert!(
+            warnings.is_empty(),
+            "meta includes must not warn: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn bundle_source_reports_an_unresolvable_include() {
+        let mut warnings = Vec::new();
+        let result = bundle_source(
+            "plantuml",
+            "@startuml\n!include nonexistent.iuml\n@enduml",
+            &[],
+            &mut warnings,
+        );
+
+        assert_eq!(result, None, "an unchanged source bundles to None");
+        assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
+        assert!(
+            warnings[0].contains("Include file not found")
+                && warnings[0].contains("nonexistent.iuml"),
+            "unexpected warning: {}",
+            warnings[0],
         );
     }
 }

@@ -1,0 +1,20 @@
+[package]
+name = "rw-plantuml"
+description = "PlantUML source preprocessing for RW"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# Nothing here renders a diagram, so nothing here needs an HTTP client or a
+# thread pool. The publish path depends on this crate precisely to avoid
+# linking those; keep it that way.
+[dependencies]
+regex = { workspace = true }
+rw-diagrams = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
