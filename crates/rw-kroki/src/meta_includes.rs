@@ -4,31 +4,7 @@
 //! `!include systems/sys_payment_gateway.iuml` to resolve dynamically
 //! from `meta.yaml` files without maintaining separate `.iuml` files.
 
-/// Entity metadata for generating `PlantUML` C4 includes.
-#[derive(Clone, Debug)]
-pub struct EntityInfo {
-    /// Display title for the C4 macro.
-    pub title: String,
-    /// Optional description from meta.yaml.
-    pub description: Option<String>,
-    /// URL path for linking (e.g., "/domains/billing/systems/payment-gateway").
-    /// `None` for virtual pages without content.
-    pub url_path: Option<String>,
-}
-
-/// Source for resolving `PlantUML` meta includes from page metadata.
-///
-/// Implemented by site-level registries that track typed pages.
-/// The diagram processor queries this trait during `!include` resolution.
-pub trait MetaIncludeSource: Send + Sync {
-    /// Look up an entity by type and normalized name.
-    ///
-    /// # Arguments
-    ///
-    /// * `entity_type` - One of "domain", "system", "service"
-    /// * `name` - Normalized name with underscores (e.g., `payment_gateway`)
-    fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo>;
-}
+use rw_diagrams::{Entity, SiteModel};
 
 /// Check if a path matches the meta include pattern (e.g., `systems/sys_*.iuml`).
 pub(crate) fn is_meta_include_pattern(path: &str) -> bool {
@@ -38,8 +14,8 @@ pub(crate) fn is_meta_include_pattern(path: &str) -> bool {
 /// Parsed components of a meta include path.
 #[derive(Debug, PartialEq, Eq)]
 struct ParsedIncludePath {
-    /// The entity type: "system", "domain", or "service".
-    entity_type: &'static str,
+    /// The section kind: "system", "domain", or "service".
+    kind: &'static str,
     /// Normalized name with underscores (e.g., `payment_gateway`).
     name: String,
     /// Whether the entity is external (from the `ext/` subdirectory).
@@ -60,7 +36,7 @@ fn parse_include_path(path: &str) -> Option<ParsedIncludePath> {
         (false, rest)
     };
     let stem = rest.strip_suffix(".iuml")?;
-    let (entity_type, name) = if let Some(name) = stem.strip_prefix("sys_") {
+    let (kind, name) = if let Some(name) = stem.strip_prefix("sys_") {
         ("system", name)
     } else if let Some(name) = stem.strip_prefix("dmn_") {
         ("domain", name)
@@ -73,15 +49,15 @@ fn parse_include_path(path: &str) -> Option<ParsedIncludePath> {
         return None;
     }
     Some(ParsedIncludePath {
-        entity_type,
+        kind,
         name: name.to_owned(),
         external,
     })
 }
 
-/// Return the short prefix for an entity type.
-fn type_prefix(entity_type: &str) -> &'static str {
-    match entity_type {
+/// Return the short prefix for a section kind.
+fn type_prefix(kind: &str) -> &'static str {
+    match kind {
         "domain" => "dmn",
         "system" => "sys",
         "service" => "svc",
@@ -102,8 +78,8 @@ fn escape_description(desc: &str) -> String {
 /// plugin. The macro variant (`System` vs `System_Ext`) depends on the
 /// `external` flag.
 ///
-fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external: bool) -> String {
-    let prefix = type_prefix(entity_type);
+fn render_c4_macro(kind: &str, name: &str, entity: &Entity, external: bool) -> String {
+    let prefix = type_prefix(kind);
     let alias = format!("{prefix}_{name}");
 
     let title = &entity.title;
@@ -122,8 +98,8 @@ fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external:
             .map_or(String::new(), |d| format!(", $descr=\"{d}\""));
         format!("System_Ext({alias}, \"{title}\"{desc_part}{link_part})")
     } else {
-        // Regular macros vary by entity type
-        match entity_type {
+        // Regular macros vary by section kind
+        match kind {
             "domain" => {
                 // System({alias}, "{title}", $tags="domain", "{desc}", $link="{url}")
                 let desc_part = desc_escaped
@@ -153,19 +129,16 @@ fn render_c4_macro(entity_type: &str, name: &str, entity: &EntityInfo, external:
 /// Resolve a `PlantUML` `!include` path to a C4 macro using page metadata.
 ///
 /// This is the main public entry point. It parses the include path, looks up
-/// the entity via the provided [`MetaIncludeSource`], and renders the
+/// the entity via the provided [`SiteModel`], and renders the
 /// appropriate C4 `PlantUML` macro.
 ///
 /// Returns `None` if the path doesn't match the meta include pattern or the
 /// entity is not found.
-pub(crate) fn resolve_meta_include(
-    include_path: &str,
-    source: &dyn MetaIncludeSource,
-) -> Option<String> {
+pub(crate) fn resolve_meta_include(include_path: &str, source: &dyn SiteModel) -> Option<String> {
     let parsed = parse_include_path(include_path)?;
-    let entity = source.get_entity(parsed.entity_type, &parsed.name)?;
+    let entity = source.entity(parsed.kind, &parsed.name)?;
     Some(render_c4_macro(
-        parsed.entity_type,
+        parsed.kind,
         &parsed.name,
         &entity,
         parsed.external,
@@ -180,24 +153,24 @@ mod tests {
 
     // ── Test helpers ──────────────────────────────────────────────────
 
-    fn system_entity() -> EntityInfo {
-        EntityInfo {
+    fn system_entity() -> Entity {
+        Entity {
             title: "Payment Gateway".to_owned(),
             description: Some("Processes payments".to_owned()),
             url_path: Some("/domains/billing/systems/payment-gateway".to_owned()),
         }
     }
 
-    fn domain_entity() -> EntityInfo {
-        EntityInfo {
+    fn domain_entity() -> Entity {
+        Entity {
             title: "Billing".to_owned(),
             description: Some("Billing services".to_owned()),
             url_path: Some("/domains/billing".to_owned()),
         }
     }
 
-    fn service_entity() -> EntityInfo {
-        EntityInfo {
+    fn service_entity() -> Entity {
+        Entity {
             title: "invoice-api".to_owned(),
             description: Some("Manages invoices".to_owned()),
             url_path: Some("/domains/billing/systems/invoicing/services/invoice-api".to_owned()),
@@ -205,7 +178,7 @@ mod tests {
     }
 
     struct TestSource {
-        entities: HashMap<(String, String), EntityInfo>,
+        entities: HashMap<(String, String), Entity>,
     }
 
     impl TestSource {
@@ -215,17 +188,17 @@ mod tests {
             }
         }
 
-        fn with_entity(mut self, entity_type: &str, name: &str, entity: EntityInfo) -> Self {
+        fn with_entity(mut self, kind: &str, name: &str, entity: Entity) -> Self {
             self.entities
-                .insert((entity_type.to_owned(), name.to_owned()), entity);
+                .insert((kind.to_owned(), name.to_owned()), entity);
             self
         }
     }
 
-    impl MetaIncludeSource for TestSource {
-        fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
+    impl SiteModel for TestSource {
+        fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
             self.entities
-                .get(&(entity_type.to_owned(), name.to_owned()))
+                .get(&(kind.to_owned(), name.to_owned()))
                 .cloned()
         }
     }
@@ -238,7 +211,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                entity_type: "system",
+                kind: "system",
                 name: "payment_gateway".to_owned(),
                 external: false,
             }
@@ -251,7 +224,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                entity_type: "system",
+                kind: "system",
                 name: "payment_gateway".to_owned(),
                 external: true,
             }
@@ -264,7 +237,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                entity_type: "domain",
+                kind: "domain",
                 name: "billing".to_owned(),
                 external: false,
             }
@@ -277,7 +250,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                entity_type: "domain",
+                kind: "domain",
                 name: "billing".to_owned(),
                 external: true,
             }
@@ -290,7 +263,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                entity_type: "service",
+                kind: "service",
                 name: "invoice_api".to_owned(),
                 external: false,
             }
@@ -303,7 +276,7 @@ mod tests {
         assert_eq!(
             result,
             ParsedIncludePath {
-                entity_type: "service",
+                kind: "service",
                 name: "invoice_api".to_owned(),
                 external: true,
             }
@@ -391,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_render_no_description() {
-        let entity = EntityInfo {
+        let entity = Entity {
             title: "Simple".to_owned(),
             description: None,
             url_path: Some("/simple".to_owned()),
@@ -402,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_render_no_url_omits_link() {
-        let entity = EntityInfo {
+        let entity = Entity {
             title: "No Docs".to_owned(),
             description: Some("Has no docs".to_owned()),
             url_path: None,
@@ -414,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_render_description_newlines_escaped() {
-        let entity = EntityInfo {
+        let entity = Entity {
             title: "Multi".to_owned(),
             description: Some("Line one\nLine two".to_owned()),
             url_path: Some("/multi".to_owned()),
@@ -426,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_render_description_quotes_escaped() {
-        let entity = EntityInfo {
+        let entity = Entity {
             title: "Quoted".to_owned(),
             description: Some("He said \"hello\"".to_owned()),
             url_path: Some("/quoted".to_owned()),
@@ -437,7 +410,7 @@ mod tests {
 
     #[test]
     fn test_render_description_backslashes_escaped() {
-        let entity = EntityInfo {
+        let entity = Entity {
             title: "Paths".to_owned(),
             description: Some(r"C:\Users\docs".to_owned()),
             url_path: Some("/paths".to_owned()),

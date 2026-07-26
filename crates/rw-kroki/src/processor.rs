@@ -18,11 +18,11 @@ use crate::kroki::{
     render_all_png_data_uri_partial, render_all_svg_partial,
 };
 use crate::language::{DiagramFormat, DiagramLanguage, ExtractedDiagram};
-use crate::meta_includes::MetaIncludeSource;
 use crate::output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
 use crate::plantuml::{PrepareResult, prepare_diagram_source, resolve_includes};
 use crate::scale::to_display_px;
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
+use rw_diagrams::SiteModel;
 use rw_sections::Sections;
 
 /// Configuration for diagram processing (immutable after setup).
@@ -41,7 +41,7 @@ struct ProcessorConfig {
     /// HTTP agent for connection pooling (reused across render calls).
     agent: Agent,
     /// Optional metadata source for resolving virtual `PlantUML` includes.
-    meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    meta_include_source: Option<Arc<dyn SiteModel>>,
     /// Sections for annotating SVG links with section ref data attributes.
     sections: Option<Arc<Sections>>,
 }
@@ -190,7 +190,7 @@ impl DiagramProcessor {
     /// When set, `!include systems/sys_*.iuml` paths are resolved from page
     /// metadata instead of the filesystem. Filesystem includes still work as fallback.
     #[must_use]
-    pub fn with_meta_include_source(mut self, source: Arc<dyn MetaIncludeSource>) -> Self {
+    pub fn with_meta_include_source(mut self, source: Arc<dyn SiteModel>) -> Self {
         self.config.meta_include_source = Some(source);
         self
     }
@@ -1665,13 +1665,13 @@ mod tests {
     fn test_bundle_preserves_meta_includes() {
         use std::sync::Arc;
 
-        use crate::meta_includes::{EntityInfo, MetaIncludeSource};
+        use rw_diagrams::{Entity, SiteModel};
 
         struct TestMetaSource;
-        impl MetaIncludeSource for TestMetaSource {
-            fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
-                if entity_type == "system" && name == "payment_gateway" {
-                    Some(EntityInfo {
+        impl SiteModel for TestMetaSource {
+            fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
+                if kind == "system" && name == "payment_gateway" {
+                    Some(Entity {
                         title: "Payment Gateway".to_owned(),
                         description: Some("Processes payments".to_owned()),
                         url_path: Some("/domains/billing/systems/payment-gateway".to_owned()),

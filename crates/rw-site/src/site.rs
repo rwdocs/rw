@@ -14,7 +14,7 @@ use crate::page::{
 };
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
-use rw_kroki::{EntityInfo, MetaIncludeSource};
+use rw_diagrams::{Entity, SiteModel};
 use rw_renderer::TitleResolver;
 use rw_sections::Namespace;
 use rw_storage::{Storage, StorageError};
@@ -35,31 +35,31 @@ fn url_depth(path: &str) -> usize {
 
 /// Bundled site state for atomic swaps.
 ///
-/// Wraps `SiteState` and implements `MetaIncludeSource` for diagram
+/// Wraps `SiteState` and implements `SiteModel` for diagram
 /// include resolution using the state's name-based section index.
 pub(crate) struct SiteSnapshot {
     pub(crate) state: SiteState,
 }
 
-impl MetaIncludeSource for SiteSnapshot {
-    fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
+impl SiteModel for SiteSnapshot {
+    fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
         let raw_name = name.replace('_', "-");
         let (section_path, _section) = self
             .state
             .find_sections_by_name(&raw_name)
             .into_iter()
-            .find(|(_, s)| s.kind == entity_type)?;
+            .find(|(_, s)| s.kind == kind)?;
 
         let page = self.state.get_page(section_path);
         let has_content = page.is_some_and(|p| p.has_content);
 
-        let title = if entity_type == "service" {
+        let title = if kind == "service" {
             raw_name
         } else {
             page.map_or_else(|| section_path.to_owned(), |p| p.title.clone())
         };
 
-        Some(EntityInfo {
+        Some(Entity {
             title,
             description: page.and_then(|p| p.description.clone()),
             url_path: has_content.then(|| format!("/{section_path}")),
@@ -559,7 +559,7 @@ impl Site {
     fn render_context(snapshot: &Arc<SiteSnapshot>) -> RenderContext {
         RenderContext {
             sections: Arc::clone(snapshot.state.sections()),
-            meta_include_source: Some(Arc::clone(snapshot) as Arc<dyn MetaIncludeSource>),
+            meta_include_source: Some(Arc::clone(snapshot) as Arc<dyn SiteModel>),
             snapshot: Some(Arc::clone(snapshot)),
             resolution_fingerprint: snapshot.state.resolution_fingerprint(),
         }

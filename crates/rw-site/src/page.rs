@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_kroki::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
+use rw_diagrams::SiteModel;
+use rw_kroki::{DiagramProcessor, SearchDiagramProcessor};
 use rw_renderer::{
     HtmlBackend, MarkdownRenderer, Pipeline, RenderBackend, SearchDocumentBackend, TocEntry,
     escape_html,
@@ -29,7 +30,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Default)]
 pub(crate) struct RenderContext {
     pub(crate) sections: Arc<Sections>,
-    pub(crate) meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    pub(crate) meta_include_source: Option<Arc<dyn SiteModel>>,
     pub(crate) snapshot: Option<Arc<SiteSnapshot>>,
     /// Fingerprint of cross-page inputs from the snapshot, folded into the page
     /// cache etag. `0` when there is no snapshot (e.g. `RenderContext::default()`),
@@ -590,7 +591,7 @@ impl PageRenderer {
 
     fn create_diagram_processor(
         &self,
-        meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+        meta_include_source: Option<Arc<dyn SiteModel>>,
     ) -> Option<DiagramProcessor> {
         let url = self.kroki_url.as_ref()?;
 

@@ -4261,6 +4261,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-diagrams"
+version = "0.1.33"
+
+[[package]]
 name = "rw-embedded-preview"
 version = "0.1.33"
 dependencies = [
@@ -4278,6 +4282,7 @@ dependencies = [
  "rayon",
  "regex",
  "rw-cache",
+ "rw-diagrams",
  "rw-renderer",
  "rw-sections",
  "sha2 0.11.0",
@@ -4372,6 +4377,7 @@ dependencies = [
  "codspeed-divan-compat",
  "parking_lot",
  "rw-cache",
+ "rw-diagrams",
  "rw-kroki",
  "rw-renderer",
  "rw-sections",

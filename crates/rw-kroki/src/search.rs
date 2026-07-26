@@ -10,8 +10,8 @@ use std::sync::Arc;
 use rw_renderer::{CodeBlockProcessor, FenceAttrs, ProcessResult};
 
 use crate::language::DiagramLanguage;
-use crate::meta_includes::MetaIncludeSource;
 use crate::plantuml::resolve_includes;
+use rw_diagrams::SiteModel;
 
 /// Lines starting with these prefixes are stripped from `PlantUML` source
 /// during search document generation.
@@ -34,7 +34,7 @@ const PLANTUML_BOILERPLATE_PREFIXES: &[&str] = &[
 /// source. Non-diagram code blocks pass through to the backend's `code_block()`.
 pub struct SearchDiagramProcessor {
     include_dirs: Vec<PathBuf>,
-    meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    meta_include_source: Option<Arc<dyn SiteModel>>,
     warnings: Vec<String>,
 }
 
@@ -59,7 +59,7 @@ impl SearchDiagramProcessor {
     /// (e.g., `systems/sys_payment_gateway.iuml`) are resolved to C4 macros
     /// containing system titles and descriptions — valuable for search indexing.
     #[must_use]
-    pub fn with_meta_include_source(mut self, source: Arc<dyn MetaIncludeSource>) -> Self {
+    pub fn with_meta_include_source(mut self, source: Arc<dyn SiteModel>) -> Self {
         self.meta_include_source = Some(source);
         self
     }
@@ -182,12 +182,12 @@ mod tests {
 
     #[test]
     fn resolves_meta_includes() {
-        use crate::meta_includes::{EntityInfo, MetaIncludeSource};
+        use rw_diagrams::{Entity, SiteModel};
 
         struct TestSource;
-        impl MetaIncludeSource for TestSource {
-            fn get_entity(&self, _entity_type: &str, _name: &str) -> Option<EntityInfo> {
-                Some(EntityInfo {
+        impl SiteModel for TestSource {
+            fn entity(&self, _kind: &str, _name: &str) -> Option<Entity> {
+                Some(Entity {
                     title: "Payment Gateway".to_owned(),
                     description: Some("Processes payments".to_owned()),
                     url_path: None,

@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use regex::Regex;
 use std::sync::LazyLock;
 
-use crate::meta_includes::{MetaIncludeSource, is_meta_include_pattern, resolve_meta_include};
+use crate::meta_includes::{is_meta_include_pattern, resolve_meta_include};
+use rw_diagrams::SiteModel;
 
 static INCLUDE_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^([ \t]*)!include\s+(.+)$").unwrap());
@@ -45,7 +46,7 @@ pub struct PrepareResult {
 pub(crate) fn resolve_includes(
     source: &str,
     include_dirs: &[PathBuf],
-    meta_source: Option<&dyn MetaIncludeSource>,
+    meta_source: Option<&dyn SiteModel>,
     depth: usize,
     warnings: &mut Vec<String>,
 ) -> String {
@@ -135,7 +136,7 @@ pub fn prepare_diagram_source(
     source: &str,
     include_dirs: &[PathBuf],
     dpi: u32,
-    meta_source: Option<&dyn MetaIncludeSource>,
+    meta_source: Option<&dyn SiteModel>,
 ) -> PrepareResult {
     let mut warnings = Vec::new();
     let resolved = resolve_includes(source, include_dirs, meta_source, 0, &mut warnings);
@@ -451,14 +452,14 @@ mod tests {
         assert_eq!(result, "@startuml\r\n\r\nline1\nline2\n@enduml");
     }
 
-    use crate::meta_includes::{EntityInfo, MetaIncludeSource};
+    use rw_diagrams::{Entity, SiteModel};
 
     struct TestMetaSource;
 
-    impl MetaIncludeSource for TestMetaSource {
-        fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
-            if entity_type == "system" && name == "payment_gateway" {
-                Some(EntityInfo {
+    impl SiteModel for TestMetaSource {
+        fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
+            if kind == "system" && name == "payment_gateway" {
+                Some(Entity {
                     title: "Payment Gateway".to_owned(),
                     description: Some("Processes payments".to_owned()),
                     url_path: Some("/domains/billing/systems/payment-gateway".to_owned()),

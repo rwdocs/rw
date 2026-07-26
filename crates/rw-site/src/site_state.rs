@@ -2764,9 +2764,8 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_on_section_kind_flip() {
-        // The C4 get_entity path resolves an !include entity via
-        // `.find(|(_, s)| s.kind == entity_type)`, so a kind change re-targets
-        // which entity a diagram include resolves to.
+        // `SiteModel::entity` matches on `s.kind`, so flipping a section's
+        // kind re-targets which entity a diagram `!include` resolves to.
         let a = fingerprint_of(
             fingerprint_page("billing", "Billing", None, true),
             Some("domain"),

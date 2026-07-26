@@ -42,7 +42,6 @@ mod processor;
 mod scale;
 mod search;
 
-pub use meta_includes::{EntityInfo, MetaIncludeSource};
 pub use output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
 pub use processor::DiagramProcessor;
 pub use search::SearchDiagramProcessor;

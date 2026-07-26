@@ -3070,6 +3070,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-diagrams"
+version = "0.1.33"
+
+[[package]]
 name = "rw-kroki"
 version = "0.1.33"
 dependencies = [
@@ -3078,6 +3082,7 @@ dependencies = [
  "rayon",
  "regex",
  "rw-cache",
+ "rw-diagrams",
  "rw-renderer",
  "rw-sections",
  "sha2 0.11.0",
@@ -3145,6 +3150,7 @@ version = "0.1.33"
 dependencies = [
  "parking_lot",
  "rw-cache",
+ "rw-diagrams",
  "rw-kroki",
  "rw-renderer",
  "rw-sections",
