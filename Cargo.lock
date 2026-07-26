@@ -4298,6 +4298,7 @@ dependencies = [
 name = "rw-parser"
 version = "0.1.33"
 dependencies = [
+ "pretty_assertions",
  "pulldown-cmark",
 ]
 
@@ -4424,7 +4425,7 @@ dependencies = [
  "parking_lot",
  "pretty_assertions",
  "rw-kroki",
- "rw-renderer",
+ "rw-parser",
  "rw-storage",
  "serde",
  "serde_json",

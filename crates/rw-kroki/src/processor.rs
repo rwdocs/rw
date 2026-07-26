@@ -273,6 +273,46 @@ impl DiagramProcessor {
             }
         }
     }
+
+    /// Warnings raised so far, in the order they were raised.
+    ///
+    /// Not deduplicated: one processor reused across many sources raises the
+    /// same warning once per source. Deduplicate at the point of display.
+    #[must_use]
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    /// Inline `PlantUML` `!include` directives found in a diagram fence's
+    /// source, returning `None` when there is nothing to change.
+    ///
+    /// `None` covers languages outside the `PlantUML` family and sources whose
+    /// includes all failed to resolve; in both cases the fence is left as the
+    /// author wrote it. Warnings from failed resolution accumulate on the
+    /// processor and are read back through [`warnings`](Self::warnings).
+    ///
+    /// Meta includes are deliberately left unresolved: they expand at request
+    /// time from live page metadata, which a published bundle does not carry.
+    pub fn bundle_source(&mut self, language: &str, source: &str) -> Option<String> {
+        let lang = DiagramLanguage::parse(language)?;
+        if !lang.needs_plantuml_preprocessing() {
+            return None;
+        }
+        let mut warnings = Vec::new();
+        let resolved = resolve_includes(
+            source,
+            &self.config.include_dirs,
+            None, // Skip meta includes — resolved at request time
+            0,
+            &mut warnings,
+        );
+        self.warnings.extend(warnings);
+        if resolved == source {
+            None
+        } else {
+            Some(resolved)
+        }
+    }
 }
 
 impl CodeBlockProcessor for DiagramProcessor {
@@ -376,7 +416,9 @@ impl CodeBlockProcessor for DiagramProcessor {
     }
 
     fn warnings(&self) -> &[String] {
-        &self.warnings
+        // Delegates so there is one body: the inherent method shadows this one
+        // for concrete receivers, and two copies would diverge unnoticed.
+        Self::warnings(self)
     }
 
     fn has_transient_error(&self) -> bool {
@@ -385,27 +427,6 @@ impl CodeBlockProcessor for DiagramProcessor {
 
     fn section_refs(&self) -> &BTreeSet<String> {
         &self.section_refs
-    }
-
-    fn bundle(&mut self, language: &str, source: &str) -> Option<String> {
-        let lang = DiagramLanguage::parse(language)?;
-        if !lang.needs_plantuml_preprocessing() {
-            return None;
-        }
-        let mut warnings = Vec::new();
-        let resolved = resolve_includes(
-            source,
-            &self.config.include_dirs,
-            None, // Skip meta includes — resolved at request time
-            0,
-            &mut warnings,
-        );
-        self.warnings.extend(warnings);
-        if resolved == source {
-            None
-        } else {
-            Some(resolved)
-        }
     }
 }
 
@@ -1598,16 +1619,20 @@ mod tests {
     #[test]
     fn test_bundle_non_plantuml_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
-        assert!(processor.bundle("mermaid", "graph TD\nA --> B").is_none());
-        assert!(processor.bundle("rust", "fn main() {}").is_none());
-        assert!(processor.bundle("graphviz", "digraph {}").is_none());
+        assert!(
+            processor
+                .bundle_source("mermaid", "graph TD\nA --> B")
+                .is_none()
+        );
+        assert!(processor.bundle_source("rust", "fn main() {}").is_none());
+        assert!(processor.bundle_source("graphviz", "digraph {}").is_none());
     }
 
     #[test]
     fn test_bundle_plantuml_without_includes_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let source = "@startuml\nAlice -> Bob\n@enduml";
-        let result = processor.bundle("plantuml", source);
+        let result = processor.bundle_source("plantuml", source);
         assert!(result.is_none());
     }
 
@@ -1615,7 +1640,7 @@ mod tests {
     fn test_bundle_c4plantuml_without_includes_returns_none() {
         let mut processor = DiagramProcessor::new("https://kroki.io");
         let source = "@startuml\nPerson(user, \"User\")\n@enduml";
-        let result = processor.bundle("c4plantuml", source);
+        let result = processor.bundle_source("c4plantuml", source);
         assert!(result.is_none());
     }
 
@@ -1628,7 +1653,7 @@ mod tests {
         let mut processor =
             DiagramProcessor::new("https://kroki.io").include_dirs(std::slice::from_ref(&temp_dir));
         let source = "@startuml\n!include bundle_test.iuml\n@enduml";
-        let result = processor.bundle("plantuml", source).unwrap();
+        let result = processor.bundle_source("plantuml", source).unwrap();
 
         std::fs::remove_file(&include_file).unwrap();
 
@@ -1660,7 +1685,7 @@ mod tests {
         let mut processor = DiagramProcessor::new("https://kroki.io")
             .with_meta_include_source(Arc::new(TestMetaSource));
         let source = "@startuml\n!include systems/sys_payment_gateway.iuml\n@enduml";
-        let result = processor.bundle("plantuml", source);
+        let result = processor.bundle_source("plantuml", source);
         // Meta includes should NOT be resolved at bundle time
         assert!(
             result.is_none(),

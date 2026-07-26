@@ -227,22 +227,6 @@ pub trait CodeBlockProcessor: Send + Sync {
         static EMPTY: BTreeSet<String> = BTreeSet::new();
         &EMPTY
     }
-
-    /// Bundle code block source before rendering.
-    ///
-    /// Called by [`bundle_markdown`](crate::bundle_markdown) to resolve
-    /// external references (e.g., `PlantUML` `!include` directives).
-    ///
-    /// Return `Some(resolved_source)` to replace the code block content,
-    /// or `None` if this processor doesn't handle the language.
-    ///
-    /// # Arguments
-    ///
-    /// * `language` - Language identifier from fence info string
-    /// * `source` - Raw content of the code block
-    fn bundle(&mut self, _language: &str, _source: &str) -> Option<String> {
-        None
-    }
 }
 
 #[cfg(test)]

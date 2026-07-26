@@ -50,6 +50,7 @@ mod directive;
 mod event;
 mod fence;
 mod parser;
+mod rewrite;
 
 pub use alert::AlertKind;
 pub use directive::DirectiveArgs;
@@ -64,3 +65,4 @@ pub use pulldown_cmark::{Alignment, CowStr};
 
 pub use fence::{FenceAttrs, parse_fence_info};
 pub use parser::Parser;
+pub use rewrite::rewrite_fences;

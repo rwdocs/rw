@@ -188,10 +188,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     ///    (populated during step 2, e.g. from diagram `$link`s) — the two are
     ///    merged here. Warnings come from `self.warnings` (raised during the
     ///    walk — unknown directives, unclosed containers, stray closes) plus
-    ///    each processor's `warnings()`; a processor's may also be pushed before
-    ///    the walk by [`CodeBlockProcessor::bundle`], which runs from the
-    ///    separate [`bundle_markdown`](crate::bundle_markdown) entry point
-    ///    (used by the S3 publish path) ahead of any walk.
+    ///    each processor's `warnings()`.
     /// 4. Take title and toc from the heading accumulator.
     ///
     /// # Do not add a step that rewrites the buffer

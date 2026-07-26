@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_kroki::DiagramProcessor;
-use rw_renderer::{CodeBlockProcessor, bundle_markdown};
+use rw_parser::rewrite_fences;
 use rw_storage::Storage;
 
 use crate::format::{self, MANIFEST_KEY, Manifest, PageBundle};
@@ -82,8 +82,8 @@ impl BundlePublisher {
 
         // Build bundles and submit uploads as each one is ready so memory
         // stays bounded by MAX_CONCURRENT_UPLOADS rather than total site
-        // size. Bundle construction is sequential because `DiagramProcessor`
-        // is stateful.
+        // size. Bundle construction is sequential because the processor
+        // accumulates include-resolution warnings across pages.
         let mut tasks: tokio::task::JoinSet<Result<(), String>> = tokio::task::JoinSet::new();
         let config = Arc::new(self.config.clone());
         let mut processor = DiagramProcessor::new("").include_dirs(include_dirs);
@@ -95,7 +95,8 @@ impl BundlePublisher {
             }
 
             let content = storage.read(&doc.path)?;
-            let resolved_content = bundle_markdown(&content, &mut [&mut processor]);
+            let resolved_content =
+                rewrite_fences(&content, |lang, src| processor.bundle_source(lang, src));
             let metadata = storage.meta(&doc.path)?;
 
             let bundle = PageBundle {
@@ -206,7 +207,9 @@ A -> B
                 continue;
             }
             let content = storage.read(&doc.path).expect("read");
-            bundle_markdown(&content, &mut [&mut processor]);
+            // The rewritten markdown is beside the point here; the assertions
+            // below are about what the closure accumulated on the way.
+            let _ = rewrite_fences(&content, |lang, src| processor.bundle_source(lang, src));
         }
 
         let raw = processor.warnings();

@@ -120,7 +120,6 @@
 //!   JSON serialization in HTTP API responses.
 
 mod backend;
-mod bundle;
 mod code_block;
 mod comment;
 mod config;
@@ -141,7 +140,6 @@ mod walker;
 mod wikilink;
 
 pub use backend::RenderBackend;
-pub use bundle::bundle_markdown;
 pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use comment::render_comment_body;
 pub use config::TitleResolver;
