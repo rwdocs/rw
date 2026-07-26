@@ -15,7 +15,8 @@
 pub struct Entity {
     /// Display title.
     pub title: String,
-    /// One-line description, when the site defines one.
+    /// Description, when the site defines one. May contain newlines, so a
+    /// consumer embedding it in a diagram format has to escape them.
     pub description: Option<String>,
     /// Site-absolute path to the entity's page (e.g. `/domains/billing`), or
     /// `None` when the entity has no page to link to.
@@ -37,7 +38,7 @@ pub struct Entity {
 ///
 /// impl SiteModel for OneSystem {
 ///     fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
-///         (kind == "system" && name == "payment_gateway").then(|| Entity {
+///         (kind == "system" && name == "payment-gateway").then(|| Entity {
 ///             title: "Payment Gateway".to_owned(),
 ///             description: Some("Processes payments".to_owned()),
 ///             url_path: Some("/domains/billing/systems/payment-gateway".to_owned()),
@@ -47,7 +48,7 @@ pub struct Entity {
 ///
 /// let model: &dyn SiteModel = &OneSystem;
 /// assert_eq!(
-///     model.entity("system", "payment_gateway").map(|e| e.title),
+///     model.entity("system", "payment-gateway").map(|e| e.title),
 ///     Some("Payment Gateway".to_owned()),
 /// );
 /// assert_eq!(model.entity("domain", "billing"), None);
@@ -55,8 +56,10 @@ pub struct Entity {
 pub trait SiteModel: Send + Sync {
     /// Look up an entity, or `None` when the site has no such entity.
     ///
-    /// `kind` matches a section kind (`"domain"`, `"system"`, `"service"`).
-    /// `name` is normalized with underscores, as diagram source spells it
-    /// (e.g. `payment_gateway`).
+    /// Both arguments are in the site's own spelling: `kind` is a section kind
+    /// (`"domain"`, `"system"`, `"service"`) and `name` is a section name
+    /// (e.g. `payment-gateway`). A provider whose syntax spells names
+    /// differently translates before calling — the site model does not guess at
+    /// any provider's naming convention.
     fn entity(&self, kind: &str, name: &str) -> Option<Entity>;
 }

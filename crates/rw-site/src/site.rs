@@ -43,18 +43,19 @@ pub(crate) struct SiteSnapshot {
 
 impl SiteModel for SiteSnapshot {
     fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
-        let raw_name = name.replace('_', "-");
         let (section_path, _section) = self
             .state
-            .find_sections_by_name(&raw_name)
+            .find_sections_by_name(name)
             .into_iter()
             .find(|(_, s)| s.kind == kind)?;
 
         let page = self.state.get_page(section_path);
         let has_content = page.is_some_and(|p| p.has_content);
 
+        // A service takes its own name; every other kind takes its page title,
+        // falling back to the section path when the section has no page.
         let title = if kind == "service" {
-            raw_name
+            name.to_owned()
         } else {
             page.map_or_else(|| section_path.to_owned(), |p| p.title.clone())
         };
@@ -649,6 +650,155 @@ mod tests {
     fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = PageRendererConfig::default();
         Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config)
+    }
+
+    // ========================================================================
+    // SiteSnapshot as SiteModel
+    //
+    // The only production implementation of the `rw-diagrams` port, and the
+    // path a diagram `!include` takes to reach page metadata.
+    // ========================================================================
+
+    /// One section in a test snapshot, defaulting to a page that has content
+    /// and no description.
+    struct TestSection {
+        path: &'static str,
+        title: &'static str,
+        kind: &'static str,
+        has_content: bool,
+        description: Option<&'static str>,
+    }
+
+    fn section(path: &'static str, title: &'static str, kind: &'static str) -> TestSection {
+        TestSection {
+            path,
+            title,
+            kind,
+            has_content: true,
+            description: None,
+        }
+    }
+
+    impl TestSection {
+        /// A navigation-only section: it exists in the tree but has no markdown
+        /// of its own, so there is no page to link to.
+        fn without_content(mut self) -> Self {
+            self.has_content = false;
+            self
+        }
+
+        fn described(mut self, description: &'static str) -> Self {
+            self.description = Some(description);
+            self
+        }
+    }
+
+    /// Build a snapshot from sections in order. Parentage is derived from paths.
+    fn snapshot_of(sections: &[TestSection]) -> SiteSnapshot {
+        let mut builder = SiteStateBuilder::new();
+        for s in sections {
+            builder.add_page(
+                crate::page::Page {
+                    title: s.title.to_owned(),
+                    path: s.path.to_owned(),
+                    has_content: s.has_content,
+                    description: s.description.map(ToOwned::to_owned),
+                    ..Default::default()
+                },
+                Some(s.kind),
+                None,
+            );
+        }
+        SiteSnapshot {
+            state: builder.build(),
+        }
+    }
+
+    /// The kind filter is the whole reason the lookup takes a kind: two
+    /// sections may share a name. Without it, whichever was indexed first wins
+    /// and a diagram renders the wrong entity.
+    #[test]
+    fn entity_lookup_discriminates_two_sections_sharing_a_name() {
+        let snapshot = snapshot_of(&[
+            section("domains/billing", "Billing Domain", "domain"),
+            section("domains/other/systems/billing", "Billing System", "system"),
+        ]);
+
+        assert_eq!(
+            snapshot.entity("domain", "billing").map(|e| e.title),
+            Some("Billing Domain".to_owned()),
+        );
+        assert_eq!(
+            snapshot.entity("system", "billing").map(|e| e.title),
+            Some("Billing System".to_owned()),
+        );
+    }
+
+    #[test]
+    fn entity_lookup_misses_when_no_section_has_that_kind() {
+        let snapshot = snapshot_of(&[section("domains/billing", "Billing", "domain")]);
+        assert_eq!(snapshot.entity("system", "billing"), None);
+        assert_eq!(snapshot.entity("domain", "nonexistent"), None);
+    }
+
+    /// A service is titled by its own name, not by its page title — the one
+    /// kind that ignores the page.
+    #[test]
+    fn service_is_titled_by_name_while_other_kinds_use_the_page_title() {
+        let snapshot = snapshot_of(&[
+            section(
+                "domains/b/systems/i/services/invoice-api",
+                "Invoice API Page Title",
+                "service",
+            ),
+            section("domains/b", "Billing Page Title", "domain"),
+        ]);
+
+        assert_eq!(
+            snapshot.entity("service", "invoice-api").map(|e| e.title),
+            Some("invoice-api".to_owned()),
+            "a service takes its own name",
+        );
+        assert_eq!(
+            snapshot.entity("domain", "b").map(|e| e.title),
+            Some("Billing Page Title".to_owned()),
+            "every other kind takes its page title",
+        );
+    }
+
+    /// `url_path` is what becomes a diagram's `$link`. A section with no
+    /// content of its own has nothing to link to, so it must stay `None`
+    /// rather than pointing at a page that would 404.
+    #[test]
+    fn url_path_is_present_only_for_sections_with_content() {
+        let snapshot = snapshot_of(&[
+            section("domains/real", "Real", "domain").described("Has content"),
+            section("domains/virtual", "Virtual", "domain").without_content(),
+        ]);
+
+        let real = snapshot.entity("domain", "real").expect("real resolves");
+        assert_eq!(real.url_path.as_deref(), Some("/domains/real"));
+        assert_eq!(real.description.as_deref(), Some("Has content"));
+
+        let virt = snapshot
+            .entity("domain", "virtual")
+            .expect("virtual still resolves");
+        assert_eq!(virt.url_path, None, "no content means nothing to link to");
+    }
+
+    /// The lookup takes section names in the site's own hyphenated spelling.
+    /// Translating `PlantUML`'s underscore filenames is the caller's job, so a
+    /// name arriving with underscores must simply miss.
+    #[test]
+    fn entity_lookup_does_not_translate_underscores() {
+        let snapshot = snapshot_of(&[section(
+            "domains/b/systems/payment-gateway",
+            "Payment Gateway",
+            "system",
+        )]);
+
+        assert!(snapshot.entity("system", "payment-gateway").is_some());
+        assert_eq!(snapshot.entity("system", "payment_gateway"), None);
     }
 
     // ========================================================================

@@ -1670,7 +1670,7 @@ mod tests {
         struct TestMetaSource;
         impl SiteModel for TestMetaSource {
             fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
-                if kind == "system" && name == "payment_gateway" {
+                if kind == "system" && name == "payment-gateway" {
                     Some(Entity {
                         title: "Payment Gateway".to_owned(),
                         description: Some("Processes payments".to_owned()),

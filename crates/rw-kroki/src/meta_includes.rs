@@ -16,7 +16,9 @@ pub(crate) fn is_meta_include_pattern(path: &str) -> bool {
 struct ParsedIncludePath {
     /// The section kind: "system", "domain", or "service".
     kind: &'static str,
-    /// Normalized name with underscores (e.g., `payment_gateway`).
+    /// Name as the include filename spells it, with underscores (e.g.
+    /// `payment_gateway`). The C4 alias is built from this form; the section
+    /// lookup needs it hyphenated.
     name: String,
     /// Whether the entity is external (from the `ext/` subdirectory).
     external: bool,
@@ -136,7 +138,11 @@ fn render_c4_macro(kind: &str, name: &str, entity: &Entity, external: bool) -> S
 /// entity is not found.
 pub(crate) fn resolve_meta_include(include_path: &str, source: &dyn SiteModel) -> Option<String> {
     let parsed = parse_include_path(include_path)?;
-    let entity = source.entity(parsed.kind, &parsed.name)?;
+    // Include filenames spell names with underscores (`sys_payment_gateway`),
+    // section names with hyphens. Translate for the lookup only: the C4 macro
+    // alias keeps the underscore form, since `sys_payment-gateway` is not a
+    // usable `PlantUML` identifier.
+    let entity = source.entity(parsed.kind, &parsed.name.replace('_', "-"))?;
     Some(render_c4_macro(
         parsed.kind,
         &parsed.name,
@@ -423,14 +429,14 @@ mod tests {
 
     #[test]
     fn test_resolve_meta_include_system() {
-        let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
+        let source = TestSource::new().with_entity("system", "payment-gateway", system_entity());
         let result = resolve_meta_include("systems/sys_payment_gateway.iuml", &source).unwrap();
         assert!(result.contains("System(sys_payment_gateway"));
     }
 
     #[test]
     fn test_resolve_meta_include_external() {
-        let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
+        let source = TestSource::new().with_entity("system", "payment-gateway", system_entity());
         let result = resolve_meta_include("systems/ext/sys_payment_gateway.iuml", &source).unwrap();
         assert!(result.contains("System_Ext"));
     }
@@ -444,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_resolve_meta_include_non_meta_path() {
-        let source = TestSource::new().with_entity("system", "payment_gateway", system_entity());
+        let source = TestSource::new().with_entity("system", "payment-gateway", system_entity());
         let result = resolve_meta_include("c4/context.iuml", &source);
         assert!(result.is_none());
     }
