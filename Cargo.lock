@@ -4281,6 +4281,7 @@ version = "0.1.33"
 dependencies = [
  "base64",
  "hex",
+ "parking_lot",
  "pretty_assertions",
  "rayon",
  "regex",
@@ -4290,6 +4291,7 @@ dependencies = [
  "rw-renderer",
  "rw-sections",
  "sha2 0.11.0",
+ "tempfile",
  "thiserror",
  "ureq",
 ]

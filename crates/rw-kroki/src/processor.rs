@@ -392,23 +392,13 @@ impl CodeBlockProcessor for DiagramProcessor {
 struct CacheInfo {
     index: usize,
     source: String,
-    endpoint: &'static str,
-    format: &'static str,
-    /// DPI this diagram's output is scaled by — see
-    /// [`DiagramLanguage::render_dpi`]. Part of the cache key, so entries
-    /// written under a different scaling rule are orphaned rather than served
-    /// at the wrong size.
-    dpi: u32,
+    language: DiagramLanguage,
+    format: DiagramFormat,
 }
 
 impl CacheInfo {
     fn key(&self) -> DiagramKey<'_> {
-        DiagramKey {
-            source: &self.source,
-            endpoint: self.endpoint,
-            format: self.format,
-            dpi: self.dpi,
-        }
+        DiagramKey::for_render(&self.source, self.language, self.format)
     }
 }
 
@@ -479,15 +469,9 @@ impl DiagramProcessor {
         let mut png_to_render: Vec<(DiagramRequest, CacheInfo)> = Vec::new();
 
         for (diagram, source) in prepared {
-            let endpoint = diagram.language.kroki_endpoint();
-            let format = diagram.format.as_str();
+            let format = diagram.format;
             let dpi = diagram.language.render_dpi();
-            let key = DiagramKey {
-                source: &source,
-                endpoint,
-                format,
-                dpi,
-            };
+            let key = DiagramKey::for_render(&source, diagram.language, format);
             let hash = key.compute_hash();
 
             // Etag is empty: diagrams use content-addressed hashing (the key
@@ -509,9 +493,8 @@ impl DiagramProcessor {
                 let cache_info = CacheInfo {
                     index: diagram.index,
                     source: source.clone(),
-                    endpoint,
+                    language: diagram.language,
                     format,
-                    dpi,
                 };
                 let request = DiagramRequest::new(diagram.index, source, diagram.language);
 
@@ -549,7 +532,9 @@ impl DiagramProcessor {
         for r in result.rendered {
             let dpi = r.language.render_dpi();
             let clean_svg = strip_google_fonts_import(r.svg.trim());
-            let scaled_svg = scale_svg_dimensions(&clean_svg, dpi);
+            // The scaled dimensions are already on the <svg> tag this figure
+            // embeds, so the reported size has nothing to do here.
+            let (scaled_svg, _size) = scale_svg_dimensions(&clean_svg, dpi);
 
             if let Some(info) = cache_map.get(&r.index) {
                 let hash = info.key().compute_hash();
@@ -616,13 +601,21 @@ impl DiagramProcessor {
 
         let server_url = config.kroki_url.trim_end_matches('/');
 
-        let result = render_all(&diagram_requests, server_url, output_dir, &config.agent);
+        let result = render_all(&diagram_requests, server_url, &config.agent);
         for r in result.rendered {
+            let filename = format!("diagram_{}.png", &r.digest[..12]);
+            if let Err(error) = std::fs::write(output_dir.join(&filename), &r.data) {
+                let message = format!("writing {filename} failed: {error}");
+                warnings.push(format!("diagram {}: {message}", r.index));
+                figures.add_error(r.index, &message);
+                continue;
+            }
+
             // Only PlantUML-family output is oversized, so each diagram is
             // scaled by its own DPI rather than the configured one. The tag
             // generator receives the result, never the DPI.
             let display_width = to_display_px(r.width, r.language.render_dpi());
-            let info = RenderedDiagramInfo::new(r.filename, display_width);
+            let info = RenderedDiagramInfo::new(filename, display_width);
             let tag = tag_generator(&info);
             figures.add(r.index, tag);
         }
@@ -874,6 +867,131 @@ mod tests {
     fn files_path_emits_no_diagram_id() {
         let html = render_diagrams_files("```mermaid {#x}\nA-->B\n```\n");
         assert!(!html.contains("data-diagram-id"), "{html}");
+    }
+
+    /// Render `markdown` to files through a stub Kroki, returning the HTML, the
+    /// directory the diagrams landed in, and the paths Kroki was asked for.
+    ///
+    /// The tag generator emits both halves of what `resolve_files` computes —
+    /// the filename and the display width — so a test can assert on each.
+    fn render_files_through_stub(markdown: &str) -> (String, tempfile::TempDir, Vec<String>) {
+        use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+
+        use crate::test_support::KrokiStub;
+
+        let stub = KrokiStub::start();
+        let dir = tempfile::tempdir().expect("a temporary output directory");
+        let tag_generator: TagGenerator = Arc::new(|info: &RenderedDiagramInfo| {
+            format!(
+                r#"<img src="{}" width="{}" alt="diagram">"#,
+                info.filename(),
+                info.display_width()
+            )
+        });
+        let processor = DiagramProcessor::new(&stub.url).output(DiagramOutput::Files {
+            output_dir: dir.path().to_path_buf(),
+            tag_generator,
+        });
+
+        let result = MarkdownRenderer::<HtmlBackend>::new()
+            .render(markdown, Pipeline::new().with_processor(processor));
+
+        (result.html, dir, stub.paths())
+    }
+
+    /// Read the file `resolve_files` was expected to write, reporting what the
+    /// directory actually holds when it is not there.
+    fn written_diagram(dir: &tempfile::TempDir, filename: &str) -> Vec<u8> {
+        std::fs::read(dir.path().join(filename)).unwrap_or_else(|error| {
+            let listing: Vec<_> = std::fs::read_dir(dir.path())
+                .expect("read the output directory")
+                .filter_map(|entry| Some(entry.ok()?.file_name()))
+                .collect();
+            panic!("{filename} is not on disk ({error}); the directory holds {listing:?}")
+        })
+    }
+
+    /// Pins the attachment name `resolve_files` writes: `diagram_` followed by
+    /// the first 12 hex characters of the render key, `.png`. Confluence
+    /// attachments carry this name, so changing how it is built re-uploads
+    /// every diagram ever published and orphans the old ones.
+    ///
+    /// Driven end to end through a stub Kroki into a temporary directory, so
+    /// the file on disk and the name the tag generator was handed have to agree
+    /// with each other and with the render key. The `diagram_`/12-character
+    /// shape is spelled out here deliberately, as a pin: production drifting
+    /// from it fails this test.
+    ///
+    /// Mermaid is the half of the seam with no preprocessing and no DPI
+    /// correction — the fence body is the source, and the rendered width is the
+    /// display width. `a_plantuml_diagram_is_written_from_its_prepared_source`
+    /// is the other half.
+    #[test]
+    fn a_rendered_diagram_is_written_under_its_key() {
+        use crate::cache::DiagramKey;
+
+        let (html, dir, paths) = render_files_through_stub("```mermaid\nA-->B\n```\n");
+
+        let key = DiagramKey::for_render("A-->B\n", DiagramLanguage::Mermaid, DiagramFormat::Png);
+        let expected = format!("diagram_{}.png", &key.compute_hash()[..12]);
+
+        assert!(
+            html.contains(&format!(
+                r#"<img src="{expected}" width="400" alt="diagram">"#
+            )),
+            "the tag should point at {expected} at the rendered width: {html}",
+        );
+
+        // The stub answers a PNG request with a valid header followed by the
+        // source it was sent, so this is the render and not a placeholder.
+        assert!(
+            written_diagram(&dir, &expected).ends_with(b"A-->B\n"),
+            "the file should hold what Kroki returned",
+        );
+        assert_eq!(paths, ["/mermaid/png"]);
+    }
+
+    /// The other half of the seam: `PlantUML` is the one family whose prepared
+    /// source differs from the fence body, and the attachment is keyed — and
+    /// rendered — from the prepared one. Skipping the preparation would rename
+    /// every published `PlantUML` attachment.
+    ///
+    /// It is also the only family rendered oversized, so this is where the
+    /// display width the tag generator receives has to come back down: 400
+    /// rendered pixels at 192 DPI are 200 CSS pixels.
+    #[test]
+    fn a_plantuml_diagram_is_written_from_its_prepared_source() {
+        use crate::cache::DiagramKey;
+        use crate::test_support::prepared_plantuml;
+
+        let source = "@startuml\nA -> B\n@enduml\n";
+        let prepared = prepared_plantuml(source, &[], None);
+        assert!(
+            prepared.contains("skinparam dpi 192") && prepared != source,
+            "fixture check: preparation should change the source",
+        );
+
+        let (html, dir, paths) =
+            render_files_through_stub("```plantuml\n@startuml\nA -> B\n@enduml\n```\n");
+
+        let key = DiagramKey::for_render(&prepared, DiagramLanguage::PlantUml, DiagramFormat::Png);
+        let expected = format!("diagram_{}.png", &key.compute_hash()[..12]);
+
+        assert!(
+            html.contains(&format!(
+                r#"<img src="{expected}" width="200" alt="diagram">"#
+            )),
+            "the tag should point at {expected} at half the rendered width: {html}",
+        );
+
+        // The stub echoes back what it was posted, so the bytes on disk show
+        // which source was actually sent to Kroki.
+        let written = written_diagram(&dir, &expected);
+        assert!(
+            written.ends_with(prepared.as_bytes()),
+            "the prepared source is what should have been rendered",
+        );
+        assert_eq!(paths, ["/plantuml/png"]);
     }
 
     /// Render with a cache that hits on every lookup, returning `cached` as the

@@ -238,10 +238,12 @@ mod tests {
                             "{}:{}",
                             self.language, r.source
                         ))),
-                        size: Size {
+                        // Non-trivial on purpose, so a test can tell a size
+                        // that travelled through the round trip from a default.
+                        size: Some(Size {
                             width: 10,
                             height: 10,
-                        },
+                        }),
                         digest: digest_of(&r.source),
                         warnings: Vec::new(),
                     })
@@ -296,10 +298,10 @@ mod tests {
                 .expect("resolved"),
             &Resolved {
                 asset: Asset::Inline(DiagramContent::Svg("plantuml:A -> B".to_owned())),
-                size: Size {
+                size: Some(Size {
                     width: 10,
                     height: 10,
-                },
+                }),
                 digest: digest_of("A -> B"),
                 warnings: Vec::new(),
             },
@@ -429,10 +431,7 @@ mod tests {
                                     "half-bad:{}",
                                     r.source
                                 ))),
-                                size: Size {
-                                    width: 10,
-                                    height: 10,
-                                },
+                                size: None,
                                 digest: digest_of(&r.source),
                                 warnings: Vec::new(),
                             })
@@ -509,10 +508,7 @@ mod tests {
             ) -> Vec<Result<Resolved, DiagramError>> {
                 Vec::from([Ok(Resolved {
                     asset: Asset::Inline(DiagramContent::Svg("only one".to_owned())),
-                    size: Size {
-                        width: 1,
-                        height: 1,
-                    },
+                    size: None,
                     digest: digest_of("only one"),
                     warnings: Vec::new(),
                 })])
@@ -567,10 +563,7 @@ mod tests {
                     .map(|svg| {
                         Ok(Resolved {
                             asset: Asset::Inline(DiagramContent::Svg(svg.to_owned())),
-                            size: Size {
-                                width: 1,
-                                height: 1,
-                            },
+                            size: None,
                             digest: digest_of(svg),
                             warnings: Vec::new(),
                         })

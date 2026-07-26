@@ -44,7 +44,7 @@ pub enum DiagramContent {
 ///
 /// let mut resolved = Resolved {
 ///     asset: Asset::Inline(DiagramContent::Png(Vec::from([0x89, b'P', b'N', b'G']))),
-///     size: Size { width: 200, height: 100 },
+///     size: Some(Size { width: 200, height: 100 }),
 ///     digest: "abc123".to_owned(),
 ///     warnings: Vec::new(),
 /// };
@@ -61,7 +61,7 @@ pub enum DiagramContent {
 ///     Asset::Reference("diagram_abc123.png".to_owned()),
 /// );
 /// // Swapping the asset must not disturb the size the markup needs.
-/// assert_eq!(resolved.size, Size { width: 200, height: 100 });
+/// assert_eq!(resolved.size, Some(Size { width: 200, height: 100 }));
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Asset {
@@ -76,8 +76,13 @@ pub enum Asset {
 pub struct Resolved {
     /// The rendered bytes, or a reference to them.
     pub asset: Asset,
-    /// Display size in CSS pixels, correction already applied.
-    pub size: Size,
+    /// Display size in CSS pixels, with any oversampling already divided out.
+    ///
+    /// `None` when there is no external size to report: either the content
+    /// sizes itself (an SVG with intrinsic `width` and `height`), or the
+    /// provider could not determine one. A consumer that needs dimensions for a
+    /// raster asset must handle `None` rather than read it as "self-sizing".
+    pub size: Option<Size>,
     /// Content digest for this render: lowercase hex, safe to use as a filename.
     ///
     /// Derived from the inputs that determine the bytes — the source, the output
@@ -91,6 +96,15 @@ pub struct Resolved {
     pub digest: String,
     /// Diagnostics that did not prevent a render, e.g. an unresolved include or
     /// an attribute the provider ignored.
+    ///
+    /// A warning names the problem, not the diagram: it is already attached to
+    /// the request that produced it, and attributing it to a fence — by number,
+    /// id, or page — is the caller's job. Do not spell a
+    /// [`RequestKey`](crate::RequestKey) into the text; it is opaque and means
+    /// nothing to an operator.
+    ///
+    /// Order is the provider's own and carries no meaning; a consumer that
+    /// needs a particular order imposes it.
     pub warnings: Vec<String>,
 }
 

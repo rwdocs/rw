@@ -24,4 +24,6 @@ thiserror = { workspace = true }
 ureq = { workspace = true }
 
 [dev-dependencies]
+parking_lot = { workspace = true }
 pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

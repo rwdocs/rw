@@ -1,6 +1,8 @@
 //! Diagram rendering via Kroki for RW.
 //!
 //! This crate provides diagram extraction and rendering for markdown documents:
+//! - [`KrokiProvider`] implements `rw_diagrams::DiagramProvider`, turning
+//!   diagram source into rendered content
 //! - `DiagramProcessor` implements `CodeBlockProcessor` for extracting diagrams
 //! - Parallel rendering via Kroki service (`PlantUML`, Mermaid, `GraphViz`, etc.)
 //! - `PlantUML` preprocessing with `!include` resolution and DPI configuration
@@ -10,6 +12,7 @@
 //!
 //! The crate is organized into modules:
 //! - [`language`]: Diagram type definitions (`DiagramLanguage`, `DiagramFormat`, `ExtractedDiagram`)
+//! - [`provider`]: [`KrokiProvider`] implementing the `DiagramProvider` trait
 //! - [`processor`]: `DiagramProcessor` implementing `CodeBlockProcessor` trait
 //! - [`kroki`]: Parallel HTTP rendering via Kroki service
 //! - [`search`]: `SearchDiagramProcessor` producing plain text for the search index
@@ -37,9 +40,13 @@ mod kroki;
 mod language;
 mod output;
 mod processor;
+mod provider;
 mod scale;
 mod search;
+#[cfg(test)]
+mod test_support;
 
 pub use output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
 pub use processor::DiagramProcessor;
+pub use provider::KrokiProvider;
 pub use search::SearchDiagramProcessor;

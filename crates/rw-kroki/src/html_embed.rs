@@ -10,6 +10,7 @@ use std::fmt::Write;
 use std::sync::LazyLock;
 
 use regex::Regex;
+use rw_diagrams::Size;
 use rw_renderer::escape_html;
 use rw_sections::Sections;
 
@@ -47,18 +48,33 @@ static STYLE_HEIGHT_RE: LazyLock<Regex> =
 ///
 /// The scaling factor is `STANDARD_DPI / dpi`. At 192 DPI, this is 0.5 (halved).
 /// At 96 DPI, dimensions are unchanged.
+///
+/// Returns the size it wrote onto the `<svg>` tag alongside the scaled string,
+/// so a caller that needs the dimensions does not have to re-parse the SVG it
+/// was just handed. `None` when the `<svg>` tag carries no parseable `width`
+/// and `height` — the same case in which this function rewrites nothing.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 #[must_use]
-pub fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
-    if dpi == STANDARD_DPI {
-        return svg.to_owned();
-    }
-
+pub fn scale_svg_dimensions(svg: &str, dpi: u32) -> (String, Option<Size>) {
     // Helper to scale a dimension value and format the result
     let scale_dim = |caps: &regex::Captures| {
         let value: f64 = caps[2].parse().unwrap_or(0.0);
         to_display_f64(value, dpi).round() as u32
     };
+
+    // The size ends up the same whether or not the string gets rewritten
+    // below, so it's read from the original `<svg>` tag once, up front.
+    let size = match (SVG_WIDTH_RE.captures(svg), SVG_HEIGHT_RE.captures(svg)) {
+        (Some(width), Some(height)) => Some(Size {
+            width: scale_dim(&width),
+            height: scale_dim(&height),
+        }),
+        _ => None,
+    };
+
+    if dpi == STANDARD_DPI {
+        return (svg.to_owned(), size);
+    }
 
     // Scale XML attributes (width="136", height="210")
     let result = SVG_WIDTH_RE.replace(svg, |caps: &regex::Captures| {
@@ -76,7 +92,7 @@ pub fn scale_svg_dimensions(svg: &str, dpi: u32) -> String {
         format!("{}{}{}", &caps[1], scale_dim(caps), &caps[3])
     });
 
-    result.into_owned()
+    (result.into_owned(), size)
 }
 
 /// Strip Google Fonts @import from SVG to avoid external requests.
@@ -275,7 +291,7 @@ mod tests {
     fn test_scale_svg_dimensions_at_192_dpi() {
         // At 192 DPI (2x retina), dimensions should be halved
         let svg = r#"<svg width="400" height="200" viewBox="0 0 400 200"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let (result, _size) = scale_svg_dimensions(svg, 192);
         assert_eq!(
             result,
             r#"<svg width="200" height="100" viewBox="0 0 400 200"></svg>"#
@@ -286,22 +302,32 @@ mod tests {
     fn test_scale_svg_dimensions_at_96_dpi() {
         // At 96 DPI (standard), dimensions should be unchanged
         let svg = r#"<svg width="400" height="200"></svg>"#;
-        let result = scale_svg_dimensions(svg, 96);
+        let (result, size) = scale_svg_dimensions(svg, 96);
         assert_eq!(result, r#"<svg width="400" height="200"></svg>"#);
+        // The early return for the no-op case still has to report the size it
+        // left in place, or a caller sees "no dimensions" for an SVG that has
+        // them.
+        assert_eq!(
+            size,
+            Some(Size {
+                width: 400,
+                height: 200
+            }),
+        );
     }
 
     #[test]
     fn test_scale_svg_dimensions_with_px_suffix() {
         // Handle width/height with "px" suffix
         let svg = r#"<svg width="400px" height="200px"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let (result, _size) = scale_svg_dimensions(svg, 192);
         assert_eq!(result, r#"<svg width="200" height="100"></svg>"#);
     }
 
     #[test]
     fn test_scale_svg_dimensions_preserves_other_attributes() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" class="diagram"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let (result, _size) = scale_svg_dimensions(svg, 192);
         assert_eq!(
             result,
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" class="diagram"></svg>"#
@@ -312,7 +338,7 @@ mod tests {
     fn test_scale_svg_dimensions_at_144_dpi() {
         // At 144 DPI (1.5x), dimensions should be scaled to 2/3
         let svg = r#"<svg width="300" height="150"></svg>"#;
-        let result = scale_svg_dimensions(svg, 144);
+        let (result, _size) = scale_svg_dimensions(svg, 144);
         // 300 * (96/144) = 200, 150 * (96/144) = 100
         assert_eq!(result, r#"<svg width="200" height="100"></svg>"#);
     }
@@ -321,7 +347,7 @@ mod tests {
     fn test_scale_svg_dimensions_with_style_attribute() {
         // Handle width/height in style attribute (as Kroki returns)
         let svg = r#"<svg width="136" height="210" style="width:136px;height:210px;background:#FFFFFF;"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let (result, _size) = scale_svg_dimensions(svg, 192);
         assert_eq!(
             result,
             r#"<svg width="68" height="105" style="width:68px;height:105px;background:#FFFFFF;"></svg>"#
@@ -332,11 +358,42 @@ mod tests {
     fn test_scale_svg_dimensions_with_decimal_values() {
         // Mermaid SVGs from Kroki use decimal width/height (e.g., width="1610.5")
         let svg = r#"<svg width="1610.5" height="633" viewBox="-50 -10 1610.5 633"></svg>"#;
-        let result = scale_svg_dimensions(svg, 192);
+        let (result, _size) = scale_svg_dimensions(svg, 192);
         assert_eq!(
             result,
             r#"<svg width="805" height="317" viewBox="-50 -10 1610.5 633"></svg>"#
         );
+    }
+
+    #[test]
+    fn scale_svg_dimensions_reports_the_size_it_wrote() {
+        let svg = r#"<svg width="400" height="200" viewBox="0 0 400 200"></svg>"#;
+        let (result, size) = scale_svg_dimensions(svg, 192);
+        assert_eq!(
+            result,
+            r#"<svg width="200" height="100" viewBox="0 0 400 200"></svg>"#
+        );
+        assert_eq!(
+            size,
+            Some(Size {
+                width: 200,
+                height: 100
+            }),
+            "the reported size must match what was written onto the <svg> tag",
+        );
+    }
+
+    #[test]
+    fn scale_svg_dimensions_reports_none_when_it_rewrites_nothing() {
+        // No width/height on the <svg> tag: nothing for the regexes to match,
+        // so the string comes back unchanged and there is no size to report.
+        let svg = r#"<svg viewBox="0 0 400 200"><rect width="10" height="10"/></svg>"#;
+        let (result, size) = scale_svg_dimensions(svg, 192);
+        assert_eq!(
+            result, svg,
+            "an SVG with no <svg> width/height must be untouched"
+        );
+        assert_eq!(size, None);
     }
 
     #[test]

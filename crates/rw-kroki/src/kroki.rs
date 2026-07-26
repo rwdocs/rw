@@ -4,32 +4,35 @@
 //! - Renders diagrams to PNG or SVG via HTTP POST
 //! - Uses rayon thread pool for parallel requests
 //! - Extracts PNG dimensions for display width calculation
-//! - Generates content-based filenames via SHA256 hashing
+//! - Computes a content-based digest via SHA256 hashing
 //!
 //! # Output Formats
 //!
-//! - [`render_all`]: PNG output for Confluence (requires output directory)
+//! - [`render_all`]: PNG bytes for Confluence
 //! - [`render_all_svg`]: SVG output for HTML (returns SVG strings directly)
 
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use rayon::prelude::*;
-use std::path::Path;
 use std::time::Duration;
 use ureq::Agent;
 
 use crate::cache::DiagramKey;
-use crate::language::DiagramLanguage;
+use crate::consts::PNG_DATA_URI_PREFIX;
+use crate::language::{DiagramFormat, DiagramLanguage};
 
 /// Result of rendering a single diagram to PNG.
 #[derive(Debug)]
 pub struct RenderedDiagram {
     pub index: usize,
-    pub filename: String,
+    pub data: Vec<u8>,
+    /// Raw pixel width, uncorrected for DPI.
     pub width: u32,
     /// Language this was rendered from. Only PlantUML-family output is
     /// oversized, so the caller needs it to decide whether to scale.
     pub language: DiagramLanguage,
+    /// Full `DiagramKey` hash, hex-encoded.
+    pub digest: String,
 }
 
 /// Result of rendering a single diagram to SVG.
@@ -105,9 +108,6 @@ pub enum DiagramErrorKind {
         /// Response body (may contain error details).
         body: String,
     },
-    /// I/O error (file operations).
-    #[error("I/O error")]
-    Io(#[source] std::io::Error),
     /// Invalid UTF-8 in response.
     #[error("invalid UTF-8")]
     InvalidUtf8(#[source] std::string::FromUtf8Error),
@@ -135,7 +135,7 @@ impl DiagramErrorKind {
             Self::HttpResponse { status, .. } => {
                 *status >= 500 || matches!(status, 408 | 425 | 429)
             }
-            Self::Io(_) | Self::InvalidUtf8(_) | Self::InvalidPng => false,
+            Self::InvalidUtf8(_) | Self::InvalidPng => false,
         }
     }
 }
@@ -181,7 +181,7 @@ pub(crate) fn png_data_uri_dimensions(data_uri: &str) -> Option<(u32, u32)> {
     // 4 base64 chars encode 3 bytes; round up so the slice covers the header.
     const B64_PREFIX_LEN: usize = PNG_HEADER_LEN.div_ceil(3) * 4;
 
-    let b64 = data_uri.strip_prefix("data:image/png;base64,")?;
+    let b64 = data_uri.strip_prefix(PNG_DATA_URI_PREFIX)?;
     let prefix = b64.get(..B64_PREFIX_LEN)?;
     let bytes = BASE64_STANDARD.decode(prefix).ok()?;
     get_png_dimensions(&bytes)
@@ -223,11 +223,13 @@ fn send_diagram_request(
 }
 
 /// Render a single diagram to PNG via Kroki.
+///
+/// Returns the bytes and their content key; writing them somewhere is the
+/// caller's business.
 fn render_one_png(
     agent: &Agent,
     diagram: &DiagramRequest,
     server_url: &str,
-    output_dir: &Path,
 ) -> Result<RenderedDiagram, DiagramError> {
     let data = send_diagram_request(agent, diagram, server_url, "png")?;
 
@@ -236,33 +238,18 @@ fn render_one_png(
     let (width, _) =
         get_png_dimensions(&data).ok_or_else(|| diagram.error(DiagramErrorKind::InvalidPng))?;
 
-    let endpoint = diagram.language.kroki_endpoint();
-    let key = DiagramKey {
-        source: &diagram.source,
-        endpoint,
-        // The attachment is content-addressed, so the key must only carry
-        // inputs that change the bytes. A PlantUML source already contains its
-        // injected `skinparam dpi`, so the raw setting adds nothing here; for
-        // every other language it changes nothing about the render, and keying
-        // on it renamed byte-identical attachments on every DPI change.
-        dpi: diagram.language.render_dpi(),
-        format: "png",
-    };
-    let hash = &key.compute_hash()[..12];
-    let filename = format!("diagram_{hash}.png");
-    let filepath = output_dir.join(&filename);
-
-    std::fs::write(&filepath, &data).map_err(|e| diagram.error(DiagramErrorKind::Io(e)))?;
+    let key = DiagramKey::for_render(&diagram.source, diagram.language, DiagramFormat::Png);
 
     Ok(RenderedDiagram {
         index: diagram.index,
-        filename,
+        data,
         width,
         language: diagram.language,
+        digest: key.compute_hash(),
     })
 }
 
-/// Render all diagrams to PNG files in parallel using Kroki service.
+/// Render all diagrams to PNG in parallel using Kroki service.
 ///
 /// Uses the global rayon thread pool for parallel rendering.
 /// Returns partial results - successfully rendered diagrams even when some fail.
@@ -270,8 +257,6 @@ fn render_one_png(
 /// # Arguments
 /// * `diagrams` - List of diagrams to render
 /// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
-/// * `output_dir` - Directory to save rendered PNG files
-/// * `dpi` - DPI used for rendering (affects filename hash)
 /// * `agent` - HTTP agent for connection pooling
 ///
 /// # Returns
@@ -280,7 +265,6 @@ fn render_one_png(
 pub fn render_all(
     diagrams: &[DiagramRequest],
     server_url: &str,
-    output_dir: &Path,
     agent: &Agent,
 ) -> PartialRenderResult<RenderedDiagram> {
     if diagrams.is_empty() {
@@ -294,7 +278,7 @@ pub fn render_all(
 
     let results: Vec<Result<RenderedDiagram, DiagramError>> = diagrams
         .par_iter()
-        .map(|d| render_one_png(agent, d, server_url, output_dir))
+        .map(|d| render_one_png(agent, d, server_url))
         .collect();
 
     partition_results(results)
@@ -330,7 +314,7 @@ fn render_one_png_data_uri(
     }
 
     let base64 = BASE64_STANDARD.encode(&data);
-    let data_uri = format!("data:image/png;base64,{base64}");
+    let data_uri = format!("{PNG_DATA_URI_PREFIX}{base64}");
 
     Ok(RenderedPngDataUri {
         index: diagram.index,
@@ -507,41 +491,6 @@ mod tests {
         assert_eq!(dims, Some((100, 50)));
     }
 
-    /// Builds the attachment key exactly as `render_one_png` does.
-    fn png_filename_hash(language: DiagramLanguage, source: &str) -> String {
-        let key = DiagramKey {
-            source,
-            endpoint: language.kroki_endpoint(),
-            dpi: language.render_dpi(),
-            format: "png",
-        };
-        key.compute_hash()[..12].to_owned()
-    }
-
-    /// Pins the published attachment name. Changing how the key is built would
-    /// re-upload every `PlantUML` attachment ever published and orphan the old
-    /// ones, so it must not happen by accident.
-    #[test]
-    fn plantuml_attachment_name_is_unchanged() {
-        let source = "@startuml\nskinparam dpi 192\nAlice -> Bob\n@enduml";
-        assert_eq!(
-            png_filename_hash(DiagramLanguage::PlantUml, source),
-            "0332e48adfdd"
-        );
-    }
-
-    /// The render DPI is part of the key, and it now follows from the language
-    /// alone — so two languages that render at different sizes cannot collide,
-    /// and no setting can rename an attachment out from under a published page.
-    #[test]
-    fn attachment_name_follows_the_language() {
-        let source = "A -> B";
-        assert_ne!(
-            png_filename_hash(DiagramLanguage::PlantUml, source),
-            png_filename_hash(DiagramLanguage::Mermaid, source),
-        );
-    }
-
     #[test]
     fn test_png_data_uri_dimensions() {
         // 200x100 PNG header, base64'd — only the IHDR chunk is needed.
@@ -564,35 +513,5 @@ mod tests {
     fn test_get_png_dimensions_invalid() {
         let invalid_data = b"not a png";
         assert_eq!(get_png_dimensions(invalid_data), None);
-    }
-
-    #[test]
-    fn test_filename_hash() {
-        let key1 = DiagramKey {
-            source: "@startuml\nA -> B\n@enduml",
-            endpoint: "plantuml",
-            format: "png",
-            dpi: 192,
-        };
-        let key2 = DiagramKey {
-            source: "@startuml\nA -> B\n@enduml",
-            endpoint: "plantuml",
-            format: "png",
-            dpi: 192,
-        };
-        let key3 = DiagramKey {
-            source: "@startuml\nC -> D\n@enduml",
-            endpoint: "plantuml",
-            format: "png",
-            dpi: 192,
-        };
-
-        let hash1 = &key1.compute_hash()[..12];
-        let hash2 = &key2.compute_hash()[..12];
-        let hash3 = &key3.compute_hash()[..12];
-
-        assert_eq!(hash1.len(), 12);
-        assert_eq!(hash1, hash2);
-        assert_ne!(hash1, hash3);
     }
 }
