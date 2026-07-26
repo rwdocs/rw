@@ -13,3 +13,8 @@ workspace = true
 # into all of them. Keep it empty unless the vocabulary genuinely needs a type
 # it cannot define itself.
 [dependencies]
+
+# Not transitive: nothing that depends on rw-diagrams links these, so they do
+# not reach the providers the [dependencies] comment above is protecting.
+[dev-dependencies]
+parking_lot = { workspace = true }

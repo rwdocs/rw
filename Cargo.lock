@@ -4263,6 +4263,9 @@ dependencies = [
 [[package]]
 name = "rw-diagrams"
 version = "0.1.33"
+dependencies = [
+ "parking_lot",
+]
 
 [[package]]
 name = "rw-embedded-preview"
