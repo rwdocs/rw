@@ -138,10 +138,11 @@ fn render_c4_macro(kind: &str, name: &str, entity: &Entity, external: bool) -> S
 /// entity is not found.
 pub(crate) fn resolve_meta_include(include_path: &str, source: &dyn SiteModel) -> Option<String> {
     let parsed = parse_include_path(include_path)?;
-    // Include filenames spell names with underscores (`sys_payment_gateway`),
-    // section names with hyphens. Translate for the lookup only: the C4 macro
-    // alias keeps the underscore form, since `sys_payment-gateway` is not a
-    // usable `PlantUML` identifier.
+    // Include filenames spell names with underscores, section names with
+    // hyphens. Translate for the lookup only: the alias `render_c4_macro`
+    // builds stays in the underscore form the C4 convention uses
+    // (`sys_payment_gateway`). Do NOT move this into `parse_include_path` —
+    // that feeds the alias too, and would change every emitted macro.
     let entity = source.entity(parsed.kind, &parsed.name.replace('_', "-"))?;
     Some(render_c4_macro(
         parsed.kind,

@@ -797,7 +797,12 @@ mod tests {
             "system",
         )]);
 
-        assert!(snapshot.entity("system", "payment-gateway").is_some());
+        assert_eq!(
+            snapshot
+                .entity("system", "payment-gateway")
+                .map(|e| e.title),
+            Some("Payment Gateway".to_owned()),
+        );
         assert_eq!(snapshot.entity("system", "payment_gateway"), None);
     }
 
