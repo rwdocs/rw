@@ -20,14 +20,14 @@
 //! literal-asserting test discriminates — some produce identical output
 //! either way, and say so.
 
-use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline, RenderResult};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers, RenderResult};
 
 fn render_status(md: &str) -> RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new())
+    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
 }
 
 fn render_tabs(md: &str) -> RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new())
+    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
 }
 
 /// `with_wikilinks` alone is enough to exercise `skip_wikilink_text`: an
@@ -38,7 +38,7 @@ fn render_tabs(md: &str) -> RenderResult {
 fn render_status_wikilinks(md: &str) -> RenderResult {
     MarkdownRenderer::<HtmlBackend>::new()
         .with_wikilinks(true)
-        .render(md, Pipeline::new())
+        .render(md, &Providers::empty())
 }
 
 #[test]

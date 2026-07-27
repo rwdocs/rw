@@ -11,32 +11,22 @@
 //! warnings raised during the walk).
 //!
 //! `Walker` is constructed fresh inside every call to
-//! [`MarkdownRenderer::render`](crate::MarkdownRenderer::render). That's how
+//! [`MarkdownRenderer::render`](crate::MarkdownRenderer::render) and
+//! [`MarkdownRenderer::begin`](crate::MarkdownRenderer::begin). That's how
 //! we guarantee per-render state (`code_block_index`, heading accumulator
 //! id-counts, "seen first H1" flag, scope stacks, buffers) starts empty —
 //! the renderer's own scratch cannot leak across renders.
 //!
-//! Borrows the long-lived `RenderConfig` and (mutably) the code-block processor
-//! extensions from the façade. Dropped on the way out — including on panic,
-//! which leaves the façade's `RenderConfig` untouched for subsequent renders.
-//!
-//! # Borrow discipline
-//!
-//! One borrow pattern recurs inside `Walker` methods, explained in detail
-//! where it is first used: pattern A (field-disjoint borrows) in the
-//! `Event::CodeBlock` arm of [`Walker::handle`], where `self.processors`
-//! (iterated mutably) and `self.output` / `self.holes` are borrowed as
-//! distinct fields. Don't "simplify" it without reading the comment first; it
-//! will fail to compile if the field accesses are hoisted into a helper taking
-//! `&mut self`.
+//! Borrows the long-lived `RenderConfig` from the façade. Dropped on the way
+//! out — including on panic, which leaves the façade's `RenderConfig` untouched
+//! for subsequent renders.
 
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 
 use crate::backend::RenderBackend;
-use crate::code_block::{CodeBlockProcessor, ProcessResult};
 use crate::config::RenderConfig;
-use crate::fills::{Fills, GlobalFills, GlobalKey, HoleKey, Source};
+use crate::fills::{GlobalFills, GlobalKey, HoleKey, Source};
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
@@ -44,8 +34,9 @@ use crate::scope::Scope;
 use crate::status::{STATUS_NAME, StatusColor};
 use crate::table::TableState;
 use crate::tabs::{TAB_NAME, TABS_NAME, TabInfo};
-use crate::toc::HeadingAccumulator;
+use crate::toc::{HeadingAccumulator, TocEntry};
 use crate::wikilink::{self, WikilinkResolution};
+use rw_diagrams::{DiagramRequest, RequestKey};
 use rw_parser::AlertKind;
 use rw_parser::DirectiveArgs;
 use rw_parser::{Event, LinkKind, Tag, TagEnd};
@@ -82,25 +73,91 @@ pub(crate) enum TabScope {
 
 /// A tab group the walker is rendering as a built-in: its id, the tabs seen so
 /// far, and the reserved bar-hole its accessible `<div role="tablist">` markup
-/// fills at [`Walker::finish`] (once every label is known).
+/// fills at [`Walker::pause`] (once every label is known).
 struct TabGroup {
     id: usize,
     tabs: Vec<TabInfo>,
     bar_hole: HoleKey,
 }
 
+/// A walked document that has not been assembled yet.
+///
+/// [`Walker::pause`] produces one with every hole reserved and every fill but
+/// the diagrams' already collected. Assembly is deliberately not part of the
+/// walk: it is what lets a caller resolve diagrams — over the network, from a
+/// cache, not at all — between the two halves, with no I/O inside the renderer.
+pub(crate) struct Paused {
+    /// The walk buffer: rendered markup with a gap at each reserved offset.
+    pub(crate) html: String,
+    /// Where each deferred fill belongs in `html`.
+    pub(crate) holes: Holes,
+    /// Content for those holes, less the diagrams'.
+    pub(crate) fills: GlobalFills,
+    pub(crate) title: Option<String>,
+    pub(crate) toc: Vec<TocEntry>,
+    /// Warnings raised during the walk.
+    pub(crate) warnings: Vec<String>,
+    pub(crate) section_refs: BTreeSet<String>,
+    /// Every diagram fence, in document order. Empty unless a
+    /// [`DiagramRouter`](rw_diagrams::DiagramRouter) was configured.
+    pub(crate) diagrams: Vec<DiagramRequest>,
+    /// The code-block index of each entry in `diagrams`, in the same order.
+    pub(crate) diagram_blocks: Vec<HoleKey>,
+}
+
+impl Paused {
+    /// Splice every fill into the walk buffer and fold the walk's state into a
+    /// [`RenderResult`].
+    ///
+    /// `leading_warnings` go ahead of the walk's own, which is where
+    /// [`RenderPass::finish`](crate::RenderPass::finish) puts its diagram
+    /// warnings: a diagram's warning precedes every directive warning on the
+    /// page, wherever the two sit relative to each other in the source.
+    /// `--strict` publishing prints the list verbatim, so the order is
+    /// user-visible.
+    pub(crate) fn assemble<B: RenderBackend>(
+        self,
+        mut leading_warnings: Vec<String>,
+    ) -> RenderResult {
+        leading_warnings.extend(self.warnings);
+        RenderResult {
+            // Fills are markup the backend never saw during the walk, so they
+            // go in through `raw_html` like every other emission. `assemble`
+            // returns the buffer untouched when no hole was reserved. Keep this
+            // the only step that transforms it — see `Walker::pause`'s docs.
+            html: self.holes.assemble(self.html, &self.fills, B::raw_html),
+            title: self.title,
+            toc: self.toc,
+            warnings: leading_warnings,
+            section_refs: self.section_refs,
+        }
+    }
+}
+
 pub(crate) struct Walker<'r, B: RenderBackend> {
     cfg: &'r RenderConfig,
-    processors: &'r mut [Box<dyn CodeBlockProcessor>],
     /// Warnings raised during the walk (unknown inline directives, unclosed
     /// containers, stray closes, empty tab groups), folded into the result at
-    /// [`finish`](Self::finish).
+    /// [`pause`](Self::pause).
     warnings: Vec<String>,
     output: String,
-    /// Byte offsets where deferred content belongs — from code-block
-    /// processors and from the built-in tab bars.
+    /// Byte offsets where deferred content belongs — from the built-in tab bars
+    /// and from diagram fences.
     holes: Holes,
-    /// Completed tab groups awaiting their bar-hole fill at `finish`.
+    /// Every diagram fence the router claimed, in document order.
+    diagrams: Vec<DiagramRequest>,
+    /// The code-block index of each entry in `diagrams`, in the same order.
+    ///
+    /// A parallel vector because [`RenderPass::requests`] hands out a
+    /// `&[DiagramRequest]`, and because the index cannot be read back off a
+    /// [`RequestKey`], which is opaque by design. Held as a [`HoleKey`] — the
+    /// width the index was already narrowed to when its hole was reserved — so
+    /// the fallible conversion happens once, here, rather than at fill time,
+    /// which has no sensible way to report a failure.
+    ///
+    /// [`RenderPass::requests`]: crate::RenderPass::requests
+    diagram_blocks: Vec<HoleKey>,
+    /// Completed tab groups awaiting their bar-hole fill at `pause`.
     tab_groups: Vec<TabGroup>,
     /// Open tab groups, innermost last (a `::::tabs` may nest in another's
     /// panel), so an inner group never overwrites the outer's reserved bar hole.
@@ -134,13 +191,9 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// `HeadingAccumulator` is built from the config's `extract_title` flag
     /// and the backend's `TITLE_AS_METADATA` constant. `output` is pre-allocated
     /// at 4 KiB to give average-sized documents a warm start.
-    pub(crate) fn new(
-        cfg: &'r RenderConfig,
-        processors: &'r mut [Box<dyn CodeBlockProcessor>],
-    ) -> Self {
+    pub(crate) fn new(cfg: &'r RenderConfig) -> Self {
         Self {
             cfg,
-            processors,
             warnings: Vec::new(),
             // 4 KiB warm-start capacity for the output buffer — average-
             // page-sized documents fit without reallocating. A capacity-hint
@@ -148,6 +201,8 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             // the previous render's final size) but is out of scope here.
             output: String::with_capacity(4096),
             holes: Holes::default(),
+            diagrams: Vec::new(),
+            diagram_blocks: Vec::new(),
             tab_groups: Vec::new(),
             tab_open: Vec::new(),
             next_group_id: 0,
@@ -166,29 +221,27 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
     }
 
-    /// Consume the walker and produce the final `RenderResult`.
+    /// Consume the walker and hand over everything the walk produced, with the
+    /// diagram holes still empty.
     ///
     /// Order still matters, but only in one direction — everything that writes
     /// to the walk buffer must precede assembly, which is keyed to offsets in
     /// it:
     ///
     /// 1. `mem::take` `output` into a local `html` — this owned `String` is
-    ///    moved into the returned `RenderResult`, so it must be freestanding.
-    ///    (Containers left open need no balancing here: the parser synthesizes
-    ///    their closes at block/EOF boundaries, so the walk already emitted
-    ///    every closing tag.)
-    /// 2. Collect fills from code-block processors and the built-in tab bars,
-    ///    then assemble: one pass, copying spans of the buffer and writing each
-    ///    fill at its reserved offset.
-    /// 3. Collect warnings, transient-error state, and section refs.
-    ///    `has_transient_error` is populated only during step 2 (by
-    ///    [`CodeBlockProcessor::fills`]). Section refs come from two sources:
-    ///    `self.section_refs`, accumulated during the walk itself from prose
-    ///    links and wikilinks, plus each processor's `section_refs()`
-    ///    (populated during step 2, e.g. from diagram `$link`s) — the two are
-    ///    merged here. Warnings come from `self.warnings` (raised during the
-    ///    walk — unknown directives, unclosed containers, stray closes) plus
-    ///    each processor's `warnings()`.
+    ///    moved into the returned [`Paused`] and then into the `RenderResult`,
+    ///    so it must be freestanding. (Containers left open need no balancing
+    ///    here: the parser synthesizes their closes at block/EOF boundaries, so
+    ///    the walk already emitted every closing tag.)
+    /// 2. Fill the built-in tab bars. They fill here because every label is
+    ///    known once the walk ends; only diagrams have to wait for the caller to
+    ///    resolve them.
+    /// 3. Hand over warnings and section refs, both accumulated during the walk
+    ///    itself — unknown directives, unclosed containers and stray closes for
+    ///    the former, prose links and wikilinks for the latter. A diagram's
+    ///    warnings and its SVG's section refs join them in
+    ///    [`RenderPass::finish`](crate::RenderPass::finish), once the caller has
+    ///    resolved it.
     /// 4. Take title and toc from the heading accumulator.
     ///
     /// # Do not add a step that rewrites the buffer
@@ -197,52 +250,60 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// offsets are byte positions into that buffer, so any insertion, deletion,
     /// or replacement ahead of a recorded offset shifts the bytes out from
     /// under it and every later fill splices into the wrong place. If you need
-    /// to transform the rendered markup, do it after `assemble` returns, on the
-    /// finished `String`. See the Invariant section on
-    /// [`holes`](crate::holes).
-    pub(crate) fn finish(mut self) -> RenderResult {
+    /// to transform the rendered markup, do it after
+    /// [`Paused::assemble`] returns, on the finished `String`. See the
+    /// Invariant section on [`holes`](crate::holes).
+    ///
+    /// That binds a *second* window: the buffer travels out of here to a
+    /// caller that resolves diagrams over the network before calling
+    /// [`Paused::assemble`], and nothing in between may rewrite it either. The
+    /// invariant is split across two functions and a public API boundary — the
+    /// buffer is reachable, unassembled, for as long as a caller holds a
+    /// [`RenderPass`](crate::RenderPass).
+    pub(crate) fn pause(mut self) -> Paused {
         debug_assert!(
             self.scopes.is_empty(),
-            "Walker::finish called with unclosed scopes (malformed event stream): {} scopes still open",
+            "Walker::pause called with unclosed scopes (malformed event stream): {} scopes still open",
             self.scopes.len()
         );
         debug_assert!(
             self.list_stack.is_empty(),
-            "Walker::finish called with unclosed list nesting: {} levels still open",
+            "Walker::pause called with unclosed list nesting: {} levels still open",
             self.list_stack.len()
         );
         debug_assert!(
             self.alert_stack.is_empty(),
-            "Walker::finish called with unclosed blockquote/alert nesting: {} levels still open",
+            "Walker::pause called with unclosed blockquote/alert nesting: {} levels still open",
             self.alert_stack.len()
         );
         debug_assert!(
             self.container_outcomes.is_empty(),
-            "Walker::finish called with unpaired container directives (malformed event stream): {} still open — the parser must synthesize a close for every open container at EOF",
+            "Walker::pause called with unpaired container directives (malformed event stream): {} still open — the parser must synthesize a close for every open container at EOF",
             self.container_outcomes.len()
         );
         debug_assert!(
             self.tab_open.is_empty(),
-            "Walker::finish called with a tab group still open: its bar hole would go unfilled ({} still open)",
+            "Walker::pause called with a tab group still open: its bar hole would go unfilled ({} still open)",
             self.tab_open.len()
         );
+        // The two are parallel, pushed together for each diagram fence, and
+        // `RenderPass::finish` indexes `diagram_blocks` by a position it took
+        // from `diagrams`. Desynced, that either panics or — worse — fills the
+        // wrong fence's hole and numbers a diagram after another one, and the
+        // number is what an author counts to on the page to find it.
+        debug_assert_eq!(
+            self.diagrams.len(),
+            self.diagram_blocks.len(),
+            "Walker::pause called with diagrams and their hole keys out of step"
+        );
 
-        let mut html = std::mem::take(&mut self.output);
+        let html = std::mem::take(&mut self.output);
         let holes = std::mem::take(&mut self.holes);
 
-        // Collect fills unconditionally, without first checking whether any
-        // hole was reserved. Whether a processor has anything to contribute is
-        // its own business, and hole bookkeeping is private to `Holes` —
-        // gating the call on it would couple this call site to state it has no
-        // reason to inspect. The empty path is cheap: `Fills`/`GlobalFills`
-        // wrap `HashMap::default()`, which does not allocate until the first
-        // insert, so a processor that sets nothing costs no allocation.
+        // `GlobalFills` wraps `HashMap::default()`, which does not allocate
+        // until the first insert, so a page with no tab group and no diagram
+        // costs nothing here.
         let mut fills = GlobalFills::default();
-        for (idx, processor) in self.processors.iter_mut().enumerate() {
-            let mut local = Fills::new();
-            processor.fills(&mut local);
-            fills.merge(Source::CodeBlock(idx), local);
-        }
 
         // Built-in tab bars: each `::::tabs` reserved a hole at its opening
         // offset (before its panels), and now that every label is known the
@@ -255,35 +316,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             fills.insert(GlobalKey(Source::Tabs, group.bar_hole), bar);
         }
 
-        // Fills are markup the backend never saw during the walk, so they go in
-        // through `raw_html` like every other emission. `assemble` returns
-        // `html` untouched when no hole was reserved. Keep this the only step
-        // that transforms the buffer — see this function's doc comment.
-        html = holes.assemble(html, &fills, B::raw_html);
-
-        // Code-block-processor warnings first, then the walk's own
-        // directive/container warnings. `--strict` publishing surfaces this
-        // list verbatim, so the order is user-visible — it is pinned by
-        // `warnings_order_processor_before_directive` in `renderer.rs`.
-        let mut warnings: Vec<String> = self
-            .processors
-            .iter()
-            .flat_map(|p| p.warnings())
-            .cloned()
-            .collect();
-        warnings.extend(std::mem::take(&mut self.warnings));
-        let has_transient_error = self.processors.iter().any(|p| p.has_transient_error());
-        let mut section_refs = std::mem::take(&mut self.section_refs);
-        for processor in self.processors.iter() {
-            section_refs.extend(processor.section_refs().iter().cloned());
-        }
-        RenderResult {
+        Paused {
             html,
+            holes,
+            fills,
             title: self.heading.take_title(),
             toc: self.heading.take_toc(),
-            warnings,
-            has_transient_error,
-            section_refs,
+            warnings: std::mem::take(&mut self.warnings),
+            section_refs: std::mem::take(&mut self.section_refs),
+            diagrams: std::mem::take(&mut self.diagrams),
+            diagram_blocks: std::mem::take(&mut self.diagram_blocks),
         }
     }
 
@@ -307,58 +349,41 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             Event::HardBreak => self.hard_break(),
             Event::Rule => self.horizontal_rule(),
             Event::TaskListMarker(checked) => self.task_list_marker(checked),
-            Event::CodeBlock(payload) => {
+            Event::CodeBlock(mut payload) => {
                 let index = self.code_block_index;
                 self.code_block_index += 1;
 
-                // Borrow discipline (pattern A): field-disjoint borrows.
-                // `self.processors` (mutably via iter_mut) and `self.output` /
-                // `self.holes` (mutably in the body) are distinct fields of
-                // Walker, so NLL splits the borrow per field. This works only
-                // because the body names those fields directly — wrapping the
-                // pushes or the reservation in a helper taking `&mut self`
-                // would reborrow the whole struct and conflict with iter_mut.
-                // That is why this reserves via `self.holes.reserve(...)`
-                // rather than the `reserve_hole` helper.
-                debug_assert!(
-                    self.scopes.is_empty(),
-                    "code block processed inside a scope: hole offsets would reference the wrong buffer"
-                );
-                let mut handled = false;
-                if let Some(lang_str) = payload.language.as_deref() {
-                    for (proc_idx, processor) in self.processors.iter_mut().enumerate() {
-                        match processor.process(lang_str, &payload.attrs, &payload.source, index) {
-                            ProcessResult::Deferred => {
-                                // Reserve at the current end of the append-only
-                                // buffer and write nothing. Scopes are empty
-                                // here: a code block cannot occur inside a
-                                // heading or alt text, and blockquotes/list
-                                // items are not scopes.
-                                let key = u32::try_from(index)
-                                    .expect("code block index exceeds hole key width");
-                                self.holes.reserve(
-                                    self.output.len(),
-                                    GlobalKey(Source::CodeBlock(proc_idx), key),
-                                );
-                                handled = true;
-                                break;
-                            }
-                            ProcessResult::Inline(html) => {
-                                // Deliberately NOT B::raw_html: `SearchDiagramProcessor`
-                                // returns a diagram's text description through this path
-                                // and `SearchDocumentBackend::raw_html` is a no-op, so
-                                // routing it through the backend would delete every
-                                // diagram from the search index.
-                                self.output.push_str(&html);
-                                handled = true;
-                                break;
-                            }
-                            ProcessResult::PassThrough => {}
-                        }
-                    }
-                }
-
-                if !handled {
+                // A fence the router claims reserves a hole and becomes a
+                // request the caller resolves outside the render, rather than
+                // rendering as a code block. Reserving writes nothing, at the
+                // current end of the append-only buffer: scopes are empty here,
+                // because a code block cannot occur inside a heading or alt
+                // text, and blockquotes and list items are not scopes.
+                if let Some(router) = self.cfg.diagram_router.as_deref()
+                    && let Some(lang) = payload.language.as_deref()
+                    && router.handles(lang)
+                {
+                    let key =
+                        u32::try_from(index).expect("code block index exceeds hole key width");
+                    self.reserve_hole(GlobalKey(Source::Diagram, key));
+                    // Moved out of `payload`, not cloned: this is the one arm
+                    // that never reads it again. `lang`'s borrow of
+                    // `payload.language` ends with the condition above, and the
+                    // other three are disjoint fields, so each is a `take`.
+                    self.diagrams.push(DiagramRequest {
+                        key: RequestKey::from(key),
+                        // As authored: `kroki-mermaid` stays `kroki-mermaid`,
+                        // because canonicalizing is the provider's business.
+                        language: payload
+                            .language
+                            .take()
+                            .expect("the router matched a language, so there is one"),
+                        source: std::mem::take(&mut payload.source),
+                        attrs: std::mem::take(&mut payload.attrs.map),
+                        id: payload.attrs.id.take(),
+                    });
+                    self.diagram_blocks.push(key);
+                } else {
                     B::code_block(
                         payload.language.as_deref(),
                         &payload.source,
@@ -984,11 +1009,10 @@ mod tests {
     }
 
     #[test]
-    fn finish_returns_empty_result_when_no_events_processed() {
+    fn pause_returns_empty_result_when_no_events_processed() {
         let config = cfg();
-        let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let walker = Walker::<HtmlBackend>::new(&config, &mut processors);
-        let result = walker.finish();
+        let walker = Walker::<HtmlBackend>::new(&config);
+        let result = walker.pause().assemble::<HtmlBackend>(Vec::new());
         assert!(result.html.is_empty());
         assert!(result.title.is_none());
         assert!(result.toc.is_empty());
@@ -998,37 +1022,34 @@ mod tests {
     #[test]
     #[should_panic(expected = "unclosed scopes")]
     #[cfg(debug_assertions)]
-    fn finish_debug_asserts_scopes_empty() {
+    fn pause_debug_asserts_scopes_empty() {
         let config = cfg();
-        let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors);
+        let mut walker = Walker::<HtmlBackend>::new(&config);
         walker.scopes.push(Scope::Image {
             alt_text: String::new(),
             dest_url: String::new(),
             title: String::new(),
         });
-        walker.finish();
+        walker.pause();
     }
 
     #[test]
     #[should_panic(expected = "unclosed list nesting")]
     #[cfg(debug_assertions)]
-    fn finish_debug_asserts_list_stack_empty() {
+    fn pause_debug_asserts_list_stack_empty() {
         let config = cfg();
-        let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors);
+        let mut walker = Walker::<HtmlBackend>::new(&config);
         walker.list_stack.push(false);
-        walker.finish();
+        walker.pause();
     }
 
     #[test]
     #[should_panic(expected = "unclosed blockquote/alert nesting")]
     #[cfg(debug_assertions)]
-    fn finish_debug_asserts_alert_stack_empty() {
+    fn pause_debug_asserts_alert_stack_empty() {
         let config = cfg();
-        let mut processors: Vec<Box<dyn CodeBlockProcessor>> = Vec::new();
-        let mut walker = Walker::<HtmlBackend>::new(&config, &mut processors);
+        let mut walker = Walker::<HtmlBackend>::new(&config);
         walker.alert_stack.push(None);
-        walker.finish();
+        walker.pause();
     }
 }

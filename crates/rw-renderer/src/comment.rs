@@ -11,7 +11,8 @@ use std::fmt::Write;
 use pulldown_cmark::Alignment;
 
 use crate::backend::RenderBackend;
-use crate::{HtmlBackend, MarkdownRenderer, Pipeline, escape_html};
+use crate::diagram::DiagramView;
+use crate::{HtmlBackend, MarkdownRenderer, Providers, escape_html};
 use rw_parser::AlertKind;
 
 /// Render a comment `body` (markdown) to safe HTML for display.
@@ -25,7 +26,7 @@ use rw_parser::AlertKind;
 #[must_use]
 pub fn render_comment_body(markdown: &str) -> String {
     MarkdownRenderer::<CommentBackend>::new()
-        .render(markdown, Pipeline::new())
+        .render(markdown, &Providers::empty())
         .html
 }
 
@@ -84,6 +85,15 @@ impl RenderBackend for CommentBackend {
         // Images are dropped entirely. The walker pops the image scope before
         // calling this, so a no-op leaves no stray output.
     }
+
+    // A comment body is rendered without diagram providers, so no fence ever
+    // resolves and neither of these can be reached. They drop their input for
+    // the same reason `image` does: a comment column is no place for a picture.
+    const DIAGRAM_IDS: bool = false;
+
+    fn diagram(_view: &DiagramView<'_>, _out: &mut String) {}
+
+    fn diagram_error(_id: Option<&str>, _message: &str, _out: &mut String) {}
 
     fn heading_start(_level: u8, _id: &str, out: &mut String) {
         // Headings demote to a paragraph (no oversized <h1> in a thread).

@@ -2,9 +2,10 @@
 //!
 //! [`KrokiProvider`] turns diagram source into rendered content: SVG text or
 //! PNG bytes, a display size, the digest that content is cached under, and any
-//! warnings the render produced. It emits no markup and writes no files, so
-//! the same resolution can be inlined into a page or uploaded as an
-//! attachment.
+//! warnings the render produced. It emits no markup and writes no output
+//! artifact — it populates its own render cache, but never the file a
+//! consumer's markup references — so the same resolution can be inlined into a
+//! page or uploaded as an attachment.
 //!
 //! # Example
 //!
@@ -328,7 +329,12 @@ fn record_errors(errors: Vec<KrokiError>, results: &mut [Slot]) {
 /// An unknown value falls back to the default rather than failing the fence, so
 /// a typo costs a warning and a diagram in the wrong format, not a broken page.
 ///
-/// Warnings come out in the order the attributes were written.
+/// The loop keeps assigning rather than stopping at the first `format`, which is
+/// [`DiagramRequest::attrs`]' last-occurrence-wins rule: a caller appends a
+/// `format` to override the author's while leaving theirs in the list to be
+/// diagnosed, and both are warned about here in the order they were written.
+///
+/// [`DiagramRequest::attrs`]: rw_diagrams::DiagramRequest::attrs
 fn read_format(attrs: &[(String, String)], warnings: &mut Vec<String>) -> DiagramFormat {
     let mut format = DiagramFormat::default();
     for (key, value) in attrs {
@@ -420,7 +426,7 @@ mod tests {
     use super::{DEFAULT_TIMEOUT, KrokiProvider, PNG_DATA_URI_PREFIX};
     use crate::cache::DiagramKey;
     use crate::language::{DiagramFormat, DiagramLanguage};
-    use crate::test_support::{KrokiStub, png_header, prepared_plantuml};
+    use crate::test_support::{KrokiStub, Reply, png_header, prepared_plantuml};
 
     /// Nothing listens here, so a test pointed at it fails loudly instead of
     /// quietly succeeding against whatever Kroki the developer has running.
@@ -512,6 +518,19 @@ mod tests {
     }
 
     /// The cache key and digest one render is expected to carry.
+    ///
+    /// Derived through the same call the provider makes, deliberately: what the
+    /// tests below discriminate is *routing* — which entry a request reads,
+    /// which digest it comes back with, whether two requests land on the same
+    /// key — and mirroring the formula keeps them doing that when it changes.
+    ///
+    /// It follows that none of them pins the hash's *value*. Two hardcoded
+    /// anchors do that, and they are the only two: `cache.rs`'s
+    /// `png_attachment_hash_is_stable_for_a_known_source`, and the literal
+    /// `diagram_<hash>.png` filenames in `rw-confluence`'s
+    /// `render_names_attachments_from_the_prepared_source_digest`. Delete both
+    /// and the formula becomes free to change silently, renaming every
+    /// published Confluence attachment.
     fn hash_of(language: DiagramLanguage, source: &str, format: DiagramFormat) -> String {
         DiagramKey::for_render(source, language, format).compute_hash()
     }
@@ -1159,6 +1178,95 @@ mod tests {
         );
     }
 
+    /// The verdict a caller caches on. `rw-site` re-renders a page whose
+    /// diagrams failed transiently and caches one whose diagrams failed for
+    /// good, so calling a 400 retryable makes every request re-render the same
+    /// broken diagram forever, and calling a 503 deterministic freezes an
+    /// outage into the cache.
+    ///
+    /// Both directions, through a real response: nothing but the status the
+    /// server sent decides this.
+    #[test]
+    fn a_kroki_error_status_decides_whether_the_failure_is_retryable() {
+        for (status, transient) in [(400, false), (503, true)] {
+            let stub = KrokiStub::answering(Reply::Fixed {
+                status,
+                body: b"kroki said no",
+            });
+            let provider = KrokiProvider::new(&stub.url);
+            let results = provider.resolve(
+                &[request(0, "mermaid", "graph TD")],
+                &ResolveContext::default(),
+            );
+
+            let error = results[0]
+                .as_ref()
+                .expect_err("an error status is not a render");
+            assert_eq!(
+                error.transient, transient,
+                "HTTP {status} was classified wrong: {}",
+                error.message,
+            );
+            // The status and Kroki's own explanation both reach an operator.
+            assert!(
+                error.message.contains(&format!("HTTP {status}"))
+                    && error.message.contains("kroki said no"),
+                "HTTP {status} lost its detail: {}",
+                error.message,
+            );
+        }
+    }
+
+    /// A 200 whose body is not a PNG. Deterministic, because the same response
+    /// decodes the same way every time — and re-rendering it on every request
+    /// would hammer Kroki for a diagram it cannot produce.
+    #[test]
+    fn a_png_response_that_is_not_a_png_fails_deterministically() {
+        let stub = KrokiStub::answering(Reply::Fixed {
+            status: 200,
+            body: b"<html>a proxy error page</html>",
+        });
+        let provider = KrokiProvider::new(&stub.url);
+        let results = provider.resolve(
+            &[with_attr(
+                request(0, "mermaid", "graph TD"),
+                "format",
+                "png",
+            )],
+            &ResolveContext::default(),
+        );
+
+        let error = results[0].as_ref().expect_err("the body is not a PNG");
+        assert!(
+            error.message.contains("invalid PNG"),
+            "the message should say what was wrong with it: {}",
+            error.message,
+        );
+        assert!(!error.transient, "the same response decodes the same way");
+    }
+
+    /// The SVG counterpart: a 200 whose bytes are not text at all.
+    #[test]
+    fn an_svg_response_that_is_not_utf8_fails_deterministically() {
+        let stub = KrokiStub::answering(Reply::Fixed {
+            status: 200,
+            body: &[0xFF, 0xFE, 0x00],
+        });
+        let provider = KrokiProvider::new(&stub.url);
+        let results = provider.resolve(
+            &[request(0, "mermaid", "graph TD")],
+            &ResolveContext::default(),
+        );
+
+        let error = results[0].as_ref().expect_err("the body is not UTF-8");
+        assert!(
+            error.message.contains("invalid UTF-8"),
+            "the message should say what was wrong with it: {}",
+            error.message,
+        );
+        assert!(!error.transient, "the same response decodes the same way");
+    }
+
     #[test]
     fn a_png_entry_that_is_not_a_data_uri_fails_its_diagram() {
         let source = "graph TD";
@@ -1261,8 +1369,15 @@ mod tests {
         );
     }
 
+    /// Confluence names an attachment from the first 12 characters of a
+    /// resolution's digest, so the digest has to be a filename-safe string of
+    /// stable length — whatever it is a hash of.
+    ///
+    /// Shape only. That the digest is the key the cache was read under is the
+    /// routing every `hash_of` test above asserts, and asserting it again here
+    /// against a locally computed `hash_of` would say nothing further.
     #[test]
-    fn a_resolution_carries_the_digest_the_cache_was_keyed_by() {
+    fn a_digest_is_a_fixed_length_lowercase_hex_string() {
         let source = "@startuml\nA -> B\n@enduml";
         let hash = hash_of(
             DiagramLanguage::PlantUml,
@@ -1279,9 +1394,6 @@ mod tests {
         );
 
         let resolved = results[0].as_ref().expect("resolved");
-        // Confluence attachments are named from the first 12 characters of
-        // this digest, so it has to be the key, not a hash of the bytes.
-        assert_eq!(resolved.digest, hash);
         assert_eq!(resolved.digest.len(), 64);
         assert!(
             resolved
@@ -1345,7 +1457,11 @@ mod tests {
             "<svg>cached</svg>",
         );
 
-        let provider = KrokiProvider::new(DEAD_KROKI).with_cache(Box::new(cache));
+        // Loopback refuses at once, but an environment that drops the packet
+        // instead would otherwise leave this waiting out the 30s default.
+        let provider = KrokiProvider::new(DEAD_KROKI)
+            .timeout(Duration::from_millis(50))
+            .with_cache(Box::new(cache));
         let results = provider.resolve(
             &[
                 request(0, "mermaid", cached),

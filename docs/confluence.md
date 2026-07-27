@@ -39,7 +39,7 @@ Exit codes:
 ```
 <out>/
   page.xhtml              # body only — what the publisher PUTs into body.storage.value
-  diagram-<hash>.png      # one file per diagram, named what page.xhtml references
+  diagram_<hash>.png      # one file per diagram, named what page.xhtml references
 ```
 
 The bundle is self-describing — `page.xhtml` is the body the publisher uploads

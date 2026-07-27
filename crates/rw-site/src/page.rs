@@ -11,11 +11,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_diagrams::SiteModel;
-use rw_kroki::{DiagramProcessor, SearchDiagramProcessor};
+use rw_diagrams::{DiagramRouter, Providers, Resolutions, ResolveContext, SiteModel};
+use rw_kroki::KrokiProvider;
+use rw_parser::rewrite_fences;
+use rw_plantuml::search_text;
 use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, Pipeline, RenderBackend, SearchDocumentBackend, TocEntry,
-    escape_html,
+    HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, TocEntry, escape_html,
 };
 use rw_sections::{SectionAnchor, Sections};
 
@@ -305,16 +306,26 @@ fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf])
 /// site structure or reload logic.
 pub(crate) struct PageRenderer {
     storage: Arc<dyn Storage>,
-    cache: Arc<dyn Cache>,
     page_bucket: Box<dyn CacheBucket>,
     extract_title: bool,
-    kroki_url: Option<String>,
+    /// Kept alongside [`providers`](Self::providers) because the search path
+    /// resolves `PlantUML` `!include`s itself, without going through a
+    /// provider.
     include_dirs: Vec<PathBuf>,
+    /// The diagram providers this site renders through, built once: a provider
+    /// owns an HTTP agent whose connection pool should outlive any one page.
+    /// Everything that varies per render travels in [`ResolveContext`] instead.
+    providers: Arc<Providers>,
     diagram_config_fingerprint: u64,
 }
 
 impl PageRenderer {
     /// Create a new page renderer.
+    // `cache` is only borrowed from: no field holds it, the buckets taken off
+    // it do. It still arrives by value because taking `&Arc<dyn Cache>` would
+    // move this same lint onto `Site::new`, which has nowhere to hand
+    // ownership either.
+    #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn new(
         storage: Arc<dyn Storage>,
         cache: Arc<dyn Cache>,
@@ -322,13 +333,20 @@ impl PageRenderer {
     ) -> Self {
         let diagram_config_fingerprint =
             diagram_config_fingerprint(config.kroki_url.as_deref(), &config.include_dirs);
+        let providers = match &config.kroki_url {
+            Some(url) => Providers::empty().with(Arc::new(
+                KrokiProvider::new(url)
+                    .include_dirs(&config.include_dirs)
+                    .with_cache(cache.bucket("diagrams")),
+            )),
+            None => Providers::empty(),
+        };
         Self {
             storage,
             page_bucket: cache.bucket("pages"),
-            cache,
             extract_title: config.extract_title,
-            kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
+            providers: Arc::new(providers),
             diagram_config_fingerprint,
         }
     }
@@ -435,8 +453,16 @@ impl PageRenderer {
 
         let markdown_text = self.storage.read(path)?;
         let renderer = self.create_renderer(path, page.origin.as_deref(), page.is_dir, ctx);
-        let pipeline = self.create_pipeline(ctx);
-        let result = renderer.render(&markdown_text, pipeline);
+        let pass = renderer.begin(&markdown_text);
+        let resolve_ctx = ResolveContext {
+            model: ctx.meta_include_source.as_deref(),
+            page: Some(path),
+        };
+        let resolutions = self.providers.resolve(pass.requests(), &resolve_ctx);
+        let transient = resolutions
+            .values()
+            .any(|r| matches!(r, Err(error) if error.transient));
+        let result = pass.finish(&resolutions);
 
         // A transient diagram failure (Kroki unreachable, a 5xx, or a retryable
         // 4xx) is not persisted, so the page re-renders and can recover once
@@ -444,7 +470,7 @@ impl PageRenderer {
         // successes. A deterministic failure (e.g. Kroki 400 on malformed
         // source) is not transient and still caches, so it does not re-hit
         // Kroki every request.
-        if !result.has_transient_error {
+        if !transient {
             self.page_bucket.set_json(
                 path,
                 &etag,
@@ -511,20 +537,25 @@ impl PageRenderer {
         let markdown_text = self.storage.read(path)?;
         let metadata = self.load_metadata(path);
 
-        let mut search_processor = SearchDiagramProcessor::new(self.include_dirs.clone());
-        if let Some(source) = &ctx.meta_include_source {
-            search_processor = search_processor.with_meta_include_source(Arc::clone(source));
-        }
+        // Diagram fences are reduced to their text before the walk rather than
+        // during it: the index wants the words in a diagram, not a picture of
+        // one, and no provider has to run to get them.
+        let stripped = rewrite_fences(&markdown_text, |lang, src| {
+            search_text(
+                lang,
+                src,
+                &self.include_dirs,
+                ctx.meta_include_source.as_deref(),
+            )
+        });
 
+        // No diagram router here, so every fence — diagram or not — reaches
+        // `SearchDocumentBackend::code_block` and is indexed as plain text.
         let renderer = Self::configure_renderer_settings(
             MarkdownRenderer::<SearchDocumentBackend>::new().with_title_extraction(),
             ctx,
         );
-        // Search-document rendering uses SearchDiagramProcessor (text
-        // descriptions) instead of the regular DiagramProcessor (HTML/SVG
-        // via Kroki).
-        let pipeline = Pipeline::new().with_processor(search_processor);
-        let result = renderer.render(&markdown_text, pipeline);
+        let result = renderer.begin(&stripped).finish(&Resolutions::new());
 
         let title = metadata
             .as_ref()
@@ -557,17 +588,14 @@ impl PageRenderer {
             renderer = renderer.with_title_extraction();
         }
 
-        Self::configure_renderer_settings(renderer, ctx)
-    }
-
-    /// Pipeline for HTML rendering: the regular `DiagramProcessor` (when
-    /// configured).
-    fn create_pipeline(&self, ctx: &RenderContext) -> Pipeline {
-        let mut pipeline = Pipeline::new();
-        if let Some(processor) = self.create_diagram_processor(ctx.meta_include_source.clone()) {
-            pipeline = pipeline.with_processor(processor.with_sections(Arc::clone(&ctx.sections)));
+        // With no provider configured there is no router either, so every fence
+        // stays an ordinary code block.
+        if !self.providers.is_empty() {
+            renderer = renderer
+                .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
         }
-        pipeline
+
+        Self::configure_renderer_settings(renderer, ctx)
     }
 
     /// Apply settings shared between renderer creation paths: sections,
@@ -587,23 +615,6 @@ impl PageRenderer {
         }
 
         renderer
-    }
-
-    fn create_diagram_processor(
-        &self,
-        meta_include_source: Option<Arc<dyn SiteModel>>,
-    ) -> Option<DiagramProcessor> {
-        let url = self.kroki_url.as_ref()?;
-
-        let mut processor = DiagramProcessor::new(url)
-            .include_dirs(&self.include_dirs)
-            .with_cache(self.cache.bucket("diagrams"));
-
-        if let Some(source) = meta_include_source {
-            processor = processor.with_meta_include_source(source);
-        }
-
-        Some(processor)
     }
 
     fn load_metadata(&self, path: &str) -> Option<Metadata> {
@@ -642,8 +653,12 @@ struct CachedPageRef<'a> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use rw_cache::NullCache;
+    use rw_diagrams::{
+        Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, Entity, Resolved,
+    };
     use rw_storage::MockStorage;
 
     use super::*;
@@ -664,6 +679,250 @@ mod tests {
             pages: None,
             is_dir: true,
         }
+    }
+
+    // ── The diagram path, through a stub provider ─────────────────────────
+
+    /// One `plantuml` fence with prose on either side, so a test can see both
+    /// what a fence became and where it landed.
+    const DIAGRAM_PAGE: &str = "# Diagram\n\nbefore\n\n```plantuml\nA -> B\n```\n\nafter\n";
+
+    /// A provider that answers from the fence source without a network.
+    ///
+    /// The body is a script: `flaky` fails transiently, `fail` fails
+    /// deterministically, and anything else resolves to an SVG echoing the
+    /// source, so a test can see which fence filled which hole.
+    struct StubProvider {
+        /// Whether the last `resolve` was handed a site model. Shared with the
+        /// test, which cannot reach the provider once it is behind an `Arc<dyn
+        /// DiagramProvider>`.
+        saw_model: Arc<AtomicBool>,
+    }
+
+    impl DiagramProvider for StubProvider {
+        fn handles(&self, language: &str) -> bool {
+            language == "plantuml"
+        }
+
+        fn resolve(
+            &self,
+            requests: &[DiagramRequest],
+            ctx: &ResolveContext<'_>,
+        ) -> Vec<Result<Resolved, DiagramError>> {
+            self.saw_model.store(ctx.model.is_some(), Ordering::SeqCst);
+            requests
+                .iter()
+                .map(|request| match request.source.trim() {
+                    "flaky" => Err(DiagramError {
+                        message: "kroki is unreachable".to_owned(),
+                        transient: true,
+                    }),
+                    "fail" => Err(DiagramError {
+                        message: "kroki said no".to_owned(),
+                        transient: false,
+                    }),
+                    source => Ok(Resolved {
+                        asset: Asset::Inline(DiagramContent::Svg(format!("<svg>{source}</svg>"))),
+                        size: None,
+                        digest: "0".to_owned(),
+                        warnings: Vec::new(),
+                    }),
+                })
+                .collect()
+        }
+    }
+
+    /// A renderer whose diagram fences route to a [`StubProvider`], plus the
+    /// flag recording whether that provider was handed a site model.
+    ///
+    /// Built field-by-field rather than through [`PageRenderer::new`], which
+    /// only ever builds a Kroki provider. What `new` wires is covered by the
+    /// tests that go through it.
+    fn stub_renderer(
+        storage: MockStorage,
+        cache: &Arc<dyn Cache>,
+    ) -> (PageRenderer, Arc<AtomicBool>) {
+        let saw_model = Arc::new(AtomicBool::new(false));
+        let provider = StubProvider {
+            saw_model: Arc::clone(&saw_model),
+        };
+        let renderer = PageRenderer {
+            storage: Arc::new(storage),
+            page_bucket: cache.bucket("pages"),
+            extract_title: true,
+            include_dirs: Vec::new(),
+            providers: Arc::new(Providers::empty().with(Arc::new(provider))),
+            diagram_config_fingerprint: 0,
+        };
+        (renderer, saw_model)
+    }
+
+    fn diagram_storage(body: &str) -> MockStorage {
+        MockStorage::new()
+            .with_file(
+                "diag",
+                "Diagram",
+                format!("# Diagram\n\n```plantuml\n{body}\n```\n"),
+            )
+            .with_mtime("diag", 1000.0)
+    }
+
+    fn file_cache() -> (tempfile::TempDir, Arc<dyn Cache>) {
+        let dir = tempfile::tempdir().unwrap();
+        let cache: Arc<dyn Cache> =
+            Arc::new(rw_cache::FileCache::new(dir.path().join("cache"), "1.0.0"));
+        (dir, cache)
+    }
+
+    #[test]
+    fn a_resolved_diagram_is_spliced_where_its_fence_stood() {
+        let storage = MockStorage::new()
+            .with_file("diag", "Diagram", DIAGRAM_PAGE)
+            .with_mtime("diag", 1000.0);
+        let cache: Arc<dyn Cache> = Arc::new(NullCache);
+        let (renderer, _) = stub_renderer(storage, &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        let result = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+
+        assert!(
+            result
+                .html
+                .contains(r#"<figure class="diagram" data-diagram-id="diagram-0"><rw-diagram><svg>A -> B</svg></rw-diagram></figure>"#),
+            "the resolution did not become a diagram figure: {}",
+            result.html,
+        );
+        // Position, not just presence: a fill written to the wrong hole would
+        // still leave the figure somewhere on the page.
+        let figure = result.html.find("<figure").expect("the diagram figure");
+        let before = result
+            .html
+            .find("<p>before</p>")
+            .expect("the prose above the fence");
+        let after = result
+            .html
+            .find("<p>after</p>")
+            .expect("the prose below the fence");
+        assert!(
+            before < figure && figure < after,
+            "the figure landed outside the fence's position: {}",
+            result.html,
+        );
+    }
+
+    #[test]
+    fn a_transient_provider_failure_is_not_cached() {
+        let (_dir, cache) = file_cache();
+        let (renderer, _) = stub_renderer(diagram_storage("flaky"), &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        let first = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(!first.from_cache);
+        assert!(
+            first.html.contains("diagram-error"),
+            "a failed diagram shows as an error figure: {}",
+            first.html,
+        );
+
+        let second = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            !second.from_cache,
+            "a transient failure must re-render, so the page can recover",
+        );
+    }
+
+    /// The other half of the contract: a failure that will fail identically
+    /// every time is cached, so a broken diagram does not re-hit the provider
+    /// on every request.
+    #[test]
+    fn a_deterministic_provider_failure_is_cached() {
+        let (_dir, cache) = file_cache();
+        let (renderer, _) = stub_renderer(diagram_storage("fail"), &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        let first = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(!first.from_cache);
+        assert!(
+            first.html.contains("diagram-error"),
+            "a failed diagram shows as an error figure: {}",
+            first.html,
+        );
+
+        let second = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            second.from_cache,
+            "a deterministic failure must cache, or every request re-renders it",
+        );
+        assert_eq!(second.html, first.html);
+    }
+
+    #[test]
+    fn without_a_diagram_service_a_diagram_fence_stays_a_code_block() {
+        // `PageRendererConfig::default()` leaves `kroki_url` unset, so no
+        // provider is configured and the renderer gets no router at all.
+        let renderer = create_renderer(diagram_storage("A -> B"));
+        let page = make_page("Diagram", "diag", true);
+
+        let result = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+
+        assert!(
+            result
+                .html
+                .contains(r#"<pre><code class="language-plantuml">A -&gt; B"#),
+            "the fence should render as ordinary code: {}",
+            result.html,
+        );
+        assert!(
+            !result.html.contains("<figure"),
+            "no diagram service means no diagram figure: {}",
+            result.html,
+        );
+    }
+
+    #[test]
+    fn the_site_model_reaches_the_provider_through_the_resolve_context() {
+        struct EmptyModel;
+        impl SiteModel for EmptyModel {
+            fn entity(&self, _kind: &str, _name: &str) -> Option<Entity> {
+                None
+            }
+        }
+
+        // NullCache always misses, so the second render below is a real render
+        // rather than a cache hit that would never call the provider.
+        let cache: Arc<dyn Cache> = Arc::new(NullCache);
+        let (renderer, saw_model) = stub_renderer(diagram_storage("A -> B"), &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            !saw_model.load(Ordering::SeqCst),
+            "the flag must track the context, or the assertion below is vacuous",
+        );
+
+        let ctx = RenderContext {
+            meta_include_source: Some(Arc::new(EmptyModel)),
+            ..Default::default()
+        };
+        renderer.render("diag", &page, vec![], &ctx).unwrap();
+        assert!(
+            saw_model.load(Ordering::SeqCst),
+            "the snapshot's site model did not reach the provider",
+        );
     }
 
     #[test]
@@ -897,6 +1156,59 @@ mod tests {
         assert!(r3.from_cache);
     }
 
+    /// A server that accepts a connection and hangs up without answering, so a
+    /// render through it fails immediately.
+    ///
+    /// A port nothing listens on would do, until an environment drops the
+    /// packet rather than refusing it: `PageRenderer` builds its own
+    /// `KrokiProvider` and offers no way to shorten the 30s request timeout
+    /// such a render would then wait out, twice over.
+    struct HangUpKroki {
+        url: String,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl HangUpKroki {
+        fn start() -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+            let url = format!("http://{}", listener.local_addr().expect("its own address"));
+            listener.set_nonblocking(true).expect("poll the listener");
+
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread = {
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        match listener.accept() {
+                            // Dropping the stream closes it, unanswered.
+                            Ok(_) => {}
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                })
+            };
+
+            Self {
+                url,
+                stop,
+                thread: Some(thread),
+            }
+        }
+    }
+
+    impl Drop for HangUpKroki {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
+
     #[test]
     fn transient_diagram_failure_is_not_cached() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -915,11 +1227,12 @@ mod tests {
         );
         let page = make_page("Diagram", "diag", true);
 
-        // Unreachable Kroki → transient render failure. Whether the sandbox
-        // blocks the connection or the port refuses it, ureq reports an
-        // HttpRequest error (transient), so this holds in both environments.
+        // A Kroki that hangs up → transient render failure: ureq reports an
+        // HttpRequest error, which the provider classifies as retryable. This
+        // is the wiring `PageRenderer::new` does, not a stubbed provider.
+        let kroki = HangUpKroki::start();
         let cfg = PageRendererConfig {
-            kroki_url: Some("http://127.0.0.1:1".to_owned()),
+            kroki_url: Some(kroki.url.clone()),
             ..PageRendererConfig::default()
         };
         let renderer = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg);
@@ -945,7 +1258,7 @@ mod tests {
     }
 
     #[test]
-    fn page_without_transient_failure_is_cached() {
+    fn a_page_rendered_without_a_diagram_service_is_cached() {
         let temp_dir = tempfile::tempdir().unwrap();
         let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
             temp_dir.path().join("cache"),

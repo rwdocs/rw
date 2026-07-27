@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
+use crate::diagram::{DiagramView, write_diagram_id_attr};
 use crate::status::StatusColor;
 use crate::tabs::TabInfo;
 
@@ -49,11 +50,41 @@ pub trait RenderBackend {
     /// `:status[…]`/`::::tabs` then render as plain text.
     const TOKENIZE_DIRECTIVES: bool = true;
 
+    /// Whether this backend puts a `data-diagram-id` on each diagram.
+    ///
+    /// When `false` the renderer does not resolve diagram ids at all, so a
+    /// backend that ignores them also raises no duplicate-id warnings about an
+    /// attribute it never writes.
+    const DIAGRAM_IDS: bool = true;
+
     /// Writes a fenced code block to `out`.
     ///
     /// `lang` is the language identifier from the fence info string (e.g.,
     /// `"rust"`, `"python"`), or `None` for plain code blocks.
     fn code_block(lang: Option<&str>, content: &str, out: &mut String);
+
+    /// Writes one resolved diagram.
+    ///
+    /// Required, like [`image`](Self::image) and [`code_block`](Self::code_block):
+    /// every backend genuinely differs here, and a wrong default is worse
+    /// than a compile error.
+    fn diagram(view: &DiagramView<'_>, out: &mut String);
+
+    /// Writes a diagram that could not be rendered.
+    fn diagram_error(id: Option<&str>, message: &str, out: &mut String) {
+        out.push_str(r#"<figure class="diagram diagram-error""#);
+        write_diagram_id_attr(id, out);
+        out.push_str("><pre>Diagram rendering failed: ");
+        escape_into(message, out);
+        out.push_str("</pre></figure>");
+    }
+
+    /// Writes a diagram fence nothing resolved — no provider claimed the
+    /// language, or the caller resolved nothing. It renders as a code block;
+    /// this is the same path.
+    fn diagram_source(lang: &str, source: &str, out: &mut String) {
+        Self::code_block(Some(lang), source, out);
+    }
 
     /// Writes the opening tag for a blockquote.
     fn blockquote_start(out: &mut String);

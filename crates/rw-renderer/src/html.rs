@@ -12,7 +12,11 @@ use std::fmt::Write;
 use crate::status::StatusColor;
 use crate::tabs::TabInfo;
 
+use base64::prelude::{BASE64_STANDARD, Engine};
+use rw_diagrams::{Asset, DiagramContent, Size};
+
 use crate::backend::RenderBackend;
+use crate::diagram::{DiagramView, splice_link_attrs, write_diagram_id_attr};
 use crate::util::escape_into;
 use rw_parser::AlertKind;
 
@@ -32,15 +36,26 @@ const SVG_STOP: &str = r#"<svg class="alert-icon" viewBox="0 0 16 16" width="16"
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_base_path("/docs/guide")
-///     .render("[Setup](./setup.md#install)", Pipeline::new());
+///     .render("[Setup](./setup.md#install)", &Providers::empty());
 ///
 /// assert!(result.html.contains(r#"href="/docs/guide/setup#install""#));
 /// ```
 pub struct HtmlBackend;
+
+/// Writes ` width="…" height="…"` for a diagram whose display size is known.
+///
+/// An unknown size writes nothing, giving an unsized `<img>`: a raster diagram
+/// whose header would not parse still renders, just without the aspect-ratio
+/// box that keeps surrounding content from reflowing once it decodes.
+fn write_size_attrs(size: Option<Size>, out: &mut String) {
+    if let Some(Size { width, height }) = size {
+        write!(out, r#" width="{width}" height="{height}""#).unwrap();
+    }
+}
 
 impl RenderBackend for HtmlBackend {
     const TITLE_AS_METADATA: bool = false;
@@ -111,6 +126,43 @@ impl RenderBackend for HtmlBackend {
         out.push_str(r#" alt=""#);
         escape_into(alt, out);
         out.push_str(r#"">"#);
+    }
+
+    /// Renders a diagram as a `<figure class="diagram">`.
+    ///
+    /// An inline SVG is wrapped in `<rw-diagram>`, which the viewer upgrades
+    /// into a shadow root. Diagram generators emit ids that are unique only
+    /// within one SVG (Vega hard-codes `clip0, clip1, …`; Mermaid roots every
+    /// SVG on `container`), so without a per-diagram tree scope a `url(#clip1)`
+    /// reference resolves document-wide to whichever diagram came first —
+    /// silently painting one diagram with another's clip paths. The other two
+    /// shapes hold an `<img>`, which has no ids to collide.
+    fn diagram(view: &DiagramView<'_>, out: &mut String) {
+        out.push_str(r#"<figure class="diagram""#);
+        write_diagram_id_attr(view.id, out);
+        out.push('>');
+        match view.asset {
+            Asset::Inline(DiagramContent::Svg(svg)) => {
+                out.push_str("<rw-diagram>");
+                splice_link_attrs(svg, view.links, out);
+                out.push_str("</rw-diagram>");
+            }
+            Asset::Inline(DiagramContent::Png(bytes)) => {
+                out.push_str(r#"<img src="data:image/png;base64,"#);
+                BASE64_STANDARD.encode_string(bytes, out);
+                out.push('"');
+                write_size_attrs(view.size, out);
+                out.push_str(r#" alt="diagram">"#);
+            }
+            Asset::Reference(name) => {
+                out.push_str(r#"<img src=""#);
+                escape_into(name, out);
+                out.push('"');
+                write_size_attrs(view.size, out);
+                out.push_str(r#" alt="diagram">"#);
+            }
+        }
+        out.push_str("</figure>");
     }
 
     fn table_start(out: &mut String) {
@@ -535,5 +587,194 @@ mod tests {
         let mut out = String::new();
         HtmlBackend::tabs_open(0, &tabs, &mut out);
         assert!(out.contains("a &lt; b &amp; c"), "got: {out}");
+    }
+
+    /// The three diagram figure shapes are served to browsers with CSS and JS
+    /// bound to their exact markup, so every assertion below is byte-exact.
+    mod diagram {
+        use crate::DiagramLink;
+
+        use super::*;
+
+        fn render(view: &DiagramView<'_>) -> String {
+            let mut out = String::new();
+            HtmlBackend::diagram(view, &mut out);
+            out
+        }
+
+        fn svg(id: Option<&str>, source: &str, links: &[DiagramLink]) -> String {
+            render(&DiagramView {
+                id,
+                asset: &Asset::Inline(DiagramContent::Svg(source.to_owned())),
+                size: None,
+                links,
+            })
+        }
+
+        fn png(id: Option<&str>, bytes: &[u8], size: Option<Size>) -> String {
+            render(&DiagramView {
+                id,
+                asset: &Asset::Inline(DiagramContent::Png(bytes.to_vec())),
+                size,
+                links: &[],
+            })
+        }
+
+        fn reference(id: Option<&str>, name: &str, size: Option<Size>) -> String {
+            render(&DiagramView {
+                id,
+                asset: &Asset::Reference(name.to_owned()),
+                size,
+                links: &[],
+            })
+        }
+
+        #[test]
+        fn an_inline_svg_is_wrapped_in_rw_diagram() {
+            assert_eq!(
+                svg(None, "<svg><g/></svg>", &[]),
+                r#"<figure class="diagram"><rw-diagram><svg><g/></svg></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn an_inline_svg_carries_its_diagram_id() {
+            assert_eq!(
+                svg(Some("diagram-2"), "<svg/>", &[]),
+                r#"<figure class="diagram" data-diagram-id="diagram-2"><rw-diagram><svg/></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn a_diagram_id_is_attribute_escaped() {
+            assert_eq!(
+                svg(Some(r#"a"b"#), "<svg/>", &[]),
+                r#"<figure class="diagram" data-diagram-id="a&quot;b"><rw-diagram><svg/></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn resolved_links_are_spliced_into_the_svg() {
+            let links = [DiagramLink {
+                href: "/domains/billing/api".to_owned(),
+                section_ref: "domain:default/billing".to_owned(),
+                section_path: "api".to_owned(),
+            }];
+            assert_eq!(
+                svg(
+                    None,
+                    r#"<svg><a href="/domains/billing/api">x</a></svg>"#,
+                    &links
+                ),
+                r#"<figure class="diagram"><rw-diagram><svg><a href="/domains/billing/api" data-section-ref="domain:default/billing" data-section-path="api">x</a></svg></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn an_svg_with_no_resolved_links_is_untouched() {
+            assert_eq!(
+                svg(None, r#"<svg><a href="/x">x</a></svg>"#, &[]),
+                r#"<figure class="diagram"><rw-diagram><svg><a href="/x">x</a></svg></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn inline_png_bytes_become_a_sized_data_uri() {
+            assert_eq!(
+                png(
+                    Some("d1"),
+                    b"PNG",
+                    Some(Size {
+                        width: 200,
+                        height: 100
+                    })
+                ),
+                concat!(
+                    r#"<figure class="diagram" data-diagram-id="d1">"#,
+                    r#"<img src="data:image/png;base64,UE5H" width="200" height="100" alt="diagram">"#,
+                    "</figure>",
+                )
+            );
+        }
+
+        /// A PNG whose header would not parse has no size to report. It renders
+        /// unsized rather than not at all.
+        #[test]
+        fn an_unsized_png_renders_without_dimension_attributes() {
+            assert_eq!(
+                png(None, b"PNG", None),
+                r#"<figure class="diagram"><img src="data:image/png;base64,UE5H" alt="diagram"></figure>"#
+            );
+        }
+
+        #[test]
+        fn a_reference_points_at_the_written_name() {
+            assert_eq!(
+                reference(
+                    Some("d1"),
+                    "diagram_abc123.png",
+                    Some(Size {
+                        width: 640,
+                        height: 480
+                    })
+                ),
+                concat!(
+                    r#"<figure class="diagram" data-diagram-id="d1">"#,
+                    r#"<img src="diagram_abc123.png" width="640" height="480" alt="diagram">"#,
+                    "</figure>",
+                )
+            );
+        }
+
+        #[test]
+        fn an_unsized_reference_renders_without_dimension_attributes() {
+            assert_eq!(
+                reference(None, "diagram_abc123.png", None),
+                r#"<figure class="diagram"><img src="diagram_abc123.png" alt="diagram"></figure>"#
+            );
+        }
+
+        #[test]
+        fn a_reference_name_is_attribute_escaped() {
+            assert_eq!(
+                reference(None, r#"a"b.png"#, None),
+                r#"<figure class="diagram"><img src="a&quot;b.png" alt="diagram"></figure>"#
+            );
+        }
+
+        #[test]
+        fn an_error_figure_carries_the_escaped_message() {
+            let mut out = String::new();
+            HtmlBackend::diagram_error(Some("d1"), "syntax error at <line 3>", &mut out);
+            assert_eq!(
+                out,
+                concat!(
+                    r#"<figure class="diagram diagram-error" data-diagram-id="d1">"#,
+                    "<pre>Diagram rendering failed: syntax error at &lt;line 3&gt;</pre>",
+                    "</figure>",
+                )
+            );
+        }
+
+        #[test]
+        fn an_error_figure_without_an_id_omits_the_attribute() {
+            let mut out = String::new();
+            HtmlBackend::diagram_error(None, "boom", &mut out);
+            assert_eq!(
+                out,
+                r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: boom</pre></figure>"#
+            );
+        }
+
+        /// An unresolved diagram fence stays a code block.
+        #[test]
+        fn an_unresolved_fence_renders_as_a_code_block() {
+            let mut out = String::new();
+            HtmlBackend::diagram_source("plantuml", "@startuml\n@enduml", &mut out);
+            assert_eq!(
+                out,
+                "<pre><code class=\"language-plantuml\">@startuml\n@enduml</code></pre>"
+            );
+        }
     }
 }

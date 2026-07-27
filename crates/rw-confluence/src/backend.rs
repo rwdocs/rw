@@ -5,7 +5,25 @@
 
 use std::fmt::Write;
 
-use rw_renderer::{AlertKind, RenderBackend, StatusColor, TabInfo, escape_html};
+use rw_renderer::{
+    AlertKind, Asset, DiagramView, RenderBackend, StatusColor, TabInfo, escape_html,
+};
+
+/// Writes `<ac:image>` around one `<ri:…/>` resource, optionally sized.
+///
+/// `resource` is the whole resource tag's attributes — `ri:url ri:value="…"`
+/// or `ri:attachment ri:filename="…"` — already escaped by the caller.
+///
+/// `width` is a width in pixels and never a height: Confluence scales an image
+/// proportionally from a single dimension, so supplying both could only ever
+/// distort it.
+fn ac_image(width: Option<u32>, resource: &str, out: &mut String) {
+    match width {
+        Some(width) => write!(out, r#"<ac:image ac:width="{width}">"#).unwrap(),
+        None => out.push_str("<ac:image>"),
+    }
+    write!(out, "<{resource} /></ac:image>").unwrap();
+}
 
 /// Confluence render backend.
 ///
@@ -18,6 +36,10 @@ pub(crate) struct ConfluenceBackend;
 
 impl RenderBackend for ConfluenceBackend {
     const TITLE_AS_METADATA: bool = true;
+
+    /// Confluence storage format has no place for a per-figure id: a diagram is
+    /// an `<ac:image>` macro, not markup this backend can hang an attribute on.
+    const DIAGRAM_IDS: bool = false;
 
     fn code_block(lang: Option<&str>, content: &str, out: &mut String) {
         out.push_str(r#"<ac:structured-macro ac:name="code" ac:schema-version="1">"#);
@@ -77,7 +99,32 @@ impl RenderBackend for ConfluenceBackend {
             let filename = src.rsplit('/').next().unwrap_or(src);
             format!(r#"ri:attachment ri:filename="{}""#, escape_html(filename))
         };
-        write!(out, "<ac:image><{inner} /></ac:image>").unwrap();
+        ac_image(None, &inner, out);
+    }
+
+    /// Renders a diagram as an attachment reference.
+    ///
+    /// Only [`Asset::Reference`] should occur: rw-confluence writes every
+    /// diagram out as an attachment before finishing the pass, so by the time
+    /// markup is produced the bytes already have a filename.
+    ///
+    /// Inline bytes have nowhere to go in storage format. They become an error
+    /// figure rather than nothing at all: writing nothing drops the diagram off
+    /// the published page with no warning and no gap to notice, and the fill is
+    /// still a fill, so no assertion catches it either.
+    fn diagram(view: &DiagramView<'_>, out: &mut String) {
+        let Asset::Reference(filename) = view.asset else {
+            Self::diagram_error(
+                view.id,
+                "the diagram was rendered but never saved as a page attachment, \
+                 so there is nothing for Confluence to reference; check that \
+                 the render was given a bundle directory to write attachments into",
+                out,
+            );
+            return;
+        };
+        let resource = format!(r#"ri:attachment ri:filename="{}""#, escape_html(filename));
+        ac_image(view.size.map(|size| size.width), &resource, out);
     }
 
     fn hard_break(out: &mut String) {
@@ -134,7 +181,98 @@ impl RenderBackend for ConfluenceBackend {
 
 #[cfg(test)]
 mod tests {
+    use rw_renderer::Size;
+
     use super::*;
+
+    fn diagram_markup(asset: &Asset, size: Option<Size>) -> String {
+        let mut out = String::new();
+        ConfluenceBackend::diagram(
+            &DiagramView {
+                id: Some("ignored"),
+                asset,
+                size,
+                links: &[],
+            },
+            &mut out,
+        );
+        out
+    }
+
+    /// The backend formats the display width it is given; the oversampling
+    /// correction happens in the provider, so this backend never applies a DPI
+    /// correction of its own.
+    ///
+    /// Whole-tag equality: height is deliberately absent, because Confluence
+    /// scales proportionally from a single dimension and emitting both could
+    /// only ever distort the diagram.
+    #[test]
+    fn emits_the_display_width_it_is_given() {
+        assert_eq!(
+            diagram_markup(
+                &Asset::Reference("diagram_abc123.png".to_owned()),
+                Some(Size {
+                    width: 200,
+                    height: 100
+                })
+            ),
+            r#"<ac:image ac:width="200"><ri:attachment ri:filename="diagram_abc123.png" /></ac:image>"#
+        );
+    }
+
+    /// An unknown size drops the attribute rather than guessing one; Confluence
+    /// then renders the attachment at its natural size.
+    ///
+    /// Whole-tag equality, so it also pins what is *not* there: the id
+    /// `diagram_markup` passes in (`DIAGRAM_IDS` is false, and storage format
+    /// has no attribute to carry one).
+    #[test]
+    fn an_unsized_diagram_gets_no_width_attribute() {
+        assert_eq!(
+            diagram_markup(&Asset::Reference("test.png".to_owned()), None),
+            r#"<ac:image><ri:attachment ri:filename="test.png" /></ac:image>"#
+        );
+    }
+
+    /// Inline bytes cannot be referenced from storage format, so they become a
+    /// visible error figure. `force_png` plus `write_attachments` make this
+    /// unreachable today; the point is that a future provider which does reach
+    /// it loses a diagram loudly instead of silently.
+    #[test]
+    fn inline_bytes_produce_an_error_figure() {
+        use rw_renderer::DiagramContent;
+
+        for asset in [
+            Asset::Inline(DiagramContent::Svg("<svg/>".to_owned())),
+            Asset::Inline(DiagramContent::Png(Vec::from([0x89]))),
+        ] {
+            let markup = diagram_markup(&asset, None);
+            assert!(
+                markup.contains("Diagram rendering failed:"),
+                "an inline asset must not vanish: {markup:?}"
+            );
+            assert!(
+                markup.contains("never saved as a page attachment"),
+                "the message must name the situation: {markup:?}"
+            );
+            assert!(
+                !markup.contains("<ac:image"),
+                "there is no filename to reference: {markup:?}"
+            );
+        }
+    }
+
+    /// Both `image` and `diagram` go through the same `<ac:image>` writer, so a
+    /// local image and a diagram produce the same `<ac:image>` wrapper.
+    #[test]
+    fn a_local_image_is_an_unsized_attachment_reference() {
+        let mut out = String::new();
+        ConfluenceBackend::image("./images/diagram.png", "alt", "title", &mut out);
+        assert_eq!(
+            out,
+            r#"<ac:image><ri:attachment ri:filename="diagram.png" /></ac:image>"#
+        );
+    }
 
     #[test]
     fn test_code_block_with_language() {

@@ -5,9 +5,9 @@
 //!         ^^^^^^^^^^^^^^^^^^^^^^^^^^ the attribute block
 //! ```
 //!
-//! Attributes are parsed but never interpreted here: they are carried
-//! through to whichever code block processor claims the fence, which is what
-//! reads `format`, `id` and the rest.
+//! Attributes are parsed but never interpreted here: they are carried through
+//! to whoever claims the fence — for a diagram fence, the provider that renders
+//! it — which is what reads `format`, `id` and the rest.
 //!
 //! The `{#id}` form is part of rw's documented fence dialect, so the grammar
 //! belongs beside the rest of the syntax rather than beside its consumer.

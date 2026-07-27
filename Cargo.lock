@@ -4250,9 +4250,11 @@ dependencies = [
 name = "rw-confluence"
 version = "0.1.33"
 dependencies = [
+ "parking_lot",
  "pretty_assertions",
  "quick-xml",
  "regex",
+ "rw-diagrams",
  "rw-kroki",
  "rw-renderer",
  "tempfile",
@@ -4288,8 +4290,6 @@ dependencies = [
  "rw-cache",
  "rw-diagrams",
  "rw-plantuml",
- "rw-renderer",
- "rw-sections",
  "sha2 0.11.0",
  "tempfile",
  "thiserror",
@@ -4326,9 +4326,11 @@ dependencies = [
 name = "rw-renderer"
 version = "0.1.33"
 dependencies = [
+ "base64",
  "codspeed-divan-compat",
  "pretty_assertions",
  "pulldown-cmark",
+ "rw-diagrams",
  "rw-parser",
  "rw-sections",
  "serde",
@@ -4394,6 +4396,8 @@ dependencies = [
  "rw-cache",
  "rw-diagrams",
  "rw-kroki",
+ "rw-parser",
+ "rw-plantuml",
  "rw-renderer",
  "rw-sections",
  "rw-storage",

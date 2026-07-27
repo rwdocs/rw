@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Editing a `README.md` homepage (a project with no `docs/index.md`) now updates the navigation sidebar to the README's real title on live reload, instead of replacing it with "Home".
 - Diagrams on the same page no longer borrow each other's clip paths, gradients, and markers; each one now renders inside its own shadow root. A script or test that reached a diagram's SVG in `@rwdocs/core`'s `renderPage()` output with `querySelector` must now go through the wrapper's `shadowRoot`. See [Diagram Rendering](docs/diagrams.md).
 - Resolving the inline comment you're navigating on and pressing `n` now steps to the next comment instead of jumping back to the first; `p` steps back instead of jumping to the last.
+- `@rwdocs/core`'s `renderSearchDocument()` no longer runs a diagram's last word into the heading or paragraph that follows it, so both are indexed as separate terms and each is findable on its own.
 - The `re-anchored` badge on a comment no longer squeezes the author's name onto extra lines. It now sits in the thread header next to the position counter, shortened to `fuzzy`, and carries an accessible name for screen readers.
 
 ## [0.1.33] - 2026-07-12

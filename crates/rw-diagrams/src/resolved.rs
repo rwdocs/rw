@@ -28,7 +28,9 @@ pub enum DiagramContent {
 
 /// Where a consumer gets the rendered diagram from.
 ///
-/// A provider returns [`Asset::Inline`]: it hands back bytes and does no I/O. A
+/// A provider returns [`Asset::Inline`]: it hands back the bytes themselves and
+/// never writes them anywhere a consumer's markup could point at. (It may do
+/// I/O of its own — fetch over the network, read and write a render cache.) A
 /// caller that writes those bytes somewhere — a Confluence attachment, a file
 /// beside the page — replaces the entry with [`Asset::Reference`] before
 /// handing resolutions onward, so that whatever emits the final markup points at

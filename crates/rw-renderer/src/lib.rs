@@ -1,5 +1,5 @@
-//! Trait-based markdown renderer with pluggable backends, extensible code block
-//! processing, and directive syntax support.
+//! Trait-based markdown renderer with pluggable backends and directive syntax
+//! support.
 //!
 //! # Architecture
 //!
@@ -17,20 +17,28 @@
 //!
 //! ## Extension points
 //!
-//! - **Code block processors** ([`CodeBlockProcessor`]) — intercept fenced
-//!   code blocks by language (e.g., diagram rendering via Kroki). A processor
-//!   whose output isn't knowable during the walk — a diagram needs an HTTP
-//!   round trip to Kroki — returns [`ProcessResult::Deferred`], reserving a
-//!   hole at the current output offset; otherwise it returns inline HTML or
-//!   passes through for normal syntax highlighting.
+//! [`RenderBackend`] is the only one. Every construct the renderer knows —
+//! headings, tables, `:status` badges, `::::tabs` groups, diagrams — is a
+//! built-in whose *markup* the backend decides.
 //!
 //! Directive syntax (`:status` inline badges, `::::tabs`/`:::tab` blocks) is
-//! recognized during tokenization by [`rw_parser`] and rendered as walker
-//! built-ins. The directive set is fixed; [`RenderBackend`] is the extension
-//! point for what those built-ins render to. A tab bar, whose markup depends on
-//! content the walk has not reached yet (it needs every tab's label), reserves
-//! a hole at its output offset and fills it after the walk, sharing the same
-//! assembly pass as a deferred code block.
+//! recognized during tokenization by [`rw_parser`]; the directive set is fixed.
+//!
+//! What a caller *does* supply is content the renderer cannot produce itself.
+//! A fence whose language a [`DiagramRouter`] claims (configured through
+//! [`MarkdownRenderer::with_diagram_languages`]) is not rendered during the
+//! walk: it reserves a hole at its output offset and becomes a
+//! [`DiagramRequest`]. [`MarkdownRenderer::begin`] hands back a [`RenderPass`]
+//! listing those requests; the caller resolves them wherever the bytes live,
+//! and [`RenderPass::finish`] turns each [`Resolutions`] entry into markup
+//! through the backend and fills the holes. The renderer does no I/O and never
+//! holds a provider — only the router that recognises which fence languages are
+//! diagrams. [`MarkdownRenderer::render`] is the one-call form of that round
+//! trip for a caller with nothing to add between the halves.
+//!
+//! A tab bar, whose markup depends on content the walk has not reached yet (it
+//! needs every tab's label), reserves a hole the same way and fills it after the
+//! walk, sharing one assembly pass with the diagrams.
 //!
 //! ## Wikilinks
 //!
@@ -70,48 +78,17 @@
 //! Render markdown to HTML:
 //!
 //! ```
-//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
 //!
 //! let markdown = "# Hello\n\n**Bold** text with a [link](other.md).";
 //! let result = MarkdownRenderer::<HtmlBackend>::new()
 //!     .with_title_extraction()
 //!     .with_base_path("/docs/guide")
-//!     .render(markdown, Pipeline::new());
+//!     .render(markdown, &Providers::empty());
 //!
 //! assert_eq!(result.title.as_deref(), Some("Hello"));
 //! assert!(result.html.contains("<strong>Bold</strong>"));
 //! assert!(result.html.contains(r#"<a href="/docs/guide/other">"#));
-//! ```
-//!
-//! Add a custom code block processor:
-//!
-//! ```
-//! use rw_renderer::{
-//!     CodeBlockProcessor, FenceAttrs, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult,
-//! };
-//!
-//! struct MathProcessor;
-//!
-//! impl CodeBlockProcessor for MathProcessor {
-//!     fn process(
-//!         &mut self,
-//!         language: &str,
-//!         _attrs: &FenceAttrs,
-//!         source: &str,
-//!         _index: usize,
-//!     ) -> ProcessResult {
-//!         if language == "math" {
-//!             ProcessResult::Inline(format!(r#"<div class="math">{source}</div>"#))
-//!         } else {
-//!             ProcessResult::PassThrough
-//!         }
-//!     }
-//! }
-//!
-//! let renderer = MarkdownRenderer::<HtmlBackend>::new();
-//! let pipeline = Pipeline::new().with_processor(MathProcessor);
-//! let result = renderer.render("```math\nx^2 + y^2 = z^2\n```", pipeline);
-//! assert!(result.html.contains(r#"class="math"#));
 //! ```
 //!
 //! # Feature flags
@@ -120,14 +97,14 @@
 //!   JSON serialization in HTTP API responses.
 
 mod backend;
-mod code_block;
 mod comment;
 mod config;
+mod diagram;
 mod fills;
 mod holes;
 mod html;
 mod link;
-mod pipeline;
+mod pass;
 mod renderer;
 mod scope;
 mod search_document;
@@ -140,22 +117,27 @@ mod walker;
 mod wikilink;
 
 pub use backend::RenderBackend;
-pub use code_block::{CodeBlockProcessor, ExtractedCodeBlock, ProcessResult};
 pub use comment::render_comment_body;
 pub use config::TitleResolver;
-/// Types a [`CodeBlockProcessor::fills`] implementation uses to supply deferred
-/// content: [`Fills`] collects a processor's hole content after the walk, keyed
-/// by [`HoleKey`].
-pub use fills::{Fills, HoleKey};
+pub use diagram::{DiagramLink, DiagramView};
 pub use html::HtmlBackend;
-pub use pipeline::Pipeline;
+pub use pass::RenderPass;
 /// Re-exported for use in [`RenderBackend::table_cell_start`] implementations.
 pub use pulldown_cmark::Alignment;
 pub use renderer::{MarkdownRenderer, RenderResult};
-/// Re-exported from [`rw_parser`], which defines rw's markdown syntax. They
-/// appear in [`RenderBackend`] and [`CodeBlockProcessor`] signatures, so a
-/// backend or processor needs them without depending on the parser directly.
-pub use rw_parser::{AlertKind, FenceAttrs};
+/// Re-exported from [`rw_diagrams`], which defines the vocabulary providers and
+/// backends share. They appear in [`RenderBackend::diagram`]'s signature and in
+/// the two-phase API ([`MarkdownRenderer::begin`], [`RenderPass`],
+/// [`MarkdownRenderer::with_diagram_languages`], [`MarkdownRenderer::render`]),
+/// so a backend or a caller driving a pass needs them without depending on the
+/// diagram crate directly.
+pub use rw_diagrams::{
+    Asset, DiagramContent, DiagramRequest, DiagramRouter, Providers, Resolutions, Size,
+};
+/// Re-exported from [`rw_parser`], which defines rw's markdown syntax. It
+/// appears in [`RenderBackend::alert_start`]'s signature, so a backend needs it
+/// without depending on the parser directly.
+pub use rw_parser::AlertKind;
 /// Re-exported from [`rw_sections`] for use with
 /// [`MarkdownRenderer::with_sections`].
 ///

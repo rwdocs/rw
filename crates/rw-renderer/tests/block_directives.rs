@@ -1,13 +1,16 @@
 //! Stream-native leaf & container directive behavior, driven through the full
 //! `MarkdownRenderer` pipeline.
 
-use rw_renderer::{
-    CodeBlockProcessor, FenceAttrs, Fills, HtmlBackend, MarkdownRenderer, Pipeline, ProcessResult,
-    RenderResult, SearchDocumentBackend,
+use std::sync::Arc;
+
+use rw_diagrams::{
+    Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramRouter, Providers,
+    ResolveContext, Resolved,
 };
+use rw_renderer::{HtmlBackend, MarkdownRenderer, RenderResult, SearchDocumentBackend};
 
 fn render_tabs(md: &str) -> RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new())
+    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
 }
 
 /// Assert `needle` lands strictly inside the `open`…`close` pair — i.e. the
@@ -32,7 +35,7 @@ fn assert_between(html: &str, needle: &str, open: &str, close: &str) {
 }
 
 fn render_status(md: &str) -> RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new())
+    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
 }
 
 #[test]
@@ -475,8 +478,8 @@ fn container_inside_loose_list_is_recognized() {
 fn unrecognized_container_renders_literally_no_warning() {
     // An unrecognized :::foo … ::: pair must not produce a "stray" warning —
     // the closing ::: is matched with its own opener, not treated as unpaired.
-    let result =
-        MarkdownRenderer::<HtmlBackend>::new().render(":::foo[x]\n\nBody.\n\n:::", Pipeline::new());
+    let result = MarkdownRenderer::<HtmlBackend>::new()
+        .render(":::foo[x]\n\nBody.\n\n:::", &Providers::empty());
     assert!(
         result.html.contains("<p>:::foo[x]</p>"),
         "got: {}",
@@ -499,7 +502,7 @@ fn unrecognized_container_opener_drops_extra_colons_closer_keeps_them() {
     // opener's colon count, so no unit-level caller can pair a source colon
     // count against the output.
     let result = MarkdownRenderer::<HtmlBackend>::new()
-        .render("::::foo[x]{.c}\n\nBody.\n\n::::", Pipeline::new());
+        .render("::::foo[x]{.c}\n\nBody.\n\n::::", &Providers::empty());
     assert!(
         result.html.contains("<p>:::foo[x]{.c}</p>"),
         "opener should lose its fourth colon; got: {}",
@@ -647,7 +650,7 @@ fn tab_label_is_html_escaped_and_quotes_stripped() {
 fn tabs_emit_no_markup_into_a_search_document() {
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
         "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n\n:::\n\n::::\n",
-        Pipeline::new(),
+        &Providers::empty(),
     );
 
     assert!(
@@ -667,7 +670,7 @@ fn tabs_emit_no_markup_into_a_search_document() {
 fn unclosed_tabs_emit_no_markup_into_a_search_document() {
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
         "::::tabs\n\n:::tab[macOS]\n\nmac body\n\n:::\n\n:::tab[Linux]\n\nlinux body\n",
-        Pipeline::new(),
+        &Providers::empty(),
     );
 
     assert!(
@@ -679,47 +682,48 @@ fn unclosed_tabs_emit_no_markup_into_a_search_document() {
     assert!(result.html.contains("linux body"), "got: {}", result.html);
 }
 
-/// Defers every `demo` block, filling it after the walk.
-#[derive(Default)]
-struct DeferringProcessor {
-    seen: Vec<usize>,
-}
+/// Claims `demo` fences and answers each with an SVG naming its own source, so
+/// a test can tell which fence filled which hole.
+struct DemoDiagrams;
 
-impl CodeBlockProcessor for DeferringProcessor {
-    fn process(
-        &mut self,
-        language: &str,
-        _attrs: &FenceAttrs,
-        _source: &str,
-        index: usize,
-    ) -> ProcessResult {
-        if language != "demo" {
-            return ProcessResult::PassThrough;
-        }
-        self.seen.push(index);
-        ProcessResult::Deferred
+impl DiagramProvider for DemoDiagrams {
+    fn handles(&self, language: &str) -> bool {
+        language == "demo"
     }
 
-    fn fills(&mut self, fills: &mut Fills) {
-        for index in &self.seen {
-            let key = u32::try_from(*index).expect("code block index exceeds hole key width");
-            fills.set(key, format!("<i>block {index}</i>"));
-        }
+    fn resolve(
+        &self,
+        requests: &[DiagramRequest],
+        _ctx: &ResolveContext<'_>,
+    ) -> Vec<Result<Resolved, DiagramError>> {
+        requests
+            .iter()
+            .map(|request| {
+                Ok(Resolved {
+                    asset: Asset::Inline(DiagramContent::Svg(format!(
+                        "<svg>{}</svg>",
+                        request.source.trim()
+                    ))),
+                    size: None,
+                    digest: "0".to_owned(),
+                    warnings: Vec::new(),
+                })
+            })
+            .collect()
     }
 }
 
 #[test]
-fn code_block_and_directive_holes_interleave_in_one_document() {
+fn diagram_and_directive_holes_interleave_in_one_document() {
     // Markup closing a tab group: the panel plus the group's opening tags.
     const TAB_GROUP_CLOSE: &str = "</div></div>";
 
-    // Two independent hole sources — the built-in tab group and a code-block
-    // processor — reserving into the same buffer. Both reserve at the current
-    // end of an append-only buffer, so their offsets are non-decreasing without
-    // any coordination between them. Asserting the nested fill lands inside a
-    // real, filled panel element (`id="panel-0-0"`, from the tab group's own
-    // bar hole) verifies both hole sources landed correctly, not just the
-    // code-block processor's.
+    // Two independent hole sources — the built-in tab group and a diagram fence
+    // — reserving into the same buffer. Both reserve at the current end of an
+    // append-only buffer, so their offsets are non-decreasing without any
+    // coordination between them. Asserting the nested fill lands inside a real,
+    // filled panel element (`id="panel-0-0"`, from the tab group's own bar hole)
+    // verifies both hole sources landed correctly, not just the diagram's.
     let markdown = "\
 ::::tabs
 
@@ -738,20 +742,20 @@ y
 ```
 ";
 
-    let result = MarkdownRenderer::<HtmlBackend>::new().render(
-        markdown,
-        Pipeline::new().with_processor(DeferringProcessor::default()),
-    );
+    let providers = Providers::empty().with(Arc::new(DemoDiagrams) as Arc<dyn DiagramProvider>);
+    let result = MarkdownRenderer::<HtmlBackend>::new()
+        .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>)
+        .render(markdown, &providers);
 
-    // The nested block fills inside the tab panel, the trailing one outside it.
+    // The nested diagram fills inside the tab panel, the trailing one outside it.
     assert_between(
         &result.html,
-        "<i>block 0</i>",
+        "<svg>x</svg>",
         r#"id="panel-0-0""#,
         TAB_GROUP_CLOSE,
     );
     assert!(
-        result.html.contains("<i>block 1</i>"),
+        result.html.contains("<svg>y</svg>"),
         "trailing fill missing: {}",
         result.html
     );
@@ -760,7 +764,7 @@ y
         .rfind(TAB_GROUP_CLOSE)
         .expect("tab group should close");
     assert!(
-        result.html.find("<i>block 1</i>").expect("trailing fill") > panel_end,
+        result.html.find("<svg>y</svg>").expect("trailing fill") > panel_end,
         "trailing fill landed inside the tab group: {}",
         result.html
     );
@@ -775,7 +779,7 @@ fn inline_directive_inside_an_unclaimed_container_opener_still_expands() {
     // reconstruction, so the inner `:status` built-in still expands.
     let result = MarkdownRenderer::<HtmlBackend>::new().render(
         ":::foo[:status[Stable]{color=green}]\n\nBody.\n\n:::",
-        Pipeline::new(),
+        &Providers::empty(),
     );
     assert_eq!(
         result.html,

@@ -3,7 +3,8 @@
 //! [`KrokiStub`] answers renders over loopback, which is what makes the paths
 //! behind a render reachable from a unit test: SVG post-processing, the cache
 //! store, the order results are reassembled in, the display size a tag
-//! generator is handed, and the file an attachment is written to.
+//! generator is handed, the file an attachment is written to, and — through
+//! [`Reply::Fixed`] — how a response the provider cannot use is classified.
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -19,14 +20,29 @@ use rw_plantuml::prepare_diagram_source;
 
 use crate::language::DiagramLanguage;
 
+/// What the stub answers with.
+///
+/// A real Kroki answers a bad diagram with a 4xx and a struggling one with a
+/// 5xx, and those two are classified differently. Nothing but the response
+/// decides that, so a test that wants one has to be able to ask for it.
+pub(crate) enum Reply {
+    /// Render out of the posted source, so a response identifies the diagram it
+    /// came from.
+    Rendered,
+    /// Answer every request with this status and these bytes, whatever was
+    /// posted — an error status, or a body that is not the format it claims.
+    Fixed { status: u16, body: &'static [u8] },
+}
+
 /// A stand-in Kroki: it answers every POST out of the request body, so a test
 /// can tell which diagram a response belongs to, and records the paths it was
-/// asked for.
+/// asked for. [`answering`](KrokiStub::answering) replaces that with a fixed
+/// status and body.
 ///
 /// Bound to an ephemeral loopback port, and the serving thread is stopped and
 /// joined on drop, so nothing outlives the test that started it.
 pub(crate) struct KrokiStub {
-    /// Base URL to point a provider or processor at.
+    /// Base URL to point a provider at.
     pub(crate) url: String,
     paths: Arc<Mutex<Vec<String>>>,
     stop: Arc<AtomicBool>,
@@ -35,6 +51,11 @@ pub(crate) struct KrokiStub {
 
 impl KrokiStub {
     pub(crate) fn start() -> Self {
+        Self::answering(Reply::Rendered)
+    }
+
+    /// A stub that answers every request the same way.
+    pub(crate) fn answering(reply: Reply) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind the stub Kroki");
         let url = format!(
             "http://{}",
@@ -52,7 +73,7 @@ impl KrokiStub {
             thread::spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
                     match listener.accept() {
-                        Ok((stream, _)) => serve(&stream, &paths),
+                        Ok((stream, _)) => serve(&stream, &paths, &reply),
                         Err(error) if error.kind() == ErrorKind::WouldBlock => {
                             thread::sleep(Duration::from_millis(1));
                         }
@@ -85,10 +106,11 @@ impl Drop for KrokiStub {
     }
 }
 
-/// Answer one request: SVG carries the posted source in a `<desc>`, PNG appends
-/// it after the header, so either way the response identifies the diagram it
-/// came from.
-fn serve(stream: &TcpStream, paths: &Mutex<Vec<String>>) {
+/// Answer one request according to `reply`: a rendered answer carries the
+/// posted source — SVG in a `<desc>`, PNG appended after the header — so either
+/// way it identifies the diagram it came from; a fixed one ignores the source
+/// altogether.
+fn serve(stream: &TcpStream, paths: &Mutex<Vec<String>>, reply: &Reply) {
     stream
         .set_nonblocking(false)
         .expect("read the stub connection");
@@ -131,15 +153,20 @@ fn serve(stream: &TcpStream, paths: &Mutex<Vec<String>>) {
     reader.read_exact(&mut source).expect("the posted source");
     let source = String::from_utf8(source).expect("UTF-8 diagram source");
 
-    let body = if path.ends_with("/png") {
-        let mut bytes = png_header();
-        bytes.extend_from_slice(source.as_bytes());
-        bytes
-    } else {
-        format!(
-            r#"<svg width="400" height="200"><style>@import url('https://fonts.googleapis.com/css?family=Roboto');</style><desc>{source}</desc></svg>"#
-        )
-        .into_bytes()
+    let (status, body) = match reply {
+        Reply::Fixed { status, body } => (*status, (*body).to_vec()),
+        Reply::Rendered if path.ends_with("/png") => {
+            let mut bytes = png_header();
+            bytes.extend_from_slice(source.as_bytes());
+            (200, bytes)
+        }
+        Reply::Rendered => (
+            200,
+            format!(
+                r#"<svg width="400" height="200"><style>@import url('https://fonts.googleapis.com/css?family=Roboto');</style><desc>{source}</desc></svg>"#
+            )
+            .into_bytes(),
+        ),
     };
 
     paths.lock().push(path);
@@ -147,7 +174,7 @@ fn serve(stream: &TcpStream, paths: &Mutex<Vec<String>>) {
     let mut stream = stream;
     write!(
         stream,
-        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} Stub\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     )
     .expect("write the stub response head");

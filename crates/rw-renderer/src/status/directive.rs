@@ -60,7 +60,7 @@ impl fmt::Display for StatusColor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{HtmlBackend, MarkdownRenderer, Pipeline};
+    use crate::{HtmlBackend, MarkdownRenderer, Providers};
 
     #[test]
     fn test_from_known_colors() {
@@ -107,7 +107,7 @@ mod tests {
     /// resulting HTML as a substring.
     fn render(input: &str) -> String {
         MarkdownRenderer::<HtmlBackend>::new()
-            .render(input, Pipeline::new())
+            .render(input, &Providers::empty())
             .html
     }
 
@@ -221,7 +221,7 @@ mod tests {
         // that routes the whole badge through the markup buffer drops the label
         // here and silently changes the heading id.
         let result = MarkdownRenderer::<HtmlBackend>::new()
-            .render("# Ship :status[On Track]{color=green}", Pipeline::new());
+            .render("# Ship :status[On Track]{color=green}", &Providers::empty());
         assert!(
             result.html.contains(r#"id="ship-on-track""#),
             "heading id must include the badge label; got: {}",

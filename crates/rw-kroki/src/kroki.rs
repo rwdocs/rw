@@ -1,15 +1,17 @@
 //! Kroki diagram rendering with parallel HTTP requests.
 //!
 //! This module handles parallel diagram rendering via the Kroki service:
-//! - Renders diagrams to PNG or SVG via HTTP POST
+//! - Renders diagrams to SVG text or PNG data URIs via HTTP POST
 //! - Uses rayon thread pool for parallel requests
 //! - Extracts PNG dimensions for display width calculation
-//! - Computes a content-based digest via SHA256 hashing
 //!
-//! # Output Formats
+//! # Output formats
 //!
-//! - [`render_all`]: PNG bytes for Confluence
-//! - [`render_all_svg`]: SVG output for HTML (returns SVG strings directly)
+//! - [`render_all_svg_partial`]: SVG strings
+//! - [`render_all_png_data_uri_partial`]: PNG bytes as base64 data URIs
+//!
+//! Both hand back content, never files: writing a diagram out is the caller's
+//! business.
 
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
@@ -17,23 +19,8 @@ use rayon::prelude::*;
 use std::time::Duration;
 use ureq::Agent;
 
-use crate::cache::DiagramKey;
 use crate::consts::PNG_DATA_URI_PREFIX;
-use crate::language::{DiagramFormat, DiagramLanguage};
-
-/// Result of rendering a single diagram to PNG.
-#[derive(Debug)]
-pub struct RenderedDiagram {
-    pub index: usize,
-    pub data: Vec<u8>,
-    /// Raw pixel width, uncorrected for DPI.
-    pub width: u32,
-    /// Language this was rendered from. Only PlantUML-family output is
-    /// oversized, so the caller needs it to decide whether to scale.
-    pub language: DiagramLanguage,
-    /// Full `DiagramKey` hash, hex-encoded.
-    pub digest: String,
-}
+use crate::language::DiagramLanguage;
 
 /// Result of rendering a single diagram to SVG.
 #[derive(Debug)]
@@ -42,7 +29,8 @@ pub struct RenderedSvg {
     pub index: usize,
     /// SVG content as a string.
     pub svg: String,
-    /// Language this was rendered from — see [`RenderedDiagram::language`].
+    /// Language this was rendered from. Only PlantUML-family output is
+    /// oversized, so the caller needs it to decide whether to scale.
     pub language: DiagramLanguage,
 }
 
@@ -53,7 +41,7 @@ pub struct RenderedPngDataUri {
     pub index: usize,
     /// PNG data as base64-encoded data URI.
     pub data_uri: String,
-    /// Language this was rendered from — see [`RenderedDiagram::language`].
+    /// Language this was rendered from — see [`RenderedSvg::language`].
     pub language: DiagramLanguage,
 }
 
@@ -220,68 +208,6 @@ fn send_diagram_request(
 
     body.read_to_vec()
         .map_err(|e| diagram.error(DiagramErrorKind::HttpRequest(e)))
-}
-
-/// Render a single diagram to PNG via Kroki.
-///
-/// Returns the bytes and their content key; writing them somewhere is the
-/// caller's business.
-fn render_one_png(
-    agent: &Agent,
-    diagram: &DiagramRequest,
-    server_url: &str,
-) -> Result<RenderedDiagram, DiagramError> {
-    let data = send_diagram_request(agent, diagram, server_url, "png")?;
-
-    // Height is unused: consumers size diagrams by width and let aspect ratio
-    // follow, but a malformed PNG header must still fail the render here.
-    let (width, _) =
-        get_png_dimensions(&data).ok_or_else(|| diagram.error(DiagramErrorKind::InvalidPng))?;
-
-    let key = DiagramKey::for_render(&diagram.source, diagram.language, DiagramFormat::Png);
-
-    Ok(RenderedDiagram {
-        index: diagram.index,
-        data,
-        width,
-        language: diagram.language,
-        digest: key.compute_hash(),
-    })
-}
-
-/// Render all diagrams to PNG in parallel using Kroki service.
-///
-/// Uses the global rayon thread pool for parallel rendering.
-/// Returns partial results - successfully rendered diagrams even when some fail.
-///
-/// # Arguments
-/// * `diagrams` - List of diagrams to render
-/// * `server_url` - Kroki server URL (e.g., `<https://kroki.io>`)
-/// * `agent` - HTTP agent for connection pooling
-///
-/// # Returns
-/// Partial result containing both successful renders and errors.
-#[must_use]
-pub fn render_all(
-    diagrams: &[DiagramRequest],
-    server_url: &str,
-    agent: &Agent,
-) -> PartialRenderResult<RenderedDiagram> {
-    if diagrams.is_empty() {
-        return PartialRenderResult {
-            rendered: Vec::new(),
-            errors: Vec::new(),
-        };
-    }
-
-    let server_url = server_url.trim_end_matches('/');
-
-    let results: Vec<Result<RenderedDiagram, DiagramError>> = diagrams
-        .par_iter()
-        .map(|d| render_one_png(agent, d, server_url))
-        .collect();
-
-    partition_results(results)
 }
 
 /// Render a single diagram to SVG via Kroki.

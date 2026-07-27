@@ -59,15 +59,14 @@
 //! its tab methods ([`tabs_open`](crate::RenderBackend::tabs_open),
 //! [`tab_panel_open`](crate::RenderBackend::tab_panel_open), and their closers),
 //! so a backend that does not support tabs (e.g. the search-document backend)
-//! renders their content without any chrome. An empty
-//! [`Pipeline`](crate::Pipeline) is enough — a backend that tokenizes directive
-//! syntax (the default) renders tabs with no extra setup:
+//! renders their content without any chrome. A backend that tokenizes directive
+//! syntax (the default) renders tabs with no setup at all:
 //!
 //! ```
-//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
 //!
 //! let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
-//! let result = MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new());
+//! let result = MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty());
 //! assert!(result.html.contains(r#"role="tablist""#));
 //! ```
 

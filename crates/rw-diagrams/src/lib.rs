@@ -2,8 +2,8 @@
 //!
 //! A *provider* turns diagram source into rendered content: bytes, a display
 //! [`Size`], a [`Resolved::digest`], and warnings — never markup. It never
-//! writes files either, so the same [`Resolved`] can be embedded inline by one
-//! caller and written out as an attachment by another.
+//! writes the rendered asset out either, so the same [`Resolved`] can be
+//! embedded inline by one caller and written out as an attachment by another.
 //!
 //! Some diagram syntaxes name entities from the surrounding documentation site
 //! rather than describing them inline. [`SiteModel`] is the port through which a
@@ -22,5 +22,5 @@ mod resolved;
 
 pub use model::{Entity, SiteModel};
 pub use provider::{DiagramProvider, DiagramRouter, Providers, Resolutions};
-pub use request::{DiagramRequest, RequestKey, ResolveContext};
+pub use request::{DiagramRequest, RequestKey, ResolveContext, canonical_language};
 pub use resolved::{Asset, DiagramContent, DiagramError, Resolved, Size};

@@ -1,10 +1,10 @@
 //! Byte-identical golden tests for tab HTML. The viewer styles this markup and
 //! published bundles carry it, so a change here is user-visible.
 
-use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
 
 fn render(md: &str) -> rw_renderer::RenderResult {
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new())
+    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
 }
 
 #[test]

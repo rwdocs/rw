@@ -10,6 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+rw-diagrams = { workspace = true }
 rw-kroki = { workspace = true }
 rw-renderer = { workspace = true }
 
@@ -19,5 +20,6 @@ tracing = { workspace = true }
 regex = { workspace = true }
 
 [dev-dependencies]
+parking_lot = { workspace = true }
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }

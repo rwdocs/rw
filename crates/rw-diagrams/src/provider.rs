@@ -10,7 +10,7 @@ use crate::resolved::{DiagramError, Resolved};
 ///
 /// A provider produces content and never markup: bytes, a size, a digest, and
 /// warnings. How a diagram is referenced in HTML or Confluence storage format is
-/// the render backend's decision, not this trait's.
+/// decided by whatever turns resolutions into markup, not by this trait.
 ///
 /// Implementors are shared across threads and outlive any single render, so
 /// per-page inputs arrive in [`ResolveContext`] rather than in the constructor.

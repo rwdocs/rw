@@ -3,6 +3,7 @@
 //! Supports multiple diagram languages via Kroki: `PlantUML`, Mermaid, `GraphViz`, etc.
 
 use crate::consts::{DEFAULT_DPI, STANDARD_DPI};
+use rw_diagrams::canonical_language;
 use rw_plantuml::is_plantuml_fence;
 
 /// Supported diagram languages.
@@ -36,8 +37,7 @@ impl DiagramLanguage {
     /// Returns None if the language is not a supported diagram type.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
-        // Support both "mermaid" and "kroki-mermaid" formats
-        let lang = s.strip_prefix("kroki-").unwrap_or(s);
+        let lang = canonical_language(s);
 
         match lang {
             "plantuml" => Some(Self::PlantUml),
@@ -145,25 +145,6 @@ impl DiagramFormat {
             Self::Png => "png",
         }
     }
-}
-
-/// Information about an extracted diagram.
-#[derive(Debug)]
-pub struct ExtractedDiagram {
-    /// Original source code from markdown.
-    pub source: String,
-    /// Zero-based index of this diagram.
-    pub index: usize,
-    /// Diagram language (plantuml, mermaid, etc.).
-    pub language: DiagramLanguage,
-    /// Output format (svg, png).
-    pub format: DiagramFormat,
-    /// Writer-set id from `{#id}`, kept typed rather than as an `attrs` map
-    /// entry: unlike `format`/`endpoint` (opaque pass-through data), the id has
-    /// renderer-level semantics — an auto `diagram-<n>` fallback and
-    /// HTML-attribute emission — that a stringly-typed map can't express safely.
-    /// `None` → an auto id is assigned at emit time.
-    pub id: Option<String>,
 }
 
 #[cfg(test)]
@@ -284,21 +265,6 @@ mod tests {
     fn test_diagram_format_as_str() {
         assert_eq!(DiagramFormat::Svg.as_str(), "svg");
         assert_eq!(DiagramFormat::Png.as_str(), "png");
-    }
-
-    #[test]
-    fn test_extracted_diagram_debug() {
-        let diagram = ExtractedDiagram {
-            source: "test".to_owned(),
-            index: 0,
-            language: DiagramLanguage::Mermaid,
-            format: DiagramFormat::Png,
-            id: None,
-        };
-        let debug_str = format!("{diagram:?}");
-        assert!(debug_str.contains("ExtractedDiagram"));
-        assert!(debug_str.contains("Mermaid"));
-        assert!(debug_str.contains("Png"));
     }
 
     #[test]

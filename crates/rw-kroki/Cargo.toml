@@ -14,8 +14,6 @@ base64 = { workspace = true }
 rw-cache = { workspace = true }
 rw-diagrams = { workspace = true }
 rw-plantuml = { workspace = true }
-rw-renderer = { workspace = true }
-rw-sections = { workspace = true }
 hex = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }

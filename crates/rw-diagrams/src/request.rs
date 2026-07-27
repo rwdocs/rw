@@ -2,6 +2,18 @@
 
 use crate::model::SiteModel;
 
+/// The canonical spelling of a fence language, with compatibility prefixes
+/// removed.
+///
+/// RW accepts a `kroki-` prefix on any diagram fence, for compatibility with
+/// the `MkDocs` Kroki plugin. Every language predicate should ask about the
+/// canonical spelling, so a provider that adds an alias adds it once and every
+/// path — render, search, publish — accepts it.
+#[must_use]
+pub fn canonical_language(language: &str) -> &str {
+    language.strip_prefix("kroki-").unwrap_or(language)
+}
+
 /// Identifies one diagram request, and the resolution that answers it.
 ///
 /// A renderer mints these from its own counter and uses them to match each
@@ -34,6 +46,15 @@ pub struct DiagramRequest {
     pub source: String,
     /// Fence attributes in author order, e.g. `format=png`. A provider ignores
     /// keys it does not know, and should warn rather than fail on them.
+    ///
+    /// A key may appear more than once, and **the last occurrence wins**. That
+    /// is a contract on every provider, not an accident of how one of them
+    /// happens to loop: it is how a caller overrides what the author wrote
+    /// while leaving the author's value in the list, so a typo or an unknown
+    /// key still reaches the provider and is still diagnosed. A provider that
+    /// took the first occurrence instead — or rejected the duplicate — would
+    /// force such a caller to strip the author's attributes and publish their
+    /// mistakes in silence.
     pub attrs: Vec<(String, String)>,
     /// The writer's `{#id}`, when they set one.
     pub id: Option<String>,
@@ -56,8 +77,28 @@ pub struct ResolveContext<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RequestKey, ResolveContext};
+    use super::{RequestKey, ResolveContext, canonical_language};
     use crate::{Entity, SiteModel};
+
+    #[test]
+    fn canonicalization_strips_the_kroki_compatibility_prefix() {
+        assert_eq!(canonical_language("kroki-mermaid"), "mermaid");
+        assert_eq!(canonical_language("kroki-c4plantuml"), "c4plantuml");
+    }
+
+    #[test]
+    fn canonicalization_leaves_an_unprefixed_language_alone() {
+        assert_eq!(canonical_language("plantuml"), "plantuml");
+        assert_eq!(canonical_language("rust"), "rust");
+    }
+
+    /// Only the leading prefix goes, and only once: `kroki-kroki-x` is not a
+    /// spelling RW accepts, so it must not be canonicalized into one.
+    #[test]
+    fn canonicalization_strips_at_most_one_leading_prefix() {
+        assert_eq!(canonical_language("kroki-kroki-mermaid"), "kroki-mermaid");
+        assert_eq!(canonical_language("my-kroki-thing"), "my-kroki-thing");
+    }
 
     #[test]
     fn request_keys_are_distinct_by_value() {

@@ -5,12 +5,12 @@
 //! prints. Changing any of them is a behavior change that needs a CHANGELOG
 //! entry — never edit a golden to make a test pass.
 
-use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline, render_comment_body};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers, render_comment_body};
 
-/// Render the way a page is rendered: an empty pipeline, no code-block
-/// processors.
+/// Render the way a page with no diagrams is rendered: no providers, so every
+/// fence stays an ordinary code block.
 fn page_render(md: &str) -> (String, Vec<String>) {
-    let out = MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new());
+    let out = MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty());
     (out.html, out.warnings)
 }
 
