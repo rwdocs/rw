@@ -1,32 +1,52 @@
 //! Integration tests for `rw confluence render`.
 
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Path to the `rw` binary built by Cargo.
+mod common;
+
+use common::rw_cmd;
+
+/// Writes an empty `rw.toml` into `dir` and returns its path, for commands that
+/// locate their project by discovery rather than by an explicit root.
 ///
-/// `CARGO_BIN_EXE_rw` is set by Cargo for integration tests and points to
-/// the binary under test without relying on `current_exe()` heuristics.
-fn rw_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_rw")
+/// `Config::discover_config` searches *upward* without bound, so running a
+/// child in a temporary directory only means "not this repository", not "no
+/// config" — an `rw.toml` above `dir` still wins. This file is what stops the
+/// search, since discovery halts at its first hit. Pass the returned path to
+/// the subcommand's `--config` as well, to name it outright instead of relying
+/// on where discovery starts.
+pub fn empty_config(dir: &Path) -> PathBuf {
+    let path = dir.join("rw.toml");
+    std::fs::write(&path, "").expect("write empty rw.toml");
+    path
 }
 
-fn write_markdown(dir: &std::path::Path, name: &str, content: &str) -> std::path::PathBuf {
-    let p = dir.join(name);
-    std::fs::write(&p, content).expect("write markdown");
-    p
+/// Writes `markdown` into `dir` and returns a hermetic [`rw_cmd`] that renders
+/// it, with config discovery pinned to an empty `rw.toml` in `dir`. Callers
+/// append their own `--out` and any flags under test.
+fn rw_render(dir: &Path, markdown: &str) -> Command {
+    let source = dir.join("in.md");
+    std::fs::write(&source, markdown).expect("write markdown");
+
+    let mut cmd = rw_cmd();
+    cmd.current_dir(dir)
+        .arg("confluence")
+        .arg("render")
+        .arg(&source)
+        .arg("--config")
+        .arg(empty_config(dir));
+    cmd
 }
 
 #[test]
 fn render_bundle_mode_writes_page_xhtml_and_emits_title_to_stderr() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "# Title\n\nBody.\n");
+    let md = "# Title\n\nBody.\n";
     let out_dir = tmp.path().join("dist");
 
-    let output = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let output = rw_render(tmp.path(), md)
         .arg("--out")
         .arg(&out_dir)
         .stdin(Stdio::null())
@@ -53,12 +73,9 @@ fn render_bundle_mode_writes_page_xhtml_and_emits_title_to_stderr() {
 #[test]
 fn render_stdout_mode_writes_body_to_stdout() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "# Stdout title\n\nHello.\n");
+    let md = "# Stdout title\n\nHello.\n";
 
-    let output = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let output = rw_render(tmp.path(), md)
         .arg("--out")
         .arg("-")
         .stdin(Stdio::null())
@@ -79,20 +96,19 @@ fn render_stdout_mode_writes_body_to_stdout() {
 #[test]
 #[ignore = "requires KROKI_URL env var pointing at a live Kroki server"]
 fn render_stdout_mode_errors_when_render_produces_attachments() {
+    // Read in this process and handed to the child as `--kroki-url`; the child
+    // never reads the variable itself.
+    //
+    // The only test whose child opens a TLS connection, so the only one whose
+    // child needs `SSL_CERT_FILE`, `SSL_CERT_DIR` and `HTTPS_PROXY` — none of
+    // which `rw_cmd` passes through.
     let kroki_url =
         std::env::var("KROKI_URL").expect("set KROKI_URL=https://kroki.io to run this test");
 
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(
-        tmp.path(),
-        "in.md",
-        "# Diag\n\n```mermaid\ngraph TD\nA-->B\n```\n",
-    );
+    let md = "# Diag\n\n```mermaid\ngraph TD\nA-->B\n```\n";
 
-    let output = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let output = rw_render(tmp.path(), md)
         .arg("--out")
         .arg("-")
         .arg("--kroki-url")
@@ -116,13 +132,10 @@ fn render_stdout_mode_errors_when_render_produces_attachments() {
 #[test]
 fn render_with_stdin_xhtml_preserves_comment_marker() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "Hello marked text here.\n");
+    let md = "Hello marked text here.\n";
     let out_dir = tmp.path().join("dist");
 
-    let mut child = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let mut child = rw_render(tmp.path(), md)
         .arg("--out")
         .arg(&out_dir)
         .stdin(Stdio::piped())
@@ -151,19 +164,16 @@ fn render_with_stdin_xhtml_preserves_comment_marker() {
 #[test]
 fn render_stdout_mode_allows_diagrams_when_no_kroki_url() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(
-        tmp.path(),
-        "in.md",
-        "# Title\n\n```mermaid\ngraph TD\nA-->B\n```\n",
-    );
+    let md = "# Title\n\n```mermaid\ngraph TD\nA-->B\n```\n";
 
     // No --kroki-url and no [diagrams] in rw.toml → diagrams fall through to
     // syntax-highlighted code blocks; no attachments are produced, so the
     // post-render attachments guard does not fire and --out - succeeds.
-    let output = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    //
+    // "No kroki url" covers the child's whole configuration, not just its
+    // arguments: `rw_cmd`'s cleared environment is what keeps an exported
+    // `RW_DIAGRAMS_KROKI_URL` from supplying one.
+    let output = rw_render(tmp.path(), md)
         .arg("--out")
         .arg("-")
         .stdin(Stdio::null())
@@ -181,16 +191,13 @@ fn render_stdout_mode_allows_diagrams_when_no_kroki_url() {
 #[test]
 fn render_strict_exits_1_when_warning_emitted() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "# T\n\nBody.\n");
+    let md = "# T\n\nBody.\n";
     let out_dir = tmp.path().join("dist");
 
     // Malformed current_xhtml on stdin -> comment_preservation emits a
     // "comment preservation skipped" warning, which --strict promotes to
     // exit 1.
-    let mut child = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let mut child = rw_render(tmp.path(), md)
         .arg("--out")
         .arg(&out_dir)
         .arg("--strict")
@@ -230,13 +237,10 @@ fn render_strict_exits_1_when_warning_emitted() {
 #[test]
 fn render_dir_mode_prints_unmatched_comment_count_header_to_stderr() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "Completely different content now.\n");
+    let md = "Completely different content now.\n";
     let out_dir = tmp.path().join("dist");
 
-    let mut child = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let mut child = rw_render(tmp.path(), md)
         .arg("--out")
         .arg(&out_dir)
         .stdin(Stdio::piped())
@@ -269,12 +273,9 @@ fn render_dir_mode_prints_unmatched_comment_count_header_to_stderr() {
 #[test]
 fn render_stdout_mode_prints_unmatched_comment_count_header_to_stderr() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "Completely different content now.\n");
+    let md = "Completely different content now.\n";
 
-    let mut child = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let mut child = rw_render(tmp.path(), md)
         .arg("--out")
         .arg("-")
         .stdin(Stdio::piped())
@@ -307,13 +308,10 @@ fn render_stdout_mode_prints_unmatched_comment_count_header_to_stderr() {
 #[test]
 fn render_strict_exits_1_on_unmatched_comment_even_with_no_warnings() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "Completely different content now.\n");
+    let md = "Completely different content now.\n";
     let out_dir = tmp.path().join("dist");
 
-    let mut child = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let mut child = rw_render(tmp.path(), md)
         .arg("--out")
         .arg(&out_dir)
         .arg("--strict")
@@ -338,20 +336,13 @@ fn render_strict_exits_1_on_unmatched_comment_even_with_no_warnings() {
 #[test]
 fn render_stdout_mode_keeps_diagnostics_off_stdout() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(
-        tmp.path(),
-        "in.md",
-        // Trigger title and unmatched-comment diagnostics. (Warnings flow
-        // through the same `print_diagnostics` writer; the dedicated
-        // `render_strict_exits_1_when_warning_emitted` test covers the
-        // warning path.)
-        "# Stdout title\n\nDifferent content here.\n",
-    );
+    // Trigger title and unmatched-comment diagnostics. (Warnings flow through
+    // the same `print_diagnostics` writer; the dedicated
+    // `render_strict_exits_1_when_warning_emitted` test covers the warning
+    // path.)
+    let md = "# Stdout title\n\nDifferent content here.\n";
 
-    let mut child = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let mut child = rw_render(tmp.path(), md)
         .arg("--out")
         .arg("-")
         .stdin(Stdio::piped())
@@ -402,13 +393,10 @@ fn render_stdout_mode_keeps_diagnostics_off_stdout() {
 #[test]
 fn render_no_extract_title_omits_title_from_stderr() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "# Title\n\nBody.\n");
+    let md = "# Title\n\nBody.\n";
     let out_dir = tmp.path().join("dist");
 
-    let output = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let output = rw_render(tmp.path(), md)
         .arg("--out")
         .arg(&out_dir)
         .arg("--no-extract-title")
@@ -427,13 +415,10 @@ fn render_no_extract_title_omits_title_from_stderr() {
 #[test]
 fn render_no_toc_omits_confluence_toc_macro() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "# Title\n\n## Sub\n\nBody.\n");
+    let md = "# Title\n\n## Sub\n\nBody.\n";
     let out_dir = tmp.path().join("dist");
 
-    let status = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let status = rw_render(tmp.path(), md)
         .arg("--out")
         .arg(&out_dir)
         .arg("--no-toc")
@@ -452,12 +437,9 @@ fn render_no_toc_omits_confluence_toc_macro() {
 #[test]
 fn render_stdout_mode_with_stdin_preserves_comment_marker() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let md = write_markdown(tmp.path(), "in.md", "Hello marked text here.\n");
+    let md = "Hello marked text here.\n";
 
-    let mut child = Command::new(rw_bin())
-        .arg("confluence")
-        .arg("render")
-        .arg(&md)
+    let mut child = rw_render(tmp.path(), md)
         .arg("--out")
         .arg("-")
         .stdin(Stdio::piped())
