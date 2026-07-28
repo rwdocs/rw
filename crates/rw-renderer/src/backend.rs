@@ -24,8 +24,11 @@ use rw_parser::AlertKind;
 ///
 /// This crate ships [`HtmlBackend`](crate::HtmlBackend); other backends
 /// (e.g., Confluence XHTML, plain text) can be implemented downstream.
-/// All methods have default implementations that produce HTML5 output,
-/// so backends only need to override the methods that differ.
+/// Most markup methods have default implementations that produce HTML5
+/// output; a backend overrides only the methods that differ. A few genuinely
+/// backend-specific methods ([`image`](Self::image), [`code_block`](Self::code_block),
+/// [`diagram`](Self::diagram), and the alert methods) are required with no
+/// default — a wrong default is worse than a compile error.
 ///
 /// # Design: static methods
 ///
@@ -67,8 +70,7 @@ pub trait RenderBackend {
     /// Writes one resolved diagram.
     ///
     /// Required, like [`image`](Self::image) and [`code_block`](Self::code_block):
-    /// every backend genuinely differs here, and a wrong default is worse
-    /// than a compile error.
+    /// a wrong default is worse than a compile error.
     fn diagram(view: &DiagramView<'_>, out: &mut String);
 
     /// Writes a diagram that could not be rendered.
@@ -88,10 +90,14 @@ pub trait RenderBackend {
     }
 
     /// Writes the opening tag for a blockquote.
-    fn blockquote_start(out: &mut String);
+    fn blockquote_start(out: &mut String) {
+        out.push_str("<blockquote>");
+    }
 
     /// Writes the closing tag for a blockquote.
-    fn blockquote_end(out: &mut String);
+    fn blockquote_end(out: &mut String) {
+        out.push_str("</blockquote>");
+    }
 
     /// Writes the opening markup for a GitHub-style alert.
     fn alert_start(kind: AlertKind, out: &mut String);

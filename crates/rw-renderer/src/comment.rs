@@ -43,9 +43,10 @@ fn is_allowed_link_scheme(href: &str) -> bool {
 /// Restricted [`RenderBackend`] for comment bodies (see [`render_comment_body`]).
 ///
 /// Standalone implementation (backends do not inherit from each other). It
-/// keeps the trait's HTML5 defaults for paragraphs, lists, emphasis, inline
-/// code, text, breaks, rules, task lists, and `link_end` — all already safe and
-/// escaping — and overrides only the restricted constructs.
+/// keeps the trait's HTML5 defaults for ordinary markup such as paragraphs,
+/// lists, blockquotes, emphasis, inline code, text, breaks, rules, task lists,
+/// and `link_end` — all already safe and escaping — and overrides only the
+/// restricted constructs.
 ///
 /// Private to the crate: `render_comment_body` is the only entry point, so the
 /// restricted profile (notably, wikilinks are never enabled — broken wikilinks
@@ -64,14 +65,6 @@ impl RenderBackend for CommentBackend {
     fn code_block(lang: Option<&str>, content: &str, out: &mut String) {
         // Fenced/indented code renders like the page backend (escapes content).
         HtmlBackend::code_block(lang, content, out);
-    }
-
-    fn blockquote_start(out: &mut String) {
-        HtmlBackend::blockquote_start(out);
-    }
-
-    fn blockquote_end(out: &mut String) {
-        HtmlBackend::blockquote_end(out);
     }
 
     fn alert_start(_kind: AlertKind, out: &mut String) {

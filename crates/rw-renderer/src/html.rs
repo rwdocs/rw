@@ -87,14 +87,6 @@ impl RenderBackend for HtmlBackend {
         }
     }
 
-    fn blockquote_start(out: &mut String) {
-        out.push_str("<blockquote>");
-    }
-
-    fn blockquote_end(out: &mut String) {
-        out.push_str("</blockquote>");
-    }
-
     fn alert_start(kind: AlertKind, out: &mut String) {
         let (class, icon, title) = match kind {
             AlertKind::Note => ("note", SVG_INFO, "Note"),
