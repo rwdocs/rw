@@ -812,8 +812,10 @@ impl Storage for FsStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rw_git_fixture::{GitFixture, assert_commit_time, commit_time};
     use rw_storage::StorageErrorKind;
     use std::assert_matches;
+    use std::time::UNIX_EPOCH;
 
     fn assert_send_sync<T: Send + Sync>() {}
 
@@ -1489,62 +1491,43 @@ mod tests {
         assert!(resolved.is_none());
     }
 
-    /// Create a git repo with one file committed at an explicit old date
-    /// (2020-01-01), signing disabled. Returns the tempdir.
-    fn git_repo_with_old_commit(rel_file: &str, contents: &str) -> tempfile::TempDir {
-        use std::process::Command;
-        let dir = tempfile::tempdir().unwrap();
-        let run = |args: &[&str]| {
-            Command::new("git")
-                .args(args)
-                .current_dir(dir.path())
-                .output()
-                .unwrap();
-        };
-        // Branch "test", not "main": a global hook here blocks commits to main.
-        run(&["init", "-b", "test"]);
-        run(&["config", "user.email", "t@t.com"]);
-        run(&["config", "user.name", "T"]);
-        run(&["config", "commit.gpgsign", "false"]);
-        let file = dir.path().join(rel_file);
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(&file, contents).unwrap();
-        run(&["add", "."]);
-        Command::new("git")
-            .args(["commit", "-m", "old"])
-            .env("GIT_AUTHOR_DATE", "2020-01-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        dir
-    }
-
     #[test]
     fn git_mode_returns_commit_time_filesystem_mode_returns_fs_time() {
-        // Keep the file at the repo root (like the rw-vcs Vcs tests) and use the
-        // repo path directly as source_dir, so gix's workdir and the resolved
-        // file path share the same form on every platform. A docs/ subdir plus
-        // fs::canonicalize tripped repo_relative_path's strip_prefix — the macOS
-        // /var -> /private/var symlink one way, the Windows \\?\ verbatim prefix
-        // the other — making git mode fall back to fs and defeating the test.
-        let dir = git_repo_with_old_commit("guide.md", "# Guide");
-        let source_dir = dir.path().to_path_buf();
+        // Keep the file at the repo root (like the rw-vcs Vcs tests) and use
+        // `fixture.path()` directly as source_dir, so gix's workdir and the
+        // resolved file path share the same form on every platform. A docs/
+        // subdir plus fs::canonicalize tripped repo_relative_path's
+        // strip_prefix — the macOS /var -> /private/var symlink one way, the
+        // Windows \\?\ verbatim prefix the other — making git mode fall back to
+        // fs and defeating the test.
+        let fixture = GitFixture::init();
+        fixture.write("guide.md", "# Guide");
+        let committed_at = fixture.commit_all("old");
+        let source_dir = fixture.path().to_path_buf();
 
-        // Git mode: the 2020 commit time (well before 1_600_000_000 = 2020-09).
+        // Git mode: the commit time exactly, not merely "long ago".
         let git = FsStorage::new(source_dir.clone(), source_dir.clone())
             .with_mtime_source(MtimeSource::Git);
-        let git_mtime = git.mtime("guide").unwrap();
-        assert!(
-            git_mtime < 1_600_000_000.0,
-            "git mtime {git_mtime} should be the 2020 commit time"
-        );
+        assert_commit_time(git.mtime("guide").unwrap(), committed_at);
 
-        // Filesystem mode (the default): the file's on-disk mtime = ~now.
+        // Filesystem mode (the default): the file's on-disk mtime exactly, not
+        // merely "after 2020" — every value produced today satisfies that,
+        // including a wrong one. Read straight from the filesystem so the
+        // expectation does not come from the code under test.
+        let on_disk = fs::metadata(fixture.path().join("guide.md"))
+            .and_then(|m| m.modified())
+            .expect("the file exists")
+            .duration_since(UNIX_EPOCH)
+            .expect("a file written today is after the epoch")
+            .as_secs_f64();
         let fs = FsStorage::new(source_dir.clone(), source_dir);
         let fs_mtime = fs.mtime("guide").unwrap();
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(fs_mtime, on_disk);
+        }
         assert!(
-            fs_mtime > 1_600_000_000.0,
+            fs_mtime > commit_time(committed_at),
             "fs mtime {fs_mtime} should be ~now, not the commit time"
         );
     }
@@ -1554,27 +1537,25 @@ mod tests {
         // README-only site: no docs/ dir, so the default source_dir points at a
         // non-existent <repo>/docs. Git discovery runs from the project dir (the
         // repo root) and must report the README's commit time — not the fs
-        // checkout time. Use dir.path() as-is (do NOT canonicalize): gix's
+        // checkout time. Use `fixture.path()` as-is (do NOT canonicalize): gix's
         // workdir and the resolved README path must share the same form so
         // repo_relative_path strips cleanly on every platform. Canonicalizing
         // introduces the Windows `\\?\` verbatim prefix (and the macOS
         // /var -> /private/var swap) that gix's workdir lacks, defeating the
         // strip. Same rationale as git_mode_returns_commit_time_*.
-        let dir = git_repo_with_old_commit("README.md", "# Hi");
-        let missing_source_dir = dir.path().join("docs");
+        let fixture = GitFixture::init();
+        fixture.write("README.md", "# Hi");
+        let committed_at = fixture.commit_all("old");
+        let missing_source_dir = fixture.path().join("docs");
         assert!(!missing_source_dir.exists());
 
-        let storage = FsStorage::new(dir.path().to_path_buf(), missing_source_dir)
+        let storage = FsStorage::new(fixture.path().to_path_buf(), missing_source_dir)
             .with_mtime_source(MtimeSource::Git);
 
-        // The homepage ("") resolves to the root README; its mtime must be the
-        // 2020 commit time (< 2020-09), proving git discovery succeeded.
-        let mtime = storage.mtime("").unwrap();
-        assert!(
-            mtime < 1_600_000_000.0,
-            "expected the 2020 commit time, got {mtime} \
-             (a value near now means discovery failed and it used fs mtime)",
-        );
+        // The homepage ("") resolves to the root README; its mtime must be that
+        // README's commit time, proving git discovery succeeded. Anything near
+        // now means discovery failed and it used the fs mtime.
+        assert_commit_time(storage.mtime("").unwrap(), committed_at);
     }
 
     #[test]

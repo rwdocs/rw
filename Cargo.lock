@@ -4278,6 +4278,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rw-git-fixture"
+version = "0.1.33"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "rw-kroki"
 version = "0.1.33"
 dependencies = [
@@ -4430,6 +4437,7 @@ dependencies = [
  "notify",
  "parking_lot",
  "rayon",
+ "rw-git-fixture",
  "rw-meta",
  "rw-sections",
  "rw-storage",
@@ -4465,6 +4473,7 @@ name = "rw-vcs"
 version = "0.1.33"
 dependencies = [
  "gix",
+ "rw-git-fixture",
  "tempfile",
 ]
 

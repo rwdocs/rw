@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resolving the inline comment you're navigating on and pressing `n` now steps to the next comment instead of jumping back to the first; `p` steps back instead of jumping to the last.
 - `@rwdocs/core`'s `renderSearchDocument()` no longer runs a diagram's last word into the heading or paragraph that follows it, so both are indexed as separate terms and each is findable on its own.
 - The `re-anchored` badge on a comment no longer squeezes the author's name onto extra lines. It now sits in the thread header next to the position counter, shortened to `fuzzy`, and carries an accessible name for screen readers.
+- rw now reads only a repository's own git config when resolving git-based modification times — used by `rw backstage publish` and `@rwdocs/core`'s `mtimeSource: "git"` — so mtimes no longer depend on the environment the process was launched from.
 
 ## [0.1.33] - 2026-07-12
 

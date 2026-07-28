@@ -20,6 +20,7 @@ rw-confluence = { path = "crates/rw-confluence" }
 rw-diagrams = { path = "crates/rw-diagrams" }
 rw-kroki = { path = "crates/rw-kroki" }
 rw-embedded-preview = { path = "crates/rw-embedded-preview" }
+rw-git-fixture = { path = "crates/rw-git-fixture" }
 rw-meta = { path = "crates/rw-meta" }
 rw-parser = { path = "crates/rw-parser" }
 rw-plantuml = { path = "crates/rw-plantuml" }
