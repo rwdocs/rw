@@ -35,10 +35,11 @@
 //!    backend (`<div role="tabpanel">`) and records the label; its close emits
 //!    the panel's closing `</div>`.
 //!
-//! 2. **Assembly**: after the walk, the walker renders the accessible ARIA
-//!    markup for each group's tab bar through the backend and splices it in at
-//!    the recorded offset. No intermediate markers are ever emitted, so nothing
-//!    can leak into the output.
+//! 2. **Fill and assembly**: at the group's close — once every label is
+//!    known — the walker renders the accessible ARIA markup for its tab bar
+//!    through the backend; assembly splices it in at the recorded offset. No
+//!    intermediate markers are ever emitted, so nothing can leak into the
+//!    output.
 //!
 //! # Unclosed groups
 //!

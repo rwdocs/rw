@@ -644,8 +644,9 @@ fn tab_label_is_html_escaped_and_quotes_stripped() {
 
 /// Fills reach the buffer through the backend's `raw_html`, like every other
 /// emission — so a backend that drops markup drops fills too. Without that,
-/// the tab bar and panel `<div>`s (which are fills, not walk-time output) leak
-/// into the search index.
+/// the tab bar (a fill, not walk-time output) would leak into the search
+/// index; the panel `<div>`s are emitted inline through the backend's own
+/// no-op tab methods.
 #[test]
 fn tabs_emit_no_markup_into_a_search_document() {
     let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(

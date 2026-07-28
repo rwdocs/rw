@@ -8,6 +8,7 @@ use std::borrow::Cow;
 use std::fmt::Write;
 
 use crate::diagram::{DiagramView, write_diagram_id_attr};
+use crate::link::write_section_attrs;
 use crate::status::StatusColor;
 use crate::tabs::TabInfo;
 
@@ -333,14 +334,7 @@ pub trait RenderBackend {
         escape_into(href, out);
         out.push('"');
         if let Some((ref_string, section_path)) = section_ref {
-            out.push_str(r#" data-section-ref=""#);
-            escape_into(ref_string, out);
-            out.push('"');
-            if !section_path.is_empty() {
-                out.push_str(r#" data-section-path=""#);
-                escape_into(section_path, out);
-                out.push('"');
-            }
+            write_section_attrs(ref_string, section_path, out);
         }
         out.push('>');
     }
@@ -379,10 +373,10 @@ pub trait RenderBackend {
     /// Closes the status badge wrapper opened by [`status_open`](Self::status_open).
     fn status_close(_out: &mut String) {}
 
-    /// Opens a tab group's bar. Deferred: collected as a fill after the walk
-    /// (unlike the three below, which emit inline), since the bar precedes the
-    /// panels yet needs every tab's label — known only at group close. Default
-    /// is a no-op (Confluence, search: no bar).
+    /// Opens a tab group's bar. Deferred: written as a fill at the group's
+    /// close (unlike the three below, which emit inline), since the bar
+    /// precedes the panels yet needs every tab's label — known only once the
+    /// group closes. Default is a no-op (Confluence, search: no bar).
     fn tabs_open(_group_id: usize, _tabs: &[TabInfo], _out: &mut String) {}
 
     /// Opens one tab panel, emitted inline at the panel's position. Default no-op.

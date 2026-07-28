@@ -5,6 +5,7 @@ use std::iter::from_fn;
 use rw_diagrams::{Asset, Size};
 use rw_sections::Sections;
 
+use crate::link::{resolve_section_href, write_section_attrs};
 use crate::util::escape_into;
 
 /// One resolved diagram, ready for a backend to turn into markup.
@@ -45,13 +46,12 @@ pub struct DiagramLink {
     pub section_path: String,
 }
 
-/// Extract an attribute value from an SVG tag string.
+/// Extract the `href` attribute value from an SVG tag string.
 ///
-/// Uses a space prefix to avoid matching attribute name suffixes
-/// (e.g., `href=` won't match `xlink:href=`).
-fn extract_attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    let needle = format!(" {name}=\"");
-    let start = tag.find(&needle)? + needle.len();
+/// The space prefix avoids matching attribute name suffixes (`xlink:href=`).
+fn extract_href(tag: &str) -> Option<&str> {
+    const NEEDLE: &str = " href=\"";
+    let start = tag.find(NEEDLE)? + NEEDLE.len();
     let end = tag[start..].find('"')? + start;
     Some(&tag[start..end])
 }
@@ -67,7 +67,7 @@ fn a_tags(svg: &str) -> impl Iterator<Item = (usize, Option<&str>)> {
     from_fn(move || {
         let tag_start = svg[pos..].find("<a ")? + pos;
         let close = svg[tag_start..].find('>')? + tag_start;
-        let href = extract_attr(&svg[tag_start..=close], "href");
+        let href = extract_href(&svg[tag_start..=close]);
         pos = close + 1;
         Some((close, href))
     })
@@ -87,16 +87,13 @@ pub(crate) fn scan_svg_links(svg: &str, sections: &Sections) -> Vec<DiagramLink>
     let mut links = Vec::new();
     for (_, href) in a_tags(svg) {
         let Some(href) = href else { continue };
-        if !href.starts_with('/') {
-            continue;
-        }
-        let Some(sp) = sections.find(href) else {
+        let Some((section_ref, section_path)) = resolve_section_href(sections, href) else {
             continue;
         };
         links.push(DiagramLink {
             href: href.to_owned(),
-            section_ref: sp.section.to_string(),
-            section_path: sp.path.to_owned(),
+            section_ref,
+            section_path,
         });
     }
     links
@@ -131,14 +128,7 @@ pub(crate) fn splice_link_attrs(svg: &str, links: &[DiagramLink], out: &mut Stri
         out.push_str(&svg[copied..close]);
         copied = close;
 
-        out.push_str(r#" data-section-ref=""#);
-        escape_into(&link.section_ref, out);
-        out.push('"');
-        if !link.section_path.is_empty() {
-            out.push_str(r#" data-section-path=""#);
-            escape_into(&link.section_path, out);
-            out.push('"');
-        }
+        write_section_attrs(&link.section_ref, &link.section_path, out);
     }
 
     if changed {

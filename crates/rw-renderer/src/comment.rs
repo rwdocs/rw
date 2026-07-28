@@ -6,13 +6,11 @@
 //! HTML is escaped (never passed through), only a fixed set of known tags is
 //! emitted, and link schemes are allow-listed.
 
-use std::fmt::Write;
-
 use pulldown_cmark::Alignment;
 
 use crate::backend::RenderBackend;
 use crate::diagram::DiagramView;
-use crate::{HtmlBackend, MarkdownRenderer, Providers, escape_html};
+use crate::{HtmlBackend, MarkdownRenderer, Providers, escape_into};
 use rw_parser::AlertKind;
 
 /// Render a comment `body` (markdown) to safe HTML for display.
@@ -33,8 +31,13 @@ pub fn render_comment_body(markdown: &str) -> String {
 /// Allow-listed comment link schemes. Anything else (relative links,
 /// `javascript:`, `data:`, `tel:`, …) renders as a bare, non-clickable `<a>`.
 fn is_allowed_link_scheme(href: &str) -> bool {
-    let lower = href.trim().to_ascii_lowercase();
-    lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")
+    let href = href.trim();
+    // `str::get` is boundary-safe: a multi-byte character inside the prefix
+    // range yields `None`, which is also the right answer for an ASCII scheme.
+    ["http://", "https://", "mailto:"].iter().any(|scheme| {
+        href.get(..scheme.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme))
+    })
 }
 
 /// Restricted [`RenderBackend`] for comment bodies (see [`render_comment_body`]).
@@ -121,7 +124,9 @@ impl RenderBackend for CommentBackend {
         // Always emit a balanced <a> (link_end always writes </a>), but include
         // href only for allow-listed schemes. Disallowed → bare, non-clickable.
         if is_allowed_link_scheme(href) {
-            write!(out, r#"<a href="{}">"#, escape_html(href)).unwrap();
+            out.push_str(r#"<a href=""#);
+            escape_into(href, out);
+            out.push_str(r#"">"#);
         } else {
             out.push_str("<a>");
         }
@@ -129,7 +134,7 @@ impl RenderBackend for CommentBackend {
 
     fn raw_html(html: &str, out: &mut String) {
         // Escape raw HTML to inert text — never pass it through.
-        out.push_str(&escape_html(html));
+        escape_into(html, out);
     }
 }
 
@@ -226,6 +231,28 @@ mod tests {
         );
         assert!(!html.contains("href"), "href leaked: {html}");
         assert!(!html.contains("javascript"), "scheme leaked: {html}");
+    }
+
+    #[test]
+    fn scheme_check_is_case_insensitive() {
+        // The allowlist compares case-insensitively: an uppercase scheme keeps
+        // its href, while a mixed-case `javascript:` stays neutralized.
+        let html = render_comment_body("[x](HTTPS://EXAMPLE.COM/page)");
+        assert!(
+            html.contains(r#"<a href="HTTPS://EXAMPLE.COM/page">x</a>"#),
+            "got: {html}"
+        );
+        let js = render_comment_body("[x](JavaScript:alert(1))");
+        assert!(!js.contains("href"), "scheme leaked: {js}");
+    }
+
+    #[test]
+    fn multibyte_href_is_denied_without_panic() {
+        // `str::get` returns `None` when the prefix range would split a
+        // multi-byte character — the correct denial for an ASCII scheme list.
+        let html = render_comment_body("[x](héllo)");
+        assert!(html.contains("<a>x</a>"), "got: {html}");
+        assert!(!html.contains("href"), "got: {html}");
     }
 
     #[test]

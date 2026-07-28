@@ -147,7 +147,7 @@ impl HeadingAccumulator {
         let id = self.generate_id(toc_text);
         // HTML-mode first H1: capture title (still render).
         let is_title =
-            self.extract_title && !self.title_as_metadata && level == 1 && self.title.is_none();
+            self.extract_title && !self.title_as_metadata && level == 1 && !self.seen_first_h1;
         if is_title {
             self.title = Some(toc_text.trim().to_owned());
             self.seen_first_h1 = true;

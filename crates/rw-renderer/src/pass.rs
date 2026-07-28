@@ -91,9 +91,6 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                         }
                         _ => Vec::new(),
                     };
-                    paused
-                        .section_refs
-                        .extend(links.iter().map(|link| link.section_ref.clone()));
                     B::diagram(
                         &DiagramView {
                             id,
@@ -113,6 +110,11 @@ impl<'a, B: RenderBackend> RenderPass<'a, B> {
                             .iter()
                             .map(|warning| format!("diagram {block}: {warning}")),
                     );
+                    // After the last borrow of `links`, so each ref moves into
+                    // the set rather than clones.
+                    paused
+                        .section_refs
+                        .extend(links.into_iter().map(|link| link.section_ref));
                 }
                 // No warning: a failed diagram becomes an error figure on the
                 // page, which is louder than a line in a list.

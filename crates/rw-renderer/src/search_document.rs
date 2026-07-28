@@ -5,8 +5,6 @@
 //! Lunr, etc.). No HTML tags, no markdown markup — just text with spaces
 //! between content boundaries.
 
-use std::borrow::Cow;
-
 use pulldown_cmark::Alignment;
 
 use crate::RenderBackend;
@@ -60,10 +58,6 @@ impl RenderBackend for SearchDocumentBackend {
         if !alt.is_empty() {
             out.push_str(alt);
         }
-    }
-
-    fn transform_link<'a>(url: &'a str, _base_path: Option<&str>) -> Cow<'a, str> {
-        Cow::Borrowed(url)
     }
 
     fn hard_break(out: &mut String) {

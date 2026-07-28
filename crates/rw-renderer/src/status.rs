@@ -1,7 +1,11 @@
-//! Status badge inline directive.
+//! Status badge (`:status[Label]{color=NAME}`), a built-in inline element —
+//! colored pill labels mirroring Confluence's `status` macro.
 //!
-//! Implements the `:status[Label]{color=NAME}` inline directive — colored
-//! pill labels mirroring Confluence's `status` macro.
+//! [`StatusColor`] is the six-value color palette; the walker recognizes the
+//! `status` directive name internally for the built-in badge. Rendering goes
+//! straight through
+//! [`RenderBackend::status_open`](crate::RenderBackend::status_open)/
+//! [`status_close`](crate::RenderBackend::status_close).
 
 use std::fmt;
 

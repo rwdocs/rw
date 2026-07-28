@@ -303,10 +303,6 @@ mod tests {
             .render(markdown, &Providers::empty())
     }
 
-    fn render_with_tasklists(markdown: &str) -> RenderResult {
-        MarkdownRenderer::<HtmlBackend>::new().render(markdown, &Providers::empty())
-    }
-
     #[test]
     fn test_html_basic_paragraph() {
         let result = render_html("Hello, world!");
@@ -334,6 +330,20 @@ mod tests {
         // ToC excludes title but includes other headings
         assert_eq!(result.toc.len(), 1);
         assert_eq!(result.toc[0].level, 2);
+    }
+
+    /// Two H1s: only the first is the title; the second renders as a normal
+    /// heading with a `toc` entry. Pins the `!seen_first_h1` half of the
+    /// HTML-mode title condition — without it every later H1 would re-capture
+    /// the title and vanish from the `toc`.
+    #[test]
+    fn test_second_h1_is_not_the_title() {
+        let result = render_html_with_title("# First\n\ntext\n\n# Second");
+
+        assert_eq!(result.title.as_deref(), Some("First"));
+        assert_eq!(result.toc.len(), 1, "toc: {:?}", result.toc);
+        assert_eq!(result.toc[0].level, 1);
+        assert_eq!(result.toc[0].title, "Second");
     }
 
     #[test]
@@ -721,7 +731,7 @@ mod tests {
 
     #[test]
     fn test_task_list_html() {
-        let result = render_with_tasklists("- [ ] Unchecked\n- [x] Checked");
+        let result = render_html("- [ ] Unchecked\n- [x] Checked");
         assert!(result.html.contains(r#"<input type="checkbox" disabled>"#));
         assert!(
             result
@@ -906,6 +916,34 @@ Install with apt.
                 .contains(r#"<span class="status status-green">On Track</span>"#),
             "got: {}",
             result.html
+        );
+    }
+
+    /// The parser synthesizes an `implicit` close for the unclosed `:::foo` at
+    /// EOF, and an implicit close of a *literal* (unrecognized) container must
+    /// not warn: the opener already rendered as plain prose, so there is
+    /// nothing for the author to fix. Only the tab built-ins warn on implicit
+    /// closes — this pins the boundary of that guard.
+    #[test]
+    fn unclosed_unknown_container_renders_literally_without_warning() {
+        let renderer = MarkdownRenderer::<HtmlBackend>::new();
+        let result = renderer.render(":::foo\n\nbody", &Providers::empty());
+
+        assert!(
+            result.html.contains(":::foo"),
+            "the opener renders literally: {}",
+            result.html
+        );
+        assert!(result.html.contains("body"), "got: {}", result.html);
+        assert!(
+            !result.html.contains("<p>:::</p>"),
+            "a synthesized close renders nothing: {}",
+            result.html
+        );
+        assert!(
+            result.warnings.is_empty(),
+            "an implicit close of a literal container must not warn: {:?}",
+            result.warnings
         );
     }
 
@@ -1431,7 +1469,7 @@ Install with apt.
         assert_eq!(r1.title, r2.title, "title must match across renders");
         assert_eq!(r1.toc, r2.toc, "TOC must match across renders");
         // Full HTML equality catches leakage of any per-render scratch field,
-        // not just id_counts — list_stack, alert_stack, scopes, etc.
+        // not just id_counts — list depth, alert_stack, scopes, etc.
         assert_eq!(
             r1.html, r2.html,
             "reused renderer must produce identical HTML for identical input"
@@ -1455,8 +1493,8 @@ Install with apt.
     /// Pre-refactor, `HeadingAccumulator::seen_first_h1` stayed true across
     /// renders, so the second render's first H1 was no longer recognized
     /// as the title-extracted heading and `result.title` came back as `None`.
-    /// `HtmlBackend` doesn't exhibit this because its first-H1 detection
-    /// uses `self.title.is_none()` (cleared by `take_title`); this test uses
+    /// Both modes detect the first H1 via `seen_first_h1` on the per-render
+    /// accumulator; this test pins the Confluence-mode path with
     /// `SearchDocumentBackend` (which sets `TITLE_AS_METADATA = true`, same
     /// as the downstream `ConfluenceBackend`).
     #[test]
@@ -1511,7 +1549,7 @@ Install with apt.
         let r2 = renderer.render(md, &providers);
 
         // Full HTML equality catches per-render state leaks beyond the
-        // code-block-index bug (e.g., list_stack, alert_stack, scopes).
+        // code-block-index bug (e.g., list depth, alert_stack, scopes).
         assert_eq!(
             r1.html, r2.html,
             "reused renderer must produce identical HTML for identical input"

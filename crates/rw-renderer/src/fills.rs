@@ -2,11 +2,11 @@
 //!
 //! Content that cannot be emitted during the walk reserves a *hole* — a
 //! recorded offset in the output buffer — keyed by a value its owner chooses,
-//! then supplies the content once the walk is complete. Two kinds of owner
-//! reserve holes: the walker's built-in tab bars ([`Source::Tabs`]), which the
-//! walker fills at [`pause`](crate::walker::Walker::pause) once every label is
-//! known; and diagram fences ([`Source::Diagram`]), which
-//! [`RenderPass::finish`] fills once the caller has resolved them.
+//! then supplies the content once it is known. Two kinds of owner reserve
+//! holes: the walker's built-in tab bars ([`Source::Tabs`]), which the walker
+//! fills at each group's close once every label is known; and diagram fences
+//! ([`Source::Diagram`]), which [`RenderPass::finish`] fills once the caller
+//! has resolved them.
 //!
 //! [`RenderPass::finish`]: crate::RenderPass::finish
 
@@ -42,25 +42,26 @@ pub(crate) enum Source {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct GlobalKey(pub(crate) Source, pub(crate) HoleKey);
 
-/// Every owner's fills, keyed under their `Source`s.
-///
-/// Tracks the total byte length of the content it holds, so
-/// [`Holes::assemble`](crate::holes::Holes::assemble) can size its output
-/// buffer without a second pass over the entries.
+/// Narrow a document-order index (a code-block index, a tab-group id) to the
+/// hole-key width. The one conversion policy for every hole owner: fail loud
+/// rather than wrap into a colliding key.
+pub(crate) fn hole_key(index: usize) -> HoleKey {
+    HoleKey::try_from(index).unwrap_or_else(|_| panic!("hole index {index} exceeds hole key width"))
+}
+
+/// Every owner's fills, keyed under their `Source`s. The backing map does not
+/// allocate until the first insert, so a render with no deferred content
+/// costs nothing here.
 #[derive(Debug, Default)]
 pub(crate) struct GlobalFills {
     map: HashMap<GlobalKey, String>,
-    total_len: usize,
 }
 
 impl GlobalFills {
     /// Supply the content for `key`. A later call for the same key replaces the
-    /// earlier one, keeping the tracked `total_len` in step.
+    /// earlier one.
     pub(crate) fn insert(&mut self, key: GlobalKey, html: String) {
-        self.total_len += html.len();
-        if let Some(previous) = self.map.insert(key, html) {
-            self.total_len -= previous.len();
-        }
+        self.map.insert(key, html);
     }
 
     /// Content for `key`, if it was supplied.
@@ -68,9 +69,11 @@ impl GlobalFills {
         self.map.get(&key).map(String::as_str)
     }
 
-    /// Total byte length of every fill held, maintained as entries are inserted.
+    /// Total byte length of every fill held. Computed on demand: the map holds
+    /// at most a handful of entries per page (one per tab group and diagram),
+    /// and [`Holes::assemble`](crate::holes::Holes::assemble) reads it once.
     pub(crate) fn total_len(&self) -> usize {
-        self.total_len
+        self.map.values().map(String::len).sum()
     }
 }
 
@@ -104,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn total_len_tracks_inserted_content() {
+    fn total_len_sums_inserted_content() {
         let mut fills = GlobalFills::default();
         fills.insert(GlobalKey(Source::Diagram, 0), "abc".to_owned());
         fills.insert(GlobalKey(Source::Tabs, 1), "de".to_owned());
@@ -113,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn total_len_discounts_replaced_content() {
+    fn total_len_counts_replaced_content_once() {
         let mut fills = GlobalFills::default();
         fills.insert(GlobalKey(Source::Diagram, 0), "long fill".to_owned());
         fills.insert(GlobalKey(Source::Diagram, 0), "short".to_owned());

@@ -26,7 +26,7 @@ use std::marker::PhantomData;
 
 use crate::backend::RenderBackend;
 use crate::config::RenderConfig;
-use crate::fills::{GlobalFills, GlobalKey, HoleKey, Source};
+use crate::fills::{GlobalFills, GlobalKey, HoleKey, Source, hole_key};
 use crate::holes::Holes;
 use crate::link;
 use crate::renderer::RenderResult;
@@ -48,22 +48,14 @@ use rw_parser::{InlineMatch, parse_line};
 /// The parser emits a balanced, well-nested
 /// `ContainerDirectiveStart`/`ContainerDirectiveEnd` stream (closing unclosed
 /// containers at block and EOF boundaries itself), so pairing lives here: the
-/// walker keeps one of these per open container.
-pub(crate) enum ContainerOutcome {
+/// walker keeps one of these per open container. Tab metadata (ids, labels)
+/// lives on the walker's `tab_open` stack, not here.
+enum ContainerOutcome {
     /// Unrecognized name: opener rendered literally; an explicit close renders
     /// its colons literally, a synthesized close renders nothing.
     Literal,
-    /// A walker built-in (`::::tabs`/`:::tab`); the close renders through the
-    /// backend's tab methods. `TabScope` records which shape.
-    Native(TabScope),
-}
-
-/// Which tab shape a [`ContainerOutcome::Native`] opener resolved to, so its
-/// close renders correctly. Tab metadata (ids, labels, the reserved bar hole)
-/// lives in dedicated walker fields, not here.
-#[derive(Clone, Copy)]
-pub(crate) enum TabScope {
-    /// The `::::tabs` group container.
+    /// The `::::tabs` group container; the close renders through the backend's
+    /// tab methods.
     Group,
     /// A `:::tab` item inside an open group.
     Item,
@@ -71,13 +63,14 @@ pub(crate) enum TabScope {
     LoneItem,
 }
 
-/// A tab group the walker is rendering as a built-in: its id, the tabs seen so
-/// far, and the reserved bar-hole its accessible `<div role="tablist">` markup
-/// fills at [`Walker::pause`] (once every label is known).
+/// A tab group the walker is rendering as a built-in: its id and the tabs seen
+/// so far. The bar hole reserved at its open is keyed by the id itself
+/// (narrowed via [`hole_key`]; `Source::Tabs` keeps it disjoint from diagram
+/// keys), and its accessible `<div role="tablist">` markup fills that hole at
+/// group close, once every label is known.
 struct TabGroup {
     id: usize,
     tabs: Vec<TabInfo>,
-    bar_hole: HoleKey,
 }
 
 /// A walked document that has not been assembled yet.
@@ -157,15 +150,17 @@ pub(crate) struct Walker<'r, B: RenderBackend> {
     ///
     /// [`RenderPass::requests`]: crate::RenderPass::requests
     diagram_blocks: Vec<HoleKey>,
-    /// Completed tab groups awaiting their bar-hole fill at `pause`.
-    tab_groups: Vec<TabGroup>,
+    /// Content for the walk's own holes — the tab bars, filled at group close.
+    /// Diagram fills join in [`RenderPass::finish`](crate::RenderPass::finish).
+    fills: GlobalFills,
     /// Open tab groups, innermost last (a `::::tabs` may nest in another's
     /// panel), so an inner group never overwrites the outer's reserved bar hole.
     tab_open: Vec<TabGroup>,
     next_group_id: usize,
     next_tab_id: usize,
-    next_tab_hole: HoleKey,
-    list_stack: Vec<bool>,
+    /// Open-list nesting depth; only consulted by the balance assert at
+    /// [`pause`](Self::pause) (the ordered/unordered flag rides on the events).
+    list_depth: usize,
     table: TableState,
     heading: HeadingAccumulator,
     alert_stack: Vec<Option<AlertKind>>,
@@ -203,12 +198,11 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             holes: Holes::default(),
             diagrams: Vec::new(),
             diagram_blocks: Vec::new(),
-            tab_groups: Vec::new(),
+            fills: GlobalFills::default(),
             tab_open: Vec::new(),
             next_group_id: 0,
             next_tab_id: 0,
-            next_tab_hole: 0,
-            list_stack: Vec::new(),
+            list_depth: 0,
             table: TableState::default(),
             heading: HeadingAccumulator::new(cfg.extract_title, B::TITLE_AS_METADATA),
             alert_stack: Vec::new(),
@@ -224,25 +218,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// Consume the walker and hand over everything the walk produced, with the
     /// diagram holes still empty.
     ///
-    /// Order still matters, but only in one direction — everything that writes
-    /// to the walk buffer must precede assembly, which is keyed to offsets in
-    /// it:
-    ///
-    /// 1. `mem::take` `output` into a local `html` — this owned `String` is
-    ///    moved into the returned [`Paused`] and then into the `RenderResult`,
-    ///    so it must be freestanding. (Containers left open need no balancing
-    ///    here: the parser synthesizes their closes at block/EOF boundaries, so
-    ///    the walk already emitted every closing tag.)
-    /// 2. Fill the built-in tab bars. They fill here because every label is
-    ///    known once the walk ends; only diagrams have to wait for the caller to
-    ///    resolve them.
-    /// 3. Hand over warnings and section refs, both accumulated during the walk
-    ///    itself — unknown directives, unclosed containers and stray closes for
-    ///    the former, prose links and wikilinks for the latter. A diagram's
-    ///    warnings and its SVG's section refs join them in
-    ///    [`RenderPass::finish`](crate::RenderPass::finish), once the caller has
-    ///    resolved it.
-    /// 4. Take title and toc from the heading accumulator.
+    /// Everything but the diagrams is already settled by now: the tab bars
+    /// filled at their groups' closes, warnings and section refs accumulated as
+    /// the walk raised them, and the parser synthesized a close for every
+    /// container left open, so the walk already emitted every closing tag. A
+    /// diagram's warnings and its SVG's section refs join in
+    /// [`RenderPass::finish`](crate::RenderPass::finish), once the caller has
+    /// resolved it.
     ///
     /// # Do not add a step that rewrites the buffer
     ///
@@ -260,16 +242,16 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     /// invariant is split across two functions and a public API boundary — the
     /// buffer is reachable, unassembled, for as long as a caller holds a
     /// [`RenderPass`](crate::RenderPass).
-    pub(crate) fn pause(mut self) -> Paused {
+    pub(crate) fn pause(self) -> Paused {
         debug_assert!(
             self.scopes.is_empty(),
             "Walker::pause called with unclosed scopes (malformed event stream): {} scopes still open",
             self.scopes.len()
         );
         debug_assert!(
-            self.list_stack.is_empty(),
+            self.list_depth == 0,
             "Walker::pause called with unclosed list nesting: {} levels still open",
-            self.list_stack.len()
+            self.list_depth
         );
         debug_assert!(
             self.alert_stack.is_empty(),
@@ -297,35 +279,30 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
             "Walker::pause called with diagrams and their hole keys out of step"
         );
 
-        let html = std::mem::take(&mut self.output);
-        let holes = std::mem::take(&mut self.holes);
-
-        // `GlobalFills` wraps `HashMap::default()`, which does not allocate
-        // until the first insert, so a page with no tab group and no diagram
-        // costs nothing here.
-        let mut fills = GlobalFills::default();
-
-        // Built-in tab bars: each `::::tabs` reserved a hole at its opening
-        // offset (before its panels), and now that every label is known the
-        // accessible tab-bar markup fills it. `assemble` writes it through
-        // `B::raw_html` like every other fill, so the search backend (no-op
-        // `raw_html`) drops the bar labels by design.
-        for group in &self.tab_groups {
-            let mut bar = String::new();
-            B::tabs_open(group.id, &group.tabs, &mut bar);
-            fills.insert(GlobalKey(Source::Tabs, group.bar_hole), bar);
-        }
+        // The walker has no `Drop`, so it destructures: each field moves out
+        // exactly once.
+        let Self {
+            output: html,
+            holes,
+            fills,
+            mut heading,
+            warnings,
+            section_refs,
+            diagrams,
+            diagram_blocks,
+            ..
+        } = self;
 
         Paused {
             html,
             holes,
             fills,
-            title: self.heading.take_title(),
-            toc: self.heading.take_toc(),
-            warnings: std::mem::take(&mut self.warnings),
-            section_refs: std::mem::take(&mut self.section_refs),
-            diagrams: std::mem::take(&mut self.diagrams),
-            diagram_blocks: std::mem::take(&mut self.diagram_blocks),
+            title: heading.take_title(),
+            toc: heading.take_toc(),
+            warnings,
+            section_refs,
+            diagrams,
+            diagram_blocks,
         }
     }
 
@@ -363,8 +340,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                     && let Some(lang) = payload.language.as_deref()
                     && router.handles(lang)
                 {
-                    let key =
-                        u32::try_from(index).expect("code block index exceeds hole key width");
+                    let key = hole_key(index);
                     self.reserve_hole(GlobalKey(Source::Diagram, key));
                     // Moved out of `payload`, not cloned: this is the one arm
                     // that never reads it again. `lang`'s borrow of
@@ -517,41 +493,69 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         B::paragraph_end(&mut self.output);
     }
 
-    /// Push the "unclosed container directive" warning for `name`. Shared by
-    /// `close_container`'s implicit-close arm and `close_tab_scope`, which warn
-    /// on the same condition with identical text.
-    fn warn_unclosed_container(&mut self, name: Option<&str>) {
-        self.warnings.push(format!(
-            "unclosed container directive :::{} (missing closing :::)",
-            name.unwrap_or_default()
-        ));
-    }
-
     /// Render a `ContainerDirectiveEnd` the parser paired: pop the outcome its
     /// opener recorded and emit the matching close.
     ///
     /// The parser guarantees a balanced, well-nested stream — every open
     /// container is closed (explicitly, or by a synthesized `implicit` close at
     /// its block/EOF boundary) before the enclosing block's own `End`, so the
-    /// outcome stack is always in step with it. Three cases:
-    ///
-    /// * [`Literal`](ContainerOutcome::Literal) — the opener rendered as text.
-    ///   An explicit close renders its colons literally; an `implicit` one
-    ///   renders nothing (the opener was already plain prose).
-    /// * [`Native`](ContainerOutcome::Native) — a walker built-in tab scope;
-    ///   the close renders through the backend's tab methods.
-    /// * no outcome — a stray `:::` the parser paired to nothing: warn and
-    ///   render its colons literally.
+    /// outcome stack is always in step with it. No outcome at all is a stray
+    /// `:::` the parser paired to nothing: warn and render its colons
+    /// literally.
     fn close_container(&mut self, name: Option<&str>, colon_count: usize, implicit: bool) {
-        match self.container_outcomes.pop() {
+        let outcome = self.container_outcomes.pop();
+
+        // An `implicit` close of a tab scope means the author left the
+        // container unclosed (the parser synthesized the close at a block/EOF
+        // boundary), which warns — naming the directive from the close event
+        // (`tab` for an item, `tabs` for a group). A `Literal` implicit close
+        // deliberately does not: the opener was already plain prose.
+        if implicit
+            && matches!(
+                outcome,
+                Some(ContainerOutcome::Group | ContainerOutcome::Item | ContainerOutcome::LoneItem)
+            )
+        {
+            self.warnings.push(format!(
+                "unclosed container directive :::{} (missing closing :::)",
+                name.unwrap_or_default()
+            ));
+        }
+
+        match outcome {
+            // The opener rendered as text. An explicit close renders its
+            // colons literally; an `implicit` one renders nothing (the opener
+            // was already plain prose).
             Some(ContainerOutcome::Literal) => {
                 if !implicit {
                     self.emit_text_paragraph(&":".repeat(colon_count));
                 }
             }
-            Some(ContainerOutcome::Native(scope)) => {
-                self.close_tab_scope(scope, name, implicit);
+            Some(ContainerOutcome::Group) => {
+                if let Some(group) = self.tab_open.pop() {
+                    if group.tabs.is_empty() {
+                        self.warnings
+                            .push("`::::tabs` group has no `:::tab` items".to_owned());
+                    }
+                    B::tabs_close(&mut self.output);
+                    // Every label is known once the group closes, so the
+                    // accessible tab-bar markup fills the hole reserved at its
+                    // opening offset (before the panels). `assemble` writes it
+                    // through `B::raw_html` like every other fill, so the
+                    // search backend (no-op `raw_html`) drops the bar labels
+                    // by design.
+                    let mut bar = String::new();
+                    B::tabs_open(group.id, &group.tabs, &mut bar);
+                    self.fills
+                        .insert(GlobalKey(Source::Tabs, hole_key(group.id)), bar);
+                }
             }
+            Some(ContainerOutcome::Item) => {
+                B::tab_panel_close(&mut self.output);
+            }
+            // LoneItem: `open_tab_item` emitted no opening tag, so nothing
+            // closes.
+            Some(ContainerOutcome::LoneItem) => {}
             None => {
                 self.warnings
                     .push("stray ::: with no opening directive".to_owned());
@@ -567,16 +571,12 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
     fn open_tab_group(&mut self) {
         let id = self.next_group_id;
         self.next_group_id += 1;
-        let bar_hole = self.next_tab_hole;
-        self.next_tab_hole += 1;
-        self.reserve_hole(GlobalKey(Source::Tabs, bar_hole));
+        self.reserve_hole(GlobalKey(Source::Tabs, hole_key(id)));
         self.tab_open.push(TabGroup {
             id,
             tabs: Vec::new(),
-            bar_hole,
         });
-        self.container_outcomes
-            .push(ContainerOutcome::Native(TabScope::Group));
+        self.container_outcomes.push(ContainerOutcome::Group);
     }
 
     /// Open a `:::tab[Label]` item: emit its panel's opening tag inline (through
@@ -593,8 +593,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 "`:::tab` outside a `::::tabs` group; its content is rendered without tab chrome"
                     .to_owned(),
             );
-            self.container_outcomes
-                .push(ContainerOutcome::Native(TabScope::LoneItem));
+            self.container_outcomes.push(ContainerOutcome::LoneItem);
             return;
         };
         let tab_id = self.next_tab_id;
@@ -608,33 +607,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         };
         B::tab_panel_open(group_id, &info, &mut self.output);
         group.tabs.push(info);
-        self.container_outcomes
-            .push(ContainerOutcome::Native(TabScope::Item));
-    }
-
-    /// Render the close of a built-in tab scope the parser paired. An `implicit`
-    /// close means the author left the container unclosed (the parser
-    /// synthesized the close at a block/EOF boundary), which warns — naming the
-    /// directive from the close event (`tab` for an item, `tabs` for a group).
-    fn close_tab_scope(&mut self, scope: TabScope, name: Option<&str>, implicit: bool) {
-        if implicit {
-            self.warn_unclosed_container(name);
-        }
-        match scope {
-            TabScope::Item => B::tab_panel_close(&mut self.output),
-            TabScope::Group => {
-                if let Some(group) = self.tab_open.pop() {
-                    if group.tabs.is_empty() {
-                        self.warnings
-                            .push("`::::tabs` group has no `:::tab` items".to_owned());
-                    }
-                    B::tabs_close(&mut self.output);
-                    self.tab_groups.push(group);
-                }
-            }
-            // LoneItem: `open_tab_item` emitted no opening tag, so nothing closes.
-            TabScope::LoneItem => {}
-        }
+        self.container_outcomes.push(ContainerOutcome::Item);
     }
 
     #[allow(clippy::too_many_lines)]
@@ -670,7 +643,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             }
             Tag::List(start) => {
-                self.list_stack.push(start.is_some());
+                self.list_depth += 1;
                 B::list_start(start.is_some(), start, &mut self.output);
             }
             Tag::Item => {
@@ -723,24 +696,29 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                         subpath,
                         ..
                     } => {
-                        if !section_ref.is_empty() {
-                            self.section_refs.insert(section_ref.clone());
-                        }
                         let section_attrs = (!section_ref.is_empty())
                             .then_some((section_ref.as_str(), subpath.as_str()));
                         self.with_markup_buffer(|out| B::link_start(href, section_attrs, out));
                     }
-                    WikilinkResolution::Fragment(fragment) => {
-                        let href = format!("#{fragment}");
-                        self.with_markup_buffer(|out| B::link_start(&href, None, out));
+                    // The resolution carries no copy of the fragment —
+                    // `dest_url` is the `#fragment` href itself.
+                    WikilinkResolution::Fragment => {
+                        self.with_markup_buffer(|out| B::link_start(&dest_url, None, out));
                     }
-                    WikilinkResolution::Broken { .. } => {
+                    WikilinkResolution::Broken => {
                         self.with_markup_buffer(B::broken_link_start);
                     }
                 }
                 if !has_pothole {
-                    let display = wikilink::display_text(self.cfg, &resolution);
+                    let display = wikilink::display_text(self.cfg, &resolution, &dest_url);
                     self.text(&display);
+                }
+                // After the last borrow of `resolution`, so the ref moves into
+                // the set rather than clones.
+                if let WikilinkResolution::Resolved { section_ref, .. } = resolution
+                    && !section_ref.is_empty()
+                {
+                    self.section_refs.insert(section_ref);
                 }
             }
             Tag::Link {
@@ -751,11 +729,13 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 let base = link::link_base(self.cfg);
                 let href = B::transform_link(&dest_url, base);
                 let section_ref = link::section_ref_attrs(self.cfg, &href);
-                if let Some((r, _)) = &section_ref {
-                    self.section_refs.insert(r.clone());
-                }
                 let section_attrs = section_ref.as_ref().map(|(r, p)| (r.as_str(), p.as_str()));
                 self.with_markup_buffer(|out| B::link_start(&href, section_attrs, out));
+                // After the last borrow of `section_ref`, so the ref moves
+                // into the set rather than clones.
+                if let Some((r, _)) = section_ref {
+                    self.section_refs.insert(r);
+                }
             }
             Tag::Image { dest_url, title } => {
                 let dest_url = link::strip_origin(self.cfg, &dest_url).into_owned();
@@ -816,7 +796,7 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
                 }
             },
             TagEnd::List(ordered) => {
-                self.list_stack.pop();
+                self.list_depth = self.list_depth.saturating_sub(1);
                 B::list_end(ordered, &mut self.output);
             }
             TagEnd::Item => {
@@ -884,35 +864,32 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         }
     }
 
-    fn text(&mut self, text: &str) {
+    /// Route an event that is plain text with a markup rendering: `s` feeds
+    /// the active scope's plain channel (a heading's `toc_text`, an image's
+    /// `alt_text` — `CommonMark` alt text is plain, so inline code lands there
+    /// unwrapped), while `write` emits the markup form into the heading's
+    /// rendered body or `output` at top level.
+    fn plain_text(&mut self, s: &str, write: impl Fn(&str, &mut String)) {
         match self.scopes.last_mut() {
             Some(Scope::Heading {
                 rendered_html,
                 toc_text,
                 ..
             }) => {
-                toc_text.push_str(text);
-                B::text(text, rendered_html);
+                toc_text.push_str(s);
+                write(s, rendered_html);
             }
-            Some(Scope::Image { alt_text, .. }) => alt_text.push_str(text),
-            None => B::text(text, &mut self.output),
+            Some(Scope::Image { alt_text, .. }) => alt_text.push_str(s),
+            None => write(s, &mut self.output),
         }
     }
 
+    fn text(&mut self, text: &str) {
+        self.plain_text(text, B::text);
+    }
+
     fn inline_code(&mut self, code: &str) {
-        match self.scopes.last_mut() {
-            Some(Scope::Heading {
-                rendered_html,
-                toc_text,
-                ..
-            }) => {
-                toc_text.push_str(code);
-                B::inline_code(code, rendered_html);
-            }
-            // CommonMark: alt text is plain text — append code body without `<code>` wrap.
-            Some(Scope::Image { alt_text, .. }) => alt_text.push_str(code),
-            None => B::inline_code(code, &mut self.output),
-        }
+        self.plain_text(code, B::inline_code);
     }
 
     fn raw_html(&mut self, html: &str) {
@@ -935,22 +912,23 @@ impl<'r, B: RenderBackend> Walker<'r, B> {
         self.holes.reserve(self.output.len(), key);
     }
 
-    fn soft_break(&mut self) {
+    /// Route a line break: markup through `write` (into the heading's rendered
+    /// body or `output`), a single space inside alt text — `CommonMark`'s
+    /// plain-text projection collapses both break kinds to a space.
+    fn line_break(&mut self, write: impl Fn(&mut String)) {
         match self.scopes.last_mut() {
-            Some(Scope::Heading { rendered_html, .. }) => B::soft_break(rendered_html),
-            // Soft breaks inside alt text collapse to a single space (CommonMark plain-text rule).
+            Some(Scope::Heading { rendered_html, .. }) => write(rendered_html),
             Some(Scope::Image { alt_text, .. }) => alt_text.push(' '),
-            None => B::soft_break(&mut self.output),
+            None => write(&mut self.output),
         }
     }
 
+    fn soft_break(&mut self) {
+        self.line_break(B::soft_break);
+    }
+
     fn hard_break(&mut self) {
-        match self.scopes.last_mut() {
-            Some(Scope::Heading { rendered_html, .. }) => B::hard_break(rendered_html),
-            // Hard breaks inside alt text collapse to a single space.
-            Some(Scope::Image { alt_text, .. }) => alt_text.push(' '),
-            None => B::hard_break(&mut self.output),
-        }
+        self.line_break(B::hard_break);
     }
 
     /// Run `f` against the buffer of the currently-active markup-accepting
@@ -1036,10 +1014,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "unclosed list nesting")]
     #[cfg(debug_assertions)]
-    fn pause_debug_asserts_list_stack_empty() {
+    fn pause_debug_asserts_list_depth_zero() {
         let config = cfg();
         let mut walker = Walker::<HtmlBackend>::new(&config);
-        walker.list_stack.push(false);
+        walker.list_depth = 1;
         walker.pause();
     }
 

@@ -50,8 +50,8 @@ impl Holes {
     /// backend's `raw_html`. A backend that drops markup (the search-document
     /// one) therefore drops fills too.
     ///
-    /// The initial allocation is sized from the raw fill lengths `fills` has
-    /// tracked, which is an estimate: `write_fill` decides what actually lands
+    /// The initial allocation is sized from the raw fill lengths `fills`
+    /// holds, which is an estimate: `write_fill` decides what actually lands
     /// in the buffer, so it may write more (escaping) or nothing at all.
     ///
     /// With no holes, `source` is moved through untouched: no output buffer is

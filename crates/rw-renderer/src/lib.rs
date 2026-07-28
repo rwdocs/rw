@@ -37,8 +37,8 @@
 //! trip for a caller with nothing to add between the halves.
 //!
 //! A tab bar, whose markup depends on content the walk has not reached yet (it
-//! needs every tab's label), reserves a hole the same way and fills it after the
-//! walk, sharing one assembly pass with the diagrams.
+//! needs every tab's label), reserves a hole the same way and fills it once its
+//! group closes, sharing one assembly pass with the diagrams.
 //!
 //! ## Wikilinks
 //!

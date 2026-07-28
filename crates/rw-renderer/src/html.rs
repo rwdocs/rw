@@ -177,7 +177,7 @@ impl RenderBackend for HtmlBackend {
 
     fn transform_link<'a>(url: &'a str, base_path: Option<&str>) -> Cow<'a, str> {
         match base_path {
-            Some(base) => Cow::Owned(resolve_link(url, base)),
+            Some(base) => resolve_link(url, base),
             None => Cow::Borrowed(url),
         }
     }
@@ -226,9 +226,10 @@ impl RenderBackend for HtmlBackend {
 /// - `subdir/page.md` → `/base/path/subdir/page`
 /// - `adr-101/index.md` → `/base/path/adr-101`
 ///
-/// External links, fragment-only links, and non-markdown links are returned unchanged.
+/// External links, fragment-only links, and non-markdown links are returned
+/// unchanged — borrowed, so the common case allocates nothing.
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
-fn resolve_link(url: &str, base_path: &str) -> String {
+fn resolve_link<'a>(url: &'a str, base_path: &str) -> Cow<'a, str> {
     // Skip external links, fragments, and non-local URLs
     if url.starts_with("http://")
         || url.starts_with("https://")
@@ -237,24 +238,23 @@ fn resolve_link(url: &str, base_path: &str) -> String {
         || url.starts_with("tel:")
         || url.starts_with('#')
     {
-        return url.to_owned();
+        return Cow::Borrowed(url);
     }
 
     // Only process markdown links
     if !url.ends_with(".md") && !url.contains(".md#") {
-        return url.to_owned();
+        return Cow::Borrowed(url);
     }
 
-    // Split URL into path and fragment
-    let (path_part, fragment) = if let Some(hash_pos) = url.find('#') {
-        (&url[..hash_pos], Some(&url[hash_pos..]))
-    } else {
-        (url, None)
+    // Split URL into path and fragment (the fragment keeps its `#`)
+    let (path_part, fragment) = match url.find('#') {
+        Some(hash_pos) => (&url[..hash_pos], &url[hash_pos..]),
+        None => (url, ""),
     };
 
     // Resolve the path
     let resolved = if path_part.starts_with('/') {
-        // Absolute path - strip leading slash since we add /docs/ prefix later
+        // Absolute path - strip the leading slash; it is re-added below
         path_part.trim_start_matches('/').to_owned()
     } else {
         // Relative path - resolve against base
@@ -265,12 +265,7 @@ fn resolve_link(url: &str, base_path: &str) -> String {
     let clean = resolved.strip_suffix(".md").unwrap_or(&resolved);
     let clean = clean.strip_suffix("/index").unwrap_or(clean);
 
-    // Add leading slash and fragment
-    let with_prefix = format!("/{clean}");
-    match fragment {
-        Some(frag) => format!("{with_prefix}{frag}"),
-        None => with_prefix,
-    }
+    Cow::Owned(format!("/{clean}{fragment}"))
 }
 
 /// Resolve a relative path against a base path.
