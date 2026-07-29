@@ -193,8 +193,8 @@ fn python_fence_survives_as_raw_source() {
 /// diagram then runs straight into the following block
 /// (`"The system")C4-PlantUML`) and merges two words in the index.
 ///
-/// The H1 is absent because title extraction consumes it into
-/// `SearchDocument::title`.
+/// The H1's words open the text: the title comes from the site snapshot, not
+/// from extracting it out of the indexed body, so nothing removes them.
 #[test]
 fn the_indexed_text_is_pinned_verbatim() {
     let (_temp_dir, site) = site_with_diagram_fixture();
@@ -207,6 +207,7 @@ fn the_indexed_text_is_pinned_verbatim() {
     assert_eq!(
         doc.text,
         concat!(
+            "Diagrams Fixture ",
             "PlantUML Person(user1, \"User One\", \"A user\")\n",
             "System(sys1, \"System One\", \"The system\")\n ",
             "C4-PlantUML Person(user2, \"User Two\")\n",

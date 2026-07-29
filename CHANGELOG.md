@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@rwdocs/core`'s `renderSearchDocument()` no longer runs a diagram's last word into the heading or paragraph that follows it, so both are indexed as separate terms and each is findable on its own.
 - The `re-anchored` badge on a comment no longer squeezes the author's name onto extra lines. It now sits in the thread header next to the position counter, shortened to `fuzzy`, and carries an accessible name for screen readers.
 - rw now reads only a repository's own git config when resolving git-based modification times — used by `rw backstage publish` and `@rwdocs/core`'s `mtimeSource: "git"` — so mtimes no longer depend on the environment the process was launched from.
+- A page's title — in the page response, browser tab, and search results — is now its declared title (frontmatter, else `meta.yaml`, else the first heading), matching what navigation already used. See [Page Metadata](docs/metadata.md#title-resolution).
+- A page's title is now always present in `rw serve`'s page response and `@rwdocs/core`'s `renderPage()`; previously it was absent for a page with no heading.
+- A page whose filename titlecases to nothing (`_.md`, `-.md`, `.md`) now gets a real title — the filename stem, or `Untitled` — instead of an empty one in the navigation sidebar, breadcrumbs, and `[[wikilink]]` text.
+- Page responses now report a `description` and `kind` declared in frontmatter; previously only `meta.yaml` reached them, so a frontmatter declaration was silently dropped.
+- Search now indexes the text of a page's first heading, instead of consuming it as the title and dropping its words from the indexed text.
 
 ## [0.1.33] - 2026-07-12
 

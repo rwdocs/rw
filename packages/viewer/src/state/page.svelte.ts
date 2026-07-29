@@ -68,6 +68,13 @@ export class Page {
       this.loading = false;
       this.error = null;
       this.notFound = false;
+      // The `PageResponse` type says `meta.title` is always present, but that
+      // only holds for a server built from this same revision. An older
+      // `rw serve` build (rolling deploy, or a proxy/service-worker replaying
+      // a cached response) can still send `title: null`, and this branch's
+      // own resolved-title guarantee has edge cases (see rw-meta). Guard with
+      // a runtime truthiness check so a stale or empty title leaves the tab
+      // alone instead of showing "null - RW" or " - RW".
       if (data.meta.title && !this.embedded) {
         document.title = `${data.meta.title} - RW`;
       }

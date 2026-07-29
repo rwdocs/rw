@@ -10,10 +10,10 @@
 //!   provides [`navigation`](Site::navigation), [`render`](Site::render), and
 //!   page lookup methods. Designed for shared ownership (`Arc<Site>`) and
 //!   concurrent access.
-//! - [`PageRendererConfig`] — controls title extraction, diagram rendering
-//!   (Kroki URL, DPI), and `PlantUML` include directories.
+//! - [`PageRendererConfig`] — controls diagram rendering (Kroki URL) and
+//!   `PlantUML` include directories.
 //! - [`PageRenderResult`] — the output of rendering a page: HTML, title,
-//!   table of contents, breadcrumbs, and metadata.
+//!   table of contents, breadcrumbs, description, and kind.
 //! - [`Navigation`] — a scoped navigation tree with [`NavItem`] children,
 //!   current [`ScopeInfo`], and optional parent scope for back-navigation.
 //!
@@ -88,7 +88,7 @@
 //!
 //! // Render a page by URL path (without leading slash)
 //! let result = site.render("guide")?;
-//! println!("Title: {:?}", result.title);
+//! println!("Title: {}", result.title);
 //! println!("HTML length: {}", result.html.len());
 //! # Ok(())
 //! # }

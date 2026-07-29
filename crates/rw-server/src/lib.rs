@@ -238,7 +238,6 @@ pub async fn run_server(
 
     // Create unified Site with storage and configuration
     let site_config = PageRendererConfig {
-        extract_title: true,
         kroki_url: config.kroki_url.clone(),
         include_dirs: config.include_dirs.clone(),
     };

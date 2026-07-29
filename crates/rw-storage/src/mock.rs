@@ -162,6 +162,35 @@ impl MockStorage {
         self
     }
 
+    /// Add a document with content, an explicit `page_kind`, and a description.
+    ///
+    /// The document has `has_content=true`. Models what a real storage backend's
+    /// `scan()` produces for a page whose frontmatter (or `meta.yaml`) declares
+    /// both fields — as opposed to [`with_metadata`](Self::with_metadata), which
+    /// configures the separate sidecar-only `meta()` lookup that never sees
+    /// frontmatter.
+    #[must_use]
+    pub fn with_document_kind_description(
+        self,
+        path: impl Into<String>,
+        title: impl Into<String>,
+        page_kind: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        self.documents.write().push(Document {
+            path: path.into(),
+            title: title.into(),
+            has_content: true,
+            page_kind: Some(page_kind.into()),
+            namespace: None,
+            description: Some(description.into()),
+            origin: None,
+            pages: None,
+            is_dir: true,
+        });
+        self
+    }
+
     /// Add a content document with an explicit `page_kind` and `namespace`.
     ///
     /// The document has `has_content = true`.

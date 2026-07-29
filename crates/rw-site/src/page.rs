@@ -1,9 +1,8 @@
 //! Page rendering pipeline.
 //!
 //! Contains the internal [`PageRenderer`] that handles markdown-to-HTML
-//! conversion, page caching, diagram processing, and metadata loading.
-//! Also defines the public result and configuration types used by
-//! [`Site`](crate::Site).
+//! conversion, page caching, and diagram processing. Also defines the public
+//! result and configuration types used by [`Site`](crate::Site).
 
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -21,7 +20,7 @@ use rw_renderer::{
 use rw_sections::{SectionAnchor, Sections};
 
 use crate::site::{SiteSnapshot, SiteTitleResolver};
-use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
+use rw_storage::{Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
 /// Per-render dependencies from the current site snapshot.
@@ -46,9 +45,8 @@ pub(crate) struct RenderContext {
 /// ```
 /// use rw_site::PageRendererConfig;
 ///
-/// // Default: title extraction on, no diagram rendering
+/// // Default: no diagram rendering
 /// let config = PageRendererConfig::default();
-/// assert!(config.extract_title);
 /// assert!(config.kroki_url.is_none());
 /// ```
 ///
@@ -61,11 +59,8 @@ pub(crate) struct RenderContext {
 ///     ..Default::default()
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PageRendererConfig {
-    /// When `true`, the first `# H1` heading is extracted from the rendered
-    /// HTML and returned separately in [`PageRenderResult::title`].
-    pub extract_title: bool,
     /// Base URL of a [Kroki](https://kroki.io) instance for rendering diagrams.
     ///
     /// When `None`, fenced code blocks for diagram languages (`PlantUML`,
@@ -76,16 +71,6 @@ pub struct PageRendererConfig {
     pub include_dirs: Vec<PathBuf>,
 }
 
-impl Default for PageRendererConfig {
-    fn default() -> Self {
-        Self {
-            extract_title: true,
-            kroki_url: None,
-            include_dirs: Vec::new(),
-        }
-    }
-}
-
 /// A single document in the site hierarchy.
 ///
 /// Every entry in the navigation tree corresponds to a `Page`. Pages with
@@ -94,8 +79,10 @@ impl Default for PageRendererConfig {
 /// have it set to `false`.
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
-    /// Display title, resolved from (in priority order): metadata `title`
-    /// field, first `# H1` heading, or filename.
+    /// Display title, resolved from (in priority order): frontmatter `title`,
+    /// else `meta.yaml` `title`, else the first `# H1` heading, else the
+    /// titlecased filename. Never empty — a filename that titlecases to
+    /// nothing falls back further (stem verbatim, then `Untitled`).
     pub title: String,
     /// URL path without leading slash (e.g., `"guide"`, `"domain/billing"`,
     /// `""` for the site root).
@@ -103,9 +90,17 @@ pub struct Page {
     /// Whether this page has markdown content. `false` for virtual pages
     /// that exist only as navigation containers.
     pub has_content: bool,
-    /// Optional description from the page's metadata.
+    /// Optional page description, resolved from frontmatter or `meta.yaml`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Declared page kind (`"domain"`, `"guide"`, …), resolved from frontmatter
+    /// or `meta.yaml`. `Some` exactly when this page registers a section.
+    /// `Page` is persisted in the structure cache (`CachedSiteState`); being
+    /// `Option` lets an entry cached before this field existed deserialize as
+    /// kindless rather than failing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[allow(clippy::struct_field_names)]
+    pub page_kind: Option<String>,
     /// Source directory name for content originating outside `source_dir`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
@@ -168,15 +163,19 @@ pub struct BreadcrumbItem {
 /// Output of rendering a single page via [`Site::render`](crate::Site::render).
 ///
 /// Contains everything the frontend needs to display a page: rendered HTML,
-/// extracted title, table of contents for the sidebar, breadcrumb trail,
-/// and optional YAML metadata.
+/// resolved title, table of contents for the sidebar, breadcrumb trail,
+/// and the page's description and kind.
 #[derive(Debug)]
 pub struct PageRenderResult {
     /// Rendered HTML body content.
     pub html: String,
-    /// Title extracted from the first `# H1` heading, or `None` if title
-    /// extraction is disabled or the page has no H1.
-    pub title: Option<String>,
+    /// The page's resolved title — frontmatter `title`, else `meta.yaml`
+    /// `title`, else the first `# H1`, else the titlecased filename. Read from
+    /// the site snapshot rather than from rendering, so navigation,
+    /// breadcrumbs, this response, and the search index all report one string.
+    /// Never empty — a filename that titlecases to nothing falls back further
+    /// (stem verbatim, then `Untitled`).
+    pub title: String,
     /// Headings found in the page, used to build a "table of contents" sidebar.
     pub toc: Vec<TocEntry>,
     /// Non-fatal issues encountered during rendering (e.g., unresolved
@@ -194,9 +193,11 @@ pub struct PageRenderResult {
     /// Ancestor trail from "Home" to the parent of this page.
     /// See [`BreadcrumbItem`] for the structure.
     pub breadcrumbs: Vec<BreadcrumbItem>,
-    /// Page metadata from YAML frontmatter or sidecar `meta.yaml` file,
-    /// if present.
-    pub metadata: Option<Metadata>,
+    /// Page description, resolved from frontmatter or `meta.yaml`.
+    pub description: Option<String>,
+    /// Declared page kind, resolved from frontmatter or `meta.yaml`. `Some`
+    /// exactly when this page registers a section.
+    pub page_kind: Option<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this page references,
     /// via prose links and diagram `$link`s. Deduped and deterministically
     /// ordered; empty for pages that reference no sections. Survives the page
@@ -220,7 +221,7 @@ pub struct PageRenderResult {
 /// Contains whitespace-separated tokens suitable for full-text search engines.
 #[derive(Debug, Clone)]
 pub struct SearchDocument {
-    /// Page title (from metadata or first H1 heading).
+    /// Display title, resolved from [`Page::title`].
     pub title: String,
     /// Plain text content with whitespace-separated tokens.
     pub text: String,
@@ -301,13 +302,12 @@ fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf])
 
 /// Page rendering pipeline.
 ///
-/// Handles markdown-to-HTML conversion with caching, diagram processing,
-/// and metadata loading. Operates on individual pages without knowledge of
-/// site structure or reload logic.
+/// Handles markdown-to-HTML conversion with caching and diagram processing.
+/// Operates on individual pages without knowledge of site structure or
+/// reload logic.
 pub(crate) struct PageRenderer {
     storage: Arc<dyn Storage>,
     page_bucket: Box<dyn CacheBucket>,
-    extract_title: bool,
     /// Kept alongside [`providers`](Self::providers) because the search path
     /// resolves `PlantUML` `!include`s itself, without going through a
     /// provider.
@@ -344,14 +344,13 @@ impl PageRenderer {
         Self {
             storage,
             page_bucket: cache.bucket("pages"),
-            extract_title: config.extract_title,
             include_dirs: config.include_dirs,
             providers: Arc::new(providers),
             diagram_config_fingerprint,
         }
     }
 
-    /// Render a page with full pipeline: mtime, metadata, cache check, render, cache write.
+    /// Render a page with full pipeline: mtime, cache check, render, cache write.
     ///
     /// # Errors
     ///
@@ -419,8 +418,6 @@ impl PageRenderer {
     ) -> Result<PageRenderResult, RenderError> {
         let source_mtime = self.storage.mtime(path).map_err(RenderError::from)?;
 
-        let metadata = self.load_metadata(path);
-
         // Etag combines the page's own source mtime, the snapshot's resolution
         // fingerprint (a cross-page change — another page's title/description/
         // section that this render resolves — invalidates this page even though
@@ -437,14 +434,15 @@ impl PageRenderer {
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
             return Ok(PageRenderResult {
                 html: cached.html,
-                title: cached.title,
+                title: page.title.clone(),
                 toc: cached.toc,
                 warnings: Vec::new(),
                 from_cache: true,
                 has_content: page.has_content,
                 source_mtime,
                 breadcrumbs,
-                metadata,
+                description: page.description.clone(),
+                page_kind: page.page_kind.clone(),
                 section_refs: cached.section_refs,
                 // Overwritten in `render()` after breadcrumb sections resolve.
                 section_ancestry: HashMap::new(),
@@ -476,7 +474,6 @@ impl PageRenderer {
                 &etag,
                 &CachedPageRef {
                     html: &result.html,
-                    title: result.title.as_deref(),
                     toc: &result.toc,
                     section_refs: &result.section_refs,
                 },
@@ -485,14 +482,15 @@ impl PageRenderer {
 
         Ok(PageRenderResult {
             html: result.html,
-            title: result.title,
+            title: page.title.clone(),
             toc: result.toc,
             warnings: result.warnings,
             from_cache: false,
             has_content: page.has_content,
             source_mtime,
             breadcrumbs,
-            metadata,
+            description: page.description.clone(),
+            page_kind: page.page_kind.clone(),
             section_refs: result.section_refs,
             // Overwritten in `render()` after breadcrumb sections resolve.
             section_ancestry: HashMap::new(),
@@ -506,18 +504,18 @@ impl PageRenderer {
         breadcrumbs: Vec<BreadcrumbItem>,
     ) -> PageRenderResult {
         let source_mtime = self.storage.mtime(path).unwrap_or(0.0);
-        let metadata = self.load_metadata(path);
 
         PageRenderResult {
             html: format!("<h1>{}</h1>\n", escape_html(&page.title)),
-            title: Some(page.title.clone()),
+            title: page.title.clone(),
             toc: Vec::new(),
             warnings: Vec::new(),
             from_cache: false,
             has_content: false,
             source_mtime,
             breadcrumbs,
-            metadata,
+            description: page.description.clone(),
+            page_kind: page.page_kind.clone(),
             section_refs: BTreeSet::new(),
             // Overwritten in `render()` after breadcrumb sections resolve.
             section_ancestry: HashMap::new(),
@@ -535,7 +533,6 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let metadata = self.load_metadata(path);
 
         // Diagram fences are reduced to their text before the walk rather than
         // during it: the index wants the words in a diagram, not a picture of
@@ -549,22 +546,21 @@ impl PageRenderer {
             )
         });
 
-        // No diagram router here, so every fence — diagram or not — reaches
+        // No title extraction. The title comes from the site snapshot, and
+        // `SearchDocumentBackend::TITLE_AS_METADATA` would otherwise pull the
+        // first H1 out of the indexed body — leaving its words in neither the
+        // title nor the text whenever the two differ.
+        //
+        // No diagram router either, so every fence — diagram or not — reaches
         // `SearchDocumentBackend::code_block` and is indexed as plain text.
         let renderer = Self::configure_renderer_settings(
-            MarkdownRenderer::<SearchDocumentBackend>::new().with_title_extraction(),
+            MarkdownRenderer::<SearchDocumentBackend>::new(),
             ctx,
         );
         let result = renderer.begin(&stripped).finish(&Resolutions::new());
 
-        let title = metadata
-            .as_ref()
-            .and_then(|m| m.title.clone())
-            .or(result.title)
-            .unwrap_or_else(|| page.title.clone());
-
         Ok(Some(SearchDocument {
-            title,
+            title: page.title.clone(),
             text: result.html,
         }))
     }
@@ -584,9 +580,13 @@ impl PageRenderer {
             renderer = renderer.with_origin(origin);
         }
 
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
-        }
+        // The first H1 is always title-extracted. Nothing reads the extracted
+        // title — the page's title comes from the site snapshot — but in HTML
+        // mode (`TITLE_AS_METADATA = false`) this flag is what keeps that H1
+        // out of the ToC (`rw-renderer`'s `HeadingAccumulator::complete_heading`).
+        // Drop it and every page grows a duplicate top ToC entry;
+        // `test_render_page_toc_generation` is the guard.
+        renderer = renderer.with_title_extraction();
 
         // With no provider configured there is no router either, so every fence
         // stays an ordinary code block.
@@ -616,23 +616,12 @@ impl PageRenderer {
 
         renderer
     }
-
-    fn load_metadata(&self, path: &str) -> Option<Metadata> {
-        match self.storage.meta(path) {
-            Ok(meta) => meta,
-            Err(e) => {
-                tracing::warn!(path = %path, error = %e, "Failed to load metadata");
-                None
-            }
-        }
-    }
 }
 
 /// Cached page data for deserialization (owned).
 #[derive(Deserialize)]
 struct CachedPage {
     html: String,
-    title: Option<String>,
     toc: Vec<TocEntry>,
     /// `#[serde(default)]` so cache entries written before this field existed
     /// still deserialize — the missing set becomes empty until the page is next
@@ -645,7 +634,6 @@ struct CachedPage {
 #[derive(Serialize)]
 struct CachedPageRef<'a> {
     html: &'a str,
-    title: Option<&'a str>,
     toc: &'a [TocEntry],
     section_refs: &'a BTreeSet<String>,
 }
@@ -675,6 +663,7 @@ mod tests {
             path: path.to_owned(),
             has_content,
             description: None,
+            page_kind: None,
             origin: None,
             pages: None,
             is_dir: true,
@@ -749,7 +738,6 @@ mod tests {
         let renderer = PageRenderer {
             storage: Arc::new(storage),
             page_bucket: cache.bucket("pages"),
-            extract_title: true,
             include_dirs: Vec::new(),
             providers: Arc::new(Providers::empty().with(Arc::new(provider))),
             diagram_config_fingerprint: 0,
@@ -947,7 +935,7 @@ mod tests {
             .unwrap();
 
         assert!(result.html.contains("<p>World</p>"));
-        assert_eq!(result.title, Some("Hello".to_owned()));
+        assert_eq!(result.title, "Hello");
         assert!(!result.from_cache);
         assert!(result.has_content);
     }
@@ -994,7 +982,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
-        assert_eq!(result.title, Some("My Domain".to_owned()));
+        assert_eq!(result.title, "My Domain");
         assert!(!result.has_content);
         assert!(result.toc.is_empty());
     }
@@ -1295,30 +1283,27 @@ mod tests {
     }
 
     #[test]
-    fn test_render_page_includes_metadata() {
-        let metadata = Metadata {
-            title: Some("Meta Title".to_owned()),
-            description: Some("A description".to_owned()),
-            ..Default::default()
-        };
+    fn test_render_page_includes_description_and_kind() {
         let storage = MockStorage::new()
             .with_file("test", "Test", "# Test\n\nContent")
-            .with_mtime("test", 1000.0)
-            .with_metadata("test", metadata);
+            .with_mtime("test", 1000.0);
 
         let renderer = create_renderer(storage);
-        let page = make_page("Test", "test", true);
+        let page = Page {
+            description: Some("A description".to_owned()),
+            page_kind: Some("domain".to_owned()),
+            ..make_page("Test", "test", true)
+        };
         let result = renderer
             .render("test", &page, vec![], &RenderContext::default())
             .unwrap();
 
-        let meta = result.metadata.unwrap();
-        assert_eq!(meta.title, Some("Meta Title".to_owned()));
-        assert_eq!(meta.description, Some("A description".to_owned()));
+        assert_eq!(result.description.as_deref(), Some("A description"));
+        assert_eq!(result.page_kind.as_deref(), Some("domain"));
     }
 
     #[test]
-    fn test_render_page_metadata_none_when_missing() {
+    fn test_render_page_reports_no_description_or_kind_when_undeclared() {
         let storage = MockStorage::new()
             .with_file("test", "Test", "# Test")
             .with_mtime("test", 1000.0);
@@ -1329,7 +1314,8 @@ mod tests {
             .render("test", &page, vec![], &RenderContext::default())
             .unwrap();
 
-        assert!(result.metadata.is_none());
+        assert_eq!(result.description, None);
+        assert_eq!(result.page_kind, None);
     }
 
     #[test]
@@ -1383,24 +1369,24 @@ mod tests {
     }
 
     #[test]
-    fn test_render_search_document_uses_metadata_title() {
-        let metadata = Metadata {
-            title: Some("Meta Title".to_owned()),
-            ..Default::default()
-        };
+    fn test_render_search_document_uses_resolved_page_title() {
         let storage = MockStorage::new()
-            .with_file("test", "H1 Title", "# H1 Title\n\nContent")
-            .with_mtime("test", 1000.0)
-            .with_metadata("test", metadata);
+            .with_file("test", "Page Title", "# H1 Title\n\nContent")
+            .with_mtime("test", 1000.0);
 
         let renderer = create_renderer(storage);
-        let page = make_page("H1 Title", "test", true);
+        let page = make_page("Page Title", "test", true);
         let result = renderer
             .render_search_document("test", &page, &RenderContext::default())
             .unwrap()
             .unwrap();
 
-        assert_eq!(result.title, "Meta Title");
+        assert_eq!(result.title, "Page Title");
+        assert!(
+            result.text.contains("H1 Title"),
+            "the H1 must be indexed as body text, got: {}",
+            result.text
+        );
     }
 
     #[test]

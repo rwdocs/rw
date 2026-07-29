@@ -3177,6 +3177,7 @@ name = "rw-storage"
 version = "0.1.33"
 dependencies = [
  "chrono",
+ "parking_lot",
  "serde",
  "thiserror",
 ]

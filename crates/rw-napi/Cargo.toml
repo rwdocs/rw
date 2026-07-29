@@ -21,7 +21,7 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "3", default-features = false, features = ["napi4", "async", "tokio_rt", "serde-json"] }
+napi = { version = "3", default-features = false, features = ["napi4", "async", "tokio_rt", "serde-json", "dyn-symbols"] }
 napi-derive = "3"
 
 rw-cache = { path = "../rw-cache" }
@@ -37,6 +37,9 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 
 [build-dependencies]
 napi-build = "2"
+
+[dev-dependencies]
+rw-storage = { path = "../rw-storage", features = ["mock"] }
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -2 }

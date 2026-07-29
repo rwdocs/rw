@@ -227,8 +227,12 @@ fn compute_subtree_has_content(
 /// info (page title/description/`has_content` + section kind/namespace/name).
 /// Deliberately excludes `Page::origin` (read only when rendering the page that
 /// owns it — to set that page's own link-resolution base — never read about a
-/// page by another page's render, so it is not a cross-page input) and
-/// `Page::pages` (navigation ordering, not page-body output).
+/// page by another page's render, so it is not a cross-page input),
+/// `Page::pages` (navigation ordering, not page-body output), and
+/// `Page::page_kind` (a kind change moves the page's entry in the `sections`
+/// map, which is hashed whole above; the field itself is read live from the
+/// snapshot on every render — including a cache hit — so it can never go
+/// stale without a fingerprint).
 ///
 /// `Section` is hashed whole, so any future field is auto-included — adding a
 /// field to `Section` widens the page-cache invalidation surface (a deliberate
@@ -1150,6 +1154,7 @@ mod tests {
                     title: p.title.clone(),
                     path: p.path.clone(),
                     has_content: p.has_content,
+                    page_kind: p.kind.clone(),
                     ..Default::default()
                 },
                 p.kind.as_deref(),
@@ -2306,6 +2311,27 @@ mod tests {
     }
 
     #[test]
+    fn cached_site_state_deserializes_old_page_without_page_kind_field() {
+        // Cache entries written before `Page::page_kind` existed contain pages
+        // like {"title":"Billing","path":"billing","has_content":true} with no
+        // page_kind key. Because the field is `Option`, deserializing fills
+        // in None so an upgrade without a cache-version bump still loads the
+        // cache instead of silently turning every reload into a full storage
+        // scan.
+        let json = r#"{
+            "pages": [{"title": "Billing", "path": "billing", "has_content": true}],
+            "children": [[]],
+            "parents": [null],
+            "roots": [0],
+            "sections": {}
+        }"#;
+        let cached: CachedSiteState = serde_json::from_str(json).unwrap();
+        let page = &cached.pages[0];
+        assert_eq!(page.title, "Billing");
+        assert_eq!(page.page_kind, None);
+    }
+
+    #[test]
     fn add_page_with_namespace_builds_namespaced_section() {
         let site = site(&[section("billing", "Billing", "domain").ns("payments".parse().unwrap())]);
         assert_eq!(
@@ -2501,6 +2527,7 @@ mod tests {
                 title: "Domain".to_owned(),
                 path: "domain".to_owned(),
                 has_content: true,
+                page_kind: Some("domain".to_owned()),
                 ..Default::default()
             },
             Some("domain"),
@@ -2704,6 +2731,7 @@ mod tests {
             path: path.to_owned(),
             has_content,
             description: desc.map(str::to_owned),
+            page_kind: None,
             origin: None,
             pages: None,
             is_dir: true,
@@ -2766,31 +2794,27 @@ mod tests {
     fn fingerprint_changes_on_section_kind_flip() {
         // `SiteModel::entity` matches on `s.kind`, so flipping a section's
         // kind re-targets which entity a diagram `!include` resolves to.
-        let a = fingerprint_of(
-            fingerprint_page("billing", "Billing", None, true),
-            Some("domain"),
-            Namespace::default(),
-        );
-        let b = fingerprint_of(
-            fingerprint_page("billing", "Billing", None, true),
-            Some("system"),
-            Namespace::default(),
-        );
+        let mut page_a = fingerprint_page("billing", "Billing", None, true);
+        page_a.page_kind = Some("domain".to_owned());
+        let a = fingerprint_of(page_a, Some("domain"), Namespace::default());
+
+        let mut page_b = fingerprint_page("billing", "Billing", None, true);
+        page_b.page_kind = Some("system".to_owned());
+        let b = fingerprint_of(page_b, Some("system"), Namespace::default());
+
         assert_ne!(a, b);
     }
 
     #[test]
     fn fingerprint_changes_on_section_namespace() {
-        let a = fingerprint_of(
-            fingerprint_page("billing", "Billing", None, true),
-            Some("domain"),
-            Namespace::default(),
-        );
-        let b = fingerprint_of(
-            fingerprint_page("billing", "Billing", None, true),
-            Some("domain"),
-            "payments".parse().unwrap(),
-        );
+        let mut page_a = fingerprint_page("billing", "Billing", None, true);
+        page_a.page_kind = Some("domain".to_owned());
+        let a = fingerprint_of(page_a, Some("domain"), Namespace::default());
+
+        let mut page_b = fingerprint_page("billing", "Billing", None, true);
+        page_b.page_kind = Some("domain".to_owned());
+        let b = fingerprint_of(page_b, Some("domain"), "payments".parse().unwrap());
+
         assert_ne!(a, b);
     }
 
@@ -2850,11 +2874,9 @@ mod tests {
     #[test]
     fn fingerprint_stable_across_structure_cache_rebuild() {
         let mut b = SiteStateBuilder::new();
-        b.add_page(
-            fingerprint_page("billing", "Billing", Some("desc"), true),
-            Some("domain"),
-            None,
-        );
+        let mut page = fingerprint_page("billing", "Billing", Some("desc"), true);
+        page.page_kind = Some("domain".to_owned());
+        b.add_page(page, Some("domain"), None);
         let state = b.build();
 
         // Round-trip through the on-disk structure-cache representation.
