@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New Features
+
+- **Correct diagram sizing** — Mermaid, GraphViz, Vega and every other non-PlantUML diagram now render at their intended size, roughly twice as large as before. See [Diagram Rendering](docs/diagrams.md).
+- **One page identity** — a page's title, description, and kind resolve once from what the page declares, so the navigation sidebar, the page itself, and search results agree. See [Page Metadata](docs/metadata.md#title-resolution).
+- **Project-directory targeting** — `rw serve --project-dir <dir>` points rw at a project you are not in, rooting configuration, docs, and `.rw/` at that directory. See [Configuration](docs/configuration.md).
+- **Isolated diagrams** — each diagram renders inside its own shadow root, so diagrams on one page no longer borrow each other's clip paths, gradients, and markers. See [Diagram Rendering](docs/diagrams.md).
+
 ### Added
 
 - `--project-dir <dir>` on `rw serve` and `rw backstage publish` points `rw` at a project you are not in, rooting configuration, the docs directory, `.rw/`, and PlantUML includes at `<dir>`. Long-form only, and conflicts with `-c`/`--config`. See [Configuration](docs/configuration.md).
@@ -30,11 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@rwdocs/core`'s `createSite({ projectDir })` now roots configuration and every path derived from it at `projectDir` when that directory has no `rw.toml`, instead of searching upward from the process's working directory and picking up an unrelated project. A `projectDir` that does not exist now throws.
 - A page served from an S3 bundle whose `manifest.json` records an unusable modification time no longer crashes. rw reports the time as the Unix epoch and renders the page. In `@rwdocs/core` the panic could take down the host process.
 - A PlantUML `!include` preceded by a blank line no longer double-spaces every line of the included file. An indented `!include` keeps its indentation.
-- **Mermaid, GraphViz, Vega, and every other non-PlantUML diagram now render at their intended size — roughly twice as large as before.** rw was shrinking them to half size, leaving labels close to unreadable. PlantUML and C4 diagrams are unchanged; no cache clearing is needed, but pages laid out around the smaller size may need revisiting.
+- **Mermaid, GraphViz, Vega, and every other non-PlantUML diagram now render at their intended size — roughly twice as large as before.** rw was shrinking them to half size, leaving labels close to unreadable. PlantUML and C4 diagrams are unchanged. `rw serve` re-renders on upgrade; a site served from S3 keeps its old HTML until you delete the bucket's `cache/pages/` prefix, which republishing does not do. Pages laid out around the smaller size may need revisiting.
 - Diagrams written with `{format=png}` no longer render at roughly twice their intended size; they now carry their display width and height, which also stops the page reflowing as they decode. SVG diagrams (the default) were never affected, and rw corrects cached diagrams without re-rendering.
 - A page that has both `X.md` and `X/index.md` now uses `X/index.md` everywhere, instead of showing one file's title in the navigation sidebar while serving the other file's content. `rw` still warns when it finds such a pair.
 - Editing a `README.md` homepage (a project with no `docs/index.md`) now updates the navigation sidebar to the README's real title on live reload, instead of replacing it with "Home".
-- Diagrams on the same page no longer borrow each other's clip paths, gradients, and markers; each one now renders inside its own shadow root. A script or test that reached a diagram's SVG in `@rwdocs/core`'s `renderPage()` output with `querySelector` must now go through the wrapper's `shadowRoot`. See [Diagram Rendering](docs/diagrams.md).
+- Diagrams on the same page no longer borrow each other's clip paths, gradients, and markers; each one now renders inside its own shadow root. A script or test that reached a diagram's SVG in `@rwdocs/core`'s `renderPage()` output with `querySelector` must now go through the wrapper's `shadowRoot`. A site served from S3 keeps its old HTML until you delete the bucket's `cache/pages/` prefix. See [Diagram Rendering](docs/diagrams.md).
 - Resolving the inline comment you're navigating on and pressing `n` now steps to the next comment instead of jumping back to the first; `p` steps back instead of jumping to the last.
 - `@rwdocs/core`'s `renderSearchDocument()` no longer runs a diagram's last word into the heading or paragraph that follows it, so both are indexed as separate terms and each is findable on its own.
 - The `re-anchored` badge on a comment no longer squeezes the author's name onto extra lines. It now sits in the thread header next to the position counter, shortened to `fuzzy`, and carries an accessible name for screen readers.
