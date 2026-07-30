@@ -33,11 +33,15 @@ jobs:
         with:
           tool: cargo-deny
 
+      # --hide-inclusion-graph keeps the accepted duplicate-version warnings to
+      # one line each. With the graph on, a passing run is ~14k lines and a
+      # real advisory would be buried in it. `make audit` leaves the graph on,
+      # since that is when you want the tree.
       - name: Audit workspace
-        run: cargo deny check
+        run: cargo deny check --hide-inclusion-graph
 
       # rw-napi is excluded from the root workspace and resolves its own
       # Cargo.lock, so the workspace audit above does not cover it. It shares
       # the root policy via --config.
       - name: Audit rw-napi
-        run: cargo deny --manifest-path crates/rw-napi/Cargo.toml --config deny.toml check
+        run: cargo deny --manifest-path crates/rw-napi/Cargo.toml --config deny.toml check --hide-inclusion-graph

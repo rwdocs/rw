@@ -58,9 +58,18 @@ allow = [
 # The tree legitimately carries duplicate major versions — two rustls lines,
 # two aws-smithy-xml — because upstream crates disagree about which to use. We
 # want these reported without failing the build; they are a cost to track, not
-# a defect to gate on.
+# a defect to gate on. CI passes --hide-inclusion-graph, because printing a
+# full tree per duplicate buries everything else in 14k lines of output.
 multiple-versions = "warn"
-wildcards = "warn"
+
+# Off, because here it can only produce false positives. rw's own crates are
+# declared `{ workspace = true }` against a path, which carries no version
+# requirement and so reads as a wildcard — 85 of them across the workspace.
+# `allow-wildcard-paths` does not help: it refuses to exempt any crate not
+# marked `publish = false`, and rw's are not. Marking them so would make this
+# check meaningful, and is worth doing on its own merits, but it is a change to
+# every crate manifest rather than a policy decision.
+wildcards = "allow"
 
 [sources]
 # Everything must come from crates.io. A git or alternate-registry dependency
