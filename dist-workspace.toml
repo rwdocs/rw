@@ -11,6 +11,15 @@ ci = "github"
 installers = ["shell", "powershell", "homebrew"]
 # Features to pass to cargo build
 features = ["rw/embed-assets"]
+# Build each shipped app on its own (`cargo build --package rw`) rather than
+# `--workspace`, which is dist's default. Do NOT drop this: rw-napi is a
+# cdylib, and cargo refuses to produce one for x86_64-unknown-linux-musl
+# ("cannot produce cdylib for ... as the target does not support these crate
+# types"), so a workspace-wide build fails on a crate dist never ships. The
+# same holds for any future crate that cannot build for every triple in
+# `targets` below. Note `cargo check` does not catch this — it downgrades the
+# unsupported crate type to a warning; only `cargo build` errors (#747).
+precise-builds = true
 # Steps to run before building (enables corepack for yarn)
 github-build-setup = "../dist/build-setup.yml"
 # A GitHub repo to push Homebrew formulas to

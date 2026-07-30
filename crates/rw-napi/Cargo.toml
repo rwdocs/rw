@@ -1,21 +1,13 @@
-# Standalone workspace. The root workspace at ../../Cargo.toml excludes this
-# crate (cdylib can't build for musl via `cargo --workspace`). Declaring an
-# empty [workspace] here stops cargo's upward walk from finding an ancestor
-# workspace — without it, `cargo` and `napi build` get confused when the repo
-# is checked out as a git worktree nested under another copy of the repo: the
-# upward walk finds the outer copy's Cargo.toml, which excludes us by relative
-# path but then treats us as "under its tree but not a member". See
-# rust-lang/cargo#16911 and #6745.
-[workspace]
-resolver = "3"
-
 [package]
 name = "rw-napi"
 description = "NAPI native addon exposing RW core to Node.js"
-version = "0.1.34"
-edition = "2024"
-rust-version = "1.96"
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["cdylib"]
@@ -24,14 +16,14 @@ crate-type = ["cdylib"]
 napi = { version = "3", default-features = false, features = ["napi4", "async", "tokio_rt", "serde-json", "dyn-symbols"] }
 napi-derive = "3"
 
-rw-cache = { path = "../rw-cache" }
-rw-cache-s3 = { path = "../rw-cache-s3" }
-rw-config = { path = "../rw-config" }
-rw-renderer = { path = "../rw-renderer" }
-rw-site = { path = "../rw-site" }
-rw-storage = { path = "../rw-storage" }
-rw-storage-fs = { path = "../rw-storage-fs" }
-rw-storage-s3 = { path = "../rw-storage-s3" }
+rw-cache = { workspace = true }
+rw-cache-s3 = { workspace = true }
+rw-config = { workspace = true }
+rw-renderer = { workspace = true }
+rw-site = { workspace = true }
+rw-storage = { workspace = true }
+rw-storage-fs = { workspace = true }
+rw-storage-s3 = { workspace = true }
 
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 
@@ -39,30 +31,4 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
 napi-build = "2"
 
 [dev-dependencies]
-rw-storage = { path = "../rw-storage", features = ["mock"] }
-
-[lints.clippy]
-pedantic = { level = "warn", priority = -2 }
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-module_name_repetitions = "allow"
-must_use_candidate = "allow"
-disallowed_types = "warn"
-clone_on_ref_ptr = "warn"
-dbg_macro = "warn"
-empty_drop = "warn"
-empty_structs_with_brackets = "warn"
-exit = "warn"
-get_unwrap = "warn"
-print_stdout = "warn"
-print_stderr = "warn"
-rc_buffer = "warn"
-rc_mutex = "warn"
-rest_pat_in_fully_bound_structs = "warn"
-str_to_string = "warn"
-todo = "warn"
-unimplemented = "warn"
-verbose_file_reads = "warn"
-debug_assert_with_mut_call = "warn"
-redundant_clone = "warn"
-unused_peekable = "warn"
+rw-storage = { workspace = true, features = ["mock"] }

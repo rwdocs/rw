@@ -10,7 +10,6 @@ node_modules/
 
 # Rust
 /target
-/crates/rw-napi/target
 
 # napi-rs build artifacts
 *.node
