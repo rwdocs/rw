@@ -12,12 +12,12 @@
     // The path may change once the section scope is known (e.g., "/" → "/domains/billing"),
     // which would unmount Home and mount Page instead — avoid a wasted fetch.
     if (router.embedded && !router.resolved) return;
-    page.load("");
+    void page.load("");
     return liveReload.onReload(() => {
       // Silent so a live reload doesn't flip `loading` → show the skeleton (which
       // unmounts the article after 300ms) and lose the reader's scroll position.
       // Mirrors Page.svelte's reload; the initial load above stays non-silent.
-      page.load("", { bypassCache: true, silent: true });
+      void page.load("", { bypassCache: true, silent: true });
     });
   });
 </script>

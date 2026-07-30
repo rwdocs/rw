@@ -135,7 +135,7 @@ describe("Comments.load", () => {
         .mockImplementationOnce(
           () =>
             new Promise((res) => {
-              resolveFirst = res as typeof resolveFirst;
+              resolveFirst = res;
             }),
         )
         .mockImplementation(async () => []),

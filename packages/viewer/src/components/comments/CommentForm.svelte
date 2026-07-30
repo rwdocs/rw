@@ -116,7 +116,7 @@
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      submit();
+      void submit();
     } else if (event.key === "Escape" && !event.isComposing) {
       event.preventDefault();
       // Leave the field so n/p comment navigation resumes; close the form too
@@ -129,7 +129,7 @@
 
   function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
-    submit();
+    void submit();
   }
 </script>
 

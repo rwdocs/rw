@@ -209,7 +209,7 @@ export async function resolveNavTree(
           // produce "section:undefined/root").
           section: {
             kind: "section",
-            namespace: tree.scope!.section.namespace ?? "default",
+            namespace: tree.scope.section.namespace ?? "default",
             name: "root",
           },
         }

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { MockInstance } from "vitest";
 import { restoreFocusToThread, focusReplyTextarea } from "./focus";
 
 afterEach(() => {
@@ -49,7 +50,7 @@ describe("focusReplyTextarea", () => {
   // Capture the rAF callbacks instead of running them synchronously, so a test
   // can assert the focus is *deferred* (not applied before the frame fires).
   let rafCallbacks: FrameRequestCallback[] = [];
-  let rafSpy: ReturnType<typeof vi.spyOn>;
+  let rafSpy: MockInstance<typeof globalThis.requestAnimationFrame>;
 
   beforeEach(() => {
     rafCallbacks = [];

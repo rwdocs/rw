@@ -348,7 +348,7 @@
   // comments.enabled ensures the effect re-runs when it flips to true.
   $effect(() => {
     if (page.data && comments.enabled && docId !== null) {
-      comments.load(docId);
+      void comments.load(docId);
     } else if (!page.data) {
       comments.clear();
     }
@@ -368,7 +368,7 @@
     if (comments.canSubscribe) return;
     return liveReload.onCommentsReload(() => {
       if (page.data && comments.enabled && docId !== null) {
-        comments.load(docId, { silent: true });
+        void comments.load(docId, { silent: true });
       }
     });
   });
@@ -381,7 +381,7 @@
     const id = docId;
     return comments.subscribe(id, () => {
       if (page.data && comments.enabled) {
-        comments.load(id, { silent: true });
+        void comments.load(id, { silent: true });
       }
     });
   });

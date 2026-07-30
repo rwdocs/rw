@@ -14,14 +14,14 @@
     if (router.embedded && !router.resolved) return;
     const currentPath = router.path;
     const apiPath = extractDocPath(currentPath);
-    page.load(apiPath);
+    void page.load(apiPath);
   });
 
   watchPageSection(page, navigation);
 
   $effect(() => {
     return liveReload.onReload(() => {
-      page.load(extractDocPath(router.path), { bypassCache: true, silent: true });
+      void page.load(extractDocPath(router.path), { bypassCache: true, silent: true });
     });
   });
 </script>
