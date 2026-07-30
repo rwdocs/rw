@@ -27,7 +27,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
 
@@ -91,7 +91,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
 
@@ -133,7 +133,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
 
