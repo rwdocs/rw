@@ -1,5 +1,6 @@
 import eslintPluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
 import boundaries from "eslint-plugin-boundaries";
+import svelte from "eslint-plugin-svelte";
 import vitest from "@vitest/eslint-plugin";
 import { defineConfig } from "eslint/config";
 import eslintParserSvelte from "svelte-eslint-parser";
@@ -185,9 +186,40 @@ export default defineConfig([
       "@typescript-eslint/no-unsafe-return": "off",
     },
   },
+  // Svelte-specific correctness — reactivity, keyed `{#each}`, template a11y.
+  // These sit outside what `svelte-check` and typescript-eslint can see: a
+  // plain `Set` mutated inside a rune type-checks and compiles, it just never
+  // triggers an update.
+  {
+    extends: [svelte.configs.recommended],
+    files: ["src/**/*.svelte"],
+    languageOptions: svelteLanguageOptions,
+  },
+  // Rune modules carry the same reactivity rules as components. The plugin's
+  // own `recommended` leaves its rule block unscoped, so a `files` glob of
+  // `*.svelte` alone would silently skip these — and shared state is exactly
+  // where a non-reactive `Set` or `Map` does the most damage.
+  {
+    extends: [svelte.configs.recommended],
+    files: ["src/**/*.svelte.ts"],
+  },
+  {
+    files: ["src/**/*.{svelte,svelte.ts}"],
+    rules: {
+      // Fires on every `new Set()` / `new Map()` / `new URL()` in a rune file,
+      // but it is aimed at mutating a collection *in place* while reading it
+      // reactively. This codebase never does: `navigation.collapsed` copies,
+      // mutates the copy and reassigns, `comments` holds its collections in
+      // `$state.raw` (reassign-only by contract), and the rest are local
+      // bookkeeping that no template reads. `SvelteSet`/`SvelteMap` would add
+      // a proxy for reactivity that reassignment already provides.
+      "svelte/prefer-svelte-reactivity": "off",
+    },
+  },
   {
     files: ["src/**/*.{test,spec}.ts"],
     plugins: { vitest },
+    extends: [vitest.configs.recommended],
     rules: {
       // `expect(obj.method).toHaveBeenCalled()` reads the method without
       // calling it, which the base rule cannot distinguish from a genuine

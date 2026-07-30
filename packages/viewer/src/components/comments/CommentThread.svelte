@@ -335,6 +335,9 @@
       <!-- `!= null`, not truthy: an empty string is a body that rendered to
            nothing (show nothing); only a missing field — a backend that didn't
            render server-side — falls back to the plain-text body. -->
+      <!-- The host owns sanitization of `bodyHtml` — see the contract on
+           CommentApiClient in api/comments.ts. -->
+      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
       {#if comment.bodyHtml != null}{@html comment.bodyHtml}{:else}{comment.body}{/if}
     </div>
     <div class="my-2 flex items-center gap-2">
@@ -400,6 +403,9 @@
               {reply.deletedAt != null ? 'line-through' : ''}
             "
           >
+            <!-- The host owns sanitization of `bodyHtml` — see the contract on
+           CommentApiClient in api/comments.ts. -->
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             {#if reply.bodyHtml != null}{@html reply.bodyHtml}{:else}{reply.body}{/if}
           </div>
           <div class="mt-1 flex items-center gap-2">

@@ -29,8 +29,10 @@
     ariaLabel = "Test menu",
   }: Props = $props();
 
-  // svelte-ignore state_referenced_locally — capturing only the initial
-  // value is intentional; tests drive `open` via bind:open into the Menu.
+  // Capturing only the initial value is intentional; tests drive `open`
+  // via bind:open into the Menu. The directive takes the code alone — any
+  // trailing prose on its line is parsed as further ignore codes.
+  // svelte-ignore state_referenced_locally
   let open = $state(initialOpen);
 </script>
 
