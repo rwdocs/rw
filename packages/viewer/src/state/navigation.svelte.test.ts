@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { flushSync } from "svelte";
 import type { Mock } from "vitest";
 import type { NavigationTree } from "../types";
 import { Navigation, collectParentPaths, getParentPaths } from "./navigation.svelte";
@@ -310,6 +311,36 @@ describe("navigation store", () => {
       // Then collapse
       navigation.toggle("/guide");
       expect(navigation.collapsed.has("/guide")).toBe(true);
+    });
+  });
+
+  describe("collapsed reactivity", () => {
+    // `collapsed` is a SvelteSet rather than a `$state` Set. `$state` does not
+    // proxy collections, so a plain Set would report this mutation to nobody and
+    // the nav would silently stop re-rendering. Mutating directly here, rather
+    // than through `toggle`, is the point: `toggle` reassigned the whole Set in
+    // the previous implementation and so passed either way.
+    it("reports an in-place add to a reader", () => {
+      const navigation = new Navigation(mockApiClient);
+      let seen: boolean | undefined;
+      const teardown = $effect.root(() => {
+        const isCollapsed = $derived(navigation.collapsed.has("/guide"));
+        $effect(() => {
+          seen = isCollapsed;
+        });
+      });
+      flushSync();
+      expect(seen).toBe(false);
+
+      navigation.collapsed.add("/guide");
+      flushSync();
+      expect(seen).toBe(true);
+
+      navigation.collapsed.delete("/guide");
+      flushSync();
+      expect(seen).toBe(false);
+
+      teardown();
     });
   });
 
