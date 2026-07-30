@@ -1,17 +1,31 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    ":maintainLockFilesWeekly"
   ],
   "ignorePaths": [
     ".github/workflows/release.yml"
   ],
   "labels": ["dependencies"],
   "minimumReleaseAge": "14 days",
+  "osvVulnerabilityAlerts": true,
   "postUpdateOptions": [
     "npmDedupe"
   ],
   "packageRules": [
+    {
+      "description": "Crates reachable only through another crate's dependencies — rustls via ureq, aws-lc-sys via aws-config — appear in no Cargo.toml, so no range bump ever refreshes them and they go stale indefinitely. Lock file maintenance is the only mechanism that re-resolves them. It also covers crates/rw-napi/Cargo.lock, which is a separate workspace whose AWS stack arrives entirely through path dependencies",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "enabled": true
+    },
+    {
+      "description": "npm lock maintenance stays off: direct dependencies are already kept current by rangeStrategy bump below, and refreshing the viewer's transitive tree is a separate decision",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "enabled": false
+    },
     {
       "matchManagers": ["cargo"],
       "matchPackageNames": ["napi", "napi-build", "napi-derive"],

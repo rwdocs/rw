@@ -20,6 +20,7 @@ make build                # Build frontend and CLI
 make test                 # Run all tests with coverage including doctests (Rust, Frontend)
 make format               # Format all code (Rust, Frontend)
 make lint                 # Lint all code (clippy, svelte-check)
+make audit                # Check both lockfiles for advisories, licenses, sources (cargo-deny)
 
 # Run the CLI
 cargo build -p rw && ./target/debug/rw serve
