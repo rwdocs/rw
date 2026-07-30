@@ -77,47 +77,62 @@ const boundariesConfig = {
       "error",
       {
         default: "disallow",
-        rules: [
+        policies: [
           // Kit layers — strict isolation from domain.
           {
-            from: { type: "kit-hooks" },
-            allow: { to: { type: ["kit-hooks", "kit-root"] } },
+            from: { element: { type: "kit-hooks" } },
+            allow: { to: { element: { type: ["kit-hooks", "kit-root"] } } },
           },
           {
-            from: { type: "kit-primitives" },
-            allow: { to: { type: ["kit-primitives", "kit-hooks", "kit-root"] } },
+            from: { element: { type: "kit-primitives" } },
+            allow: { to: { element: { type: ["kit-primitives", "kit-hooks", "kit-root"] } } },
           },
-          { from: { type: "kit-root" }, allow: { to: { type: "kit-root" } } },
+          {
+            from: { element: { type: "kit-root" } },
+            allow: { to: { element: { type: "kit-root" } } },
+          },
           // Domain layers.
-          { from: { type: "rw-context" }, allow: { to: { type: ["state", "api", "types"] } } },
           {
-            from: { type: "domain-lib" },
-            allow: {
-              to: { type: ["domain-lib", "types", "kit-primitives", "kit-hooks", "kit-root"] },
-            },
+            from: { element: { type: "rw-context" } },
+            allow: { to: { element: { type: ["state", "api", "types"] } } },
           },
           {
-            from: { type: "state" },
+            from: { element: { type: "domain-lib" } },
             allow: {
               to: {
-                type: [
-                  "state",
-                  "domain-lib",
-                  "rw-context",
-                  "types",
-                  "api",
-                  "kit-primitives",
-                  "kit-hooks",
-                  "kit-root",
-                ],
+                element: {
+                  type: ["domain-lib", "types", "kit-primitives", "kit-hooks", "kit-root"],
+                },
               },
             },
           },
-          { from: { type: "components" }, allow: { to: { type: "*" } } },
-          { from: { type: "pages" }, allow: { to: { type: "*" } } },
-          { from: { type: "entry" }, allow: { to: { type: "*" } } },
-          { from: { type: "api" }, allow: { to: { type: ["api", "types"] } } },
-          { from: { type: "types" }, allow: { to: { type: "types" } } },
+          {
+            from: { element: { type: "state" } },
+            allow: {
+              to: {
+                element: {
+                  type: [
+                    "state",
+                    "domain-lib",
+                    "rw-context",
+                    "types",
+                    "api",
+                    "kit-primitives",
+                    "kit-hooks",
+                    "kit-root",
+                  ],
+                },
+              },
+            },
+          },
+          { from: { element: { type: "components" } }, allow: { to: { element: { type: "*" } } } },
+          { from: { element: { type: "pages" } }, allow: { to: { element: { type: "*" } } } },
+          { from: { element: { type: "entry" } }, allow: { to: { element: { type: "*" } } } },
+          {
+            from: { element: { type: "api" } },
+            allow: { to: { element: { type: ["api", "types"] } } },
+          },
+          { from: { element: { type: "types" } }, allow: { to: { element: { type: "types" } } } },
         ],
       },
     ],
