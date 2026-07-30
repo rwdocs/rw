@@ -143,6 +143,24 @@ export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
   },
+  // TypeScript baseline. Scoped to the same `src/**` glob as the parser blocks
+  // below: root-level config files (vite, playwright) have no TS parser
+  // configured, so widening this to `**/*` would fail to parse them.
+  {
+    extends: [tseslint.configs.recommended],
+    files: ["src/**/*.{ts,svelte.ts}"],
+  },
+  {
+    extends: [tseslint.configs.recommended],
+    files: ["src/**/*.svelte"],
+    languageOptions: svelteLanguageOptions,
+    rules: {
+      // Svelte 5 runes must be declared with `let` — the compiler rewrites
+      // `let { x } = $props()` and `let x = $state(0)` behind the scenes, so
+      // the source never reassigns them and `prefer-const` flags every one.
+      "prefer-const": "off",
+    },
+  },
   {
     extends: [eslintPluginBetterTailwindcss.configs.recommended],
     settings: {

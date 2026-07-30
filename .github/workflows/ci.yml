@@ -62,6 +62,11 @@ jobs:
       - name: Run svelte-check
         run: npm -w @rwdocs/viewer run check
 
+      # Mirrors the `make lint` target so the layer-boundary and Tailwind-token
+      # rules are enforced here and not only when someone runs it by hand.
+      - name: Run ESLint
+        run: npm -w @rwdocs/viewer run lint
+
       - name: Check Prettier formatting
         run: npx -w @rwdocs/viewer prettier --check .
 

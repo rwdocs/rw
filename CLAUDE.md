@@ -19,7 +19,7 @@ to Confluence. Also supports embedding in Backstage via native plugins.
 make build                # Build frontend and CLI
 make test                 # Run all tests with coverage including doctests (Rust, Frontend)
 make format               # Format all code (Rust, Frontend)
-make lint                 # Lint all code (clippy, svelte-check)
+make lint                 # Lint all code (clippy, svelte-check, eslint)
 make audit                # Check both lockfiles for advisories, licenses, sources (cargo-deny)
 
 # Run the CLI
