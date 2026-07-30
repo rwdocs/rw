@@ -1,4 +1,5 @@
 import type { Comment, CreateCommentRequest, UpdateCommentRequest } from "../types/comments";
+import { readJson } from "./json";
 
 /**
  * Host-supplied comment transport for `mountRw({ comments })`.
@@ -39,7 +40,7 @@ export function createCommentApiClient(
       if (!response.ok) {
         throw new Error(`Failed to fetch comments: ${response.status}`);
       }
-      return response.json();
+      return readJson<Comment[]>(response);
     },
 
     async create(input: CreateCommentRequest): Promise<Comment> {
@@ -51,7 +52,7 @@ export function createCommentApiClient(
       if (!response.ok) {
         throw new Error(`Failed to create comment: ${response.status}`);
       }
-      return response.json();
+      return readJson<Comment>(response);
     },
 
     async update(id: string, input: UpdateCommentRequest): Promise<Comment> {
@@ -63,7 +64,7 @@ export function createCommentApiClient(
       if (!response.ok) {
         throw new Error(`Failed to update comment: ${response.status}`);
       }
-      return response.json();
+      return readJson<Comment>(response);
     },
 
     async delete(id: string): Promise<Comment> {
@@ -73,7 +74,7 @@ export function createCommentApiClient(
       if (!response.ok) {
         throw new Error(`Failed to delete comment: ${response.status}`);
       }
-      return response.json();
+      return readJson<Comment>(response);
     },
   };
 }

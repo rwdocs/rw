@@ -1,4 +1,5 @@
 import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
+import { readJson } from "./json";
 
 /** Options for API fetch functions */
 export interface FetchOptions {
@@ -55,7 +56,7 @@ export function createApiClient(apiBase: string = "/_api", fetchFn?: typeof fetc
       if (!response.ok) {
         throw new Error(`Failed to fetch navigation: ${response.status} ${response.statusText}`);
       }
-      return response.json();
+      return readJson<NavigationTree>(response);
     },
 
     async fetchPage(path: string, options?: FetchOptions): Promise<PageResponse> {
@@ -66,7 +67,7 @@ export function createApiClient(apiBase: string = "/_api", fetchFn?: typeof fetc
         }
         throw new Error(`Failed to fetch page: ${response.status} ${response.statusText}`);
       }
-      return response.json();
+      return readJson<PageResponse>(response);
     },
 
     async fetchConfig(): Promise<ConfigResponse> {
@@ -74,7 +75,7 @@ export function createApiClient(apiBase: string = "/_api", fetchFn?: typeof fetc
       if (!response.ok) {
         throw new Error(`Failed to fetch config: ${response.status} ${response.statusText}`);
       }
-      return response.json();
+      return readJson<ConfigResponse>(response);
     },
   };
 }
