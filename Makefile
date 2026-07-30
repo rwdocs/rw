@@ -43,6 +43,10 @@ lint:
 	npm -w @rwdocs/viewer run check
 	npm -w @rwdocs/viewer run lint
 
+audit:
+	cargo deny check
+	cargo deny --manifest-path crates/rw-napi/Cargo.toml --config deny.toml check
+
 version:
 	@test -n "$(VERSION)" || (echo "Usage: make version VERSION=0.2.0" && exit 1)
 

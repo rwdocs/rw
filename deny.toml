@@ -1,0 +1,79 @@
+# cargo-deny policy. Run `make audit`, or see .github/workflows/audit.yml.
+#
+# This exists because neither Renovate nor Cargo will tell us about a
+# vulnerable crate that appears in no Cargo.toml. Renovate bumps manifest
+# ranges, so a crate reachable only through someone else's dependency — rustls
+# via ureq, aws-lc-sys via aws-config — has nothing for it to match on and
+# never moves. cargo-deny reads Cargo.lock, which lists every resolved crate
+# flat, so it sees the whole graph.
+
+[graph]
+# The `publish` and `embed-assets` features pull dependencies that a default
+# build does not, and those crates need auditing too.
+all-features = true
+
+[advisories]
+# Vulnerabilities and unmaintained crates are denied by default; yanked crates
+# warn. Entries here are advisories we have consciously accepted, each with the
+# reason and the condition that would let us drop it again.
+ignore = [
+  # rustls-webpki 0.101.7, reached only through rustls 0.21 -> hyper-rustls
+  # 0.24's `acceptor` feature, which aws-smithy-http-client enables alongside
+  # the hyper-rustls 0.27 stack it actually uses. `acceptor` is server-side
+  # TLS; rw is only ever a TLS client, so the affected certificate-validation
+  # paths are not reachable from rw. rw's real S3 and Kroki traffic goes
+  # through rustls 0.23 + rustls-webpki 0.103.13, which are patched.
+  #
+  # We cannot fix this from here: no version of aws-smithy-http-client drops
+  # the 0.24 dependency. Remove these three once it does.
+  "RUSTSEC-2026-0098", # name constraints for URI names incorrectly accepted
+  "RUSTSEC-2026-0099", # name constraints accepted for wildcard certificates
+  "RUSTSEC-2026-0104", # reachable panic parsing certificate revocation lists
+]
+
+[licenses]
+# rw ships under MIT OR Apache-2.0. This list is every license currently in the
+# tree, all permissive except the MPL-2.0 entry noted below. A new dependency
+# under anything else fails the check and gets a deliberate decision.
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  # option-ext, pulled in by dirs. Weak copyleft, per-file, and we do not
+  # modify it — the obligation does not reach rw's own sources.
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+
+[bans]
+# The tree legitimately carries duplicate major versions — two rustls lines,
+# two aws-smithy-xml — because upstream crates disagree about which to use. We
+# want these reported without failing the build; they are a cost to track, not
+# a defect to gate on. CI passes --hide-inclusion-graph, because printing a
+# full tree per duplicate buries everything else in 14k lines of output.
+multiple-versions = "warn"
+
+# Off, because here it can only produce false positives. rw's own crates are
+# declared `{ workspace = true }` against a path, which carries no version
+# requirement and so reads as a wildcard — 85 of them across the workspace.
+# `allow-wildcard-paths` does not help: it refuses to exempt any crate not
+# marked `publish = false`, and rw's are not. Marking them so would make this
+# check meaningful, and is worth doing on its own merits, but it is a change to
+# every crate manifest rather than a policy decision.
+wildcards = "allow"
+
+[sources]
+# Everything must come from crates.io. A git or alternate-registry dependency
+# would sidestep both this policy and Renovate.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
