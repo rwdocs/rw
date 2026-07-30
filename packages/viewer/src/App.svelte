@@ -106,8 +106,7 @@
 
   const currentSectionRef = untrack(() => sectionRef);
 
-  // Reload navigation tree when file structure changes
-  const unsubStructureReload = liveReload.onStructureReload(async () => {
+  async function reloadStructure() {
     await navigation.load({
       bypassCache: true,
       sectionRef: navigation.currentSectionRef ?? currentSectionRef,
@@ -116,6 +115,13 @@
     if (currentPath !== "/") {
       navigation.expandOnlyTo(currentPath);
     }
+  }
+
+  // Reload navigation tree when file structure changes. The subscriber expects
+  // a void callback, and `navigation.load` reports its own failures, so the
+  // promise is deliberately dropped rather than propagated.
+  const unsubStructureReload = liveReload.onStructureReload(() => {
+    void reloadStructure();
   });
 
   setRwContext({
@@ -139,7 +145,7 @@
   $effect(() => {
     const cleanupRouter = router.initRouter(rootElement);
 
-    (async () => {
+    void (async () => {
       // Load navigation — pass sectionRef for scoped loading in embedded mode
       await navigation.load(currentSectionRef ? { sectionRef: currentSectionRef } : undefined);
 

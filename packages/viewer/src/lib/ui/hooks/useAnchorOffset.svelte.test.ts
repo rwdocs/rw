@@ -66,8 +66,14 @@ describe("useAnchorOffset", () => {
   it("updates the rect fields when ResizeObserver fires", () => {
     let currentRect = { top: 0, left: 0, width: 100, height: 50 };
     const el = document.createElement("div");
-    el.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    el.getBoundingClientRect = () => ({
+      ...currentRect,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
 
     const { getByTestId } = render(Harness, { el });
     const out = getByTestId("anchor-offset");
@@ -98,8 +104,14 @@ describe("useAnchorOffset", () => {
   it("updates the rect fields when window scrolls", () => {
     let currentRect = { top: 100, left: 50, width: 100, height: 50 };
     const el = document.createElement("div");
-    el.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    el.getBoundingClientRect = () => ({
+      ...currentRect,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
 
     const { getByTestId } = render(Harness, { el });
     const out = getByTestId("anchor-offset");
@@ -118,8 +130,14 @@ describe("useAnchorOffset", () => {
     const el = document.createElement("div");
     scroller.appendChild(el);
     document.body.appendChild(scroller);
-    el.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    el.getBoundingClientRect = () => ({
+      ...currentRect,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
 
     try {
       const { getByTestId } = render(Harness, { el });
@@ -139,8 +157,14 @@ describe("useAnchorOffset", () => {
   it("updates the rect fields when the window resizes", () => {
     let currentRect = { top: 10, left: 10, width: 100, height: 50 };
     const el = document.createElement("div");
-    el.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    el.getBoundingClientRect = () => ({
+      ...currentRect,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
 
     const { getByTestId } = render(Harness, { el });
     const out = getByTestId("anchor-offset");
@@ -200,8 +224,14 @@ describe("useAnchorOffset", () => {
     // down because content above it grew. observeMove must catch this.
     let currentRect = { top: 100, left: 50, width: 100, height: 50 };
     const el = document.createElement("div");
-    el.getBoundingClientRect = () =>
-      ({ ...currentRect, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    el.getBoundingClientRect = () => ({
+      ...currentRect,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
 
     const { getByTestId } = render(Harness, { el });
     const out = getByTestId("anchor-offset");

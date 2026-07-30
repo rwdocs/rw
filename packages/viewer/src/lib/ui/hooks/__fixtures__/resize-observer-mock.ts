@@ -27,7 +27,7 @@ export class MockResizeObserver {
   trigger() {
     this.callback(
       this.observed.map((target) => ({ target }) as ResizeObserverEntry),
-      this as unknown as ResizeObserver,
+      this,
     );
   }
 }
@@ -48,6 +48,6 @@ export function makeAnchor(rect: Partial<DOMRect>): HTMLElement {
     toJSON: () => ({}),
     ...rect,
   });
-  el.getBoundingClientRect = () => get() as DOMRect;
+  el.getBoundingClientRect = () => get();
   return el;
 }

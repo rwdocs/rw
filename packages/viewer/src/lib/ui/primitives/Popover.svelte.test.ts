@@ -215,6 +215,8 @@ describe("Popover", () => {
       // wrapper is <span class="inline-block"> inserted by Popover itself;
       // we override getBoundingClientRect on HTMLSpanElement.prototype for
       // the duration of this test so Popover sees deterministic coords.
+      // Saved to restore afterwards, so the unbound reference is the point.
+      // eslint-disable-next-line vitest/unbound-method
       const original = HTMLElement.prototype.getBoundingClientRect;
       HTMLElement.prototype.getBoundingClientRect = function () {
         if (this.tagName === "SPAN" && this.classList.contains("inline-block")) {
@@ -228,7 +230,7 @@ describe("Popover", () => {
             x: 20,
             y: 10,
             toJSON: () => ({}),
-          } as DOMRect;
+          };
         }
         return original.call(this);
       };
@@ -410,7 +412,7 @@ describe("Popover", () => {
 
       // Simulate the panel taking focus (e.g. user tabs to a link inside).
       // Escape should still return focus to the trigger, not stay on the body.
-      (getByTestId("pp-body") as HTMLElement).focus();
+      getByTestId("pp-body").focus();
 
       await fireEvent.keyDown(window, { key: "Escape" });
       flushSync();
@@ -537,6 +539,8 @@ describe("Popover", () => {
     });
 
     it("renders the panel visible once the trigger wrapper has been measured", () => {
+      // Saved to restore afterwards, so the unbound reference is the point.
+      // eslint-disable-next-line vitest/unbound-method
       const original = HTMLElement.prototype.getBoundingClientRect;
       HTMLElement.prototype.getBoundingClientRect = function () {
         if (this.tagName === "SPAN" && this.classList.contains("inline-block")) {
@@ -550,7 +554,7 @@ describe("Popover", () => {
             x: 20,
             y: 10,
             toJSON: () => ({}),
-          } as DOMRect;
+          };
         }
         return original.call(this);
       };

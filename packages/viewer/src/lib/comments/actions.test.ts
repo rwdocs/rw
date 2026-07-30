@@ -35,6 +35,9 @@ describe("createCommentActions", () => {
     const notify = vi.fn();
     const comments = makeComments({
       resolve: vi.fn(async () => {
+        // Throwing a bare string is the case under test — the generic fallback
+        // only runs when the rejection is not an Error.
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
         throw "nope";
       }),
     });
@@ -69,6 +72,8 @@ describe("createCommentActions", () => {
       const notify = vi.fn();
       const comments = makeComments({
         [method]: vi.fn(async () => {
+          // Bare string, as above: exercises the non-Error rejection path.
+          // eslint-disable-next-line @typescript-eslint/only-throw-error
           throw "boom";
         }),
       });

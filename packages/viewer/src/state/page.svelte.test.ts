@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Mock } from "vitest";
 import type { PageResponse } from "../types";
 import { Page } from "./page.svelte";
 import type { ApiClient } from "../api/client";
@@ -24,12 +25,12 @@ function createMockApiClient(overrides: Record<string, ReturnType<typeof vi.fn>>
     fetchPage: vi.fn(),
     fetchNavigation: vi.fn(),
     ...overrides,
-  } as unknown as ApiClient;
+  };
 }
 
 describe("page store", () => {
   let mockApiClient: ApiClient;
-  let mockFetchPage: ReturnType<typeof vi.fn>;
+  let mockFetchPage: Mock<ApiClient["fetchPage"]>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -172,6 +173,9 @@ describe("page store", () => {
 
       expect(mockFetchPage).toHaveBeenCalledWith(
         "test",
+        // `expect.any` is typed `any` — it returns an asymmetric matcher, not
+        // an AbortSignal, so there is no honest annotation for it.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
@@ -233,7 +237,7 @@ describe("page store", () => {
       expect(firstSignal?.aborted).toBe(false);
 
       // Start second load immediately
-      page.load("second");
+      void page.load("second");
 
       // First signal should now be aborted
       expect(firstSignal?.aborted).toBe(true);
@@ -280,7 +284,7 @@ describe("page store", () => {
 
       // Set up a slow second load
       mockFetchPage.mockReturnValue(new Promise(() => {}));
-      page.load("second");
+      void page.load("second");
 
       // Previous data should be preserved for smooth transitions, loading should be true
       expect(page.data).not.toBeNull();
@@ -327,7 +331,7 @@ describe("page store", () => {
 
       // Start silent load that doesn't resolve
       mockFetchPage.mockReturnValue(new Promise(() => {}));
-      page.load("second", { silent: true });
+      void page.load("second", { silent: true });
 
       // Original data should still be present
       expect(page.data).toBe(originalData);
@@ -379,7 +383,7 @@ describe("page store", () => {
 
       // A non-silent navigation starts and hangs → loading=true.
       mockFetchPage.mockReturnValueOnce(new Promise<PageResponse>(() => {}));
-      page.load("second"); // not awaited — stays pending
+      void page.load("second"); // not awaited — stays pending
       expect(page.loading).toBe(true);
 
       // A live-reload silent refresh supersedes it (aborting it), then fails.

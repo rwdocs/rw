@@ -17,7 +17,7 @@ export function watchPageSection(page: Page, navigation: Navigation): void {
     const current = untrack(() => navigation.currentSectionRef);
 
     if (sectionRef !== current) {
-      navigation.loadSection(sectionRef);
+      void navigation.loadSection(sectionRef);
     }
   });
 }

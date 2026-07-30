@@ -6,7 +6,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 function makeSvg(attrs: Record<string, string>): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
   for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v);
-  return svg as SVGSVGElement;
+  return svg;
 }
 
 describe("naturalSizeOf (svg)", () => {

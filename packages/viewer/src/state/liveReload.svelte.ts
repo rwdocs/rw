@@ -83,7 +83,11 @@ export class LiveReload {
       this.ws?.close();
     };
 
-    this.ws.onmessage = (event) => {
+    this.ws.onmessage = (event: MessageEvent<unknown>) => {
+      // `MessageEvent.data` is `any`, and a socket can deliver Blob or
+      // ArrayBuffer frames as well as text. The server only ever sends JSON
+      // text, so anything else is dropped rather than fed to JSON.parse.
+      if (typeof event.data !== "string") return;
       try {
         const message = JSON.parse(event.data) as ReloadMessage;
         if (message.type === "content") {

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Mock } from "vitest";
 import type { NavigationTree } from "../types";
 import { Navigation, collectParentPaths, getParentPaths } from "./navigation.svelte";
 import type { ApiClient } from "../api/client";
@@ -28,7 +29,7 @@ function createMockApiClient(overrides: Record<string, ReturnType<typeof vi.fn>>
     fetchPage: vi.fn(),
     fetchNavigation: vi.fn(),
     ...overrides,
-  } as unknown as ApiClient;
+  };
 }
 
 describe("collectParentPaths", () => {
@@ -79,7 +80,7 @@ describe("getParentPaths", () => {
 });
 
 describe("navigation store", () => {
-  let mockFetchNavigation: ReturnType<typeof vi.fn>;
+  let mockFetchNavigation: Mock<ApiClient["fetchNavigation"]>;
   let mockApiClient: ApiClient;
 
   beforeEach(() => {

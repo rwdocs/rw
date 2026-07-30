@@ -112,7 +112,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
       if (mediaQuery && mediaQueryHandler) {
         mediaQuery.removeEventListener("change", mediaQueryHandler);
       }
-      unmount(instance);
+      void unmount(instance);
       target.removeAttribute("data-rw-viewer");
     },
     navigateTo: (path: string) => gotoFn?.(path),

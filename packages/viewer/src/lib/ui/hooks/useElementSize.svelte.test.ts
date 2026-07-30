@@ -38,17 +38,16 @@ describe("useElementSize", () => {
   it("updates width/height when ResizeObserver fires", () => {
     let currentRect = { width: 100, height: 50 };
     const el = document.createElement("div");
-    el.getBoundingClientRect = () =>
-      ({
-        ...currentRect,
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        x: 0,
-        y: 0,
-        toJSON: () => ({}),
-      }) as DOMRect;
+    el.getBoundingClientRect = () => ({
+      ...currentRect,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
 
     const { getByTestId } = render(Harness, { el });
     const out = getByTestId("element-size");

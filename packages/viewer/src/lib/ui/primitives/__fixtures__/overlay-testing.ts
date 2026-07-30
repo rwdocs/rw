@@ -6,19 +6,18 @@
 export { MockResizeObserver } from "../../hooks/__fixtures__/resize-observer-mock";
 
 export function mockRect(el: HTMLElement, rect: Partial<DOMRect>): void {
-  el.getBoundingClientRect = () =>
-    ({
-      top: 0,
-      left: 0,
-      width: 0,
-      height: 0,
-      right: 0,
-      bottom: 0,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-      ...rect,
-    }) as DOMRect;
+  el.getBoundingClientRect = () => ({
+    top: 0,
+    left: 0,
+    width: 0,
+    height: 0,
+    right: 0,
+    bottom: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+    ...rect,
+  });
 }
 
 export function createAnchor(): HTMLButtonElement {

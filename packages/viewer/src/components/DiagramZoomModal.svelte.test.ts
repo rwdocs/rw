@@ -209,7 +209,7 @@ describe("DiagramZoomModal", () => {
     });
     await rerender({ diagramId: "d0", figure: fig, onClose });
     flushSync();
-    (getByLabelText("Close") as HTMLElement).click();
+    getByLabelText("Close").click();
     expect(onClose).toHaveBeenCalled();
   });
 

@@ -1,10 +1,21 @@
 import eslintPluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
 import boundaries from "eslint-plugin-boundaries";
+import vitest from "@vitest/eslint-plugin";
 import { defineConfig } from "eslint/config";
 import eslintParserSvelte from "svelte-eslint-parser";
 import tseslint from "typescript-eslint";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+// Type-aware rules need a TypeScript program, which `projectService` builds
+// from the nearest tsconfig. `.svelte` has to be named explicitly: the project
+// service skips non-standard extensions, and without this every component
+// fails to parse rather than merely going unchecked.
+const typeAwareParserOptions = {
+  projectService: true,
+  tsconfigRootDir: import.meta.dirname,
+  extraFileExtensions: [".svelte"],
+};
 
 // Shared language options for every Svelte config block — ESLint flat
 // config does not inherit across blocks, so each scope re-declares them.
@@ -12,6 +23,7 @@ const svelteLanguageOptions = {
   parser: eslintParserSvelte,
   parserOptions: {
     parser: tseslint.parser,
+    ...typeAwareParserOptions,
   },
 };
 
@@ -147,11 +159,12 @@ export default defineConfig([
   // below: root-level config files (vite, playwright) have no TS parser
   // configured, so widening this to `**/*` would fail to parse them.
   {
-    extends: [tseslint.configs.recommended],
+    extends: [tseslint.configs.recommendedTypeChecked],
     files: ["src/**/*.{ts,svelte.ts}"],
+    languageOptions: { parserOptions: typeAwareParserOptions },
   },
   {
-    extends: [tseslint.configs.recommended],
+    extends: [tseslint.configs.recommendedTypeChecked],
     files: ["src/**/*.svelte"],
     languageOptions: svelteLanguageOptions,
     rules: {
@@ -159,6 +172,33 @@ export default defineConfig([
       // `let { x } = $props()` and `let x = $state(0)` behind the scenes, so
       // the source never reassigns them and `prefer-const` flags every one.
       "prefer-const": "off",
+      // Component prop types do not reach template expressions. The TypeScript
+      // program is built from the raw `.svelte` source, while the types for
+      // `<Child onPick={(id) => …} />` only exist in svelte2tsx's output, so
+      // every callback parameter in markup is `any` and this family reports on
+      // all of them. `svelte-check` runs through svelte2tsx and does check
+      // these properly. The rules stay on for `.ts`, where they work.
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+    },
+  },
+  {
+    files: ["src/**/*.{test,spec}.ts"],
+    plugins: { vitest },
+    rules: {
+      // `expect(obj.method).toHaveBeenCalled()` reads the method without
+      // calling it, which the base rule cannot distinguish from a genuine
+      // unbound reference. The Vitest port understands `expect` and still
+      // reports the real ones, so swap rather than switch off.
+      "@typescript-eslint/unbound-method": "off",
+      "vitest/unbound-method": "error",
+      // `vi.fn(async () => ({}))` needs `async` to satisfy the mocked
+      // signature's `Promise<T>`; the rule's escape hatch is to return a
+      // promise explicitly, which only makes the doubles harder to read.
+      "@typescript-eslint/require-await": "off",
     },
   },
   {

@@ -25,11 +25,7 @@ describe("selectCommentClient", () => {
       json: async () => [],
     });
 
-    const { client, enabled } = selectCommentClient(
-      undefined,
-      "/_api",
-      fetchFn as unknown as typeof fetch,
-    );
+    const { client, enabled } = selectCommentClient(undefined, "/_api", fetchFn);
     expect(enabled).toBe(false);
 
     await client.list("page-1");
