@@ -3042,7 +3042,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rw-cache"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "serde",
  "serde_json",
@@ -3051,7 +3051,7 @@ dependencies = [
 
 [[package]]
 name = "rw-cache-s3"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "aws-sdk-s3",
  "rw-cache",
@@ -3061,7 +3061,7 @@ dependencies = [
 
 [[package]]
 name = "rw-config"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "serde",
  "shellexpand",
@@ -3071,11 +3071,11 @@ dependencies = [
 
 [[package]]
 name = "rw-diagrams"
-version = "0.1.33"
+version = "0.1.34"
 
 [[package]]
 name = "rw-kroki"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "base64",
  "hex",
@@ -3091,7 +3091,7 @@ dependencies = [
 
 [[package]]
 name = "rw-meta"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "pulldown-cmark",
  "serde",
@@ -3100,7 +3100,7 @@ dependencies = [
 
 [[package]]
 name = "rw-napi"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "napi",
  "napi-build",
@@ -3118,14 +3118,14 @@ dependencies = [
 
 [[package]]
 name = "rw-parser"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "pulldown-cmark",
 ]
 
 [[package]]
 name = "rw-plantuml"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "regex",
  "rw-diagrams",
@@ -3133,7 +3133,7 @@ dependencies = [
 
 [[package]]
 name = "rw-renderer"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "base64",
  "pulldown-cmark",
@@ -3146,7 +3146,7 @@ dependencies = [
 
 [[package]]
 name = "rw-sections"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "serde",
  "thiserror",
@@ -3155,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "rw-site"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "parking_lot",
  "rw-cache",
@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "chrono",
  "parking_lot",
@@ -3184,7 +3184,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-fs"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "glob",
  "ignore",
@@ -3201,7 +3201,7 @@ dependencies = [
 
 [[package]]
 name = "rw-storage-s3"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -3216,7 +3216,7 @@ dependencies = [
 
 [[package]]
 name = "rw-vcs"
-version = "0.1.33"
+version = "0.1.34"
 dependencies = [
  "gix",
 ]
