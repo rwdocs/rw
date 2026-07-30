@@ -26,7 +26,6 @@ install:
 test:
 	cargo llvm-cov --html
 	cargo test --doc --workspace
-	cargo test --manifest-path crates/rw-napi/Cargo.toml
 	npm -w @rwdocs/viewer run test
 
 test-e2e:
@@ -34,24 +33,20 @@ test-e2e:
 
 format:
 	cargo fmt
-	cargo fmt --manifest-path crates/rw-napi/Cargo.toml
 	npm -w @rwdocs/viewer run format
 
 lint:
 	cargo clippy --all-targets -- -D warnings
-	cargo clippy --manifest-path crates/rw-napi/Cargo.toml --all-targets -- -D warnings
 	npm -w @rwdocs/viewer run check
 	npm -w @rwdocs/viewer run lint
 
 audit:
 	cargo deny check
-	cargo deny --manifest-path crates/rw-napi/Cargo.toml --config deny.toml check
 
 version:
 	@test -n "$(VERSION)" || (echo "Usage: make version VERSION=0.2.0" && exit 1)
 
 	cargo set-version --workspace $(VERSION)
-	cargo set-version --manifest-path crates/rw-napi/Cargo.toml $(VERSION)
 	cargo update -w
 
 	cd packages/core && npm version $(VERSION) --no-git-tag-version && npx napi version

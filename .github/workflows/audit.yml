@@ -39,9 +39,3 @@ jobs:
       # since that is when you want the tree.
       - name: Audit workspace
         run: cargo deny check --hide-inclusion-graph
-
-      # rw-napi is excluded from the root workspace and resolves its own
-      # Cargo.lock, so the workspace audit above does not cover it. It shares
-      # the root policy via --config.
-      - name: Audit rw-napi
-        run: cargo deny --manifest-path crates/rw-napi/Cargo.toml --config deny.toml check --hide-inclusion-graph
