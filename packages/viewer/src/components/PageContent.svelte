@@ -752,6 +752,8 @@
       dark:prose-invert
     "
   >
+    <!-- Server-rendered markdown from rw's own renderer, which owns the safety of its output. -->
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -->
     {@html page.data.content}
   </article>
 {:else if page.notFound}
@@ -827,6 +829,8 @@
       onmouseup={handleMouseUp}
       onmousemove={handleMouseMove}
     >
+      <!-- Same server-rendered markdown as the loading variant above. -->
+      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
       {@html page.data.content}
     </article>
   </div>

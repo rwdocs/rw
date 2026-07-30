@@ -19,9 +19,11 @@
 
   let { body = "content", triggerLabel, initialOpen = false, ...rest }: Props = $props();
 
-  // svelte-ignore state_referenced_locally — capturing only the initial
-  // value is intentional here; tests mutate `open` via Popover's bindable,
-  // so a reactive tie to the prop would fight the bind round-trip.
+  // Capturing only the initial value is intentional here; tests mutate
+  // `open` via Popover's bindable, so a reactive tie to the prop would
+  // fight the bind round-trip. The directive takes the code alone — any
+  // trailing prose on its line is parsed as further ignore codes.
+  // svelte-ignore state_referenced_locally
   let open = $state(initialOpen);
 </script>
 

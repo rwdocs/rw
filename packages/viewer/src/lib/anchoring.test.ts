@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, assert } from "vitest";
 import {
   rangeToSelectors,
   selectorsToRange,
@@ -145,11 +145,12 @@ describe("rangeToSelectors", () => {
     const range = selectText(container, "TARGET");
     const selectors = rangeToSelectors(range, container);
 
-    const quote = selectors.find((s) => s.type === "TextQuoteSelector")!;
-    if (quote.type === "TextQuoteSelector") {
-      expect(quote.prefix.length).toBe(32);
-      expect(quote.suffix.length).toBe(32);
-    }
+    const quote = selectors.find((s) => s.type === "TextQuoteSelector");
+    // Narrow with an assertion rather than an `if`: a conditional would let the
+    // test pass having run nothing at all if the selector were ever missing.
+    assert(quote?.type === "TextQuoteSelector");
+    expect(quote.prefix.length).toBe(32);
+    expect(quote.suffix.length).toBe(32);
   });
 });
 

@@ -43,8 +43,8 @@
       </p>
     </header>
     <div class="flex flex-wrap items-center gap-3">
-      {#each ["primary", "secondary", "ghost", "danger"] as const as variant}
-        {#each ["xs", "sm", "md"] as const as size}
+      {#each ["primary", "secondary", "ghost", "danger"] as const as variant (variant)}
+        {#each ["xs", "sm", "md"] as const as size (size)}
           <Button {variant} {size}>{variant}/{size}</Button>
         {/each}
       {/each}
@@ -93,8 +93,8 @@
       </p>
     </header>
     <div class="flex flex-wrap items-center gap-3">
-      {#each ["neutral", "info", "warning", "attention"] as const as intent}
-        {#each ["sm", "md"] as const as size}
+      {#each ["neutral", "info", "warning", "attention"] as const as intent (intent)}
+        {#each ["sm", "md"] as const as size (size)}
           <Badge {intent} {size}>{intent}/{size}</Badge>
         {/each}
       {/each}
@@ -125,7 +125,7 @@
       </p>
     </header>
     <div class="grid max-w-2xl gap-3">
-      {#each ["info", "success", "warning", "danger", "attention"] as const as intent}
+      {#each ["info", "success", "warning", "danger", "attention"] as const as intent (intent)}
         <Alert {intent}>{intent} alert body text</Alert>
       {/each}
       <Alert intent="info" title="With a title">Body text below the title.</Alert>
