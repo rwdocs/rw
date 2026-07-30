@@ -14,7 +14,7 @@ use crate::page::{
 };
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
-use rw_kroki::{EntityInfo, MetaIncludeSource};
+use rw_diagrams::{Entity, SiteModel};
 use rw_renderer::TitleResolver;
 use rw_sections::Namespace;
 use rw_storage::{Storage, StorageError};
@@ -35,31 +35,32 @@ fn url_depth(path: &str) -> usize {
 
 /// Bundled site state for atomic swaps.
 ///
-/// Wraps `SiteState` and implements `MetaIncludeSource` for diagram
+/// Wraps `SiteState` and implements `SiteModel` for diagram
 /// include resolution using the state's name-based section index.
 pub(crate) struct SiteSnapshot {
     pub(crate) state: SiteState,
 }
 
-impl MetaIncludeSource for SiteSnapshot {
-    fn get_entity(&self, entity_type: &str, name: &str) -> Option<EntityInfo> {
-        let raw_name = name.replace('_', "-");
+impl SiteModel for SiteSnapshot {
+    fn entity(&self, kind: &str, name: &str) -> Option<Entity> {
         let (section_path, _section) = self
             .state
-            .find_sections_by_name(&raw_name)
+            .find_sections_by_name(name)
             .into_iter()
-            .find(|(_, s)| s.kind == entity_type)?;
+            .find(|(_, s)| s.kind == kind)?;
 
         let page = self.state.get_page(section_path);
         let has_content = page.is_some_and(|p| p.has_content);
 
-        let title = if entity_type == "service" {
-            raw_name
+        // A service takes its own name; every other kind takes its page title,
+        // falling back to the section path when the section has no page.
+        let title = if kind == "service" {
+            name.to_owned()
         } else {
             page.map_or_else(|| section_path.to_owned(), |p| p.title.clone())
         };
 
-        Some(EntityInfo {
+        Some(Entity {
             title,
             description: page.and_then(|p| p.description.clone()),
             url_path: has_content.then(|| format!("/{section_path}")),
@@ -559,7 +560,7 @@ impl Site {
     fn render_context(snapshot: &Arc<SiteSnapshot>) -> RenderContext {
         RenderContext {
             sections: Arc::clone(snapshot.state.sections()),
-            meta_include_source: Some(Arc::clone(snapshot) as Arc<dyn MetaIncludeSource>),
+            meta_include_source: Some(Arc::clone(snapshot) as Arc<dyn SiteModel>),
             snapshot: Some(Arc::clone(snapshot)),
             resolution_fingerprint: snapshot.state.resolution_fingerprint(),
         }
@@ -613,6 +614,7 @@ impl Site {
                     path: doc.path.clone(),
                     has_content: doc.has_content,
                     description: doc.description.clone(),
+                    page_kind: doc.page_kind.clone(),
                     origin: doc.origin.clone(),
                     pages: doc.pages.clone(),
                     is_dir: doc.is_dir,
@@ -649,6 +651,161 @@ mod tests {
     fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = PageRendererConfig::default();
         Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config)
+    }
+
+    // ========================================================================
+    // SiteSnapshot as SiteModel
+    //
+    // The only production implementation of the `rw-diagrams` port, and the
+    // path a diagram `!include` takes to reach page metadata.
+    // ========================================================================
+
+    /// One section in a test snapshot, defaulting to a page that has content
+    /// and no description.
+    struct TestSection {
+        path: &'static str,
+        title: &'static str,
+        kind: &'static str,
+        has_content: bool,
+        description: Option<&'static str>,
+    }
+
+    fn section(path: &'static str, title: &'static str, kind: &'static str) -> TestSection {
+        TestSection {
+            path,
+            title,
+            kind,
+            has_content: true,
+            description: None,
+        }
+    }
+
+    impl TestSection {
+        /// A navigation-only section: it exists in the tree but has no markdown
+        /// of its own, so there is no page to link to.
+        fn without_content(mut self) -> Self {
+            self.has_content = false;
+            self
+        }
+
+        fn described(mut self, description: &'static str) -> Self {
+            self.description = Some(description);
+            self
+        }
+    }
+
+    /// Build a snapshot from sections in order. Parentage is derived from paths.
+    fn snapshot_of(sections: &[TestSection]) -> SiteSnapshot {
+        let mut builder = SiteStateBuilder::new();
+        for s in sections {
+            builder.add_page(
+                crate::page::Page {
+                    title: s.title.to_owned(),
+                    path: s.path.to_owned(),
+                    has_content: s.has_content,
+                    description: s.description.map(ToOwned::to_owned),
+                    page_kind: Some(s.kind.to_owned()),
+                    ..Default::default()
+                },
+                Some(s.kind),
+                None,
+            );
+        }
+        SiteSnapshot {
+            state: builder.build(),
+        }
+    }
+
+    /// The kind filter is the whole reason the lookup takes a kind: two
+    /// sections may share a name. Without it, whichever was indexed first wins
+    /// and a diagram renders the wrong entity.
+    #[test]
+    fn entity_lookup_discriminates_two_sections_sharing_a_name() {
+        let snapshot = snapshot_of(&[
+            section("domains/billing", "Billing Domain", "domain"),
+            section("domains/other/systems/billing", "Billing System", "system"),
+        ]);
+
+        assert_eq!(
+            snapshot.entity("domain", "billing").map(|e| e.title),
+            Some("Billing Domain".to_owned()),
+        );
+        assert_eq!(
+            snapshot.entity("system", "billing").map(|e| e.title),
+            Some("Billing System".to_owned()),
+        );
+    }
+
+    #[test]
+    fn entity_lookup_misses_when_no_section_has_that_kind() {
+        let snapshot = snapshot_of(&[section("domains/billing", "Billing", "domain")]);
+        assert_eq!(snapshot.entity("system", "billing"), None);
+        assert_eq!(snapshot.entity("domain", "nonexistent"), None);
+    }
+
+    /// A service is titled by its own name, not by its page title — the one
+    /// kind that ignores the page.
+    #[test]
+    fn service_is_titled_by_name_while_other_kinds_use_the_page_title() {
+        let snapshot = snapshot_of(&[
+            section(
+                "domains/b/systems/i/services/invoice-api",
+                "Invoice API Page Title",
+                "service",
+            ),
+            section("domains/b", "Billing Page Title", "domain"),
+        ]);
+
+        assert_eq!(
+            snapshot.entity("service", "invoice-api").map(|e| e.title),
+            Some("invoice-api".to_owned()),
+            "a service takes its own name",
+        );
+        assert_eq!(
+            snapshot.entity("domain", "b").map(|e| e.title),
+            Some("Billing Page Title".to_owned()),
+            "every other kind takes its page title",
+        );
+    }
+
+    /// `url_path` is what becomes a diagram's `$link`. A section with no
+    /// content of its own has nothing to link to, so it must stay `None`
+    /// rather than pointing at a page that would 404.
+    #[test]
+    fn url_path_is_present_only_for_sections_with_content() {
+        let snapshot = snapshot_of(&[
+            section("domains/real", "Real", "domain").described("Has content"),
+            section("domains/virtual", "Virtual", "domain").without_content(),
+        ]);
+
+        let real = snapshot.entity("domain", "real").expect("real resolves");
+        assert_eq!(real.url_path.as_deref(), Some("/domains/real"));
+        assert_eq!(real.description.as_deref(), Some("Has content"));
+
+        let virt = snapshot
+            .entity("domain", "virtual")
+            .expect("virtual still resolves");
+        assert_eq!(virt.url_path, None, "no content means nothing to link to");
+    }
+
+    /// The lookup takes section names in the site's own hyphenated spelling.
+    /// Translating `PlantUML`'s underscore filenames is the caller's job, so a
+    /// name arriving with underscores must simply miss.
+    #[test]
+    fn entity_lookup_does_not_translate_underscores() {
+        let snapshot = snapshot_of(&[section(
+            "domains/b/systems/payment-gateway",
+            "Payment Gateway",
+            "system",
+        )]);
+
+        assert_eq!(
+            snapshot
+                .entity("system", "payment-gateway")
+                .map(|e| e.title),
+            Some("Payment Gateway".to_owned()),
+        );
+        assert_eq!(snapshot.entity("system", "payment_gateway"), None);
     }
 
     // ========================================================================
@@ -930,15 +1087,12 @@ mod tests {
             .with_file("test", "Hello", "# Hello\n\nWorld")
             .with_mtime("test", 1000.0);
 
-        let config = PageRendererConfig {
-            extract_title: true,
-            ..Default::default()
-        };
+        let config = PageRendererConfig::default();
         let site = Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config);
 
         let result = site.render("test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
-        assert_eq!(result.title, Some("Hello".to_owned()));
+        assert_eq!(result.title, "Hello");
         assert!(!result.from_cache);
         assert!(result.has_content);
     }
@@ -964,21 +1118,18 @@ mod tests {
 
         let cache: Arc<dyn rw_cache::Cache> =
             Arc::new(rw_cache::FileCache::new(cache_dir, "1.0.0"));
-        let config = PageRendererConfig {
-            extract_title: true,
-            ..Default::default()
-        };
+        let config = PageRendererConfig::default();
         let site = Site::new(Arc::new(storage), cache, config);
 
         // First render - cache miss
         let result1 = site.render("test").unwrap();
         assert!(!result1.from_cache);
-        assert_eq!(result1.title, Some("Cached".to_owned()));
+        assert_eq!(result1.title, "Cached");
 
         // Second render - cache hit
         let result2 = site.render("test").unwrap();
         assert!(result2.from_cache);
-        assert_eq!(result2.title, Some("Cached".to_owned()));
+        assert_eq!(result2.title, "Cached");
         assert_eq!(result1.html, result2.html);
     }
 
@@ -1074,7 +1225,7 @@ mod tests {
 
         // Virtual pages render h1 with title only
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
-        assert_eq!(result.title, Some("My Domain".to_owned()));
+        assert_eq!(result.title, "My Domain");
         assert!(!result.has_content); // Virtual
         assert!(result.toc.is_empty()); // No TOC for virtual
     }
@@ -1168,10 +1319,7 @@ mod tests {
         let site_v1 = Site::new(
             Arc::clone(&storage),
             cache_v1,
-            PageRendererConfig {
-                extract_title: true,
-                ..Default::default()
-            },
+            PageRendererConfig::default(),
         );
         let result1 = site_v1.render("test").unwrap();
         assert!(!result1.from_cache);
@@ -1186,10 +1334,7 @@ mod tests {
         let site_v2 = Site::new(
             Arc::clone(&storage),
             cache_v2,
-            PageRendererConfig {
-                extract_title: true,
-                ..Default::default()
-            },
+            PageRendererConfig::default(),
         );
 
         // VERSION file should be updated
@@ -1696,10 +1841,7 @@ mod tests {
         // Persistent cache so the page render is actually cached between calls.
         let cache: Arc<dyn rw_cache::Cache> =
             Arc::new(rw_cache::FileCache::new(dir.path().join("cache"), "1.0.0"));
-        let config = PageRendererConfig {
-            extract_title: true,
-            ..Default::default()
-        };
+        let config = PageRendererConfig::default();
         let site = Site::new(
             Arc::new(FsStorage::new(dir.path().to_path_buf(), docs.clone())),
             cache,
@@ -1832,10 +1974,7 @@ mod tests {
         std::fs::write(specs.join("inbox.md"), "# Inbox").unwrap();
 
         let storage = FsStorage::new(temp.path().to_path_buf(), docs);
-        let config = PageRendererConfig {
-            extract_title: true,
-            ..Default::default()
-        };
+        let config = PageRendererConfig::default();
         let site = Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config);
 
         let result = site.render("specs/notif").unwrap();

@@ -155,7 +155,7 @@ export interface PageMarkdownResponse {
 }
 
 export interface PageMetaResponse {
-  title?: string
+  title: string
   path: string
   sourceFile: string
   lastModified: string

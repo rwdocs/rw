@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use gix::bstr::ByteSlice;
+use gix::discover::upwards::Options as DiscoverOptions;
+use gix::open::Options as OpenOptions;
 use gix::revision::walk::Sorting;
+use gix::sec::trust::Mapping as TrustMapping;
 use gix::{Repository, ThreadSafeRepository};
 
 /// Git-aware file metadata resolver.
@@ -23,14 +26,49 @@ impl Vcs {
     ///
     /// Always succeeds — stores `None` internally if `path` is not
     /// inside a git repository.
+    ///
+    /// Only the repository's own configuration is read: system config, the
+    /// user's global config and `GIT_*` config variables are ignored, so a
+    /// page's modification time does not depend on the environment the process
+    /// was launched from. Nothing here needs identity, credentials, remotes or
+    /// transports, which is what that gives up. None of the caveats here are
+    /// errors; the worst outcome in every case is a page reported with its
+    /// filesystem mtime instead of its commit time.
+    ///
+    /// A repository owned by another user is opened at reduced trust, which
+    /// caps gix's allocations at 16 MiB
+    /// (`gitoxide.objects.allocLimitIfReducedTrust`). Neither the repository's
+    /// own config nor `GIT_ALLOC_LIMIT` can lift it — both are untrusted or
+    /// unread here. To raise it, add
+    /// `config_overrides(["gitoxide.objects.allocLimit=<bytes>"])` to the
+    /// options below; API-source config is trusted at every level. Until then a
+    /// large enough index fails to load, every file looks dirty, and every page
+    /// falls back to its filesystem mtime while [`Vcs::has_repo`] still reports
+    /// `true`.
     #[must_use]
     pub fn new(path: &Path) -> Self {
-        // `gix::discover` errors when `path` is not an accessible directory.
+        // Discovery errors when `path` is not an accessible directory.
         // Discovery already walks *upward* to find `.git`, so handing it the
         // nearest existing ancestor finds the same repository instead of
         // failing and dropping every page to filesystem mtimes.
         let start = Self::nearest_existing_dir(path).unwrap_or(path);
-        let repo = gix::discover(start).ok().map(Repository::into_sync);
+        // Discovery stays on gix's defaults; only the open options are narrowed.
+        let repo = ThreadSafeRepository::discover_opts(
+            start,
+            DiscoverOptions::default(),
+            // The same isolated options at either trust level. Two consequences
+            // worth knowing wherever a checkout's owner differs from the runtime
+            // user — `@rwdocs/core` inside a container, say. No `git config
+            // --global --add safe.directory` can grant trust back, because gix
+            // honors `safe.directory` only from global and system config, which
+            // isolation does not read. And `include.path` and `includeIf` are
+            // not expanded even inside `.git/config`.
+            TrustMapping {
+                full: OpenOptions::isolated(),
+                reduced: OpenOptions::isolated(),
+            },
+        )
+        .ok();
         Self { repo }
     }
 
@@ -58,7 +96,7 @@ impl Vcs {
     /// as seconds since Unix epoch.
     ///
     /// For each path:
-    /// - Clean tracked file → git commit author timestamp
+    /// - Clean tracked file → git commit committer timestamp
     /// - Dirty or untracked file → filesystem mtime
     /// - No git repo → filesystem mtime
     ///
@@ -142,8 +180,9 @@ impl Vcs {
         let head_entry = head_tree.lookup_entry_by_path(rel_path).ok()??;
         let head_blob_oid = head_entry.object_id();
 
-        // The HEAD commit's author time is the candidate — if the file
-        // was only ever touched by one commit, this is the answer.
+        // The HEAD commit's committer time is the candidate — if the file was
+        // only ever touched by one commit, this is the answer. `Commit::time`
+        // is the committer's, not the author's.
         let head_time = head.time().ok()?;
         #[allow(clippy::cast_precision_loss)] // git timestamps are well within f64 range
         let mut last_change_time = head_time.seconds as f64;
@@ -217,60 +256,40 @@ pub fn fs_mtime(path: &Path) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
+    use gix::config::Source;
+    use rw_git_fixture::{
+        COMMIT_INTERVAL, FIRST_COMMIT_TIME, GitFixture, assert_commit_time, commit_time,
+    };
 
     use super::*;
-
-    /// Create a temporary git repo with an initial commit.
-    fn create_git_repo() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path();
-
-        Command::new("git")
-            .args(["init", "-b", "test"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-
-        dir
-    }
-
-    fn git_add_commit(dir: &Path, message: &str) {
-        Command::new("git")
-            .args(["add", "."])
-            .current_dir(dir)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", message])
-            .current_dir(dir)
-            .output()
-            .unwrap();
-    }
 
     /// Get a thread-local Repository from a Vcs instance (for testing internals).
     fn thread_local_repo(vcs: &Vcs) -> Repository {
         vcs.repo.as_ref().unwrap().to_thread_local()
     }
 
+    /// The config sections a repository read from outside itself.
+    fn foreign_config_sources(repo: &Repository) -> Vec<Source> {
+        repo.config_snapshot()
+            .plumbing()
+            .sections()
+            .map(|section| section.meta().source)
+            .filter(|source| {
+                !matches!(
+                    source,
+                    Source::Local | Source::Worktree | Source::Api | Source::Cli
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn test_dirty_file_detected() {
-        let dir = create_git_repo();
-        let file = dir.path().join("doc.md");
-        fs::write(&file, "# Hello").unwrap();
-        git_add_commit(dir.path(), "initial");
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello");
+        fixture.commit_all("initial");
 
-        let vcs = Vcs::new(dir.path());
+        let vcs = Vcs::new(fixture.path());
         let rel_path = PathBuf::from("doc.md");
 
         // File is clean after commit
@@ -278,80 +297,38 @@ mod tests {
         assert!(!Vcs::is_dirty(&repo, &rel_path));
 
         // Modify the file — now dirty
-        fs::write(&file, "# Modified").unwrap();
+        fixture.write("doc.md", "# Modified");
         let repo = thread_local_repo(&vcs);
         assert!(Vcs::is_dirty(&repo, &rel_path));
     }
 
     #[test]
-    fn test_git_commit_mtime_for_clean_file() {
-        let dir = create_git_repo();
-        let file = dir.path().join("doc.md");
-        fs::write(&file, "# Hello").unwrap();
-        git_add_commit(dir.path(), "initial");
-
-        let vcs = Vcs::new(dir.path());
-        let repo = thread_local_repo(&vcs);
-        let rel_path = PathBuf::from("doc.md");
-
-        let mtime = Vcs::git_commit_mtime(&repo, &rel_path);
-        assert!(mtime.is_some());
-
-        // Should be a recent timestamp
-        let now = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
-        let mtime = mtime.unwrap();
-        assert!(mtime > now - 60.0);
-        assert!(mtime <= now);
-    }
-
-    #[test]
     fn test_git_commit_mtime_uses_latest_commit() {
-        let dir = create_git_repo();
-        let file = dir.path().join("doc.md");
-        fs::write(&file, "# Version 1").unwrap();
-        git_add_commit(dir.path(), "v1");
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Version 1");
+        fixture.commit_all("v1");
+        fixture.write("doc.md", "# Version 2");
+        let v2_time = fixture.commit_all("v2");
 
-        // Small delay to ensure different timestamps
-        std::thread::sleep(std::time::Duration::from_secs(1));
-
-        fs::write(&file, "# Version 2").unwrap();
-        git_add_commit(dir.path(), "v2");
-
-        let vcs = Vcs::new(dir.path());
+        let vcs = Vcs::new(fixture.path());
         let repo = thread_local_repo(&vcs);
-        let rel_path = PathBuf::from("doc.md");
 
-        let mtime = Vcs::git_commit_mtime(&repo, &rel_path).unwrap();
+        let mtime = Vcs::git_commit_mtime(&repo, &PathBuf::from("doc.md")).unwrap();
 
-        // Get the v1 commit time via git log
-        let v1_output = Command::new("git")
-            .args(["log", "--format=%at", "--skip=1", "-1"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        let v1_time: f64 = String::from_utf8_lossy(&v1_output.stdout)
-            .trim()
-            .parse()
-            .unwrap();
-
-        // mtime should be from v2 (later than v1)
-        assert!(mtime > v1_time);
+        // The v2 commit time exactly — not merely "later than v1".
+        assert_commit_time(mtime, v2_time);
+        assert_eq!(v2_time, FIRST_COMMIT_TIME + COMMIT_INTERVAL);
     }
 
     #[test]
     fn test_git_commit_mtime_none_for_untracked() {
-        let dir = create_git_repo();
-        let initial = dir.path().join("initial.md");
-        fs::write(&initial, "# Init").unwrap();
-        git_add_commit(dir.path(), "initial");
+        let fixture = GitFixture::init();
+        fixture.write("initial.md", "# Init");
+        fixture.commit_all("initial");
 
-        let untracked = dir.path().join("new.md");
-        fs::write(&untracked, "# New").unwrap();
+        fixture.write("new.md", "# New");
 
-        let vcs = Vcs::new(dir.path());
+        let vcs = Vcs::new(fixture.path());
         let repo = thread_local_repo(&vcs);
 
         assert!(Vcs::git_commit_mtime(&repo, &PathBuf::from("new.md")).is_none());
@@ -359,78 +336,93 @@ mod tests {
 
     #[test]
     fn test_mtime_clean_file_returns_git_time() {
-        let dir = create_git_repo();
-        let file = dir.path().join("doc.md");
-        fs::write(&file, "# Hello").unwrap();
-        git_add_commit(dir.path(), "initial");
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello");
+        let committed_at = fixture.commit_all("initial");
 
-        let vcs = Vcs::new(dir.path());
-        let mtime = vcs.mtime(&[&file]);
+        let vcs = Vcs::new(fixture.path());
+        let mtime = vcs.mtime(&[&fixture.path().join("doc.md")]);
 
-        let now = std::time::SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
-        assert!(mtime > now - 60.0);
-        assert!(mtime <= now);
+        // The commit time is 2020; the file was written to disk seconds ago.
+        // Asserting the exact commit time is what makes this test discriminate
+        // between the two sources.
+        assert_commit_time(mtime, committed_at);
+    }
+
+    #[test]
+    fn test_mtime_uses_the_committer_time_not_the_author_time() {
+        // `gix::Commit::time` is the committer's, and the rest of this module
+        // documents it as such. Every other fixture commit sets the two to the
+        // same second, so only a commit that separates them can hold that
+        // documentation to account.
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello");
+        let authored_at = FIRST_COMMIT_TIME;
+        let committed_at = FIRST_COMMIT_TIME + 10 * COMMIT_INTERVAL;
+        fixture.commit_all_at("initial", authored_at, committed_at);
+
+        let vcs = Vcs::new(fixture.path());
+        let mtime = vcs.mtime(&[&fixture.path().join("doc.md")]);
+
+        assert_commit_time(mtime, committed_at);
     }
 
     #[test]
     fn test_mtime_dirty_file_returns_fs_time() {
-        let dir = create_git_repo();
-        let file = dir.path().join("doc.md");
-        fs::write(&file, "# Hello").unwrap();
-        git_add_commit(dir.path(), "initial");
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello");
+        let committed_at = fixture.commit_all("initial");
 
         // Modify without committing
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        fs::write(&file, "# Modified").unwrap();
+        fixture.write("doc.md", "# Modified");
 
-        let vcs = Vcs::new(dir.path());
-        let mtime = vcs.mtime(&[&file]);
+        let path = fixture.path().join("doc.md");
+        let vcs = Vcs::new(fixture.path());
+        let mtime = vcs.mtime(&[&path]);
 
-        // mtime should be the filesystem time (newer than commit time)
-        let git_time_output = Command::new("git")
-            .args(["log", "-1", "--format=%at", "--", "doc.md"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        let git_time: f64 = String::from_utf8_lossy(&git_time_output.stdout)
-            .trim()
-            .parse()
-            .unwrap();
-
-        assert!(mtime > git_time);
+        // The file's own mtime exactly, not merely "later than the commit" —
+        // every value produced after 2020 satisfies that, including a wrong one.
+        // Read straight from the filesystem rather than through `fs_mtime`, the
+        // very function the fallback uses: an expectation computed by the code
+        // under test moves whenever that code does. Both sides are the same
+        // quantity, not the result of arithmetic, so exact equality is correct
+        // rather than approximate. Scoped to this one assertion: a bare
+        // `#[allow]` above an `assert_eq!` statement is silently ignored by
+        // rustc (attributes don't reach into macro-invocation statements), so the
+        // block is what actually narrows the suppression.
+        let on_disk = fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .expect("the file exists")
+            .duration_since(UNIX_EPOCH)
+            .expect("a file written today is after the epoch")
+            .as_secs_f64();
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(mtime, on_disk);
+        }
+        assert!(
+            mtime > commit_time(committed_at),
+            "the fs mtime should be decades after the 2020 commit time",
+        );
     }
 
     #[test]
     fn test_mtime_multiple_paths_returns_max() {
-        let dir = create_git_repo();
-        let file1 = dir.path().join("doc.md");
-        fs::write(&file1, "# Doc").unwrap();
-        git_add_commit(dir.path(), "first");
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Doc");
+        fixture.commit_all("first");
 
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        fixture.write("meta.yaml", "title: Doc");
+        let meta_time = fixture.commit_all("second");
 
-        let file2 = dir.path().join("meta.yaml");
-        fs::write(&file2, "title: Doc").unwrap();
-        git_add_commit(dir.path(), "second");
+        let vcs = Vcs::new(fixture.path());
+        let mtime = vcs.mtime(&[
+            &fixture.path().join("doc.md"),
+            &fixture.path().join("meta.yaml"),
+        ]);
 
-        let vcs = Vcs::new(dir.path());
-        let mtime = vcs.mtime(&[&file1, &file2]);
-
-        // Should be the time of the second commit (meta.yaml is newer)
-        let git_time_output = Command::new("git")
-            .args(["log", "-1", "--format=%at", "--", "meta.yaml"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
-        let meta_time: f64 = String::from_utf8_lossy(&git_time_output.stdout)
-            .trim()
-            .parse()
-            .unwrap();
-
-        assert!((mtime - meta_time).abs() < 1.0);
+        // meta.yaml is the newer of the two.
+        assert_commit_time(mtime, meta_time);
     }
 
     #[test]
@@ -452,27 +444,22 @@ mod tests {
 
     #[test]
     fn test_mtime_empty_paths_returns_zero() {
-        let dir = create_git_repo();
-        let vcs = Vcs::new(dir.path());
+        let fixture = GitFixture::init();
+        let vcs = Vcs::new(fixture.path());
         assert!((vcs.mtime(&[]) - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_staged_file_is_not_dirty() {
-        let dir = create_git_repo();
-        let file = dir.path().join("doc.md");
-        fs::write(&file, "# Hello").unwrap();
-        git_add_commit(dir.path(), "initial");
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello");
+        fixture.commit_all("initial");
 
         // Modify and stage, but don't commit
-        fs::write(&file, "# Staged change").unwrap();
-        Command::new("git")
-            .args(["add", "doc.md"])
-            .current_dir(dir.path())
-            .output()
-            .unwrap();
+        fixture.write("doc.md", "# Staged change");
+        fixture.git(&["add", "doc.md"]);
 
-        let vcs = Vcs::new(dir.path());
+        let vcs = Vcs::new(fixture.path());
         let repo = thread_local_repo(&vcs);
 
         // Staged file: index hash matches working tree, so is_dirty returns false.
@@ -489,12 +476,11 @@ mod tests {
         // existing ancestor. No caller in this workspace passes a non-existent
         // path today — `rw-storage-fs` passes the project directory — but
         // `Vcs::new` is public API and this test guards that contract.
-        let dir = create_git_repo();
-        let file = dir.path().join("README.md");
-        fs::write(&file, "# Hello").unwrap();
-        git_add_commit(dir.path(), "initial");
+        let fixture = GitFixture::init();
+        fixture.write("README.md", "# Hello");
+        fixture.commit_all("initial");
 
-        let missing_source_dir = dir.path().join("docs");
+        let missing_source_dir = fixture.path().join("docs");
         assert!(!missing_source_dir.exists());
 
         assert!(
@@ -504,9 +490,55 @@ mod tests {
     }
 
     #[test]
+    fn opens_repositories_without_reading_ambient_config() {
+        // `Vcs` needs no identity, credentials, remotes or transports — only
+        // the repository's own config. Reading the invoking user's global
+        // config would make a served page's modification time depend on who
+        // started the process.
+        let fixture = GitFixture::init();
+        fixture.write("doc.md", "# Hello");
+        fixture.commit_all("initial");
+
+        // Config that lives outside `.git/config` and is reachable from it. A
+        // default open expands `include.path`; an isolated one does not, so
+        // this is a probe every machine has — unlike the developer's global
+        // config, which a bare container lacks.
+        fixture.write(".git/included.config", "[rw]\n\tprobe = leaked\n");
+        fixture.git(&["config", "include.path", "included.config"]);
+
+        let vcs = Vcs::new(fixture.path());
+        let repo = thread_local_repo(&vcs);
+
+        // The control: the same repository through gix's default permissions.
+        // It shows what an un-isolated open picks up, so a regression in
+        // `Vcs::new` cannot pass by the probe being unreadable to begin with.
+        let control = gix::discover(fixture.path()).expect("discover the fixture repository");
+        assert!(
+            control.config_snapshot().string("rw.probe").is_some(),
+            "the control never read the probe, so this test proves nothing",
+        );
+        assert!(
+            repo.config_snapshot().string("rw.probe").is_none(),
+            "config reached Vcs from a file outside `.git/config`",
+        );
+
+        // Whatever the control reads from global or system config, `Vcs` must
+        // read none of it. gix records each section's origin, so this asserts
+        // the property directly. Unlike the probe above it is only as strong as
+        // the machine's own config: where there is none, both sides are empty.
+        let ambient = foreign_config_sources(&control);
+        let leaked = foreign_config_sources(&repo);
+        assert!(
+            leaked.is_empty(),
+            "config reached Vcs from outside the repository: {leaked:?} \
+             (a default open of the same repository reads {ambient:?})",
+        );
+    }
+
+    #[test]
     fn test_has_repo_true_inside_repo() {
-        let dir = create_git_repo();
-        assert!(Vcs::new(dir.path()).has_repo());
+        let fixture = GitFixture::init();
+        assert!(Vcs::new(fixture.path()).has_repo());
     }
 
     #[test]
@@ -530,17 +562,15 @@ mod tests {
 
     #[test]
     fn test_untracked_file_is_dirty() {
-        let dir = create_git_repo();
-        let file = dir.path().join("initial.md");
-        fs::write(&file, "# Init").unwrap();
-        git_add_commit(dir.path(), "initial");
+        let fixture = GitFixture::init();
+        fixture.write("initial.md", "# Init");
+        fixture.commit_all("initial");
 
-        let vcs = Vcs::new(dir.path());
+        let vcs = Vcs::new(fixture.path());
         let repo = thread_local_repo(&vcs);
 
         // Untracked file should be treated as dirty
-        let untracked = dir.path().join("new.md");
-        fs::write(&untracked, "# New").unwrap();
+        fixture.write("new.md", "# New");
         assert!(Vcs::is_dirty(&repo, &PathBuf::from("new.md")));
     }
 }

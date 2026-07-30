@@ -11,14 +11,14 @@ workspace = true
 
 [features]
 default = []
-publish = ["rw-kroki", "rw-renderer"]
+publish = ["rw-plantuml", "rw-parser"]
 
 [dependencies]
 rw-storage = { workspace = true }
 
 # Publish-only deps
-rw-kroki = { workspace = true, optional = true }
-rw-renderer = { workspace = true, optional = true }
+rw-parser = { workspace = true, optional = true }
+rw-plantuml = { workspace = true, optional = true }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 parking_lot = { workspace = true }
@@ -33,5 +33,5 @@ tracing = { workspace = true }
 chrono = "0.4"
 pretty_assertions = { workspace = true }
 rw-storage = { workspace = true, features = ["mock"] }
-rw-renderer = { workspace = true }
+tempfile = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

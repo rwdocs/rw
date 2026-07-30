@@ -7,7 +7,10 @@
 
 use std::borrow::Cow;
 
+use rw_sections::Sections;
+
 use crate::config::RenderConfig;
+use crate::util::escape_into;
 
 /// Strip the origin prefix from a URL if it matches.
 ///
@@ -47,21 +50,43 @@ pub(crate) fn link_base(cfg: &RenderConfig) -> Option<&str> {
     }
 }
 
-/// Build ref data attributes for a resolved path, if applicable.
-///
-/// Returns `None` for:
-/// - External or relative links (not starting with `/`)
-/// - No section registry configured (`with_sections` not called)
-/// - Links not matching any section
-///
-/// Returns `Some((section_ref_string, section_path))` for internal links
-/// matching a section.
-pub(crate) fn section_ref_attrs(cfg: &RenderConfig, href: &str) -> Option<(String, String)> {
+/// Resolve a site-absolute href (`/…`) to its `(section_ref, section_path)`
+/// pair; `None` for external or relative hrefs and paths outside every
+/// section. The one definition of "this href belongs to a site section" —
+/// prose links ([`section_ref_attrs`]) and diagram links
+/// ([`scan_svg_links`](crate::diagram::scan_svg_links)) must agree on it.
+pub(crate) fn resolve_section_href(sections: &Sections, href: &str) -> Option<(String, String)> {
     if !href.starts_with('/') {
         return None;
     }
-    let sp = cfg.sections.as_ref()?.find(href)?;
+    let sp = sections.find(href)?;
     Some((sp.section.to_string(), sp.path.to_owned()))
+}
+
+/// Build ref data attributes for a resolved path, if applicable.
+///
+/// [`resolve_section_href`] behind the config: also `None` when no section
+/// registry is configured (`with_sections` not called).
+pub(crate) fn section_ref_attrs(cfg: &RenderConfig, href: &str) -> Option<(String, String)> {
+    resolve_section_href(cfg.sections.as_deref()?, href)
+}
+
+/// Append ` data-section-ref="…"` — and ` data-section-path="…"` when the path
+/// is non-empty — with attribute-escaped values. The one writer of these
+/// attributes, shared by the prose-link default
+/// ([`RenderBackend::link_start`](crate::RenderBackend::link_start)) and the
+/// diagram SVG splice
+/// ([`splice_link_attrs`](crate::diagram::splice_link_attrs)), so prose
+/// anchors and diagram anchors cannot drift apart.
+pub(crate) fn write_section_attrs(section_ref: &str, section_path: &str, out: &mut String) {
+    out.push_str(r#" data-section-ref=""#);
+    escape_into(section_ref, out);
+    out.push('"');
+    if !section_path.is_empty() {
+        out.push_str(r#" data-section-path=""#);
+        escape_into(section_path, out);
+        out.push('"');
+    }
 }
 
 #[cfg(test)]

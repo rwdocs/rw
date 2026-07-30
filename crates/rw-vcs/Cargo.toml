@@ -13,4 +13,5 @@ workspace = true
 gix = { version = "0.85", default-features = false, features = ["sha1", "revision", "parallel"] }
 
 [dev-dependencies]
+rw-git-fixture = { workspace = true }
 tempfile = { workspace = true }

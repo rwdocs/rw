@@ -22,8 +22,8 @@ function desired(id: string, exact: string, parentId: string | null = null): Des
 }
 
 function wrappedIds(container: HTMLElement): string[] {
-  return [...container.querySelectorAll("rw-annotation")].map(
-    (e) => e.getAttribute("data-comment-id")!,
+  return [...container.querySelectorAll("rw-annotation")].map((e) =>
+    e.getAttribute("data-comment-id")!,
   );
 }
 

@@ -1,0 +1,87 @@
+//! Tabbed content blocks for markdown.
+//!
+//! Implements `CommonMark` directive syntax for tabs: an outer `::::tabs` group
+//! wrapping self-closing `:::tab[Label]` items.
+//!
+//! Every delimiter is its own block, so blank lines separate them:
+//!
+//! ```markdown
+//! ::::tabs
+//!
+//! :::tab[macOS]
+//!
+//! Install with Homebrew.
+//!
+//! :::
+//!
+//! :::tab[Linux]
+//!
+//! Install with apt.
+//!
+//! :::
+//!
+//! ::::
+//! ```
+//!
+//! # Architecture
+//!
+//! A tab bar can only be rendered once every tab in the group is known, which
+//! is not until the walk passes the group's closing `::::`. `::::tabs`
+//! therefore emits no markup for the bar during the walk; it reserves a
+//! *hole* — a recorded offset in the output buffer — and fills it afterwards:
+//!
+//! 1. **Event walk**: on `::::tabs` the walker reserves a hole for the group's
+//!    tab bar. Each nested `:::tab[Label]` opens the panel inline through the
+//!    backend (`<div role="tabpanel">`) and records the label; its close emits
+//!    the panel's closing `</div>`.
+//!
+//! 2. **Fill and assembly**: at the group's close — once every label is
+//!    known — the walker renders the accessible ARIA markup for its tab bar
+//!    through the backend; assembly splices it in at the recorded offset. No
+//!    intermediate markers are ever emitted, so nothing can leak into the
+//!    output.
+//!
+//! # Unclosed groups
+//!
+//! A `::::tabs` group left unclosed by a missing `::::` extends to the end of
+//! the document (or its enclosing blockquote/list item): the parser
+//! synthesizes the close there, so its markup stays balanced (and a warning is
+//! emitted). A `:::tab` item left unclosed behaves the same way at the item
+//! level. In that case, everything after the last `:::tab` is absorbed into
+//! that panel — which is `hidden` unless it's the selected (first) tab, so
+//! the trailing content can disappear from view until the reader clicks that
+//! tab. The fix is to close each `:::tab` and the enclosing `::::tabs`.
+//!
+//! # A walker built-in
+//!
+//! Tabs are recognized by the walker itself — like the `:status` badge. The
+//! directive set is fixed and needs no registration: the walker owns the tab
+//! state and reserves the bar hole, and the backend supplies the markup through
+//! its tab methods ([`tabs_open`](crate::RenderBackend::tabs_open),
+//! [`tab_panel_open`](crate::RenderBackend::tab_panel_open), and their closers),
+//! so a backend that does not support tabs (e.g. the search-document backend)
+//! renders their content without any chrome. A backend that tokenizes directive
+//! syntax (the default) renders tabs with no setup at all:
+//!
+//! ```
+//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
+//!
+//! let md = "::::tabs\n\n:::tab[macOS]\n\nInstall with Homebrew.\n\n:::\n\n:::tab[Linux]\n\nInstall with apt.\n\n:::\n\n::::";
+//! let result = MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty());
+//! assert!(result.html.contains(r#"role="tablist""#));
+//! ```
+
+/// One tab within a group, as handed to the backend's tab methods.
+pub struct TabInfo {
+    /// Document-global tab id, used in element ids.
+    pub id: usize,
+    /// Display label from `:::tab[Label]`.
+    pub label: String,
+    /// First tab in its group (selected, not `hidden`).
+    pub is_first: bool,
+}
+
+/// Directive name of a tab group container (`::::tabs`).
+pub(crate) const TABS_NAME: &str = "tabs";
+/// Directive name of a tab item (`:::tab[Label]`).
+pub(crate) const TAB_NAME: &str = "tab";

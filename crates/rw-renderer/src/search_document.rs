@@ -5,11 +5,10 @@
 //! Lunr, etc.). No HTML tags, no markdown markup — just text with spaces
 //! between content boundaries.
 
-use std::borrow::Cow;
-
 use pulldown_cmark::Alignment;
 
 use crate::RenderBackend;
+use crate::diagram::DiagramView;
 use rw_parser::AlertKind;
 
 /// Render backend that produces search-optimized plain text.
@@ -21,11 +20,11 @@ use rw_parser::AlertKind;
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{MarkdownRenderer, Pipeline, SearchDocumentBackend};
+/// use rw_renderer::{MarkdownRenderer, Providers, SearchDocumentBackend};
 ///
 /// let result = MarkdownRenderer::<SearchDocumentBackend>::new()
 ///     .with_title_extraction()
-///     .render("# Title\n\nHello **world**.", Pipeline::new());
+///     .render("# Title\n\nHello **world**.", &Providers::empty());
 ///
 /// assert_eq!(result.title.as_deref(), Some("Title"));
 /// assert_eq!(result.html.trim(), "Hello world.");
@@ -35,10 +34,19 @@ pub struct SearchDocumentBackend;
 impl RenderBackend for SearchDocumentBackend {
     const TITLE_AS_METADATA: bool = true;
 
+    const DIAGRAM_IDS: bool = false;
+
     fn code_block(_lang: Option<&str>, content: &str, out: &mut String) {
         out.push_str(content);
         out.push(' ');
     }
+
+    /// The search index wants a diagram's words, not a picture of it. Search
+    /// never runs a provider, so a resolved diagram cannot reach here — and
+    /// indexing nothing is the honest answer for bytes with no text in them.
+    fn diagram(_view: &DiagramView<'_>, _out: &mut String) {}
+
+    fn diagram_error(_id: Option<&str>, _message: &str, _out: &mut String) {}
 
     fn blockquote_start(_out: &mut String) {}
     fn blockquote_end(_out: &mut String) {}
@@ -50,10 +58,6 @@ impl RenderBackend for SearchDocumentBackend {
         if !alt.is_empty() {
             out.push_str(alt);
         }
-    }
-
-    fn transform_link<'a>(url: &'a str, _base_path: Option<&str>) -> Cow<'a, str> {
-        Cow::Borrowed(url)
     }
 
     fn hard_break(out: &mut String) {
@@ -153,13 +157,16 @@ impl RenderBackend for SearchDocumentBackend {
 
 #[cfg(test)]
 mod tests {
-    use crate::{MarkdownRenderer, Pipeline, SearchDocumentBackend};
+    use crate::{MarkdownRenderer, Providers, SearchDocumentBackend};
 
     #[test]
     fn renders_plain_text() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .with_title_extraction()
-            .render("# Title\n\nHello **world** and `code`.", Pipeline::new());
+            .render(
+                "# Title\n\nHello **world** and `code`.",
+                &Providers::empty(),
+            );
 
         assert_eq!(result.title.as_deref(), Some("Title"));
         assert_eq!(result.html.trim(), "Hello world and code.");
@@ -168,28 +175,28 @@ mod tests {
     #[test]
     fn strips_inline_formatting() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render("**bold** *italic* ~~strike~~ `code`", Pipeline::new());
+            .render("**bold** *italic* ~~strike~~ `code`", &Providers::empty());
         assert_eq!(result.html.trim(), "bold italic strike code");
     }
 
     #[test]
     fn link_keeps_display_text_drops_url() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render("[Click here](https://example.com)", Pipeline::new());
+            .render("[Click here](https://example.com)", &Providers::empty());
         assert_eq!(result.html.trim(), "Click here");
     }
 
     #[test]
     fn image_outputs_alt_text() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render("![A cute cat](cat.png)", Pipeline::new());
+            .render("![A cute cat](cat.png)", &Providers::empty());
         assert_eq!(result.html.trim(), "A cute cat");
     }
 
     #[test]
     fn table_cells_separated_by_space() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render("| A | B |\n|---|---|\n| C | D |", Pipeline::new());
+            .render("| A | B |\n|---|---|\n| C | D |", &Providers::empty());
         let text = result.html.trim();
         assert!(text.contains('A'));
         assert!(text.contains('B'));
@@ -201,7 +208,7 @@ mod tests {
     #[test]
     fn list_items_separated() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render("- alpha\n- beta\n- gamma", Pipeline::new());
+            .render("- alpha\n- beta\n- gamma", &Providers::empty());
         let text = result.html.trim();
         assert!(text.contains("alpha"));
         assert!(text.contains("beta"));
@@ -211,8 +218,10 @@ mod tests {
 
     #[test]
     fn code_block_included_as_is() {
-        let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render("```python\ndef hello():\n    pass\n```", Pipeline::new());
+        let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
+            "```python\ndef hello():\n    pass\n```",
+            &Providers::empty(),
+        );
         assert!(result.html.contains("def hello():"));
         assert!(result.html.contains("pass"));
         assert!(!result.html.contains("<code"));
@@ -221,7 +230,7 @@ mod tests {
     #[test]
     fn raw_html_stripped() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render("before <b>bold</b> after", Pipeline::new());
+            .render("before <b>bold</b> after", &Providers::empty());
         assert!(result.html.contains("before"));
         assert!(result.html.contains("after"));
         assert!(!result.html.contains("<b>"));
@@ -229,15 +238,12 @@ mod tests {
 
     #[test]
     fn status_badge_label_indexed_without_markup() {
-        // Markers route through marker_open/marker_close, whose defaults are
-        // no-ops — so a badge contributes its label to the index and nothing else.
-        use crate::StatusDirective;
-        use crate::directive::DirectiveProcessor;
-
-        let processor = DirectiveProcessor::new().with_inline(StatusDirective::new());
+        // Status routes through status_open/status_close, whose defaults on
+        // this backend are no-ops — so a badge contributes its label to the
+        // index and nothing else.
         let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
             "Delivery is :status[On Track]{color=green} today.",
-            Pipeline::new().with_directives(processor),
+            &Providers::empty(),
         );
         assert!(result.html.contains("On Track"), "got: {}", result.html);
         assert!(!result.html.contains('<'), "markup leaked: {}", result.html);
@@ -249,9 +255,45 @@ mod tests {
     }
 
     #[test]
-    fn alert_content_included() {
+    fn status_badge_label_with_metachars_indexed_raw() {
+        // Discriminator: the search backend's `text` is a raw push, not an HTML
+        // escape. The badge label must reach the index verbatim — a design
+        // that HTML-escapes the label in a backend `status` method would index
+        // "A &amp; B" instead of "A & B".
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
-            .render("> [!WARNING]\n> Do not delete this file.", Pipeline::new());
+            .render("Risk :status[A & B]{color=red} today.", &Providers::empty());
+        assert!(result.html.contains("A & B"), "got: {}", result.html);
+        assert!(
+            !result.html.contains("&amp;"),
+            "entity leaked: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn tabs_index_panel_content_not_labels() {
+        let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
+            "::::tabs\n\n:::tab[macOS]\n\nAlphaword\n\n:::\n\n::::",
+            &Providers::empty(),
+        );
+        assert!(
+            result.html.contains("Alphaword"),
+            "panel content must index: {}",
+            result.html
+        );
+        assert!(
+            !result.html.contains("macOS"),
+            "labels must not index: {}",
+            result.html
+        );
+    }
+
+    #[test]
+    fn alert_content_included() {
+        let result = MarkdownRenderer::<SearchDocumentBackend>::new().render(
+            "> [!WARNING]\n> Do not delete this file.",
+            &Providers::empty(),
+        );
         assert!(result.html.contains("Do not delete this file."));
         assert!(!result.html.contains('<'));
     }
@@ -260,7 +302,7 @@ mod tests {
     fn headings_in_body_included_title_excluded() {
         let result = MarkdownRenderer::<SearchDocumentBackend>::new()
             .with_title_extraction()
-            .render("# Title\n\n## Section\n\nContent", Pipeline::new());
+            .render("# Title\n\n## Section\n\nContent", &Providers::empty());
         assert_eq!(result.title.as_deref(), Some("Title"));
         assert!(result.html.contains("Section"));
         assert!(result.html.contains("Content"));

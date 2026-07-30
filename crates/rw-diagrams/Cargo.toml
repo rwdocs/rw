@@ -1,0 +1,20 @@
+[package]
+name = "rw-diagrams"
+description = "Provider-agnostic diagram vocabulary for RW"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# Every diagram provider depends on this crate, so anything added here links
+# into all of them. Keep it empty unless the vocabulary genuinely needs a type
+# it cannot define itself.
+[dependencies]
+
+# Not transitive: nothing that depends on rw-diagrams links these, so they do
+# not reach the providers the [dependencies] comment above is protecting.
+[dev-dependencies]
+parking_lot = { workspace = true }

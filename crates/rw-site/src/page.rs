@@ -1,9 +1,8 @@
 //! Page rendering pipeline.
 //!
 //! Contains the internal [`PageRenderer`] that handles markdown-to-HTML
-//! conversion, page caching, diagram processing, and metadata loading.
-//! Also defines the public result and configuration types used by
-//! [`Site`](crate::Site).
+//! conversion, page caching, and diagram processing. Also defines the public
+//! result and configuration types used by [`Site`](crate::Site).
 
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -11,16 +10,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rw_cache::{Cache, CacheBucket, CacheBucketExt};
-use rw_kroki::{DiagramProcessor, MetaIncludeSource, SearchDiagramProcessor};
-use rw_renderer::directive::DirectiveProcessor;
+use rw_diagrams::{DiagramRouter, Providers, Resolutions, ResolveContext, SiteModel};
+use rw_kroki::KrokiProvider;
+use rw_parser::rewrite_fences;
+use rw_plantuml::search_text;
 use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, Pipeline, RenderBackend, SearchDocumentBackend, StatusDirective,
-    TabsDirective, TocEntry, escape_html,
+    HtmlBackend, MarkdownRenderer, RenderBackend, SearchDocumentBackend, TocEntry, escape_html,
 };
 use rw_sections::{SectionAnchor, Sections};
 
 use crate::site::{SiteSnapshot, SiteTitleResolver};
-use rw_storage::{Metadata, Storage, StorageError, StorageErrorKind};
+use rw_storage::{Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
 /// Per-render dependencies from the current site snapshot.
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Default)]
 pub(crate) struct RenderContext {
     pub(crate) sections: Arc<Sections>,
-    pub(crate) meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
+    pub(crate) meta_include_source: Option<Arc<dyn SiteModel>>,
     pub(crate) snapshot: Option<Arc<SiteSnapshot>>,
     /// Fingerprint of cross-page inputs from the snapshot, folded into the page
     /// cache etag. `0` when there is no snapshot (e.g. `RenderContext::default()`),
@@ -45,9 +45,8 @@ pub(crate) struct RenderContext {
 /// ```
 /// use rw_site::PageRendererConfig;
 ///
-/// // Default: title extraction on, no diagram rendering
+/// // Default: no diagram rendering
 /// let config = PageRendererConfig::default();
-/// assert!(config.extract_title);
 /// assert!(config.kroki_url.is_none());
 /// ```
 ///
@@ -60,11 +59,8 @@ pub(crate) struct RenderContext {
 ///     ..Default::default()
 /// };
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PageRendererConfig {
-    /// When `true`, the first `# H1` heading is extracted from the rendered
-    /// HTML and returned separately in [`PageRenderResult::title`].
-    pub extract_title: bool,
     /// Base URL of a [Kroki](https://kroki.io) instance for rendering diagrams.
     ///
     /// When `None`, fenced code blocks for diagram languages (`PlantUML`,
@@ -75,16 +71,6 @@ pub struct PageRendererConfig {
     pub include_dirs: Vec<PathBuf>,
 }
 
-impl Default for PageRendererConfig {
-    fn default() -> Self {
-        Self {
-            extract_title: true,
-            kroki_url: None,
-            include_dirs: Vec::new(),
-        }
-    }
-}
-
 /// A single document in the site hierarchy.
 ///
 /// Every entry in the navigation tree corresponds to a `Page`. Pages with
@@ -93,8 +79,10 @@ impl Default for PageRendererConfig {
 /// have it set to `false`.
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
-    /// Display title, resolved from (in priority order): metadata `title`
-    /// field, first `# H1` heading, or filename.
+    /// Display title, resolved from (in priority order): frontmatter `title`,
+    /// else `meta.yaml` `title`, else the first `# H1` heading, else the
+    /// titlecased filename. Never empty — a filename that titlecases to
+    /// nothing falls back further (stem verbatim, then `Untitled`).
     pub title: String,
     /// URL path without leading slash (e.g., `"guide"`, `"domain/billing"`,
     /// `""` for the site root).
@@ -102,9 +90,17 @@ pub struct Page {
     /// Whether this page has markdown content. `false` for virtual pages
     /// that exist only as navigation containers.
     pub has_content: bool,
-    /// Optional description from the page's metadata.
+    /// Optional page description, resolved from frontmatter or `meta.yaml`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Declared page kind (`"domain"`, `"guide"`, …), resolved from frontmatter
+    /// or `meta.yaml`. `Some` exactly when this page registers a section.
+    /// `Page` is persisted in the structure cache (`CachedSiteState`); being
+    /// `Option` lets an entry cached before this field existed deserialize as
+    /// kindless rather than failing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[allow(clippy::struct_field_names)]
+    pub page_kind: Option<String>,
     /// Source directory name for content originating outside `source_dir`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
@@ -167,15 +163,19 @@ pub struct BreadcrumbItem {
 /// Output of rendering a single page via [`Site::render`](crate::Site::render).
 ///
 /// Contains everything the frontend needs to display a page: rendered HTML,
-/// extracted title, table of contents for the sidebar, breadcrumb trail,
-/// and optional YAML metadata.
+/// resolved title, table of contents for the sidebar, breadcrumb trail,
+/// and the page's description and kind.
 #[derive(Debug)]
 pub struct PageRenderResult {
     /// Rendered HTML body content.
     pub html: String,
-    /// Title extracted from the first `# H1` heading, or `None` if title
-    /// extraction is disabled or the page has no H1.
-    pub title: Option<String>,
+    /// The page's resolved title — frontmatter `title`, else `meta.yaml`
+    /// `title`, else the first `# H1`, else the titlecased filename. Read from
+    /// the site snapshot rather than from rendering, so navigation,
+    /// breadcrumbs, this response, and the search index all report one string.
+    /// Never empty — a filename that titlecases to nothing falls back further
+    /// (stem verbatim, then `Untitled`).
+    pub title: String,
     /// Headings found in the page, used to build a "table of contents" sidebar.
     pub toc: Vec<TocEntry>,
     /// Non-fatal issues encountered during rendering (e.g., unresolved
@@ -193,9 +193,11 @@ pub struct PageRenderResult {
     /// Ancestor trail from "Home" to the parent of this page.
     /// See [`BreadcrumbItem`] for the structure.
     pub breadcrumbs: Vec<BreadcrumbItem>,
-    /// Page metadata from YAML frontmatter or sidecar `meta.yaml` file,
-    /// if present.
-    pub metadata: Option<Metadata>,
+    /// Page description, resolved from frontmatter or `meta.yaml`.
+    pub description: Option<String>,
+    /// Declared page kind, resolved from frontmatter or `meta.yaml`. `Some`
+    /// exactly when this page registers a section.
+    pub page_kind: Option<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this page references,
     /// via prose links and diagram `$link`s. Deduped and deterministically
     /// ordered; empty for pages that reference no sections. Survives the page
@@ -219,7 +221,7 @@ pub struct PageRenderResult {
 /// Contains whitespace-separated tokens suitable for full-text search engines.
 #[derive(Debug, Clone)]
 pub struct SearchDocument {
-    /// Page title (from metadata or first H1 heading).
+    /// Display title, resolved from [`Page::title`].
     pub title: String,
     /// Plain text content with whitespace-separated tokens.
     pub text: String,
@@ -300,21 +302,30 @@ fn diagram_config_fingerprint(kroki_url: Option<&str>, include_dirs: &[PathBuf])
 
 /// Page rendering pipeline.
 ///
-/// Handles markdown-to-HTML conversion with caching, diagram processing,
-/// and metadata loading. Operates on individual pages without knowledge of
-/// site structure or reload logic.
+/// Handles markdown-to-HTML conversion with caching and diagram processing.
+/// Operates on individual pages without knowledge of site structure or
+/// reload logic.
 pub(crate) struct PageRenderer {
     storage: Arc<dyn Storage>,
-    cache: Arc<dyn Cache>,
     page_bucket: Box<dyn CacheBucket>,
-    extract_title: bool,
-    kroki_url: Option<String>,
+    /// Kept alongside [`providers`](Self::providers) because the search path
+    /// resolves `PlantUML` `!include`s itself, without going through a
+    /// provider.
     include_dirs: Vec<PathBuf>,
+    /// The diagram providers this site renders through, built once: a provider
+    /// owns an HTTP agent whose connection pool should outlive any one page.
+    /// Everything that varies per render travels in [`ResolveContext`] instead.
+    providers: Arc<Providers>,
     diagram_config_fingerprint: u64,
 }
 
 impl PageRenderer {
     /// Create a new page renderer.
+    // `cache` is only borrowed from: no field holds it, the buckets taken off
+    // it do. It still arrives by value because taking `&Arc<dyn Cache>` would
+    // move this same lint onto `Site::new`, which has nowhere to hand
+    // ownership either.
+    #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn new(
         storage: Arc<dyn Storage>,
         cache: Arc<dyn Cache>,
@@ -322,18 +333,24 @@ impl PageRenderer {
     ) -> Self {
         let diagram_config_fingerprint =
             diagram_config_fingerprint(config.kroki_url.as_deref(), &config.include_dirs);
+        let providers = match &config.kroki_url {
+            Some(url) => Providers::empty().with(Arc::new(
+                KrokiProvider::new(url)
+                    .include_dirs(&config.include_dirs)
+                    .with_cache(cache.bucket("diagrams")),
+            )),
+            None => Providers::empty(),
+        };
         Self {
             storage,
             page_bucket: cache.bucket("pages"),
-            cache,
-            extract_title: config.extract_title,
-            kroki_url: config.kroki_url,
             include_dirs: config.include_dirs,
+            providers: Arc::new(providers),
             diagram_config_fingerprint,
         }
     }
 
-    /// Render a page with full pipeline: mtime, metadata, cache check, render, cache write.
+    /// Render a page with full pipeline: mtime, cache check, render, cache write.
     ///
     /// # Errors
     ///
@@ -401,8 +418,6 @@ impl PageRenderer {
     ) -> Result<PageRenderResult, RenderError> {
         let source_mtime = self.storage.mtime(path).map_err(RenderError::from)?;
 
-        let metadata = self.load_metadata(path);
-
         // Etag combines the page's own source mtime, the snapshot's resolution
         // fingerprint (a cross-page change — another page's title/description/
         // section that this render resolves — invalidates this page even though
@@ -419,14 +434,15 @@ impl PageRenderer {
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
             return Ok(PageRenderResult {
                 html: cached.html,
-                title: cached.title,
+                title: page.title.clone(),
                 toc: cached.toc,
                 warnings: Vec::new(),
                 from_cache: true,
                 has_content: page.has_content,
                 source_mtime,
                 breadcrumbs,
-                metadata,
+                description: page.description.clone(),
+                page_kind: page.page_kind.clone(),
                 section_refs: cached.section_refs,
                 // Overwritten in `render()` after breadcrumb sections resolve.
                 section_ancestry: HashMap::new(),
@@ -435,8 +451,16 @@ impl PageRenderer {
 
         let markdown_text = self.storage.read(path)?;
         let renderer = self.create_renderer(path, page.origin.as_deref(), page.is_dir, ctx);
-        let pipeline = self.create_pipeline(ctx);
-        let result = renderer.render(&markdown_text, pipeline);
+        let pass = renderer.begin(&markdown_text);
+        let resolve_ctx = ResolveContext {
+            model: ctx.meta_include_source.as_deref(),
+            page: Some(path),
+        };
+        let resolutions = self.providers.resolve(pass.requests(), &resolve_ctx);
+        let transient = resolutions
+            .values()
+            .any(|r| matches!(r, Err(error) if error.transient));
+        let result = pass.finish(&resolutions);
 
         // A transient diagram failure (Kroki unreachable, a 5xx, or a retryable
         // 4xx) is not persisted, so the page re-renders and can recover once
@@ -444,13 +468,12 @@ impl PageRenderer {
         // successes. A deterministic failure (e.g. Kroki 400 on malformed
         // source) is not transient and still caches, so it does not re-hit
         // Kroki every request.
-        if !result.has_transient_error {
+        if !transient {
             self.page_bucket.set_json(
                 path,
                 &etag,
                 &CachedPageRef {
                     html: &result.html,
-                    title: result.title.as_deref(),
                     toc: &result.toc,
                     section_refs: &result.section_refs,
                 },
@@ -459,14 +482,15 @@ impl PageRenderer {
 
         Ok(PageRenderResult {
             html: result.html,
-            title: result.title,
+            title: page.title.clone(),
             toc: result.toc,
             warnings: result.warnings,
             from_cache: false,
             has_content: page.has_content,
             source_mtime,
             breadcrumbs,
-            metadata,
+            description: page.description.clone(),
+            page_kind: page.page_kind.clone(),
             section_refs: result.section_refs,
             // Overwritten in `render()` after breadcrumb sections resolve.
             section_ancestry: HashMap::new(),
@@ -480,18 +504,18 @@ impl PageRenderer {
         breadcrumbs: Vec<BreadcrumbItem>,
     ) -> PageRenderResult {
         let source_mtime = self.storage.mtime(path).unwrap_or(0.0);
-        let metadata = self.load_metadata(path);
 
         PageRenderResult {
             html: format!("<h1>{}</h1>\n", escape_html(&page.title)),
-            title: Some(page.title.clone()),
+            title: page.title.clone(),
             toc: Vec::new(),
             warnings: Vec::new(),
             from_cache: false,
             has_content: false,
             source_mtime,
             breadcrumbs,
-            metadata,
+            description: page.description.clone(),
+            page_kind: page.page_kind.clone(),
             section_refs: BTreeSet::new(),
             // Overwritten in `render()` after breadcrumb sections resolve.
             section_ancestry: HashMap::new(),
@@ -509,32 +533,34 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let metadata = self.load_metadata(path);
 
-        let mut search_processor = SearchDiagramProcessor::new(self.include_dirs.clone());
-        if let Some(source) = &ctx.meta_include_source {
-            search_processor = search_processor.with_meta_include_source(Arc::clone(source));
-        }
+        // Diagram fences are reduced to their text before the walk rather than
+        // during it: the index wants the words in a diagram, not a picture of
+        // one, and no provider has to run to get them.
+        let stripped = rewrite_fences(&markdown_text, |lang, src| {
+            search_text(
+                lang,
+                src,
+                &self.include_dirs,
+                ctx.meta_include_source.as_deref(),
+            )
+        });
 
+        // No title extraction. The title comes from the site snapshot, and
+        // `SearchDocumentBackend::TITLE_AS_METADATA` would otherwise pull the
+        // first H1 out of the indexed body — leaving its words in neither the
+        // title nor the text whenever the two differ.
+        //
+        // No diagram router either, so every fence — diagram or not — reaches
+        // `SearchDocumentBackend::code_block` and is indexed as plain text.
         let renderer = Self::configure_renderer_settings(
-            MarkdownRenderer::<SearchDocumentBackend>::new().with_title_extraction(),
+            MarkdownRenderer::<SearchDocumentBackend>::new(),
             ctx,
         );
-        // Search-document rendering uses SearchDiagramProcessor (text
-        // descriptions) instead of the regular DiagramProcessor (HTML/SVG
-        // via Kroki) — so start from the directives-only base pipeline
-        // and add just the search processor.
-        let pipeline = Self::create_directives_pipeline().with_processor(search_processor);
-        let result = renderer.render(&markdown_text, pipeline);
-
-        let title = metadata
-            .as_ref()
-            .and_then(|m| m.title.clone())
-            .or(result.title)
-            .unwrap_or_else(|| page.title.clone());
+        let result = renderer.begin(&stripped).finish(&Resolutions::new());
 
         Ok(Some(SearchDocument {
-            title,
+            title: page.title.clone(),
             text: result.html,
         }))
     }
@@ -554,32 +580,22 @@ impl PageRenderer {
             renderer = renderer.with_origin(origin);
         }
 
-        if self.extract_title {
-            renderer = renderer.with_title_extraction();
+        // The first H1 is always title-extracted. Nothing reads the extracted
+        // title — the page's title comes from the site snapshot — but in HTML
+        // mode (`TITLE_AS_METADATA = false`) this flag is what keeps that H1
+        // out of the ToC (`rw-renderer`'s `HeadingAccumulator::complete_heading`).
+        // Drop it and every page grows a duplicate top ToC entry;
+        // `test_render_page_toc_generation` is the guard.
+        renderer = renderer.with_title_extraction();
+
+        // With no provider configured there is no router either, so every fence
+        // stays an ordinary code block.
+        if !self.providers.is_empty() {
+            renderer = renderer
+                .with_diagram_languages(Arc::clone(&self.providers) as Arc<dyn DiagramRouter>);
         }
 
         Self::configure_renderer_settings(renderer, ctx)
-    }
-
-    /// Pipeline preloaded with the directives shared by every render path
-    /// (tabs container + status inline). Callers add their own code-block
-    /// processors on top (regular `DiagramProcessor` for HTML rendering,
-    /// `SearchDiagramProcessor` for search indexing).
-    fn create_directives_pipeline() -> Pipeline {
-        let directives = DirectiveProcessor::new()
-            .with_container(TabsDirective::new())
-            .with_inline(StatusDirective::new());
-        Pipeline::new().with_directives(directives)
-    }
-
-    /// Pipeline for HTML rendering: directives + the regular
-    /// `DiagramProcessor` (when configured).
-    fn create_pipeline(&self, ctx: &RenderContext) -> Pipeline {
-        let mut pipeline = Self::create_directives_pipeline();
-        if let Some(processor) = self.create_diagram_processor(ctx.meta_include_source.clone()) {
-            pipeline = pipeline.with_processor(processor.with_sections(Arc::clone(&ctx.sections)));
-        }
-        pipeline
     }
 
     /// Apply settings shared between renderer creation paths: sections,
@@ -600,40 +616,12 @@ impl PageRenderer {
 
         renderer
     }
-
-    fn create_diagram_processor(
-        &self,
-        meta_include_source: Option<Arc<dyn MetaIncludeSource>>,
-    ) -> Option<DiagramProcessor> {
-        let url = self.kroki_url.as_ref()?;
-
-        let mut processor = DiagramProcessor::new(url)
-            .include_dirs(&self.include_dirs)
-            .with_cache(self.cache.bucket("diagrams"));
-
-        if let Some(source) = meta_include_source {
-            processor = processor.with_meta_include_source(source);
-        }
-
-        Some(processor)
-    }
-
-    fn load_metadata(&self, path: &str) -> Option<Metadata> {
-        match self.storage.meta(path) {
-            Ok(meta) => meta,
-            Err(e) => {
-                tracing::warn!(path = %path, error = %e, "Failed to load metadata");
-                None
-            }
-        }
-    }
 }
 
 /// Cached page data for deserialization (owned).
 #[derive(Deserialize)]
 struct CachedPage {
     html: String,
-    title: Option<String>,
     toc: Vec<TocEntry>,
     /// `#[serde(default)]` so cache entries written before this field existed
     /// still deserialize — the missing set becomes empty until the page is next
@@ -646,7 +634,6 @@ struct CachedPage {
 #[derive(Serialize)]
 struct CachedPageRef<'a> {
     html: &'a str,
-    title: Option<&'a str>,
     toc: &'a [TocEntry],
     section_refs: &'a BTreeSet<String>,
 }
@@ -654,8 +641,12 @@ struct CachedPageRef<'a> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use rw_cache::NullCache;
+    use rw_diagrams::{
+        Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, Entity, Resolved,
+    };
     use rw_storage::MockStorage;
 
     use super::*;
@@ -672,10 +663,254 @@ mod tests {
             path: path.to_owned(),
             has_content,
             description: None,
+            page_kind: None,
             origin: None,
             pages: None,
             is_dir: true,
         }
+    }
+
+    // ── The diagram path, through a stub provider ─────────────────────────
+
+    /// One `plantuml` fence with prose on either side, so a test can see both
+    /// what a fence became and where it landed.
+    const DIAGRAM_PAGE: &str = "# Diagram\n\nbefore\n\n```plantuml\nA -> B\n```\n\nafter\n";
+
+    /// A provider that answers from the fence source without a network.
+    ///
+    /// The body is a script: `flaky` fails transiently, `fail` fails
+    /// deterministically, and anything else resolves to an SVG echoing the
+    /// source, so a test can see which fence filled which hole.
+    struct StubProvider {
+        /// Whether the last `resolve` was handed a site model. Shared with the
+        /// test, which cannot reach the provider once it is behind an `Arc<dyn
+        /// DiagramProvider>`.
+        saw_model: Arc<AtomicBool>,
+    }
+
+    impl DiagramProvider for StubProvider {
+        fn handles(&self, language: &str) -> bool {
+            language == "plantuml"
+        }
+
+        fn resolve(
+            &self,
+            requests: &[DiagramRequest],
+            ctx: &ResolveContext<'_>,
+        ) -> Vec<Result<Resolved, DiagramError>> {
+            self.saw_model.store(ctx.model.is_some(), Ordering::SeqCst);
+            requests
+                .iter()
+                .map(|request| match request.source.trim() {
+                    "flaky" => Err(DiagramError {
+                        message: "kroki is unreachable".to_owned(),
+                        transient: true,
+                    }),
+                    "fail" => Err(DiagramError {
+                        message: "kroki said no".to_owned(),
+                        transient: false,
+                    }),
+                    source => Ok(Resolved {
+                        asset: Asset::Inline(DiagramContent::Svg(format!("<svg>{source}</svg>"))),
+                        size: None,
+                        digest: "0".to_owned(),
+                        warnings: Vec::new(),
+                    }),
+                })
+                .collect()
+        }
+    }
+
+    /// A renderer whose diagram fences route to a [`StubProvider`], plus the
+    /// flag recording whether that provider was handed a site model.
+    ///
+    /// Built field-by-field rather than through [`PageRenderer::new`], which
+    /// only ever builds a Kroki provider. What `new` wires is covered by the
+    /// tests that go through it.
+    fn stub_renderer(
+        storage: MockStorage,
+        cache: &Arc<dyn Cache>,
+    ) -> (PageRenderer, Arc<AtomicBool>) {
+        let saw_model = Arc::new(AtomicBool::new(false));
+        let provider = StubProvider {
+            saw_model: Arc::clone(&saw_model),
+        };
+        let renderer = PageRenderer {
+            storage: Arc::new(storage),
+            page_bucket: cache.bucket("pages"),
+            include_dirs: Vec::new(),
+            providers: Arc::new(Providers::empty().with(Arc::new(provider))),
+            diagram_config_fingerprint: 0,
+        };
+        (renderer, saw_model)
+    }
+
+    fn diagram_storage(body: &str) -> MockStorage {
+        MockStorage::new()
+            .with_file(
+                "diag",
+                "Diagram",
+                format!("# Diagram\n\n```plantuml\n{body}\n```\n"),
+            )
+            .with_mtime("diag", 1000.0)
+    }
+
+    fn file_cache() -> (tempfile::TempDir, Arc<dyn Cache>) {
+        let dir = tempfile::tempdir().unwrap();
+        let cache: Arc<dyn Cache> =
+            Arc::new(rw_cache::FileCache::new(dir.path().join("cache"), "1.0.0"));
+        (dir, cache)
+    }
+
+    #[test]
+    fn a_resolved_diagram_is_spliced_where_its_fence_stood() {
+        let storage = MockStorage::new()
+            .with_file("diag", "Diagram", DIAGRAM_PAGE)
+            .with_mtime("diag", 1000.0);
+        let cache: Arc<dyn Cache> = Arc::new(NullCache);
+        let (renderer, _) = stub_renderer(storage, &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        let result = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+
+        assert!(
+            result
+                .html
+                .contains(r#"<figure class="diagram" data-diagram-id="diagram-0"><rw-diagram><svg>A -> B</svg></rw-diagram></figure>"#),
+            "the resolution did not become a diagram figure: {}",
+            result.html,
+        );
+        // Position, not just presence: a fill written to the wrong hole would
+        // still leave the figure somewhere on the page.
+        let figure = result.html.find("<figure").expect("the diagram figure");
+        let before = result
+            .html
+            .find("<p>before</p>")
+            .expect("the prose above the fence");
+        let after = result
+            .html
+            .find("<p>after</p>")
+            .expect("the prose below the fence");
+        assert!(
+            before < figure && figure < after,
+            "the figure landed outside the fence's position: {}",
+            result.html,
+        );
+    }
+
+    #[test]
+    fn a_transient_provider_failure_is_not_cached() {
+        let (_dir, cache) = file_cache();
+        let (renderer, _) = stub_renderer(diagram_storage("flaky"), &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        let first = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(!first.from_cache);
+        assert!(
+            first.html.contains("diagram-error"),
+            "a failed diagram shows as an error figure: {}",
+            first.html,
+        );
+
+        let second = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            !second.from_cache,
+            "a transient failure must re-render, so the page can recover",
+        );
+    }
+
+    /// The other half of the contract: a failure that will fail identically
+    /// every time is cached, so a broken diagram does not re-hit the provider
+    /// on every request.
+    #[test]
+    fn a_deterministic_provider_failure_is_cached() {
+        let (_dir, cache) = file_cache();
+        let (renderer, _) = stub_renderer(diagram_storage("fail"), &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        let first = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(!first.from_cache);
+        assert!(
+            first.html.contains("diagram-error"),
+            "a failed diagram shows as an error figure: {}",
+            first.html,
+        );
+
+        let second = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            second.from_cache,
+            "a deterministic failure must cache, or every request re-renders it",
+        );
+        assert_eq!(second.html, first.html);
+    }
+
+    #[test]
+    fn without_a_diagram_service_a_diagram_fence_stays_a_code_block() {
+        // `PageRendererConfig::default()` leaves `kroki_url` unset, so no
+        // provider is configured and the renderer gets no router at all.
+        let renderer = create_renderer(diagram_storage("A -> B"));
+        let page = make_page("Diagram", "diag", true);
+
+        let result = renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+
+        assert!(
+            result
+                .html
+                .contains(r#"<pre><code class="language-plantuml">A -&gt; B"#),
+            "the fence should render as ordinary code: {}",
+            result.html,
+        );
+        assert!(
+            !result.html.contains("<figure"),
+            "no diagram service means no diagram figure: {}",
+            result.html,
+        );
+    }
+
+    #[test]
+    fn the_site_model_reaches_the_provider_through_the_resolve_context() {
+        struct EmptyModel;
+        impl SiteModel for EmptyModel {
+            fn entity(&self, _kind: &str, _name: &str) -> Option<Entity> {
+                None
+            }
+        }
+
+        // NullCache always misses, so the second render below is a real render
+        // rather than a cache hit that would never call the provider.
+        let cache: Arc<dyn Cache> = Arc::new(NullCache);
+        let (renderer, saw_model) = stub_renderer(diagram_storage("A -> B"), &cache);
+        let page = make_page("Diagram", "diag", true);
+
+        renderer
+            .render("diag", &page, vec![], &RenderContext::default())
+            .unwrap();
+        assert!(
+            !saw_model.load(Ordering::SeqCst),
+            "the flag must track the context, or the assertion below is vacuous",
+        );
+
+        let ctx = RenderContext {
+            meta_include_source: Some(Arc::new(EmptyModel)),
+            ..Default::default()
+        };
+        renderer.render("diag", &page, vec![], &ctx).unwrap();
+        assert!(
+            saw_model.load(Ordering::SeqCst),
+            "the snapshot's site model did not reach the provider",
+        );
     }
 
     #[test]
@@ -700,7 +935,7 @@ mod tests {
             .unwrap();
 
         assert!(result.html.contains("<p>World</p>"));
-        assert_eq!(result.title, Some("Hello".to_owned()));
+        assert_eq!(result.title, "Hello");
         assert!(!result.from_cache);
         assert!(result.has_content);
     }
@@ -747,7 +982,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
-        assert_eq!(result.title, Some("My Domain".to_owned()));
+        assert_eq!(result.title, "My Domain");
         assert!(!result.has_content);
         assert!(result.toc.is_empty());
     }
@@ -909,6 +1144,59 @@ mod tests {
         assert!(r3.from_cache);
     }
 
+    /// A server that accepts a connection and hangs up without answering, so a
+    /// render through it fails immediately.
+    ///
+    /// A port nothing listens on would do, until an environment drops the
+    /// packet rather than refusing it: `PageRenderer` builds its own
+    /// `KrokiProvider` and offers no way to shorten the 30s request timeout
+    /// such a render would then wait out, twice over.
+    struct HangUpKroki {
+        url: String,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl HangUpKroki {
+        fn start() -> Self {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+            let url = format!("http://{}", listener.local_addr().expect("its own address"));
+            listener.set_nonblocking(true).expect("poll the listener");
+
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread = {
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        match listener.accept() {
+                            // Dropping the stream closes it, unanswered.
+                            Ok(_) => {}
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                })
+            };
+
+            Self {
+                url,
+                stop,
+                thread: Some(thread),
+            }
+        }
+    }
+
+    impl Drop for HangUpKroki {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
+
     #[test]
     fn transient_diagram_failure_is_not_cached() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -927,11 +1215,12 @@ mod tests {
         );
         let page = make_page("Diagram", "diag", true);
 
-        // Unreachable Kroki → transient render failure. Whether the sandbox
-        // blocks the connection or the port refuses it, ureq reports an
-        // HttpRequest error (transient), so this holds in both environments.
+        // A Kroki that hangs up → transient render failure: ureq reports an
+        // HttpRequest error, which the provider classifies as retryable. This
+        // is the wiring `PageRenderer::new` does, not a stubbed provider.
+        let kroki = HangUpKroki::start();
         let cfg = PageRendererConfig {
-            kroki_url: Some("http://127.0.0.1:1".to_owned()),
+            kroki_url: Some(kroki.url.clone()),
             ..PageRendererConfig::default()
         };
         let renderer = PageRenderer::new(Arc::clone(&storage), Arc::clone(&cache), cfg);
@@ -957,7 +1246,7 @@ mod tests {
     }
 
     #[test]
-    fn page_without_transient_failure_is_cached() {
+    fn a_page_rendered_without_a_diagram_service_is_cached() {
         let temp_dir = tempfile::tempdir().unwrap();
         let cache: Arc<dyn rw_cache::Cache> = Arc::new(rw_cache::FileCache::new(
             temp_dir.path().join("cache"),
@@ -994,30 +1283,27 @@ mod tests {
     }
 
     #[test]
-    fn test_render_page_includes_metadata() {
-        let metadata = Metadata {
-            title: Some("Meta Title".to_owned()),
-            description: Some("A description".to_owned()),
-            ..Default::default()
-        };
+    fn test_render_page_includes_description_and_kind() {
         let storage = MockStorage::new()
             .with_file("test", "Test", "# Test\n\nContent")
-            .with_mtime("test", 1000.0)
-            .with_metadata("test", metadata);
+            .with_mtime("test", 1000.0);
 
         let renderer = create_renderer(storage);
-        let page = make_page("Test", "test", true);
+        let page = Page {
+            description: Some("A description".to_owned()),
+            page_kind: Some("domain".to_owned()),
+            ..make_page("Test", "test", true)
+        };
         let result = renderer
             .render("test", &page, vec![], &RenderContext::default())
             .unwrap();
 
-        let meta = result.metadata.unwrap();
-        assert_eq!(meta.title, Some("Meta Title".to_owned()));
-        assert_eq!(meta.description, Some("A description".to_owned()));
+        assert_eq!(result.description.as_deref(), Some("A description"));
+        assert_eq!(result.page_kind.as_deref(), Some("domain"));
     }
 
     #[test]
-    fn test_render_page_metadata_none_when_missing() {
+    fn test_render_page_reports_no_description_or_kind_when_undeclared() {
         let storage = MockStorage::new()
             .with_file("test", "Test", "# Test")
             .with_mtime("test", 1000.0);
@@ -1028,7 +1314,8 @@ mod tests {
             .render("test", &page, vec![], &RenderContext::default())
             .unwrap();
 
-        assert!(result.metadata.is_none());
+        assert_eq!(result.description, None);
+        assert_eq!(result.page_kind, None);
     }
 
     #[test]
@@ -1082,24 +1369,24 @@ mod tests {
     }
 
     #[test]
-    fn test_render_search_document_uses_metadata_title() {
-        let metadata = Metadata {
-            title: Some("Meta Title".to_owned()),
-            ..Default::default()
-        };
+    fn test_render_search_document_uses_resolved_page_title() {
         let storage = MockStorage::new()
-            .with_file("test", "H1 Title", "# H1 Title\n\nContent")
-            .with_mtime("test", 1000.0)
-            .with_metadata("test", metadata);
+            .with_file("test", "Page Title", "# H1 Title\n\nContent")
+            .with_mtime("test", 1000.0);
 
         let renderer = create_renderer(storage);
-        let page = make_page("H1 Title", "test", true);
+        let page = make_page("Page Title", "test", true);
         let result = renderer
             .render_search_document("test", &page, &RenderContext::default())
             .unwrap()
             .unwrap();
 
-        assert_eq!(result.title, "Meta Title");
+        assert_eq!(result.title, "Page Title");
+        assert!(
+            result.text.contains("H1 Title"),
+            "the H1 must be indexed as body text, got: {}",
+            result.text
+        );
     }
 
     #[test]

@@ -23,11 +23,11 @@ use crate::util::slugify_into;
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_title_extraction()
-///     .render("# Page Title\n\n## Introduction\n\n## Setup", Pipeline::new());
+///     .render("# Page Title\n\n## Introduction\n\n## Setup", &Providers::empty());
 ///
 /// assert_eq!(result.toc.len(), 2);
 /// assert_eq!(result.toc[0].title, "Introduction");
@@ -147,7 +147,7 @@ impl HeadingAccumulator {
         let id = self.generate_id(toc_text);
         // HTML-mode first H1: capture title (still render).
         let is_title =
-            self.extract_title && !self.title_as_metadata && level == 1 && self.title.is_none();
+            self.extract_title && !self.title_as_metadata && level == 1 && !self.seen_first_h1;
         if is_title {
             self.title = Some(toc_text.trim().to_owned());
             self.seen_first_h1 = true;

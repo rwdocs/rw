@@ -8,8 +8,7 @@
 //!
 //! Both entry points live here so the edge cases stay in agreement — a zero DPI
 //! degrades to unscaled output rather than dividing by zero, and neither can
-//! overflow. Previously these lived in three call sites that disagreed at the
-//! boundaries.
+//! overflow.
 
 use crate::consts::STANDARD_DPI;
 
@@ -19,9 +18,9 @@ use crate::consts::STANDARD_DPI;
 /// at least one pixel, and `width="0"` would hide the diagram entirely.
 #[must_use]
 pub fn to_display_px(value: u32, dpi: u32) -> u32 {
-    // A zero DPI is rejected by config validation, but `DiagramProcessor::dpi`
-    // and the napi bindings both accept one directly. Leaving the value alone
-    // renders an oversized diagram; dividing by zero would abort the render.
+    // A zero DPI is rejected by config validation, but the napi bindings accept
+    // one directly. Leaving the value alone renders an oversized diagram;
+    // dividing by zero would abort the render.
     if dpi == 0 || value == 0 {
         return value;
     }
@@ -58,9 +57,8 @@ mod tests {
         assert!((to_display_f64(70.0, STANDARD_DPI) - 70.0).abs() < f64::EPSILON);
     }
 
-    /// `DiagramProcessor::dpi(0)` and `createSite({diagrams: {dpi: 0}})` both
-    /// reach here without passing config validation. An oversized diagram beats
-    /// a panicked render.
+    /// `createSite({diagrams: {dpi: 0}})` reaches here without passing config
+    /// validation. An oversized diagram beats a panicked render.
     #[test]
     fn zero_dpi_returns_the_value_unscaled() {
         assert_eq!(to_display_px(400, 0), 400);

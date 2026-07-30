@@ -1,33 +1,28 @@
 //! Diagram rendering via Kroki for RW.
 //!
-//! This crate provides diagram extraction and rendering for markdown documents:
-//! - `DiagramProcessor` implements `CodeBlockProcessor` for extracting diagrams
-//! - Parallel rendering via Kroki service (`PlantUML`, Mermaid, `GraphViz`, etc.)
-//! - `PlantUML` preprocessing with `!include` resolution and DPI configuration
-//! - HTML embedding with SVG scaling and link annotation
+//! [`KrokiProvider`] implements `rw_diagrams::DiagramProvider`: it turns diagram
+//! source into rendered content — SVG text or PNG bytes, a display size, a
+//! content digest, and any warnings — and never markup. What a diagram becomes
+//! on a page is the render backend's decision, so this crate does not depend on
+//! a renderer at all.
 //!
 //! # Architecture
 //!
 //! The crate is organized into modules:
-//! - [`language`]: Diagram type definitions (`DiagramLanguage`, `DiagramFormat`, `ExtractedDiagram`)
-//! - [`processor`]: `DiagramProcessor` implementing `CodeBlockProcessor` trait
+//! - [`language`]: Diagram type definitions (`DiagramLanguage`, `DiagramFormat`)
+//! - [`provider`]: [`KrokiProvider`] implementing the `DiagramProvider` trait
 //! - [`kroki`]: Parallel HTTP rendering via Kroki service
-//! - [`plantuml`]: PlantUML-specific preprocessing
-//! - [`html_embed`]: HTML embedding with SVG scaling and link annotation
+//! - [`html_embed`]: SVG post-processing — DPI scaling and Google Fonts stripping
 //!
 //! # Example
 //!
-//! ```no_run
-//! use rw_kroki::DiagramProcessor;
-//! use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+//! ```
+//! use rw_diagrams::DiagramProvider;
+//! use rw_kroki::KrokiProvider;
 //!
-//! let markdown = "```plantuml\n@startuml\nA -> B\n@enduml\n```";
-//! let renderer = MarkdownRenderer::<HtmlBackend>::new();
-//! let pipeline = Pipeline::new()
-//!     .with_processor(DiagramProcessor::new("https://kroki.io"));
-//!
-//! // render auto-calls fills() on all processors
-//! let result = renderer.render(markdown, pipeline);
+//! let provider = KrokiProvider::new("https://kroki.io");
+//! assert!(provider.handles("plantuml"));
+//! assert!(!provider.handles("rust"));
 //! ```
 
 mod cache;
@@ -35,14 +30,9 @@ mod consts;
 mod html_embed;
 mod kroki;
 mod language;
-mod meta_includes;
-mod output;
-mod plantuml;
-mod processor;
+mod provider;
 mod scale;
-mod search;
+#[cfg(test)]
+mod test_support;
 
-pub use meta_includes::{EntityInfo, MetaIncludeSource};
-pub use output::{DiagramOutput, RenderedDiagramInfo, TagGenerator};
-pub use processor::DiagramProcessor;
-pub use search::SearchDiagramProcessor;
+pub use provider::KrokiProvider;

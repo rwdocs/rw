@@ -14,7 +14,9 @@ default = []
 serde = ["dep:serde"]
 
 [dependencies]
+base64 = { workspace = true }
 pulldown-cmark = { workspace = true }
+rw-diagrams = { workspace = true }
 rw-parser = { workspace = true }
 rw-sections = { workspace = true }
 serde = { workspace = true, optional = true }

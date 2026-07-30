@@ -90,6 +90,35 @@ describe("page store", () => {
       expect(document.title).toBe("Host App");
     });
 
+    it("does not update document title when the resolved title is empty", async () => {
+      mockFetchPage.mockResolvedValue({
+        ...mockPageResponse,
+        meta: { ...mockPageResponse.meta, title: "" },
+      });
+      document.title = "Host App";
+      const page = new Page(mockApiClient);
+
+      await page.load("test");
+
+      expect(document.title).toBe("Host App");
+    });
+
+    it("does not update document title when an older server sends title: null", async () => {
+      // The type says `meta.title` is always a string, but an older `rw serve`
+      // build predating the non-nullable title (or a proxy/service-worker
+      // replaying its cached response) can still send `null` here.
+      mockFetchPage.mockResolvedValue({
+        ...mockPageResponse,
+        meta: { ...mockPageResponse.meta, title: null as unknown as string },
+      });
+      document.title = "Host App";
+      const page = new Page(mockApiClient);
+
+      await page.load("test");
+
+      expect(document.title).toBe("Host App");
+    });
+
     it("sets notFound on 404 error", async () => {
       mockFetchPage.mockRejectedValue(new NotFoundError("missing"));
       const page = new Page(mockApiClient);

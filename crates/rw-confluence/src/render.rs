@@ -5,6 +5,10 @@
 //! in-process inspection.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use rw_diagrams::Providers;
+use rw_kroki::KrokiProvider;
 
 use crate::comment_preservation::{UnmatchedComment, preserve_comments};
 use crate::error::ConfluenceError;
@@ -40,8 +44,13 @@ pub struct RenderOutput {
     /// Extracted title from the first H1, or `None` if
     /// `extract_title=false` or the markdown had no H1.
     pub title: Option<String>,
-    /// Diagram PNG filenames written to `<out_dir>`, sorted
-    /// alphabetically. Empty when no diagrams were rendered.
+    /// Diagram PNG filenames written to `<out_dir>` by this call, sorted
+    /// alphabetically and deduplicated. Empty when no diagrams were rendered.
+    ///
+    /// Exact: a file already in `<out_dir>` that this render did not produce is
+    /// never listed. Note [`render`] also deletes every `*.png` in `<out_dir>`
+    /// before rendering, so do not point it at a directory holding PNGs you
+    /// want to keep.
     pub attachments: Vec<String>,
     /// Comment markers from `current_xhtml` that could not be re-placed in
     /// the new XHTML.
@@ -71,10 +80,15 @@ pub fn render(
 ) -> Result<RenderOutput, ConfluenceError> {
     std::fs::create_dir_all(out_dir)?;
 
-    // Remove stale PNGs left over from a previous render so the post-render
-    // directory scan only sees attachments produced by this invocation.
-    // Errors are intentionally ignored: a locked or vanished file just means
-    // the post-scan reflects truth (we'll re-list what's actually on disk).
+    // Wipe PNGs from a previous render. The bundle directory is the publish
+    // surface: `docs/confluence.md` documents the upload step as
+    // `for png in dist/*.png`, so a caller following it uploads whatever is in
+    // there. It must hold this render's diagrams and nothing else, or an edited
+    // or deleted diagram leaves a stale `diagram_<hash>.png` that publishes as a
+    // phantom attachment.
+    //
+    // Errors are intentionally ignored: a locked or vanished file is not a
+    // reason to fail the render.
     if let Ok(entries) = std::fs::read_dir(out_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -85,12 +99,20 @@ pub fn render(
         }
     }
 
+    // Built per render rather than held: `render` is a one-shot entry point, so
+    // there is no second page for a pooled HTTP agent to serve.
+    let providers = match &opts.kroki_url {
+        Some(url) => Providers::empty().with(Arc::new(
+            KrokiProvider::new(url).include_dirs(&opts.include_dirs),
+        )),
+        None => Providers::empty(),
+    };
+
     let page_renderer = PageRenderer::new()
         .prepend_toc(opts.prepend_toc)
-        .extract_title(opts.extract_title)
-        .include_dirs(opts.include_dirs);
+        .extract_title(opts.extract_title);
 
-    let render_result = page_renderer.render(markdown, opts.kroki_url.as_deref(), Some(out_dir));
+    let (render_result, attachments) = page_renderer.render(markdown, &providers, Some(out_dir));
 
     let mut warnings = render_result.warnings;
     let (final_xhtml, unmatched_comments) = if let Some(current) = opts.current_xhtml.as_deref() {
@@ -100,21 +122,6 @@ pub fn render(
     } else {
         (render_result.html, Vec::new())
     };
-
-    // Collect attachments: scan out_dir for PNGs written by DiagramProcessor.
-    let mut attachments: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(out_dir)? {
-        let entry = entry?;
-        let is_file = entry.file_type().is_ok_and(|t| t.is_file());
-        let path = entry.path();
-        if is_file
-            && path.extension().is_some_and(|ext| ext == "png")
-            && let Some(name) = path.file_name().and_then(|n| n.to_str())
-        {
-            attachments.push(name.to_owned());
-        }
-    }
-    attachments.sort();
 
     std::fs::write(out_dir.join("page.xhtml"), &final_xhtml)?;
 

@@ -6,13 +6,13 @@
 //! `hard_break`) and `with_markup_buffer` dispatch on `self.scopes.last_mut()`
 //! to choose where to write.
 //!
-//! Fenced code blocks and metadata blocks used to be scopes here too. They are
-//! now the [`Parser`](rw_parser::Parser)'s: a fence is accumulated into a
-//! single [`Event::CodeBlock`](rw_parser::Event::CodeBlock) and a metadata
-//! block is swallowed whole. Splitting the stack that way is safe because the
-//! two families never interleave — a fence cannot occur inside a heading or
-//! inside alt text, so the Parser's single-slot state can never nest with what
-//! is left here.
+//! Fenced code blocks and metadata blocks are not scopes here — they are the
+//! [`Parser`](rw_parser::Parser)'s: a fence is accumulated into a single
+//! [`Event::CodeBlock`](rw_parser::Event::CodeBlock) and a metadata block is
+//! swallowed whole. Splitting the stack that way is safe because the two
+//! families never interleave — a fence cannot occur inside a heading or inside
+//! alt text, so the Parser's single-slot state can never nest with a scope
+//! here.
 //!
 //! Cross-instance accumulators (TOC entries, title, `id_counts`,
 //! `seen_first_h1`) live on [`HeadingAccumulator`](crate::toc::HeadingAccumulator),

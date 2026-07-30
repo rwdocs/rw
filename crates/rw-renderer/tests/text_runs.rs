@@ -7,32 +7,27 @@
 //! and flushes them through `flush_text` → `parse_line` before any non-text
 //! event, so *when* runs are joined decides whether a directive is seen at all.
 //!
-//! These tests pin what the renderer does **today**, so an upcoming refactor
-//! splitting the walker into a tokenizer and an interpreter can be verified
-//! byte-identical. Some pinned behavior looks wrong; where it does, the test
-//! says so. Nothing here should be "fixed" to make an expectation prettier —
-//! that would make a regression indistinguishable from an intentional change.
+//! These tests pin what the renderer does, so a change to the split between
+//! parser and walker can be verified byte-identical. Some pinned behavior looks
+//! wrong; where it does, the test says so. Nothing here should be "fixed" to
+//! make an expectation prettier — that would make a regression
+//! indistinguishable from an intentional change.
 //!
 //! Both directions matter. Tests asserting a directive *expands* fail if a
-//! refactor joins too little. The tests whose names say a run was interrupted
+//! change joins too little. The tests whose names say a run was interrupted
 //! mid-`[...]` are the ones that fail if it joins too much; each was checked
 //! by sabotaging the coalescing logic and confirming it went red. Not every
 //! literal-asserting test discriminates — some produce identical output
 //! either way, and say so.
 
-use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{
-    HtmlBackend, MarkdownRenderer, Pipeline, RenderResult, StatusDirective, TabsDirective,
-};
+use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers, RenderResult};
 
 fn render_status(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(directives))
+    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
 }
 
 fn render_tabs(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new().with_container(TabsDirective::new());
-    MarkdownRenderer::<HtmlBackend>::new().render(md, Pipeline::new().with_directives(directives))
+    MarkdownRenderer::<HtmlBackend>::new().render(md, &Providers::empty())
 }
 
 /// `with_wikilinks` alone is enough to exercise `skip_wikilink_text`: an
@@ -41,10 +36,9 @@ fn render_tabs(md: &str) -> RenderResult {
 /// re-exports the `Sections` type but not the `Section` and `Namespace`
 /// needed to fill one, and `rw-sections` is not a dev-dependency here.
 fn render_status_wikilinks(md: &str) -> RenderResult {
-    let directives = DirectiveProcessor::new().with_inline(StatusDirective::new());
     MarkdownRenderer::<HtmlBackend>::new()
         .with_wikilinks(true)
-        .render(md, Pipeline::new().with_directives(directives))
+        .render(md, &Providers::empty())
 }
 
 #[test]
@@ -98,17 +92,12 @@ fn escaped_character_inside_a_directive_name_yields_no_directive() {
 }
 
 #[test]
-fn unregistered_inline_directive_passes_through_verbatim_and_warns() {
+fn unrecognized_inline_directive_passes_through_verbatim_and_warns() {
     // The literal is the raw source slice, so attribute order and spacing
     // survive exactly as written — `{b=2 a=1 .cls #id}`, not a reconstruction.
     let result = render_status(":unknown[body]{b=2 a=1 .cls #id}");
     assert_eq!(result.html, "<p>:unknown[body]{b=2 a=1 .cls #id}</p>");
-    assert_eq!(
-        result.warnings,
-        vec![
-            "unknown inline directive ':unknown' — no handler registered (or handler returned Skip)"
-        ]
-    );
+    assert_eq!(result.warnings, vec!["unknown inline directive ':unknown'"]);
 }
 
 #[test]
@@ -161,10 +150,7 @@ fn a_directive_cannot_straddle_a_soft_break() {
     // below.
     let result = render_status("one :sta\ntus[X]{color=green}");
     assert_eq!(result.html, "<p>one :sta\ntus[X]{color=green}</p>");
-    assert_eq!(
-        result.warnings,
-        vec!["unknown inline directive ':sta' — no handler registered (or handler returned Skip)"]
-    );
+    assert_eq!(result.warnings, vec!["unknown inline directive ':sta'"]);
 }
 
 #[test]
@@ -179,7 +165,7 @@ fn bracket_content_interrupted_by_a_soft_break_matches_only_the_name() {
     // what fails when `should_buffer` is widened to cover `SoftBreak`.
     //
     // The empty `status-grey` badge is the same content-less dispatch pinned
-    // by `bare_registered_directive_name_in_prose_renders_an_empty_badge`,
+    // by `bare_builtin_directive_name_in_prose_renders_an_empty_badge`,
     // and is likewise pinned as-is rather than fixed.
     let result = render_status("a :status[X\ny]{color=green}");
     assert_eq!(
@@ -290,10 +276,7 @@ fn a_directive_cannot_straddle_a_wikilink() {
         result.html,
         r##"<p>a :sta<a href="#" class="rw-broken-link">foo</a>tus[X]{color=green}</p>"##
     );
-    assert_eq!(
-        result.warnings,
-        vec!["unknown inline directive ':sta' — no handler registered (or handler returned Skip)"]
-    );
+    assert_eq!(result.warnings, vec!["unknown inline directive ':sta'"]);
 }
 
 #[test]
@@ -310,19 +293,16 @@ fn bare_directive_name_in_prose_warns() {
     // warning reads like a text-split artifact.
     let result = render_status("just :sta here");
     assert_eq!(result.html, "<p>just :sta here</p>");
-    assert_eq!(
-        result.warnings,
-        vec!["unknown inline directive ':sta' — no handler registered (or handler returned Skip)"]
-    );
+    assert_eq!(result.warnings, vec!["unknown inline directive ':sta'"]);
 }
 
 #[test]
-fn bare_registered_directive_name_in_prose_renders_an_empty_badge() {
+fn bare_builtin_directive_name_in_prose_renders_an_empty_badge() {
     // PINNED AS-IS — this looks like a real defect, deliberately
-    // recorded rather than fixed, so that the refactor this file guards
+    // recorded rather than fixed, so that the rendering this file guards
     // stays byte-identical.
     //
-    // Same scan as above, but the name *is* registered, so it dispatches with
+    // Same scan as above, but the name *is* a built-in, so it renders with
     // empty content and silently turns a word of prose into an empty status
     // badge. No warning is emitted, so `--strict` does not catch it either.
     let result = render_status("see :status here");
@@ -384,9 +364,9 @@ fn container_opening_line_split_by_cmark_is_still_recognized() {
     // recognized only because the paragraph's runs are joined before
     // `parse_container_line` sees them.
     //
-    // The `{#a}` is inert — `TabsDirective` never reads `args.id`, so the id
+    // The `{#a}` is inert — the tab built-in never reads `args.id`, so the id
     // is the generated `tabs-0`. It is here solely to force the extra split.
-    let result = render_tabs(":::tab[Label]{#a}\n\nBody.\n\n:::");
+    let result = render_tabs("::::tabs\n\n:::tab[Label]{#a}\n\nBody.\n\n:::\n\n::::");
     assert!(
         result.html.contains(r#"role="tablist""#),
         "got: {}",

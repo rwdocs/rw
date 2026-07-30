@@ -49,6 +49,16 @@ jobs:
       - name: Run Clippy (rw-napi)
         run: cargo clippy --manifest-path crates/rw-napi/Cargo.toml --all-targets -- -D warnings
 
+      # The publisher resolves PlantUML includes through rw-plantuml so that a
+      # binary that only publishes never links the diagram renderer. Nothing in
+      # the type system enforces that; a stray `use rw_kroki::…` would restore
+      # the dependency silently. The tree is captured first so a `cargo tree`
+      # failure fails the step instead of satisfying the negation.
+      - name: publish feature stays free of the diagram renderer
+        run: |
+          tree=$(cargo tree -p rw-storage-s3 --features publish -e normal)
+          ! grep -q rw-kroki <<< "$tree"
+
       - name: Run svelte-check
         run: npm -w @rwdocs/viewer run check
 

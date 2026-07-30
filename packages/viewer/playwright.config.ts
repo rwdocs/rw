@@ -4,6 +4,22 @@ import { defineConfig, devices } from "@playwright/test";
 /** Absolute path to the workspace root (this file lives in packages/viewer). */
 const workspaceRoot = path.resolve(import.meta.dirname, "../..");
 
+/**
+ * Environment overrides for every `rw serve` below, keeping the developer's
+ * shell out of the fixtures.
+ *
+ * `RW_DIAGRAMS_KROKI_URL` is a documented way to set `diagrams.kroki_url`, and
+ * none of the fixture configs declare a `[diagrams]` section, so an exported
+ * value reaches all four servers. A value that is not a URL fails config
+ * validation outright, and `rw serve` refuses to boot.
+ *
+ * Playwright merges `env` into `process.env` and offers no way to clear it, so
+ * every variable has to be named here; extend this list when `rw` gains another
+ * `RW_*` fallback. An empty value works as a deletion because `rw` treats it as
+ * unset.
+ */
+const hermeticEnv = { RW_DIAGRAMS_KROKI_URL: "" };
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -36,6 +52,7 @@ export default defineConfig({
     {
       command: "./target/debug/rw serve -c packages/viewer/e2e/fixtures/rw.toml",
       url: "http://127.0.0.1:8081",
+      env: hermeticEnv,
       cwd: "../..",
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
@@ -44,6 +61,7 @@ export default defineConfig({
       command:
         "./target/debug/rw serve --embedded -c packages/viewer/e2e/fixtures/rw-embedded.toml",
       url: "http://127.0.0.1:8082",
+      env: hermeticEnv,
       cwd: "../..",
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
@@ -51,6 +69,7 @@ export default defineConfig({
     {
       command: "./target/debug/rw serve -c packages/viewer/e2e/fixtures/rw-single.toml",
       url: "http://127.0.0.1:8083",
+      env: hermeticEnv,
       cwd: "../..",
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
@@ -68,6 +87,7 @@ export default defineConfig({
     {
       command: `./target/debug/rw serve -c ${path.join(workspaceRoot, "packages/viewer/e2e/fixtures/rw-live.toml")}`,
       url: "http://127.0.0.1:8084",
+      env: hermeticEnv,
       cwd: "../..",
       reuseExistingServer: !process.env.CI,
       timeout: 30000,

@@ -2,9 +2,7 @@ import { extractDocPath } from "./router.svelte";
 import type { Router } from "./router.svelte";
 
 type ReloadMessage =
-  | { type: "content"; path: string }
-  | { type: "structure"; path: string }
-  | { type: "comments" };
+  { type: "content"; path: string } | { type: "structure"; path: string } | { type: "comments" };
 
 export class LiveReload {
   connected = $state(false);

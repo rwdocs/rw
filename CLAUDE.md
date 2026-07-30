@@ -1,13 +1,11 @@
 # CLAUDE.md
 
-Tasks are in @TASKS.md.
-
 Before committing:
 - Run `make format` to format all code
 
 After code changes:
-- Update @CHANGELOG.md — only add user-facing changes (new features, behavior changes, bug fixes users would notice). Skip internal refactors, code quality fixes, and clippy cleanups.
-- Check @CLAUDE.md and @README.md for outdated or missing information and fix
+- Update CHANGELOG.md — only add user-facing changes (new features, behavior changes, bug fixes users would notice). Skip internal refactors, code quality fixes, and clippy cleanups.
+- Check CLAUDE.md and README.md for outdated or missing information and fix
 
 ## Project Overview
 
@@ -32,222 +30,23 @@ npm -w @rwdocs/viewer run dev
 
 ## Architecture
 
-```
-crates/
-├── rw-comments/           # Inline comment storage + quote anchoring
-│   └── src/
-│       ├── lib.rs            # Public API exports
-│       ├── model.rs          # Comment, Selector, CommentStatus types
-│       ├── error.rs          # StoreError, CreateError
-│       ├── sqlite.rs         # SqliteCommentStore (persistence)
-│       ├── creation.rs       # create_comment() — quote-or-selectors wrapper
-│       ├── anchoring.rs      # Quote → selectors resolver (shared by HTTP + napi)
-│       └── html_text.rs      # HTML → textContent extractor (private, for anchoring)
-│
-├── rw/                    # CLI binary (clap)
-│   └── src/
-│       ├── main.rs           # Entry point, CLI setup
-│       ├── error.rs          # CLI error types
-│       ├── output.rs         # Colored terminal output
-│       └── commands/
-│           ├── mod.rs        # Command module exports
-│           ├── serve.rs      # `serve` command
-│           ├── update.rs     # `update` self-updater command (axoupdater)
-│           ├── confluence/
-│           │   ├── mod.rs         # `confluence` subcommand group
-│           │   └── render.rs      # `confluence render` command
-│           ├── backstage/
-│           │   ├── mod.rs         # `backstage` subcommand group
-│           │   └── publish.rs     # `backstage publish` command
-│           └── comment/
-│               ├── mod.rs         # `comment` subcommand group (CommonArgs + dispatch)
-│               ├── context.rs     # Shared store + Site construction
-│               ├── identity.rs    # flag + env resolution for Author
-│               ├── format.rs      # text + JSON output helpers
-│               ├── list.rs        # `comment list`
-│               ├── show.rs        # `comment show`
-│               ├── add.rs         # `comment add`
-│               ├── reply.rs       # `comment reply`
-│               └── resolve.rs     # `comment resolve`
-│
-├── rw-storage-s3/         # S3 storage backend and bundle publisher
-│   └── src/
-│       ├── lib.rs            # Public API exports
-│       ├── format.rs         # Bundle format types (Manifest, PageBundle)
-│       ├── s3.rs             # Shared S3 client utilities
-│       ├── storage.rs        # S3Storage (Storage trait implementation)
-│       └── publisher.rs      # BundlePublisher (feature = "publish")
-│
-├── rw-vcs/                # Git-aware file metadata (mtime, future: authors)
-│   └── src/
-│       └── lib.rs            # Vcs struct, gix integration, fs fallback
-│
-├── rw-assets/             # Frontend asset serving (embedded + filesystem)
-│   └── src/
-│       └── lib.rs            # get(), iter(), mime_for() API
-│
-├── rw-parser/             # Tokenizer: rw's markdown dialect (CommonMark + directives)
-│   └── src/                 # Depends only on pulldown-cmark; knows no handlers
-│       ├── lib.rs            # Public API; documents Event's lossy cases
-│       ├── parser.rs         # Parser: lending next() -> Option<Event<'_>>
-│       ├── event.rs          # Event vocabulary (Tag, TagEnd, directive payloads)
-│       ├── alert.rs          # AlertKind (GitHub-style `> [!NOTE]` blockquotes)
-│       ├── fence.rs          # FenceAttrs + parse_fence_info (code fence info string)
-│       └── directive/        # Directive syntax only — no dispatch
-│           ├── mod.rs        # Module exports
-│           ├── args.rs       # DirectiveArgs parsing ([content]{attrs})
-│           └── line.rs       # Line parsers (:name, ::name, :::name)
-│
-├── rw-renderer/           # Reusable markdown renderer library
-│   └── src/
-│       ├── lib.rs            # Public API exports
-│       ├── renderer.rs       # Generic MarkdownRenderer<B: RenderBackend> (façade)
-│       ├── walker.rs         # Walker: interprets rw-parser events into backend output
-│       ├── backend.rs        # RenderBackend trait definition
-│       ├── code_block.rs     # CodeBlockProcessor trait for extensible code block handling
-│       ├── bundle.rs         # bundle_markdown() for resolving code block references
-│       ├── scope.rs          # Inline-capture scopes (heading, image alt text)
-│       ├── table.rs          # TableState
-│       ├── toc.rs            # HeadingAccumulator (TOC entries, title, heading ids)
-│       ├── html.rs           # HtmlBackend implementation
-│       ├── holes.rs          # Deferred-content holes reserved during the walk
-│       ├── directive/        # Pluggable directives API (CommonMark syntax)
-│       │   ├── mod.rs        # Module exports; re-exports DirectiveArgs
-│       │   ├── context.rs    # DirectiveContext (file system access)
-│       │   ├── output.rs     # DirectiveOutput (Html/Marker/Deferred/Skip)
-│       │   ├── fills.rs      # Fills collector for deferred hole content
-│       │   ├── inline.rs     # InlineDirective trait (:name)
-│       │   ├── leaf.rs       # LeafDirective trait (::name)
-│       │   ├── container.rs  # ContainerDirective trait (:::name)
-│       │   └── processor.rs  # DirectiveProcessor coordination
-│       ├── status/            # Status badge inline directive
-│       │   ├── mod.rs        # Module exports
-│       │   └── directive.rs  # StatusDirective, StatusColor, STATUS_MARKER
-│       ├── tabs/             # Tabbed content blocks
-│       │   ├── mod.rs        # Module exports
-│       │   └── directive.rs  # TabsDirective (ContainerDirective impl)
-│       └── util.rs           # escape_into(), escape_html(), slugify_into()
-│
-├── rw-confluence/         # Confluence integration
-│   └── src/
-│       ├── lib.rs            # Public API exports
-│       ├── backend.rs        # ConfluenceBackend (RenderBackend implementation)
-│       ├── renderer.rs       # PageRenderer for Confluence XHTML output
-│       ├── tags.rs           # ConfluenceTagGenerator for diagram macros
-│       ├── error.rs          # ConfluenceError
-│       ├── render.rs         # render() — markdown to publish-ready bundle
-│       └── comment_preservation/  # Comment preservation module
-│           ├── mod.rs        # Public API (preserve_comments, PreserveResult)
-│           ├── tree.rs       # TreeNode with text_signature, marker detection
-│           ├── parser.rs     # XML parser with namespace handling
-│           ├── matcher.rs    # Tree matching (80% similarity threshold)
-│           ├── transfer.rs   # Marker transfer with global fallback
-│           ├── serializer.rs # XML serializer with CDATA support
-│           └── entities.rs   # HTML entity conversion
-│
-├── rw-embedded-preview/   # Embedded preview shell (Backstage-like wrapper; runtime --embedded flag)
-│   └── src/
-│       ├── lib.rs            # Public API, axum router
-│       ├── preview.html      # Preview shell HTML (Backstage-like layout)
-│       └── preview.js        # Preview shell JS (mountRw, theme toggle)
-│
-├── rw-kroki/              # Kroki-backed diagram rendering (PlantUML, Mermaid, etc.)
-│   └── src/
-│       ├── lib.rs            # Public API exports
-│       ├── language.rs       # DiagramLanguage, DiagramFormat, ExtractedDiagram
-│       ├── processor.rs      # DiagramProcessor (implements CodeBlockProcessor)
-│       ├── output.rs         # DiagramOutput, DiagramTagGenerator, tag generators
-│       ├── kroki.rs          # Parallel Kroki HTTP rendering
-│       ├── plantuml.rs       # !include resolution, DPI configuration
-│       ├── meta_includes.rs  # MetaIncludeSource trait, C4 macro generation from metadata
-│       └── html_embed.rs     # SVG scaling, Google Fonts stripping, link annotation
-│
-├── rw-meta/               # Metadata extraction and resolution
-│   └── src/
-│       ├── lib.rs            # Public API: Meta::resolve()
-│       ├── head.rs           # Head::parse(): pulldown-cmark frontmatter + H1 extraction
-│       └── fields.rs         # MetaFields::from_yaml(), MetaFields::merge()
-│
-├── rw-cache/              # Cache abstraction layer
-│   └── src/
-│       ├── lib.rs            # Cache/CacheBucket traits, NullCache
-│       ├── ext.rs            # CacheBucketExt (typed get_json/set_json/get_string/set_string)
-│       └── file.rs           # FileCache (file-based impl with version validation)
-│
-├── rw-cache-s3/           # S3-backed cache implementation
-│   └── src/
-│       └── lib.rs            # S3Cache, S3CacheBucket
-│
-├── rw-sections/           # Section reference types and utilities
-│   └── src/
-│       └── lib.rs            # Section, SectionPath, Sections (prefix-based lookup)
-│
-├── rw-site/               # Site structure and page rendering
-│   └── src/
-│       ├── lib.rs            # Public API exports
-│       ├── site.rs           # Site (state management + reload), SiteSnapshot
-│       ├── site_state.rs     # SiteState (pure data), NavItem, ScopeInfo
-│       └── page.rs            # Page, BreadcrumbItem, PageRenderer, PageRendererConfig, PageRenderResult, RenderError
-│
-├── rw-storage/            # Storage abstraction layer (core traits)
-│   └── src/
-│       ├── lib.rs            # Public API exports
-│       ├── storage.rs        # Storage trait, Document, ScanResult, StorageError
-│       ├── event.rs          # StorageEvent, StorageEventKind, WatchHandle, StorageEventReceiver
-│       ├── metadata.rs       # Metadata struct (data types only)
-│       └── mock.rs           # MockStorage (feature = "mock", for testing)
-│
-├── rw-storage-fs/         # Filesystem storage backend
-│   └── src/
-│       ├── lib.rs            # FsStorage implementation, build_document()
-│       ├── scanner.rs        # Scanner for document discovery (stack-based iteration)
-│       ├── source.rs         # SourceFile, SourceKind (file classification)
-│       ├── debouncer.rs      # EventDebouncer for file system events
-│       └── yaml.rs           # YAML parsing helpers
-│
-├── rw-napi/               # Node.js native addon (napi-rs bindings, excluded from workspace)
-│   └── src/                 # Standalone crate: cdylib can't build for musl with cargo --workspace
-│       ├── lib.rs            # RwSite, create_site, render_page, get_page_markdown, page_path_for, get_navigation, list_sections, list_pages
-│       └── types.rs          # Napi-compatible response types
-│
-├── rw-config/             # Configuration parsing
-│   └── src/
-│       └── lib.rs            # Config, CliSettings, MetadataConfig, ConfigError
-│
-├── rw-server-info/        # Runtime server-info file (.rw/server.json)
-│   └── src/
-│       └── lib.rs            # ServerInfo write/read/is_running + cleanup guard
-│
-└── rw-server/             # Native HTTP server (axum)
-    └── src/
-        ├── lib.rs            # Server configuration and entry point
-        ├── handlers/         # API endpoints (config, pages, navigation, comments, internal notify)
-        ├── live_reload/      # File watching and WebSocket broadcasting
-        ├── static_files.rs   # Static file serving with SPA fallback
-        └── testing.rs        # TestServer harness (cfg(test) only)
+**Data flow (Confluence)**: Markdown → Rust (rw-parser tokenizing, walk
+reserving a hole per diagram fence, Kroki resolving those diagrams, Confluence
+rendering, attachment upload, API calls) → Confluence
 
-packages/
-├── viewer/                # @rwdocs/viewer — Svelte 5 SPA (Vite + Tailwind)
-│   ├── src/
-│   │   ├── components/        # Svelte components
-│   │   ├── pages/             # Page components
-│   │   ├── stores/            # Svelte stores (router, navigation, page)
-│   │   ├── api/               # API client
-│   │   ├── lib/               # Utility libraries (tabs.ts, comments/, diagram/)
-│   │   │   └── diagram/       # Zoom popup + the rw-diagram shadow-root boundary
-│   │   ├── styles/            # Shared CSS (content.css: prose, diagrams, alerts, tabs)
-│   │   └── types/             # TypeScript interfaces
-│   └── dist/                  # Production build output
-├── core/                  # @rwdocs/core — Node.js native addon (napi-rs bindings)
-├── backstage-plugin/      # @rwdocs/backstage-plugin — Backstage frontend plugin
-└── backstage-plugin-backend/  # @rwdocs/backstage-plugin-backend — Backstage backend plugin
-```
+**Data flow (HTML)**: Markdown → Rust (rw-parser tokenizing, walk reserving a
+hole per diagram fence, Kroki resolving those diagrams, HTML rendering with
+syntax highlighting, ToC generation, HTTP serving) → Browser
 
-**Data flow (Confluence)**: Markdown → Rust (pulldown-cmark parsing, PlantUML
-extraction, Confluence rendering, Kroki diagram rendering, API calls) → Confluence
-
-**Data flow (HTML)**: Markdown → Rust (rw-parser tokenizing, HTML rendering
-with syntax highlighting, ToC generation, HTTP serving) → Browser
+**Two-phase diagram rendering**: `rw-renderer` walks a document and hands back a
+`RenderPass` listing every diagram fence as a `DiagramRequest`; the caller
+resolves those through `rw-diagrams`' `Providers` (`rw-kroki` is the only
+provider today) and `RenderPass::finish` turns each resolution into markup
+through the `RenderBackend`. Providers produce *content* — bytes, a size, a
+digest — never markup, so `rw-kroki` does not depend on `rw-renderer`. A backend
+decides the markup for every construct the renderer knows. A caller supplies
+inputs alongside it — `Sections`, a `TitleResolver`, and the `DiagramRouter`
+that names which fence languages are diagrams — but none of them produce markup.
 
 **Data flow (NAPI)**: Node.js → rw-napi (napi-rs bindings) → rw-site, rw-renderer,
 rw-kroki (Rust) → Node.js objects
@@ -255,10 +54,18 @@ rw-kroki (Rust) → Node.js objects
 ## Key Technical Details
 
 - **Rust requirements**: Edition 2024, Rust 1.97+
-- **PlantUML**: Extracted from code blocks, rendered via Kroki, uploaded as attachments
+- **PlantUML**: A `plantuml` fence becomes a diagram request resolved by
+  `rw-kroki` — inline SVG by default. `rw-confluence` appends `format=png`,
+  writes the bytes into the bundle directory, and uploads them as attachments
+- **PlantUML preprocessing**: `!include` resolution, meta-include C4 macro
+  emission, and search-text stripping live in `rw-plantuml`, which has no HTTP
+  client. `rw backstage publish` resolves includes through it, so
+  `rw-storage-s3`'s `publish` feature needs no diagram-rendering crate. A binary
+  that also renders diagrams — `rw` does, via `rw-site`/`rw-confluence` — links
+  `rw-kroki` anyway.
 - **Diagram id isolation**: Kroki generators emit SVG ids unique only within one
-  diagram, so `rw-kroki` wraps each inlined SVG in `<rw-diagram>` and the viewer
-  attaches a shadow root — one id scope per diagram. Consequence: `querySelector`
+  diagram, so `HtmlBackend` wraps each inlined SVG in `<rw-diagram>` and the
+  viewer attaches a shadow root — one id scope per diagram. Consequence: `querySelector`
   does not reach diagram internals. Use `lib/diagram/source.ts`'s `diagramSource`
   / `diagramShadowRoots` rather than open-coding a traversal. A hand-authored
   `<figure class="diagram">` in markdown gets no wrapper and is unisolated by

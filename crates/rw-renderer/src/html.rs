@@ -9,10 +9,14 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use crate::directive::Marker;
-use crate::status::{STATUS_MARKER, StatusColor};
+use crate::status::StatusColor;
+use crate::tabs::TabInfo;
+
+use base64::prelude::{BASE64_STANDARD, Engine};
+use rw_diagrams::{Asset, DiagramContent, Size};
 
 use crate::backend::RenderBackend;
+use crate::diagram::{DiagramView, splice_link_attrs, write_diagram_id_attr};
 use crate::util::escape_into;
 use rw_parser::AlertKind;
 
@@ -32,37 +36,41 @@ const SVG_STOP: &str = r#"<svg class="alert-icon" viewBox="0 0 16 16" width="16"
 /// # Examples
 ///
 /// ```
-/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Pipeline};
+/// use rw_renderer::{HtmlBackend, MarkdownRenderer, Providers};
 ///
 /// let result = MarkdownRenderer::<HtmlBackend>::new()
 ///     .with_base_path("/docs/guide")
-///     .render("[Setup](./setup.md#install)", Pipeline::new());
+///     .render("[Setup](./setup.md#install)", &Providers::empty());
 ///
 /// assert!(result.html.contains(r#"href="/docs/guide/setup#install""#));
 /// ```
 pub struct HtmlBackend;
 
+/// Writes ` width="…" height="…"` for a diagram whose display size is known.
+///
+/// An unknown size writes nothing, giving an unsized `<img>`: a raster diagram
+/// whose header would not parse still renders, just without the aspect-ratio
+/// box that keeps surrounding content from reflowing once it decodes.
+fn write_size_attrs(size: Option<Size>, out: &mut String) {
+    if let Some(Size { width, height }) = size {
+        write!(out, r#" width="{width}" height="{height}""#).unwrap();
+    }
+}
+
 impl RenderBackend for HtmlBackend {
     const TITLE_AS_METADATA: bool = false;
 
-    /// Renders a status marker as a colored pill span. Any other marker name
-    /// writes nothing, leaving the body to render as plain text.
+    /// Renders a status badge as a colored pill span.
     ///
-    /// The color is normalized through [`StatusColor`] rather than
-    /// interpolated verbatim, so an unset or unrecognized value renders grey —
-    /// matching the Confluence backend — and an attribute value can never
-    /// inject markup into the class attribute.
-    fn marker_open(marker: &Marker, out: &mut String) {
-        if marker.name == STATUS_MARKER {
-            let color = StatusColor::from(marker);
-            write!(out, r#"<span class="status status-{color}">"#).unwrap();
-        }
+    /// `color` is a closed enum ([`StatusColor`]), never raw interpolated
+    /// attribute text, so there is no value that can inject markup into the
+    /// class attribute — see the `status_open`/`status_close` tests below.
+    fn status_open(color: StatusColor, out: &mut String) {
+        write!(out, r#"<span class="status status-{color}">"#).unwrap();
     }
 
-    fn marker_close(marker: &Marker, out: &mut String) {
-        if marker.name == STATUS_MARKER {
-            out.push_str("</span>");
-        }
+    fn status_close(out: &mut String) {
+        out.push_str("</span>");
     }
 
     fn code_block(lang: Option<&str>, content: &str, out: &mut String) {
@@ -77,14 +85,6 @@ impl RenderBackend for HtmlBackend {
             escape_into(content, out);
             out.push_str("</code></pre>");
         }
-    }
-
-    fn blockquote_start(out: &mut String) {
-        out.push_str("<blockquote>");
-    }
-
-    fn blockquote_end(out: &mut String) {
-        out.push_str("</blockquote>");
     }
 
     fn alert_start(kind: AlertKind, out: &mut String) {
@@ -120,6 +120,43 @@ impl RenderBackend for HtmlBackend {
         out.push_str(r#"">"#);
     }
 
+    /// Renders a diagram as a `<figure class="diagram">`.
+    ///
+    /// An inline SVG is wrapped in `<rw-diagram>`, which the viewer upgrades
+    /// into a shadow root. Diagram generators emit ids that are unique only
+    /// within one SVG (Vega hard-codes `clip0, clip1, …`; Mermaid roots every
+    /// SVG on `container`), so without a per-diagram tree scope a `url(#clip1)`
+    /// reference resolves document-wide to whichever diagram came first —
+    /// silently painting one diagram with another's clip paths. The other two
+    /// shapes hold an `<img>`, which has no ids to collide.
+    fn diagram(view: &DiagramView<'_>, out: &mut String) {
+        out.push_str(r#"<figure class="diagram""#);
+        write_diagram_id_attr(view.id, out);
+        out.push('>');
+        match view.asset {
+            Asset::Inline(DiagramContent::Svg(svg)) => {
+                out.push_str("<rw-diagram>");
+                splice_link_attrs(svg, view.links, out);
+                out.push_str("</rw-diagram>");
+            }
+            Asset::Inline(DiagramContent::Png(bytes)) => {
+                out.push_str(r#"<img src="data:image/png;base64,"#);
+                BASE64_STANDARD.encode_string(bytes, out);
+                out.push('"');
+                write_size_attrs(view.size, out);
+                out.push_str(r#" alt="diagram">"#);
+            }
+            Asset::Reference(name) => {
+                out.push_str(r#"<img src=""#);
+                escape_into(name, out);
+                out.push('"');
+                write_size_attrs(view.size, out);
+                out.push_str(r#" alt="diagram">"#);
+            }
+        }
+        out.push_str("</figure>");
+    }
+
     fn table_start(out: &mut String) {
         out.push_str(
             r#"<div class="table-wrap" role="group" tabindex="0" aria-label="Table"><table>"#,
@@ -132,9 +169,44 @@ impl RenderBackend for HtmlBackend {
 
     fn transform_link<'a>(url: &'a str, base_path: Option<&str>) -> Cow<'a, str> {
         match base_path {
-            Some(base) => Cow::Owned(resolve_link(url, base)),
+            Some(base) => resolve_link(url, base),
             None => Cow::Borrowed(url),
         }
+    }
+
+    fn tabs_open(group_id: usize, tabs: &[TabInfo], out: &mut String) {
+        let _ = write!(out, r#"<div class="tabs" id="tabs-{group_id}">"#);
+        out.push_str(r#"<div class="tabs-buttons" role="tablist">"#);
+        for tab in tabs {
+            let selected = tab.is_first;
+            let _ = write!(
+                out,
+                r#"<button role="tab" id="tab-{group_id}-{0}" aria-controls="panel-{group_id}-{0}" aria-selected="{selected}" tabindex="{tabindex}">"#,
+                tab.id,
+                selected = selected,
+                tabindex = if selected { "0" } else { "-1" },
+            );
+            escape_into(&tab.label, out);
+            out.push_str("</button>");
+        }
+        out.push_str("</div>");
+    }
+
+    fn tab_panel_open(group_id: usize, tab: &TabInfo, out: &mut String) {
+        let hidden = if tab.is_first { "" } else { " hidden" };
+        let _ = write!(
+            out,
+            r#"<div role="tabpanel" id="panel-{group_id}-{}" aria-labelledby="tab-{group_id}-{}"{hidden}>"#,
+            tab.id, tab.id
+        );
+    }
+
+    fn tab_panel_close(out: &mut String) {
+        out.push_str("</div>");
+    }
+
+    fn tabs_close(out: &mut String) {
+        out.push_str("</div>");
     }
 }
 
@@ -146,9 +218,10 @@ impl RenderBackend for HtmlBackend {
 /// - `subdir/page.md` → `/base/path/subdir/page`
 /// - `adr-101/index.md` → `/base/path/adr-101`
 ///
-/// External links, fragment-only links, and non-markdown links are returned unchanged.
+/// External links, fragment-only links, and non-markdown links are returned
+/// unchanged — borrowed, so the common case allocates nothing.
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
-fn resolve_link(url: &str, base_path: &str) -> String {
+fn resolve_link<'a>(url: &'a str, base_path: &str) -> Cow<'a, str> {
     // Skip external links, fragments, and non-local URLs
     if url.starts_with("http://")
         || url.starts_with("https://")
@@ -157,24 +230,23 @@ fn resolve_link(url: &str, base_path: &str) -> String {
         || url.starts_with("tel:")
         || url.starts_with('#')
     {
-        return url.to_owned();
+        return Cow::Borrowed(url);
     }
 
     // Only process markdown links
     if !url.ends_with(".md") && !url.contains(".md#") {
-        return url.to_owned();
+        return Cow::Borrowed(url);
     }
 
-    // Split URL into path and fragment
-    let (path_part, fragment) = if let Some(hash_pos) = url.find('#') {
-        (&url[..hash_pos], Some(&url[hash_pos..]))
-    } else {
-        (url, None)
+    // Split URL into path and fragment (the fragment keeps its `#`)
+    let (path_part, fragment) = match url.find('#') {
+        Some(hash_pos) => (&url[..hash_pos], &url[hash_pos..]),
+        None => (url, ""),
     };
 
     // Resolve the path
     let resolved = if path_part.starts_with('/') {
-        // Absolute path - strip leading slash since we add /docs/ prefix later
+        // Absolute path - strip the leading slash; it is re-added below
         path_part.trim_start_matches('/').to_owned()
     } else {
         // Relative path - resolve against base
@@ -185,12 +257,7 @@ fn resolve_link(url: &str, base_path: &str) -> String {
     let clean = resolved.strip_suffix(".md").unwrap_or(&resolved);
     let clean = clean.strip_suffix("/index").unwrap_or(clean);
 
-    // Add leading slash and fragment
-    let with_prefix = format!("/{clean}");
-    match fragment {
-        Some(frag) => format!("{with_prefix}{frag}"),
-        None => with_prefix,
-    }
+    Cow::Owned(format!("/{clean}{fragment}"))
 }
 
 /// Resolve a relative path against a base path.
@@ -218,6 +285,7 @@ fn resolve_relative_path(relative: &str, base: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tabs::TabInfo;
 
     #[test]
     fn test_code_block_with_language() {
@@ -397,5 +465,303 @@ mod tests {
         assert!(out.contains(r#"class="alert alert-caution""#));
         assert!(out.contains(r#"<svg class="alert-icon""#));
         assert!(out.contains("Caution"));
+    }
+
+    #[test]
+    fn status_open_emits_colored_span() {
+        let mut out = String::new();
+        HtmlBackend::status_open(StatusColor::Green, &mut out);
+        assert_eq!(out, r#"<span class="status status-green">"#);
+    }
+
+    // `StatusColor` is a closed enum, not a raw string, so `status_open`
+    // cannot be handed markup to inject into the class attribute — there is
+    // no variant whose `Display` output is anything but one of the fixed
+    // `status-<color>` tokens exercised here and below.
+    #[test]
+    fn status_open_renders_grey() {
+        let mut out = String::new();
+        HtmlBackend::status_open(StatusColor::Grey, &mut out);
+        assert_eq!(out, r#"<span class="status status-grey">"#);
+    }
+
+    #[test]
+    fn status_close_emits_span_close() {
+        let mut out = String::new();
+        HtmlBackend::status_close(&mut out);
+        assert_eq!(out, "</span>");
+    }
+
+    #[test]
+    fn tabs_open_matches_legacy_bar_markup() {
+        let tabs = [
+            TabInfo {
+                id: 0,
+                label: "macOS".to_owned(),
+                is_first: true,
+            },
+            TabInfo {
+                id: 1,
+                label: "Linux".to_owned(),
+                is_first: false,
+            },
+        ];
+        let mut out = String::new();
+        HtmlBackend::tabs_open(0, &tabs, &mut out);
+        assert_eq!(
+            out,
+            r#"<div class="tabs" id="tabs-0"><div class="tabs-buttons" role="tablist"><button role="tab" id="tab-0-0" aria-controls="panel-0-0" aria-selected="true" tabindex="0">macOS</button><button role="tab" id="tab-0-1" aria-controls="panel-0-1" aria-selected="false" tabindex="-1">Linux</button></div>"#
+        );
+    }
+
+    #[test]
+    fn tab_panel_open_hidden_for_non_first() {
+        let mut out = String::new();
+        HtmlBackend::tab_panel_open(
+            0,
+            &TabInfo {
+                id: 1,
+                label: "L".to_owned(),
+                is_first: false,
+            },
+            &mut out,
+        );
+        assert_eq!(
+            out,
+            r#"<div role="tabpanel" id="panel-0-1" aria-labelledby="tab-0-1" hidden>"#
+        );
+    }
+
+    #[test]
+    fn tab_panel_open_not_hidden_for_first() {
+        let mut out = String::new();
+        HtmlBackend::tab_panel_open(
+            0,
+            &TabInfo {
+                id: 0,
+                label: "L".to_owned(),
+                is_first: true,
+            },
+            &mut out,
+        );
+        assert_eq!(
+            out,
+            r#"<div role="tabpanel" id="panel-0-0" aria-labelledby="tab-0-0">"#
+        );
+    }
+
+    #[test]
+    fn tab_panel_close_emits_div_close() {
+        let mut out = String::new();
+        HtmlBackend::tab_panel_close(&mut out);
+        assert_eq!(out, "</div>");
+    }
+
+    #[test]
+    fn tabs_close_emits_div_close() {
+        let mut out = String::new();
+        HtmlBackend::tabs_close(&mut out);
+        assert_eq!(out, "</div>");
+    }
+
+    #[test]
+    fn tabs_open_escapes_label() {
+        let tabs = [TabInfo {
+            id: 0,
+            label: "a < b & c".to_owned(),
+            is_first: true,
+        }];
+        let mut out = String::new();
+        HtmlBackend::tabs_open(0, &tabs, &mut out);
+        assert!(out.contains("a &lt; b &amp; c"), "got: {out}");
+    }
+
+    /// The three diagram figure shapes are served to browsers with CSS and JS
+    /// bound to their exact markup, so every assertion below is byte-exact.
+    mod diagram {
+        use crate::DiagramLink;
+
+        use super::*;
+
+        fn render(view: &DiagramView<'_>) -> String {
+            let mut out = String::new();
+            HtmlBackend::diagram(view, &mut out);
+            out
+        }
+
+        fn svg(id: Option<&str>, source: &str, links: &[DiagramLink]) -> String {
+            render(&DiagramView {
+                id,
+                asset: &Asset::Inline(DiagramContent::Svg(source.to_owned())),
+                size: None,
+                links,
+            })
+        }
+
+        fn png(id: Option<&str>, bytes: &[u8], size: Option<Size>) -> String {
+            render(&DiagramView {
+                id,
+                asset: &Asset::Inline(DiagramContent::Png(bytes.to_vec())),
+                size,
+                links: &[],
+            })
+        }
+
+        fn reference(id: Option<&str>, name: &str, size: Option<Size>) -> String {
+            render(&DiagramView {
+                id,
+                asset: &Asset::Reference(name.to_owned()),
+                size,
+                links: &[],
+            })
+        }
+
+        #[test]
+        fn an_inline_svg_is_wrapped_in_rw_diagram() {
+            assert_eq!(
+                svg(None, "<svg><g/></svg>", &[]),
+                r#"<figure class="diagram"><rw-diagram><svg><g/></svg></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn an_inline_svg_carries_its_diagram_id() {
+            assert_eq!(
+                svg(Some("diagram-2"), "<svg/>", &[]),
+                r#"<figure class="diagram" data-diagram-id="diagram-2"><rw-diagram><svg/></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn a_diagram_id_is_attribute_escaped() {
+            assert_eq!(
+                svg(Some(r#"a"b"#), "<svg/>", &[]),
+                r#"<figure class="diagram" data-diagram-id="a&quot;b"><rw-diagram><svg/></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn resolved_links_are_spliced_into_the_svg() {
+            let links = [DiagramLink {
+                href: "/domains/billing/api".to_owned(),
+                section_ref: "domain:default/billing".to_owned(),
+                section_path: "api".to_owned(),
+            }];
+            assert_eq!(
+                svg(
+                    None,
+                    r#"<svg><a href="/domains/billing/api">x</a></svg>"#,
+                    &links
+                ),
+                r#"<figure class="diagram"><rw-diagram><svg><a href="/domains/billing/api" data-section-ref="domain:default/billing" data-section-path="api">x</a></svg></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn an_svg_with_no_resolved_links_is_untouched() {
+            assert_eq!(
+                svg(None, r#"<svg><a href="/x">x</a></svg>"#, &[]),
+                r#"<figure class="diagram"><rw-diagram><svg><a href="/x">x</a></svg></rw-diagram></figure>"#
+            );
+        }
+
+        #[test]
+        fn inline_png_bytes_become_a_sized_data_uri() {
+            assert_eq!(
+                png(
+                    Some("d1"),
+                    b"PNG",
+                    Some(Size {
+                        width: 200,
+                        height: 100
+                    })
+                ),
+                concat!(
+                    r#"<figure class="diagram" data-diagram-id="d1">"#,
+                    r#"<img src="data:image/png;base64,UE5H" width="200" height="100" alt="diagram">"#,
+                    "</figure>",
+                )
+            );
+        }
+
+        /// A PNG whose header would not parse has no size to report. It renders
+        /// unsized rather than not at all.
+        #[test]
+        fn an_unsized_png_renders_without_dimension_attributes() {
+            assert_eq!(
+                png(None, b"PNG", None),
+                r#"<figure class="diagram"><img src="data:image/png;base64,UE5H" alt="diagram"></figure>"#
+            );
+        }
+
+        #[test]
+        fn a_reference_points_at_the_written_name() {
+            assert_eq!(
+                reference(
+                    Some("d1"),
+                    "diagram_abc123.png",
+                    Some(Size {
+                        width: 640,
+                        height: 480
+                    })
+                ),
+                concat!(
+                    r#"<figure class="diagram" data-diagram-id="d1">"#,
+                    r#"<img src="diagram_abc123.png" width="640" height="480" alt="diagram">"#,
+                    "</figure>",
+                )
+            );
+        }
+
+        #[test]
+        fn an_unsized_reference_renders_without_dimension_attributes() {
+            assert_eq!(
+                reference(None, "diagram_abc123.png", None),
+                r#"<figure class="diagram"><img src="diagram_abc123.png" alt="diagram"></figure>"#
+            );
+        }
+
+        #[test]
+        fn a_reference_name_is_attribute_escaped() {
+            assert_eq!(
+                reference(None, r#"a"b.png"#, None),
+                r#"<figure class="diagram"><img src="a&quot;b.png" alt="diagram"></figure>"#
+            );
+        }
+
+        #[test]
+        fn an_error_figure_carries_the_escaped_message() {
+            let mut out = String::new();
+            HtmlBackend::diagram_error(Some("d1"), "syntax error at <line 3>", &mut out);
+            assert_eq!(
+                out,
+                concat!(
+                    r#"<figure class="diagram diagram-error" data-diagram-id="d1">"#,
+                    "<pre>Diagram rendering failed: syntax error at &lt;line 3&gt;</pre>",
+                    "</figure>",
+                )
+            );
+        }
+
+        #[test]
+        fn an_error_figure_without_an_id_omits_the_attribute() {
+            let mut out = String::new();
+            HtmlBackend::diagram_error(None, "boom", &mut out);
+            assert_eq!(
+                out,
+                r#"<figure class="diagram diagram-error"><pre>Diagram rendering failed: boom</pre></figure>"#
+            );
+        }
+
+        /// An unresolved diagram fence stays a code block.
+        #[test]
+        fn an_unresolved_fence_renders_as_a_code_block() {
+            let mut out = String::new();
+            HtmlBackend::diagram_source("plantuml", "@startuml\n@enduml", &mut out);
+            assert_eq!(
+                out,
+                "<pre><code class=\"language-plantuml\">@startuml\n@enduml</code></pre>"
+            );
+        }
     }
 }

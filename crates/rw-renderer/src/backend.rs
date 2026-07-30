@@ -7,7 +7,10 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use crate::directive::Marker;
+use crate::diagram::{DiagramView, write_diagram_id_attr};
+use crate::link::write_section_attrs;
+use crate::status::StatusColor;
+use crate::tabs::TabInfo;
 
 use pulldown_cmark::Alignment;
 
@@ -21,8 +24,11 @@ use rw_parser::AlertKind;
 ///
 /// This crate ships [`HtmlBackend`](crate::HtmlBackend); other backends
 /// (e.g., Confluence XHTML, plain text) can be implemented downstream.
-/// All methods have default implementations that produce HTML5 output,
-/// so backends only need to override the methods that differ.
+/// Most markup methods have default implementations that produce HTML5
+/// output; a backend overrides only the methods that differ. A few genuinely
+/// backend-specific methods ([`image`](Self::image), [`code_block`](Self::code_block),
+/// [`diagram`](Self::diagram), and the alert methods) are required with no
+/// default — a wrong default is worse than a compile error.
 ///
 /// # Design: static methods
 ///
@@ -39,17 +45,59 @@ pub trait RenderBackend {
     /// - `false` (HTML): first H1 renders normally, no level shifting.
     const TITLE_AS_METADATA: bool;
 
+    /// Whether the parser tokenizes rw directive syntax (`:name`, `::name`,
+    /// `:::name`) for this backend. Defaults to `true`.
+    ///
+    /// Set it `false` for a backend whose input is untrusted user text rather
+    /// than authored documentation — someone typing `:status[Done]` into a
+    /// review comment must see those characters back, not a rendered badge.
+    /// `:status[…]`/`::::tabs` then render as plain text.
+    const TOKENIZE_DIRECTIVES: bool = true;
+
+    /// Whether this backend puts a `data-diagram-id` on each diagram.
+    ///
+    /// When `false` the renderer does not resolve diagram ids at all, so a
+    /// backend that ignores them also raises no duplicate-id warnings about an
+    /// attribute it never writes.
+    const DIAGRAM_IDS: bool = true;
+
     /// Writes a fenced code block to `out`.
     ///
     /// `lang` is the language identifier from the fence info string (e.g.,
     /// `"rust"`, `"python"`), or `None` for plain code blocks.
     fn code_block(lang: Option<&str>, content: &str, out: &mut String);
 
+    /// Writes one resolved diagram.
+    ///
+    /// Required, like [`image`](Self::image) and [`code_block`](Self::code_block):
+    /// a wrong default is worse than a compile error.
+    fn diagram(view: &DiagramView<'_>, out: &mut String);
+
+    /// Writes a diagram that could not be rendered.
+    fn diagram_error(id: Option<&str>, message: &str, out: &mut String) {
+        out.push_str(r#"<figure class="diagram diagram-error""#);
+        write_diagram_id_attr(id, out);
+        out.push_str("><pre>Diagram rendering failed: ");
+        escape_into(message, out);
+        out.push_str("</pre></figure>");
+    }
+
+    /// Writes a diagram fence nothing resolved — no provider claimed the
+    /// language, or the caller resolved nothing. It renders as a code block;
+    /// this is the same path.
+    fn diagram_source(lang: &str, source: &str, out: &mut String) {
+        Self::code_block(Some(lang), source, out);
+    }
+
     /// Writes the opening tag for a blockquote.
-    fn blockquote_start(out: &mut String);
+    fn blockquote_start(out: &mut String) {
+        out.push_str("<blockquote>");
+    }
 
     /// Writes the closing tag for a blockquote.
-    fn blockquote_end(out: &mut String);
+    fn blockquote_end(out: &mut String) {
+        out.push_str("</blockquote>");
+    }
 
     /// Writes the opening markup for a GitHub-style alert.
     fn alert_start(kind: AlertKind, out: &mut String);
@@ -292,14 +340,7 @@ pub trait RenderBackend {
         escape_into(href, out);
         out.push('"');
         if let Some((ref_string, section_path)) = section_ref {
-            out.push_str(r#" data-section-ref=""#);
-            escape_into(ref_string, out);
-            out.push('"');
-            if !section_path.is_empty() {
-                out.push_str(r#" data-section-path=""#);
-                escape_into(section_path, out);
-                out.push('"');
-            }
+            write_section_attrs(ref_string, section_path, out);
         }
         out.push('>');
     }
@@ -328,14 +369,28 @@ pub trait RenderBackend {
         out.push_str(html);
     }
 
-    /// Writes the opening of a semantic [`Marker`] emitted by a directive.
-    ///
-    /// Backends match on `marker.name` and read normalized attributes with
-    /// [`Marker::attr`]. The default is a no-op, so a backend that doesn't
-    /// recognize a marker renders the body as an unstyled label rather than
-    /// leaking markup it doesn't understand.
-    fn marker_open(_marker: &Marker, _out: &mut String) {}
+    /// Opens a status badge wrapper. The label is rendered separately by the
+    /// walker via `text` (each backend's own escaping applies), so this method
+    /// only emits the wrapper's opening markup. Default is a no-op, so a
+    /// backend with no wrapper (e.g. the search-index backend) renders the bare
+    /// label.
+    fn status_open(_color: StatusColor, _out: &mut String) {}
 
-    /// Writes the closing of a semantic [`Marker`]. See [`marker_open`](Self::marker_open).
-    fn marker_close(_marker: &Marker, _out: &mut String) {}
+    /// Closes the status badge wrapper opened by [`status_open`](Self::status_open).
+    fn status_close(_out: &mut String) {}
+
+    /// Opens a tab group's bar. Deferred: written as a fill at the group's
+    /// close (unlike the three below, which emit inline), since the bar
+    /// precedes the panels yet needs every tab's label — known only once the
+    /// group closes. Default is a no-op (Confluence, search: no bar).
+    fn tabs_open(_group_id: usize, _tabs: &[TabInfo], _out: &mut String) {}
+
+    /// Opens one tab panel, emitted inline at the panel's position. Default no-op.
+    fn tab_panel_open(_group_id: usize, _tab: &TabInfo, _out: &mut String) {}
+
+    /// Closes a tab panel opened by [`tab_panel_open`](Self::tab_panel_open).
+    fn tab_panel_close(_out: &mut String) {}
+
+    /// Closes the tab-group container opened (conceptually) by the bar. Default no-op.
+    fn tabs_close(_out: &mut String) {}
 }

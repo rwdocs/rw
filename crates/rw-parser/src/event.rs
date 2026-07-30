@@ -3,7 +3,7 @@
 //! # The boundary
 //!
 //! These types name syntax, never meaning: a `ContainerDirectiveStart` says a
-//! `:::name[…]{…}` opener was seen, not that any handler exists for `name`.
+//! `:::name[…]{…}` opener was seen, not that `name` means anything.
 //!
 //! Follows `pulldown_cmark`'s structural shape — `Start(Tag)` / `End(TagEnd)`
 //! plus leaf events — extended with rw's own syntactic constructs
@@ -56,12 +56,19 @@ pub enum Event<'a> {
     LeafDirective(BlockDirectivePayload),
     /// `:::name[content]{attrs}` opening a container.
     ContainerDirectiveStart(BlockDirectivePayload),
-    /// A bare `:::` run closing a container.
+    /// A `:::` run closing a container, paired to its opener by the parser.
     ContainerDirectiveEnd {
+        /// The paired opener's name; `None` for a stray `:::` that closed
+        /// nothing on the open stack.
+        name: Option<String>,
         /// `usize`, not a narrower type: a literal closer is reconstructed as
         /// `":".repeat(colon_count)`, so the count is output-visible and a
-        /// 300-colon line must survive it.
+        /// 300-colon line must survive it. `0` for a parser-synthesized close.
         colon_count: usize,
+        /// `true` when the parser synthesized this close at a block or EOF
+        /// boundary (the source had no matching `:::`); `false` for an explicit
+        /// `:::` closer.
+        implicit: bool,
     },
 
     /// A fenced or indented code block, body included.
@@ -82,8 +89,8 @@ pub struct InlineDirectivePayload<'a> {
     pub args: DirectiveArgs,
     /// The byte-exact source slice.
     ///
-    /// An inline directive no handler claims is emitted as this slice, never
-    /// reconstructed, because `DirectiveArgs::to_syntax` is not a round-trip:
+    /// A consumer that renders an inline directive literally emits this slice
+    /// rather than reconstructing it, because `DirectiveArgs::to_syntax` is not a round-trip:
     /// it drops empty brackets, sorts attributes by key and re-quotes their
     /// values, respaces `{.a.b}`, and discards unrecognized barewords. Block
     /// directives carry no slice and are reconstructed instead.
@@ -99,11 +106,11 @@ pub struct BlockDirectivePayload {
     /// A container opener's leading colon count: `:::name` and `::::name` open
     /// the same container, and only the source says which was written.
     ///
-    /// No consumer reads it today: rw's renderer reconstructs an unclaimed
-    /// opener in `DirectiveProcessor::dispatch_container_start` with a
-    /// hardcoded `:::`, so `::::name` round-trips as `:::name` — this is the
-    /// datum that would fix it. Fixed at `0` for a leaf, where it says
-    /// nothing: `parse_leaf_line` accepts exactly two colons.
+    /// No consumer reads it today: a consumer reconstructing an unrecognized
+    /// container opener as literal text has to hardcode `:::`, so `::::name`
+    /// round-trips as `:::name` — this is the datum that would fix it. Fixed at
+    /// `0` for a leaf, where it says nothing: `parse_leaf_line` accepts exactly
+    /// two colons.
     pub colon_count: usize,
 }
 

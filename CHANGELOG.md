@@ -5,11 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.34] - 2026-07-30
+
+### New Features
+
+- **Correct diagram sizing** — Mermaid, GraphViz, Vega, and every other non-PlantUML diagram now render at their intended size, roughly twice as large as before. See [Diagram Rendering](docs/diagrams.md).
+- **One page identity** — a page's title, description, and kind resolve once from what the page declares, so the navigation sidebar, the page itself, and search results agree. See [Page Metadata](docs/metadata.md#title-resolution).
+- **Project-directory targeting** — `rw serve --project-dir <dir>` points rw at a project you are not in, rooting configuration, docs, and `.rw/` at that directory. See [Configuration](docs/configuration.md).
+- **Isolated diagrams** — each diagram renders inside its own shadow root, so diagrams on one page no longer borrow each other's clip paths, gradients, and markers. See [Diagram Rendering](docs/diagrams.md).
 
 ### Added
 
 - `--project-dir <dir>` on `rw serve` and `rw backstage publish` points `rw` at a project you are not in, rooting configuration, the docs directory, `.rw/`, and PlantUML includes at `<dir>`. Long-form only, and conflicts with `-c`/`--config`. See [Configuration](docs/configuration.md).
+- `rw confluence render` now renders `::::tabs`/`:::tab[Label]` groups as bold-label sections — one per tab, all visible — instead of leaving the syntax as literal text.
+
+### Changed
+
+- **Breaking (pre-1.0):** a tab group is now an outer `::::tabs` container wrapping self-closing `:::tab[Label]` items, replacing the form where several `:::tab` shared one closing `:::`. Migrate `:::tab[A] … :::tab[B] … :::` to `::::tabs` / `:::tab[A] … :::` / `:::tab[B] … :::` / `::::`. Rendered HTML is unchanged.
 
 ### Removed
 
@@ -22,18 +34,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A site whose `docs.source_dir` is nested, absolute, or the project root itself (`"."`) now finds its `README.md` homepage at the project root. Sites using the default `source_dir = "docs"` are unaffected.
-- `@rwdocs/core`'s `createSite({ projectDir })` now roots configuration and every path derived from it at `projectDir` when that directory has no `rw.toml`, instead of searching upward from the process's working directory and picking up an unrelated project. A `projectDir` that does not exist now throws.
+- `@rwdocs/core`'s `createSite({ projectDir })` now roots configuration and every path derived from it at `projectDir` when that directory has no `rw.toml`, instead of picking up an unrelated project from the process's working directory. A `projectDir` that does not exist now throws.
 - A page served from an S3 bundle whose `manifest.json` records an unusable modification time no longer crashes. rw reports the time as the Unix epoch and renders the page. In `@rwdocs/core` the panic could take down the host process.
 - A PlantUML `!include` preceded by a blank line no longer double-spaces every line of the included file. An indented `!include` keeps its indentation.
-- **Mermaid, GraphViz, Vega, and every other non-PlantUML diagram now render at their intended size — roughly twice as large as before.** rw was shrinking them to half size, leaving labels close to unreadable. PlantUML and C4 diagrams are unchanged; no cache clearing is needed, but pages laid out around the smaller size may need revisiting.
-- Diagrams written with `{format=png}` no longer render at roughly twice their intended size; they now carry their display width and height, which also stops the page reflowing as they decode. SVG diagrams (the default) were never affected, and rw corrects cached diagrams without re-rendering.
+- **Mermaid, GraphViz, Vega, and every other non-PlantUML diagram now render at their intended size — roughly twice as large as before.** rw was shrinking them to half size, leaving labels close to unreadable. PlantUML and C4 diagrams are unchanged. `rw serve` re-renders on upgrade; an S3-served site picks it up as each page is next edited, or at once if you delete its `cache/pages/` prefix. Pages laid out around the smaller size may need revisiting.
+- Diagrams written with `{format=png}` no longer render at roughly twice their intended size; they now carry their display width and height, which also stops the page reflowing as they decode. SVG diagrams (the default) were never affected, and rw sizes a cached PNG without re-fetching it from Kroki.
 - A page that has both `X.md` and `X/index.md` now uses `X/index.md` everywhere, instead of showing one file's title in the navigation sidebar while serving the other file's content. `rw` still warns when it finds such a pair.
 - Editing a `README.md` homepage (a project with no `docs/index.md`) now updates the navigation sidebar to the README's real title on live reload, instead of replacing it with "Home".
-- A `:::tab` group missing its closing `:::` now renders as a normal, styled tab group instead of leaking raw `<rw-tabs>` markers into the page. It runs to the end of the block containing it, so close it with `:::` to keep following content outside.
-- An unclosed `:::tab` group inside a blockquote or a list item now closes inside that block instead of after it, where the crossed nesting silently truncated the tab panel. Well-formed documents are unaffected.
-- Diagrams on the same page no longer borrow each other's clip paths, gradients, and markers; each one now renders inside its own shadow root. A script or test that reached a diagram's SVG in `@rwdocs/core`'s `renderPage()` output with `querySelector` must now go through the wrapper's `shadowRoot`. See [Diagram Rendering](docs/diagrams.md).
+- Diagrams on the same page no longer borrow each other's clip paths, gradients, and markers; each one now renders inside its own shadow root. A script or test that reached a diagram's SVG in `@rwdocs/core`'s `renderPage()` output with `querySelector` must now go through the wrapper's `shadowRoot`. An S3-served site picks it up as each page is next edited, or at once if you delete its `cache/pages/` prefix. See [Diagram Rendering](docs/diagrams.md).
 - Resolving the inline comment you're navigating on and pressing `n` now steps to the next comment instead of jumping back to the first; `p` steps back instead of jumping to the last.
+- `@rwdocs/core`'s `renderSearchDocument()` no longer runs a diagram's last word into the heading or paragraph that follows it, so both are indexed as separate terms and each is findable on its own.
 - The `re-anchored` badge on a comment no longer squeezes the author's name onto extra lines. It now sits in the thread header next to the position counter, shortened to `fuzzy`, and carries an accessible name for screen readers.
+- rw now reads only a repository's own git config when resolving git-based modification times — used by `rw backstage publish` and `@rwdocs/core`'s `mtimeSource: "git"` — so mtimes no longer depend on the environment the process was launched from.
+- A page's title — in the page response, browser tab, and search results — is now its declared title (frontmatter, else `meta.yaml`, else the first heading), matching what navigation already used. See [Page Metadata](docs/metadata.md#title-resolution).
+- A page's title is now always present in `rw serve`'s page response and `@rwdocs/core`'s `renderPage()`; previously it was absent for a page with no heading.
+- A page whose filename titlecases to nothing (`_.md`, `-.md`, `.md`) now gets a real title — the filename stem, or `Untitled` — instead of an empty one in the navigation sidebar, breadcrumbs, and `[[wikilink]]` text.
+- Page responses now report a `description` and `kind` declared in frontmatter; previously only `meta.yaml` reached them, so a frontmatter declaration was silently dropped.
+- Search now indexes the text of a page's first heading, instead of consuming it as the title and dropping its words from the indexed text.
 
 ## [0.1.33] - 2026-07-12
 

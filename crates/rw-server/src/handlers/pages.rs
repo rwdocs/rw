@@ -40,8 +40,9 @@ struct PageResponse {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PageMeta {
-    /// Page title (from H1 heading or metadata).
-    title: Option<String>,
+    /// The page's resolved title — the same string navigation and breadcrumbs
+    /// report for this page.
+    title: String,
     /// URL path.
     path: String,
     /// Source file path.
@@ -149,12 +150,6 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
 
     // Build response using render result fields directly
     // Add leading slash to path for JSON response (frontend expects URLs with leading slash)
-    let (description, page_kind) = if let Some(ref meta) = result.metadata {
-        (meta.description.clone(), meta.page_kind.clone())
-    } else {
-        (None, None)
-    };
-
     let (section_ref, subpath) = state.site.section_location(&path)?;
 
     let response = PageResponse {
@@ -167,8 +162,8 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
                 String::new()
             },
             last_modified: last_modified.to_rfc3339(),
-            description,
-            page_kind,
+            description: result.description,
+            page_kind: result.page_kind,
             section_ref,
             subpath,
         },
@@ -206,7 +201,7 @@ mod tests {
     fn page_response_with(section_ancestry: HashMap<String, Vec<SectionAnchor>>) -> PageResponse {
         PageResponse {
             meta: PageMeta {
-                title: Some("Same".to_owned()),
+                title: "Same".to_owned(),
                 path: "/guide".to_owned(),
                 source_file: "guide".to_owned(),
                 last_modified: "2025-01-01T00:00:00Z".to_owned(),
@@ -362,10 +357,31 @@ mod tests {
         assert_eq!(chain[0]["subpath"], "");
     }
 
+    #[tokio::test]
+    async fn test_page_response_forwards_description_and_kind_from_render_result() {
+        // Regression guard: description/page_kind must not be re-derived here
+        // via `Storage::meta` — that lookup only resolves a sidecar file and
+        // cannot see frontmatter, so it would silently drop frontmatter-declared
+        // values. The sidecar is deliberately left unconfigured below, so a
+        // revert fails here.
+        let storage = MockStorage::new()
+            .with_document_kind_description("billing", "Billing", "domain", "Money stuff")
+            .with_content("billing", "# Billing\n\nOverview.")
+            .with_mtime("billing", 1000.0);
+        let server = TestServer::with_storage(storage).await;
+
+        let resp = server.get("/_api/pages/billing").await;
+
+        assert_eq!(resp.status, StatusCode::OK, "body: {}", resp.text());
+        let json = resp.json();
+        assert_eq!(json["meta"]["description"], "Money stuff");
+        assert_eq!(json["meta"]["kind"], "domain");
+    }
+
     #[test]
     fn test_page_meta_serialization() {
         let meta = PageMeta {
-            title: Some("Guide".to_owned()),
+            title: "Guide".to_owned(),
             path: "/guide".to_owned(),
             source_file: "/docs/guide.md".to_owned(),
             last_modified: "2025-01-01T00:00:00Z".to_owned(),
@@ -391,7 +407,7 @@ mod tests {
     #[test]
     fn test_page_meta_serialization_with_metadata() {
         let meta = PageMeta {
-            title: Some("Domain Guide".to_owned()),
+            title: "Domain Guide".to_owned(),
             path: "/domain".to_owned(),
             source_file: "/docs/domain/index.md".to_owned(),
             last_modified: "2025-01-01T00:00:00Z".to_owned(),

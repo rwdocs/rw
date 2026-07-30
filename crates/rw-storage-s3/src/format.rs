@@ -232,6 +232,23 @@ mod tests {
     }
 
     #[test]
+    fn page_bundle_published_before_vars_was_removed_still_loads() {
+        // A bundle published by an rw that still had the `vars` metadata field
+        // carries a key `Metadata` no longer has. Upgrading rw does not
+        // republish anyone's bucket, so every bundle already in S3 is read by
+        // a newer `Metadata` than wrote it: an unknown key must be ignored,
+        // never rejected. Adding `deny_unknown_fields` to `Metadata` would
+        // break every site published before the removal.
+        let json = r##"{"content":"# Hello","metadata":{"title":"Hello","kind":"domain","vars":{"team":"platform"}}}"##;
+
+        let bundle: PageBundle = serde_json::from_str(json).expect("legacy bundle should load");
+
+        let metadata = bundle.metadata.expect("metadata survives the unknown key");
+        assert_eq!(metadata.title.as_deref(), Some("Hello"));
+        assert_eq!(metadata.page_kind.as_deref(), Some("domain"));
+    }
+
+    #[test]
     fn test_manifest_without_pages_deserializes() {
         // Existing manifests in S3 won't have the `pages` field
         let json =

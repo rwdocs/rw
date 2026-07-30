@@ -42,14 +42,13 @@
 //! in documentation written in another language. Those regions run different
 //! code, so the mix matters as much as the overall proportion.
 //!
-//! The pipeline mirrors the production HTML serving path (`rw_site`'s page
-//! renderer): a `DirectiveProcessor` with the `:::tab` container and inline
-//! `:status` badge, plus a code-block processor for diagrams.
+//! The measured call mirrors the production HTML serving path (`rw_site`'s page
+//! renderer): a diagram provider routing the page's diagram fences.
 //!
 //! `StubDiagrams` stands in for `rw-kroki`, which needs the network and so
-//! cannot be benched directly. It reproduces kroki's *contract* — claim the
-//! fence, return `Deferred` to reserve a hole, then fill that hole afterwards —
-//! so the extract/hole/fill splice runs here exactly as it does in production.
+//! cannot be benched directly. It reproduces a provider's *contract* — claim the
+//! fence language, then answer each request with rendered content — so the
+//! request/hole/fill splice runs here exactly as it does in production.
 //! Diagrams are a headline feature and a diagram-heavy page is the normal case,
 //! so leaving that path unmeasured left a gate-sized hole in the gate. The
 //! stub's payload is a fixed string: no network, fully deterministic.
@@ -60,12 +59,14 @@
 
 #![allow(clippy::doc_markdown)] // Product names (CodSpeed) and GitHub-flavored terms
 
+use std::sync::Arc;
+
 use divan::{Bencher, black_box};
-use rw_renderer::directive::DirectiveProcessor;
-use rw_renderer::{
-    CodeBlockProcessor, ExtractedCodeBlock, FenceAttrs, Fills, HtmlBackend, MarkdownRenderer,
-    Pipeline, ProcessResult, StatusDirective, TabsDirective,
+use rw_diagrams::{
+    Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, DiagramRouter, Providers,
+    ResolveContext, Resolved,
 };
+use rw_renderer::{HtmlBackend, MarkdownRenderer};
 
 fn main() {
     divan::main();
@@ -83,88 +84,75 @@ const PAGE_LATIN: &str = include_str!("fixtures/page_latin.md");
 /// Structurally identical page whose prose is ~47% non-ASCII (see module docs).
 const PAGE_MIXED: &str = include_str!("fixtures/page_mixed.md");
 
-/// Offline stand-in for `rw-kroki`'s diagram processor: same contract, fixed
-/// payload, no network. See module docs.
-#[derive(Default)]
-struct StubDiagrams {
-    extracted: Vec<ExtractedCodeBlock>,
-    seen: Vec<usize>,
-}
+/// Offline stand-in for `rw-kroki`'s provider: same contract, fixed payload, no
+/// network. See module docs.
+struct StubDiagrams;
 
 /// Roughly the size of a rendered PlantUML sequence diagram, so the fill splice
 /// moves a realistic number of bytes.
 const STUB_SVG: &str = concat!(
-    r#"<figure class="diagram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320">"#,
+    r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320">"#,
     r#"<g class="node"><rect x="8" y="8" width="120" height="40" rx="4"/>"#,
     r#"<text x="68" y="32" text-anchor="middle">Client</text></g>"#,
     r#"<g class="node"><rect x="176" y="8" width="120" height="40" rx="4"/>"#,
     r#"<text x="236" y="32" text-anchor="middle">Gateway</text></g>"#,
     r#"<path d="M128 28 L176 28" marker-end="url(#arrow)"/>"#,
-    r#"</svg></figure>"#,
+    r#"</svg>"#,
 );
 
-impl CodeBlockProcessor for StubDiagrams {
-    fn process(
-        &mut self,
-        language: &str,
-        attrs: &FenceAttrs,
-        source: &str,
-        index: usize,
-    ) -> ProcessResult {
-        if language == "plantuml" || language == "mermaid" {
-            self.extracted.push(ExtractedCodeBlock::new(
-                index,
-                language.to_owned(),
-                source.to_owned(),
-                attrs.id.clone(),
-                attrs.map.clone(),
-            ));
-            self.seen.push(index);
-            ProcessResult::Deferred
-        } else {
-            ProcessResult::PassThrough
-        }
+impl DiagramProvider for StubDiagrams {
+    fn handles(&self, language: &str) -> bool {
+        language == "plantuml" || language == "mermaid"
     }
 
-    fn fills(&mut self, fills: &mut Fills) {
-        for index in &self.seen {
-            let key = u32::try_from(*index).expect("code block index exceeds hole key width");
-            fills.set(key, STUB_SVG.to_owned());
-        }
-    }
-
-    fn extracted(&self) -> &[ExtractedCodeBlock] {
-        &self.extracted
+    fn resolve(
+        &self,
+        requests: &[DiagramRequest],
+        _ctx: &ResolveContext<'_>,
+    ) -> Vec<Result<Resolved, DiagramError>> {
+        requests
+            .iter()
+            .map(|_| {
+                Ok(Resolved {
+                    asset: Asset::Inline(DiagramContent::Svg(STUB_SVG.to_owned())),
+                    size: None,
+                    digest: "0".to_owned(),
+                    warnings: Vec::new(),
+                })
+            })
+            .collect()
     }
 }
 
-/// The pipeline the production HTML path installs (`rw_site`'s
-/// `create_directives_pipeline`, plus diagrams): `:::tab` container, inline
-/// `:status` badge, and a diagram code-block processor. Built fresh per render,
-/// as production does — the render consumes the pipeline.
-fn pipeline() -> Pipeline {
-    let directives = DirectiveProcessor::new()
-        .with_container(TabsDirective::new())
-        .with_inline(StatusDirective::new());
-    Pipeline::new()
-        .with_directives(directives)
-        .with_processor(StubDiagrams::default())
+/// The providers the production HTML path installs: one diagram provider. Built
+/// once, outside the timed loop, as the server does.
+fn providers() -> Providers {
+    Providers::empty().with(Arc::new(StubDiagrams) as Arc<dyn DiagramProvider>)
 }
 
-/// Render the ASCII fixture. The renderer is built once (outside the timed
-/// loop, matching the server which reuses one) and configured like the real
-/// serving path (title extraction is on in production); only `.render` is
+/// The renderer the production HTML path installs: title extraction on, fences
+/// routed through `providers`.
+fn renderer(providers: &Providers) -> MarkdownRenderer<HtmlBackend> {
+    MarkdownRenderer::<HtmlBackend>::new()
+        .with_title_extraction()
+        .with_diagram_languages(Arc::new(providers.clone()) as Arc<dyn DiagramRouter>)
+}
+
+/// Render the ASCII fixture. The renderer and providers are built once (outside
+/// the timed loop, matching the server which reuses both); only `.render` is
 /// measured.
 #[divan::bench]
 fn render_latin(bencher: Bencher) {
-    let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
-    bencher.bench(|| renderer.render(black_box(PAGE_LATIN), pipeline()));
+    let providers = providers();
+    let renderer = renderer(&providers);
+    bencher.bench(|| renderer.render(black_box(PAGE_LATIN), &providers));
 }
 
 /// Render the mixed-script fixture — same page, non-ASCII prose. A gap that
 /// opens up between this and `render_latin` is a script-specific regression.
 #[divan::bench]
 fn render_mixed(bencher: Bencher) {
-    let renderer = MarkdownRenderer::<HtmlBackend>::new().with_title_extraction();
-    bencher.bench(|| renderer.render(black_box(PAGE_MIXED), pipeline()));
+    let providers = providers();
+    let renderer = renderer(&providers);
+    bencher.bench(|| renderer.render(black_box(PAGE_MIXED), &providers));
 }

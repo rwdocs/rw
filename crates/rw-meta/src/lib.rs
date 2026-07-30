@@ -11,7 +11,9 @@ pub struct Meta {
     pub kind: Option<String>,
     /// Section namespace declared by this page's metadata.
     pub namespace: Option<String>,
-    /// Page title (always resolved — falls back to titlecase of filename).
+    /// Page title (always resolved and never empty — falls back to titlecase
+    /// of filename, then the filename stem itself, then `"Untitled"`; see
+    /// [`resolve_filename_title`]).
     pub title: String,
     /// Page description.
     pub description: Option<String>,
@@ -26,7 +28,8 @@ impl Meta {
     /// 1. Parses meta.yaml into base fields
     /// 2. Extracts frontmatter and first H1 from markdown via pulldown-cmark
     /// 3. Merges frontmatter over meta.yaml (frontmatter wins per field)
-    /// 4. Resolves title: frontmatter.title > meta.title > H1 > titlecase(filename)
+    /// 4. Resolves title: frontmatter.title > meta.title > H1 > titlecase(filename),
+    ///    guaranteed non-empty (see [`resolve_filename_title`])
     #[must_use]
     pub fn resolve(markdown: Option<&str>, meta_yaml: Option<&str>, filename: &str) -> Self {
         let base = meta_yaml.map(MetaFields::from_yaml).unwrap_or_default();
@@ -45,10 +48,7 @@ impl Meta {
             .title
             .or(h1_title)
             .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| {
-                let name = filename.strip_suffix(".md").unwrap_or(filename);
-                titlecase_from_slug(name)
-            });
+            .unwrap_or_else(|| resolve_filename_title(filename));
 
         Self {
             kind: merged.kind,
@@ -57,6 +57,24 @@ impl Meta {
             description: merged.description,
             pages: merged.pages,
         }
+    }
+}
+
+/// Fallback title when no frontmatter, `meta.yaml`, or H1 supplies one.
+///
+/// Titlecases the filename stem. `titlecase_from_slug` is empty-in/empty-out,
+/// so a stem made only of `-`/`_` (or an empty stem) would otherwise resolve
+/// to an empty title; this falls back to the stem verbatim, and then to
+/// `"Untitled"` if the stem itself is empty, so the result is never empty.
+fn resolve_filename_title(filename: &str) -> String {
+    let stem = filename.strip_suffix(".md").unwrap_or(filename);
+    let titlecased = titlecase_from_slug(stem);
+    if !titlecased.is_empty() {
+        titlecased
+    } else if !stem.is_empty() {
+        stem.to_owned()
+    } else {
+        "Untitled".to_owned()
     }
 }
 
@@ -209,6 +227,22 @@ mod tests {
         let md = "# \n\nSome content.";
         let meta = Meta::resolve(Some(md), None, "setup-guide.md");
         assert_eq!(meta.title, "Setup Guide");
+    }
+
+    #[test]
+    fn resolve_filename_of_only_underscore_falls_back_to_stem_verbatim() {
+        // titlecase_from_slug("_") replaces "_" with " " then splits on
+        // whitespace, yielding nothing — titlecasing this stem is empty.
+        let meta = Meta::resolve(None, None, "_.md");
+        assert_eq!(meta.title, "_");
+    }
+
+    #[test]
+    fn resolve_filename_dot_md_only_falls_back_to_untitled() {
+        // Stripping ".md" from ".md" itself leaves an empty stem, so even the
+        // stem-verbatim fallback is empty; "Untitled" is the last resort.
+        let meta = Meta::resolve(None, None, ".md");
+        assert_eq!(meta.title, "Untitled");
     }
 
     #[test]

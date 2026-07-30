@@ -12,8 +12,8 @@ workspace = true
 [dependencies]
 base64 = { workspace = true }
 rw-cache = { workspace = true }
-rw-renderer = { workspace = true }
-rw-sections = { workspace = true }
+rw-diagrams = { workspace = true }
+rw-plantuml = { workspace = true }
 hex = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
@@ -22,4 +22,6 @@ thiserror = { workspace = true }
 ureq = { workspace = true }
 
 [dev-dependencies]
+parking_lot = { workspace = true }
 pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

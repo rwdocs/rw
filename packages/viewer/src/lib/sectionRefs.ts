@@ -96,10 +96,10 @@ function chainRefsFor(
  *
  * `roots` is a list rather than a single container because the links are not
  * all in one tree. Most are ordinary markdown internal links in the article
- * itself; diagram anchors (from `annotate_svg_links`) instead sit inside a
- * `<rw-diagram>` shadow root, which `querySelectorAll` does not pierce. Both
- * kinds must be rewritten, so pass the article element *and* every diagram
- * shadow root under it (see `diagramShadowRoots`).
+ * itself; diagram anchors (annotated by the renderer's `HtmlBackend`) instead
+ * sit inside a `<rw-diagram>` shadow root, which `querySelectorAll` does not
+ * pierce. Both kinds must be rewritten, so pass the article element *and* every
+ * diagram shadow root under it (see `diagramShadowRoots`).
  *
  * `signal`, when provided, is checked after the resolver settles: if already
  * aborted, the function returns without touching the DOM. This guards against

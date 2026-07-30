@@ -4,7 +4,7 @@ members = ["crates/*"]
 exclude = ["crates/rw-napi"]
 
 [workspace.package]
-version = "0.1.33"
+version = "0.1.34"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT OR Apache-2.0"
@@ -17,10 +17,13 @@ rw-comments = { path = "crates/rw-comments" }
 rw-cache-s3 = { path = "crates/rw-cache-s3" }
 rw-config = { path = "crates/rw-config" }
 rw-confluence = { path = "crates/rw-confluence" }
+rw-diagrams = { path = "crates/rw-diagrams" }
 rw-kroki = { path = "crates/rw-kroki" }
 rw-embedded-preview = { path = "crates/rw-embedded-preview" }
+rw-git-fixture = { path = "crates/rw-git-fixture" }
 rw-meta = { path = "crates/rw-meta" }
 rw-parser = { path = "crates/rw-parser" }
+rw-plantuml = { path = "crates/rw-plantuml" }
 rw-renderer = { path = "crates/rw-renderer" }
 rw-sections = { path = "crates/rw-sections" }
 rw-server = { path = "crates/rw-server" }

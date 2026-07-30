@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use rw_diagrams::DiagramRouter;
 use rw_sections::Sections;
 
 /// Resolves page paths to their display titles for wikilink rendering.
@@ -78,6 +79,9 @@ pub(crate) struct RenderConfig {
     pub(crate) sections: Option<Arc<Sections>>,
     /// Title resolver for wikilink display text.
     pub(crate) title_resolver: Option<Box<dyn TitleResolver>>,
+    /// Recognises which fence languages are diagrams. The renderer holds only
+    /// this, never `Providers`, so it structurally cannot resolve one.
+    pub(crate) diagram_router: Option<Arc<dyn DiagramRouter>>,
 }
 
 impl RenderConfig {
@@ -91,6 +95,7 @@ impl RenderConfig {
             extract_title: false,
             sections: None,
             title_resolver: None,
+            diagram_router: None,
         }
     }
 }

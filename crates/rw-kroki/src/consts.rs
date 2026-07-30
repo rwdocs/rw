@@ -10,3 +10,9 @@ pub const STANDARD_DPI: u32 = 96;
 
 /// Default HTTP timeout for Kroki requests (30 seconds).
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Prefix of the data URI an inline PNG render is carried and cached as.
+///
+/// Whoever writes one of these and whoever reads it back have to agree
+/// character for character, so both spell it from here.
+pub const PNG_DATA_URI_PREFIX: &str = "data:image/png;base64,";

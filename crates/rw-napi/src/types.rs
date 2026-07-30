@@ -166,7 +166,7 @@ pub struct NavigationResponse {
 
 #[napi(object)]
 pub struct PageMetaResponse {
-    pub title: Option<String>,
+    pub title: String,
     pub path: String,
     #[napi(js_name = "sourceFile")]
     pub source_file: String,

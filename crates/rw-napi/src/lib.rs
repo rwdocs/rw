@@ -145,10 +145,7 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 storage.config().base_prefix(),
             ));
 
-            let mut renderer_config = PageRendererConfig {
-                extract_title: true,
-                ..Default::default()
-            };
+            let mut renderer_config = PageRendererConfig::default();
             apply_diagrams_config(&mut renderer_config, config.diagrams.as_ref());
             (Arc::new(storage), renderer_config, cache)
         } else if let Some(project_dir) = config.project_dir {
@@ -185,7 +182,6 @@ pub fn create_site(config: SiteConfig) -> Result<RwSite> {
                 .with_mtime_source(mtime_source),
             );
             let mut renderer_config = PageRendererConfig {
-                extract_title: true,
                 kroki_url: rw_config.diagrams_resolved.kroki_url,
                 include_dirs: rw_config.diagrams_resolved.include_dirs,
             };
@@ -410,12 +406,6 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
         .section_location(path)
         .map_err(|e| napi::Error::from_reason(e.display_chain()))?;
 
-    let (description, page_kind) = if let Some(ref meta) = result.metadata {
-        (meta.description.clone(), meta.page_kind.clone())
-    } else {
-        (None, None)
-    };
-
     Ok(PageResponse {
         meta: PageMetaResponse {
             title: result.title,
@@ -426,8 +416,8 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
                 String::new()
             },
             last_modified,
-            description,
-            page_kind,
+            description: result.description,
+            page_kind: result.page_kind,
             section_ref,
             subpath,
         },
@@ -458,6 +448,32 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use rw_cache::NullCache;
+    use rw_storage::MockStorage;
+
+    #[test]
+    fn build_page_response_forwards_description_and_kind_from_render_result() {
+        // Regression guard: description/page_kind must not be re-derived here
+        // via `Storage::meta` — that lookup only resolves a sidecar file and
+        // cannot see frontmatter, so it would silently drop frontmatter-declared
+        // values. The sidecar is deliberately left unconfigured below, so a
+        // revert fails here.
+        let storage = MockStorage::new()
+            .with_document_kind_description("billing", "Billing", "domain", "Money stuff")
+            .with_content("billing", "# Billing\n\nOverview.")
+            .with_mtime("billing", 1000.0);
+        let site = Site::new(
+            Arc::new(storage),
+            Arc::new(NullCache),
+            PageRendererConfig::default(),
+        );
+
+        let response = build_page_response(&site, "billing").expect("page should render");
+
+        assert_eq!(response.meta.description.as_deref(), Some("Money stuff"));
+        assert_eq!(response.meta.page_kind.as_deref(), Some("domain"));
+    }
 
     #[test]
     fn convert_nav_item_leaf() {

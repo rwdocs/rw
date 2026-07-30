@@ -18,12 +18,10 @@
 //! blocks; run with the sandbox disabled.
 
 use std::net::TcpListener;
-use std::process::Command;
 
-/// Path to the `rw` binary built by Cargo.
-fn rw_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_rw")
-}
+mod common;
+
+use common::rw_cmd;
 
 #[test]
 fn project_dir_roots_data_dir_not_cwd() {
@@ -42,7 +40,11 @@ fn project_dir_roots_data_dir_not_cwd() {
     // project_dir, standing in for "wherever the caller happened to be".
     let run_cwd = tempfile::tempdir().expect("run cwd tempdir");
 
-    let output = Command::new(rw_bin())
+    // `--project-dir` roots configuration at that directory and never walks up,
+    // so this needs no `rw.toml` pin — only `rw_cmd`'s cleared environment,
+    // without which an exported `RW_DIAGRAMS_KROKI_URL` fails config validation
+    // before the bind asserted below.
+    let output = rw_cmd()
         .arg("serve")
         .arg("--project-dir")
         .arg(project_dir.path())

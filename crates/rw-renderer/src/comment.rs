@@ -6,12 +6,11 @@
 //! HTML is escaped (never passed through), only a fixed set of known tags is
 //! emitted, and link schemes are allow-listed.
 
-use std::fmt::Write;
-
 use pulldown_cmark::Alignment;
 
 use crate::backend::RenderBackend;
-use crate::{HtmlBackend, MarkdownRenderer, Pipeline, escape_html};
+use crate::diagram::DiagramView;
+use crate::{HtmlBackend, MarkdownRenderer, Providers, escape_into};
 use rw_parser::AlertKind;
 
 /// Render a comment `body` (markdown) to safe HTML for display.
@@ -25,23 +24,29 @@ use rw_parser::AlertKind;
 #[must_use]
 pub fn render_comment_body(markdown: &str) -> String {
     MarkdownRenderer::<CommentBackend>::new()
-        .render(markdown, Pipeline::new())
+        .render(markdown, &Providers::empty())
         .html
 }
 
 /// Allow-listed comment link schemes. Anything else (relative links,
 /// `javascript:`, `data:`, `tel:`, …) renders as a bare, non-clickable `<a>`.
 fn is_allowed_link_scheme(href: &str) -> bool {
-    let lower = href.trim().to_ascii_lowercase();
-    lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")
+    let href = href.trim();
+    // `str::get` is boundary-safe: a multi-byte character inside the prefix
+    // range yields `None`, which is also the right answer for an ASCII scheme.
+    ["http://", "https://", "mailto:"].iter().any(|scheme| {
+        href.get(..scheme.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme))
+    })
 }
 
 /// Restricted [`RenderBackend`] for comment bodies (see [`render_comment_body`]).
 ///
 /// Standalone implementation (backends do not inherit from each other). It
-/// keeps the trait's HTML5 defaults for paragraphs, lists, emphasis, inline
-/// code, text, breaks, rules, task lists, and `link_end` — all already safe and
-/// escaping — and overrides only the restricted constructs.
+/// keeps the trait's HTML5 defaults for ordinary markup such as paragraphs,
+/// lists, blockquotes, emphasis, inline code, text, breaks, rules, task lists,
+/// and `link_end` — all already safe and escaping — and overrides only the
+/// restricted constructs.
 ///
 /// Private to the crate: `render_comment_body` is the only entry point, so the
 /// restricted profile (notably, wikilinks are never enabled — broken wikilinks
@@ -52,17 +57,14 @@ struct CommentBackend;
 impl RenderBackend for CommentBackend {
     const TITLE_AS_METADATA: bool = false;
 
+    // A comment body is untrusted user text, not authored documentation: a
+    // reviewer who types `:status[Done]` must see those characters back, not a
+    // status badge rendered into their words.
+    const TOKENIZE_DIRECTIVES: bool = false;
+
     fn code_block(lang: Option<&str>, content: &str, out: &mut String) {
         // Fenced/indented code renders like the page backend (escapes content).
         HtmlBackend::code_block(lang, content, out);
-    }
-
-    fn blockquote_start(out: &mut String) {
-        HtmlBackend::blockquote_start(out);
-    }
-
-    fn blockquote_end(out: &mut String) {
-        HtmlBackend::blockquote_end(out);
     }
 
     fn alert_start(_kind: AlertKind, out: &mut String) {
@@ -79,6 +81,15 @@ impl RenderBackend for CommentBackend {
         // Images are dropped entirely. The walker pops the image scope before
         // calling this, so a no-op leaves no stray output.
     }
+
+    // A comment body is rendered without diagram providers, so no fence ever
+    // resolves and neither of these can be reached. They drop their input for
+    // the same reason `image` does: a comment column is no place for a picture.
+    const DIAGRAM_IDS: bool = false;
+
+    fn diagram(_view: &DiagramView<'_>, _out: &mut String) {}
+
+    fn diagram_error(_id: Option<&str>, _message: &str, _out: &mut String) {}
 
     fn heading_start(_level: u8, _id: &str, out: &mut String) {
         // Headings demote to a paragraph (no oversized <h1> in a thread).
@@ -106,7 +117,9 @@ impl RenderBackend for CommentBackend {
         // Always emit a balanced <a> (link_end always writes </a>), but include
         // href only for allow-listed schemes. Disallowed → bare, non-clickable.
         if is_allowed_link_scheme(href) {
-            write!(out, r#"<a href="{}">"#, escape_html(href)).unwrap();
+            out.push_str(r#"<a href=""#);
+            escape_into(href, out);
+            out.push_str(r#"">"#);
         } else {
             out.push_str("<a>");
         }
@@ -114,7 +127,7 @@ impl RenderBackend for CommentBackend {
 
     fn raw_html(html: &str, out: &mut String) {
         // Escape raw HTML to inert text — never pass it through.
-        out.push_str(&escape_html(html));
+        escape_into(html, out);
     }
 }
 
@@ -214,6 +227,28 @@ mod tests {
     }
 
     #[test]
+    fn scheme_check_is_case_insensitive() {
+        // The allowlist compares case-insensitively: an uppercase scheme keeps
+        // its href, while a mixed-case `javascript:` stays neutralized.
+        let html = render_comment_body("[x](HTTPS://EXAMPLE.COM/page)");
+        assert!(
+            html.contains(r#"<a href="HTTPS://EXAMPLE.COM/page">x</a>"#),
+            "got: {html}"
+        );
+        let js = render_comment_body("[x](JavaScript:alert(1))");
+        assert!(!js.contains("href"), "scheme leaked: {js}");
+    }
+
+    #[test]
+    fn multibyte_href_is_denied_without_panic() {
+        // `str::get` returns `None` when the prefix range would split a
+        // multi-byte character — the correct denial for an ASCII scheme list.
+        let html = render_comment_body("[x](héllo)");
+        assert!(html.contains("<a>x</a>"), "got: {html}");
+        assert!(!html.contains("href"), "got: {html}");
+    }
+
+    #[test]
     fn raw_html_is_escaped() {
         let script = render_comment_body("<script>alert(1)</script>");
         assert!(
@@ -232,5 +267,26 @@ mod tests {
         // Whitespace-only input yields no markdown blocks → exactly empty (no
         // stray `<p> </p>`). Assert strictly so a future whitespace leak fails.
         assert_eq!(render_comment_body("   "), "");
+    }
+
+    #[test]
+    fn status_directive_in_comment_body_is_literal() {
+        // Comment bodies render a restricted subset with directives OFF; a
+        // status-shaped string renders verbatim, not interpreted/stripped.
+        let html = render_comment_body("Use :status[Done]{color=green} here.");
+        assert!(html.contains(":status[Done]{color=green}"), "got: {html}");
+        assert!(!html.contains("status-green"), "got: {html}");
+    }
+
+    #[test]
+    fn tabs_directive_in_comment_body_is_literal() {
+        // Comment bodies render a restricted subset with directives OFF; a
+        // tabs-shaped string renders verbatim, not interpreted into HTML chrome.
+        let html = render_comment_body("::::tabs\n\n:::tab[macOS]\n\nx\n\n:::\n\n::::");
+        assert_eq!(
+            html,
+            "<p>::::tabs</p><p>:::tab[macOS]</p><p>x</p><p>:::</p><p>::::</p>"
+        );
+        assert!(!html.contains("role=\"tablist\""), "chrome leaked: {html}");
     }
 }

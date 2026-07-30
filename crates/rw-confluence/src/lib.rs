@@ -32,7 +32,6 @@
 
 mod backend;
 mod renderer;
-mod tags;
 
 mod comment_preservation;
 pub use comment_preservation::{PreserveResult, UnmatchedComment, preserve_comments};
