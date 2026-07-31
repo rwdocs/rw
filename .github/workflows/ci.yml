@@ -67,6 +67,13 @@ jobs:
       - name: Check Prettier formatting
         run: npx -w @rwdocs/viewer prettier --check .
 
+      # Lints the packed tarball. Nothing above reaches it: tsc and svelte-check
+      # read source, never the `exports` map or the emitted `.d.ts`. The rows the
+      # output marks ignored are not suppressed defects — the package is ESM, so
+      # "CommonJS consumers need a dynamic import" describes it accurately.
+      - name: Check published package
+        run: npm -w @rwdocs/viewer run check:pack
+
   deny:
     name: Dependency policy
     runs-on: ubuntu-latest

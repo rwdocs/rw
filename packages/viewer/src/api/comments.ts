@@ -1,4 +1,5 @@
-import type { Comment, CreateCommentRequest, UpdateCommentRequest } from "../types/comments";
+// `.js` is deliberate — this type reaches the published `.d.ts`. See `src/embed.ts`.
+import type { Comment, CreateCommentRequest, UpdateCommentRequest } from "../types/comments.js";
 import { readJson } from "./json";
 
 /**

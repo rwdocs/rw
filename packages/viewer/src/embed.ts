@@ -1,8 +1,13 @@
+// The `.js` below is deliberate, unlike the extensionless imports elsewhere:
+// TypeScript copies a specifier verbatim into the emitted `.d.ts`, and `node16`
+// resolution needs the extension or a consumer resolves a *directory* and gets
+// no types. Only the graph reachable from this entry point needs it, and
+// `npm run check:pack` enforces it.
 import "./app.css";
 import App from "./App.svelte";
 import { mount, unmount } from "svelte";
-import type { NotifyFn } from "./types/notify";
-import type { CommentApiClient } from "./api/comments";
+import type { NotifyFn } from "./types/notify.js";
+import type { CommentApiClient } from "./api/comments.js";
 
 export interface MountOptions {
   /** API base URL (host-supplied — e.g. `/api/rw` when proxied by a Backstage
@@ -120,7 +125,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
   };
 }
 
-export type { CommentApiClient } from "./api/comments";
+export type { CommentApiClient } from "./api/comments.js";
 export type {
   Comment,
   CreateCommentRequest,
@@ -128,4 +133,4 @@ export type {
   Author,
   Selector,
   CommentStatus,
-} from "./types/comments";
+} from "./types/comments.js";
