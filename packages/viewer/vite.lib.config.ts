@@ -119,7 +119,11 @@ export default defineConfig({
     dts({
       // The tsconfig also covers e2e specs and the vite configs so they get
       // type-checked and linted; none of them belong in the published types.
+      // `exclude` covers the test files inside `src` for the same reason —
+      // `files: ["dist/lib/"]` publishes whatever lands here, and without it
+      // 54 `*.test.d.ts` shipped to consumers.
       include: ["src/**/*.ts", "src/**/*.svelte"],
+      exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**"],
       // No type bundling: this used to read `rollupTypes: true`, which
       // vite-plugin-dts 5 no longer knows — it delegates to unplugin-dts, where
       // the option is `bundleTypes` and is powered by `@microsoft/api-extractor`.

@@ -1,5 +1,7 @@
-# `rw serve` writes this while the e2e suite runs. It is gitignored, but
-# Prettier does not read .gitignore, so without this a local `make lint` after
-# `npm run test:e2e` reports a formatting failure that CI never sees (the Lint
-# job does not run e2e, so the file is not there).
-e2e/fixtures/**/.rw/
+# `rw serve` writes runtime state here while the e2e suite runs. Prettier 3
+# does read .gitignore, but only the one beside its working directory — the
+# entry that ignores this path is the .gitignore rw writes *inside* the .rw
+# directory itself, which Prettier never sees. Without this, `make format`
+# rewrites the JSON of a live server and CI's `prettier --check .` fails on a
+# generated file. Matched anywhere, since the data dir name is not configurable.
+**/.rw/

@@ -120,8 +120,10 @@ test.describe("TOC Popover", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Invoices");
 
     // The button renders only when the page has TOC entries, and this page has
-    // none. Asserting the absence directly — the previous `if (count > 0)`
-    // guard meant the test passed without checking anything at all.
+    // none. The previous version loaded `installation.md`, which has nine `##`
+    // headings, so its `if (count > 0)` guard always ran and asserted the
+    // button was *visible* — a real assertion, but the opposite of the case
+    // this test is named for. Asserting the absence directly instead.
     await expect(page.getByRole("button", { name: "Table of contents" })).toHaveCount(0);
   });
 });

@@ -157,12 +157,12 @@ export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
   },
-  // TypeScript baseline. `src` and the e2e suite are listed separately from the
-  // root-level configs below only so each can carry its own extra rules; all
-  // three are in `tsconfig.json`, so the project service can type them.
+  // TypeScript baseline for everything `tsconfig.json` covers. `src` and the
+  // root-level configs share this block; the e2e suite gets its own below
+  // because it layers the Playwright rules on top.
   {
     extends: [tseslint.configs.recommendedTypeChecked],
-    files: ["src/**/*.{ts,svelte.ts}"],
+    files: ["src/**/*.{ts,svelte.ts}", "*.config.ts", "vite-plugin-*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
   },
   // The e2e suite went unlinted and untyped for a long time because both tools
@@ -174,6 +174,17 @@ export default defineConfig([
     files: ["e2e/**/*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
     rules: {
+      // The plugin ships every rule at `warn`, which fails nothing. Promoting
+      // them here rather than running `eslint --max-warnings 0` keeps the
+      // severity decision in the config: the flag would also promote ESLint's
+      // own `reportUnusedDisableDirectives` warning, so a dependency bump that
+      // stops a rule firing would redden CI on a PR that touched no source.
+      ...Object.fromEntries(
+        Object.keys(playwright.configs["flat/recommended"].rules ?? {}).map((rule) => [
+          rule,
+          "error",
+        ]),
+      ),
       // Values that cross the browser boundary — `page.evaluate` results, and
       // the `res.json()` calls inside those callbacks — are `any` by
       // construction, because the callback is serialized and run in the page.
@@ -194,12 +205,6 @@ export default defineConfig([
       // aimed at an already-focused element, which is what the rule asks for.
       "playwright/prefer-locator": "off",
     },
-  },
-  // Build and test configuration. Node-side, no Svelte, no Playwright.
-  {
-    extends: [tseslint.configs.recommendedTypeChecked],
-    files: ["*.config.ts", "vite-plugin-*.ts"],
-    languageOptions: { parserOptions: typeAwareParserOptions },
   },
   {
     extends: [tseslint.configs.recommendedTypeChecked],

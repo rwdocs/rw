@@ -84,7 +84,7 @@ async function openThreadByText(page: Page, text: string) {
   // used to bridge the gap held on an idle machine and not under parallel load.
   // `scrollIntoView` is instant here (nothing sets `scroll-behavior: smooth`),
   // and reading `getBoundingClientRect` forces the layout flush.
-  const coords = await page.evaluate((targetText) => {
+  const coords = await page.evaluate(async (targetText) => {
     const article = document.querySelector("article");
     if (!article) throw new Error("no article");
     const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
@@ -95,6 +95,11 @@ async function openThreadByText(page: Page, text: string) {
       scrollRange.setStart(walker.currentNode, idx);
       scrollRange.setEnd(walker.currentNode, idx + targetText.length);
       scrollRange.startContainer.parentElement?.scrollIntoView({ block: "center" });
+      // Let any scrollIntoView the app deferred to rAF (comment focus, deep-link
+      // reveal) run before measuring. Measuring in the same task as our own
+      // scroll is correct — scrollIntoView is synchronous — but a frame the app
+      // already queued would otherwise land between this rect and the click.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const clickRange = document.createRange();
       clickRange.setStart(walker.currentNode, idx + 1);
       clickRange.setEnd(walker.currentNode, idx + 2);
