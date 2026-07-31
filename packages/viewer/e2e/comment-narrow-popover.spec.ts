@@ -1,4 +1,4 @@
-import { test, expect, Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { resolveDocumentId } from "./comment-helpers";
 
 // Narrow viewport: below the 952px comments breakpoint, so the margin aside is

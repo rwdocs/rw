@@ -1,4 +1,4 @@
-import { test, expect, Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { resolveDocumentId } from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar is visible.
@@ -67,7 +67,7 @@ async function createInlineComment(page: Page, targetText: string, body: string)
   const sidebar = page.getByRole("complementary", { name: "Comments" });
   await sidebar.getByPlaceholder("Write a comment...").fill(body);
   await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
-  await expect(sidebar.getByPlaceholder("Write a comment...")).not.toBeVisible();
+  await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 }
 
 async function createPageComment(page: Page, body: string) {

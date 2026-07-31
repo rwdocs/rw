@@ -1,4 +1,4 @@
-import { test, expect, Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { resolveDocumentId } from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar is visible.
@@ -79,22 +79,11 @@ async function reloadIdle(page: Page) {
  *  Clicks at the glyph's screen coordinates (the highlight's click handler
  *  responds to a real pointer hit, not an element `.click()`). */
 async function openThreadByText(page: Page, text: string) {
-  await page.evaluate((targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const idx = (walker.currentNode.textContent ?? "").indexOf(targetText);
-      if (idx === -1) continue;
-      const range = document.createRange();
-      range.setStart(walker.currentNode, idx);
-      range.setEnd(walker.currentNode, idx + targetText.length);
-      range.startContainer.parentElement?.scrollIntoView({ block: "center" });
-      return;
-    }
-    throw new Error(`text "${targetText}" not found`);
-  }, text);
-  await page.waitForTimeout(100);
+  // Scroll and measure in one evaluate. Splitting them meant the rect was read
+  // a round-trip after the scroll, so it could be stale; the fixed 100ms that
+  // used to bridge the gap held on an idle machine and not under parallel load.
+  // `scrollIntoView` is instant here (nothing sets `scroll-behavior: smooth`),
+  // and reading `getBoundingClientRect` forces the layout flush.
   const coords = await page.evaluate((targetText) => {
     const article = document.querySelector("article");
     if (!article) throw new Error("no article");
@@ -102,10 +91,14 @@ async function openThreadByText(page: Page, text: string) {
     while (walker.nextNode()) {
       const idx = (walker.currentNode.textContent ?? "").indexOf(targetText);
       if (idx === -1) continue;
-      const range = document.createRange();
-      range.setStart(walker.currentNode, idx + 1);
-      range.setEnd(walker.currentNode, idx + 2);
-      const rect = range.getBoundingClientRect();
+      const scrollRange = document.createRange();
+      scrollRange.setStart(walker.currentNode, idx);
+      scrollRange.setEnd(walker.currentNode, idx + targetText.length);
+      scrollRange.startContainer.parentElement?.scrollIntoView({ block: "center" });
+      const clickRange = document.createRange();
+      clickRange.setStart(walker.currentNode, idx + 1);
+      clickRange.setEnd(walker.currentNode, idx + 2);
+      const rect = clickRange.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
     throw new Error(`text "${targetText}" not found`);

@@ -1,4 +1,16 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+/** Open the diagram viewer. The expand button is hover-revealed (opacity), so
+ *  the figure is hovered first — that is the path a user takes, and it keeps the
+ *  click subject to Playwright's actionability checks rather than forcing it. */
+async function openDiagram(page: Page) {
+  await page
+    .locator("figure")
+    .filter({ has: page.locator("svg") })
+    .first()
+    .hover();
+  await page.getByRole("button", { name: "Expand diagram" }).click();
+}
 
 test.describe("Diagram zoom popup", () => {
   test.use({ viewport: { width: 1200, height: 800 } });
@@ -6,9 +18,7 @@ test.describe("Diagram zoom popup", () => {
   test("expand button opens a dialog with the diagram", async ({ page }) => {
     await page.goto("/diagram");
 
-    // The expand button is hover-revealed (opacity), so force the click.
-    const expand = page.getByRole("button", { name: "Expand diagram" });
-    await expand.click({ force: true });
+    await openDiagram(page);
 
     const dialog = page.getByRole("dialog", { name: "Diagram viewer" });
     await expect(dialog).toBeVisible();
@@ -17,7 +27,7 @@ test.describe("Diagram zoom popup", () => {
 
   test("zoom in magnifies the diagram by shrinking its viewBox", async ({ page }) => {
     await page.goto("/diagram");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
 
     // Zoom is driven by the SVG's viewBox (crisp vector re-render), not by
     // resizing or CSS-scaling a box. Zooming in shows a smaller slice of the
@@ -33,7 +43,7 @@ test.describe("Diagram zoom popup", () => {
 
   test("Escape closes the popup", async ({ page }) => {
     await page.goto("/diagram");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
 
     const dialog = page.getByRole("dialog", { name: "Diagram viewer" });
     await expect(dialog).toBeVisible();
@@ -43,7 +53,7 @@ test.describe("Diagram zoom popup", () => {
 
   test("Close button closes the popup", async ({ page }) => {
     await page.goto("/diagram");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
 
     await page.getByRole("button", { name: "Close" }).click();
     await expect(page.getByRole("dialog", { name: "Diagram viewer" })).toBeHidden();
@@ -51,7 +61,7 @@ test.describe("Diagram zoom popup", () => {
 
   test("clone keeps id-scoped <style> rules styling it (mermaid-shaped svg)", async ({ page }) => {
     await page.goto("/diagram");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
 
     const rect = page.getByTestId("diagram-zoom-content").locator("svg rect");
     await expect(rect).toBeVisible();

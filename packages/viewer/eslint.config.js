@@ -1,5 +1,6 @@
 import eslintPluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
 import boundaries from "eslint-plugin-boundaries";
+import playwright from "eslint-plugin-playwright";
 import svelte from "eslint-plugin-svelte";
 import vitest from "@vitest/eslint-plugin";
 import { defineConfig } from "eslint/config";
@@ -156,12 +157,48 @@ export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
   },
-  // TypeScript baseline. Scoped to the same `src/**` glob as the parser blocks
-  // below: root-level config files (vite, playwright) have no TS parser
-  // configured, so widening this to `**/*` would fail to parse them.
+  // TypeScript baseline. `src` and the e2e suite are listed separately from the
+  // root-level configs below only so each can carry its own extra rules; all
+  // three are in `tsconfig.json`, so the project service can type them.
   {
     extends: [tseslint.configs.recommendedTypeChecked],
     files: ["src/**/*.{ts,svelte.ts}"],
+    languageOptions: { parserOptions: typeAwareParserOptions },
+  },
+  // The e2e suite went unlinted and untyped for a long time because both tools
+  // were scoped to `src/**`. Playwright's own rules are the point: a missing
+  // `await` on an assertion passes vacuously, and a fixed `waitForTimeout` is
+  // the usual reason a spec is green alone and flaky in parallel.
+  {
+    extends: [tseslint.configs.recommendedTypeChecked, playwright.configs["flat/recommended"]],
+    files: ["e2e/**/*.ts"],
+    languageOptions: { parserOptions: typeAwareParserOptions },
+    rules: {
+      // Values that cross the browser boundary — `page.evaluate` results, and
+      // the `res.json()` calls inside those callbacks — are `any` by
+      // construction, because the callback is serialized and run in the page.
+      // Annotating them asserts a shape nothing checks; the assertion the test
+      // then makes is the real check. The family stays on for `src`, where the
+      // types are real.
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off",
+      // Fires on branching inside plain helper functions — a colour parser, and
+      // `if (!box) throw` guards that narrow a nullable bounding box. Those
+      // fail loudly, which is the opposite of the skipped-assertion case the
+      // rule is aimed at. `no-conditional-expect` stays on and does catch that.
+      "playwright/no-conditional-in-test": "off",
+      // Flags `locator.press()` for a keyboard shortcut that is deliberately
+      // aimed at an already-focused element, which is what the rule asks for.
+      "playwright/prefer-locator": "off",
+    },
+  },
+  // Build and test configuration. Node-side, no Svelte, no Playwright.
+  {
+    extends: [tseslint.configs.recommendedTypeChecked],
+    files: ["*.config.ts", "vite-plugin-*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
   },
   {

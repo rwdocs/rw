@@ -1,4 +1,4 @@
-import { test, expect, Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { resolveDocumentId } from "./comment-helpers";
 
 // Runs on its own page (documentId for "billing/invoices") so it never shares

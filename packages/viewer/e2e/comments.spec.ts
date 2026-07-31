@@ -1,4 +1,4 @@
-import { test, expect, Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { resolveDocumentId, selectText } from "./comment-helpers";
 
 // Wide viewport so the right sidebar (TOC / comments) is visible
@@ -15,30 +15,11 @@ async function clickHighlight(page: Page, text: string) {
   // Wait for highlights to be registered first
   await waitForHighlights(page);
 
-  // Scroll the target text into view — comment creation may have scrolled the page
-  await page.evaluate((targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const content = walker.currentNode.textContent ?? "";
-      const idx = content.indexOf(targetText);
-      if (idx === -1) continue;
-      const node = walker.currentNode;
-      const range = document.createRange();
-      range.setStart(node, idx);
-      range.setEnd(node, idx + targetText.length);
-      // Scroll into viewport center
-      const el = range.startContainer.parentElement;
-      el?.scrollIntoView({ block: "center" });
-      return;
-    }
-    throw new Error(`text "${targetText}" not found`);
-  }, text);
-
-  // Small delay for scroll to settle, then get viewport coordinates
-  await page.waitForTimeout(100);
-
+  // Scroll and measure in one evaluate. Splitting them let the rect be read a
+  // round-trip after the scroll, and the fixed 100ms that used to bridge the gap
+  // held on an idle machine but not under parallel load. `scrollIntoView` is
+  // instant here (nothing sets `scroll-behavior: smooth`), and reading
+  // `getBoundingClientRect` forces the layout flush.
   const clickCoords = await page.evaluate((targetText) => {
     const article = document.querySelector("article");
     if (!article) throw new Error("no article");
@@ -47,10 +28,15 @@ async function clickHighlight(page: Page, text: string) {
       const content = walker.currentNode.textContent ?? "";
       const idx = content.indexOf(targetText);
       if (idx === -1) continue;
-      const range = document.createRange();
-      range.setStart(walker.currentNode, idx + 1);
-      range.setEnd(walker.currentNode, idx + 2);
-      const rect = range.getBoundingClientRect();
+      const node = walker.currentNode;
+      const scrollRange = document.createRange();
+      scrollRange.setStart(node, idx);
+      scrollRange.setEnd(node, idx + targetText.length);
+      scrollRange.startContainer.parentElement?.scrollIntoView({ block: "center" });
+      const clickRange = document.createRange();
+      clickRange.setStart(node, idx + 1);
+      clickRange.setEnd(node, idx + 2);
+      const rect = clickRange.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
     throw new Error(`text "${targetText}" not found`);
@@ -77,7 +63,7 @@ async function createCommentViaUI(page: Page, targetText: string, body: string) 
   await sidebar.getByPlaceholder("Write a comment...").fill(body);
   await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
   // Wait for form to close
-  await expect(sidebar.getByPlaceholder("Write a comment...")).not.toBeVisible();
+  await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 }
 
 /** Resolve all comments for a document via the API so they don't interfere with new tests. */
@@ -175,7 +161,7 @@ test.describe("Inline comments", () => {
 
     await page.mouse.click(clickPoint.x, clickPoint.y);
 
-    await expect(commentButton).not.toBeVisible();
+    await expect(commentButton).toBeHidden();
   });
 
   test("creating a comment via the popover", async ({ page }) => {
@@ -194,7 +180,7 @@ test.describe("Inline comments", () => {
     await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
 
     // Form should disappear
-    await expect(textarea).not.toBeVisible();
+    await expect(textarea).toBeHidden();
 
     // Thread card shows the server-stamped author
     await expect(sidebar.getByText("You", { exact: true })).toBeVisible();
@@ -223,7 +209,7 @@ test.describe("Inline comments", () => {
     await sidebar.getByPlaceholder("Write a comment...").fill("Check highlight");
     await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
     // Wait for the form to close — confirms the POST completed before we query.
-    await expect(sidebar.getByPlaceholder("Write a comment...")).not.toBeVisible();
+    await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 
     // Verify via API that the comment has both selector types
     const docId = await resolveDocumentId(page, "");
@@ -266,7 +252,7 @@ test.describe("Inline comments", () => {
     await expect(commentsSidebar).toContainText("Review this section");
 
     // TOC should be gone
-    await expect(tocSidebar).not.toBeVisible();
+    await expect(tocSidebar).toBeHidden();
   });
 
   test("close button dismisses comments and restores TOC", async ({ page }) => {
@@ -284,7 +270,7 @@ test.describe("Inline comments", () => {
     // TOC should be restored
     const tocSidebar = page.getByRole("complementary", { name: "Page outline" });
     await expect(tocSidebar).toBeVisible();
-    await expect(commentsSidebar).not.toBeVisible();
+    await expect(commentsSidebar).toBeHidden();
   });
 
   test("resolving a comment updates its status", async ({ page }) => {
@@ -320,7 +306,7 @@ test.describe("Inline comments", () => {
     // those actions when idle; autofocus doesn't fire reliably in headless).
     await textarea.focus();
     await sidebar.getByRole("button", { name: "Cancel" }).click();
-    await expect(textarea).not.toBeVisible();
+    await expect(textarea).toBeHidden();
   });
 
   test("replying to a comment shows the reply in the thread", async ({ page }) => {
@@ -686,7 +672,7 @@ test.describe("Page comments", () => {
     await section.getByRole("button", { name: "Resolve", exact: true }).click();
 
     // Should no longer be visible (resolved threads are hidden)
-    await expect(section.getByText("Comment to resolve")).not.toBeVisible();
+    await expect(section.getByText("Comment to resolve")).toBeHidden();
   });
 
   test("resolved page comment can be revealed via the Show resolved toggle", async ({ page }) => {

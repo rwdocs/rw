@@ -113,7 +113,23 @@ function scopeCss(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [svelte(), tailwindcss(), dts({ rollupTypes: true }), scopeCss()],
+  plugins: [
+    svelte(),
+    tailwindcss(),
+    dts({
+      // The tsconfig also covers e2e specs and the vite configs so they get
+      // type-checked and linted; none of them belong in the published types.
+      include: ["src/**/*.ts", "src/**/*.svelte"],
+      // No type bundling: this used to read `rollupTypes: true`, which
+      // vite-plugin-dts 5 no longer knows — it delegates to unplugin-dts, where
+      // the option is `bundleTypes` and is powered by `@microsoft/api-extractor`.
+      // That package is not a dependency, so the rename alone would only trade a
+      // silent no-op for a failed-to-load error on every build. The package has
+      // shipped per-module declarations since the v5 upgrade; restoring a single
+      // bundled `embed.d.ts` means taking on api-extractor first.
+    }),
+    scopeCss(),
+  ],
   resolve: {
     alias: {
       $lib: resolve(__dirname, "src/lib"),

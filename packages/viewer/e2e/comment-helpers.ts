@@ -1,4 +1,4 @@
-import { Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 /**
  * Select `text` inside the article and release with a synthetic mouseup, which
