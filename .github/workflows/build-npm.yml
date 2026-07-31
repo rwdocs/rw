@@ -7,6 +7,11 @@ on:
         required: false
         type: string
 
+# A called workflow can only narrow what the caller granted, so this also caps
+# the release workflow's `contents: write` at read for the duration of the build.
+permissions:
+  contents: read
+
 jobs:
   build-native:
     strategy:
