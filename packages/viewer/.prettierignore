@@ -1,0 +1,5 @@
+# `rw serve` writes this while the e2e suite runs. It is gitignored, but
+# Prettier does not read .gitignore, so without this a local `make lint` after
+# `npm run test:e2e` reports a formatting failure that CI never sees (the Lint
+# job does not run e2e, so the file is not there).
+e2e/fixtures/**/.rw/
