@@ -64,6 +64,31 @@ jobs:
       - name: Check Prettier formatting
         run: npx -w @rwdocs/viewer prettier --check .
 
+  deny:
+    name: Dependency policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # cargo-deny builds its graph by shelling out to `cargo metadata`, so the
+      # job needs a toolchain of its own rather than whichever one the runner
+      # image happens to ship. rust-toolchain.toml pins the version actually
+      # used, here as everywhere else.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@v2
+        with:
+          # Pinned: cargo-deny changes check defaults across releases, so a
+          # float would let a cargo-deny release fail CI with no rw change.
+          tool: cargo-deny@0.20.2
+
+      # Licenses and sources only — advisories are Dependabot's. Both are a
+      # pure function of Cargo.lock, so this never fails a PR that did not
+      # touch dependencies.
+      - name: Check licenses and sources
+        run: cargo deny check licenses sources
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
