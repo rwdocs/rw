@@ -19,6 +19,12 @@
       "groupName": "napi-rs crates"
     },
     {
+      "description": "eslint no longer depends on @eslint/js, and @eslint/js declares its eslint peer as optional, so npm reports nothing when the two diverge. js.configs.recommended is the base of every TypeScript block in the viewer's ESLint config; keep the pair in one PR so a major lands as one reviewable change",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["eslint", "@eslint/js"],
+      "groupName": "eslint core"
+    },
+    {
       "description": "Bump so npm updates edit package.json and package-lock.json together — avoids lockfile-mirror drift in npm workspaces (see renovatebot/renovate#28797)",
       "matchManagers": ["npm"],
       "rangeStrategy": "bump"

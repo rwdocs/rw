@@ -3,7 +3,9 @@ import boundaries from "eslint-plugin-boundaries";
 import playwright from "eslint-plugin-playwright";
 import svelte from "eslint-plugin-svelte";
 import vitest from "@vitest/eslint-plugin";
+import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
+import globals from "globals";
 import eslintParserSvelte from "svelte-eslint-parser";
 import tseslint from "typescript-eslint";
 import { readFileSync } from "node:fs";
@@ -153,15 +155,37 @@ const boundariesConfig = {
   },
 };
 
+// typescript-eslint switches off the base rules it replaces, so it must stay
+// second. An entry appended here does not win everywhere — the e2e and
+// `.svelte` blocks each extend something after it.
+const TS_BASELINE = [js.configs.recommended, tseslint.configs.recommendedTypeChecked];
+
 export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
+  },
+  // Both default to non-blocking. Set here rather than via `--max-warnings 0`,
+  // which would also promote the `warn` rules further down that are meant to
+  // stay non-blocking.
+  {
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+      reportUnusedInlineConfigs: "error",
+    },
+  },
+  // No `.js` is in `tsconfig.json`, so ESLint is their only checker — hence the
+  // globals, without which `no-undef` misfires on `process`. Do not narrow the
+  // glob to `*.js`: a script added outside the package root would get nothing.
+  {
+    extends: [js.configs.recommended],
+    files: ["**/*.js"],
+    languageOptions: { globals: globals.node },
   },
   // TypeScript baseline. `src` and the root-level build configs share this
   // block; `.svelte` and the e2e suite each get their own below, because both
   // layer further rules on top.
   {
-    extends: [tseslint.configs.recommendedTypeChecked],
+    extends: TS_BASELINE,
     files: ["src/**/*.{ts,svelte.ts}", "*.config.ts", "vite-plugin-*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
   },
@@ -169,7 +193,7 @@ export default defineConfig([
   // assertion passes vacuously, and a fixed `waitForTimeout` is the usual
   // reason a spec is green alone and flaky in parallel.
   {
-    extends: [tseslint.configs.recommendedTypeChecked, playwright.configs["flat/recommended"]],
+    extends: [...TS_BASELINE, playwright.configs["flat/recommended"]],
     files: ["e2e/**/*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
     rules: {
@@ -211,8 +235,17 @@ export default defineConfig([
       "playwright/prefer-locator": "off",
     },
   },
+  // Components: the same TypeScript baseline as `src`, with the exceptions
+  // below. The plugin's own rules live in a separate block further down.
   {
-    extends: [tseslint.configs.recommendedTypeChecked],
+    extends: [
+      ...TS_BASELINE,
+      // Base rules tsc covers. Its own glob is `**/*.ts`, which would intersect
+      // this block's away, so the rules are taken directly. Must precede the
+      // block's `rules` — it sets `prefer-const: "error"`. Its `no-unreachable`
+      // entry only holds because `tsconfig.json` sets `allowUnreachableCode`.
+      { rules: tseslint.configs.eslintRecommended.rules },
+    ],
     files: ["src/**/*.svelte"],
     languageOptions: svelteLanguageOptions,
     rules: {
@@ -253,6 +286,10 @@ export default defineConfig([
   {
     files: ["src/**/*.{svelte,svelte.ts}"],
     rules: {
+      // `linterOptions.reportUnusedDisableDirectives` reads JS comments only.
+      // Markup directives are this plugin's, and it reports a stale one only
+      // when asked.
+      "svelte/comment-directive": ["error", { reportUnusedDisableDirectives: true }],
       // Fires on every `new Set()` / `new Map()` / `new URL()` in a rune file,
       // but it is aimed at mutating a collection *in place* while reading it
       // reactively. This codebase never does: `navigation.collapsed` copies,
