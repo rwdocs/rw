@@ -28,6 +28,10 @@
       "matchManagers": ["npm"],
       "matchDepTypes": ["engines"],
       "enabled": false
+    },
+    {
+      "matchDepTypes": ["action"],
+      "pinDigests": true
     }
   ]
 }
