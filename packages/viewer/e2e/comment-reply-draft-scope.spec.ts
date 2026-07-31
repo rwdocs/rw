@@ -79,11 +79,8 @@ async function reloadIdle(page: Page) {
  *  Clicks at the glyph's screen coordinates (the highlight's click handler
  *  responds to a real pointer hit, not an element `.click()`). */
 async function openThreadByText(page: Page, text: string) {
-  // Scroll and measure in one evaluate. Splitting them meant the rect was read
-  // a round-trip after the scroll, so it could be stale; the fixed 100ms that
-  // used to bridge the gap held on an idle machine and not under parallel load.
-  // `scrollIntoView` is instant here (nothing sets `scroll-behavior: smooth`),
-  // and reading `getBoundingClientRect` forces the layout flush.
+  // Scroll and measure in one evaluate: two calls could walk to different text
+  // nodes, and the second walk had to be bridged by a fixed timeout.
   const coords = await page.evaluate(async (targetText) => {
     const article = document.querySelector("article");
     if (!article) throw new Error("no article");
@@ -95,10 +92,9 @@ async function openThreadByText(page: Page, text: string) {
       scrollRange.setStart(walker.currentNode, idx);
       scrollRange.setEnd(walker.currentNode, idx + targetText.length);
       scrollRange.startContainer.parentElement?.scrollIntoView({ block: "center" });
-      // Let any scrollIntoView the app deferred to rAF (comment focus, deep-link
-      // reveal) run before measuring. Measuring in the same task as our own
-      // scroll is correct — scrollIntoView is synchronous — but a frame the app
-      // already queued would otherwise land between this rect and the click.
+      // The app defers some scrollIntoView calls to rAF (comment focus,
+      // deep-link reveal). Let a queued one run before measuring, or it lands
+      // between this rect and the click that uses it.
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const clickRange = document.createRange();
       clickRange.setStart(walker.currentNode, idx + 1);

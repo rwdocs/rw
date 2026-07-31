@@ -5,11 +5,11 @@ const EXPAND = { role: "button", name: "Expand diagram" } as const;
 /**
  * Open the diagram viewer for the `index`-th expandable diagram on the page.
  *
- * Two things matter here. Hovering is required rather than cosmetic — the
- * button is `pointer-events: none` until `figure.diagram:hover`, which is why
- * these call sites used to pass `force: true`. And the click must be scoped to
- * the figure just hovered: only that figure accepts pointer events, and a
- * page-wide match is ambiguous as soon as a page has two diagrams.
+ * The hover is load-bearing: the button is `pointer-events: none` until
+ * `figure.diagram:hover`, so a click without it never reaches the button. The
+ * click is then scoped to the figure just hovered, since only that one accepts
+ * pointer events and a page-wide match is ambiguous once a page has two
+ * diagrams.
  *
  * Figures are located by the expand button they contain, which is simply the
  * set `initializeDiagramZoom` injects into — `figure.diagram:not(.diagram-error)`.

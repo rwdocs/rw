@@ -119,18 +119,17 @@ export default defineConfig({
     dts({
       // The tsconfig also covers e2e specs and the vite configs so they get
       // type-checked and linted; none of them belong in the published types.
-      // `exclude` covers the test files inside `src` for the same reason —
-      // `files: ["dist/lib/"]` publishes whatever lands here, and without it
-      // 54 `*.test.d.ts` shipped to consumers.
+      // `exclude` covers the test files inside `src` for the same reason:
+      // every `*.test.ts` emits a `.d.ts`, and `files: ["dist/lib/"]` publishes
+      // whatever lands here.
       include: ["src/**/*.ts", "src/**/*.svelte"],
       exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**"],
-      // No type bundling: this used to read `rollupTypes: true`, which
-      // vite-plugin-dts 5 no longer knows — it delegates to unplugin-dts, where
-      // the option is `bundleTypes` and is powered by `@microsoft/api-extractor`.
-      // That package is not a dependency, so the rename alone would only trade a
-      // silent no-op for a failed-to-load error on every build. The package has
-      // shipped per-module declarations since the v5 upgrade; restoring a single
-      // bundled `embed.d.ts` means taking on api-extractor first.
+      // No type bundling. Do not reach for `bundleTypes` here without also
+      // adding `@microsoft/api-extractor`: unplugin-dts delegates to it, and
+      // absent that peer the build logs a failed-to-load error and emits the
+      // per-module declarations anyway. Those declarations are what the package
+      // has always shipped; bundling them into one `embed.d.ts` is a separate
+      // decision, not a config typo.
     }),
     scopeCss(),
   ],

@@ -154,10 +154,13 @@ const boundariesConfig = {
 };
 
 /**
- * Raise every `warn` in `rules` to `error`, leaving `off` and existing `error`
- * entries untouched. Throws rather than silently returning nothing if the
- * plugin ever exports its config in a different shape — a fail-open here would
- * quietly drop the whole rule set back to non-blocking warnings.
+ * Return the `warn`-level entries of `rules` at `error`, minus any named in
+ * `keepAsWarning`. Entries already at `off` or `error` are omitted, not
+ * rewritten, so the result is meant to be spread over a config that also
+ * extends the original — spreading it *instead* would drop them.
+ *
+ * Throws if nothing matched: a plugin that changed its config shape would
+ * otherwise leave every rule at `warn`, silently gating nothing.
  */
 function promoteWarnings(rules, keepAsWarning = []) {
   const promoted = Object.entries(rules ?? {}).filter(
@@ -175,53 +178,52 @@ export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
   },
-  // TypeScript baseline for everything `tsconfig.json` covers. `src` and the
-  // root-level configs share this block; the e2e suite gets its own below
-  // because it layers the Playwright rules on top.
+  // TypeScript baseline. `src` and the root-level build configs share this
+  // block; `.svelte` and the e2e suite each get their own below, because both
+  // layer further rules on top.
   {
     extends: [tseslint.configs.recommendedTypeChecked],
     files: ["src/**/*.{ts,svelte.ts}", "*.config.ts", "vite-plugin-*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
   },
-  // The e2e suite went unlinted and untyped for a long time because both tools
-  // were scoped to `src/**`. Playwright's own rules are the point: a missing
-  // `await` on an assertion passes vacuously, and a fixed `waitForTimeout` is
-  // the usual reason a spec is green alone and flaky in parallel.
+  // Playwright's own rules are the point here: a missing `await` on an
+  // assertion passes vacuously, and a fixed `waitForTimeout` is the usual
+  // reason a spec is green alone and flaky in parallel.
   {
     extends: [tseslint.configs.recommendedTypeChecked, playwright.configs["flat/recommended"]],
     files: ["e2e/**/*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
     rules: {
-      // Promote this plugin's `warn` rules to `error`. Its flat/recommended is
-      // 22 `warn`, 14 already `error`, and one deliberate `off`
-      // (`no-empty-pattern`, which would otherwise reject Playwright's own
-      // `async ({}, testInfo) =>` signature) — so map only the `warn` entries
-      // and leave the other two alone. Doing this here rather than with
-      // `eslint --max-warnings 0` keeps the severity decision in the config:
-      // the flag would also promote ESLint's `reportUnusedDisableDirectives`
-      // warning, reddening CI on a dependency bump that touched no source.
+      // This plugin's flat/recommended is 22 `warn`, 14 `error` and one
+      // deliberate `off` (`no-empty-pattern` — Playwright's own
+      // `async ({}, testInfo) =>` is an empty pattern). Warnings fail nothing,
+      // so the warn tier is raised here rather than by running ESLint with
+      // `--max-warnings 0`: that flag is repo-wide and would equally fail on
+      // rules kept at `warn` on purpose, here and in the Tailwind block below.
       ...promoteWarnings(playwright.configs["flat/recommended"].rules, [
         // Autofixable whitespace, deliberately left non-blocking.
         "playwright/consistent-spacing-between-blocks",
       ]),
-      // Values that cross the browser boundary — `page.evaluate` results, and
-      // the `res.json()` calls inside those callbacks — are `any` by
-      // construction, because the callback is serialized and run in the page.
-      // Annotating them asserts a shape nothing checks; the assertion the test
-      // then makes is the real check. The family stays on for `src`, where the
-      // types are real.
+      // Every report traces to `Response.json()`, which is `Promise<any>`:
+      // specs fetch fixture state over `/_api` and read fields off the result.
+      // Annotating those would assert a response shape nothing verifies, and
+      // the assertion the test goes on to make is the real check. (`src` has
+      // `api/json.ts` for this, but it exists to keep a *published* type honest,
+      // which a fixture round-trip does not need.)
       "@typescript-eslint/no-unsafe-argument": "off",
       "@typescript-eslint/no-unsafe-assignment": "off",
       "@typescript-eslint/no-unsafe-call": "off",
       "@typescript-eslint/no-unsafe-member-access": "off",
       "@typescript-eslint/no-unsafe-return": "off",
-      // Fires on branching inside plain helper functions — a colour parser, and
-      // `if (!box) throw` guards that narrow a nullable bounding box. Those
-      // fail loudly, which is the opposite of the skipped-assertion case the
-      // rule is aimed at. `no-conditional-expect` stays on and does catch that.
+      // Its six reports are a colour parser and `if (!box) throw` guards over a
+      // nullable bounding box. Both fail loudly, which is the opposite of the
+      // silently-skipped assertion the rule targets — and that case stays
+      // covered, because `no-conditional-expect` remains an error.
       "playwright/no-conditional-in-test": "off",
-      // Flags `locator.press()` for a keyboard shortcut that is deliberately
-      // aimed at an already-focused element, which is what the rule asks for.
+      // The rule identifies page objects by a regex over the receiver's
+      // identifier (`/^(page|frame)/`), so it has exactly one hit here:
+      // `pageReplyBox.press("Escape")` — a locator, flagged for its name.
+      // Renaming that variable would let the rule back on.
       "playwright/prefer-locator": "off",
     },
   },

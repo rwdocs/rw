@@ -113,17 +113,13 @@ test.describe("TOC Popover", () => {
   });
 
   test("popover is not shown on pages without headings", async ({ page }) => {
-    // `installation.md` — the page this used to load — has nine `##` headings,
-    // so it always rendered the button. `invoices.md` has none.
     await page.goto("/billing/invoices");
 
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Invoices");
 
-    // The button renders only when the page has TOC entries, and this page has
-    // none. The previous version loaded `installation.md`, which has nine `##`
-    // headings, so its `if (count > 0)` guard always ran and asserted the
-    // button was *visible* — a real assertion, but the opposite of the case
-    // this test is named for. Asserting the absence directly instead.
+    // `invoices.md` has an H1 and no `##`, so the ToC is empty and neither
+    // TocPopover instance mounts. Asserting the absence directly: a guard on
+    // the count would pass on a page that does render the button.
     await expect(page.getByRole("button", { name: "Table of contents" })).toHaveCount(0);
   });
 });

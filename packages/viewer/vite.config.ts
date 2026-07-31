@@ -1,8 +1,7 @@
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 // `vitest/config` re-exports Vite's `defineConfig` with the `test` block
-// typed. Vite's own export does not carry it, and the triple-slash
-// `types="vitest"` reference that used to patch that in no longer does.
+// typed; Vite's own export does not carry it.
 import { defineConfig } from "vitest/config";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { svelteTesting } from "@testing-library/svelte/vite";

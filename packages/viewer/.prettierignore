@@ -1,7 +1,7 @@
-# `rw serve` writes runtime state here while the e2e suite runs. Prettier 3
-# does read .gitignore, but only the one beside its working directory — the
-# entry that ignores this path is the .gitignore rw writes *inside* the .rw
-# directory itself, which Prettier never sees. Without this, `make format`
-# rewrites the JSON of a live server and CI's `prettier --check .` fails on a
-# generated file. Matched anywhere, since the data dir name is not configurable.
+# `rw serve` writes runtime state here for as long as a server is up. Prettier
+# 3 reads .gitignore, but only the one beside its working directory — the entry
+# covering this path is the .gitignore rw writes *inside* the .rw directory,
+# which Prettier never sees. Without this, `make format` after a local e2e run
+# rewrites the JSON of a live server. Matched anywhere: the data dir name is
+# not configurable.
 **/.rw/
