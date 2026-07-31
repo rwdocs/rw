@@ -30,7 +30,6 @@
       "enabled": false
     },
     {
-      "description": "A tag is a mutable ref: whoever owns the action can move it and run their code in CI. Pinning to a digest is the only immutable form; Renovate keeps the digest and its version comment current afterwards. release.yml is exempt via ignorePaths — dist generates it, and its pins live in dist-workspace.toml",
       "matchDepTypes": ["action"],
       "pinDigests": true
     }
