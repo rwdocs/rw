@@ -12,6 +12,6 @@ workspace = true
 [dependencies]
 rw-cache = { workspace = true }
 
-aws-sdk-s3 = "1"
+aws-sdk-s3 = { workspace = true }
 tokio = { version = "1", features = ["rt"] }
 tracing = { workspace = true }
