@@ -42,6 +42,12 @@ async function clickHighlight(page: Page, text: string) {
       clickRange.setStart(node, idx + 1);
       clickRange.setEnd(node, idx + 2);
       const rect = clickRange.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        // A re-wrap during the frames we just waited on collapses the range;
+        // clicking (0, 0) would hit the viewport corner and fail somewhere far
+        // from the cause.
+        throw new Error(`range for "${targetText}" collapsed to a zero-size rect`);
+      }
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
     throw new Error(`text "${targetText}" not found`);

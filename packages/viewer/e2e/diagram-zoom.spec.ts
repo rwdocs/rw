@@ -69,6 +69,12 @@ test.describe("Diagram zoom popup", () => {
   test("opens the second diagram on a page that has two", async ({ page }) => {
     await page.goto("/diagram-collision");
     await openDiagram(page, 1);
-    await expect(page.getByRole("dialog", { name: "Diagram viewer" })).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: "Diagram viewer" });
+    await expect(dialog).toBeVisible();
+    // Assert *which* diagram opened, not merely that one did: without this the
+    // test still passes if `index` is ignored and figure 0 opens every time,
+    // which is the regression it exists to catch.
+    await expect(dialog.getByTestId("second-rect")).toHaveCount(1);
+    await expect(dialog.getByTestId("first-rect")).toHaveCount(0);
   });
 });
