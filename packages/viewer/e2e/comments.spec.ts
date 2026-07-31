@@ -1,5 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveDocumentId, selectText } from "./comment-helpers";
+import {
+  fetchComments,
+  found,
+  resolveAllComments,
+  resolveDocumentId,
+  selectText,
+} from "./comment-helpers";
 
 // Wide viewport so the right sidebar (TOC / comments) is visible
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -71,23 +77,6 @@ async function createCommentViaUI(page: Page, targetText: string, body: string) 
   await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
   // Wait for form to close
   await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
-}
-
-/** Resolve all comments for a document via the API so they don't interfere with new tests. */
-async function resolveAllComments(page: Page, documentId: string) {
-  await page.evaluate(async (docId) => {
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-    const comments = await res.json();
-    for (const c of comments) {
-      if (c.status === "open") {
-        await fetch(`/_api/comments/${c.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "resolved" }),
-        });
-      }
-    }
-  }, documentId);
 }
 
 test.describe("Inline comments", () => {
@@ -194,12 +183,10 @@ test.describe("Inline comments", () => {
 
     // Comment should be persisted via the API
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const created = comments.find(
-      (c: { body: string }) => c.body === "Needs more detail on syntax highlighting",
+    const comments = await fetchComments(page, docId, "open");
+    const created = found(
+      comments.find((c: { body: string }) => c.body === "Needs more detail on syntax highlighting"),
+      "the created comment",
     );
     expect(created).toBeTruthy();
     expect(created.selectors).toHaveLength(2);
@@ -220,19 +207,19 @@ test.describe("Inline comments", () => {
 
     // Verify via API that the comment has both selector types
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const created = comments.find((c: { body: string }) => c.body === "Check highlight");
+    const comments = await fetchComments(page, docId, "open");
+    const created = found(
+      comments.find((c: { body: string }) => c.body === "Check highlight"),
+      "the created comment",
+    );
     expect(created).toBeTruthy();
-    const types = created.selectors.map((s: { type: string }) => s.type);
+    const types = created.selectors.map((s) => s.type);
     expect(types).toContain("TextQuoteSelector");
     expect(types).toContain("TextPositionSelector");
 
     // Verify the TextQuoteSelector captured the right text
-    const quote = created.selectors.find((s: { type: string }) => s.type === "TextQuoteSelector");
-    expect(quote.exact).toBe("code highlighting");
+    const quote = created.selectors.find((s) => s.type === "TextQuoteSelector");
+    expect(quote?.exact).toBe("code highlighting");
   });
 
   test("clicking a highlight replaces TOC with comments sidebar", async ({ page }) => {
@@ -335,12 +322,15 @@ test.describe("Inline comments", () => {
 
     // Verify via API that the reply has the correct parentId
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const parent = comments.find((c: { body: string }) => c.body === "Parent comment");
-    const reply = comments.find((c: { body: string }) => c.body === "Reply to parent");
+    const comments = await fetchComments(page, docId, "open");
+    const parent = found(
+      comments.find((c: { body: string }) => c.body === "Parent comment"),
+      "the parent comment",
+    );
+    const reply = found(
+      comments.find((c: { body: string }) => c.body === "Reply to parent"),
+      "the reply",
+    );
     expect(parent).toBeTruthy();
     expect(reply).toBeTruthy();
     expect(reply.parentId).toBe(parent.id);
@@ -361,11 +351,11 @@ test.describe("Inline comments", () => {
     await page.getByRole("article").waitFor();
 
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const persisted = comments.find((c: { body: string }) => c.body === "Persistent comment");
+    const comments = await fetchComments(page, docId, "open");
+    const persisted = found(
+      comments.find((c: { body: string }) => c.body === "Persistent comment"),
+      "the persisted comment",
+    );
     expect(persisted).toBeTruthy();
     expect(persisted.selectors).toHaveLength(2);
   });
@@ -432,10 +422,7 @@ test.describe("Inline comments", () => {
     await expect(page.getByText("Vanish after reload")).toBeHidden();
     // The API should not return the deleted reply either.
     const docId = await resolveDocumentId(page, "");
-    const list = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-      return res.json();
-    }, docId);
+    const list = await fetchComments(page, docId);
     const found = (list as { body: string }[]).find((c) => c.body === "Vanish after reload");
     expect(found).toBeUndefined();
   });
@@ -603,11 +590,11 @@ test.describe("Page comments", () => {
 
     // Verify via API — should have no selectors
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const created = comments.find((c: { body: string }) => c.body === "A page-level comment");
+    const comments = await fetchComments(page, docId, "open");
+    const created = found(
+      comments.find((c: { body: string }) => c.body === "A page-level comment"),
+      "the created comment",
+    );
     expect(created).toBeTruthy();
     expect(created.selectors).toHaveLength(0);
     expect(created.parentId).toBeUndefined();
@@ -633,16 +620,17 @@ test.describe("Page comments", () => {
 
     // Verify via API — find the reply and check its parentId
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-      return res.json();
-    }, docId);
-    const reply = comments.find(
-      (c: { body: string; parentId?: string }) => c.body === "Reply to page comment" && c.parentId,
+    const comments = await fetchComments(page, docId);
+    const reply = found(
+      comments.find((c) => c.body === "Reply to page comment" && c.parentId),
+      "the reply",
     );
     expect(reply).toBeTruthy();
     // The parent should exist and be a page comment (no selectors)
-    const parent = comments.find((c: { id: string }) => c.id === reply.parentId);
+    const parent = found(
+      comments.find((c: { id: string }) => c.id === reply.parentId),
+      "the parent comment",
+    );
     expect(parent).toBeTruthy();
     expect(parent.body).toBe("Top-level page comment");
     expect(parent.selectors).toHaveLength(0);
@@ -776,7 +764,7 @@ test.describe("Page comments", () => {
             quote: "code highlighting",
           }),
         });
-        const created = await create.json();
+        const created = (await create.json()) as { id: string };
         await fetch(`/_api/comments/${created.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -817,7 +805,7 @@ test.describe("Page comments", () => {
             quote: "code highlighting",
           }),
         });
-        const created = await create.json();
+        const created = (await create.json()) as { id: string };
         await fetch(`/_api/comments/${created.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },

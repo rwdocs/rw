@@ -199,17 +199,6 @@ export default defineConfig([
       "playwright/prefer-hooks-on-top": "error",
       "playwright/prefer-to-have-count": "error",
       "playwright/prefer-to-have-length": "error",
-      // Every report traces to `Response.json()`, which is `Promise<any>`:
-      // specs fetch fixture state over `/_api` and read fields off the result.
-      // Annotating those would assert a response shape nothing verifies, and
-      // the assertion the test goes on to make is the real check. (`src` has
-      // `api/json.ts` for this, but it exists to keep a *published* type honest,
-      // which a fixture round-trip does not need.)
-      "@typescript-eslint/no-unsafe-argument": "off",
-      "@typescript-eslint/no-unsafe-assignment": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-member-access": "off",
-      "@typescript-eslint/no-unsafe-return": "off",
       // Its six reports are a colour parser and `if (!box) throw` guards over a
       // nullable bounding box. Both fail loudly, which is the opposite of the
       // silently-skipped assertion the rule targets — and that case stays

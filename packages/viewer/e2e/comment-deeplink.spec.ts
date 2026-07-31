@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveDocumentId } from "./comment-helpers";
+import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
 
 // Runs on its own page (documentId for "getting-started") rather than the
 // homepage, so it never shares the comment DB with comments.spec.ts — the two
@@ -10,23 +10,6 @@ const QUOTE = "Configure your environment";
 
 test.describe.configure({ mode: "serial" });
 
-async function resolveAllComments(page: Page) {
-  const doc = await resolveDocumentId(page, DOC_URL);
-  const open = await page.evaluate(async (docId) => {
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-    return res.json();
-  }, doc);
-  for (const c of open) {
-    await page.evaluate(async (id) => {
-      await fetch(`/_api/comments/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "resolved" }),
-      });
-    }, c.id);
-  }
-}
-
 async function createPageComment(page: Page, body: string) {
   const doc = await resolveDocumentId(page, DOC_URL);
   return page.evaluate(
@@ -36,7 +19,7 @@ async function createPageComment(page: Page, body: string) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentId: doc, body }),
       });
-      return (await res.json()).id as string;
+      return ((await res.json()) as { id: string }).id;
     },
     { body, doc },
   );
@@ -51,7 +34,7 @@ async function createInlineComment(page: Page, body: string, quote: string) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentId: doc, body, quote }),
       });
-      return (await res.json()).id as string;
+      return ((await res.json()) as { id: string }).id;
     },
     { body, quote, doc },
   );
@@ -59,7 +42,7 @@ async function createInlineComment(page: Page, body: string, quote: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto(DOC_PATH);
-  await resolveAllComments(page);
+  await resolveAllComments(page, await resolveDocumentId(page, DOC_URL));
 });
 
 test("deep-link to an open page comment scrolls to and focuses it", async ({ page }) => {
