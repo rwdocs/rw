@@ -12,7 +12,10 @@ test('renders markdown emphasis to html', async () => {
 
 test('escapes raw html (never passes a <script> through)', async () => {
   const html = await renderCommentBody('<script>alert(1)</script>')
-  assert.doesNotMatch(html, /<script>/)
+  // Assert the tag came back escaped, not merely that one exact spelling is
+  // absent: `/<script>/` alone passes for `<SCRIPT>` and for `<script src=x>`.
+  assert.match(html, /&lt;script&gt;/)
+  assert.doesNotMatch(html, /<script/i)
 })
 
 test('blank input renders an empty string', async () => {

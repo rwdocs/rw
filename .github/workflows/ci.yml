@@ -14,6 +14,12 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# Every job here only reads the repository. Declaring it at the root means a
+# new job starts read-only rather than inheriting whatever the repository
+# default happens to be, and has to opt in explicitly to anything more.
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint
