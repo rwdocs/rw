@@ -1,3 +1,4 @@
+import { SvelteSet } from "svelte/reactivity";
 import { untrack } from "svelte";
 import type { NavigationTree, NavItem } from "../types";
 import type { ApiClient } from "../api/client";
@@ -32,8 +33,10 @@ export class Navigation {
   tree = $state.raw<NavigationTree | null>(null);
   loading = $state(true);
   error = $state<string | null>(null);
-  // Reassign the entire Set to trigger reactivity — in-place .add()/.delete() won't.
-  collapsed = $state<Set<string>>(new Set());
+  // `SvelteSet`, not a `$state` Set: `$state` proxies plain objects and arrays
+  // but not collections, so a plain Set would ignore `.add()`/`.delete()` and
+  // update only on reassignment.
+  collapsed = new SvelteSet<string>();
   currentSectionRef = $state<string | undefined>(undefined);
 
   private apiClient: ApiClient;
@@ -106,7 +109,7 @@ export class Navigation {
       const allParentPaths = collectParentPaths(resolvedTree.items);
       this.tree = resolvedTree;
       this.loading = false;
-      this.collapsed = new Set(allParentPaths);
+      this.replaceCollapsed(allParentPaths);
       this.currentSectionRef = sectionRef;
 
       if (this.activePath) {
@@ -125,13 +128,11 @@ export class Navigation {
   };
 
   toggle = (path: string) => {
-    const collapsed = new Set(this.collapsed);
-    if (collapsed.has(path)) {
-      collapsed.delete(path);
+    if (this.collapsed.has(path)) {
+      this.collapsed.delete(path);
     } else {
-      collapsed.add(path);
+      this.collapsed.add(path);
     }
-    this.collapsed = collapsed;
   };
 
   expandOnlyTo = (path: string) => {
@@ -144,7 +145,7 @@ export class Navigation {
     this.tree = null;
     this.loading = true;
     this.error = null;
-    this.collapsed = new Set();
+    this.collapsed.clear();
     this.currentSectionRef = undefined;
   };
 
@@ -155,10 +156,27 @@ export class Navigation {
     const alreadyCorrect = pathsToExpand.every((p) => !this.collapsed.has(p));
     if (alreadyCorrect) return;
 
-    const collapsed = new Set(collectParentPaths(this.tree.items));
+    const next = new Set(collectParentPaths(this.tree.items));
     for (const parentPath of pathsToExpand) {
-      collapsed.delete(parentPath);
+      next.delete(parentPath);
     }
-    this.collapsed = collapsed;
+    this.replaceCollapsed(next);
+  };
+
+  /** Make `collapsed` hold exactly `paths`, touching only the keys that differ.
+   *
+   *  Clearing and re-adding would work, but every delete and add bumps the
+   *  set's version, and `SvelteSet.has()` falls back to tracking that version
+   *  for keys it does not hold — so a wholesale rebuild wakes every reader
+   *  whose path is currently expanded. `SvelteSet.add()` already skips keys it
+   *  has, so only the removals need a guard here. */
+  private replaceCollapsed = (paths: Iterable<string>) => {
+    const next = new Set<string>(paths);
+    // Snapshot before mutating: deleting while iterating the live set is a
+    // ConcurrentModification hazard in the general case.
+    for (const path of [...this.collapsed]) {
+      if (!next.has(path)) this.collapsed.delete(path);
+    }
+    for (const path of next) this.collapsed.add(path);
   };
 }
