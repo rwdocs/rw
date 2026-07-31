@@ -41,7 +41,7 @@ lint:
 	npm -w @rwdocs/viewer run lint
 
 audit:
-	cargo deny check
+	cargo deny check licenses sources
 
 version:
 	@test -n "$(VERSION)" || (echo "Usage: make version VERSION=0.2.0" && exit 1)

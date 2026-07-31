@@ -1,27 +1,28 @@
-# cargo-deny policy. Run `make audit`, or see .github/workflows/audit.yml.
+# cargo-deny policy. Run `make audit`, or see the `deny` job in
+# .github/workflows/ci.yml.
 #
-# This exists because neither Renovate nor Cargo will tell us about a
-# vulnerable crate that appears in no Cargo.toml. Renovate bumps manifest
-# ranges, so a crate reachable only through someone else's dependency — rustls
-# via ureq, aws-lc-sys via aws-config — has nothing for it to match on and
-# never moves. cargo-deny reads Cargo.lock, which lists every resolved crate
-# flat, so it sees the whole graph.
+# Scope is licenses and sources. Vulnerabilities are Dependabot's job: it
+# parses Cargo.lock, so it sees crates that appear in no Cargo.toml — rustls
+# via ureq, aws-lc-sys via aws-config — and its database carries advisories
+# RustSec's does not.
+#
+# Both checks below are deterministic: neither can change unless Cargo.lock
+# does. So this gates pull requests and needs no scheduled run.
 
 [graph]
 # The `publish` and `embed-assets` features pull dependencies that a default
-# build does not, and those crates need auditing too.
+# build does not, and those crates reach shipped binaries too.
 all-features = true
 
-[advisories]
-# Vulnerabilities and unmaintained crates are denied by default; yanked crates
-# warn. Entries here are advisories we have consciously accepted, each with the
-# reason and the condition that would let us drop it again.
-ignore = []
-
 [licenses]
-# rw ships under MIT OR Apache-2.0. This list is every license currently in the
-# tree, all permissive except the MPL-2.0 entry noted below. A new dependency
-# under anything else fails the check and gets a deliberate decision.
+# rw ships under MIT OR Apache-2.0, and ships compiled binaries carrying these
+# crates three ways: crates.io, prebuilt napi artifacts on npm, and cargo-dist
+# release archives. A copyleft dependency reaching one of those is what this
+# check exists to catch.
+#
+# The list is every license currently in the tree, all permissive except the
+# MPL-2.0 entry noted below. A new dependency under anything else fails the
+# check and gets a deliberate decision.
 allow = [
   "0BSD",
   "Apache-2.0",
@@ -40,23 +41,6 @@ allow = [
   "Unlicense",
   "Zlib",
 ]
-
-[bans]
-# The tree legitimately carries duplicate major versions — two rustls lines,
-# two aws-smithy-xml — because upstream crates disagree about which to use. We
-# want these reported without failing the build; they are a cost to track, not
-# a defect to gate on. CI passes --hide-inclusion-graph, because printing a
-# full tree per duplicate buries everything else in 14k lines of output.
-multiple-versions = "warn"
-
-# Off, because here it can only produce false positives. rw's own crates are
-# declared `{ workspace = true }` against a path, which carries no version
-# requirement and so reads as a wildcard — 85 of them across the workspace.
-# `allow-wildcard-paths` does not help: it refuses to exempt any crate not
-# marked `publish = false`, and rw's are not. Marking them so would make this
-# check meaningful, and is worth doing on its own merits, but it is a change to
-# every crate manifest rather than a policy decision.
-wildcards = "allow"
 
 [sources]
 # Everything must come from crates.io. A git or alternate-registry dependency
