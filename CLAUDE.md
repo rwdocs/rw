@@ -54,7 +54,9 @@ rw-kroki (Rust) → Node.js objects
 
 ## Key Technical Details
 
-- **Rust requirements**: Edition 2024, Rust 1.97+
+- **Rust requirements**: Edition 2024, Rust 1.97+. `rust-toolchain.toml` pins the
+  exact channel; `rust-version` in the workspace manifest tracks it, so bump both
+  together
 - **PlantUML**: A `plantuml` fence becomes a diagram request resolved by
   `rw-kroki` — inline SVG by default. `rw-confluence` appends `format=png`,
   writes the bytes into the bundle directory, and uploads them as attachments
