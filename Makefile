@@ -39,6 +39,7 @@ lint:
 	cargo clippy --all-targets -- -D warnings
 	npm -w @rwdocs/viewer run check
 	npm -w @rwdocs/viewer run lint
+	npm -w @rwdocs/viewer run check:pack
 
 audit:
 	cargo deny check licenses sources

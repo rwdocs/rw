@@ -1,8 +1,14 @@
+// The relative specifiers below carry an explicit `.js`, unlike the rest of the
+// codebase. TypeScript copies a specifier verbatim into the emitted `.d.ts`, and
+// this is the published entry point: a consumer on `moduleResolution: "node16"`
+// requires the extension, so an extensionless one sends it looking for a
+// *directory* and the types silently stop describing the JS. Only the graph
+// reachable from here needs this — `npm run check:pack` is what enforces it.
 import "./app.css";
 import App from "./App.svelte";
 import { mount, unmount } from "svelte";
-import type { NotifyFn } from "./types/notify";
-import type { CommentApiClient } from "./api/comments";
+import type { NotifyFn } from "./types/notify.js";
+import type { CommentApiClient } from "./api/comments.js";
 
 export interface MountOptions {
   /** API base URL (host-supplied — e.g. `/api/rw` when proxied by a Backstage
@@ -120,7 +126,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
   };
 }
 
-export type { CommentApiClient } from "./api/comments";
+export type { CommentApiClient } from "./api/comments.js";
 export type {
   Comment,
   CreateCommentRequest,
@@ -128,4 +134,4 @@ export type {
   Author,
   Selector,
   CommentStatus,
-} from "./types/comments";
+} from "./types/comments.js";

@@ -67,6 +67,20 @@ jobs:
       - name: Check Prettier formatting
         run: npx -w @rwdocs/viewer prettier --check .
 
+      # Lints the published tarball, which nothing else here looks at: tsc and
+      # svelte-check read source, not `exports` maps or emitted `.d.ts`. Both
+      # findings that prompted this were invisible to a green build — `types`
+      # ordered after `import`, and extensionless specifiers in `embed.d.ts`
+      # that only `moduleResolution: "bundler"` tolerated.
+      #
+      # `--profile esm-only` drops the node10 and CJS rows. The package is ESM
+      # (`"type": "module"`, no `require` condition), so "CommonJS consumers
+      # need a dynamic import" is a true description, not a defect to fix.
+      # `embed.css` is excluded because it is a stylesheet: attw reports every
+      # resolution as failed for want of type declarations a CSS file cannot have.
+      - name: Check published package
+        run: npm -w @rwdocs/viewer run check:pack
+
   deny:
     name: Dependency policy
     runs-on: ubuntu-latest

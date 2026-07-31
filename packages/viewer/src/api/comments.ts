@@ -1,4 +1,7 @@
-import type { Comment, CreateCommentRequest, UpdateCommentRequest } from "../types/comments";
+// Explicit `.js`, unlike the rest of the codebase: this type reaches the emitted
+// `embed.d.ts` graph, where an extensionless specifier breaks `node16`
+// resolution. See the note atop `src/embed.ts`.
+import type { Comment, CreateCommentRequest, UpdateCommentRequest } from "../types/comments.js";
 import { readJson } from "./json";
 
 /**
