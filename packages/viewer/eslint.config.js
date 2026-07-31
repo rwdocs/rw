@@ -153,6 +153,24 @@ const boundariesConfig = {
   },
 };
 
+/**
+ * Raise every `warn` in `rules` to `error`, leaving `off` and existing `error`
+ * entries untouched. Throws rather than silently returning nothing if the
+ * plugin ever exports its config in a different shape — a fail-open here would
+ * quietly drop the whole rule set back to non-blocking warnings.
+ */
+function promoteWarnings(rules, keepAsWarning = []) {
+  const promoted = Object.entries(rules ?? {}).filter(
+    ([rule, severity]) => !keepAsWarning.includes(rule) && (severity === "warn" || severity === 1),
+  );
+  if (promoted.length === 0) {
+    throw new Error(
+      "promoteWarnings: no warn-level rules found — has the plugin's config shape changed?",
+    );
+  }
+  return Object.fromEntries(promoted.map(([rule]) => [rule, "error"]));
+}
+
 export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
@@ -174,17 +192,18 @@ export default defineConfig([
     files: ["e2e/**/*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
     rules: {
-      // The plugin ships every rule at `warn`, which fails nothing. Promoting
-      // them here rather than running `eslint --max-warnings 0` keeps the
-      // severity decision in the config: the flag would also promote ESLint's
-      // own `reportUnusedDisableDirectives` warning, so a dependency bump that
-      // stops a rule firing would redden CI on a PR that touched no source.
-      ...Object.fromEntries(
-        Object.keys(playwright.configs["flat/recommended"].rules ?? {}).map((rule) => [
-          rule,
-          "error",
-        ]),
-      ),
+      // Promote this plugin's `warn` rules to `error`. Its flat/recommended is
+      // 22 `warn`, 14 already `error`, and one deliberate `off`
+      // (`no-empty-pattern`, which would otherwise reject Playwright's own
+      // `async ({}, testInfo) =>` signature) — so map only the `warn` entries
+      // and leave the other two alone. Doing this here rather than with
+      // `eslint --max-warnings 0` keeps the severity decision in the config:
+      // the flag would also promote ESLint's `reportUnusedDisableDirectives`
+      // warning, reddening CI on a dependency bump that touched no source.
+      ...promoteWarnings(playwright.configs["flat/recommended"].rules, [
+        // Autofixable whitespace, deliberately left non-blocking.
+        "playwright/consistent-spacing-between-blocks",
+      ]),
       // Values that cross the browser boundary — `page.evaluate` results, and
       // the `res.json()` calls inside those callbacks — are `any` by
       // construction, because the callback is serialized and run in the page.

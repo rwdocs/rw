@@ -60,4 +60,15 @@ test.describe("Diagram zoom popup", () => {
     const fill = await rect.evaluate((el) => getComputedStyle(el).fill);
     expect(fill).toBe("rgb(238, 238, 255)"); // #eef
   });
+
+  // Guards the scoping in `openDiagram`: with a page-wide button locator this
+  // page matches two elements and the click is a strict-mode violation, and
+  // with an unscoped click the un-hovered figure's button never accepts
+  // pointer events. Every other call site is a single-diagram page, so nothing
+  // else in the suite would notice a regression here.
+  test("opens the second diagram on a page that has two", async ({ page }) => {
+    await page.goto("/diagram-collision");
+    await openDiagram(page, 1);
+    await expect(page.getByRole("dialog", { name: "Diagram viewer" })).toBeVisible();
+  });
 });
