@@ -153,27 +153,6 @@ const boundariesConfig = {
   },
 };
 
-/**
- * Return the `warn`-level entries of `rules` at `error`, minus any named in
- * `keepAsWarning`. Entries already at `off` or `error` are omitted, not
- * rewritten, so the result is meant to be spread over a config that also
- * extends the original — spreading it *instead* would drop them.
- *
- * Throws if nothing matched: a plugin that changed its config shape would
- * otherwise leave every rule at `warn`, silently gating nothing.
- */
-function promoteWarnings(rules, keepAsWarning = []) {
-  const promoted = Object.entries(rules ?? {}).filter(
-    ([rule, severity]) => !keepAsWarning.includes(rule) && (severity === "warn" || severity === 1),
-  );
-  if (promoted.length === 0) {
-    throw new Error(
-      "promoteWarnings: no warn-level rules found — has the plugin's config shape changed?",
-    );
-  }
-  return Object.fromEntries(promoted.map(([rule]) => [rule, "error"]));
-}
-
 export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
@@ -194,16 +173,32 @@ export default defineConfig([
     files: ["e2e/**/*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
     rules: {
-      // This plugin's flat/recommended is 22 `warn`, 14 `error` and one
-      // deliberate `off` (`no-empty-pattern` — Playwright's own
-      // `async ({}, testInfo) =>` is an empty pattern). Warnings fail nothing,
-      // so the warn tier is raised here rather than by running ESLint with
-      // `--max-warnings 0`: that flag is repo-wide and would equally fail on
-      // rules kept at `warn` on purpose, here and in the Tailwind block below.
-      ...promoteWarnings(playwright.configs["flat/recommended"].rules, [
-        // Autofixable whitespace, deliberately left non-blocking.
-        "playwright/consistent-spacing-between-blocks",
-      ]),
+      // The plugin ships these at `warn`, which gates nothing. Listed rather
+      // than mapped so the set is greppable and a plugin upgrade that adds a
+      // rule leaves it at the plugin's own severity until someone decides.
+      // Its other rules are already `error`, except `no-empty-pattern`, which
+      // it turns off on purpose — Playwright's `async ({}, testInfo) =>` is an
+      // empty pattern — and `consistent-spacing-between-blocks`, autofixable
+      // whitespace we leave non-blocking.
+      "playwright/expect-expect": "error",
+      "playwright/max-nested-describe": "error",
+      "playwright/no-conditional-expect": "error",
+      "playwright/no-duplicate-hooks": "error",
+      "playwright/no-duplicate-slow": "error",
+      "playwright/no-element-handle": "error",
+      "playwright/no-eval": "error",
+      "playwright/no-force-option": "error",
+      "playwright/no-nested-step": "error",
+      "playwright/no-page-pause": "error",
+      "playwright/no-skipped-test": "error",
+      "playwright/no-useless-await": "error",
+      "playwright/no-useless-not": "error",
+      "playwright/no-wait-for-selector": "error",
+      "playwright/no-wait-for-timeout": "error",
+      "playwright/prefer-hooks-in-order": "error",
+      "playwright/prefer-hooks-on-top": "error",
+      "playwright/prefer-to-have-count": "error",
+      "playwright/prefer-to-have-length": "error",
       // Every report traces to `Response.json()`, which is `Promise<any>`:
       // specs fetch fixture state over `/_api` and read fields off the result.
       // Annotating those would assert a response shape nothing verifies, and
