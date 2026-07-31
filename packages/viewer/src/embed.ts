@@ -1,9 +1,8 @@
-// The relative specifiers below carry an explicit `.js`, unlike the rest of the
-// codebase. TypeScript copies a specifier verbatim into the emitted `.d.ts`, and
-// this is the published entry point: a consumer on `moduleResolution: "node16"`
-// requires the extension, so an extensionless one sends it looking for a
-// *directory* and the types silently stop describing the JS. Only the graph
-// reachable from here needs this — `npm run check:pack` is what enforces it.
+// The `.js` below is deliberate, unlike the extensionless imports elsewhere:
+// TypeScript copies a specifier verbatim into the emitted `.d.ts`, and `node16`
+// resolution needs the extension or a consumer resolves a *directory* and gets
+// no types. Only the graph reachable from this entry point needs it, and
+// `npm run check:pack` enforces it.
 import "./app.css";
 import App from "./App.svelte";
 import { mount, unmount } from "svelte";
