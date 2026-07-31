@@ -1,9 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { flushSync } from "svelte";
 import type { Mock } from "vitest";
 import type { NavigationTree } from "../types";
 import { Navigation, collectParentPaths, getParentPaths } from "./navigation.svelte";
 import type { ApiClient } from "../api/client";
+
+// Torn down here rather than at the end of the test body: a failing assertion
+// would otherwise leak the root effect into later tests.
+let teardown: (() => void) | null = null;
+
+afterEach(() => {
+  teardown?.();
+  teardown = null;
+});
 
 const mockTree: NavigationTree = {
   items: [
@@ -323,7 +332,7 @@ describe("navigation store", () => {
     it("reports an in-place add to a reader", () => {
       const navigation = new Navigation(mockApiClient);
       let seen: boolean | undefined;
-      const teardown = $effect.root(() => {
+      teardown = $effect.root(() => {
         const isCollapsed = $derived(navigation.collapsed.has("/guide"));
         $effect(() => {
           seen = isCollapsed;
@@ -339,8 +348,6 @@ describe("navigation store", () => {
       navigation.collapsed.delete("/guide");
       flushSync();
       expect(seen).toBe(false);
-
-      teardown();
     });
   });
 

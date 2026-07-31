@@ -35,8 +35,7 @@ export class Navigation {
   error = $state<string | null>(null);
   // `SvelteSet`, not a `$state` Set: `$state` proxies plain objects and arrays
   // but not collections, so a plain Set would ignore `.add()`/`.delete()` and
-  // update only on reassignment. This one tracks per key, so each `NavItem`'s
-  // `collapsed.has(item.path)` re-runs only when its own path changes.
+  // update only on reassignment.
   collapsed = new SvelteSet<string>();
   currentSectionRef = $state<string | undefined>(undefined);
 
@@ -164,8 +163,13 @@ export class Navigation {
     this.replaceCollapsed(next);
   };
 
-  /** Make `collapsed` hold exactly `paths`, touching only the keys that differ
-   *  so unaffected `NavItem`s are not invalidated. */
+  /** Make `collapsed` hold exactly `paths`, touching only the keys that differ.
+   *
+   *  Clearing and re-adding would work, but every delete and add bumps the
+   *  set's version, and `SvelteSet.has()` falls back to tracking that version
+   *  for keys it does not hold — so a wholesale rebuild wakes every reader
+   *  whose path is currently expanded. `SvelteSet.add()` already skips keys it
+   *  has, so only the removals need a guard here. */
   private replaceCollapsed = (paths: Iterable<string>) => {
     const next = new Set<string>(paths);
     // Snapshot before mutating: deleting while iterating the live set is a
