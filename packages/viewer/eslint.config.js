@@ -1,5 +1,6 @@
 import eslintPluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
 import boundaries from "eslint-plugin-boundaries";
+import playwright from "eslint-plugin-playwright";
 import svelte from "eslint-plugin-svelte";
 import vitest from "@vitest/eslint-plugin";
 import { defineConfig } from "eslint/config";
@@ -156,13 +157,59 @@ export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
   },
-  // TypeScript baseline. Scoped to the same `src/**` glob as the parser blocks
-  // below: root-level config files (vite, playwright) have no TS parser
-  // configured, so widening this to `**/*` would fail to parse them.
+  // TypeScript baseline. `src` and the root-level build configs share this
+  // block; `.svelte` and the e2e suite each get their own below, because both
+  // layer further rules on top.
   {
     extends: [tseslint.configs.recommendedTypeChecked],
-    files: ["src/**/*.{ts,svelte.ts}"],
+    files: ["src/**/*.{ts,svelte.ts}", "*.config.ts", "vite-plugin-*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
+  },
+  // Playwright's own rules are the point here: a missing `await` on an
+  // assertion passes vacuously, and a fixed `waitForTimeout` is the usual
+  // reason a spec is green alone and flaky in parallel.
+  {
+    extends: [tseslint.configs.recommendedTypeChecked, playwright.configs["flat/recommended"]],
+    files: ["e2e/**/*.ts"],
+    languageOptions: { parserOptions: typeAwareParserOptions },
+    rules: {
+      // The plugin ships these at `warn`, which gates nothing. Listed rather
+      // than mapped so the set is greppable and a plugin upgrade that adds a
+      // rule leaves it at the plugin's own severity until someone decides.
+      // Its other rules are already `error`, except `no-empty-pattern`, which
+      // it turns off on purpose — Playwright's `async ({}, testInfo) =>` is an
+      // empty pattern — and `consistent-spacing-between-blocks`, autofixable
+      // whitespace we leave non-blocking.
+      "playwright/expect-expect": "error",
+      "playwright/max-nested-describe": "error",
+      "playwright/no-conditional-expect": "error",
+      "playwright/no-duplicate-hooks": "error",
+      "playwright/no-duplicate-slow": "error",
+      "playwright/no-element-handle": "error",
+      "playwright/no-eval": "error",
+      "playwright/no-force-option": "error",
+      "playwright/no-nested-step": "error",
+      "playwright/no-page-pause": "error",
+      "playwright/no-skipped-test": "error",
+      "playwright/no-useless-await": "error",
+      "playwright/no-useless-not": "error",
+      "playwright/no-wait-for-selector": "error",
+      "playwright/no-wait-for-timeout": "error",
+      "playwright/prefer-hooks-in-order": "error",
+      "playwright/prefer-hooks-on-top": "error",
+      "playwright/prefer-to-have-count": "error",
+      "playwright/prefer-to-have-length": "error",
+      // Its six reports are a colour parser and `if (!box) throw` guards over a
+      // nullable bounding box. Both fail loudly, which is the opposite of the
+      // silently-skipped assertion the rule targets — and that case stays
+      // covered, because `no-conditional-expect` remains an error.
+      "playwright/no-conditional-in-test": "off",
+      // The rule identifies page objects by a regex over the receiver's
+      // identifier (`/^(page|frame)/`), so it has exactly one hit here:
+      // `pageReplyBox.press("Escape")` — a locator, flagged for its name.
+      // Renaming that variable would let the rule back on.
+      "playwright/prefer-locator": "off",
+    },
   },
   {
     extends: [tseslint.configs.recommendedTypeChecked],

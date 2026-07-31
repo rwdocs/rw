@@ -113,21 +113,13 @@ test.describe("TOC Popover", () => {
   });
 
   test("popover is not shown on pages without headings", async ({ page }) => {
-    // Navigate to a page that has no TOC entries
-    await page.goto("/getting-started/installation");
+    await page.goto("/billing/invoices");
 
-    // Wait for page content to load
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Installation");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Invoices");
 
-    // Check if TOC popover button is present — it should only render
-    // when the page has TOC entries
-    const button = page.getByRole("button", { name: "Table of contents" });
-    const count = await button.count();
-
-    // If the page has headings, the button will exist; if not, it won't.
-    // This test verifies the conditional rendering works.
-    if (count > 0) {
-      await expect(button).toBeVisible();
-    }
+    // `invoices.md` has an H1 and no `##`, so the ToC is empty and neither
+    // TocPopover instance mounts. Asserting the absence directly: a guard on
+    // the count would pass on a page that does render the button.
+    await expect(page.getByRole("button", { name: "Table of contents" })).toHaveCount(0);
   });
 });

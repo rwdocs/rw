@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
+import { openDiagram } from "./diagram-helpers";
 
 /** The live-reload fixture, rewritten (and restored) by the reload test below. */
 const FIXTURE = fileURLToPath(new URL("./fixtures/docs/diagram-live.md", import.meta.url));
@@ -22,8 +23,8 @@ test.describe("Diagram id isolation", () => {
     await expect(figures).toHaveCount(2);
 
     // Both SVGs must be inside a shadow root, not the light tree.
-    expect(await page.locator("figure.diagram > rw-diagram").count()).toBe(2);
-    expect(await page.locator("figure.diagram > svg").count()).toBe(0);
+    await expect(page.locator("figure.diagram > rw-diagram")).toHaveCount(2);
+    await expect(page.locator("figure.diagram > svg")).toHaveCount(0);
 
     // The id that collides exists twice — once per root — and never in the document.
     const perRoot = await page.evaluate(() =>
@@ -178,8 +179,7 @@ test.describe("Diagram id isolation", () => {
     const original = await readFile(FIXTURE, "utf8");
     try {
       await page.goto(LIVE_URL);
-      // The expand button is hover-revealed (opacity), so force the click.
-      await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+      await openDiagram(page);
       const dialog = page.getByRole("dialog", { name: "Diagram viewer" });
       await expect(dialog).toBeVisible();
 
@@ -220,7 +220,7 @@ test.describe("Diagram id isolation", () => {
     // `diagram-live.md` in place and the suite is fullyParallel, so reading that
     // file here would race with it.
     await page.goto("/diagram-scope");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
     await expect(page.getByRole("dialog", { name: "Diagram viewer" })).toBeVisible();
 
     // The fixture styles this rect via a rule scoped to the SVG root id. The

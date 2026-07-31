@@ -1,4 +1,4 @@
-import { test, expect, Page } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // Wide viewport so the article has empty gutters on both sides.
 test.use({ viewport: { width: 1400, height: 800 } });

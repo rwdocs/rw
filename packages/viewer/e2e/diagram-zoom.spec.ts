@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openDiagram } from "./diagram-helpers";
 
 test.describe("Diagram zoom popup", () => {
   test.use({ viewport: { width: 1200, height: 800 } });
@@ -6,9 +7,7 @@ test.describe("Diagram zoom popup", () => {
   test("expand button opens a dialog with the diagram", async ({ page }) => {
     await page.goto("/diagram");
 
-    // The expand button is hover-revealed (opacity), so force the click.
-    const expand = page.getByRole("button", { name: "Expand diagram" });
-    await expand.click({ force: true });
+    await openDiagram(page);
 
     const dialog = page.getByRole("dialog", { name: "Diagram viewer" });
     await expect(dialog).toBeVisible();
@@ -17,7 +16,7 @@ test.describe("Diagram zoom popup", () => {
 
   test("zoom in magnifies the diagram by shrinking its viewBox", async ({ page }) => {
     await page.goto("/diagram");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
 
     // Zoom is driven by the SVG's viewBox (crisp vector re-render), not by
     // resizing or CSS-scaling a box. Zooming in shows a smaller slice of the
@@ -33,7 +32,7 @@ test.describe("Diagram zoom popup", () => {
 
   test("Escape closes the popup", async ({ page }) => {
     await page.goto("/diagram");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
 
     const dialog = page.getByRole("dialog", { name: "Diagram viewer" });
     await expect(dialog).toBeVisible();
@@ -43,7 +42,7 @@ test.describe("Diagram zoom popup", () => {
 
   test("Close button closes the popup", async ({ page }) => {
     await page.goto("/diagram");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
 
     await page.getByRole("button", { name: "Close" }).click();
     await expect(page.getByRole("dialog", { name: "Diagram viewer" })).toBeHidden();
@@ -51,7 +50,7 @@ test.describe("Diagram zoom popup", () => {
 
   test("clone keeps id-scoped <style> rules styling it (mermaid-shaped svg)", async ({ page }) => {
     await page.goto("/diagram");
-    await page.getByRole("button", { name: "Expand diagram" }).click({ force: true });
+    await openDiagram(page);
 
     const rect = page.getByTestId("diagram-zoom-content").locator("svg rect");
     await expect(rect).toBeVisible();
@@ -60,5 +59,22 @@ test.describe("Diagram zoom popup", () => {
     // rect falls back to SVG's default black fill.
     const fill = await rect.evaluate((el) => getComputedStyle(el).fill);
     expect(fill).toBe("rgb(238, 238, 255)"); // #eef
+  });
+
+  // Guards the scoping in `openDiagram`: with a page-wide button locator this
+  // page matches two elements and the click is a strict-mode violation, and
+  // with an unscoped click the un-hovered figure's button never accepts
+  // pointer events. Every other call site is a single-diagram page, so nothing
+  // else in the suite would notice a regression here.
+  test("opens the second diagram on a page that has two", async ({ page }) => {
+    await page.goto("/diagram-collision");
+    await openDiagram(page, 1);
+    const dialog = page.getByRole("dialog", { name: "Diagram viewer" });
+    await expect(dialog).toBeVisible();
+    // Assert *which* diagram opened, not merely that one did: without this the
+    // test still passes if `index` is ignored and figure 0 opens every time,
+    // which is the regression it exists to catch.
+    await expect(dialog.getByTestId("second-rect")).toHaveCount(1);
+    await expect(dialog.getByTestId("first-rect")).toHaveCount(0);
   });
 });

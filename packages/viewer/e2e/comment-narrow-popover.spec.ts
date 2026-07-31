@@ -1,5 +1,5 @@
-import { test, expect, Page } from "@playwright/test";
-import { resolveDocumentId } from "./comment-helpers";
+import { test, expect, type Page } from "@playwright/test";
+import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
 
 // Narrow viewport: below the 952px comments breakpoint, so the margin aside is
 // hidden and the CommentPopover is the only inline-thread surface.
@@ -70,34 +70,15 @@ async function seedInline(page: Page, body: string, quote: string): Promise<stri
         body: JSON.stringify({ documentId: doc, body, quote }),
       });
       if (!res.ok) throw new Error(`POST /_api/comments -> ${res.status}`);
-      return (await res.json()).id as string;
+      return ((await res.json()) as { id: string }).id;
     },
     { body, quote, doc },
   );
 }
 
-// Resolve every open comment so each test starts clean. Copied from
-// comment-deeplink.spec.ts.
-async function resolveAllComments(page: Page) {
-  const doc = await resolveDocumentId(page, DOC_URL);
-  const open = await page.evaluate(async (docId) => {
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-    return res.json();
-  }, doc);
-  for (const c of open) {
-    await page.evaluate(async (id) => {
-      await fetch(`/_api/comments/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "resolved" }),
-      });
-    }, c.id);
-  }
-}
-
 test.beforeEach(async ({ page }) => {
   await page.goto(DOC_PATH);
-  await resolveAllComments(page);
+  await resolveAllComments(page, await resolveDocumentId(page, DOC_URL));
 });
 
 // The popover is a labelled group (role="group" aria-label="Comments"), distinct
@@ -254,7 +235,7 @@ test("a reply draft survives switching threads in the popover", async ({ page })
 test("at wide widths the margin aside is used and the popover is absent", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto(DOC_PATH);
-  await resolveAllComments(page);
+  await resolveAllComments(page, await resolveDocumentId(page, DOC_URL));
   await seedInline(page, "Wide comment", "Performance optimization");
   await page.reload();
 

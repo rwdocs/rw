@@ -1,5 +1,5 @@
-import { test, expect, Page } from "@playwright/test";
-import { resolveDocumentId } from "./comment-helpers";
+import { test, expect, type Page } from "@playwright/test";
+import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -20,7 +20,7 @@ async function postComment(page: Page, payload: Record<string, unknown>): Promis
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`create comment failed: ${res.status}`);
-    return (await res.json()).id as string;
+    return ((await res.json()) as { id: string }).id;
   }, payload);
 }
 
@@ -38,22 +38,6 @@ async function seedInlineComment(
     body,
     selectors: [{ type: "TextQuoteSelector", exact: anchorText, prefix: "", suffix: "" }],
   });
-}
-
-async function resolveAllComments(page: Page, documentId: string) {
-  await page.evaluate(async (docId) => {
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-    const comments = await res.json();
-    for (const c of comments) {
-      if (c.status === "open") {
-        await fetch(`/_api/comments/${c.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "resolved" }),
-        });
-      }
-    }
-  }, documentId);
 }
 
 async function waitForHighlights(page: Page) {
@@ -79,33 +63,33 @@ async function reloadIdle(page: Page) {
  *  Clicks at the glyph's screen coordinates (the highlight's click handler
  *  responds to a real pointer hit, not an element `.click()`). */
 async function openThreadByText(page: Page, text: string) {
-  await page.evaluate((targetText) => {
+  // Scroll and measure in one evaluate: two calls could walk to different text
+  // nodes, and the second walk had to be bridged by a fixed timeout.
+  const coords = await page.evaluate(async (targetText) => {
     const article = document.querySelector("article");
     if (!article) throw new Error("no article");
     const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) {
       const idx = (walker.currentNode.textContent ?? "").indexOf(targetText);
       if (idx === -1) continue;
-      const range = document.createRange();
-      range.setStart(walker.currentNode, idx);
-      range.setEnd(walker.currentNode, idx + targetText.length);
-      range.startContainer.parentElement?.scrollIntoView({ block: "center" });
-      return;
-    }
-    throw new Error(`text "${targetText}" not found`);
-  }, text);
-  await page.waitForTimeout(100);
-  const coords = await page.evaluate((targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const idx = (walker.currentNode.textContent ?? "").indexOf(targetText);
-      if (idx === -1) continue;
-      const range = document.createRange();
-      range.setStart(walker.currentNode, idx + 1);
-      range.setEnd(walker.currentNode, idx + 2);
-      const rect = range.getBoundingClientRect();
+      const scrollRange = document.createRange();
+      scrollRange.setStart(walker.currentNode, idx);
+      scrollRange.setEnd(walker.currentNode, idx + targetText.length);
+      scrollRange.startContainer.parentElement?.scrollIntoView({ block: "center" });
+      // The app defers some scrollIntoView calls to rAF (comment focus,
+      // deep-link reveal). Let a queued one run before measuring, or it lands
+      // between this rect and the click that uses it.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const clickRange = document.createRange();
+      clickRange.setStart(walker.currentNode, idx + 1);
+      clickRange.setEnd(walker.currentNode, idx + 2);
+      const rect = clickRange.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        // A re-wrap during the frames we just waited on collapses the range;
+        // clicking (0, 0) would hit the viewport corner and fail somewhere far
+        // from the cause.
+        throw new Error(`range for "${targetText}" collapsed to a zero-size rect`);
+      }
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
     throw new Error(`text "${targetText}" not found`);

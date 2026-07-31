@@ -113,7 +113,26 @@ function scopeCss(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [svelte(), tailwindcss(), dts({ rollupTypes: true }), scopeCss()],
+  plugins: [
+    svelte(),
+    tailwindcss(),
+    dts({
+      // The tsconfig also covers e2e specs and the vite configs so they get
+      // type-checked and linted; none of them belong in the published types.
+      // `exclude` covers the test files inside `src` for the same reason:
+      // every `*.test.ts` emits a `.d.ts`, and `files: ["dist/lib/"]` publishes
+      // whatever lands here.
+      include: ["src/**/*.ts", "src/**/*.svelte"],
+      exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**"],
+      // No type bundling. Do not reach for `bundleTypes` here without also
+      // adding `@microsoft/api-extractor`: unplugin-dts delegates to it, and
+      // absent that peer the build logs a failed-to-load error and emits the
+      // per-module declarations anyway. Those declarations are what the package
+      // has always shipped; bundling them into one `embed.d.ts` is a separate
+      // decision, not a config typo.
+    }),
+    scopeCss(),
+  ],
   resolve: {
     alias: {
       $lib: resolve(__dirname, "src/lib"),

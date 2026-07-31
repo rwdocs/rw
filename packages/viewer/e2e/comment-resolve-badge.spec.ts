@@ -1,5 +1,5 @@
-import { test, expect, Page } from "@playwright/test";
-import { resolveDocumentId } from "./comment-helpers";
+import { test, expect, type Page } from "@playwright/test";
+import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar (and its nav badge) is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -29,25 +29,8 @@ async function postComment(page: Page, payload: Record<string, unknown>): Promis
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`create comment failed: ${res.status}`);
-    return (await res.json()).id as string;
+    return ((await res.json()) as { id: string }).id;
   }, payload);
-}
-
-async function resolveAllComments(page: Page, documentId: string) {
-  await page.evaluate(async (docId) => {
-    // GET /_api/comments returns a bare JSON array (Json<Vec<CommentResponse>>).
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-    const comments: Array<{ id: string; status: string }> = await res.json();
-    for (const c of comments) {
-      if (c.status !== "resolved") {
-        await fetch(`/_api/comments/${c.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "resolved" }),
-        });
-      }
-    }
-  }, documentId);
 }
 
 function sidebar(page: Page) {

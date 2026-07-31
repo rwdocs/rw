@@ -1,5 +1,11 @@
-import { test, expect, Page } from "@playwright/test";
-import { resolveDocumentId, selectText } from "./comment-helpers";
+import { test, expect, type Page } from "@playwright/test";
+import {
+  fetchComments,
+  found,
+  resolveAllComments,
+  resolveDocumentId,
+  selectText,
+} from "./comment-helpers";
 
 // Wide viewport so the right sidebar (TOC / comments) is visible
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -15,8 +21,9 @@ async function clickHighlight(page: Page, text: string) {
   // Wait for highlights to be registered first
   await waitForHighlights(page);
 
-  // Scroll the target text into view — comment creation may have scrolled the page
-  await page.evaluate((targetText) => {
+  // Scroll and measure in one evaluate: two calls could walk to different text
+  // nodes, and the second walk had to be bridged by a fixed timeout.
+  const clickCoords = await page.evaluate(async (targetText) => {
     const article = document.querySelector("article");
     if (!article) throw new Error("no article");
     const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
@@ -25,32 +32,24 @@ async function clickHighlight(page: Page, text: string) {
       const idx = content.indexOf(targetText);
       if (idx === -1) continue;
       const node = walker.currentNode;
-      const range = document.createRange();
-      range.setStart(node, idx);
-      range.setEnd(node, idx + targetText.length);
-      // Scroll into viewport center
-      const el = range.startContainer.parentElement;
-      el?.scrollIntoView({ block: "center" });
-      return;
-    }
-    throw new Error(`text "${targetText}" not found`);
-  }, text);
-
-  // Small delay for scroll to settle, then get viewport coordinates
-  await page.waitForTimeout(100);
-
-  const clickCoords = await page.evaluate((targetText) => {
-    const article = document.querySelector("article");
-    if (!article) throw new Error("no article");
-    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const content = walker.currentNode.textContent ?? "";
-      const idx = content.indexOf(targetText);
-      if (idx === -1) continue;
-      const range = document.createRange();
-      range.setStart(walker.currentNode, idx + 1);
-      range.setEnd(walker.currentNode, idx + 2);
-      const rect = range.getBoundingClientRect();
+      const scrollRange = document.createRange();
+      scrollRange.setStart(node, idx);
+      scrollRange.setEnd(node, idx + targetText.length);
+      scrollRange.startContainer.parentElement?.scrollIntoView({ block: "center" });
+      // The app defers some scrollIntoView calls to rAF (comment focus,
+      // deep-link reveal). Let a queued one run before measuring, or it lands
+      // between this rect and the click that uses it.
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const clickRange = document.createRange();
+      clickRange.setStart(node, idx + 1);
+      clickRange.setEnd(node, idx + 2);
+      const rect = clickRange.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        // A re-wrap during the frames we just waited on collapses the range;
+        // clicking (0, 0) would hit the viewport corner and fail somewhere far
+        // from the cause.
+        throw new Error(`range for "${targetText}" collapsed to a zero-size rect`);
+      }
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
     throw new Error(`text "${targetText}" not found`);
@@ -77,24 +76,7 @@ async function createCommentViaUI(page: Page, targetText: string, body: string) 
   await sidebar.getByPlaceholder("Write a comment...").fill(body);
   await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
   // Wait for form to close
-  await expect(sidebar.getByPlaceholder("Write a comment...")).not.toBeVisible();
-}
-
-/** Resolve all comments for a document via the API so they don't interfere with new tests. */
-async function resolveAllComments(page: Page, documentId: string) {
-  await page.evaluate(async (docId) => {
-    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-    const comments = await res.json();
-    for (const c of comments) {
-      if (c.status === "open") {
-        await fetch(`/_api/comments/${c.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "resolved" }),
-        });
-      }
-    }
-  }, documentId);
+  await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 }
 
 test.describe("Inline comments", () => {
@@ -175,7 +157,7 @@ test.describe("Inline comments", () => {
 
     await page.mouse.click(clickPoint.x, clickPoint.y);
 
-    await expect(commentButton).not.toBeVisible();
+    await expect(commentButton).toBeHidden();
   });
 
   test("creating a comment via the popover", async ({ page }) => {
@@ -194,19 +176,17 @@ test.describe("Inline comments", () => {
     await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
 
     // Form should disappear
-    await expect(textarea).not.toBeVisible();
+    await expect(textarea).toBeHidden();
 
     // Thread card shows the server-stamped author
     await expect(sidebar.getByText("You", { exact: true })).toBeVisible();
 
     // Comment should be persisted via the API
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const created = comments.find(
-      (c: { body: string }) => c.body === "Needs more detail on syntax highlighting",
+    const comments = await fetchComments(page, docId, "open");
+    const created = found(
+      comments.find((c: { body: string }) => c.body === "Needs more detail on syntax highlighting"),
+      "the created comment",
     );
     expect(created).toBeTruthy();
     expect(created.selectors).toHaveLength(2);
@@ -223,23 +203,23 @@ test.describe("Inline comments", () => {
     await sidebar.getByPlaceholder("Write a comment...").fill("Check highlight");
     await sidebar.getByRole("button", { name: "Comment", exact: true }).click();
     // Wait for the form to close — confirms the POST completed before we query.
-    await expect(sidebar.getByPlaceholder("Write a comment...")).not.toBeVisible();
+    await expect(sidebar.getByPlaceholder("Write a comment...")).toBeHidden();
 
     // Verify via API that the comment has both selector types
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const created = comments.find((c: { body: string }) => c.body === "Check highlight");
+    const comments = await fetchComments(page, docId, "open");
+    const created = found(
+      comments.find((c: { body: string }) => c.body === "Check highlight"),
+      "the created comment",
+    );
     expect(created).toBeTruthy();
-    const types = created.selectors.map((s: { type: string }) => s.type);
+    const types = created.selectors.map((s) => s.type);
     expect(types).toContain("TextQuoteSelector");
     expect(types).toContain("TextPositionSelector");
 
     // Verify the TextQuoteSelector captured the right text
-    const quote = created.selectors.find((s: { type: string }) => s.type === "TextQuoteSelector");
-    expect(quote.exact).toBe("code highlighting");
+    const quote = created.selectors.find((s) => s.type === "TextQuoteSelector");
+    expect(quote?.exact).toBe("code highlighting");
   });
 
   test("clicking a highlight replaces TOC with comments sidebar", async ({ page }) => {
@@ -266,7 +246,7 @@ test.describe("Inline comments", () => {
     await expect(commentsSidebar).toContainText("Review this section");
 
     // TOC should be gone
-    await expect(tocSidebar).not.toBeVisible();
+    await expect(tocSidebar).toBeHidden();
   });
 
   test("close button dismisses comments and restores TOC", async ({ page }) => {
@@ -284,7 +264,7 @@ test.describe("Inline comments", () => {
     // TOC should be restored
     const tocSidebar = page.getByRole("complementary", { name: "Page outline" });
     await expect(tocSidebar).toBeVisible();
-    await expect(commentsSidebar).not.toBeVisible();
+    await expect(commentsSidebar).toBeHidden();
   });
 
   test("resolving a comment updates its status", async ({ page }) => {
@@ -320,7 +300,7 @@ test.describe("Inline comments", () => {
     // those actions when idle; autofocus doesn't fire reliably in headless).
     await textarea.focus();
     await sidebar.getByRole("button", { name: "Cancel" }).click();
-    await expect(textarea).not.toBeVisible();
+    await expect(textarea).toBeHidden();
   });
 
   test("replying to a comment shows the reply in the thread", async ({ page }) => {
@@ -342,12 +322,15 @@ test.describe("Inline comments", () => {
 
     // Verify via API that the reply has the correct parentId
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const parent = comments.find((c: { body: string }) => c.body === "Parent comment");
-    const reply = comments.find((c: { body: string }) => c.body === "Reply to parent");
+    const comments = await fetchComments(page, docId, "open");
+    const parent = found(
+      comments.find((c: { body: string }) => c.body === "Parent comment"),
+      "the parent comment",
+    );
+    const reply = found(
+      comments.find((c: { body: string }) => c.body === "Reply to parent"),
+      "the reply",
+    );
     expect(parent).toBeTruthy();
     expect(reply).toBeTruthy();
     expect(reply.parentId).toBe(parent.id);
@@ -368,11 +351,11 @@ test.describe("Inline comments", () => {
     await page.getByRole("article").waitFor();
 
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const persisted = comments.find((c: { body: string }) => c.body === "Persistent comment");
+    const comments = await fetchComments(page, docId, "open");
+    const persisted = found(
+      comments.find((c: { body: string }) => c.body === "Persistent comment"),
+      "the persisted comment",
+    );
     expect(persisted).toBeTruthy();
     expect(persisted.selectors).toHaveLength(2);
   });
@@ -439,10 +422,7 @@ test.describe("Inline comments", () => {
     await expect(page.getByText("Vanish after reload")).toBeHidden();
     // The API should not return the deleted reply either.
     const docId = await resolveDocumentId(page, "");
-    const list = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-      return res.json();
-    }, docId);
+    const list = await fetchComments(page, docId);
     const found = (list as { body: string }[]).find((c) => c.body === "Vanish after reload");
     expect(found).toBeUndefined();
   });
@@ -610,11 +590,11 @@ test.describe("Page comments", () => {
 
     // Verify via API — should have no selectors
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}&status=open`);
-      return res.json();
-    }, docId);
-    const created = comments.find((c: { body: string }) => c.body === "A page-level comment");
+    const comments = await fetchComments(page, docId, "open");
+    const created = found(
+      comments.find((c: { body: string }) => c.body === "A page-level comment"),
+      "the created comment",
+    );
     expect(created).toBeTruthy();
     expect(created.selectors).toHaveLength(0);
     expect(created.parentId).toBeUndefined();
@@ -640,16 +620,17 @@ test.describe("Page comments", () => {
 
     // Verify via API — find the reply and check its parentId
     const docId = await resolveDocumentId(page, "");
-    const comments = await page.evaluate(async (docId) => {
-      const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
-      return res.json();
-    }, docId);
-    const reply = comments.find(
-      (c: { body: string; parentId?: string }) => c.body === "Reply to page comment" && c.parentId,
+    const comments = await fetchComments(page, docId);
+    const reply = found(
+      comments.find((c) => c.body === "Reply to page comment" && c.parentId),
+      "the reply",
     );
     expect(reply).toBeTruthy();
     // The parent should exist and be a page comment (no selectors)
-    const parent = comments.find((c: { id: string }) => c.id === reply.parentId);
+    const parent = found(
+      comments.find((c: { id: string }) => c.id === reply.parentId),
+      "the parent comment",
+    );
     expect(parent).toBeTruthy();
     expect(parent.body).toBe("Top-level page comment");
     expect(parent.selectors).toHaveLength(0);
@@ -686,7 +667,7 @@ test.describe("Page comments", () => {
     await section.getByRole("button", { name: "Resolve", exact: true }).click();
 
     // Should no longer be visible (resolved threads are hidden)
-    await expect(section.getByText("Comment to resolve")).not.toBeVisible();
+    await expect(section.getByText("Comment to resolve")).toBeHidden();
   });
 
   test("resolved page comment can be revealed via the Show resolved toggle", async ({ page }) => {
@@ -783,7 +764,7 @@ test.describe("Page comments", () => {
             quote: "code highlighting",
           }),
         });
-        const created = await create.json();
+        const created = (await create.json()) as { id: string };
         await fetch(`/_api/comments/${created.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -824,7 +805,7 @@ test.describe("Page comments", () => {
             quote: "code highlighting",
           }),
         });
-        const created = await create.json();
+        const created = (await create.json()) as { id: string };
         await fetch(`/_api/comments/${created.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },

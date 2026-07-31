@@ -1,4 +1,4 @@
-import { Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
 
 /**
  * Select `text` inside the article and release with a synthetic mouseup, which
@@ -71,9 +71,96 @@ export async function resolveDocumentId(page: Page, urlPath: string): Promise<st
     async (p) => {
       const res = await fetch(`/_api/pages/${p}`);
       if (!res.ok) throw new Error(`GET /_api/pages/${p} -> ${res.status}`);
-      const { meta } = await res.json();
+      const { meta } = (await res.json()) as { meta: { sectionRef: string; subpath: string } };
       return `${meta.sectionRef}#${meta.subpath}`;
     },
     urlPath.replace(/^\//, ""),
   );
+}
+
+/**
+ * The fields of a `/_api/comments` entry that the e2e suite reads.
+ *
+ * Deliberately partial — the specs assert on a handful of fields and the server
+ * owns the rest. It exists so the one place that parses the response can name a
+ * shape: `Response.json()` is `Promise<any>`, and without a cast here every
+ * field read in every spec is unchecked.
+ */
+export interface ApiSelector {
+  type: string;
+  exact?: string;
+  prefix?: string;
+  suffix?: string;
+  start?: number;
+  end?: number;
+}
+
+export interface ApiComment {
+  id: string;
+  body: string;
+  status: string;
+  parentId: string | null;
+  selectors: ApiSelector[];
+}
+
+/** GET the comments for `documentId`, optionally filtered by status. */
+export async function fetchComments(
+  page: Page,
+  documentId: string,
+  status?: "open" | "resolved",
+): Promise<ApiComment[]> {
+  return page.evaluate(
+    async ({ docId, st }) => {
+      const query = new URLSearchParams({ documentId: docId });
+      if (st) query.set("status", st);
+      const res = await fetch(`/_api/comments?${query.toString()}`);
+      if (!res.ok) throw new Error(`GET /_api/comments -> ${res.status}`);
+      return (await res.json()) as ApiComment[];
+    },
+    { docId: documentId, st: status },
+  );
+}
+
+/** POST a comment and return its id. */
+export async function createComment(page: Page, payload: Record<string, unknown>): Promise<string> {
+  return page.evaluate(async (body) => {
+    const res = await fetch("/_api/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`POST /_api/comments -> ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }, payload);
+}
+
+/**
+ * Resolve every unresolved comment on a document, so state left by one test
+ * does not leak into the next. `open` and `resolved` are the only statuses the
+ * server emits, so this is the whole set.
+ */
+export async function resolveAllComments(page: Page, documentId: string): Promise<void> {
+  await page.evaluate(async (docId) => {
+    const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
+    const comments = (await res.json()) as { id: string; status: string }[];
+    for (const comment of comments) {
+      if (comment.status === "resolved") continue;
+      await fetch(`/_api/comments/${comment.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "resolved" }),
+      });
+    }
+  }, documentId);
+}
+
+/**
+ * Unwrap an `Array.prototype.find` result, failing with a named error instead
+ * of yielding `undefined`. Dereferencing the raw result would throw a bare
+ * TypeError several lines later, and `?.` would silently compare `undefined`
+ * to `undefined` in assertions that read a field off two comments.
+ */
+export function found<T>(value: T | undefined, what: string): T {
+  if (value === undefined) throw new Error(`expected to find ${what}`);
+  return value;
 }
