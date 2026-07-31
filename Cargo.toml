@@ -33,6 +33,16 @@ rw-storage-fs = { path = "crates/rw-storage-fs" }
 rw-storage-s3 = { path = "crates/rw-storage-s3" }
 rw-vcs = { path = "crates/rw-vcs" }
 # External dependencies
+# The feature list is aws-sdk-s3's own `default` minus `rustls`. That feature is
+# a legacy alias for aws-smithy-runtime/tls-rustls, which pulls a second TLS
+# stack — rustls 0.21 and hyper-rustls 0.24 — in beside the rustls 0.23 stack
+# `default-https-client` already provides and that the client actually uses.
+aws-sdk-s3 = { version = "1", default-features = false, features = [
+  "sigv4a",
+  "http-1x",
+  "default-https-client",
+  "rt-tokio",
+] }
 base64 = "0.22"
 glob = "0.3"
 notify = "8"

@@ -22,7 +22,7 @@ rw-plantuml = { workspace = true, optional = true }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 parking_lot = { workspace = true }
-aws-sdk-s3 = "1"
+aws-sdk-s3 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -16,20 +16,7 @@ all-features = true
 # Vulnerabilities and unmaintained crates are denied by default; yanked crates
 # warn. Entries here are advisories we have consciously accepted, each with the
 # reason and the condition that would let us drop it again.
-ignore = [
-  # rustls-webpki 0.101.7, reached only through rustls 0.21 -> hyper-rustls
-  # 0.24's `acceptor` feature, which aws-smithy-http-client enables alongside
-  # the hyper-rustls 0.27 stack it actually uses. `acceptor` is server-side
-  # TLS; rw is only ever a TLS client, so the affected certificate-validation
-  # paths are not reachable from rw. rw's real S3 and Kroki traffic goes
-  # through rustls 0.23 + rustls-webpki 0.103.13, which are patched.
-  #
-  # We cannot fix this from here: no version of aws-smithy-http-client drops
-  # the 0.24 dependency. Remove these three once it does.
-  "RUSTSEC-2026-0098", # name constraints for URI names incorrectly accepted
-  "RUSTSEC-2026-0099", # name constraints accepted for wildcard certificates
-  "RUSTSEC-2026-0104", # reachable panic parsing certificate revocation lists
-]
+ignore = []
 
 [licenses]
 # rw ships under MIT OR Apache-2.0. This list is every license currently in the
