@@ -3,24 +3,25 @@ import boundaries from "eslint-plugin-boundaries";
 import playwright from "eslint-plugin-playwright";
 import svelte from "eslint-plugin-svelte";
 import vitest from "@vitest/eslint-plugin";
+import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
+import globals from "globals";
 import eslintParserSvelte from "svelte-eslint-parser";
 import tseslint from "typescript-eslint";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// Type-aware rules need a TypeScript program, which `projectService` builds
-// from the nearest tsconfig. `.svelte` has to be named explicitly: the project
-// service skips non-standard extensions, and without this every component
-// fails to parse rather than merely going unchecked.
+// `.svelte` has to be named explicitly: the project service skips non-standard
+// extensions, and without this every component fails to parse rather than
+// merely going unchecked.
 const typeAwareParserOptions = {
   projectService: true,
   tsconfigRootDir: import.meta.dirname,
   extraFileExtensions: [".svelte"],
 };
 
-// Shared language options for every Svelte config block — ESLint flat
-// config does not inherit across blocks, so each scope re-declares them.
+// Blocks matching the same file merge, so only the first block matching a
+// scope needs to set these.
 const svelteLanguageOptions = {
   parser: eslintParserSvelte,
   parserOptions: {
@@ -29,14 +30,12 @@ const svelteLanguageOptions = {
   },
 };
 
-// Prefix list for color-bearing utility classes. Broader than `bg|text|border`
-// because gradient stops (from/via/to), shadow / decoration colors, ring /
-// outline colors, and divide / placeholder / caret / fill / stroke can all
-// smuggle a raw palette color into a component.
+// Gradient stops, shadow and decoration colors, ring / outline, divide /
+// placeholder / caret / fill / stroke can each smuggle a raw palette color into
+// a component, so the group reaches well past `bg|text|border`.
 const COLOR_PREFIX_GROUP =
   "bg|text|border|ring|outline|fill|stroke|divide|placeholder|caret|accent|decoration|shadow|from|via|to";
 
-// Step-set Tailwind generates for each hue.
 const PALETTE_STEPS = "50|100|200|300|400|500|600|700|800|900|950";
 
 // Discover Tailwind 4's default color-family names from its bundled theme.css
@@ -56,11 +55,9 @@ const TAILWIND_HUES = [
 const OUR_PRIMITIVE_SCALES = "accent|info|success|warning|danger|attention";
 const OUR_PRIMITIVE_STEPS = "50|100|500|600|700";
 
-// Layer dependency config per design-kit spec §2.2. Used in a single block
-// matching .ts/.svelte/.svelte.ts; the .svelte parser is set by the existing
-// svelte block above, and a thin block below sets the TS parser for .ts files
-// — flat config merges configs across matching blocks so rules + parser
-// combine without the boundaries settings being evaluated twice.
+// Layer dependency config per design-kit spec §2.2. Applied by a single block
+// so the settings are evaluated once; the parsers come from the Svelte and
+// TypeScript blocks that match the same files.
 const boundariesConfig = {
   plugins: { boundaries },
   settings: {
@@ -77,7 +74,6 @@ const boundariesConfig = {
       { type: "pages", pattern: "src/pages/**" },
       { type: "api", pattern: "src/api/**" },
       { type: "types", pattern: "src/types/**" },
-      // Top-level entry points wire everything together.
       { type: "entry", pattern: "src/{App.svelte,embed.ts,main.ts}", mode: "file" },
     ],
     "boundaries/ignore": ["src/**/*.test.ts", "src/**/__fixtures__/**"],
@@ -92,7 +88,6 @@ const boundariesConfig = {
       {
         default: "disallow",
         policies: [
-          // Kit layers — strict isolation from domain.
           {
             from: { element: { type: "kit-hooks" } },
             allow: { to: { element: { type: ["kit-hooks", "kit-root"] } } },
@@ -105,7 +100,6 @@ const boundariesConfig = {
             from: { element: { type: "kit-root" } },
             allow: { to: { element: { type: "kit-root" } } },
           },
-          // Domain layers.
           {
             from: { element: { type: "rw-context" } },
             allow: { to: { element: { type: ["state", "api", "types"] } } },
@@ -153,15 +147,34 @@ const boundariesConfig = {
   },
 };
 
+// typescript-eslint switches off the base rules it replaces, so it must stay
+// second. An entry appended here does not win everywhere — the e2e and
+// `.svelte` blocks each extend something after it.
+const TS_BASELINE = [js.configs.recommended, tseslint.configs.recommendedTypeChecked];
+
 export default defineConfig([
   {
     ignores: ["coverage/**", "dist/**"],
   },
-  // TypeScript baseline. `src` and the root-level build configs share this
-  // block; `.svelte` and the e2e suite each get their own below, because both
-  // layer further rules on top.
+  // Both default to non-blocking. Set here rather than via `--max-warnings 0`,
+  // which would also promote the better-tailwindcss rules that are meant to
+  // stay non-blocking.
   {
-    extends: [tseslint.configs.recommendedTypeChecked],
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+      reportUnusedInlineConfigs: "error",
+    },
+  },
+  // No `.js` is in `tsconfig.json`, so ESLint is their only checker — hence the
+  // globals, without which `no-undef` misfires on `process`. Do not narrow the
+  // glob to `*.js`: a script added outside the package root would get nothing.
+  {
+    extends: [js.configs.recommended],
+    files: ["**/*.js"],
+    languageOptions: { globals: globals.node },
+  },
+  {
+    extends: TS_BASELINE,
     files: ["src/**/*.{ts,svelte.ts}", "*.config.ts", "vite-plugin-*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
   },
@@ -169,7 +182,7 @@ export default defineConfig([
   // assertion passes vacuously, and a fixed `waitForTimeout` is the usual
   // reason a spec is green alone and flaky in parallel.
   {
-    extends: [tseslint.configs.recommendedTypeChecked, playwright.configs["flat/recommended"]],
+    extends: [...TS_BASELINE, playwright.configs["flat/recommended"]],
     files: ["e2e/**/*.ts"],
     languageOptions: { parserOptions: typeAwareParserOptions },
     rules: {
@@ -199,20 +212,27 @@ export default defineConfig([
       "playwright/prefer-hooks-on-top": "error",
       "playwright/prefer-to-have-count": "error",
       "playwright/prefer-to-have-length": "error",
-      // Its six reports are a colour parser and `if (!box) throw` guards over a
-      // nullable bounding box. Both fail loudly, which is the opposite of the
-      // silently-skipped assertion the rule targets — and that case stays
-      // covered, because `no-conditional-expect` remains an error.
+      // Its hits here are guards that throw, which is the opposite of the
+      // silently-skipped assertion the rule targets. That case stays covered by
+      // `no-conditional-expect`.
       "playwright/no-conditional-in-test": "off",
       // The rule identifies page objects by a regex over the receiver's
-      // identifier (`/^(page|frame)/`), so it has exactly one hit here:
-      // `pageReplyBox.press("Escape")` — a locator, flagged for its name.
-      // Renaming that variable would let the rule back on.
+      // identifier (`/^(page|frame)/`), so a locator whose variable name starts
+      // with `page` is flagged for its name alone. Rename those to re-enable.
       "playwright/prefer-locator": "off",
     },
   },
+  // Components: the same TypeScript baseline as `src`, with the exceptions
+  // below. eslint-plugin-svelte's own rules are applied by a separate block.
   {
-    extends: [tseslint.configs.recommendedTypeChecked],
+    extends: [
+      ...TS_BASELINE,
+      // Base rules tsc covers. Its own glob is `**/*.ts`, which would intersect
+      // this block's away, so the rules are taken directly. Must precede the
+      // block's `rules` — it sets `prefer-const: "error"`. Its `no-unreachable`
+      // entry only holds because `tsconfig.json` sets `allowUnreachableCode`.
+      { rules: tseslint.configs.eslintRecommended.rules },
+    ],
     files: ["src/**/*.svelte"],
     languageOptions: svelteLanguageOptions,
     rules: {
@@ -240,7 +260,6 @@ export default defineConfig([
   {
     extends: [svelte.configs.recommended],
     files: ["src/**/*.svelte"],
-    languageOptions: svelteLanguageOptions,
   },
   // Rune modules carry the same reactivity rules as components. The plugin's
   // own `recommended` leaves its rule block unscoped, so a `files` glob of
@@ -253,13 +272,13 @@ export default defineConfig([
   {
     files: ["src/**/*.{svelte,svelte.ts}"],
     rules: {
-      // Fires on every `new Set()` / `new Map()` / `new URL()` in a rune file,
-      // but it is aimed at mutating a collection *in place* while reading it
-      // reactively. This codebase never does: `navigation.collapsed` copies,
-      // mutates the copy and reassigns, `comments` holds its collections in
-      // `$state.raw` (reassign-only by contract), and the rest are local
-      // bookkeeping that no template reads. `SvelteSet`/`SvelteMap` would add
-      // a proxy for reactivity that reassignment already provides.
+      // `linterOptions.reportUnusedDisableDirectives` reads JS comments only.
+      // Markup directives are this plugin's, and it reports a stale one only
+      // when asked.
+      "svelte/comment-directive": ["error", { reportUnusedDisableDirectives: true }],
+      // Aimed at mutating a collection in place while reading it reactively.
+      // This code reassigns instead, which already triggers the update, so
+      // `SvelteSet`/`SvelteMap` would add a proxy for nothing.
       "svelte/prefer-svelte-reactivity": "off",
     },
   },
@@ -307,6 +326,8 @@ export default defineConfig([
       ],
       "better-tailwindcss/enforce-consistent-variant-order": "warn",
     },
+    // Wider than the block that sets the parser, so it sets its own: a
+    // component outside `src/` would otherwise fail to parse.
     files: ["**/*.svelte"],
     languageOptions: svelteLanguageOptions,
   },
@@ -322,27 +343,21 @@ export default defineConfig([
     files: ["src/**/*.{ts,svelte.ts}"],
     languageOptions: { parser: tseslint.parser },
   },
-  // Design-kit guardrail: forbid raw Tailwind palette utilities AND our own
-  // primitive tokens inside `src/lib/ui/**`. Kit components must use only the
-  // semantic layer (bg-bg-*, text-fg-*, border-*-border, text-accent-fg,
-  // text-{intent}-fg etc.). Phase 3 widens the glob to `src/components/**`.
+  // Kit components must reach for the semantic layer only (bg-bg-*, text-fg-*,
+  // border-*-border, text-{intent}-fg), never a raw palette utility or one of
+  // our primitive scales.
   {
     files: ["src/lib/ui/**/*.svelte"],
-    languageOptions: svelteLanguageOptions,
     rules: {
       "better-tailwindcss/no-restricted-classes": [
         "error",
         {
           restrict: [
-            // Tailwind default palette — hue list generated from theme.css.
             {
               pattern: `^(${COLOR_PREFIX_GROUP})-(${TAILWIND_HUES.join("|")})-(${PALETTE_STEPS})$`,
               message:
                 "Use semantic tokens (bg-bg-*, text-fg-*, border-*-border) instead of raw palette utilities.",
             },
-            // Our own primitive tokens — declared as @theme so Tailwind emits
-            // .bg-accent-500 etc., but kit components must consume semantic
-            // tokens (bg-accent-bg, text-{intent}-fg) not the primitives.
             {
               pattern: `^(${COLOR_PREFIX_GROUP})-(${OUR_PRIMITIVE_SCALES})-(${OUR_PRIMITIVE_STEPS})$`,
               message:
