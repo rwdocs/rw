@@ -64,8 +64,14 @@ jobs:
       - name: Run ESLint
         run: npm -w @rwdocs/viewer run lint
 
+      - name: Run ESLint (workspace root)
+        run: npm run lint
+
       - name: Check Prettier formatting
         run: npx -w @rwdocs/viewer prettier --check .
+
+      - name: Check Prettier formatting (workspace root)
+        run: npx prettier --check .
 
       # Lints the packed tarball. Nothing above reaches it: tsc and svelte-check
       # read source, never the `exports` map or the emitted `.d.ts`. The rows the

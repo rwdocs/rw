@@ -1,22 +1,22 @@
-import { test } from 'node:test'
-import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 
-const require = createRequire(import.meta.url)
-const { renderCommentBody } = require('../index.js')
+const require = createRequire(import.meta.url);
+const { renderCommentBody } = require("../index.js");
 
-test('renders markdown emphasis to html', async () => {
-  const html = await renderCommentBody('**bold**')
-  assert.match(html, /<strong>bold<\/strong>/)
-})
+test("renders markdown emphasis to html", async () => {
+  const html = await renderCommentBody("**bold**");
+  assert.match(html, /<strong>bold<\/strong>/);
+});
 
-test('escapes raw html (never passes a <script> through)', async () => {
-  const html = await renderCommentBody('<script>alert(1)</script>')
+test("escapes raw html (never passes a <script> through)", async () => {
+  const html = await renderCommentBody("<script>alert(1)</script>");
   // `/<script>/` alone would pass for `<SCRIPT>` and for `<script src=x>`.
-  assert.match(html, /&lt;script&gt;/)
-  assert.doesNotMatch(html, /<script/i)
-})
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script/i);
+});
 
-test('blank input renders an empty string', async () => {
-  assert.equal(await renderCommentBody('   '), '')
-})
+test("blank input renders an empty string", async () => {
+  assert.equal(await renderCommentBody("   "), "");
+});
