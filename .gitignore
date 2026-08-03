@@ -2,6 +2,11 @@
 /.claude/settings.local.json
 /.worktrees
 /.claude/worktrees/
+
+# Playwright output. packages/viewer/.gitignore already lists these, but a run
+# started from the repo root writes them here, where only this file is read.
+test-results/
+playwright-report/
 /.mcp.json
 /TASKS.md
 /docs/superpowers
