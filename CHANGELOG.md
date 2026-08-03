@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Pages served by `rw serve` now show the rw icon in the browser tab, and an app icon when the site is saved to an iOS home screen.
+
 ### Fixed
 
 - `@rwdocs/viewer`'s TypeScript types now resolve outside bundlers. Its `exports` map listed `import` ahead of `types`, and the published `embed.d.ts` used extensionless relative imports, so a consumer on `moduleResolution: "node16"`/`"nodenext"` — or on the older `"node"` — either found no types at all or silently got types that no longer described the JavaScript. Only `"bundler"` worked, which is why the Backstage plugin never hit it. The runtime bundle is unchanged.
