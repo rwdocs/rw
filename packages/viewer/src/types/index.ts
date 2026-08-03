@@ -32,7 +32,7 @@ export interface NavGroup {
  * expressed relative to that section's root. Chains run deepest-first (the
  * section itself, then ancestors, root last).
  */
-export interface SectionAnchor {
+interface SectionAnchor {
   sectionRef: string;
   subpath: string;
 }
@@ -118,12 +118,6 @@ export interface PageResponse {
   content: string; // HTML
   /** Section ref → ancestry chain, for resolving breadcrumb and content-link hrefs. */
   sectionAncestry?: SectionAncestry;
-}
-
-/** API error response */
-export interface ApiError {
-  error: string;
-  path?: string;
 }
 
 /** Server config from GET /_api/config */

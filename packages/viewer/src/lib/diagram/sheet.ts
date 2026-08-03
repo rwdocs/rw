@@ -17,7 +17,7 @@
  * un-wrapped figures. Those rules are not adjacent to each other in that file;
  * each carries a pointer back here.
  */
-export const DIAGRAM_SHARED_CSS = `
+const DIAGRAM_SHARED_CSS = `
 svg text { font-family: "Roboto", sans-serif !important; }
 svg a { text-decoration: none !important; }
 `.trim();

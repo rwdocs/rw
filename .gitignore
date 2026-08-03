@@ -1,3 +1,7 @@
+# Lint scope follows this file: ESLint reads it through `includeIgnoreFile`, and
+# Prettier and knip skip its entries by default. Listing a directory of real
+# source here drops it from all three with no warning.
+
 # Claude
 /.claude/settings.local.json
 /.worktrees
