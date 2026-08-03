@@ -6,6 +6,7 @@
   import { diagramShadowRoots, diagramSource } from "$lib/diagram/source";
   import { rewriteSectionRefLinks } from "$lib/sectionRefs";
   import { rangeToSelectors, selectorsToRange } from "$lib/anchoring";
+  import { rangeTouchesDiagram } from "$lib/comments/diagram";
   import { escapeId } from "$lib/comments/highlight";
   import { reconcileHighlights, desiredHighlights } from "$lib/comments/reconcile";
   import {
@@ -89,6 +90,9 @@
     () => articleRef ?? null,
     articleSize,
     () => comments.enabled,
+    // Diagrams are off-limits to comments: a selection inside, ending in, or
+    // spanning a diagram figure never opens the popover.
+    rangeTouchesDiagram,
   );
 
   // Drop any in-flight selection when the article content changes (live reload,

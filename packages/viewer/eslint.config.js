@@ -63,11 +63,28 @@ const boundariesConfig = {
   settings: {
     "boundaries/elements": [
       // More-specific patterns first — first match wins.
+      //
+      // Do NOT drop `mode: "file"` from these descriptors, and do not take the
+      // plugin's deprecation notice at face value: without it a descriptor
+      // matches nothing rather than matching a directory, so every rule below
+      // goes quiet and the run still exits 0. `partialMatch: false`, the
+      // suggested replacement, behaves the same way. Verified by probe.
       { type: "kit-tokens", pattern: "src/lib/ui/tokens/**" },
       { type: "kit-hooks", pattern: "src/lib/ui/hooks/**" },
       { type: "kit-primitives", pattern: "src/lib/ui/primitives/**" },
       { type: "kit-root", pattern: "src/lib/ui/*.{ts,svelte}", mode: "file" },
+      // Any other kit subdirectory. Without this a new `src/lib/ui/icons/`
+      // would fall through to the domain patterns below and inherit their
+      // reach into `api` and `state` — the coupling the kit exists to avoid.
+      { type: "kit-other", pattern: "src/lib/ui/**/*.{ts,svelte}", mode: "file" },
       { type: "rw-context", pattern: "src/lib/context.ts", mode: "file" },
+      // Feature modules. Every file needs a type: `boundaries/dependencies`
+      // says nothing about a dependency whose target has none, so an
+      // unclassified directory is a hole rather than a default-deny.
+      { type: "domain-feature", pattern: "src/lib/*/**/*.{ts,svelte}", mode: "file" },
+      // Generic helpers sitting directly in `src/lib`. Kept apart from feature
+      // modules because these are the likeliest to move into the kit next, so
+      // they must not acquire the reach a feature module needs.
       { type: "domain-lib", pattern: "src/lib/*.{ts,svelte}", mode: "file" },
       { type: "state", pattern: "src/state/**" },
       { type: "components", pattern: "src/components/**" },
@@ -81,13 +98,20 @@ const boundariesConfig = {
     // so every file is out of scope and the rule reports nothing while the run
     // still looks healthy.
     "boundaries/root-path": import.meta.dirname,
-    "boundaries/ignore": ["src/**/*.test.ts", "src/**/__fixtures__/**"],
+    // `vite-env.d.ts` is a triple-slash reference with no imports, so it has
+    // nothing to classify and nothing to check.
+    "boundaries/ignore": ["src/**/*.test.ts", "src/**/__fixtures__/**", "src/vite-env.d.ts"],
     "boundaries/include": ["src/**/*.{ts,svelte,svelte.ts}"],
     "import/resolver": {
       typescript: { project: `${import.meta.dirname}/tsconfig.json` },
     },
   },
   rules: {
+    // A file with no element type is invisible to the policies below rather
+    // than denied by them. These two make that state loud, so a directory
+    // added without a descriptor fails instead of silently escaping the rules.
+    "boundaries/no-unknown-files": "error",
+    "boundaries/no-unknown-dependencies": "error",
     "boundaries/dependencies": [
       "error",
       {
@@ -114,8 +138,48 @@ const boundariesConfig = {
             allow: {
               to: {
                 element: {
-                  type: ["domain-lib", "types", "kit-primitives", "kit-hooks", "kit-root"],
+                  type: [
+                    "domain-lib",
+                    "domain-feature",
+                    "types",
+                    "kit-primitives",
+                    "kit-hooks",
+                    "kit-root",
+                  ],
                 },
+              },
+            },
+          },
+          {
+            // A feature module owns its API client, so `api` is a value
+            // dependency. `state` is only ever the shape it operates on — the
+            // one import is `import type` — so it is allowed as a type and a
+            // runtime import of a store still fails.
+            from: { element: { type: "domain-feature" } },
+            allow: [
+              {
+                to: {
+                  element: {
+                    type: [
+                      "domain-feature",
+                      "domain-lib",
+                      "types",
+                      "api",
+                      "kit-primitives",
+                      "kit-hooks",
+                      "kit-root",
+                    ],
+                  },
+                },
+              },
+              { to: { element: { type: "state" } }, dependency: { kind: "type" } },
+            ],
+          },
+          {
+            from: { element: { type: "kit-other" } },
+            allow: {
+              to: {
+                element: { type: ["kit-other", "kit-primitives", "kit-hooks", "kit-root"] },
               },
             },
           },
@@ -127,6 +191,7 @@ const boundariesConfig = {
                   type: [
                     "state",
                     "domain-lib",
+                    "domain-feature",
                     "rw-context",
                     "types",
                     "api",

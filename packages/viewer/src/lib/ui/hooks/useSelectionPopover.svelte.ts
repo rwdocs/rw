@@ -1,5 +1,4 @@
 import type { ElementSize } from "./useElementSize.svelte";
-import { rangeTouchesDiagram } from "$lib/comments/diagram";
 
 /**
  * Tracks the text selection that drives the Add-comment popover: owns the
@@ -32,6 +31,7 @@ export function useSelectionPopover(
   getArticle: () => HTMLElement | null,
   articleSize: ElementSize,
   isEnabled: () => boolean,
+  isExcluded: (range: Range, article: HTMLElement) => boolean,
 ): SelectionPopover {
   let range: Range | null = $state.raw(null);
   let pos: { x: number; y: number } | null = $state.raw(null);
@@ -50,9 +50,10 @@ export function useSelectionPopover(
       range = null;
       return;
     }
-    // Diagrams are off-limits to comments: a selection inside, ending in, or
-    // spanning a diagram figure never opens the popover.
-    if (rangeTouchesDiagram(r, article)) {
+    // Called only once the range is known to lie inside the article, so a
+    // predicate may assume both arguments are live and `article` contains the
+    // range. It runs inside a document-level listener: a throw here escapes.
+    if (isExcluded(r, article)) {
       range = null;
       return;
     }
