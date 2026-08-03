@@ -34,12 +34,23 @@ test-e2e:
 format:
 	cargo fmt
 	npm -w @rwdocs/viewer run format
+	npm run format
 
 lint:
+	cargo fmt --all -- --check
 	cargo clippy --all-targets -- -D warnings
 	npm -w @rwdocs/viewer run check
 	npm -w @rwdocs/viewer run lint
+	npm run lint
+	npx -w @rwdocs/viewer prettier --check .
+	npx prettier --check .
 	npm -w @rwdocs/viewer run check:pack
+	# `rw backstage publish` resolves PlantUML includes through rw-plantuml so a
+	# publish-only binary never links the diagram renderer. Nothing in the type
+	# system enforces that; a stray `use rw_kroki::` would restore it silently.
+	# The tree is captured first: piped straight into grep, a cargo failure
+	# produces no match and the negation turns that into a pass.
+	tree=$$(cargo tree -p rw-storage-s3 --features publish -e normal) && ! echo "$$tree" | grep -q rw-kroki
 
 audit:
 	cargo deny check licenses sources

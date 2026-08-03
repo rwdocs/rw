@@ -12,8 +12,7 @@ function applyShellTheme() {
   const colorScheme = themes[themeIndex];
   document.body.classList.toggle(
     "dark-shell",
-    colorScheme === "dark" ||
-      (colorScheme === "auto" && darkMq.matches),
+    colorScheme === "dark" || (colorScheme === "auto" && darkMq.matches),
   );
 }
 

@@ -1,0 +1,28 @@
+# Prettier honours the root .gitignore, which covers build output and both
+# worktree directories. Only what it does not reach is listed here.
+
+# Has its own config, whose Svelte plugin this one lacks.
+packages/viewer/
+# Build output the root .gitignore does not name.
+dist/
+
+# Generated: the first two by `napi build`, the directory by `napi version` via
+# `make version`. The `// prettier-ignore` heading index.js suppresses only the
+# node after it, and the other two carry no directive at all.
+packages/core/index.js
+packages/core/index.d.ts
+packages/core/npm/
+
+# Benchmark inputs, compared against a stored baseline — a reflowed fixture
+# reads as a performance change with no code behind it. Also covered by the
+# markdown rule below; kept separate so relaxing that one cannot expose these.
+crates/rw-renderer/benches/fixtures/
+
+# rw serves much of this repo's markdown. Reflowing prose is a decision about
+# the docs, not about code style.
+*.md
+
+# Formatting these is a decision of its own, not a consequence of formatting
+# JavaScript.
+.github/
+renovate.json

@@ -1,6 +1,7 @@
 # Claude
 /.claude/settings.local.json
 /.worktrees
+/.claude/worktrees/
 /.mcp.json
 /TASKS.md
 /docs/superpowers

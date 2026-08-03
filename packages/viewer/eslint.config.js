@@ -76,10 +76,15 @@ const boundariesConfig = {
       { type: "types", pattern: "src/types/**" },
       { type: "entry", pattern: "src/{App.svelte,embed.ts,main.ts}", mode: "file" },
     ],
+    // Anchors the `boundaries/include` glob below, which is otherwise resolved
+    // against the working directory: run from the repo root it matches nothing,
+    // so every file is out of scope and the rule reports nothing while the run
+    // still looks healthy.
+    "boundaries/root-path": import.meta.dirname,
     "boundaries/ignore": ["src/**/*.test.ts", "src/**/__fixtures__/**"],
     "boundaries/include": ["src/**/*.{ts,svelte,svelte.ts}"],
     "import/resolver": {
-      typescript: { project: "./tsconfig.json" },
+      typescript: { project: `${import.meta.dirname}/tsconfig.json` },
     },
   },
   rules: {
@@ -303,7 +308,7 @@ export default defineConfig([
     extends: [eslintPluginBetterTailwindcss.configs.recommended],
     settings: {
       "better-tailwindcss": {
-        entryPoint: "src/app.css",
+        entryPoint: `${import.meta.dirname}/src/app.css`,
       },
     },
     rules: {
