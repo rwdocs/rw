@@ -58,24 +58,48 @@
     ui.narrow = isLayoutNarrow(layoutSize.width);
   });
 
+  /** The `path#hash` the outline has already acted on. */
+  let chosenLink: string | null = null;
+
   function onTocNavigate(id: string) {
     const element = document.getElementById(id);
     if (!element) return;
-    activeHeading.setActiveId(id);
-    element.scrollIntoView({ behavior: "auto" });
+    activeHeading.choose(id, { scrollTo: () => element.scrollIntoView({ behavior: "auto" }) });
     history.pushState(null, "", `#${id}`);
-    activeHeading.suppressUntilScrollEnd();
+    // `pushState` tells no one. Leaving `router.hash` on the heading the reader
+    // arrived at means every later reload — a live reload while authoring —
+    // scrolls them back to it, since that is the anchor `PageContent` restores.
+    router.hash = id;
+    // Chosen right here, so the hash effect has nothing left to do for it.
+    chosenLink = `${router.path}#${id}`;
   }
 
-  // Hash → active heading. Outside embedded mode the browser natively
-  // scrolls on hash change, so hold the observer back until scrollend; in
-  // embedded mode the hash never triggers a scroll (popstate below does).
+  // Hash → active heading. `PageContent` scrolls to the target a frame later,
+  // and outside embedded mode the browser may scroll to it too; either way the
+  // scroll starts elsewhere, so it must not read as the reader scrolling away
+  // from the entry the link asked for.
+  //
+  // This must track `tocIds`: on a cold load the outline arrives a moment after
+  // the router, so a hash read on its own would have already settled on "names
+  // no heading". Tracking it means the effect also re-runs whenever `page.data`
+  // is reassigned — a live reload, say — hence the key: re-choosing there would
+  // drag the reader back to a link they have since scrolled or clicked away
+  // from, and `router.hash` goes stale after `onTocNavigate`'s `pushState`.
   $effect(() => {
     const hash = router.hash;
-    if (hash && untrack(() => tocIds).includes(hash)) {
-      activeHeading.setActiveId(hash);
-      if (!router.embedded) activeHeading.suppressUntilScrollEnd();
+    // Forgotten only when the reader leaves the anchor, so that returning to a
+    // link chooses it again. Not when the ids simply lack it: that is also what
+    // a page mid-load looks like, and forgetting there would re-choose on the
+    // next reload — the case this key exists to stop.
+    if (!hash) {
+      chosenLink = null;
+      return;
     }
+    if (!tocIds.includes(hash)) return;
+    const link = `${router.path}#${hash}`;
+    if (link === chosenLink) return;
+    chosenLink = link;
+    activeHeading.choose(hash, { awaitScroll: true });
   });
 
   // In embedded mode, the router skips popstate handling so Back/Forward
@@ -85,9 +109,9 @@
     if (!router.embedded) return;
     function onPopState() {
       const id = decodeURIComponent(window.location.hash.slice(1));
-      if (id && tocIds.includes(id)) {
-        activeHeading.setActiveId(id);
-        document.getElementById(id)?.scrollIntoView({ behavior: "auto" });
+      const element = id ? document.getElementById(id) : null;
+      if (element && tocIds.includes(id)) {
+        activeHeading.choose(id, { scrollTo: () => element.scrollIntoView({ behavior: "auto" }) });
       }
     }
     window.addEventListener("popstate", onPopState);

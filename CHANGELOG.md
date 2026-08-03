@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The "On this page" outline now follows the reader. It could leave a middle entry highlighted after you switched documents, and never highlighted a final entry the page could not scroll far enough to reach.
 - `@rwdocs/viewer`'s TypeScript types now resolve outside bundlers. Its `exports` map listed `import` ahead of `types`, and the published `embed.d.ts` used extensionless relative imports, so a consumer on `moduleResolution: "node16"`/`"nodenext"` — or on the older `"node"` — either found no types at all or silently got types that no longer described the JavaScript. Only `"bundler"` worked, which is why the Backstage plugin never hit it. The runtime bundle is unchanged.
 
 ### Security
