@@ -75,8 +75,8 @@
     "node": ">=22.12.0"
   },
   "dependencies": {
-    "@fontsource/jetbrains-mono": "^5.2.8",
-    "@fontsource/roboto": "^5.2.10",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/roboto": "^5.3.0",
     "approx-string-match": "^2.0.0"
   }
 }
