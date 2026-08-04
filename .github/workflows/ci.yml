@@ -73,6 +73,11 @@ jobs:
       - name: Check Prettier formatting (workspace root)
         run: npx prettier --check .
 
+      # Finds what a per-file linter cannot: exports nothing imports, files
+      # nothing reaches, dependencies nothing resolves.
+      - name: Run knip
+        run: npm run knip
+
       # Lints the packed tarball. Nothing above reaches it: tsc and svelte-check
       # read source, never the `exports` map or the emitted `.d.ts`. The rows the
       # output marks ignored are not suppressed defects — the package is ESM, so

@@ -2,7 +2,7 @@ import type { ConfigResponse, NavigationTree, PageResponse } from "../types";
 import { readJson } from "./json";
 
 /** Options for API fetch functions */
-export interface FetchOptions {
+interface FetchOptions {
   bypassCache?: boolean;
   signal?: AbortSignal;
 }
@@ -28,7 +28,7 @@ export class NotFoundError extends Error {
 }
 
 /** Options for fetching navigation */
-export interface FetchNavigationOptions extends FetchOptions {
+interface FetchNavigationOptions extends FetchOptions {
   /** Section ref string (e.g., "domain:default/billing") to load navigation for a specific section. */
   sectionRef?: string;
 }

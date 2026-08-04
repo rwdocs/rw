@@ -86,7 +86,7 @@ export async function resolveDocumentId(page: Page, urlPath: string): Promise<st
  * shape: `Response.json()` is `Promise<any>`, and without a cast here every
  * field read in every spec is unchecked.
  */
-export interface ApiSelector {
+interface ApiSelector {
   type: string;
   exact?: string;
   prefix?: string;
@@ -119,19 +119,6 @@ export async function fetchComments(
     },
     { docId: documentId, st: status },
   );
-}
-
-/** POST a comment and return its id. */
-export async function createComment(page: Page, payload: Record<string, unknown>): Promise<string> {
-  return page.evaluate(async (body) => {
-    const res = await fetch("/_api/comments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`POST /_api/comments -> ${res.status}`);
-    return ((await res.json()) as { id: string }).id;
-  }, payload);
 }
 
 /**

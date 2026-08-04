@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "knip": "knip --treat-config-hints-as-errors",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
@@ -13,6 +14,7 @@
     "@eslint/js": "^10.0.1",
     "eslint": "^10.7.0",
     "globals": "^16.5.0",
+    "knip": "^6.31.0",
     "prettier": "^3.9.5"
   }
 }

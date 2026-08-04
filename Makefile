@@ -44,6 +44,7 @@ lint:
 	npm run lint
 	npx -w @rwdocs/viewer prettier --check .
 	npx prettier --check .
+	npm run knip
 	npm -w @rwdocs/viewer run check:pack
 	# `rw backstage publish` resolves PlantUML includes through rw-plantuml so a
 	# publish-only binary never links the diagram renderer. Nothing in the type
