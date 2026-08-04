@@ -6,6 +6,7 @@
 import "./app.css";
 import App from "./App.svelte";
 import { mount, unmount } from "svelte";
+import { on } from "svelte/events";
 import type { NotifyFn } from "./types/notify.js";
 import type { CommentApiClient } from "./api/comments.js";
 
@@ -69,26 +70,21 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
     target.classList.toggle("dark", isDark);
   };
 
-  let mediaQuery: MediaQueryList | undefined;
-  let mediaQueryHandler: ((e: MediaQueryListEvent) => void) | undefined;
+  let offMediaQuery: (() => void) | undefined;
 
   function applyColorScheme(scheme: "light" | "dark" | "auto") {
     // Tear down any existing media query listener
-    if (mediaQuery && mediaQueryHandler) {
-      mediaQuery.removeEventListener("change", mediaQueryHandler);
-      mediaQuery = undefined;
-      mediaQueryHandler = undefined;
-    }
+    offMediaQuery?.();
+    offMediaQuery = undefined;
 
     if (scheme === "dark") {
       applyDarkClass(true);
     } else if (scheme === "light") {
       applyDarkClass(false);
     } else {
-      mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      mediaQueryHandler = (e) => applyDarkClass(e.matches);
+      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
       applyDarkClass(mediaQuery.matches);
-      mediaQuery.addEventListener("change", mediaQueryHandler);
+      offMediaQuery = on(mediaQuery, "change", (e) => applyDarkClass(e.matches));
     }
   }
 
@@ -114,9 +110,7 @@ export function mountRw(target: HTMLElement, options: MountOptions): RwInstance 
 
   return {
     destroy: () => {
-      if (mediaQuery && mediaQueryHandler) {
-        mediaQuery.removeEventListener("change", mediaQueryHandler);
-      }
+      offMediaQuery?.();
       void unmount(instance);
       target.removeAttribute("data-rw-viewer");
     },

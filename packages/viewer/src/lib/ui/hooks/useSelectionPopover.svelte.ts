@@ -1,3 +1,4 @@
+import { on } from "svelte/events";
 import type { ElementSize } from "./useElementSize.svelte";
 
 /**
@@ -94,8 +95,7 @@ export function useSelectionPopover(
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
       captureRange(sel.getRangeAt(0));
     };
-    document.addEventListener("mouseup", handler);
-    return () => document.removeEventListener("mouseup", handler);
+    return on(document, "mouseup", handler);
   });
 
   // Dismiss when the selection collapses (e.g. the user clicks on the selected
@@ -109,8 +109,7 @@ export function useSelectionPopover(
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed) range = null;
     };
-    document.addEventListener("selectionchange", handler);
-    return () => document.removeEventListener("selectionchange", handler);
+    return on(document, "selectionchange", handler);
   });
 
   return {

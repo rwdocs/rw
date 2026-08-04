@@ -7,6 +7,8 @@
  * @param container - The container element to search for tabs
  * @returns A cleanup function to remove all event listeners
  */
+import { on } from "svelte/events";
+
 export function initializeTabs(container: HTMLElement): () => void {
   const tabContainers = container.querySelectorAll<HTMLElement>(".tabs");
   const cleanups: (() => void)[] = [];
@@ -33,28 +35,22 @@ function initializeTabContainer(container: HTMLElement): () => void {
   const tabs = Array.from(tablist.querySelectorAll<HTMLElement>('[role="tab"]'));
   if (tabs.length === 0) return () => {};
 
-  const clickHandlers: Array<{ tab: HTMLElement; handler: () => void }> = [];
+  const offClicks: Array<() => void> = [];
 
   // Add click handlers to all tabs
   for (const tab of tabs) {
-    const handler = () => {
-      activateTab(tab, tabs);
-    };
-    tab.addEventListener("click", handler);
-    clickHandlers.push({ tab, handler });
+    offClicks.push(on(tab, "click", () => activateTab(tab, tabs)));
   }
 
   // Add keyboard navigation to tablist
   const keydownHandler = (event: KeyboardEvent) => {
     handleTabKeydown(event, tabs);
   };
-  tablist.addEventListener("keydown", keydownHandler);
+  const offKeydown = on(tablist, "keydown", keydownHandler);
 
   return () => {
-    for (const { tab, handler } of clickHandlers) {
-      tab.removeEventListener("click", handler);
-    }
-    tablist.removeEventListener("keydown", keydownHandler);
+    for (const off of offClicks) off();
+    offKeydown();
   };
 }
 

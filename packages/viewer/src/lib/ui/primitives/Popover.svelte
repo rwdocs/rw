@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { on } from "svelte/events";
   import { useAnchorOffset } from "../hooks/useAnchorOffset.svelte";
 
   type Placement = "top" | "bottom" | "left" | "right";
@@ -217,11 +218,11 @@
       }
     }
 
-    document.addEventListener("click", onClick, true);
-    window.addEventListener("keydown", onKeydown);
+    const offClick = on(document, "click", onClick, { capture: true });
+    const offKeydown = on(window, "keydown", onKeydown);
     return () => {
-      document.removeEventListener("click", onClick, true);
-      window.removeEventListener("keydown", onKeydown);
+      offClick();
+      offKeydown();
     };
   }
 </script>

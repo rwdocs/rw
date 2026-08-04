@@ -1,3 +1,5 @@
+import { on } from "svelte/events";
+
 /** Class marking the injected expand button (also used to guard against double-injection). */
 export const EXPAND_BUTTON_CLASS = "diagram-expand-btn";
 
@@ -19,7 +21,7 @@ export function initializeDiagramZoom(
   onOpen: (figure: HTMLElement) => void,
 ): () => void {
   const figures = container.querySelectorAll<HTMLElement>("figure.diagram:not(.diagram-error)");
-  const injected: Array<{ button: HTMLButtonElement; handler: () => void }> = [];
+  const injected: Array<{ button: HTMLButtonElement; off: () => void }> = [];
 
   for (const figure of figures) {
     // Idempotency guard: never add a second button to the same figure.
@@ -31,16 +33,15 @@ export function initializeDiagramZoom(
     button.setAttribute("aria-label", "Expand diagram");
     button.innerHTML = ICON_SVG;
 
-    const handler = () => onOpen(figure);
-    button.addEventListener("click", handler);
+    const off = on(button, "click", () => onOpen(figure));
 
     figure.appendChild(button);
-    injected.push({ button, handler });
+    injected.push({ button, off });
   }
 
   return () => {
-    for (const { button, handler } of injected) {
-      button.removeEventListener("click", handler);
+    for (const { button, off } of injected) {
+      off();
       button.remove();
     }
   };

@@ -1,4 +1,5 @@
 import { untrack } from "svelte";
+import { on } from "svelte/events";
 
 /** Where "you are here" sits, as a fraction of the viewport height. */
 const LINE_FRACTION = 0.2;
@@ -224,12 +225,12 @@ export function useActiveHeading(headingIds: () => string[]): ActiveHeading {
     }
     function done(): void {
       clearTimeout(fallback);
-      window.removeEventListener("scrollend", settle, { capture: true });
+      offScrollend();
       detachSettle = null;
     }
     const fallback = setTimeout(settle, 500);
+    const offScrollend = on(window, "scrollend", settle, { once: true, capture: true });
     detachSettle = done;
-    window.addEventListener("scrollend", settle, { once: true, capture: true });
   }
 
   $effect(() => {
@@ -305,8 +306,8 @@ export function useActiveHeading(headingIds: () => string[]): ActiveHeading {
     // Capture phase: scroll events from an ancestor scroll container never reach
     // a bubbling window listener, and a host app embedding the viewer may own
     // the scroller.
-    window.addEventListener("scroll", schedule, { capture: true, passive: true });
-    window.addEventListener("resize", schedule);
+    const offScroll = on(window, "scroll", schedule, { capture: true, passive: true });
+    const offResize = on(window, "resize", schedule);
     // Content above a heading can reflow it past the line with no scroll and no
     // window resize: a late diagram or image, a web-font swap, the comments
     // panel widening the column.
@@ -333,8 +334,8 @@ export function useActiveHeading(headingIds: () => string[]): ActiveHeading {
       abandonChoice();
       if (frame !== 0) cancelAnimationFrame(frame);
       reflow.disconnect();
-      window.removeEventListener("scroll", schedule, { capture: true });
-      window.removeEventListener("resize", schedule);
+      offScroll();
+      offResize();
     };
   });
 

@@ -165,6 +165,7 @@
             class="after:mx-2 after:text-gray-400 after:content-['/'] dark:after:text-neutral-500"
           >
             <button
+              type="button"
               bind:this={ellipsisEl}
               onclick={toggle}
               class="
