@@ -364,6 +364,37 @@ export default defineConfig([
       // `{@const}` is the older spelling of `{const}`; both compile, and mixing
       // them means grepping for two forms.
       "svelte/no-at-const-tags": "error",
+
+      // `bind:value` on a checkbox compiles, renders, and never binds.
+      "svelte/no-bind-value-on-checkable-inputs": "error",
+      // A dynamic slot name renders nothing instead of failing.
+      "svelte/no-dynamic-slot-name": "error",
+      // Covers this package's own markup. Links inside rendered documents come
+      // from the Rust renderer, which ESLint never sees.
+      "svelte/no-target-blank": "error",
+      // A dropped unsubscribe reads as a slow memory climb.
+      "svelte/no-ignored-unsubscribe": "error",
+      // Nothing renders server-side, so a top-level `window` read would break
+      // only once something does.
+      "svelte/no-top-level-browser-globals": "error",
+
+      // Runes replaced stores here, so these four guard a pattern that would
+      // have to come back before they matter. `prefer-destructured-store-props`
+      // looks like it belongs with them and does not: despite the name it also
+      // fires on `$state` reads, and rewriting those changes how state is read.
+      "svelte/prefer-derived-over-derived-by": "error",
+      "svelte/require-store-callbacks-use-set-param": "error",
+      "svelte/require-stores-init": "error",
+      "svelte/derived-has-same-inputs-outputs": "error",
+
+      "svelte/block-lang": ["error", { script: "ts" }],
+      "svelte/prefer-const": "error",
+      "svelte/prefer-style-directive": "error",
+      "svelte/no-extra-reactive-curlies": "error",
+      "svelte/no-nested-style-tag": "error",
+      "svelte/no-conflicting-module-names": "error",
+      "svelte/valid-style-parse": "error",
+
       // `linterOptions.reportUnusedDisableDirectives` reads JS comments only.
       // Markup directives are this plugin's, and it reports a stale one only
       // when asked.
