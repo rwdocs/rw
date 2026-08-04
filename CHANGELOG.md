@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Pages served by `rw serve` now show the rw icon in the browser tab, and an app icon when the site is saved to an iOS home screen.
 
+### Changed
+
+- `@rwdocs/viewer` now declares Node `^22.13.0 || >=24`, up from `>=22.12.0`. The old range was wrong in both directions: Node 22.12 cannot install the package's own toolchain, and no Node 23 release was ever supported.
+
 ### Fixed
 
 - The "On this page" outline now follows the reader. It could leave a middle entry highlighted after you switched documents, and never highlighted a final entry the page could not scroll far enough to reach.

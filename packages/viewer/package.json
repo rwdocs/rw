@@ -71,7 +71,7 @@
     "LICENSE-APACHE"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": "^22.13.0 || >=24"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.2.8",
