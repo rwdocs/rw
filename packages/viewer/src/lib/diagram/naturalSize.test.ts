@@ -21,6 +21,20 @@ describe("naturalSizeOf (svg)", () => {
     });
   });
 
+  it("accepts fractional lengths, with or without a leading digit", () => {
+    expect(naturalSizeOf(makeSvg({ width: "300.5", height: "150.25px" }))).toEqual({
+      w: 300.5,
+      h: 150.25,
+    });
+    expect(naturalSizeOf(makeSvg({ width: ".5", height: ".25px" }))).toEqual({ w: 0.5, h: 0.25 });
+  });
+
+  it("rejects a trailing decimal point, falling back to viewBox", () => {
+    expect(
+      naturalSizeOf(makeSvg({ width: "300.", height: "150.", viewBox: "0 0 640 480" })),
+    ).toEqual({ w: 640, h: 480 });
+  });
+
   it("falls back to viewBox when width/height are missing or non-px", () => {
     expect(naturalSizeOf(makeSvg({ viewBox: "0 0 800 400" }))).toEqual({ w: 800, h: 400 });
     // percentage width is not usable -> viewBox wins

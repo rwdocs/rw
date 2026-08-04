@@ -3,7 +3,7 @@ import { parseViewBox, type Size } from "./zoomMath";
 /** Parse a length attribute as px; returns null for missing, non-numeric, or non-px (e.g. "100%"). */
 function parsePx(value: string | null): number | null {
   if (!value) return null;
-  const m = /^\s*([0-9]*\.?[0-9]+)(px)?\s*$/.exec(value);
+  const m = /^\s*(\d+(?:\.\d+)?|\.\d+)(?:px)?\s*$/.exec(value);
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) && n > 0 ? n : null;

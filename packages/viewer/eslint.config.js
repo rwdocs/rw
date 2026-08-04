@@ -1,6 +1,7 @@
 import eslintPluginBetterTailwindcss from "eslint-plugin-better-tailwindcss";
 import boundaries from "eslint-plugin-boundaries";
 import playwright from "eslint-plugin-playwright";
+import regexp from "eslint-plugin-regexp";
 import svelte from "eslint-plugin-svelte";
 import vitest from "@vitest/eslint-plugin";
 import js from "@eslint/js";
@@ -400,6 +401,12 @@ export default defineConfig([
     // component outside `src/` would otherwise fail to parse.
     files: ["**/*.svelte"],
     languageOptions: svelteLanguageOptions,
+  },
+  // A regex literal is opaque to every other rule here: an ambiguous quantifier
+  // that backtracks super-linearly type-checks and lints clean.
+  {
+    extends: [regexp.configs["flat/recommended"]],
+    files: ["src/**/*.{ts,svelte,svelte.ts}", "e2e/**/*.ts", "*.config.ts", "vite-plugin-*.ts"],
   },
   // Layer dependency rules per design-kit spec §2.2. The kit (`src/lib/ui/**`)
   // must remain free of RW domain knowledge so it can be lifted into a
