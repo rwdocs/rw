@@ -5,6 +5,9 @@
   "workspaces": [
     "packages/*"
   ],
+  "engines": {
+    "node": "^22.13.0 || >=24"
+  },
   "scripts": {
     "knip": "knip --treat-config-hints-as-errors",
     "lint": "eslint .",

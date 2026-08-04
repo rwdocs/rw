@@ -57,6 +57,13 @@ rw-kroki (Rust) → Node.js objects
 - **Rust requirements**: Edition 2024, Rust 1.97+. `rust-toolchain.toml` pins the
   exact channel; `rust-version` in the workspace manifest tracks it, so bump both
   together
+- **Node requirements**: `^22.13.0 || >=24`, declared identically in the root
+  `package.json` and in `packages/viewer`. It tracks the dev toolchain, not the
+  shipped artifact — ESLint and jsdom set the 22.13 floor and nothing supports
+  the 23 line, while the viewer's runtime dependencies declare no `engines` at
+  all. So it moves when the tooling does, and the two copies must move together.
+  Node 20 satisfies every dependency but is excluded deliberately: it reached
+  end of life on 2026-04-30.
 - **PlantUML**: A `plantuml` fence becomes a diagram request resolved by
   `rw-kroki` — inline SVG by default. `rw-confluence` appends `format=png`,
   writes the bytes into the bundle directory, and uploads them as attachments
