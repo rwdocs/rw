@@ -1,3 +1,5 @@
+import { on } from "svelte/events";
+
 /** Extract document path for API calls (strip leading slash) */
 export function extractDocPath(urlPath: string): string {
   return urlPath.replace(/^\//, "");
@@ -177,16 +179,12 @@ export class Router {
     const clickTarget: Document | HTMLElement =
       this.embedded && rootElement ? rootElement : document;
 
-    if (!this.embedded) {
-      window.addEventListener("popstate", handlePopState);
-    }
-    clickTarget.addEventListener("click", handleClick as EventListener);
+    const offPopState = this.embedded ? null : on(window, "popstate", handlePopState);
+    const offClick = on(clickTarget, "click", handleClick as EventListener);
 
     return () => {
-      if (!this.embedded) {
-        window.removeEventListener("popstate", handlePopState);
-      }
-      clickTarget.removeEventListener("click", handleClick as EventListener);
+      offPopState?.();
+      offClick();
     };
   };
 }

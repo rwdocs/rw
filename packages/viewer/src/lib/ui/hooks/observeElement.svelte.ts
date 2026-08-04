@@ -16,6 +16,8 @@
  * Implementation detail of `useElementSize` / `useAnchorOffset` — not exported
  * outside the hooks/ layer.
  */
+import { on } from "svelte/events";
+
 export function observeElement(
   getEl: () => HTMLElement | null,
   onMeasure: (el: HTMLElement) => void,
@@ -30,16 +32,14 @@ export function observeElement(
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
-    if (trackWindow) {
-      window.addEventListener("scroll", measure, { capture: true, passive: true });
-      window.addEventListener("resize", measure);
-    }
+    const offScroll = trackWindow
+      ? on(window, "scroll", measure, { capture: true, passive: true })
+      : undefined;
+    const offResize = trackWindow ? on(window, "resize", measure) : undefined;
     return () => {
       observer.disconnect();
-      if (trackWindow) {
-        window.removeEventListener("scroll", measure, { capture: true });
-        window.removeEventListener("resize", measure);
-      }
+      offScroll?.();
+      offResize?.();
     };
   });
 }

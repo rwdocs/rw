@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { on } from "svelte/events";
   import IconButton from "$lib/ui/primitives/IconButton.svelte";
   import Button from "$lib/ui/primitives/Button.svelte";
   import ButtonGroup from "$lib/ui/primitives/ButtonGroup.svelte";
@@ -172,8 +173,7 @@
   $effect(() => {
     if (!viewportEl) return;
     const onResize = () => remeasure();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    return on(window, "resize", onResize);
   });
 
   function zoomAt(clientX: number, clientY: number, targetScale: number, rect?: DOMRect) {
@@ -334,8 +334,7 @@
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       zoomAt(e.clientX, e.clientY, currentScale() * factor);
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    return on(el, "wheel", onWheel, { passive: false });
   });
 
   function onPointerDown(e: PointerEvent) {

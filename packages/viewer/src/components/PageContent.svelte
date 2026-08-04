@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
+  import { on } from "svelte/events";
   import { getRwContext } from "$lib/context";
   import { initializeTabs } from "$lib/tabs";
   import { initializeDiagramZoom } from "$lib/diagram/initializeDiagramZoom";
@@ -313,8 +314,7 @@
       if (comments.linkedId === id) comments.linkedId = null;
       landOnComment(id, () => parseCommentHash(window.location.hash) === id);
     }
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    return on(window, "popstate", onPopState);
   });
 
   // Outbound: mirror the open inline/active thread into the address bar (both

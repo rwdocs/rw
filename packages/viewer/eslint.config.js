@@ -340,9 +340,30 @@ export default defineConfig([
     extends: [svelte.configs.recommended],
     files: ["src/**/*.svelte.ts"],
   },
+  // Svelte delegates 24 event types — click, keydown, input, pointerdown and so
+  // on — to the root, so a `window`/`document` listener added with
+  // `addEventListener` sits outside that system and fires in whatever order the
+  // DOM gives it relative to `onclick={…}` handlers. `on` runs the delegation
+  // first and honours a `stopPropagation` from it, and returns an unsubscribe
+  // bound to the wrapper it registered, so a teardown cannot drift from it.
+  // Scoped past `.svelte` because the DOM helpers under `lib/` are plain `.ts`,
+  // and the split would otherwise fall on file extension rather than on anything
+  // real. `e2e/` is excluded: those calls sit inside `page.evaluate`, which runs
+  // in the browser and cannot import from Svelte.
+  {
+    files: ["src/**/*.{ts,svelte,svelte.ts}"],
+    ignores: ["src/**/*.test.ts"],
+    plugins: { svelte },
+    rules: { "svelte/no-add-event-listener": "error" },
+  },
   {
     files: ["src/**/*.{svelte,svelte.ts}"],
     rules: {
+      // A `<button>` with no `type` submits the form it happens to sit in.
+      "svelte/button-has-type": "error",
+      // `{@const}` is the older spelling of `{const}`; both compile, and mixing
+      // them means grepping for two forms.
+      "svelte/no-at-const-tags": "error",
       // `linterOptions.reportUnusedDisableDirectives` reads JS comments only.
       // Markup directives are this plugin's, and it reports a stale one only
       // when asked.

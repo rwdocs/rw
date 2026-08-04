@@ -1,3 +1,4 @@
+import { on } from "svelte/events";
 import "./fonts.css";
 import "./app.css";
 import App from "./App.svelte";
@@ -9,7 +10,7 @@ function syncDarkMode() {
     document.documentElement.classList.toggle("dark", mq.matches);
   };
   apply();
-  mq.addEventListener("change", apply);
+  on(mq, "change", apply);
 }
 
 syncDarkMode();

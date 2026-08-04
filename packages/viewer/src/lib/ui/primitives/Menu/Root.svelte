@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { on } from "svelte/events";
   import Popover from "../Popover.svelte";
   import { menuContext } from "./context";
 
@@ -184,12 +185,12 @@
     const el = anchorEl;
     el.setAttribute("aria-haspopup", "menu");
     el.setAttribute("aria-controls", menuId);
-    el.addEventListener("keydown", onTriggerKeydown);
+    const offKeydown = on(el, "keydown", onTriggerKeydown);
     return () => {
       el.removeAttribute("aria-haspopup");
       el.removeAttribute("aria-controls");
       el.removeAttribute("aria-expanded");
-      el.removeEventListener("keydown", onTriggerKeydown);
+      offKeydown();
     };
   });
 

@@ -108,11 +108,11 @@ describe("initRouter", () => {
   });
 
   it("registers popstate listener", () => {
-    expect(window.addEventListener).toHaveBeenCalledWith("popstate", expect.any(Function));
+    expect(popstateHandler).toBeTypeOf("function");
   });
 
   it("registers click listener", () => {
-    expect(document.addEventListener).toHaveBeenCalledWith("click", expect.any(Function));
+    expect(clickHandler).toBeTypeOf("function");
   });
 
   describe("popstate handler", () => {
@@ -123,7 +123,7 @@ describe("initRouter", () => {
         configurable: true,
       });
 
-      popstateHandler!({} as PopStateEvent);
+      popstateHandler!(new PopStateEvent("popstate"));
 
       expect(router.path).toBe("/back-path");
       expect(router.hash).toBe("");
@@ -136,7 +136,7 @@ describe("initRouter", () => {
         configurable: true,
       });
 
-      popstateHandler!({} as PopStateEvent);
+      popstateHandler!(new PopStateEvent("popstate"));
 
       expect(router.path).toBe("/back-path");
       expect(router.hash).toBe("section");
@@ -149,7 +149,7 @@ describe("initRouter", () => {
         configurable: true,
       });
 
-      popstateHandler!({} as PopStateEvent);
+      popstateHandler!(new PopStateEvent("popstate"));
 
       expect(router.hash).toBe("привет");
     });

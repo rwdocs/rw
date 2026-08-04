@@ -1,3 +1,5 @@
+import { on } from "svelte/events";
+
 export interface CommentNavigationDeps {
   /** Current navigable comment ids, in order. Read fresh on each keypress. */
   navigable: () => string[];
@@ -108,8 +110,7 @@ export function useCommentNavigation(deps: CommentNavigationDeps): CommentNaviga
         announce(`Comment ${result.index + 1} of ${result.total}${authorSuffix(result.author)}`);
       }
     }
-    window.addEventListener("keydown", onKeydown);
-    return () => window.removeEventListener("keydown", onKeydown);
+    return on(window, "keydown", onKeydown);
   });
 
   return {

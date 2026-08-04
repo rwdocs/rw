@@ -145,7 +145,7 @@
   </div>
 
   {#snippet threadCard(thread: Comment, quoteTitle?: string)}
-    {@const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
+    {const quote = thread.selectors.length > 0 ? findQuote(thread.selectors) : null}
     <!-- The card carries its own targeting: domId (deep-link scroll/focus),
          threadId (data-thread-id, keyboard-nav target), and linked (the tint). -->
     <CommentThread

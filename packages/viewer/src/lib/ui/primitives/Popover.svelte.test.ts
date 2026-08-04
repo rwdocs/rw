@@ -354,7 +354,10 @@ describe("Popover", () => {
 
         // The dismiss attachment installs a capture-phase click listener
         // while the panel is open.
-        const clickCall = addSpy.mock.calls.find((call) => call[0] === "click" && call[2] === true);
+        const clickCall = addSpy.mock.calls.find(
+          (call) =>
+            call[0] === "click" && (call[2] as AddEventListenerOptions | undefined)?.capture,
+        );
         expect(clickCall).toBeTruthy();
 
         await fireEvent.keyDown(window, { key: "Escape" });
@@ -363,7 +366,7 @@ describe("Popover", () => {
 
         // Closing unmounts the panel, so the attachment teardown ran and
         // removed the exact listener it installed.
-        expect(removeSpy).toHaveBeenCalledWith("click", clickCall![1], true);
+        expect(removeSpy).toHaveBeenCalledWith("click", clickCall![1], clickCall![2]);
       } finally {
         addSpy.mockRestore();
         removeSpy.mockRestore();

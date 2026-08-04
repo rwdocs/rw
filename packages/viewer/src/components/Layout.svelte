@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { on } from "svelte/events";
   import type { Snippet } from "svelte";
   import { getRwContext } from "$lib/context";
   import NavigationSidebar from "./NavigationSidebar.svelte";
@@ -114,8 +115,7 @@
         activeHeading.choose(id, { scrollTo: () => element.scrollIntoView({ behavior: "auto" }) });
       }
     }
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    return on(window, "popstate", onPopState);
   });
 
   // Scroll to top when navigating to a new page (without hash)

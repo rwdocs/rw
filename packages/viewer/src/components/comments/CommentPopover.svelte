@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { on } from "svelte/events";
   import { getRwContext } from "$lib/context";
   import Popover from "$lib/ui/primitives/Popover.svelte";
   import CommentPanel from "./CommentPanel.svelte";
@@ -62,11 +63,11 @@
         if (restoreEl?.isConnected) restoreEl.focus();
       }
     }
-    document.addEventListener("click", onClick, true);
-    window.addEventListener("keydown", onKeydown);
+    const offClick = on(document, "click", onClick, { capture: true });
+    const offKeydown = on(window, "keydown", onKeydown);
     return () => {
-      document.removeEventListener("click", onClick, true);
-      window.removeEventListener("keydown", onKeydown);
+      offClick();
+      offKeydown();
     };
   }
 </script>

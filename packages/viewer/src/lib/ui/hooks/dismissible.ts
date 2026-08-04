@@ -5,6 +5,8 @@
  * Usage in a Svelte 5 component:
  *   $effect(() => dismissible(isOpen, containerEl, closeFunction));
  */
+import { on } from "svelte/events";
+
 export function dismissible(
   isOpen: boolean,
   containerEl: HTMLElement | undefined,
@@ -22,11 +24,11 @@ export function dismissible(
     if (e.key === "Escape") close();
   }
 
-  document.addEventListener("click", handleClick, true);
-  window.addEventListener("keydown", handleKeydown);
+  const offClick = on(document, "click", handleClick, { capture: true });
+  const offKeydown = on(window, "keydown", handleKeydown);
 
   return () => {
-    document.removeEventListener("click", handleClick, true);
-    window.removeEventListener("keydown", handleKeydown);
+    offClick();
+    offKeydown();
   };
 }

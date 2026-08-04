@@ -1,3 +1,5 @@
+import { on } from "svelte/events";
+
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -73,10 +75,10 @@ export function trapFocus(node: HTMLElement): () => void {
     }
   }
 
-  node.addEventListener("keydown", onKeydown);
+  const offKeydown = on(node, "keydown", onKeydown);
 
   return () => {
-    node.removeEventListener("keydown", onKeydown);
+    offKeydown();
     if (previouslyFocused?.isConnected) {
       previouslyFocused.focus();
     }
