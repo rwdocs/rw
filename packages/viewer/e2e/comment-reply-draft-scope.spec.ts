@@ -1,28 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import { createComment, resolveAllComments, resolveDocumentId } from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
 test.describe.configure({ mode: "serial" });
 
-// Dedicated page so these tests never share comment rows with other specs.
-const PAGE_PATH = "/getting-started/configuration";
-const PAGE_URL = "getting-started/configuration";
-const ANCHOR_ONE = "configure the platform";
-const ANCHOR_TWO = "Later sources override earlier ones";
-
-/** POST a comment to the REST API from the browser context. Returns its id. */
-async function postComment(page: Page, payload: Record<string, unknown>): Promise<string> {
-  return page.evaluate(async (body) => {
-    const res = await fetch("/_api/comments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`create comment failed: ${res.status}`);
-    return ((await res.json()) as { id: string }).id;
-  }, payload);
-}
+// This spec's own page — see `comment-helpers.ts`.
+const PAGE_PATH = "/advanced/plugins";
+const PAGE_URL = "advanced/plugins";
+const ANCHOR_ONE = "develop custom plugins";
+const ANCHOR_TWO = "step-by-step instructions";
 
 /** Seed an inline comment anchored to `anchorText` (a passage present verbatim
  *  in the article) via the REST API, so it loads as an inline thread in the
@@ -33,7 +20,7 @@ async function seedInlineComment(
   anchorText: string,
   body: string,
 ): Promise<string> {
-  return postComment(page, {
+  return createComment(page, {
     documentId,
     body,
     selectors: [{ type: "TextQuoteSelector", exact: anchorText, prefix: "", suffix: "" }],

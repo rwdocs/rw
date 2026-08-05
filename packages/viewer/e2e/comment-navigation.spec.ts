@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import { createComment, resolveAllComments, resolveDocumentId } from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
@@ -76,19 +76,6 @@ async function createPageComment(page: Page, body: string) {
   await section.getByRole("button", { name: "Comment", exact: true }).click();
 }
 
-/** POST a comment to the REST API from the browser context. Returns its id. */
-async function postComment(page: Page, payload: Record<string, unknown>): Promise<string> {
-  return page.evaluate(async (body) => {
-    const res = await fetch("/_api/comments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`create comment failed: ${res.status}`);
-    return ((await res.json()) as { id: string }).id;
-  }, payload);
-}
-
 /** Create a page-level comment (no selectors → no anchor) with `replyCount`
  *  replies. Returns the root comment id. */
 async function createPageCommentWithReplies(
@@ -97,9 +84,9 @@ async function createPageCommentWithReplies(
   body: string,
   replyCount: number,
 ): Promise<string> {
-  const rootId = await postComment(page, { documentId, body });
+  const rootId = await createComment(page, { documentId, body });
   for (let i = 0; i < replyCount; i++) {
-    await postComment(page, { documentId, parentId: rootId, body: `reply number ${i + 1}` });
+    await createComment(page, { documentId, parentId: rootId, body: `reply number ${i + 1}` });
   }
   return rootId;
 }
@@ -108,7 +95,7 @@ async function createPageCommentWithReplies(
  *  current document — the viewer treats it as an orphaned inline comment and
  *  surfaces it in the page-comments timeline. Returns the new comment id. */
 async function createOrphanComment(page: Page, documentId: string, body: string): Promise<string> {
-  return postComment(page, {
+  return createComment(page, {
     documentId,
     body,
     selectors: [

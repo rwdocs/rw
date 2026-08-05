@@ -30,6 +30,29 @@ function mkComment(over: Partial<Comment> & { id: string }): Comment {
   };
 }
 
+/** A client whose `list` hands its resolver to `pending` instead of settling,
+ *  so a test can decide exactly when — and in what order relative to a
+ *  mutation — each response lands. The mutation methods are inert unless the
+ *  test supplies them. */
+function deferredClient(stubs: Partial<CommentApiClient> = {}) {
+  const pending: ((v: Comment[]) => void)[] = [];
+  const rejects: ((e: unknown) => void)[] = [];
+  const client = {
+    list: vi.fn(
+      () =>
+        new Promise<Comment[]>((res, rej) => {
+          pending.push(res);
+          rejects.push(rej);
+        }),
+    ),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    ...stubs,
+  } satisfies CommentApiClient;
+  return { client, pending, rejects };
+}
+
 const quoteSel = [{ type: "TextQuoteSelector", exact: "x" }] as Comment["selectors"];
 
 describe("Comments deep-link state", () => {
@@ -153,6 +176,21 @@ describe("Comments.load", () => {
     await p1.catch(() => {});
   });
 
+  it("issues no request at all while comments are disabled", async () => {
+    // The backend decides whether comments exist; `enabled` stays false until
+    // `/config` says otherwise. Loading anyway costs a 404 per navigation and an
+    // error toast for a feature the reader never turned on.
+    const client = makeClient([mkComment({ id: "c1" })]);
+    const notify = vi.fn();
+    const c = new Comments(client, notify);
+
+    await c.load("a.md");
+
+    expect(client.list).not.toHaveBeenCalled();
+    expect(c.items).toEqual([]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it("does not toggle loading when silent", async () => {
     const comments = new Comments(makeClient(), () => {});
     comments.enabled = true;
@@ -239,11 +277,11 @@ describe("Comments.load", () => {
     await p1.catch(() => {});
   });
 
-  it("clear() aborts the in-flight load's fetch so its AbortError is swallowed", async () => {
+  it("clear() aborts the in-flight load's fetch so its rejection is swallowed", async () => {
     // Production-faithful: clear() calls abortController.abort(), which makes a
-    // real fetch reject with a DOMException AbortError — the load() catch's
-    // `e.name === "AbortError"` branch then returns without touching items or
-    // notifying. The mock mirrors that by rejecting when its signal aborts.
+    // real fetch reject — with a DOMException here, as the browser does. The
+    // catch returns on `signal.aborted` without touching items or notifying,
+    // whatever the rejection turns out to be.
     const notify = vi.fn();
     const client = {
       list: vi.fn(
@@ -299,6 +337,28 @@ describe("Comments.load", () => {
 
     // The cleared list must stay empty — the superseded fetch is dropped.
     expect(c.items).toEqual([]);
+  });
+
+  it("drops the previous document's rows as soon as a new document starts loading", async () => {
+    // Nothing between `items` and the rendered threads filters by documentId, so
+    // holding on to a.md's rows while b.md loads renders them under b.md — and
+    // if b.md's load then fails, they stay there.
+    const { client, pending } = deferredClient();
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const first = c.load("a.md");
+    await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(1));
+    pending[0]([mkComment({ id: "a1", documentId: "a.md" })]);
+    await first;
+    expect(c.items.map((i) => i.id)).toEqual(["a1"]);
+
+    const second = c.load("b.md"); // b.md's list deferred: still in flight
+    await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(2));
+    expect(c.items).toEqual([]);
+
+    pending[1]([]);
+    await second;
   });
 
   it("preserves a pending draft on a silent refetch of the same document", async () => {
@@ -646,5 +706,541 @@ describe("Comments.subscribe facade", () => {
 
     expect(comments.canSubscribe).toBe(false);
     expect(comments.subscribe("doc-1", () => {})).toBeUndefined();
+  });
+});
+
+describe("Comments load/mutation race", () => {
+  /** Block until `load` has issued its `n`th `apiClient.list` call, so the test
+   *  drives the next step against a request that is actually in flight. */
+  const listIssued = (client: CommentApiClient, n: number) =>
+    vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(n));
+
+  /** {@link deferredClient} whose `create` answers with `rows` in order. A test
+   *  that creates twice must hand out two distinct rows, or the second create
+   *  hits `create`'s own dedupe, changes nothing, and counts as no write at
+   *  all. */
+  function deferredListClient(...rows: Comment[]) {
+    let created = 0;
+    return deferredClient({ create: vi.fn(async () => rows[created++]) });
+  }
+
+  const newComment = () => ({ documentId: "a.md", body: "b", selectors: [] });
+
+  it("keeps both the created comment and the server's rows when a list resolves after a create", async () => {
+    // The production failure: an initial load is in flight, the user posts a
+    // comment, and the list response — which the server built before the POST
+    // landed — arrives afterwards. Applying it verbatim drops the new comment;
+    // discarding it loses every other comment on the document. Neither is
+    // acceptable, so the response is applied with the posted row laid back over
+    // it, and one request answers the whole load.
+    const created = mkComment({ id: "new", documentId: "a.md", createdAt: "2026-01-02T00:00:00Z" });
+    const stale = [mkComment({ id: "old", documentId: "a.md" })];
+    const { client, pending } = deferredListClient(created);
+
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const p = c.load("a.md");
+    await listIssued(client, 1);
+    await c.create(newComment());
+
+    pending[0](stale); // the raced response arrives
+    await p;
+
+    expect(c.items.map((i) => i.id)).toEqual(["old", "new"]);
+    expect(client.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the created comment when a non-silent load fails after a create", async () => {
+    // Same lost write reached through the error exit: the catch's
+    // `this.items = []` must not blank a row the server has already accepted.
+    const created = mkComment({ id: "new", documentId: "a.md" });
+    const { client, rejects } = deferredListClient(created);
+    const notify = vi.fn();
+
+    const c = new Comments(client, notify);
+    c.enabled = true;
+
+    const p = c.load("a.md");
+    await listIssued(client, 1);
+    await c.create(newComment());
+
+    rejects[0](new Error("boom"));
+    await p;
+
+    expect(c.items.map((i) => i.id)).toEqual(["new"]);
+    // The user asked for this load, so the failure is still reported — keeping
+    // the row and staying silent about the failure are separate decisions.
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(client.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the created comment and stays quiet when a silent refresh fails", async () => {
+    // The exit `silent` actually changes. A live-reload refresh the user never
+    // asked for must not blank the row they just posted, and must not raise a
+    // toast for a request they did not make.
+    const created = mkComment({ id: "new", documentId: "a.md" });
+    const { client, rejects } = deferredListClient(created);
+    const notify = vi.fn();
+
+    const c = new Comments(client, notify);
+    c.enabled = true;
+
+    const p = c.load("a.md", { silent: true });
+    await listIssued(client, 1);
+    await c.create(newComment());
+
+    rejects[0](new Error("boom"));
+    await p;
+
+    expect(c.items.map((i) => i.id)).toEqual(["new"]);
+    expect(notify).not.toHaveBeenCalled();
+    expect(c.loading).toBe(false);
+  });
+
+  it("applies a load that no mutation raced", async () => {
+    // Negative control for the two above: a load with nothing to lay back over
+    // it must apply the server's answer as it stands.
+    const server = [mkComment({ id: "c1", documentId: "a.md" })];
+    const client = makeClient(server);
+
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+    await c.load("a.md");
+
+    expect(c.items.map((i) => i.id)).toEqual(["c1"]);
+    expect(client.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not record a mutation answered for a document the user has left", async () => {
+    // The POST was made on another document and answered after the reader
+    // navigated here. `commit` drops the row — and must not record it either,
+    // or this document's in-flight load lays another document's comment over
+    // its answer, where it renders and anchors into the wrong text.
+    const stray = mkComment({ id: "stray", documentId: "b.md" });
+    const server = [mkComment({ id: "old", documentId: "a.md" })];
+    const { client, pending } = deferredListClient(stray);
+
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const p = c.load("a.md");
+    await listIssued(client, 1);
+    await c.create({ documentId: "b.md", body: "b", selectors: [] });
+
+    pending[0](server);
+    await p;
+
+    expect(c.items.map((i) => i.id)).toEqual(["old"]);
+    expect(client.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("lays back every row mutated during the load, not just the last", async () => {
+    // Under a mutation storm the overlay is keyed by id, so each racing write
+    // has to survive on its own; carrying a single row would drop all but one.
+    const created = mkComment({ id: "new", documentId: "a.md", createdAt: "2026-01-02T00:00:00Z" });
+    const alsoCreated = mkComment({
+      id: "newer",
+      documentId: "a.md",
+      createdAt: "2026-01-03T00:00:00Z",
+    });
+    const { client, pending } = deferredListClient(created, alsoCreated);
+
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const p = c.load("a.md");
+    await listIssued(client, 1);
+    await c.create(newComment());
+    await c.create(newComment()); // a second, distinct row
+
+    pending[0]([mkComment({ id: "old", documentId: "a.md" })]);
+    await p;
+
+    expect(c.items.map((i) => i.id)).toEqual(["old", "new", "newer"]);
+    expect(client.list).toHaveBeenCalledTimes(1);
+  });
+
+  /** A three-row thread on a.md, already on screen. `refreshWith` runs one whole
+   *  silent load and answers it with the rows given, so a test can say "another
+   *  refresh arrives, carrying this" without restating the plumbing. */
+  async function seededThread(stubs: Partial<CommentApiClient> = {}) {
+    const rows = ["r1", "r2", "r3"].map((id, i) =>
+      mkComment({ id, documentId: "a.md", createdAt: `2026-01-0${i + 1}T00:00:00Z` }),
+    );
+    const deleted = { ...rows[1], deletedAt: "2026-01-04T00:00:00Z", canRestore: true };
+    const { client, pending } = deferredClient({
+      delete: vi.fn(async () => deleted),
+      update: vi.fn(async () => rows[1]),
+      ...stubs,
+    });
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const seed = c.load("a.md");
+    await listIssued(client, 1);
+    pending[0](rows);
+    await seed;
+
+    const refreshWith = async (answer: Comment[]) => {
+      const nth = pending.length + 1;
+      const p = c.load("a.md", { silent: true });
+      await listIssued(client, nth);
+      pending[nth - 1](answer);
+      await p;
+    };
+    return { c, client, rows, deleted, pending, refreshWith };
+  }
+
+  it("keeps a deleted row in place across every later refresh", async () => {
+    // A soft delete is not a race the next answer settles, so "survives the
+    // refresh it raced" is not the property — this drives two unrelated ones.
+    // Position matters as well: the row sits mid-thread, and appending would
+    // drop it below the replies that follow it.
+    const { rows, c, client, refreshWith } = await seededThread();
+
+    // Nothing is in flight when the delete lands, which is half of the orderings
+    // the live-reload broadcast produces — the WebSocket frame and the DELETE
+    // response race on separate connections. The row has to survive that half.
+    await c.delete("r2");
+
+    await refreshWith([rows[0], rows[2]]);
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r2", "r3"]);
+    expect(c.items[1].canRestore).toBe(true);
+
+    await refreshWith([rows[0], rows[2]]);
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r2", "r3"]);
+    expect(c.items[1].canRestore).toBe(true);
+    expect(client.list).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps a deleted row when the refresh it raced still listed the row as live", async () => {
+    // A refresh is in flight whenever anyone touches a comment, so clicking
+    // Delete with one outstanding is ordinary. That answer was built before the
+    // delete, so it still carries the row — which must not be read as "someone
+    // restored it", or the record is dropped and the *next* refresh takes the
+    // row away.
+    const { rows, c, client, pending, refreshWith } = await seededThread();
+
+    const inFlight = c.load("a.md", { silent: true });
+    await listIssued(client, 2);
+    await c.delete("r2");
+    pending[1](rows); // built before the delete: r2 is still live in it
+    await inFlight;
+    expect(c.items[1].deletedAt).toBe("2026-01-04T00:00:00Z");
+
+    await refreshWith([rows[0], rows[2]]);
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r2", "r3"]);
+    expect(c.items[1].canRestore).toBe(true);
+  });
+
+  it("keeps a deleted row whose refresh answered before the delete did", async () => {
+    // The other arrival order: the server commits the delete, the refresh its
+    // broadcast triggered is served with the row already filtered out, and that
+    // answer reaches the browser first. The DELETE response then arrives for a
+    // row no longer on screen — but this reader is the reason it left, so it
+    // goes back, with the Restore control that undoes it.
+    let answerDelete: ((v: Comment) => void) | undefined;
+    const { rows, c, client, deleted, pending, refreshWith } = await seededThread({
+      delete: vi.fn(
+        () =>
+          new Promise<Comment>((res) => {
+            answerDelete = res;
+          }),
+      ),
+    });
+
+    const removing = c.delete("r2");
+    const inFlight = c.load("a.md", { silent: true });
+    await listIssued(client, 2);
+    pending[1]([rows[0], rows[2]]);
+    await inFlight;
+
+    answerDelete?.(deleted);
+    await removing;
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r2", "r3"]);
+    expect(c.items[1].canRestore).toBe(true);
+
+    await refreshWith([rows[0], rows[2]]);
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r2", "r3"]);
+  });
+
+  it("keeps a restored row when the refresh it raced predates the restore", async () => {
+    // Undoing the delete has the same exposure as making it. The list in flight
+    // was built while the row was still deleted, so it omits the row the reader
+    // has just brought back.
+    const { rows, c, client, pending } = await seededThread();
+
+    await c.delete("r2");
+    const inFlight = c.load("a.md", { silent: true });
+    await listIssued(client, 2);
+    await c.restore("r2");
+
+    pending[1]([rows[0], rows[2]]);
+    await inFlight;
+
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r2", "r3"]);
+    expect(c.items[1].deletedAt).toBeUndefined();
+  });
+
+  it("stops holding a deleted row once it is restored", async () => {
+    // The mirror of the test above: whatever keeps the row on screen has to let
+    // go when the user undoes the delete, or the thread carries a struck-through
+    // ghost with a Restore button for the rest of the session.
+    const { rows, c, refreshWith } = await seededThread();
+
+    await c.delete("r2");
+    await c.restore("r2");
+
+    // These lists still omit r2: the restore has not reached whatever built
+    // them. r2 leaving the screen is defensible; coming back struck through,
+    // for good, is not.
+    await refreshWith([rows[0], rows[2]]);
+    await refreshWith([rows[0], rows[2]]);
+
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r3"]);
+  });
+
+  it("gives a deleted row up to the server the moment it is listed again", async () => {
+    // Another reader restored the comment. The server's live row is the truth,
+    // so the held copy must neither sit beside it nor outlive it — a record kept
+    // past this point deletes the row on screen again the next time anyone else
+    // does.
+    const { rows, c, refreshWith } = await seededThread();
+
+    await c.delete("r2");
+    await refreshWith([rows[0], rows[2]]);
+    expect(c.items[1].deletedAt).toBe("2026-01-04T00:00:00Z");
+
+    await refreshWith(rows); // restored by someone else
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r2", "r3"]);
+    expect(c.items[1].deletedAt).toBeUndefined();
+
+    await refreshWith([rows[0], rows[2]]); // and deleted again, by them
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r3"]);
+  });
+
+  it("stays quiet when a load another one superseded then fails", async () => {
+    // Not every failure is an AbortError: a superseded request that already had
+    // an HTTP 500 in flight rejects with a plain Error. It must not report that
+    // to the user, and must not blank the list the load that replaced it just
+    // filled.
+    const { client, pending, rejects } = deferredClient();
+    const notify = vi.fn();
+    const c = new Comments(client, notify);
+    c.enabled = true;
+
+    const superseded = c.load("a.md");
+    await listIssued(client, 1);
+    const winner = c.load("a.md");
+    await listIssued(client, 2);
+    pending[1]([mkComment({ id: "c1", documentId: "a.md" })]);
+    await winner;
+
+    rejects[0](new Error("boom"));
+    await superseded;
+
+    expect(c.items.map((i) => i.id)).toEqual(["c1"]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect a row another reader deleted under a status change", async () => {
+    // A list omitting a row this reader just wrote means one of two things and
+    // the store must not confuse them. For a create, or for this reader's own
+    // delete, the omission is expected. For a status change it is the server
+    // reporting the row is gone, and laying the local copy back would put a
+    // comment on screen that no longer exists, with working Reply and Reopen.
+    const { rows, c, client, pending } = await seededThread({
+      update: vi.fn(async () => ({ ...rows[1], status: "resolved" as const })),
+    });
+
+    const refresh = c.load("a.md", { silent: true });
+    await listIssued(client, 2);
+    await c.resolve("r2"); // races the refresh
+
+    pending[1]([rows[0], rows[2]]); // another reader deleted r2 meanwhile
+    await refresh;
+
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r3"]);
+  });
+
+  it("ignores a status change answered for a row the page no longer shows", async () => {
+    // Nothing about a status change explains why a list would omit the row, so
+    // the omission is another reader's delete and putting the answer back would
+    // resurrect a comment that is gone. A delete answered at the same moment
+    // does the opposite (see above): its own `deletedAt` is the explanation.
+    let answerUpdate: ((v: Comment) => void) | undefined;
+    const { rows, c, client, pending, refreshWith } = await seededThread({
+      update: vi.fn(
+        () =>
+          new Promise<Comment>((res) => {
+            answerUpdate = res;
+          }),
+      ),
+    });
+
+    const resolving = c.resolve("r2"); // PATCH in flight
+    await refreshWith([rows[0], rows[2]]); // another reader deleted it meanwhile
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r3"]);
+
+    // A further refresh is running when the PATCH is finally answered, so a
+    // recorded row would be laid over that answer rather than dropped when the
+    // next load clears the window.
+    const inFlight = c.load("a.md", { silent: true });
+    await listIssued(client, 3);
+    answerUpdate?.({ ...rows[1], status: "resolved" });
+    await resolving;
+
+    pending[2]([rows[0], rows[2]]);
+    await inFlight;
+    expect(c.items.map((i) => i.id)).toEqual(["r1", "r3"]);
+  });
+
+  it("does not lay back a mutation the request could already have seen", async () => {
+    // The overlay covers the load's own window only. A row mutated before the
+    // request left is one the server had already applied, so its answer is the
+    // newer truth — including any change another reader made to that row since.
+    const mine = mkComment({ id: "c1", documentId: "a.md", body: "mine" });
+    const theirs = mkComment({ id: "c1", documentId: "a.md", body: "theirs" });
+    const pending: ((v: Comment[]) => void)[] = [];
+    const client = {
+      list: vi.fn(
+        () =>
+          new Promise<Comment[]>((res) => {
+            pending.push(res);
+          }),
+      ),
+      create: vi.fn(async () => mine),
+      update: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as CommentApiClient;
+
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const seed = c.load("a.md");
+    await listIssued(client, 1);
+    pending[0]([]);
+    await seed;
+
+    await c.create(newComment()); // completes before the next request is issued
+    const p = c.load("a.md");
+    await listIssued(client, 2);
+    pending[1]([theirs]);
+    await p;
+
+    expect(c.items.map((i) => i.body)).toEqual(["theirs"]);
+  });
+
+  it("does not append a comment a concurrent refresh already delivered", async () => {
+    // A live-reload/subscribe refresh can be triggered by the create's own
+    // server-side broadcast, which `rw serve` sends before it writes the POST
+    // response. That list request leaves after the row is committed, so it
+    // already contains the new comment — and it can land first. `create` must
+    // not append a second copy when its own response finally arrives.
+    const created = mkComment({ id: "new", documentId: "a.md" });
+    const old = mkComment({ id: "old", documentId: "a.md" });
+    let resolveCreate: ((v: Comment) => void) | undefined;
+    const { client, pending } = deferredClient({
+      create: vi.fn(
+        () =>
+          new Promise<Comment>((res) => {
+            resolveCreate = res;
+          }),
+      ),
+    });
+
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const seed = c.load("a.md");
+    await listIssued(client, 1);
+    pending[0]([old]);
+    await seed;
+
+    const posted = c.create(newComment()); // POST in flight
+    const refresh = c.load("a.md", { silent: true });
+    await listIssued(client, 2);
+    // `create` records nothing until its own response arrives, so this list has
+    // no local write to be laid over and is applied as it stands.
+    pending[1]([old, created]);
+    await refresh;
+    expect(c.items.map((i) => i.id)).toEqual(["old", "new"]);
+
+    resolveCreate?.(created);
+    await posted;
+
+    expect(c.items.map((i) => i.id)).toEqual(["old", "new"]);
+  });
+
+  it("does not record a create whose row the list already held", async () => {
+    // Same collision as the test above, seen from the load side. The create
+    // changed nothing — its row was already on screen — so the request in flight
+    // does not disagree with what the user sees, and has nothing to be laid
+    // back over.
+    const created = mkComment({ id: "new", documentId: "a.md" });
+    const old = mkComment({ id: "old", documentId: "a.md" });
+    const other = mkComment({ id: "other", documentId: "a.md" });
+    let resolveCreate: ((v: Comment) => void) | undefined;
+    const { client, pending } = deferredClient({
+      create: vi.fn(
+        () =>
+          new Promise<Comment>((res) => {
+            resolveCreate = res;
+          }),
+      ),
+    });
+
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    // Seed: a refresh has already delivered the row the POST is about to answer.
+    const seed = c.load("a.md");
+    await listIssued(client, 1);
+    pending[0]([old, created]);
+    await seed;
+
+    const posted = c.create(newComment());
+    const refresh = c.load("a.md", { silent: true });
+    await listIssued(client, 2);
+
+    resolveCreate?.(created); // no-op: `items` already holds this row
+    await posted;
+
+    // The refresh answers with a newer version of that same row — someone else
+    // edited it. A build that recorded the no-op lays the POST's older copy back
+    // over this one and silently reverts the edit on screen.
+    pending[1]([old, { ...created, body: "edited by someone else" }, other]);
+    await refresh;
+
+    expect(c.items.map((i) => i.id)).toEqual(["old", "new", "other"]);
+    expect(c.items[1].body).toBe("edited by someone else");
+    expect(client.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a status change raced by a load, without duplicating its row", async () => {
+    // The overlay replaces a row the server's list still contains, rather than
+    // adding one: a resolve/reopen/restore mutates a row the list has, so a
+    // merge that both substituted and inserted would show the thread twice.
+    const open = mkComment({ id: "c1", documentId: "a.md", status: "open" });
+    const resolved = { ...open, status: "resolved" as const };
+    const { client, pending } = deferredClient({ update: vi.fn(async () => resolved) });
+
+    const c = new Comments(client, () => {});
+    c.enabled = true;
+
+    const seed = c.load("a.md");
+    await listIssued(client, 1);
+    pending[0]([open]);
+    await seed;
+
+    const refresh = c.load("a.md", { silent: true });
+    await listIssued(client, 2);
+    await c.resolve("c1");
+
+    pending[1]([open]); // built before the PATCH landed: still open
+    await refresh;
+
+    expect(c.items.map((i) => i.status)).toEqual(["resolved"]);
   });
 });

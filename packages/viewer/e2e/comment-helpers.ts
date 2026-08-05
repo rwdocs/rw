@@ -1,6 +1,13 @@
 import { type Page } from "@playwright/test";
 
 /**
+ * Helpers for the comment specs, and the rule they all live under: **each spec
+ * owns a fixture page no other spec touches.** All four `rw serve` fixtures keep
+ * their data beside their config, so they share one SQLite store, and outside CI
+ * the spec files run against it in parallel. Grep before claiming a page.
+ */
+
+/**
  * Select `text` inside the article and release with a synthetic mouseup, which
  * is what drives the Add-comment popover. Builds the Range from
  * `article.textContent` — which includes inlined SVG diagram-label text — so it
@@ -121,6 +128,19 @@ export async function fetchComments(
   );
 }
 
+/** POST a comment and return its id. */
+export async function createComment(page: Page, payload: Record<string, unknown>): Promise<string> {
+  return page.evaluate(async (body) => {
+    const res = await fetch("/_api/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`POST /_api/comments -> ${res.status}`);
+    return ((await res.json()) as { id: string }).id;
+  }, payload);
+}
+
 /**
  * Resolve every unresolved comment on a document, so state left by one test
  * does not leak into the next. `open` and `resolved` are the only statuses the
@@ -129,14 +149,18 @@ export async function fetchComments(
 export async function resolveAllComments(page: Page, documentId: string): Promise<void> {
   await page.evaluate(async (docId) => {
     const res = await fetch(`/_api/comments?documentId=${encodeURIComponent(docId)}`);
+    if (!res.ok) throw new Error(`GET /_api/comments -> ${res.status}`);
     const comments = (await res.json()) as { id: string; status: string }[];
     for (const comment of comments) {
       if (comment.status === "resolved") continue;
-      await fetch(`/_api/comments/${comment.id}`, {
+      const patch = await fetch(`/_api/comments/${comment.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "resolved" }),
       });
+      if (!patch.ok) {
+        throw new Error(`PATCH /_api/comments/${comment.id} -> ${patch.status}`);
+      }
     }
   }, documentId);
 }

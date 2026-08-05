@@ -1,13 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveAllComments, resolveDocumentId } from "./comment-helpers";
+import { createComment, resolveAllComments, resolveDocumentId } from "./comment-helpers";
 
 // Wide viewport so the right comment sidebar (and its nav badge) is visible.
 test.use({ viewport: { width: 1400, height: 800 } });
 test.describe.configure({ mode: "serial" });
 
-// Dedicated page so we never share comment rows with other specs (installation
-// is unused by the other comment specs, which claim "/", "/advanced",
-// "/api/endpoints" and "/getting-started/configuration").
+// This spec's own page — see `comment-helpers.ts`.
 const PAGE_PATH = "/getting-started/installation";
 const PAGE_URL = "getting-started/installation";
 
@@ -21,18 +19,6 @@ const ANCHORS = [
   "operating systems and architectures",
 ];
 
-async function postComment(page: Page, payload: Record<string, unknown>): Promise<string> {
-  return page.evaluate(async (body) => {
-    const res = await fetch("/_api/comments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`create comment failed: ${res.status}`);
-    return ((await res.json()) as { id: string }).id;
-  }, payload);
-}
-
 function sidebar(page: Page) {
   return page.getByRole("complementary", { name: "Comments" });
 }
@@ -44,7 +30,7 @@ test.beforeEach(async ({ page }) => {
   await resolveAllComments(page, docId);
   // Seed six inline comments on distinct passages via the API.
   for (const [i, exact] of ANCHORS.entries()) {
-    await postComment(page, {
+    await createComment(page, {
       documentId: docId,
       body: `seed ${i}`,
       selectors: [{ type: "TextQuoteSelector", exact, prefix: "", suffix: "" }],
