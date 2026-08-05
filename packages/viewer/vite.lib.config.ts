@@ -6,6 +6,7 @@ import { readFile, writeFile } from "fs/promises";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 import { transform, type SelectorComponent, type Selector } from "lightningcss";
+import { licenseNotice } from "./license-notice";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -132,6 +133,10 @@ export default defineConfig({
       // decision, not a config typo.
     }),
     scopeCss(),
+    licenseNotice(
+      resolve(__dirname, "dist/lib/THIRD-PARTY-JS.md"),
+      resolve(__dirname, "package.json"),
+    ),
   ],
   resolve: {
     alias: {

@@ -6,7 +6,10 @@
   ],
   "main": "core.linux-x64-musl.node",
   "files": [
-    "core.linux-x64-musl.node"
+    "core.linux-x64-musl.node",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "THIRD-PARTY-RUST.md"
   ],
   "license": "MIT OR Apache-2.0",
   "repository": {

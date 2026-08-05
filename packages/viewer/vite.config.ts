@@ -7,11 +7,18 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { svelteTesting } from "@testing-library/svelte/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { fontPreload } from "./vite-plugin-font-preload";
+import { licenseNotice } from "./license-notice";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
-  plugins: [svelte(), svelteTesting(), tailwindcss(), fontPreload()],
+  plugins: [
+    svelte(),
+    svelteTesting(),
+    tailwindcss(),
+    fontPreload(),
+    licenseNotice(resolve(__dirname, "dist/THIRD-PARTY-JS.md"), resolve(__dirname, "package.json")),
+  ],
   resolve: {
     alias: {
       $lib: resolve(__dirname, "src/lib"),
@@ -33,7 +40,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "*.test.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

@@ -129,6 +129,16 @@ jobs:
           fi
       - name: "Build frontend"
         run: "npm ci && npm -w @rwdocs/viewer run build"
+      - name: "Install cargo-about"
+        uses: "taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf"
+        with:
+          "tool": "cargo-about@0.9.1"
+      - name: "Generate third-party notice"
+        run: |
+          cargo about generate --all-features --fail about.hbs > THIRD-PARTY-RUST.md
+          cat THIRD-PARTY-RUST.md packages/viewer/dist/THIRD-PARTY-JS.md > THIRD-PARTY.md
+          rm THIRD-PARTY-RUST.md
+        shell: "bash"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest

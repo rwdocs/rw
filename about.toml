@@ -1,0 +1,61 @@
+# cargo-about configuration. Produces the third-party notice shipped with every
+# rw artifact that contains compiled Rust code: the release archives, the napi
+# packages, and the per-platform packages under packages/core/npm.
+#
+# The notice is generated during the release build and is never committed. See
+# .github/dist/build-setup.yml and .github/workflows/publish-npm.yml.
+
+# `accepted` is ordered, and the first entry matching a crate's expression is
+# the arm attributed. MIT leads so a crate published as `MIT OR Apache-2.0` is
+# attributed under MIT, matching rw's own primary license. deny.toml's `allow`
+# list holds the same licenses but is sorted alphabetically and carries no such
+# meaning — the two lists are not interchangeable.
+accepted = [
+  "MIT",
+  "Apache-2.0",
+  "0BSD",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+
+# Crates that do not package their license text where cargo-about can find it.
+# These are cargo-about's own maintained workarounds. Prefer adding a name
+# here over hand-writing a `clarify` block, which pins a file checksum and
+# breaks on the next release of the crate.
+#
+# Verified with `cargo about -L debug generate` against today's Cargo.lock:
+# `chrono` and `rustls` apply and change the resolved license text; `cocoa`
+# applies to both `core-foundation` and `core-foundation-sys` even though no
+# crate literally named `cocoa` is in the lockfile, because cargo-about keys
+# the workaround by crate name, not by lockfile presence. `ring` and `rustix`
+# currently fail to apply (ring: cargo-about's bundled copyright subsection
+# text no longer matches the crate's packaged LICENSE; rustix: cargo-about
+# can't parse the `LICENSE-Apache-2.0_WITH_LLVM-exception` filename it looks
+# for) — both still resolve successfully via their own declared SPDX
+# `license` expression, so `--fail` does not catch the mismatch. Both entries
+# are kept as forward guards: harmless no-ops today, and if a future
+# cargo-about release fixes the mismatch or the crate's packaging changes,
+# they start applying with no config change needed here.
+workarounds = ["ring", "chrono", "rustls", "rustix", "cocoa"]
+
+# Dev-dependencies never reach a shipped artifact, so attributing them
+# overstates what the binary contains. Concretely: `colored` is MPL-2.0 and
+# arrives only through `codspeed-divan-compat`, a benchmark dependency — it
+# would otherwise appear in the notice's copyleft section despite shipping
+# nowhere. Unlike `all-features`, this one is config-only; cargo-about exposes
+# no CLI equivalent.
+ignore-dev-dependencies = true
+
+# Matches deny.toml: the `publish` and `embed-assets` features pull crates a
+# default build does not, and those reach shipped binaries too. cargo-about
+# 0.9.1 only accepts this as the `--all-features` CLI flag, not a config key —
+# every `cargo about generate` invocation (release build and CI) must pass it.

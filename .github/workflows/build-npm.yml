@@ -114,6 +114,14 @@ jobs:
       - name: Build library
         run: npm -w @rwdocs/viewer run build:lib
 
+      # The notice reaches the package through the `dist/lib/` directory entry
+      # in `files`, not by being named there. Assert it, because a change to
+      # that entry would drop the notice silently.
+      - name: Viewer package includes its third-party notice
+        run: |
+          npm pack -w @rwdocs/viewer --dry-run --json \
+            | grep -q 'dist/lib/THIRD-PARTY-JS.md'
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
