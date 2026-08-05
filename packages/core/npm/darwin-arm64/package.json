@@ -6,7 +6,10 @@
   ],
   "main": "core.darwin-arm64.node",
   "files": [
-    "core.darwin-arm64.node"
+    "core.darwin-arm64.node",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "THIRD-PARTY-RUST.md"
   ],
   "license": "MIT OR Apache-2.0",
   "repository": {

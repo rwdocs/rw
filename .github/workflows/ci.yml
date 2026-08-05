@@ -102,13 +102,20 @@ jobs:
         with:
           # Pinned: cargo-deny changes check defaults across releases, so a
           # float would let a cargo-deny release fail CI with no rw change.
-          tool: cargo-deny@0.20.2
+          # cargo-about is pinned for the same reason.
+          tool: cargo-deny@0.20.2,cargo-about@0.9.1
 
       # Licenses and sources only — advisories are Dependabot's. Both are a
       # pure function of Cargo.lock, so this never fails a PR that did not
       # touch dependencies.
       - name: Check licenses and sources
         run: cargo deny check licenses sources
+
+      # The release build generates a third-party notice from this same config.
+      # Running it here means an unresolvable license fails the pull request
+      # that introduces the dependency, rather than the next release.
+      - name: Third-party notice resolves
+        run: cargo about generate --all-features --fail about.hbs > /dev/null
 
   test:
     name: Test (${{ matrix.os }})

@@ -26,3 +26,8 @@ crates/rw-renderer/benches/fixtures/
 # JavaScript.
 .github/
 renovate.json
+
+# Handlebars, not markdown or HTML. Prettier has no Handlebars parser
+# registered here, so it falls back to one that merges the heading into the
+# body text and drops the list/fence markup cargo-about's output depends on.
+about.hbs

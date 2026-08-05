@@ -30,6 +30,7 @@
     "index.d.ts",
     "*.node",
     "LICENSE-MIT",
-    "LICENSE-APACHE"
+    "LICENSE-APACHE",
+    "THIRD-PARTY-RUST.md"
   ]
 }

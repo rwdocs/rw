@@ -105,4 +105,29 @@ mod tests {
     fn test_get_nonexistent_asset() {
         assert!(get("nonexistent_file_that_does_not_exist.txt").is_none());
     }
+
+    /// The viewer build emits its third-party notice into the directory this
+    /// crate embeds, so the notice travels into the binary with the assets.
+    ///
+    /// Skipped when the frontend has not been built — `cargo test` must not
+    /// require an npm build to pass. CI builds the bundle first, so the
+    /// assertion is enforced there.
+    #[test]
+    fn third_party_notice_ships_with_the_viewer_bundle() {
+        if get("index.html").is_none() {
+            return;
+        }
+
+        let notice = get("THIRD-PARTY-JS.md").expect(
+            "viewer bundle is built but carries no THIRD-PARTY-JS.md; \
+             did rollup-plugin-license stop running?",
+        );
+        let text = String::from_utf8_lossy(&notice);
+
+        assert!(
+            text.contains("# Third-Party Licenses (JavaScript)"),
+            "THIRD-PARTY-JS.md exists but does not look like a real notice \
+             (missing its heading); got: {text:?}"
+        );
+    }
 }

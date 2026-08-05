@@ -24,6 +24,20 @@ node_modules/
 # napi-rs build artifacts
 *.node
 
+# Publish-time generated third-party notice + copied licenses (see
+# .github/workflows/publish-npm.yml); never committed, only staged into the
+# npm tarballs at publish time.
+/packages/core/THIRD-PARTY-RUST.md
+/packages/core/npm/*/THIRD-PARTY-RUST.md
+/packages/core/npm/*/LICENSE-*
+
+# Release-build generated third-party notice (see .github/dist/build-setup.yml);
+# never committed. THIRD-PARTY.md is copied into each release archive by
+# `include` in dist-workspace.toml; THIRD-PARTY-RUST.md is an intermediate the
+# hook deletes once the two halves are concatenated.
+/THIRD-PARTY.md
+/THIRD-PARTY-RUST.md
+
 # RW
 /.rw
 rw.toml

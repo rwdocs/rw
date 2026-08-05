@@ -21,5 +21,12 @@
       "$lib/*": ["./src/lib/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "e2e/**/*.ts", "*.config.ts", "vite-plugin-*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.svelte",
+    "e2e/**/*.ts",
+    "*.config.ts",
+    "vite-plugin-*.ts",
+    "license-notice*.ts"
+  ]
 }

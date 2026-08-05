@@ -1,0 +1,23 @@
+# Third-Party Licenses (Rust)
+
+The following crates are compiled into this artifact. Each is listed under the
+license text supplied by its author.
+
+{{#each overview}}
+- {{{name}}} ({{count}})
+{{/each}}
+
+{{#each licenses}}
+## {{{name}}}
+
+Used by:
+
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}
+{{/each}}
+
+````
+{{{text}}}
+````
+
+{{/each}}

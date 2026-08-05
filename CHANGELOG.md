@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Release archives and the published npm packages now ship a third-party license notice covering every bundled dependency, Rust and JavaScript. The `@rwdocs/core` platform packages also gain rw's own `LICENSE-MIT` and `LICENSE-APACHE`, which they shipped without before. The notice travels with the archive, so a binary placed by `brew install` or the shell installer does not have it alongside.
 - Pages served by `rw serve` now show the rw icon in the browser tab, and an app icon when the site is saved to an iOS home screen.
 
 ### Changed
