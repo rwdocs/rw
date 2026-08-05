@@ -15,6 +15,8 @@ import { readJson } from "./json";
  * origin.
  */
 export interface CommentApiClient {
+  /** Oldest first — the viewer renders replies in the order they arrive, so a
+   *  client answering newest-first shows every thread inside out. */
   list(documentId: string, options?: { signal?: AbortSignal }): Promise<Comment[]>;
   create(input: CreateCommentRequest): Promise<Comment>;
   update(id: string, input: UpdateCommentRequest): Promise<Comment>;

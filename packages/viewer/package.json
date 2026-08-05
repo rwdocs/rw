@@ -19,8 +19,8 @@
     "format": "prettier --write .",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && npm run build:lib && playwright test",
-    "test:e2e:ui": "npm run build && npm run build:lib && playwright test --ui"
+    "test:e2e": "node e2e/reset-data.mjs && npm run build && npm run build:lib && playwright test",
+    "test:e2e:ui": "node e2e/reset-data.mjs && npm run build && npm run build:lib && playwright test --ui"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The "On this page" outline now follows the reader. It could leave a middle entry highlighted after you switched documents, and never highlighted a final entry the page could not scroll far enough to reach.
 - `@rwdocs/viewer`'s TypeScript types now resolve outside bundlers. Its `exports` map listed `import` ahead of `types`, and the published `embed.d.ts` used extensionless relative imports, so a consumer on `moduleResolution: "node16"`/`"nodenext"` — or on the older `"node"` — either found no types at all or silently got types that no longer described the JavaScript. Only `"bundler"` worked, which is why the Backstage plugin never hit it. The runtime bundle is unchanged.
+- A comment you just posted could vanish from the page: a comment-list request already in flight landed afterward and overwrote it, though the comment stayed saved on the server and reappeared after a reload. Most reachable on a document already carrying many comments, where the list takes longer to arrive.
+- A comment you just posted could also appear twice, when the page's own refresh delivered it before the post finished. Only the display duplicated; the server stored one comment, and a reload showed one.
+- Opening another page no longer lists the page you came from's comments beneath it, or highlights their quotes in its text, while the new page's own comments load. If a refresh raced the move they could stay there until you navigated again.
+- Deleting a reply no longer takes away the Restore control that undoes it. Deleting is reversible, but the deleted reply is left out of every comment list the server sends, so any refresh — and on a site with live reload there is one after every comment change, by anyone — made the reply disappear from the page with no way back except the API. It now stays until you restore it or leave the page.
+- A comment list that fails to load no longer empties the comments on a page you have since opened, or reports an error about the page you left.
 
 ### Security
 

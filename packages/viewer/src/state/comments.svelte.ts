@@ -10,6 +10,14 @@ export interface PendingComment {
   selectors: Selector[];
 }
 
+/** Splice `row` into `items`, which it mutates, in the creation order
+ *  `CommentApiClient.list` uses. Appending would drop a reply put back into a
+ *  thread below the ones that follow it. */
+function insertByCreatedAt(items: Comment[], row: Comment) {
+  const at = items.findIndex((c) => c.createdAt > row.createdAt);
+  items.splice(at === -1 ? items.length : at, 0, row);
+}
+
 export class Comments {
   /** Whether the backend supports comments. */
   enabled = $state(false);
@@ -76,6 +84,26 @@ export class Comments {
   replyFocusSeq = $state(0);
 
   private apiClient: CommentApiClient;
+  /** Rows written locally since the in-flight load's request left, laid back
+   *  over that load's answer so it cannot undo them. Cleared when a load starts:
+   *  anything written before the request left is in the answer it will bring.
+   *
+   *  `mayAdd` is whether a list *omitting* the row tells us anything. It does
+   *  not for a row this reader just created, deleted or restored — an older list
+   *  predates the write. It does for a status change: the row is missing because
+   *  someone else deleted it, and putting it back resurrects it.
+   *
+   *  Keep this a plain `Map`, here and in {@link tombstones}. `load` clears it
+   *  inside the `$effect` that calls `load`, so a `SvelteMap` would re-trigger
+   *  that effect. (`$state` is inert — it does not proxy a Map, which is why
+   *  `navigation.svelte.ts` reaches for `SvelteSet`.) */
+  private unseenWrites = new Map<string, { row: Comment; mayAdd: boolean }>();
+  /** Rows this reader soft-deleted. The server filters them out of every list,
+   *  so unlike {@link unseenWrites} they outlive the load that raced them, which
+   *  is what keeps Restore reachable until the reader acts. An entry also goes
+   *  when a list shows the row live again, whoever restored it — a list
+   *  predating this reader's own delete says the same and means the opposite. */
+  private tombstones = new Map<string, Comment>();
   private abortController: AbortController | null = null;
   private documentId: string | null = null;
   private notify: NotifyFn;
@@ -99,7 +127,11 @@ export class Comments {
     return this.apiClient.subscribe?.(documentId, onChange);
   }
 
+  /** Load the server's list for `documentId` and apply it — amended, because a
+   *  response that left before this reader's last write would otherwise undo it.
+   *  See {@link unseenWrites}. */
   load = async (documentId: string, opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
     if (!this.enabled) return;
     if (this.abortController) {
       this.abortController.abort();
@@ -108,6 +140,12 @@ export class Comments {
     const signal = this.abortController.signal;
 
     if (documentId !== this.documentId) {
+      // Reset `items` too: nothing downstream filters rows by documentId, so
+      // until this document's list arrives the previous document's comments
+      // would render beneath it and their quotes anchor into its text — and
+      // stay there if this load then fails.
+      this.items = [];
+      this.tombstones.clear();
       this.activeId = null;
       this.linkedId = null;
       this.resolvedExpanded = false;
@@ -115,16 +153,19 @@ export class Comments {
       this.replyDrafts = {};
       this.documentId = documentId;
     }
-    const silent = opts?.silent ?? false;
     if (!silent) {
       this.loading = true;
     }
+    this.unseenWrites.clear();
     try {
       const items = await this.apiClient.list(documentId, { signal });
       if (signal.aborted) return;
-      this.items = items;
+      this.items = this.withLocalWrites(items);
     } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return;
+      // Not every failure of a superseded load is an AbortError: an HTTP status
+      // the client rejects on, or a host client that ignores the signal, arrives
+      // as a plain Error and would otherwise blank the page the reader moved to.
+      if (signal.aborted) return;
       if (silent) {
         // Silent (live-reload/subscribe) refresh failed: keep the rendered
         // comments and do not raise a toast the user never triggered. A
@@ -138,6 +179,9 @@ export class Comments {
         intent: "error",
         message: e instanceof Error ? e.message : "Failed to load comments",
       });
+      // A write landed mid-flight, so `items` holds a change the server
+      // accepted; blanking it would lose that.
+      if (this.unseenWrites.size > 0) return;
       this.items = [];
     } finally {
       // Clear even when silent: a silent winner that aborted a non-silent
@@ -150,55 +194,113 @@ export class Comments {
     }
   };
 
+  /** `items` as the server's list amended by this reader's own writes — see
+   *  {@link unseenWrites} and {@link tombstones} for which rows those are and
+   *  why. Also forgets any tombstone the list has brought back. */
+  private withLocalWrites(items: Comment[]): Comment[] {
+    if (this.unseenWrites.size === 0 && this.tombstones.size === 0) return items;
+    const listed = new Set(items.map((c) => c.id));
+    const merged = items.map((row) => this.unseenWrites.get(row.id)?.row ?? row);
+    for (const [id, { row, mayAdd }] of this.unseenWrites) {
+      if (mayAdd && !listed.has(id)) insertByCreatedAt(merged, row);
+    }
+    for (const [id, row] of this.tombstones) {
+      // Skipped, not just already placed: this list's view of the row is older
+      // than a write of our own, so it cannot be read as a restore below.
+      if (this.unseenWrites.has(id)) continue;
+      if (listed.has(id)) {
+        // Someone restored it, so "this reader deleted it" has stopped being
+        // true — and holding the record would delete the row again on screen the
+        // next time anyone else does.
+        this.tombstones.delete(id);
+      } else {
+        insertByCreatedAt(merged, row);
+      }
+    }
+    return merged;
+  }
+
+  /** The single write path for every local mutation of `items`. A mutator that
+   *  assigned `items` directly would be invisible to {@link unseenWrites}, and
+   *  the next list to land would undo it.
+   *
+   *  A `row` whose documentId is not the one on screen was answered after the
+   *  user navigated away, so nothing happens, not even the record. */
+  private commit(row: Comment, next: (items: Comment[]) => Comment[]) {
+    if (this.documentId !== row.documentId) return;
+    const updated = next(this.items);
+    // A reducer that hands back the array it was given changed nothing on
+    // screen, so there is nothing to protect from the next list. Recording the
+    // row anyway would lay this copy of it back over a list that may hold a
+    // newer one, silently reverting another reader's edit.
+    if (updated === this.items) return;
+    // The three writes {@link unseenWrites} lets back into a list that omits the
+    // row: a create, a restore, a delete.
+    const previous = this.items.find((c) => c.id === row.id);
+    const mayAdd = previous == null || previous.deletedAt != null || row.deletedAt != null;
+    this.items = updated;
+    this.unseenWrites.set(row.id, { row, mayAdd });
+    if (row.deletedAt != null) {
+      this.tombstones.set(row.id, row);
+    } else {
+      this.tombstones.delete(row.id);
+    }
+  }
+
+  /** Swap the stored row for the projection a mutation returned. Assumes a
+   *  row's capability flags derive from that row alone, so no sibling needs
+   *  re-projecting — if that stops holding, replacing in place is not enough.
+   *
+   *  A row that has left the screen is not put back: the likeliest reason is a
+   *  refresh dropping it because another reader deleted it. */
+  private replaceRow(id: string, row: Comment) {
+    this.commit(row, (items) => {
+      const at = items.findIndex((c) => c.id === id);
+      return at === -1 ? items : items.with(at, row);
+    });
+  }
+
+  /** Like {@link replaceRow}, but puts the row back when a refresh has already
+   *  taken it off screen. Sound only where the row itself says why a list would
+   *  omit it, which a soft-deleted one does — for anything else the row is
+   *  missing because another reader deleted it. */
+  private putRow(row: Comment) {
+    this.commit(row, (items) => {
+      const at = items.findIndex((c) => c.id === row.id);
+      if (at !== -1) return items.with(at, row);
+      const next = [...items];
+      insertByCreatedAt(next, row);
+      return next;
+    });
+  }
+
   create = async (input: CreateCommentRequest) => {
     const comment = await this.apiClient.create(input);
-    if (this.documentId === comment.documentId) {
-      // Append the new row directly: every per-row capability flag depends only
-      // on this row's own status + parentId + deletedAt, so no sibling needs
-      // re-projection.
-      this.items = [...this.items, comment];
-    }
-    // If response.documentId !== this.documentId, the user navigated away;
-    // don't touch this.items to avoid polluting the new document's view.
+    this.commit(comment, (items) =>
+      // A refresh running concurrently with this POST can deliver the new row
+      // before the POST's own response arrives, so the list may already hold
+      // it; appending unconditionally would show one comment twice.
+      items.some((c) => c.id === comment.id) ? items : [...items, comment],
+    );
     return comment;
   };
 
   resolve = async (id: string) => {
-    const updated = await this.apiClient.update(id, { status: "resolved" });
-    if (this.documentId === updated.documentId) {
-      this.items = this.items.map((c) => (c.id === id ? updated : c));
-    }
-    // If response.documentId !== this.documentId, the user navigated away;
-    // don't touch this.items to avoid polluting the new document's view.
+    this.replaceRow(id, await this.apiClient.update(id, { status: "resolved" }));
   };
 
   reopen = async (id: string) => {
-    const updated = await this.apiClient.update(id, { status: "open" });
-    if (this.documentId === updated.documentId) {
-      this.items = this.items.map((c) => (c.id === id ? updated : c));
-    }
-    // If response.documentId !== this.documentId, the user navigated away;
-    // don't touch this.items to avoid polluting the new document's view.
+    this.replaceRow(id, await this.apiClient.update(id, { status: "open" }));
   };
 
   delete = async (id: string) => {
-    const deleted = await this.apiClient.delete(id);
-    if (this.documentId === deleted.documentId) {
-      // Replace the row with its deleted projection. Keep it visible in-session
-      // so the user can restore it; reload will hide it (server filters deleted).
-      this.items = this.items.map((c) => (c.id === id ? deleted : c));
-    }
-    // If response.documentId !== this.documentId, the user navigated away;
-    // don't touch this.items to avoid polluting the new document's view.
+    // `putRow`: the refresh this delete triggers can reach the browser first and
+    // take the row off screen before this answer arrives.
+    this.putRow(await this.apiClient.delete(id));
   };
 
   restore = async (id: string) => {
-    const restored = await this.apiClient.update(id, { status: "open" });
-    if (this.documentId === restored.documentId) {
-      this.items = this.items.map((c) => (c.id === id ? restored : c));
-    }
-    // If response.documentId !== this.documentId, the user navigated away;
-    // don't touch this.items to avoid polluting the new document's view.
+    this.replaceRow(id, await this.apiClient.update(id, { status: "open" }));
   };
 
   get threads(): Comment[] {
@@ -326,13 +428,15 @@ export class Comments {
   };
 
   clear = () => {
-    // Abort any in-flight load so a list() resolving after clear() hits load()'s
-    // `signal.aborted` guard instead of repopulating the just-cleared list with
-    // the previous document's comments — e.g. when navigating to a page that
-    // shows no comments and never re-triggers a load.
+    // Abort any in-flight load so a list() resolving after clear() is discarded
+    // at its abort check instead of repopulating the just-cleared list with the
+    // previous document's comments — e.g. when navigating to a page that shows
+    // no comments and never re-triggers a load.
     this.abortController?.abort();
     this.abortController = null;
     this.items = [];
+    this.unseenWrites.clear();
+    this.tombstones.clear();
     this.loading = false;
     this.activeId = null;
     this.linkedId = null;
