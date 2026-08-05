@@ -13,7 +13,8 @@ export default defineConfig([
   {
     ignores: [
       // Has its own config and lint script. Removing this does not defer to
-      // them; the viewer is simply linted a second time, 199 files instead of 8.
+      // them: ESLint resolves the nearest config per file, so the package would
+      // be linted a second time under that same config, for nothing.
       "packages/viewer/**",
       // Rewritten by every `napi build`; nothing in it is authored.
       "packages/core/index.js",
@@ -21,7 +22,7 @@ export default defineConfig([
   },
   // Everything hand-written that no other block claims. Deliberately a catch-all
   // rather than a list of known directories: a file matching no block is still
-  // walked and still reported as linted, so narrow globs fail silently.
+  // walked and still reported, just with no rules — narrowing here fails silently.
   {
     extends: [js.configs.recommended],
     files: ["**/*.{js,mjs,cjs}"],

@@ -225,7 +225,7 @@ const TS_BASELINE = [js.configs.recommended, tseslint.configs.recommendedTypeChe
 
 export default defineConfig([
   {
-    ignores: ["coverage/**", "dist/**"],
+    ignores: ["coverage/**", "dist/**", ".vite/**", "test-results/**", "playwright-report/**"],
   },
   // Both default to non-blocking. Set here rather than via `--max-warnings 0`,
   // which would also promote the better-tailwindcss rules that are meant to
@@ -241,12 +241,16 @@ export default defineConfig([
   // glob to `*.js`: a script added outside the package root would get nothing.
   {
     extends: [js.configs.recommended],
-    files: ["**/*.js"],
+    files: ["**/*.{js,mjs,cjs}"],
     languageOptions: { globals: globals.node },
   },
+  // Do not narrow this to the directories that hold TypeScript: ESLint walks a
+  // `.ts` only where a block claims it, so one left out is absent from the run
+  // entirely — no row, exit 0. The trade is that a `.ts` outside
+  // `tsconfig.json` fails to parse rather than going unchecked.
   {
     extends: TS_BASELINE,
-    files: ["src/**/*.{ts,svelte.ts}", "*.config.ts", "vite-plugin-*.ts"],
+    files: ["**/*.{ts,svelte.ts}"],
     languageOptions: { parserOptions: typeAwareParserOptions },
   },
   // Playwright's own rules are the point here: a missing `await` on an
@@ -406,7 +410,9 @@ export default defineConfig([
     },
   },
   {
-    files: ["src/**/*.{test,spec}.ts"],
+    // e2e specs are Playwright's and have their own block.
+    files: ["**/*.{test,spec}.ts"],
+    ignores: ["e2e/**"],
     plugins: { vitest },
     extends: [vitest.configs.recommended],
     rules: {
@@ -458,7 +464,7 @@ export default defineConfig([
   // that backtracks super-linearly type-checks and lints clean.
   {
     extends: [regexp.configs["flat/recommended"]],
-    files: ["src/**/*.{ts,svelte,svelte.ts}", "e2e/**/*.ts", "*.config.ts", "vite-plugin-*.ts"],
+    files: ["**/*.{ts,svelte,svelte.ts}"],
   },
   // Layer dependency rules per design-kit spec §2.2. The kit (`src/lib/ui/**`)
   // must remain free of RW domain knowledge so it can be lifted into a

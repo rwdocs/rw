@@ -61,7 +61,7 @@ function readMatchingFiles(dir: string, pattern: RegExp): string[] {
     .map((name) => readFileSync(join(dir, name), "utf8").trim());
 }
 
-const LICENSE_FILE_PATTERN = /^(licen[cs]e|copying|unlicense)/i;
+const LICENSE_FILE_PATTERN = /^(?:licen[cs]e|copying|unlicense)/i;
 const NOTICE_FILE_PATTERN = /^notice/i;
 
 /**
