@@ -27,7 +27,7 @@
             onNavigate(entry.id);
           }}
           class="
-            block text-sm/snug transition-colors
+            block text-sm/snug wrap-break-word transition-colors
             {activeId === entry.id
             ? 'font-medium text-blue-600 dark:text-blue-400'
             : `text-gray-600 hover:text-gray-900 dark:text-neutral-400 dark:hover:text-neutral-100`}"

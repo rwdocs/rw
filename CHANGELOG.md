@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opening another page no longer lists the page you came from's comments beneath it, or highlights their quotes in its text, while the new page's own comments load. If a refresh raced the move they could stay there until you navigated again.
 - Deleting a reply no longer takes away the Restore control that undoes it. Deleting is reversible, but the deleted reply is left out of every comment list the server sends, so any refresh — and on a site with live reload there is one after every comment change, by anyone — made the reply disappear from the page with no way back except the API. It now stays until you restore it or leave the page.
 - A comment list that fails to load no longer empties the comments on a page you have since opened, or reports an error about the page you left.
+- A long unbreakable token — a class name, a URL — in a navigation label, a section heading, or a page-outline entry now wraps instead of sliding out of line with its neighbours and past the column edge.
 
 ### Security
 

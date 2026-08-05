@@ -27,28 +27,31 @@
 </script>
 
 <li>
-  <div class="flex items-center">
+  <div class="flex items-start">
     {#if hasChildren}
+      <!-- mt-1.5 mirrors the link's p-1.5 so the button meets its first line -->
       <Button
         variant="ghost"
         size="xs"
         iconOnly
         onclick={toggleExpanded}
-        class="mr-0.5"
+        class="mt-1.5 mr-0.5"
         aria-label={isExpanded ? "Collapse" : "Expand"}
       >
         <Chevron direction={isExpanded ? "down" : "right"} class="transition-transform" />
       </Button>
     {:else}
-      <!-- Spacer matches expand button: w-5 (20px) + mr-0.5 (2px) = 22px -->
+      <!-- Spacer matches expand button: size-5 (20px) + mr-0.5 (2px) = 22px -->
       <span class="w-[22px]"></span>
     {/if}
 
+    <!-- Not content.css's break-word: that leaves min-content at the longest
+         word, so this flex item floors there and the gutter collapses. -->
     <a
       href={item.href ?? router.prefixPath(item.path)}
       aria-current={isActive ? "page" : undefined}
       class="
-        flex-1 rounded-sm p-1.5 text-sm transition-colors
+        flex-1 rounded-sm p-1.5 text-sm wrap-anywhere transition-colors
         {isActive
         ? 'font-medium text-blue-700 dark:text-blue-400'
         : `text-gray-700 hover:text-gray-900 dark:text-neutral-300 dark:hover:text-neutral-100`}"

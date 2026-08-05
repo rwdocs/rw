@@ -13,7 +13,7 @@
   <div class="mt-5 first:mt-0">
     <div
       class="
-        px-1.5 pb-1.5 text-xs font-semibold tracking-wider text-gray-500 uppercase
+        px-1.5 pb-1.5 text-xs font-semibold tracking-wider wrap-break-word text-gray-500 uppercase
         dark:text-neutral-400
       "
     >
