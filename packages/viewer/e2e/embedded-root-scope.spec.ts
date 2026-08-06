@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Root scope - Embedded", () => {
-  test("root page has no back link or section title", async ({ page }) => {
+  test("root page shows its own row and no back link", async ({ page }) => {
     await page.goto("/");
 
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
@@ -10,10 +10,12 @@ test.describe("Root scope - Embedded", () => {
     // Navigation items should be present
     await expect(sidebar.getByRole("link", { name: "Getting Started" })).toBeVisible();
 
-    // No back link should be rendered (parentScope is null at root)
-    await expect(sidebar.getByRole("link", { name: "Test Documentation" })).toBeHidden();
+    // Exactly one link carries the root title: a back link would be a second,
+    // uncurrent one.
+    const selfRow = sidebar.getByRole("link", { name: "Test Documentation" });
+    await expect(selfRow).toHaveCount(1);
+    await expect(selfRow).toHaveAttribute("aria-current", "page");
 
-    // No section title heading should be rendered
     await expect(sidebar.getByRole("heading", { level: 2 })).toBeHidden();
   });
 
@@ -26,12 +28,18 @@ test.describe("Root scope - Embedded", () => {
 
     // The section watcher detects sectionRef and reloads navigation scoped to this section
     const sidebar = page.getByRole("complementary", { name: "Sidebar" });
+
+    // The root tree renders first and already has a "Test Documentation" back
+    // link and a "Billing" row of its own, so neither proves the swap
+    // happened. A root-only item going away does.
+    await expect(sidebar.getByRole("link", { name: "Getting Started" })).toBeHidden();
+
     const backLink = sidebar.getByRole("link", { name: "Test Documentation" });
     await expect(backLink).toBeVisible();
 
-    // Section title should be displayed
-    const sectionTitle = sidebar.getByRole("heading", { level: 2 });
-    await expect(sectionTitle).toBeVisible();
-    await expect(sectionTitle).toHaveText("Billing");
+    // The section's own page is a link now, not a dead heading
+    const scopeRow = sidebar.getByRole("link", { name: "Billing" });
+    await expect(scopeRow).toBeVisible();
+    await expect(sidebar.getByRole("heading", { level: 2 })).toBeHidden();
   });
 });

@@ -158,8 +158,8 @@ test.describe("Mobile Navigation", () => {
     const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(breadcrumbs).toBeVisible();
 
-    // Click Home breadcrumb
-    await breadcrumbs.getByRole("link", { name: "Home" }).click();
+    // Click the root breadcrumb
+    await breadcrumbs.getByRole("link", { name: "Test Documentation" }).click();
 
     // Should navigate home
     await expect(page.getByRole("article")).toContainText("Test Documentation");

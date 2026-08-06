@@ -1,4 +1,19 @@
-import type { NavItem, NavGroup } from "../types";
+import type { NavItem, NavGroup, ScopeInfo } from "../types";
+
+/**
+ * Build the scope's own row for the sidebar. `scope.href` is already resolved
+ * for embedded mounts by `resolveNavTree`, so this must not fall back to
+ * `prefixPath` on its own.
+ */
+export function toSelfItem(scope: ScopeInfo | undefined): NavItem | undefined {
+  if (!scope) return undefined;
+  return {
+    title: scope.title,
+    path: scope.path,
+    section: scope.section,
+    href: scope.href,
+  };
+}
 
 /**
  * Pluralize kind names for group labels.
@@ -17,10 +32,14 @@ function pluralizeKind(kind: string): string {
 /**
  * Group navigation items by section kind.
  * Returns ungrouped items first, then kind groups (alphabetically).
+ *
+ * `selfItem` is the scope's own page. It bypasses grouping: every scope root
+ * carries a section, so grouping it would file the row under a kind heading
+ * below its own children.
  */
-export function groupNavItems(items: NavItem[]): NavGroup[] {
+export function groupNavItems(items: NavItem[], selfItem?: NavItem): NavGroup[] {
   const kindGroups = new Map<string, NavItem[]>();
-  const ungrouped: NavItem[] = [];
+  const ungrouped: NavItem[] = selfItem ? [selfItem] : [];
 
   for (const item of items) {
     if (item.section) {

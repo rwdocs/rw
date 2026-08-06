@@ -84,7 +84,7 @@ test.describe("Navigation", () => {
     await expect(breadcrumbs).toBeVisible();
 
     // Check breadcrumb content
-    await expect(breadcrumbs).toContainText("Home");
+    await expect(breadcrumbs).toContainText("Test Documentation");
     await expect(breadcrumbs).toContainText("Getting Started");
   });
 
@@ -102,13 +102,13 @@ test.describe("Navigation", () => {
     await expect(page.getByRole("article")).toContainText("This guide will help you get started");
   });
 
-  test("breadcrumb Home link navigates to homepage", async ({ page }) => {
+  test("breadcrumb root link navigates to homepage", async ({ page }) => {
     await page.goto("/getting-started/installation");
 
-    // Click on Home breadcrumb
+    // Click the root breadcrumb
     await page
       .getByRole("navigation", { name: "Breadcrumb" })
-      .getByRole("link", { name: "Home" })
+      .getByRole("link", { name: "Test Documentation" })
       .click();
 
     // Should navigate to home

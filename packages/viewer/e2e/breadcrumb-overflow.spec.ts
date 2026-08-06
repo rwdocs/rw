@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 
 test.describe("Breadcrumb Overflow", () => {
-  // Deep page: 4 ancestor breadcrumbs (Home > Advanced Topics > Plugin Development >
+  // Deep page: 4 ancestor breadcrumbs (Test Documentation > Advanced Topics > Plugin Development >
   // Custom Extensions Development); the current-page segment renders as the H1, not the nav.
   const deepPage = "/advanced/plugins/custom-extensions/getting-started-guide";
 
@@ -32,7 +32,7 @@ test.describe("Breadcrumb Overflow", () => {
       - navigation "Breadcrumb":
         - list:
           - listitem:
-            - link "Home":
+            - link "Test Documentation":
               - /url: /
             - text: /
           - listitem:
@@ -58,7 +58,7 @@ test.describe("Breadcrumb Overflow", () => {
       - navigation "Breadcrumb":
         - list:
           - listitem:
-            - link "Home":
+            - link "Test Documentation":
               - /url: /
             - text: /
           - listitem:
@@ -120,7 +120,7 @@ test.describe("Breadcrumb Overflow", () => {
       - navigation "Breadcrumb":
         - list:
           - listitem:
-            - link "Home":
+            - link "Test Documentation":
               - /url: /
             - text: /
           - listitem:

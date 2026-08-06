@@ -130,7 +130,7 @@ pub struct ScopeInfo {
     /// etc.) omit it. The slash is included here for direct use in frontend
     /// routing URLs.
     pub path: String,
-    /// Display title for the scope header.
+    /// Display title for this scope.
     pub title: String,
     /// Section identity (kind + name) for this scope.
     pub section: Section,
@@ -379,10 +379,11 @@ impl SiteState {
 
     /// Returns the breadcrumb trail for `path`.
     ///
-    /// The trail starts with "Home" (path `""`) and includes each ancestor
-    /// up to but not including the page itself. Returns an empty `Vec` for
-    /// the root path (`""`). For unknown paths, returns `[Home]` so the
-    /// frontend always has at least minimal navigation.
+    /// The trail starts with the root page (path `""`, titled "Home" if no
+    /// root page exists) and includes each ancestor up to but not including
+    /// the page itself. Returns an empty `Vec` for the root path (`""`). For
+    /// unknown paths, returns just the root crumb so the frontend always has
+    /// at least minimal navigation.
     #[must_use]
     pub fn get_breadcrumbs(&self, path: &str) -> Vec<BreadcrumbItem> {
         if path.is_empty() {
@@ -390,9 +391,9 @@ impl SiteState {
         }
 
         let Some(&idx) = self.path_index.get(path) else {
-            // Unknown path - return minimal Home breadcrumb
+            // Unknown path - return just the root crumb
             return vec![BreadcrumbItem {
-                title: "Home".to_owned(),
+                title: self.page_title_or("", "Home"),
                 path: String::new(),
                 section_ref: String::new(),
                 subpath: String::new(),
@@ -407,18 +408,18 @@ impl SiteState {
             current = self.parents[i];
         }
 
-        // Reverse to root-first, exclude current page and root index.md
-        // (Home breadcrumb already represents root so root page would be duplicate)
+        // Reverse to root-first. The root page is dropped below — the first
+        // crumb already carries its title.
         ancestors.reverse();
 
         let mut breadcrumbs = vec![BreadcrumbItem {
-            title: "Home".to_owned(),
+            title: self.page_title_or("", "Home"),
             path: String::new(),
             section_ref: String::new(),
             subpath: String::new(),
         }];
 
-        // Skip the last element (current page) and exclude root page (already represented by Home)
+        // Drop the current page (last) and the root page (already the first crumb)
         breadcrumbs.extend(
             ancestors
                 .iter()
@@ -1274,10 +1275,46 @@ mod tests {
         let breadcrumbs = site.get_breadcrumbs("domain/page");
 
         assert_eq!(breadcrumbs.len(), 2);
-        assert_eq!(breadcrumbs[0].title, "Home");
+        assert_eq!(breadcrumbs[0].title, "Welcome");
         assert_eq!(breadcrumbs[0].path, "");
         assert_eq!(breadcrumbs[1].title, "Domain");
         assert_eq!(breadcrumbs[1].path, "domain");
+    }
+
+    #[test]
+    fn test_get_breadcrumbs_root_crumb_uses_root_page_title() {
+        let site = site(&[
+            page("", "Payments Platform"),
+            page("domain", "Domain"),
+            page("domain/page", "Page"),
+        ]);
+
+        let breadcrumbs = site.get_breadcrumbs("domain/page");
+
+        // The sidebar's own row for "/" shows the root page's title; the crumb
+        // must not disagree with it on the same screen.
+        assert_eq!(breadcrumbs[0].title, "Payments Platform");
+        assert_eq!(breadcrumbs[0].path, "");
+    }
+
+    #[test]
+    fn test_get_breadcrumbs_root_crumb_falls_back_to_home() {
+        let site = site(&[page("a", "A"), page("a/b", "B")]);
+
+        let breadcrumbs = site.get_breadcrumbs("a/b");
+
+        // No root page: the crumb falls back to "Home".
+        assert_eq!(breadcrumbs[0].title, "Home");
+    }
+
+    #[test]
+    fn test_get_breadcrumbs_unknown_path_uses_root_page_title() {
+        let site = site(&[page("", "Payments Platform")]);
+
+        let breadcrumbs = site.get_breadcrumbs("nonexistent");
+
+        assert_eq!(breadcrumbs.len(), 1);
+        assert_eq!(breadcrumbs[0].title, "Payments Platform");
     }
 
     #[test]
@@ -1554,6 +1591,18 @@ mod tests {
         let billing = nav.items.iter().find(|i| i.title == "Billing").unwrap();
         assert!(billing.children.is_empty());
         assert_eq!(billing.section.as_ref().unwrap().kind, "domain");
+    }
+
+    #[test]
+    fn test_navigation_virtual_root_reports_title() {
+        let site = site(&[dir("", "Docs"), page("guide", "Guide")]);
+
+        let nav = site.navigation("");
+
+        // A virtual page has no markdown of its own but is a real, linkable page
+        // — it renders as an h1-only page — so its title still surfaces at root scope.
+        let scope = nav.scope.as_ref().unwrap();
+        assert_eq!(scope.title, "Docs");
     }
 
     #[test]

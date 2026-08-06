@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `@rwdocs/viewer` now declares Node `^22.13.0 || >=24`, up from `>=22.12.0`. The old range was wrong in both directions: Node 22.12 cannot install the package's own toolchain, and no Node 23 release was ever supported.
+- The navigation sidebar now lists the homepage first at the top level, and each section's own page first inside it, highlighted while you're there. See [Page Metadata](docs/metadata.md#navigation-ordering).
+- Breadcrumbs now title the root crumb from the homepage's own title, falling back to "Home" only when there is no homepage.
 
 ### Fixed
 
