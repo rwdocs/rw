@@ -25,7 +25,6 @@
   let { children }: Props = $props();
 
   const { router, navigation, page, ui, comments } = getRwContext();
-  const homeHref = router.prefixPath("/");
   const resolveCrumbHref = (crumb: { href?: string; path: string }) =>
     crumb.href ?? router.prefixPath(crumb.path);
 
@@ -203,13 +202,8 @@
         "
       >
         <div class="px-4 pt-6 pb-4">
-          <a href={homeHref} class="mb-7 flex min-h-8 items-center pl-[6px]">
-            <span class="text-xl font-semibold uppercase"
-              ><span class="text-gray-900 dark:text-neutral-100">R</span><span
-                class="text-gray-400 dark:text-neutral-500">W</span
-              ></span
-            >
-          </a>
+          <!-- Blank row held for sidebar controls. -->
+          <div class="mb-7 h-8"></div>
           {#if navigation.error}
             <Alert intent="danger" class="mb-4">
               Failed to load navigation: {navigation.error}

@@ -19,7 +19,7 @@ test.describe("Mobile Navigation", () => {
     await expect(menuButton).toBeVisible();
   });
 
-  test("opens mobile drawer on menu click", async ({ page }) => {
+  test("opens mobile drawer on menu click, with nav items and no rw wordmark", async ({ page }) => {
     await page.goto("/");
 
     // Click hamburger menu
@@ -32,6 +32,12 @@ test.describe("Mobile Navigation", () => {
     // Should show navigation items
     await expect(drawer.getByRole("link", { name: "Getting Started" })).toBeVisible();
     await expect(drawer.getByRole("link", { name: "API Reference" })).toBeVisible();
+
+    // ...and no "rw" of its own. Asserted after the links: an absence proves
+    // nothing against a subtree that has not rendered. See navigation.spec.ts
+    // for why the pattern is anchored and padded.
+    await expect(drawer.getByText(/^\s*rw\s*$/i)).toHaveCount(0);
+    await expect(drawer.getByRole("img", { name: /^rw$/i })).toHaveCount(0);
   });
 
   test("closes drawer on navigation", async ({ page }) => {
@@ -246,17 +252,24 @@ test.describe("Mobile Navigation", () => {
     const drawer = page.getByRole("dialog", { name: "Mobile navigation" });
     await expect(drawer).toBeFocused();
 
-    // First Tab moves from the panel to its first interactive control — the
-    // "RW" home link — confirming Tab enters the drawer at the start of its
-    // focusable list rather than escaping.
+    // Scoped to the dialog: the backdrop outside it carries the same
+    // accessible name.
+    const close = drawer.getByRole("button", { name: "Close menu" });
+    // The wrap below needs a second focusable, and Close is the only one the
+    // drawer always has — wait for the nav so a slow render fails here rather
+    // than as a broken trap.
+    await expect(drawer.getByRole("link").first()).toBeVisible();
+
+    // First Tab reaches the Close button, confirming Tab enters the drawer at
+    // the start of its focusable list rather than escaping.
     await page.keyboard.press("Tab");
-    await expect(drawer.getByRole("link", { name: "RW" })).toBeFocused();
+    await expect(close).toBeFocused();
 
     // Shift+Tab from the first control wraps backwards to a different focusable
-    // inside the drawer (the last one), so focus leaves the home link but never
-    // leaves the dialog.
+    // inside the drawer (the last one), so focus leaves the Close button but
+    // never leaves the dialog.
     await page.keyboard.press("Shift+Tab");
-    await expect(drawer.getByRole("link", { name: "RW" })).not.toBeFocused();
+    await expect(close).not.toBeFocused();
     await expect(drawer.locator(":focus")).toHaveCount(1);
   });
 
