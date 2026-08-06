@@ -89,7 +89,7 @@ test.describe("Embedded Layout", () => {
 
     const breadcrumbs = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(breadcrumbs).toBeVisible();
-    await expect(breadcrumbs.getByRole("link", { name: "Home" })).toBeVisible();
+    await expect(breadcrumbs.getByRole("link", { name: "Test Documentation" })).toBeVisible();
   });
 
   test("navigating between pages works", async ({ page }) => {

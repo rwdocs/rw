@@ -221,7 +221,8 @@ test.describe("Long-token wrapping in the navigation sidebar", () => {
   });
 
   // A scoped sidebar swaps the tree's top for a back-link to the parent section
-  // and a heading for the current one, both rendered from document titles.
+  // and the current section's own page as its first row, both rendered from
+  // document titles.
   test.describe("scoped to a section", () => {
     test.beforeEach(async ({ page }) => {
       await open(page, "/long-scope/inner");
@@ -229,10 +230,14 @@ test.describe("Long-token wrapping in the navigation sidebar", () => {
 
     // The viewer first renders the root tree and only swaps in the scoped one
     // once the page's section is known. Nothing below auto-waits, so hold here.
+    // long-scope is a section root, so in the unswapped root tree its row is a
+    // leaf: no expand chevron, no `<svg>` inside the anchor, and SCOPE_TITLE
+    // (its child) isn't on screen at all. Only the scoped sidebar's back link
+    // nests an `<svg>` inside the anchor, so waiting on it holds for the swap.
     async function scopedNav(page: Page): Promise<Locator> {
       const nav = column(page);
-      await expect(nav.getByRole("link", { name: SCOPE_PARENT })).toBeVisible();
-      await expect(nav.getByRole("heading", { name: SCOPE_TITLE })).toBeVisible();
+      await expect(nav.getByRole("link", { name: SCOPE_PARENT }).getByRole("img")).toBeVisible();
+      await expect(nav.getByRole("link", { name: SCOPE_TITLE })).toBeVisible();
       return nav;
     }
 
@@ -242,23 +247,25 @@ test.describe("Long-token wrapping in the navigation sidebar", () => {
       expect(await widestOverflow(nav, nav.getByRole("link"))).toBeLessThanOrEqual(0);
     });
 
-    test("the heading stays inside the column", async ({ page }) => {
+    test("the scope's own row stays inside the column", async ({ page }) => {
       const nav = await scopedNav(page);
 
-      expect(await widestOverflow(nav, nav.getByRole("heading"))).toBeLessThanOrEqual(0);
+      expect(
+        await widestOverflow(nav, nav.getByRole("link", { name: SCOPE_TITLE })),
+      ).toBeLessThanOrEqual(0);
     });
 
-    test("the back-link label lines up with the heading below it", async ({ page }) => {
+    test("the back-link label lines up with the row below it", async ({ page }) => {
       const nav = await scopedNav(page);
       // Measure the label, not the anchor, which starts at the chevron; and
-      // text, not boxes, since the heading indents with padding.
+      // text, not boxes, since the row indents with padding.
       const label = nav.getByRole("link", { name: SCOPE_PARENT }).getByText(SCOPE_PARENT);
-      const heading = nav.getByRole("heading", { name: SCOPE_TITLE });
+      const row = nav.getByRole("link", { name: SCOPE_TITLE }).getByText(SCOPE_TITLE);
 
-      const [labelLines, headingLines] = await Promise.all([textLines(label), textLines(heading)]);
+      const [labelLines, rowLines] = await Promise.all([textLines(label), textLines(row)]);
       expect(labelLines.length).toBeGreaterThan(0);
-      expect(headingLines.length).toBeGreaterThan(0);
-      expect(labelLines[0].left).toBeCloseTo(headingLines[0].left, 0);
+      expect(rowLines.length).toBeGreaterThan(0);
+      expect(labelLines[0].left).toBeCloseTo(rowLines[0].left, 0);
     });
 
     test("the back-link chevron sits on its label's first line", async ({ page }) => {

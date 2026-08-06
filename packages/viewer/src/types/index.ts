@@ -62,7 +62,7 @@ export interface ScopeInfo {
 /** Complete navigation tree with scope information */
 export interface NavigationTree {
   items: NavItem[];
-  /** Current scope info (omitted at root). */
+  /** Current scope info. Omitted only when the tree is empty. */
   scope?: ScopeInfo;
   /** Parent scope for back navigation (omitted at root or if no parent section). */
   parentScope?: ScopeInfo;

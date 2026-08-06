@@ -7,12 +7,13 @@
   interface Props {
     items: NavItem[];
     depth?: number;
+    selfItem?: NavItem;
   }
 
-  let { items, depth = 0 }: Props = $props();
+  let { items, depth = 0, selfItem }: Props = $props();
 
   // Only group at the top level (depth 0)
-  let groups = $derived(depth === 0 ? groupNavItems(items) : null);
+  let groups = $derived(depth === 0 ? groupNavItems(items, selfItem) : null);
 </script>
 
 {#if depth === 0 && groups}
