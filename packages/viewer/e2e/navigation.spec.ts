@@ -8,7 +8,7 @@ test.describe("Navigation", () => {
     await expect(page.getByRole("article")).toContainText("Test Documentation");
   });
 
-  test("shows navigation sidebar with top-level sections", async ({ page }) => {
+  test("shows navigation sidebar with top-level sections, and no rw wordmark", async ({ page }) => {
     await page.goto("/");
 
     // Navigation sidebar should be visible
@@ -19,6 +19,12 @@ test.describe("Navigation", () => {
     await expect(aside.getByRole("link", { name: "Getting Started" })).toBeVisible();
     await expect(aside.getByRole("link", { name: "API Reference" })).toBeVisible();
     await expect(aside.getByRole("link", { name: "Advanced Topics" })).toBeVisible();
+
+    // ...and no "rw" of its own. Anchored, or the match is a substring one and
+    // any title containing "rw" trips it; padded, because a regex matches raw
+    // text, and a sibling node leaves a space the anchors would otherwise miss.
+    await expect(aside.getByText(/^\s*rw\s*$/i)).toHaveCount(0);
+    await expect(aside.getByRole("img", { name: /^rw$/i })).toHaveCount(0);
   });
 
   test("expands navigation tree on click", async ({ page }) => {

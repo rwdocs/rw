@@ -47,10 +47,7 @@
         class="h-dvh overflow-y-auto bg-white shadow-xl dark:bg-neutral-800"
       >
         <div class="p-4">
-          <div class="mb-6 flex items-center justify-between">
-            <a href={router.prefixPath("/")} class="block">
-              <span class="text-xl font-semibold text-gray-900 dark:text-neutral-100">RW</span>
-            </a>
+          <div class="mb-6 flex justify-end">
             <Button
               variant="ghost"
               iconOnly
