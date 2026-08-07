@@ -7,14 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### New Features
+
+- **Every page in navigation** — the homepage and each section's overview page now appear as the first row of their scope in the sidebar, highlighted while you're there. See [Page Metadata](docs/metadata.md#navigation-ordering).
+
 ### Added
 
-- Release archives and the published npm packages now ship a third-party license notice covering every bundled dependency, Rust and JavaScript. The `@rwdocs/core` platform packages also gain rw's own `LICENSE-MIT` and `LICENSE-APACHE`, which they shipped without before. The notice travels with the archive, so a binary placed by `brew install` or the shell installer does not have it alongside.
+- Release archives ship a `THIRD-PARTY.md` covering every bundled Rust and JavaScript dependency; an installer that places only the binary leaves it behind in the archive. `@rwdocs/core` and its platform packages carry the Rust half, `@rwdocs/viewer` the JavaScript half, and the platform packages gain rw's own `LICENSE-MIT` and `LICENSE-APACHE`.
 - Pages served by `rw serve` now show the rw icon in the browser tab, and an app icon when the site is saved to an iOS home screen.
 
 ### Changed
 
-- `@rwdocs/viewer` now declares Node `^22.13.0 || >=24`, up from `>=22.12.0`. The old range was wrong in both directions: Node 22.12 cannot install the package's own toolchain, and no Node 23 release was ever supported.
+- `@rwdocs/viewer` now declares Node `^22.13.0 || >=24`, up from `>=22.12.0`. Installing it on Node 22.12 or on any Node 23 release now warns.
 - The navigation sidebar now lists the homepage first at the top level, and each section's own page first inside it, highlighted while you're there. See [Page Metadata](docs/metadata.md#navigation-ordering).
 - Breadcrumbs now title the root crumb from the homepage's own title, falling back to "Home" only when there is no homepage.
 - The navigation sidebar no longer shows rw's "RW" wordmark, on desktop or in the mobile drawer. On desktop the space it occupied stays empty, so navigation items do not move.
@@ -22,11 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The "On this page" outline now follows the reader. It could leave a middle entry highlighted after you switched documents, and never highlighted a final entry the page could not scroll far enough to reach.
-- `@rwdocs/viewer`'s TypeScript types now resolve outside bundlers. Its `exports` map listed `import` ahead of `types`, and the published `embed.d.ts` used extensionless relative imports, so a consumer on `moduleResolution: "node16"`/`"nodenext"` — or on the older `"node"` — either found no types at all or silently got types that no longer described the JavaScript. Only `"bundler"` worked, which is why the Backstage plugin never hit it. The runtime bundle is unchanged.
-- A comment you just posted could vanish from the page: a comment-list request already in flight landed afterward and overwrote it, though the comment stayed saved on the server and reappeared after a reload. Most reachable on a document already carrying many comments, where the list takes longer to arrive.
-- A comment you just posted could also appear twice, when the page's own refresh delivered it before the post finished. Only the display duplicated; the server stored one comment, and a reload showed one.
-- Opening another page no longer lists the page you came from's comments beneath it, or highlights their quotes in its text, while the new page's own comments load. If a refresh raced the move they could stay there until you navigated again.
-- Deleting a reply no longer takes away the Restore control that undoes it. Deleting is reversible, but the deleted reply is left out of every comment list the server sends, so any refresh — and on a site with live reload there is one after every comment change, by anyone — made the reply disappear from the page with no way back except the API. It now stays until you restore it or leave the page.
+- `@rwdocs/viewer`'s TypeScript types now resolve outside bundlers. A consumer on `moduleResolution: "node16"`, `"nodenext"`, or the older `"node"` either found no types at all or got types that no longer described the JavaScript; only `"bundler"` worked. The runtime bundle is unchanged.
+- A comment you just posted no longer vanishes from the page, or appears twice, when a comment-list refresh races the post. The server stored it correctly either way, and a reload showed the truth.
+- Opening another page no longer lists the comments of the page you came from beneath it, or highlights their quotes in its text, while the new page's own comments load.
+- Deleting a reply no longer takes away the Restore control that undoes it. Any refresh — and live reload triggers one after every comment change, by anyone — used to make the deleted reply disappear with no way back except the API.
 - A comment list that fails to load no longer empties the comments on a page you have since opened, or reports an error about the page you left.
 - A long unbreakable token — a class name, a URL — in a navigation label, a section heading, or a page-outline entry now wraps instead of sliding out of line with its neighbours and past the column edge.
 
