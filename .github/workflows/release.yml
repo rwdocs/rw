@@ -87,12 +87,17 @@ jobs:
           name: artifacts-plan-dist-manifest
           path: plan-dist-manifest.json
 
+  custom-third-party-notice:
+    uses: ./.github/workflows/third-party-notice.yml
+    secrets: inherit
+
   # Build and packages all the platform-specific things
   build-local-artifacts:
     name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
     # Let the initial task tell us to not run (currently very blunt)
     needs:
       - plan
+      - custom-third-party-notice
     if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
     strategy:
       fail-fast: false
@@ -129,13 +134,12 @@ jobs:
           fi
       - name: "Build frontend"
         run: "npm ci && npm -w @rwdocs/viewer run build"
-      - name: "Install cargo-about"
-        uses: "taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf"
+      - name: "Fetch the Rust third-party notice"
+        uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
         with:
-          "tool": "cargo-about@0.9.1"
-      - name: "Generate third-party notice"
+          "name": "third-party-rust"
+      - name: "Assemble third-party notice"
         run: |
-          cargo about generate --all-features --fail about.hbs > THIRD-PARTY-RUST.md
           cat THIRD-PARTY-RUST.md packages/viewer/dist/THIRD-PARTY-JS.md > THIRD-PARTY.md
           rm THIRD-PARTY-RUST.md
         shell: "bash"
@@ -180,6 +184,7 @@ jobs:
   custom-build-npm:
     needs:
       - plan
+      - custom-third-party-notice
     if: ${{ needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' }}
     uses: ./.github/workflows/build-npm.yml
     with:
