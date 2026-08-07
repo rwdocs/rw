@@ -1,22 +1,26 @@
 - name: Build frontend
   run: npm ci && npm -w @rwdocs/viewer run build
 
-- name: Install cargo-about
-  uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
+# Do NOT run `cargo about` here: these steps run on every target rw ships, and
+# cargo-about publishes no x86_64-apple-darwin binary — install-action falls
+# back to a source build there that installs nothing and still reports success.
+# third-party-notice.yml produces this artifact on Linux instead.
+- name: Fetch the Rust third-party notice
+  # Pinned by hand: dist applies [dist.github-action-commits] to the steps it
+  # generates, not to the ones injected from this file.
+  uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
   with:
-    tool: cargo-about@0.9.1
+    name: third-party-rust
 
-# The archive carries one notice covering everything inside the binary. The
-# Rust half comes from Cargo.lock; the JavaScript half was written into the
-# viewer bundle by the build above, and is embedded in the binary as well.
-- name: Generate third-party notice
+# Each archive carries one notice: the Rust half above, and the JavaScript half
+# the frontend build wrote into the viewer bundle, which ships in the binary too.
+- name: Assemble third-party notice
   # Force bash: the default shell on the windows-msvc matrix leg is pwsh,
   # where `cat A B > C` resolves to Get-Content and fails binding two
   # positional paths to its single positional parameter. pwsh also only
-  # surfaces the LAST statement's exit code, so a failing `cargo about
-  # generate` would go unnoticed once `rm` succeeds after it.
+  # surfaces the LAST statement's exit code, so a failing `cat` would go
+  # unnoticed once `rm` succeeds after it.
   shell: bash
   run: |
-    cargo about generate --all-features --fail about.hbs > THIRD-PARTY-RUST.md
     cat THIRD-PARTY-RUST.md packages/viewer/dist/THIRD-PARTY-JS.md > THIRD-PARTY.md
     rm THIRD-PARTY-RUST.md

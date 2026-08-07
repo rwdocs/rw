@@ -1,0 +1,43 @@
+name: Third-party notice
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate third-party notice
+    # dist gives this job no condition of its own, and release.yml also runs on
+    # pull requests, where the build legs never run and ci.yml already proves
+    # the notice resolves. A skipped job skips its dependents, so the legs stay
+    # skipped rather than failing on the missing artifact.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # cargo-about shells out to `cargo metadata`, so the job needs a toolchain
+      # of its own rather than whichever one the runner image happens to ship.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
+        with:
+          # Pinned for the reason ci.yml gives. Keep the two equal: that job is
+          # what proves every license still resolves before a release runs.
+          tool: cargo-about@0.9.1
+
+      # Do NOT set `targets` in about.toml: with none set the graph is the union
+      # over every platform, which is what makes this one file correct for all
+      # six release legs.
+      - name: Generate
+        run: cargo about generate --all-features --fail about.hbs > THIRD-PARTY-RUST.md
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: third-party-rust
+          path: THIRD-PARTY-RUST.md
+          if-no-files-found: error

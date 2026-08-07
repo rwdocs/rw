@@ -33,19 +33,19 @@ jobs:
         working-directory: packages/core
         run: npx napi artifacts --output-dir artifacts --npm-dir npm
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-
-      - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
+      # Produced by the third-party-notice job — the same file the release
+      # archives carry.
+      - name: Download the Rust third-party notice
+        uses: actions/download-artifact@v8
         with:
-          tool: cargo-about@0.9.1
+          name: third-party-rust
+          path: packages/core
 
       # Every package published from here ships a compiled .node containing the
       # whole crate tree, so each needs the notice and rw's own licenses beside
-      # it. The platform packages carried neither before.
-      - name: Generate and distribute third-party notice
+      # it.
+      - name: Distribute third-party notice
         run: |
-          cargo about generate --all-features --fail about.hbs > packages/core/THIRD-PARTY-RUST.md
           for dir in packages/core/npm/*/; do
             cp packages/core/THIRD-PARTY-RUST.md "$dir"
             cp LICENSE-MIT LICENSE-APACHE "$dir"
