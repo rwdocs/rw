@@ -52,9 +52,11 @@ that names which fence languages are diagrams — but none of them produce marku
 **Data flow (NAPI)**: Node.js → rw-napi (napi-rs bindings) → rw-site, rw-renderer,
 rw-kroki (Rust) → Node.js objects
 
-**Metadata flow (storage)**: Markdown + sidecar → `rw-meta::Meta` →
-shared `Arc<Meta>` in `rw-storage::Document`. Storage serialization keeps
-the existing flattened wire shape while avoiding a second metadata lookup path.
+**Metadata flow**: Markdown + sidecar → `rw-meta::Meta` → shared `Arc<Meta>`
+in `rw-storage::Document` → `rw-site::SiteState` → `PageRenderResult`. The site
+stores each `Document` directly and returns the same metadata allocation through
+fresh renders and cache hits; boundary adapters project their existing public
+shapes. Storage serialization keeps the existing flattened wire format.
 
 ## Key Technical Details
 

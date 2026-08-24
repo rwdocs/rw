@@ -154,7 +154,7 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
 
     let response = PageResponse {
         meta: PageMeta {
-            title: result.title,
+            title: result.meta.title.clone(),
             path: to_url_path(&path),
             source_file: if result.has_content {
                 path.clone()
@@ -162,8 +162,8 @@ fn get_page_impl(path: String, state: Arc<AppState>) -> Result<impl IntoResponse
                 String::new()
             },
             last_modified: last_modified.to_rfc3339(),
-            description: result.description,
-            page_kind: result.page_kind,
+            description: result.meta.description.clone(),
+            page_kind: result.meta.kind.clone(),
             section_ref,
             subpath,
         },
@@ -358,14 +358,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_page_response_forwards_description_and_kind_from_render_result() {
-        // Regression guard: adapters must forward the resolved metadata from
-        // the render result, including frontmatter-only values. The sidecar is
-        // deliberately left unconfigured below, so a revert that stops
-        // projecting those resolved values fails here.
+    async fn test_page_response_forwards_resolved_meta_from_render_result() {
         let storage = MockStorage::new()
-            .with_document_kind_description("billing", "Billing", "domain", "Money stuff")
-            .with_content("billing", "# Billing\n\nOverview.")
+            .with_document_kind_description("billing", "Resolved Billing", "domain", "Money stuff")
+            .with_content("billing", "# Body H1\n\nOverview.")
             .with_mtime("billing", 1000.0);
         let server = TestServer::with_storage(storage).await;
 
@@ -373,8 +369,45 @@ mod tests {
 
         assert_eq!(resp.status, StatusCode::OK, "body: {}", resp.text());
         let json = resp.json();
+        let mut response_keys: Vec<_> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        response_keys.sort_unstable();
+        assert_eq!(
+            response_keys,
+            ["breadcrumbs", "content", "meta", "sectionAncestry", "toc"]
+        );
+        assert_eq!(json["meta"]["title"], "Resolved Billing");
+        assert_eq!(json["meta"]["path"], "/billing");
+        assert_eq!(json["meta"]["sourceFile"], "billing");
+        assert_eq!(json["meta"]["lastModified"], "1970-01-01T00:16:40+00:00");
         assert_eq!(json["meta"]["description"], "Money stuff");
         assert_eq!(json["meta"]["kind"], "domain");
+        assert_eq!(json["meta"]["sectionRef"], "domain:default/billing");
+        assert_eq!(json["meta"]["subpath"], "");
+        let mut keys: Vec<_> = json["meta"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "description",
+                "kind",
+                "lastModified",
+                "path",
+                "sectionRef",
+                "sourceFile",
+                "subpath",
+                "title",
+            ]
+        );
     }
 
     #[test]

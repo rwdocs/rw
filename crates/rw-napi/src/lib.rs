@@ -408,7 +408,7 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
 
     Ok(PageResponse {
         meta: PageMetaResponse {
-            title: result.title,
+            title: result.meta.title.clone(),
             path: to_url_path(path),
             source_file: if result.has_content {
                 path.to_owned()
@@ -416,8 +416,8 @@ fn build_page_response(site: &Site, path: &str) -> Result<PageResponse> {
                 String::new()
             },
             last_modified,
-            description: result.description,
-            page_kind: result.page_kind,
+            description: result.meta.description.clone(),
+            page_kind: result.meta.kind.clone(),
             section_ref,
             subpath,
         },
@@ -453,14 +453,10 @@ mod tests {
     use rw_storage::MockStorage;
 
     #[test]
-    fn build_page_response_forwards_description_and_kind_from_render_result() {
-        // Regression guard: adapters must forward the resolved metadata from
-        // the render result, including frontmatter-only values. The sidecar is
-        // deliberately left unconfigured below, so a revert that stops
-        // projecting those resolved values fails here.
+    fn build_page_response_forwards_resolved_meta_from_render_result() {
         let storage = MockStorage::new()
-            .with_document_kind_description("billing", "Billing", "domain", "Money stuff")
-            .with_content("billing", "# Billing\n\nOverview.")
+            .with_document_kind_description("billing", "Resolved Billing", "domain", "Money stuff")
+            .with_content("billing", "# Body H1\n\nOverview.")
             .with_mtime("billing", 1000.0);
         let site = Site::new(
             Arc::new(storage),
@@ -470,8 +466,14 @@ mod tests {
 
         let response = build_page_response(&site, "billing").expect("page should render");
 
+        assert_eq!(response.meta.title, "Resolved Billing");
+        assert_eq!(response.meta.path, "/billing");
+        assert_eq!(response.meta.source_file, "billing");
+        assert_eq!(response.meta.last_modified, "1970-01-01T00:16:40+00:00");
         assert_eq!(response.meta.description.as_deref(), Some("Money stuff"));
         assert_eq!(response.meta.page_kind.as_deref(), Some("domain"));
+        assert_eq!(response.meta.section_ref, "domain:default/billing");
+        assert_eq!(response.meta.subpath, "");
     }
 
     #[test]

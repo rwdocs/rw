@@ -9,14 +9,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::page::{
-    Page, PageRenderResult, PageRenderer, PageRendererConfig, RenderContext, RenderError,
-    SearchDocument,
+    PageRenderResult, PageRenderer, PageRendererConfig, RenderContext, RenderError, SearchDocument,
 };
 use crate::site_state::{Navigation, PageEntry, SectionEntry, SiteState, SiteStateBuilder};
 use rw_cache::{Cache, CacheBucket};
 use rw_diagrams::{Entity, SiteModel};
 use rw_renderer::TitleResolver;
-use rw_sections::Namespace;
 use rw_storage::{Storage, StorageError};
 
 /// Get the depth of a URL path.
@@ -49,20 +47,20 @@ impl SiteModel for SiteSnapshot {
             .into_iter()
             .find(|(_, s)| s.kind == kind)?;
 
-        let page = self.state.get_page(section_path);
-        let has_content = page.is_some_and(|p| p.has_content);
+        let document = self.state.get_page(section_path);
+        let has_content = document.is_some_and(|d| d.has_content);
 
         // A service takes its own name; every other kind takes its page title,
         // falling back to the section path when the section has no page.
         let title = if kind == "service" {
             name.to_owned()
         } else {
-            page.map_or_else(|| section_path.to_owned(), |p| p.title.clone())
+            document.map_or_else(|| section_path.to_owned(), |d| d.meta.title.clone())
         };
 
         Some(Entity {
             title,
-            description: page.and_then(|p| p.description.clone()),
+            description: document.and_then(|d| d.meta.description.clone()),
             url_path: has_content.then(|| format!("/{section_path}")),
         })
     }
@@ -78,8 +76,8 @@ pub(crate) struct SiteTitleResolver {
 
 impl TitleResolver for SiteTitleResolver {
     fn resolve_title(&self, path: &str) -> Option<String> {
-        let page = self.snapshot.state.get_page(path)?;
-        Some(page.title.clone())
+        let document = self.snapshot.state.get_page(path)?;
+        Some(document.meta.title.clone())
     }
 }
 
@@ -209,8 +207,7 @@ impl Site {
     }
 
     /// Returns every section in the site as a flat list — the unscoped
-    /// counterpart to [`navigation`](Self::navigation). See
-    /// [`SiteState::list_sections`].
+    /// counterpart to [`navigation`](Self::navigation).
     ///
     /// # Errors
     ///
@@ -224,12 +221,10 @@ impl Site {
     /// Returns every document (page) in the site, each carrying its site path,
     /// its `(section_ref, subpath)` key, its full section anchors chain, its
     /// title, and its last-modified `mtime` — the per-page counterpart to
-    /// [`list_sections`](Self::list_sections). See [`SiteState::list_pages`].
+    /// [`list_sections`](Self::list_sections).
     ///
-    /// Unlike [`SiteState::list_pages`], which stays storage-free and leaves
-    /// each entry's `mtime` at `0.0`, this method owns storage and fills the
-    /// per-page `mtime` from [`Storage::mtime`], falling back to `0.0` when the
-    /// mtime is unknown.
+    /// This method owns storage and fills each `mtime` from [`Storage::mtime`],
+    /// falling back to `0.0` when the mtime is unknown.
     ///
     /// # Performance
     ///
@@ -268,7 +263,7 @@ impl Site {
     /// `subpath` is the page path relative to its section root (empty for the
     /// section root itself, the full path for pages outside any explicit
     /// section). Computed in the same walk as the section ref, so the two are
-    /// always consistent. See [`SiteState::section_location`].
+    /// always consistent.
     ///
     /// # Errors
     ///
@@ -337,7 +332,7 @@ impl Site {
         self.snapshot()
             .state
             .get_page(path)
-            .map(|p| p.title.clone())
+            .map(|p| p.meta.title.clone())
     }
 
     /// Returns the `pages` ordering for a page from the current cached snapshot,
@@ -349,7 +344,7 @@ impl Site {
         self.snapshot()
             .state
             .get_page(path)
-            .and_then(|p| p.pages.clone())
+            .and_then(|p| p.meta.pages.clone())
     }
 
     /// Returns the current snapshot, reloading from storage if stale.
@@ -451,9 +446,8 @@ impl Site {
     ///   Returns `Ok(true)` if a reload was attempted.
     ///
     /// `Ok(true)` means "reload was attempted," not "new content was loaded."
-    /// If the storage scan fails after `has_changed()` returns `true`,
-    /// the site keeps stale data (existing behavior of
-    /// [`reload_if_needed`](Self::reload_if_needed)).
+    /// If the storage scan fails after `has_changed()` returns `true`, the site
+    /// keeps stale data after a successful initial load.
     ///
     /// # Errors
     ///
@@ -584,48 +578,8 @@ impl Site {
                 .then_with(|| a.path.cmp(&b.path))
         });
 
-        if documents.is_empty() {
-            return Ok(builder.build());
-        }
-
-        // Documents are sorted parent-first, so each page's parent — and
-        // therefore its inherited namespace — is resolved before the page
-        // itself. Storage backends are contracted to produce only validated
-        // namespace strings (rw-storage-fs validates in build_document; the
-        // S3 bundle round-trips an already-validated value). unwrap_or_else()
-        // surfaces a contract violation as a clear panic instead of silently
-        // coercing bad data to "default".
-        for doc in &documents {
-            let namespace: Option<Namespace> = doc.meta.namespace.as_deref().map(|s| {
-                s.parse().unwrap_or_else(|e| {
-                    panic!(
-                        "storage produced invalid namespace {s:?} for page {:?}: {e}",
-                        doc.path
-                    )
-                })
-            });
-
-            builder.add_page(
-                Page {
-                    title: doc.meta.title.clone(),
-                    path: doc.path.clone(),
-                    has_content: doc.has_content,
-                    description: doc.meta.description.clone(),
-                    page_kind: doc.meta.kind.clone(),
-                    origin: doc.origin.clone(),
-                    pages: doc.meta.pages.clone(),
-                    is_dir: doc.is_dir,
-                },
-                doc.meta.kind.as_deref(),
-                namespace,
-            );
-        }
-
-        // Apply custom page ordering from `pages` metadata
-        for doc in &documents {
-            if let Some(pages) = &doc.meta.pages {
-                builder.reorder_children_at(&doc.path, pages);
-            }
+        for document in documents {
+            builder.add_document(document);
         }
 
         Ok(builder.build())
@@ -639,7 +593,7 @@ mod tests {
 
     use std::sync::Arc;
 
-    use rw_storage::{MockStorage, StorageErrorKind};
+    use rw_storage::{Document, MockStorage, StorageErrorKind};
 
     use super::*;
     use crate::page::RenderError;
@@ -648,6 +602,43 @@ mod tests {
     fn create_site_with_storage(storage: MockStorage) -> Site {
         let config = PageRendererConfig::default();
         Site::new(Arc::new(storage), Arc::new(rw_cache::NullCache), config)
+    }
+
+    fn document(path: &str, title: &str, kind: Option<&str>, namespace: Option<&str>) -> Document {
+        Document {
+            path: path.to_owned(),
+            has_content: true,
+            meta: Arc::new(rw_meta::Meta {
+                title: title.to_owned(),
+                description: None,
+                kind: kind.map(str::to_owned),
+                namespace: namespace.map(str::to_owned),
+                pages: None,
+            }),
+            origin: None,
+            is_dir: true,
+        }
+    }
+
+    #[test]
+    fn mock_child_keeps_declared_namespace_none_but_effective_section_inherits() {
+        let storage = MockStorage::new()
+            .with_scanned_document(document(
+                "billing",
+                "Billing",
+                Some("domain"),
+                Some("payments"),
+            ))
+            .with_scanned_document(document("billing/api", "API", Some("system"), None));
+        let site = create_site_with_storage(storage);
+
+        let snapshot = site.reload_if_needed().unwrap();
+        let child = snapshot.state.get_page("billing/api").unwrap();
+        assert_eq!(child.meta.namespace, None);
+        assert_eq!(
+            site.section_location("billing/api").unwrap().0,
+            "system:payments/api"
+        );
     }
 
     // ========================================================================
@@ -695,18 +686,19 @@ mod tests {
     fn snapshot_of(sections: &[TestSection]) -> SiteSnapshot {
         let mut builder = SiteStateBuilder::new();
         for s in sections {
-            builder.add_page(
-                crate::page::Page {
+            builder.add_document(Document {
+                path: s.path.to_owned(),
+                has_content: s.has_content,
+                meta: Arc::new(rw_meta::Meta {
                     title: s.title.to_owned(),
-                    path: s.path.to_owned(),
-                    has_content: s.has_content,
                     description: s.description.map(ToOwned::to_owned),
-                    page_kind: Some(s.kind.to_owned()),
-                    ..Default::default()
-                },
-                Some(s.kind),
-                None,
-            );
+                    kind: Some(s.kind.to_owned()),
+                    namespace: None,
+                    pages: None,
+                }),
+                origin: None,
+                is_dir: true,
+            });
         }
         SiteSnapshot {
             state: builder.build(),
@@ -846,7 +838,7 @@ mod tests {
         let page = snapshot.state.get_page("");
         assert!(page.is_some());
         let page = page.unwrap();
-        assert_eq!(page.title, "Welcome");
+        assert_eq!(page.meta.title, "Welcome");
         assert_eq!(page.path, "");
         assert!(page.has_content);
     }
@@ -864,7 +856,7 @@ mod tests {
         let domain = snapshot.state.get_page("domain-a");
         assert!(domain.is_some());
         let domain = domain.unwrap();
-        assert_eq!(domain.title, "Domain A");
+        assert_eq!(domain.meta.title, "Domain A");
         assert!(domain.has_content);
 
         // Verify child via root navigation (non-section pages expand their children)
@@ -889,7 +881,7 @@ mod tests {
 
         let page = snapshot.state.get_page("guide");
         assert!(page.is_some());
-        assert_eq!(page.unwrap().title, "My Custom Title");
+        assert_eq!(page.unwrap().meta.title, "My Custom Title");
     }
 
     #[test]
@@ -903,7 +895,7 @@ mod tests {
         let page = snapshot.state.get_page("руководство");
         assert!(page.is_some());
         let page = page.unwrap();
-        assert_eq!(page.title, "Руководство");
+        assert_eq!(page.meta.title, "Руководство");
         assert_eq!(page.path, "руководство");
         assert!(page.has_content);
     }
@@ -1045,19 +1037,19 @@ mod tests {
 
         // Check root
         let root = snapshot.state.get_page("").unwrap();
-        assert_eq!(root.title, "Home");
+        assert_eq!(root.meta.title, "Home");
 
         // Check level 1
         let level1 = snapshot.state.get_page("level1").unwrap();
-        assert_eq!(level1.title, "Level 1");
+        assert_eq!(level1.meta.title, "Level 1");
 
         // Check level 2
         let level2 = snapshot.state.get_page("level1/level2").unwrap();
-        assert_eq!(level2.title, "Level 2");
+        assert_eq!(level2.meta.title, "Level 2");
 
         // Check deep page
         let deep = snapshot.state.get_page("level1/level2/page").unwrap();
-        assert_eq!(deep.title, "Deep Page");
+        assert_eq!(deep.meta.title, "Deep Page");
 
         // Verify nested hierarchy via root navigation (non-section pages expand children)
         let root_nav = snapshot.state.navigation("");
@@ -1089,7 +1081,7 @@ mod tests {
 
         let result = site.render("test").unwrap();
         assert!(result.html.contains("<p>World</p>"));
-        assert_eq!(result.title, "Hello");
+        assert_eq!(result.meta.title, "Hello");
         assert!(!result.from_cache);
         assert!(result.has_content);
     }
@@ -1121,12 +1113,12 @@ mod tests {
         // First render - cache miss
         let result1 = site.render("test").unwrap();
         assert!(!result1.from_cache);
-        assert_eq!(result1.title, "Cached");
+        assert_eq!(result1.meta.title, "Cached");
 
         // Second render - cache hit
         let result2 = site.render("test").unwrap();
         assert!(result2.from_cache);
-        assert_eq!(result2.title, "Cached");
+        assert_eq!(result2.meta.title, "Cached");
         assert_eq!(result1.html, result2.html);
     }
 
@@ -1180,7 +1172,7 @@ mod tests {
         let page = snapshot.state.get_page("my-domain");
         assert!(page.is_some());
         let page = page.unwrap();
-        assert_eq!(page.title, "My Domain");
+        assert_eq!(page.meta.title, "My Domain");
         assert!(!page.has_content); // Virtual page
 
         // page_kind is tracked via sections index
@@ -1205,7 +1197,7 @@ mod tests {
         // Should have content
         assert!(page.has_content);
         // Title from storage
-        assert_eq!(page.title, "Meta Title");
+        assert_eq!(page.meta.title, "Meta Title");
     }
 
     #[test]
@@ -1222,7 +1214,7 @@ mod tests {
 
         // Virtual pages render h1 with title only
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
-        assert_eq!(result.title, "My Domain");
+        assert_eq!(result.meta.title, "My Domain");
         assert!(!result.has_content); // Virtual
         assert!(result.toc.is_empty()); // No TOC for virtual
     }

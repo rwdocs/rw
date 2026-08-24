@@ -12,8 +12,8 @@
 //!   concurrent access.
 //! - [`PageRendererConfig`] — controls diagram rendering (Kroki URL) and
 //!   `PlantUML` include directories.
-//! - [`PageRenderResult`] — the output of rendering a page: HTML, title,
-//!   table of contents, breadcrumbs, description, and kind.
+//! - [`PageRenderResult`] — the output of rendering a page: HTML, shared
+//!   resolved metadata, table of contents, and breadcrumbs.
 //! - [`Navigation`] — a scoped navigation tree with [`NavItem`] children,
 //!   current [`ScopeInfo`], and optional parent scope for back-navigation.
 //!
@@ -26,9 +26,10 @@
 //! [`Section::kind`]. Kind values are freeform strings.
 //!
 //! Sections are identified by **section ref** strings with the format
-//! `kind:namespace/name` (e.g., `"domain:default/billing"`). The namespace
-//! is currently always `default`; it is reserved for future use. The name
-//! is the last path segment of the section root's URL path.
+//! `kind:namespace/name` (e.g., `"domain:payments/billing"`). A section's
+//! effective namespace comes from its own page declaration, then the nearest
+//! ancestor page declaration, then `default`. The name is the last path segment
+//! of the section root's URL path.
 //!
 //! When navigating, sections act as boundaries — [`Site::navigation`] scoped
 //! to a section shows only that section's children, with child sections
@@ -36,11 +37,11 @@
 //! called the **scope** (see [`ScopeInfo`]); the [`Navigation`] response
 //! includes the current scope and a parent scope for "back" navigation.
 //!
-//! Every site has an implicit **root section** with kind `"section"` and
-//! name `"root"` (ref `"section:default/root"`). It is used as the scope
-//! when no explicit section is defined at the site root, and as the
-//! fallback for [`Site::section_location`] when a page has no section
-//! ancestor.
+//! Every site has a root scope named `"root"`. Without an explicit root
+//! section, its kind is `"section"`; a root page declaration can supply a
+//! different kind and namespace (for example, `"component:payments/root"`).
+//! The root scope is the fallback for [`Site::section_location`] when a page
+//! has no explicit section ancestor.
 //!
 //! See [`Section`] and [`Sections`] (re-exported from [`rw_sections`]) for
 //! the ref format and lookup API.
@@ -88,7 +89,7 @@
 //!
 //! // Render a page by URL path (without leading slash)
 //! let result = site.render("guide")?;
-//! println!("Title: {}", result.title);
+//! println!("Title: {}", result.meta.title);
 //! println!("HTML length: {}", result.html.len());
 //! # Ok(())
 //! # }
@@ -100,6 +101,9 @@ pub(crate) mod site;
 pub(crate) mod site_state;
 
 pub use page::{BreadcrumbItem, PageRenderResult, PageRendererConfig, RenderError, SearchDocument};
+
+/// Represents resolved page metadata shared by site snapshots and render results.
+pub use rw_meta::Meta;
 
 /// A section identity consisting of a freeform `kind`, a validated
 /// [`Namespace`], and a `name` (the last path segment of the section root).

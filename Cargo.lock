@@ -4467,6 +4467,7 @@ dependencies = [
  "rw-cache",
  "rw-diagrams",
  "rw-kroki",
+ "rw-meta",
  "rw-parser",
  "rw-plantuml",
  "rw-renderer",
