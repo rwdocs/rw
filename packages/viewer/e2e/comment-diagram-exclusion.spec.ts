@@ -33,6 +33,43 @@ test.describe("diagram comment exclusion", () => {
     await selectDiagramLabel(page, "Collision label");
     await expect(page.getByRole("button", { name: "Add comment" })).toBeHidden();
   });
+
+  test("pending form aligns with the first words after a diagram", async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 800 });
+    await page.goto("/diagram");
+    await page.getByRole("article").waitFor();
+
+    const targetText = "These first words";
+    await selectText(page, targetText);
+    await page.getByRole("button", { name: "Add comment" }).click();
+
+    const textarea = page
+      .getByRole("complementary", { name: "Comments" })
+      .getByPlaceholder("Write a comment...");
+    await expect(textarea).toBeVisible();
+
+    await expect
+      .poll(async () =>
+        textarea.evaluate((ta, text) => {
+          const article = document.querySelector("article");
+          if (!article) throw new Error("no article");
+          const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const node = walker.currentNode as Text;
+            const start = node.data.indexOf(text);
+            if (start === -1) continue;
+            const range = document.createRange();
+            range.setStart(node, start);
+            range.setEnd(node, start + text.length);
+            const textareaRect = ta.getBoundingClientRect();
+            const paddingTop = parseFloat(getComputedStyle(ta).paddingTop) || 0;
+            return Math.abs(textareaRect.top + paddingTop - range.getBoundingClientRect().top);
+          }
+          throw new Error(`text "${text}" not found`);
+        }, targetText),
+      )
+      .toBeLessThanOrEqual(2);
+  });
 });
 
 /**

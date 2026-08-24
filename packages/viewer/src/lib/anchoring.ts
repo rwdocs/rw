@@ -29,17 +29,17 @@ const FUZZY_MAX_ERROR_FRACTION = 0.3;
 export interface TextIndex {
   /** Full concatenated text content of the container, in document order. */
   text: string;
-  /** Map a character offset in `text` to a live text node + local offset. */
-  locate(offset: number): { node: Text; offset: number } | null;
+  /** Maps an offset to a live boundary, choosing the node on `affinity`'s side. */
+  locate(offset: number, affinity: "forward" | "backward"): { node: Text; offset: number } | null;
   /** Map a DOM boundary point (node, offset) to its offset in `text`. */
   offsetOf(node: Node, nodeOffset: number): number | null;
 }
 
 /**
- * Walk the container's text nodes ONCE, recording each node and its cumulative
- * start offset, and concatenate the full text. `locate` then binary-searches the
- * cumulative offsets instead of re-walking per call. A pass that anchors many
- * comments builds this once and reuses it for every comment.
+ * Builds a reusable index of commentable text in `container`.
+ *
+ * Diagram and empty text nodes are omitted so offsets map to meaningful live
+ * boundaries.
  */
 export function buildTextIndex(container: HTMLElement): TextIndex {
   const nodes: Text[] = [];
@@ -48,31 +48,32 @@ export function buildTextIndex(container: HTMLElement): TextIndex {
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, diagramExclusionFilter);
   while (walker.nextNode()) {
     const node = walker.currentNode as Text;
+    if (node.data.length === 0) continue;
     starts.push(text.length);
     nodes.push(node);
     text += node.data;
   }
 
-  function locate(offset: number): { node: Text; offset: number } | null {
+  function locate(
+    offset: number,
+    affinity: "forward" | "backward",
+  ): { node: Text; offset: number } | null {
     if (offset < 0 || offset > text.length || nodes.length === 0) return null;
-    // Find the last node whose start is strictly less than offset (binary search).
-    // At a node boundary (starts[i] === offset) this returns the earlier node
-    // with local offset === node.length rather than the next node at offset 0 —
-    // both are valid Range endpoints, but anchoring to the earlier node's end
-    // avoids crossing into a following sibling span and producing an unexpected
-    // boundary.
+
+    // A filtered-text offset can border excluded DOM; affinity keeps the Range
+    // on the selected side of that gap.
     let lo = 0;
-    let hi = nodes.length - 1;
-    let idx = 0;
-    while (lo <= hi) {
+    let hi = nodes.length;
+    while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (starts[mid] < offset) {
-        idx = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
+      if (starts[mid] < offset) lo = mid + 1;
+      else hi = mid;
     }
+
+    const idx =
+      affinity === "forward" && lo < nodes.length && starts[lo] === offset
+        ? lo
+        : Math.max(0, lo - 1);
     return { node: nodes[idx], offset: offset - starts[idx] };
   }
 
@@ -251,8 +252,8 @@ function positionToRange(
   selector: Extract<Selector, { type: "TextPositionSelector" }>,
   index: TextIndex,
 ): Range | null {
-  const start = index.locate(selector.start);
-  const end = index.locate(selector.end);
+  const start = index.locate(selector.start, "forward");
+  const end = index.locate(selector.end, "backward");
   if (!start || !end) return null;
 
   try {
@@ -407,8 +408,8 @@ function isConfidentMatch(
 }
 
 function rangeAtTextOffset(index: TextIndex, start: number, end: number): Range | null {
-  const startPos = index.locate(start);
-  const endPos = index.locate(end);
+  const startPos = index.locate(start, "forward");
+  const endPos = index.locate(end, "backward");
   if (!startPos || !endPos) return null;
 
   try {
