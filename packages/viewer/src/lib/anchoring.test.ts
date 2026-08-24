@@ -56,16 +56,21 @@ describe("buildTextIndex", () => {
     const container = createContainer("<p>Hello <b>brave</b> world</p>");
     const index = buildTextIndex(container);
     // offset 8 falls inside "brave" (H-e-l-l-o-space=6, then b=6,r=7,a=8)
-    const at = index.locate(8)!;
+    const at = index.locate(8, "forward")!;
     expect(at.node.data).toBe("brave");
     expect(at.offset).toBe(2);
   });
 
-  it("locate() at a node boundary returns the end of the previous node", () => {
+  it("locate() maps a start boundary to the following node", () => {
     const container = createContainer("<p>ab</p><p>cd</p>");
-    const index = buildTextIndex(container);
-    // offset 2 is the boundary between "ab" (0..2) and "cd" (2..4)
-    const at = index.locate(2)!;
+    const at = buildTextIndex(container).locate(2, "forward")!;
+    expect(at.node.data).toBe("cd");
+    expect(at.offset).toBe(0);
+  });
+
+  it("locate() maps an end boundary to the preceding node", () => {
+    const container = createContainer("<p>ab</p><p>cd</p>");
+    const at = buildTextIndex(container).locate(2, "backward")!;
     expect(at.node.data).toBe("ab");
     expect(at.offset).toBe(2);
   });
@@ -73,15 +78,12 @@ describe("buildTextIndex", () => {
   it("locate() returns null for an offset past the end", () => {
     const container = createContainer("<p>abc</p>");
     const index = buildTextIndex(container);
-    expect(index.locate(99)).toBeNull();
+    expect(index.locate(99, "forward")).toBeNull();
   });
 
   it("locate(0) maps to the start of the first text node", () => {
-    // Offset 0 is the boundary the binary search must return as {firstNode, 0};
-    // it relies on idx initializing to 0, so pin it down explicitly — a comment
-    // whose quote starts at the very beginning of the article anchors here.
     const container = createContainer("<p>Hello <b>brave</b> world</p>");
-    const at = buildTextIndex(container).locate(0)!;
+    const at = buildTextIndex(container).locate(0, "forward")!;
     expect(at.node.data).toBe("Hello ");
     expect(at.offset).toBe(0);
   });
@@ -838,9 +840,32 @@ describe("buildTextIndex diagram exclusion", () => {
     const afterP = c.querySelectorAll("p")[1].firstChild as Text;
     const idx = buildTextIndex(c);
     const off = idx.offsetOf(afterP, 2)!;
-    const loc = idx.locate(off)!;
+    const loc = idx.locate(off, "forward")!;
     expect(loc.node).toBe(afterP);
     expect(loc.offset).toBe(2);
+  });
+
+  it("locate() maps a start boundary past an excluded diagram", () => {
+    const c = createContainer(HTML);
+    const afterP = c.querySelectorAll("p")[1].firstChild as Text;
+    const idx = buildTextIndex(c);
+    const loc = idx.locate(idx.offsetOf(afterP, 0)!, "forward")!;
+    expect(loc.node).toBe(afterP);
+    expect(loc.offset).toBe(0);
+  });
+
+  it("ignores empty text nodes before a diagram when locating the next prose boundary", () => {
+    const c = createContainer(HTML);
+    const empty = document.createTextNode("");
+    c.insertBefore(empty, c.querySelector("figure"));
+
+    const afterP = c.querySelectorAll("p")[1].firstChild as Text;
+    const idx = buildTextIndex(c);
+    const loc = idx.locate(6, "forward")!;
+
+    expect(idx.text).toBe("beforeafter");
+    expect(loc.node).toBe(afterP);
+    expect(loc.offset).toBe(0);
   });
 
   it("offsetOf handles an element-boundary container after a diagram", () => {
