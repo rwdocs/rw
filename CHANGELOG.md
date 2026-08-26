@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A project-root `README.md` used as the homepage now applies all of its frontmatter metadata, rather than only its title.
 - Starting an inline comment on the first words after a diagram now places the comment form beside the selected sentence instead of beside the diagram.
 
 ## [0.1.35] - 2026-08-07

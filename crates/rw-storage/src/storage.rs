@@ -14,11 +14,13 @@
 //! Storage implementations handle the mapping from URL paths to their internal storage format.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use rw_meta::Meta;
+use serde::{Deserialize, Serialize};
 
 use crate::event::{StorageEventReceiver, WatchHandle};
-use crate::metadata::Metadata;
 
 /// Serde default for [`Document::is_dir`]: a bundle published before this
 /// field existed has no leaf pages, so treating its pages as directories
@@ -39,34 +41,18 @@ fn default_is_dir() -> bool {
 /// - `"guide"` - standalone page (maps to `guide.md` or `guide/index.md`)
 /// - `"domain"` - directory section (maps to `domain/index.md`)
 /// - `"domain/billing"` - nested page
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     /// URL path (e.g., "", "guide", "domain", "domain/billing").
     pub path: String,
-    /// Document title (resolved: metadata.title > H1 > filename).
-    pub title: String,
     /// True if .md file exists.
     pub has_content: bool,
-    /// Page kind from metadata (e.g., "domain", "guide").
-    /// Used for section detection. Not inherited.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page_kind: Option<String>,
-    /// Section namespace declared by this page's own metadata.
-    /// Un-inherited (like `page_kind`); `rw-site` inherits it down the tree.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub namespace: Option<String>,
-    /// Page description from metadata.
-    /// Not inherited.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    /// Resolved page metadata shared across storage consumers.
+    pub meta: Arc<Meta>,
     /// Source directory name for content originating outside `source_dir`.
     /// When set (e.g., `"docs"`), the renderer strips this prefix from
     /// relative links so they resolve correctly in URL space.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
-    /// Ordered list of child page slugs for navigation ordering.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pages: Option<Vec<String>>,
     /// True when this page's URL denotes a directory — its content comes from a
     /// directory index file (`index.md`, or the README homepage) — rather than a
     /// single file (a leaf `name.md`).
@@ -75,8 +61,69 @@ pub struct Document {
     /// renderer drops the page's own URL slug from the link base. Defaults to
     /// `true` for backward compatibility with S3 bundles published before this
     /// field existed (preserving their directory-style resolution).
-    #[serde(default = "default_is_dir")]
     pub is_dir: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DocumentWire<S, P> {
+    path: S,
+    title: S,
+    has_content: bool,
+    #[serde(rename = "page_kind", default, skip_serializing_if = "Option::is_none")]
+    kind: Option<S>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    namespace: Option<S>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<S>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin: Option<S>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pages: Option<P>,
+    #[serde(default = "default_is_dir")]
+    is_dir: bool,
+}
+
+impl Serialize for Document {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        DocumentWire::<&str, &[String]> {
+            path: self.path.as_str(),
+            title: self.meta.title.as_str(),
+            has_content: self.has_content,
+            kind: self.meta.kind.as_deref(),
+            namespace: self.meta.namespace.as_deref(),
+            description: self.meta.description.as_deref(),
+            origin: self.origin.as_deref(),
+            pages: self.meta.pages.as_deref(),
+            is_dir: self.is_dir,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Document {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = DocumentWire::<String, Vec<String>>::deserialize(deserializer)?;
+
+        Ok(Self {
+            path: wire.path,
+            has_content: wire.has_content,
+            meta: Arc::new(Meta {
+                title: wire.title,
+                description: wire.description,
+                kind: wire.kind,
+                namespace: wire.namespace,
+                pages: wire.pages,
+            }),
+            origin: wire.origin,
+            is_dir: wire.is_dir,
+        })
+    }
 }
 
 /// Semantic error categories (inspired by Object Store + `OpenDAL`).
@@ -130,8 +177,7 @@ impl std::fmt::Display for StorageErrorKind {
 /// hand-written rather than derived via `thiserror` because the rendered form
 /// is conditional on three independently-optional parts (the `[backend]`
 /// prefix, the `: source`, and the ` (path: …)` suffix), which a static
-/// `#[error("…")]` template cannot express. The crate's tagged-union errors
-/// (e.g. [`MetadataError`](crate::MetadataError)) do use `thiserror`.
+/// `#[error("…")]` template cannot express.
 #[derive(Debug)]
 pub struct StorageError {
     /// Semantic error category.
@@ -325,25 +371,6 @@ pub trait Storage: Send + Sync {
         Ok((StorageEventReceiver::no_op(), WatchHandle::no_op()))
     }
 
-    /// Read metadata for a URL path.
-    ///
-    /// Returns only what the page's own metadata declares — nothing is
-    /// inherited from ancestor paths. Each backend handles its own format.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - URL path (e.g., "domain/billing", "" for root)
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(Some(metadata))` - Metadata exists and was parsed successfully
-    /// - `Ok(None)` - No metadata file exists for this path
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] on I/O error or metadata parse error.
-    fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError>;
-
     /// Check whether content has changed since the last successful scan.
     ///
     /// Returns `true` if content may have changed, `false` if definitely unchanged.
@@ -405,6 +432,9 @@ pub fn mtime_to_datetime(mtime: f64) -> DateTime<Utc> {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::Arc;
+
+    use rw_meta::Meta;
 
     use super::*;
 
@@ -472,78 +502,86 @@ mod tests {
     fn test_document_root() {
         let doc = Document {
             path: String::new(),
-            title: "Home".to_owned(),
             has_content: true,
-            page_kind: None,
-            namespace: None,
-            description: None,
+            meta: Arc::new(Meta {
+                title: "Home".to_owned(),
+                description: None,
+                kind: None,
+                namespace: None,
+                pages: None,
+            }),
             origin: None,
-            pages: None,
             is_dir: true,
         };
 
         assert_eq!(doc.path, "");
-        assert_eq!(doc.title, "Home");
+        assert_eq!(doc.meta.title, "Home");
         assert!(doc.has_content);
-        assert!(doc.page_kind.is_none());
+        assert!(doc.meta.kind.is_none());
     }
 
     #[test]
     fn test_document_standalone() {
         let doc = Document {
             path: "guide".to_owned(),
-            title: "Guide".to_owned(),
             has_content: true,
-            page_kind: None,
-            namespace: None,
-            description: None,
+            meta: Arc::new(Meta {
+                title: "Guide".to_owned(),
+                description: None,
+                kind: None,
+                namespace: None,
+                pages: None,
+            }),
             origin: None,
-            pages: None,
             is_dir: true,
         };
 
         assert_eq!(doc.path, "guide");
-        assert_eq!(doc.title, "Guide");
+        assert_eq!(doc.meta.title, "Guide");
         assert!(doc.has_content);
-        assert!(doc.page_kind.is_none());
+        assert!(doc.meta.kind.is_none());
     }
 
     #[test]
     fn test_document_nested_with_type() {
         let doc = Document {
             path: "domain/billing".to_owned(),
-            title: "Billing".to_owned(),
             has_content: true,
-            page_kind: Some("domain".to_owned()),
-            namespace: None,
-            description: None,
+            meta: Arc::new(Meta {
+                title: "Billing".to_owned(),
+                description: None,
+                kind: Some("domain".to_owned()),
+                namespace: None,
+                pages: None,
+            }),
             origin: None,
-            pages: None,
             is_dir: true,
         };
 
         assert_eq!(doc.path, "domain/billing");
         assert!(doc.has_content);
-        assert_eq!(doc.page_kind, Some("domain".to_owned()));
+        assert_eq!(doc.meta.kind, Some("domain".to_owned()));
     }
 
     #[test]
     fn test_virtual_document() {
         let doc = Document {
             path: "domains".to_owned(),
-            title: "Domains".to_owned(),
             has_content: false,
-            page_kind: Some("section".to_owned()),
-            namespace: None,
-            description: None,
+            meta: Arc::new(Meta {
+                title: "Domains".to_owned(),
+                description: None,
+                kind: Some("section".to_owned()),
+                namespace: None,
+                pages: None,
+            }),
             origin: None,
-            pages: None,
             is_dir: true,
         };
 
         assert_eq!(doc.path, "domains");
         assert!(!doc.has_content);
-        assert_eq!(doc.page_kind, Some("section".to_owned()));
+        assert_eq!(doc.meta.kind, Some("section".to_owned()));
     }
 
     #[test]
@@ -701,6 +739,119 @@ mod tests {
         // An S3 bundle published before `is_dir` existed has no such key.
         let json = r#"{"path":"guide","title":"Guide","has_content":true}"#;
         let doc: Document = serde_json::from_str(json).unwrap();
+        assert_eq!(doc.meta.title, "Guide");
         assert!(doc.is_dir);
+    }
+
+    #[test]
+    fn document_serializes_meta_on_the_legacy_flat_wire() {
+        let document = Document {
+            path: "guide".to_owned(),
+            has_content: true,
+            meta: Arc::new(Meta {
+                title: "Guide".to_owned(),
+                description: Some("Getting started".to_owned()),
+                kind: Some("domain".to_owned()),
+                namespace: Some("payments".to_owned()),
+                pages: Some(vec!["intro".to_owned()]),
+            }),
+            origin: Some("docs".to_owned()),
+            is_dir: false,
+        };
+
+        assert_eq!(
+            serde_json::to_value(document).unwrap(),
+            serde_json::json!({
+                "path": "guide",
+                "title": "Guide",
+                "has_content": true,
+                "page_kind": "domain",
+                "namespace": "payments",
+                "description": "Getting started",
+                "origin": "docs",
+                "pages": ["intro"],
+                "is_dir": false
+            })
+        );
+    }
+
+    #[test]
+    fn document_deserializes_meta_from_the_legacy_flat_wire() {
+        let document: Document = serde_json::from_value(serde_json::json!({
+            "path": "guide",
+            "title": "Guide",
+            "has_content": true,
+            "page_kind": "domain",
+            "namespace": "payments",
+            "description": "Getting started",
+            "origin": "docs",
+            "pages": ["intro"],
+            "is_dir": false
+        }))
+        .unwrap();
+
+        assert_eq!(
+            document,
+            Document {
+                path: "guide".to_owned(),
+                has_content: true,
+                meta: Arc::new(Meta {
+                    title: "Guide".to_owned(),
+                    description: Some("Getting started".to_owned()),
+                    kind: Some("domain".to_owned()),
+                    namespace: Some("payments".to_owned()),
+                    pages: Some(vec!["intro".to_owned()]),
+                }),
+                origin: Some("docs".to_owned()),
+                is_dir: false,
+            }
+        );
+    }
+
+    #[test]
+    fn document_serialization_omits_optional_legacy_wire_fields() {
+        let document = Document {
+            path: "guide".to_owned(),
+            has_content: true,
+            meta: Arc::new(Meta {
+                title: "Guide".to_owned(),
+                description: None,
+                kind: None,
+                namespace: None,
+                pages: None,
+            }),
+            origin: None,
+            is_dir: true,
+        };
+
+        assert_eq!(
+            serde_json::to_value(document).unwrap(),
+            serde_json::json!({
+                "path": "guide",
+                "title": "Guide",
+                "has_content": true,
+                "is_dir": true
+            })
+        );
+    }
+
+    #[test]
+    fn document_deserializes_missing_optional_meta_fields_and_defaults_is_dir() {
+        let document: Document = serde_json::from_value(serde_json::json!({
+            "path": "guide",
+            "title": "Guide",
+            "has_content": true
+        }))
+        .unwrap();
+
+        assert_eq!(document.path, "guide");
+        assert!(document.has_content);
+        assert_eq!(document.meta.title, "Guide");
+        assert!(document.meta.description.is_none());
+        assert!(document.meta.kind.is_none());
+        assert!(document.meta.namespace.is_none());
+        assert!(document.meta.pages.is_none());
+        assert!(document.origin.is_none());
+        assert!(document.is_dir);
     }
 }

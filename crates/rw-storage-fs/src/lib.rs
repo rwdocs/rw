@@ -1,11 +1,10 @@
 //! Filesystem storage implementation for RW documentation engine.
 //!
 //! This crate provides [`FsStorage`], a filesystem-based implementation of the
-//! [`Storage`](rw_storage::Storage) trait. It handles:
+//! [`Storage`] trait. It handles:
 //!
 //! - Recursive directory scanning for markdown files
 //! - Metadata extraction (title, description, kind) with mtime caching
-//! - Metadata loading from YAML sidecar files
 //! - File watching with event debouncing
 //!
 //! # Example
@@ -19,7 +18,7 @@
 //! let storage = FsStorage::new(PathBuf::from("."), PathBuf::from("docs"));
 //! let documents = storage.scan()?;
 //! for doc in documents {
-//!     println!("{}: {}", doc.path, doc.title);
+//!     println!("{}: {}", doc.path, doc.meta.title);
 //! }
 //! # Ok(())
 //! # }
@@ -32,7 +31,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime};
 
 use glob::Pattern;
@@ -44,8 +43,8 @@ use rw_vcs::{Vcs, fs_mtime};
 
 use debouncer::{DebouncedEvent, EventDebouncer, RawEventKind};
 use rw_storage::{
-    Document, Metadata, MetadataError, Storage, StorageError, StorageErrorKind, StorageEvent,
-    StorageEventKind, StorageEventReceiver, WatchHandle,
+    Document, Storage, StorageError, StorageErrorKind, StorageEvent, StorageEventKind,
+    StorageEventReceiver, WatchHandle,
 };
 use scanner::{DocumentRef, Scanner};
 use source::{Classification, PathResolver, file_path_to_url};
@@ -65,16 +64,20 @@ fn storage_event_kind(kind: notify::EventKind) -> Option<RawEventKind> {
     }
 }
 
-/// Cached resolved metadata for incremental extraction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceStamp {
+    path: PathBuf,
+    mtime: Option<SystemTime>,
+}
+
 #[derive(Debug)]
 struct CachedMeta {
-    /// Markdown file modification time.
-    md_mtime: SystemTime,
-    /// Meta YAML file modification time (`None` if no meta.yaml exists).
-    meta_mtime: Option<SystemTime>,
-    /// Resolved metadata.
-    meta: Meta,
+    content: Option<SourceStamp>,
+    sidecar: Option<SourceStamp>,
+    meta: Arc<Meta>,
 }
+
+type MetaCache = Arc<RwLock<HashMap<String, CachedMeta>>>;
 
 /// Filesystem storage implementation.
 ///
@@ -93,7 +96,7 @@ struct CachedMeta {
 /// let storage = FsStorage::new(PathBuf::from("."), PathBuf::from("docs"));
 /// let documents = storage.scan()?;
 /// for doc in documents {
-///     println!("{}: {}", doc.path, doc.title);
+///     println!("{}: {}", doc.path, doc.meta.title);
 /// }
 /// # Ok(())
 /// # }
@@ -108,8 +111,8 @@ pub struct FsStorage {
     project_dir: PathBuf,
     /// Scanner for document discovery.
     scanner: Scanner,
-    /// Mtime cache for incremental metadata extraction.
-    mtime_cache: RwLock<HashMap<PathBuf, CachedMeta>>,
+    /// Shared cache for resolved page metadata.
+    meta_cache: MetaCache,
     /// Glob patterns for file watching (`**/*.md` and metadata files).
     watch_patterns: Vec<Pattern>,
     /// How this storage computes modification times (filesystem or git).
@@ -190,7 +193,7 @@ impl FsStorage {
             scanner,
             resolver,
             project_dir,
-            mtime_cache: RwLock::new(HashMap::new()),
+            meta_cache: Arc::new(RwLock::new(HashMap::new())),
             mtime: MtimeStrategy::Filesystem,
         }
     }
@@ -243,126 +246,128 @@ impl FsStorage {
     }
 
     /// Build a `Document` from a `DocumentRef`.
-    ///
-    /// Converts discovery results (file references) into full Document structs
-    /// by reading file contents and extracting titles/metadata.
-    ///
-    /// Returns `Ok(None)` if the ref produces no valid document (e.g., empty meta.yaml
-    /// for a virtual page). Returns `Err` if the namespace declared in metadata is invalid.
-    fn build_document(&self, doc_ref: &DocumentRef) -> Result<Option<Document>, StorageError> {
-        let validate = |meta: &Meta, file: &Path| -> Result<(), StorageError> {
-            if let Some(ns) = &meta.namespace {
-                ns.parse::<Namespace>().map_err(|e| {
-                    StorageError::new(StorageErrorKind::InvalidPath)
-                        .with_backend(BACKEND)
-                        .with_path(file.to_path_buf())
-                        .with_source(e)
-                })?;
+    fn build_document_ref(&self, doc_ref: &DocumentRef) -> Result<Option<Document>, StorageError> {
+        let is_dir = doc_ref
+            .content_path
+            .as_deref()
+            .is_none_or(|path| path.file_name().is_some_and(|name| name == "index.md"));
+
+        self.build_document(
+            &doc_ref.url_path,
+            doc_ref.content_path.as_deref(),
+            doc_ref.meta_path.as_deref(),
+            None,
+            is_dir,
+        )
+    }
+
+    fn source_stamp(path: Option<&Path>) -> Option<SourceStamp> {
+        path.map(|path| SourceStamp {
+            path: path.to_path_buf(),
+            mtime: fs::metadata(path)
+                .ok()
+                .and_then(|meta| meta.modified().ok()),
+        })
+    }
+
+    fn cached_meta(
+        &self,
+        url_path: &str,
+        content_path: Option<&Path>,
+        sidecar_path: Option<&Path>,
+    ) -> Option<Arc<Meta>> {
+        let content = Self::source_stamp(content_path);
+        let sidecar = Self::source_stamp(sidecar_path);
+
+        if content.is_none() && sidecar.is_none() {
+            self.meta_cache.write().remove(url_path);
+            return None;
+        }
+
+        {
+            let cache = self.meta_cache.read();
+            if let Some(cached) = cache.get(url_path)
+                && cached.content == content
+                && cached.sidecar == sidecar
+            {
+                return Some(Arc::clone(&cached.meta));
             }
-            Ok(())
-        };
+        }
 
-        if let Some(md_path) = &doc_ref.content_path {
-            let name_lower = md_path
-                .file_name()
-                .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
-
-            let meta = self.get_meta(md_path, doc_ref.meta_path.as_deref(), &name_lower);
-
-            // Namespace declarations almost always live in the sidecar
-            // meta.yaml; attribute validation errors there when one exists,
-            // otherwise to the .md file. Edge case: a namespace declared in
-            // .md frontmatter alongside an unrelated meta.yaml will be
-            // misattributed — the bad value still appears in the error
-            // message, so a grep finds it.
-            let validation_file = doc_ref.meta_path.as_deref().unwrap_or(md_path);
-            validate(&meta, validation_file)?;
-
-            Ok(Some(Document {
-                path: doc_ref.url_path.clone(),
-                title: meta.title,
-                has_content: true,
-                page_kind: meta.kind,
-                namespace: meta.namespace,
-                description: meta.description,
-                origin: None,
-                pages: meta.pages,
-                is_dir: name_lower == "index.md",
-            }))
-        } else if let Some(meta_path) = &doc_ref.meta_path {
-            let Ok(meta_yaml) = fs::read_to_string(meta_path) else {
-                return Ok(None);
+        let meta = if let Some(content_path) = content_path {
+            let markdown = fs::read_to_string(content_path).ok();
+            let meta_yaml = sidecar_path.and_then(|path| fs::read_to_string(path).ok());
+            let fallback = self
+                .resolver
+                .content_fallback_name(url_path, Some(content_path));
+            Arc::new(Meta::resolve(
+                markdown.as_deref(),
+                meta_yaml.as_deref(),
+                &fallback,
+            ))
+        } else if let Some(sidecar_path) = sidecar_path {
+            let Ok(meta_yaml) = fs::read_to_string(sidecar_path) else {
+                self.meta_cache.write().remove(url_path);
+                return None;
             };
 
             if meta_yaml.trim().is_empty() {
-                return Ok(None);
+                self.meta_cache.write().remove(url_path);
+                return None;
             }
 
-            let dir_name = Path::new(&doc_ref.url_path)
+            let fallback = Path::new(url_path)
                 .file_name()
-                .map_or("untitled", |n| n.to_str().unwrap_or("untitled"));
+                .map_or("untitled", |name| name.to_str().unwrap_or("untitled"));
 
-            let meta = Meta::resolve(None, Some(&meta_yaml), dir_name);
-
-            validate(&meta, meta_path)?;
-
-            Ok(Some(Document {
-                path: doc_ref.url_path.clone(),
-                title: meta.title,
-                has_content: false,
-                page_kind: meta.kind,
-                namespace: meta.namespace,
-                description: meta.description,
-                origin: None,
-                pages: meta.pages,
-                is_dir: true,
-            }))
+            Arc::new(Meta::resolve(None, Some(&meta_yaml), fallback))
         } else {
-            Ok(None)
-        }
+            self.meta_cache.write().remove(url_path);
+            return None;
+        };
+
+        self.meta_cache.write().insert(
+            url_path.to_owned(),
+            CachedMeta {
+                content,
+                sidecar,
+                meta: Arc::clone(&meta),
+            },
+        );
+
+        Some(meta)
     }
 
-    /// Get resolved metadata for a file, using mtime cache when possible.
-    ///
-    /// Only reads the markdown file content on cache miss, avoiding unnecessary
-    /// I/O for unchanged files during scans. Invalidates when either the markdown
-    /// file or its associated meta.yaml changes.
-    fn get_meta(&self, file_path: &Path, meta_path: Option<&Path>, filename: &str) -> Meta {
-        let current_md_mtime = fs::metadata(file_path).ok().and_then(|m| m.modified().ok());
-        let current_meta_mtime = meta_path
-            .and_then(|p| fs::metadata(p).ok())
-            .and_then(|m| m.modified().ok());
+    /// Build a document from selected sources, reusing its resolved [`Meta`].
+    fn build_document(
+        &self,
+        url_path: &str,
+        content_path: Option<&Path>,
+        sidecar_path: Option<&Path>,
+        origin: Option<String>,
+        is_dir: bool,
+    ) -> Result<Option<Document>, StorageError> {
+        let Some(meta) = self.cached_meta(url_path, content_path, sidecar_path) else {
+            return Ok(None);
+        };
 
-        // Check cache — avoid reading file content if both mtimes unchanged.
-        {
-            let cache = self.mtime_cache.read();
-            if let (Some(cached), Some(md_mtime)) = (cache.get(file_path), current_md_mtime)
-                && cached.md_mtime == md_mtime
-                && cached.meta_mtime == current_meta_mtime
-            {
-                return cached.meta.clone();
-            }
+        let validation_file = sidecar_path.or(content_path);
+        if let (Some(ns), Some(file)) = (&meta.namespace, validation_file) {
+            ns.parse::<Namespace>().map_err(|error| {
+                StorageError::new(StorageErrorKind::InvalidPath)
+                    .with_backend(BACKEND)
+                    .with_path(file.to_path_buf())
+                    .with_source(error)
+            })?;
         }
 
-        // Cache miss — read file content now
-        let markdown = fs::read_to_string(file_path).ok();
-        let meta_yaml = meta_path.and_then(|p| fs::read_to_string(p).ok());
-        let meta = Meta::resolve(markdown.as_deref(), meta_yaml.as_deref(), filename);
-
-        // Update cache
-        if let Some(md_mtime) = current_md_mtime {
-            let mut cache = self.mtime_cache.write();
-            cache.insert(
-                file_path.to_path_buf(),
-                CachedMeta {
-                    md_mtime,
-                    meta_mtime: current_meta_mtime,
-                    meta: meta.clone(),
-                },
-            );
-        }
-
-        meta
+        Ok(Some(Document {
+            path: url_path.to_owned(),
+            has_content: content_path.is_some(),
+            meta,
+            origin,
+            is_dir,
+        }))
     }
 
     /// URL paths of the existing page(s) a markdown source file could refer to.
@@ -424,9 +429,9 @@ impl FsStorage {
 /// this reads and parses it. Used by the watch drain thread to populate
 /// `StorageEventKind::Modified`.
 ///
-/// Both candidate searches go through `resolver`, which is also what `read()`,
-/// `exists()`, and `meta()` resolve through — so the watch path cannot probe in
-/// a different order than a request does. It is NOT automatically aligned with
+/// Both candidate searches go through `resolver`, which is also what `read()`
+/// and `exists()` resolve through — so the watch path cannot probe in a
+/// different order than a request does. It is NOT automatically aligned with
 /// the *scan* path (`Scanner` + `MetaRank`), which encodes the same precedence
 /// in a different shape; `scan_and_resolver_agree_across_the_precedence_matrix`
 /// pins the two together.
@@ -538,7 +543,7 @@ impl Storage for FsStorage {
         let t1 = Instant::now();
         let mut documents: Vec<Document> = refs
             .par_iter()
-            .filter_map(|r| self.build_document(r).transpose())
+            .filter_map(|r| self.build_document_ref(r).transpose())
             .collect::<Result<Vec<_>, _>>()?;
         let build_elapsed = t1.elapsed();
 
@@ -551,27 +556,20 @@ impl Storage for FsStorage {
             "Storage scan complete"
         );
 
-        // Inject README.md as homepage if no root document found
+        // Inject README.md as homepage if no root document found.
         if !documents.iter().any(|d| d.path.is_empty())
-            && let Some(meta) = self.resolver.homepage_fallback_meta()
+            && let Some(readme) = self.resolver.existing_readme()
         {
             let origin = self
                 .resolver
                 .source_dir()
                 .file_name()
-                .and_then(|n| n.to_str())
+                .and_then(|name| name.to_str())
                 .map(ToOwned::to_owned);
-            documents.push(Document {
-                path: String::new(),
-                title: meta.title,
-                has_content: true,
-                page_kind: None,
-                namespace: None,
-                description: None,
-                origin,
-                pages: None,
-                is_dir: true,
-            });
+
+            if let Some(document) = self.build_document("", Some(readme), None, origin, true)? {
+                documents.push(document);
+            }
         }
 
         Ok(documents)
@@ -764,49 +762,6 @@ impl Storage for FsStorage {
 
         Ok((StorageEventReceiver::new(event_rx), handle))
     }
-
-    fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
-        Self::validate_path(path)?;
-
-        // Metadata does not cascade: a page carries only what its own
-        // metadata file declares.
-        let Some(meta_path) = self.resolve_meta(path) else {
-            return Ok(None);
-        };
-
-        let content = match fs::read_to_string(&meta_path) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!(
-                    path = %path,
-                    error = %e,
-                    "Failed to read metadata file, skipping"
-                );
-                return Ok(None);
-            }
-        };
-
-        let trimmed = content.trim();
-        if trimmed.is_empty() {
-            return Ok(None);
-        }
-
-        let parsed: Result<Metadata, MetadataError> = serde_yaml::from_str(trimmed)
-            .map_err(|e| MetadataError::Parse(format!("Invalid YAML: {e}")));
-
-        match parsed {
-            Ok(meta) if !meta.is_empty() => Ok(Some(meta)),
-            Ok(_) => Ok(None),
-            Err(e) => {
-                tracing::warn!(
-                    path = %path,
-                    error = %e,
-                    "Failed to parse metadata, skipping"
-                );
-                Ok(None)
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -867,8 +822,8 @@ mod tests {
 
         let doc = docs.iter().find(|d| d.path == "guide").unwrap();
         assert!(doc.has_content);
-        assert_eq!(doc.title, "Sidecar Title"); // sidecar wins over H1
-        assert_eq!(doc.page_kind, Some("guide".to_owned()));
+        assert_eq!(doc.meta.title, "Sidecar Title"); // sidecar wins over H1
+        assert_eq!(doc.meta.kind, Some("guide".to_owned()));
 
         // Content still served from the .md file.
         assert_eq!(storage.read("guide").unwrap(), "# Original H1\n\nBody.");
@@ -885,8 +840,9 @@ mod tests {
         fs::write(temp_dir.path().join("foo.meta.yaml"), "title: Sibling Foo").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let meta = storage.meta("foo").unwrap().unwrap();
-        assert_eq!(meta.title, Some("Directory Foo".to_owned()));
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "foo").unwrap();
+        assert_eq!(doc.meta.title, "Directory Foo");
     }
 
     #[test]
@@ -901,8 +857,8 @@ mod tests {
 
         let doc = docs.iter().find(|d| d.path == "my-domain").unwrap();
         assert!(!doc.has_content);
-        assert_eq!(doc.title, "My Domain"); // titlecased directory name
-        assert_eq!(doc.page_kind, Some("domain".to_owned()));
+        assert_eq!(doc.meta.title, "My Domain"); // titlecased directory name
+        assert_eq!(doc.meta.kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -915,10 +871,11 @@ mod tests {
         .unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let meta = storage.meta("payments").unwrap().unwrap();
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "payments").unwrap();
 
-        assert_eq!(meta.title, Some("Payments Service".to_owned()));
-        assert_eq!(meta.page_kind, Some("component".to_owned()));
+        assert_eq!(doc.meta.title, "Payments Service");
+        assert_eq!(doc.meta.kind.as_deref(), Some("component"));
     }
 
     #[test]
@@ -936,16 +893,10 @@ mod tests {
         fs::write(foo_dir.join("bar.md"), "# Bar").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let meta = storage.meta("foo/bar").unwrap();
+        let docs = storage.scan().unwrap();
+        let child = docs.iter().find(|d| d.path == "foo/bar").unwrap();
 
-        // The sibling foo.meta.yaml must NOT cascade its title into foo/bar:
-        // either foo/bar resolves to no metadata at all, or its metadata's
-        // title isn't the sibling's.
-        let cascaded = meta.is_some_and(|m| m.title.as_deref() == Some("Sibling Title"));
-        assert!(
-            !cascaded,
-            "sibling meta is leaf-only and must not cascade its title to descendants"
-        );
+        assert_ne!(child.meta.title, "Sibling Title");
     }
 
     #[test]
@@ -958,20 +909,12 @@ mod tests {
         fs::write(dir.join("child.md"), "# Child").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+        let dir_doc = docs.iter().find(|d| d.path == "dir").unwrap();
+        let child = docs.iter().find(|d| d.path == "dir/child").unwrap();
 
-        // "dir" still has its own metadata.
-        assert_eq!(
-            storage.meta("dir").unwrap().unwrap().title,
-            Some("Dir Title".to_owned())
-        );
-
-        // But it must not cascade down to a child page.
-        let meta = storage.meta("dir/child").unwrap();
-        let cascaded = meta.is_some_and(|m| m.title.as_deref() == Some("Dir Title"));
-        assert!(
-            !cascaded,
-            "index.meta.yaml directory metadata must not cascade its title to descendants"
-        );
+        assert_eq!(dir_doc.meta.title, "Dir Title");
+        assert_ne!(child.meta.title, "Dir Title");
     }
 
     #[test]
@@ -1001,9 +944,9 @@ mod tests {
 
         let doc = docs.iter().find(|d| d.path == "payments").unwrap();
         assert!(!doc.has_content);
-        assert_eq!(doc.title, "Payments"); // titlecased from url segment
-        assert_eq!(doc.page_kind, Some("component".to_owned()));
-        assert_eq!(doc.namespace, Some("billing".to_owned()));
+        assert_eq!(doc.meta.title, "Payments"); // titlecased from url segment
+        assert_eq!(doc.meta.kind, Some("component".to_owned()));
+        assert_eq!(doc.meta.namespace, Some("billing".to_owned()));
     }
 
     #[test]
@@ -1069,7 +1012,7 @@ mod tests {
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].title, "My Custom Title");
+        assert_eq!(docs[0].meta.title, "My Custom Title");
     }
 
     #[test]
@@ -1085,7 +1028,7 @@ mod tests {
         let docs = storage.scan().unwrap();
 
         assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].title, "Setup Guide");
+        assert_eq!(docs[0].meta.title, "Setup Guide");
     }
 
     #[test]
@@ -1116,7 +1059,7 @@ mod tests {
         let doc = &docs[0];
         assert_eq!(doc.path, "domain");
         assert!(doc.has_content);
-        assert_eq!(doc.page_kind, Some("domain".to_owned()));
+        assert_eq!(doc.meta.kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -1138,7 +1081,7 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert!(doc.has_content);
-        assert_eq!(doc.page_kind, Some("section".to_owned()));
+        assert_eq!(doc.meta.kind, Some("section".to_owned()));
     }
 
     #[test]
@@ -1154,7 +1097,7 @@ mod tests {
         let doc = &docs[0];
         assert_eq!(doc.path, "");
         assert!(doc.has_content);
-        assert!(doc.page_kind.is_none()); // No kind field in metadata
+        assert!(doc.meta.kind.is_none()); // No kind field in metadata
     }
 
     #[test]
@@ -1171,9 +1114,9 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert_eq!(doc.path, "domain");
-        assert_eq!(doc.title, "Domain Title");
+        assert_eq!(doc.meta.title, "Domain Title");
         assert!(!doc.has_content); // Virtual page
-        assert!(doc.page_kind.is_none());
+        assert!(doc.meta.kind.is_none());
     }
 
     #[test]
@@ -1189,8 +1132,8 @@ mod tests {
 
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
-        assert_eq!(doc.title, "My Nice Domain"); // Fallback to directory name
-        assert_eq!(doc.page_kind, Some("domain".to_owned()));
+        assert_eq!(doc.meta.title, "My Nice Domain"); // Fallback to directory name
+        assert_eq!(doc.meta.kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -1207,52 +1150,6 @@ mod tests {
     }
 
     #[test]
-    fn test_meta_returns_parsed_metadata() {
-        let temp_dir = create_test_dir();
-        let domain_dir = temp_dir.path().join("domain");
-        fs::create_dir(&domain_dir).unwrap();
-        fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-        fs::write(
-            domain_dir.join("meta.yaml"),
-            "title: Domain Title\nkind: domain",
-        )
-        .unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let meta = storage.meta("domain").unwrap();
-
-        assert!(meta.is_some());
-        let meta = meta.unwrap();
-        assert_eq!(meta.title, Some("Domain Title".to_owned()));
-        assert_eq!(meta.page_kind, Some("domain".to_owned()));
-    }
-
-    #[test]
-    fn test_meta_for_root() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
-        fs::write(temp_dir.path().join("meta.yaml"), "title: Home").unwrap();
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let meta = storage.meta("").unwrap();
-
-        assert!(meta.is_some());
-        assert_eq!(meta.unwrap().title, Some("Home".to_owned()));
-    }
-
-    #[test]
-    fn test_meta_returns_none_when_no_metadata() {
-        let temp_dir = create_test_dir();
-        fs::write(temp_dir.path().join("index.md"), "# Home").unwrap();
-        // No meta.yaml
-
-        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let result = storage.meta("").unwrap();
-
-        assert!(result.is_none());
-    }
-
-    #[test]
     fn meta_reads_the_pages_own_fields() {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("domain");
@@ -1265,14 +1162,15 @@ mod tests {
         .unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let meta = storage.meta("domain").unwrap().unwrap();
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "domain").unwrap();
 
-        assert_eq!(meta.title, Some("Domain".to_owned()));
-        assert_eq!(meta.description, Some("Domain docs".to_owned()));
-        assert_eq!(meta.page_kind, Some("domain".to_owned()));
+        assert_eq!(doc.meta.title, "Domain");
+        assert_eq!(doc.meta.description.as_deref(), Some("Domain docs"));
+        assert_eq!(doc.meta.kind.as_deref(), Some("domain"));
         assert_eq!(
-            meta.pages,
-            Some(vec!["overview".to_owned(), "api".to_owned()])
+            doc.meta.pages.as_deref(),
+            Some(["overview".to_owned(), "api".to_owned()].as_slice())
         );
     }
 
@@ -1294,9 +1192,13 @@ mod tests {
         fs::write(child.join("index.md"), "# Child").unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let docs = storage.scan().unwrap();
+        let child = docs.iter().find(|d| d.path == "parent/child").unwrap();
 
-        // Nothing cascades down, so there is no metadata at all for the child.
-        assert!(storage.meta("parent/child").unwrap().is_none());
+        assert_eq!(child.meta.title, "Child");
+        assert!(child.meta.description.is_none());
+        assert!(child.meta.kind.is_none());
+        assert!(child.meta.pages.is_none());
     }
 
     #[test]
@@ -1312,9 +1214,10 @@ mod tests {
         .unwrap();
 
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
-        let meta = storage.meta("guide").unwrap().unwrap();
+        let docs = storage.scan().unwrap();
+        let doc = docs.iter().find(|d| d.path == "guide").unwrap();
 
-        assert_eq!(meta.title, Some("Guide".to_owned()));
+        assert_eq!(doc.meta.title, "Guide");
     }
 
     #[test]
@@ -1399,11 +1302,11 @@ mod tests {
 
         // First scan
         let docs1 = storage.scan().unwrap();
-        assert_eq!(docs1[0].title, "Original Title");
+        assert_eq!(docs1[0].meta.title, "Original Title");
 
         // Second scan without changes - should use cache
         let docs2 = storage.scan().unwrap();
-        assert_eq!(docs2[0].title, "Original Title");
+        assert_eq!(docs2[0].meta.title, "Original Title");
     }
 
     #[test]
@@ -1415,7 +1318,7 @@ mod tests {
 
         // First scan
         let docs1 = storage.scan().unwrap();
-        assert_eq!(docs1[0].title, "Original Title");
+        assert_eq!(docs1[0].meta.title, "Original Title");
 
         // Small delay to ensure mtime changes
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -1425,7 +1328,7 @@ mod tests {
 
         // Second scan should see new title
         let docs2 = storage.scan().unwrap();
-        assert_eq!(docs2[0].title, "Updated Title");
+        assert_eq!(docs2[0].meta.title, "Updated Title");
     }
 
     #[test]
@@ -1441,7 +1344,7 @@ mod tests {
         // First scan — meta.yaml title wins over H1
         let docs1 = storage.scan().unwrap();
         let guide1 = docs1.iter().find(|d| d.path == "guide").unwrap();
-        assert_eq!(guide1.title, "YAML Title");
+        assert_eq!(guide1.meta.title, "YAML Title");
 
         // Small delay to ensure mtime changes
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -1452,7 +1355,7 @@ mod tests {
         // Second scan should see new title from meta.yaml
         let docs2 = storage.scan().unwrap();
         let guide2 = docs2.iter().find(|d| d.path == "guide").unwrap();
-        assert_eq!(guide2.title, "New YAML Title");
+        assert_eq!(guide2.meta.title, "New YAML Title");
     }
 
     // Note: file_path_to_url tests are in source.rs
@@ -1705,7 +1608,7 @@ mod tests {
 
         let home = docs.iter().find(|d| d.path.is_empty());
         assert!(home.is_some(), "README.md should be injected as homepage");
-        assert_eq!(home.unwrap().title, "Atlas");
+        assert_eq!(home.unwrap().meta.title, "Atlas");
     }
 
     #[test]
@@ -2024,7 +1927,7 @@ mod tests {
 
         assert_eq!(docs.len(), 2);
         let home = docs.iter().find(|d| d.path.is_empty()).unwrap();
-        assert_eq!(home.title, "My Project");
+        assert_eq!(home.meta.title, "My Project");
         assert!(home.has_content);
     }
 
@@ -2046,6 +1949,89 @@ mod tests {
     }
 
     #[test]
+    fn content_backed_meta_is_shared_across_unchanged_scans() {
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("guide.md"),
+            "---\ndescription: Getting started\nkind: guide\nnamespace: payments\npages:\n  - intro\n---\n# Guide\n",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let first = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path == "guide")
+            .unwrap();
+        let second = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path == "guide")
+            .unwrap();
+
+        assert!(std::sync::Arc::ptr_eq(&first.meta, &second.meta));
+    }
+
+    #[test]
+    fn virtual_page_meta_is_shared_across_unchanged_scans() {
+        let temp_dir = create_test_dir();
+        fs::write(
+            temp_dir.path().join("payments.meta.yaml"),
+            "title: Payments\ndescription: Billing docs\nkind: domain\nnamespace: billing\npages:\n  - intro",
+        )
+        .unwrap();
+
+        let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
+        let first = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path == "payments")
+            .unwrap();
+        let second = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path == "payments")
+            .unwrap();
+
+        assert!(std::sync::Arc::ptr_eq(&first.meta, &second.meta));
+    }
+
+    #[test]
+    fn readme_fallback_frontmatter_is_preserved_and_shared_across_unchanged_scans() {
+        let (_dir, _, storage) = create_readme_test_dir(
+            "---\ntitle: Readme Home\ndescription: Project docs\nkind: domain\nnamespace: docs\npages:\n  - guide\n---\n# Body Title",
+        );
+        let first = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path.is_empty())
+            .unwrap();
+        let second = storage
+            .scan()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.path.is_empty())
+            .unwrap();
+
+        assert!(std::sync::Arc::ptr_eq(&first.meta, &second.meta));
+        assert_eq!(first.meta.title, "Readme Home");
+        assert_eq!(first.meta.description.as_deref(), Some("Project docs"));
+        assert_eq!(first.meta.kind.as_deref(), Some("domain"));
+        assert_eq!(first.meta.namespace.as_deref(), Some("docs"));
+        assert_eq!(
+            first.meta.pages.as_deref(),
+            Some(["guide".to_owned()].as_slice())
+        );
+        assert_eq!(first.origin.as_deref(), Some("docs"));
+        assert!(first.is_dir);
+    }
+
+    #[test]
     fn test_scan_does_not_inject_readme_when_index_exists() {
         let (dir, _, storage) = create_readme_test_dir("# README");
         fs::write(dir.path().join("docs/index.md"), "# Docs Home").unwrap();
@@ -2053,7 +2039,7 @@ mod tests {
 
         let homes: Vec<_> = docs.iter().filter(|d| d.path.is_empty()).collect();
         assert_eq!(homes.len(), 1);
-        assert_eq!(homes[0].title, "Docs Home");
+        assert_eq!(homes[0].meta.title, "Docs Home");
     }
 
     #[test]
@@ -2148,7 +2134,7 @@ mod tests {
 
         let guides = docs.iter().find(|d| d.path == "guides").unwrap();
         assert_eq!(
-            guides.pages,
+            guides.meta.pages,
             Some(vec![
                 "getting-started".to_owned(),
                 "configuration".to_owned()
@@ -2172,7 +2158,7 @@ mod tests {
         let docs = storage.scan().unwrap();
 
         let guides = docs.iter().find(|d| d.path == "guides").unwrap();
-        assert_eq!(guides.pages, Some(vec!["alpha".to_owned()]));
+        assert_eq!(guides.meta.pages, Some(vec!["alpha".to_owned()]));
     }
 
     #[test]
@@ -2186,7 +2172,7 @@ mod tests {
         let docs = storage.scan().unwrap();
 
         let guide = docs.iter().find(|d| d.path == "guide").unwrap();
-        assert!(guide.pages.is_none());
+        assert!(guide.meta.pages.is_none());
     }
 
     #[test]
@@ -2204,7 +2190,7 @@ mod tests {
         let storage = FsStorage::new(temp_dir.path().to_path_buf(), temp_dir.path().to_path_buf());
         let docs = storage.scan().unwrap();
         let doc = docs.iter().find(|d| d.path == "billing").unwrap();
-        assert_eq!(doc.namespace.as_deref(), Some("payments"));
+        assert_eq!(doc.meta.namespace.as_deref(), Some("payments"));
     }
 
     #[test]
@@ -2356,7 +2342,9 @@ mod tests {
             .into_iter()
             .find(|d| d.path.is_empty())
             .expect("README homepage document")
-            .title;
+            .meta
+            .title
+            .clone();
 
         let resolver = PathResolver::new(root, docs, "meta.yaml");
         let event = DebouncedEvent {

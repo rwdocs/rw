@@ -10,8 +10,8 @@
 //! # Architecture
 //!
 //! The crate provides:
-//! - [`Storage`] trait with `scan()`, `read()`, `exists()`, `mtime()`, `watch()`, and `meta()` methods
-//! - [`MockStorage`] for testing (behind `mock` feature flag)
+//! - [`Storage`] trait with `scan()`, `read()`, `exists()`, `mtime()`, and `watch()` methods
+//! - `MockStorage` for testing (behind the `mock` feature flag)
 //!
 //! For filesystem storage, use the `rw-storage-fs` crate which provides [`FsStorage`](https://docs.rs/rw-storage-fs).
 //!
@@ -23,19 +23,17 @@
 //! fn list_documents(storage: &dyn Storage) {
 //!     let documents = storage.scan().unwrap();
 //!     for doc in documents {
-//!         assert!(!doc.title.is_empty());
+//!         assert!(!doc.meta.title.is_empty());
 //!     }
 //! }
 //! ```
 
 mod event;
-mod metadata;
 #[cfg(feature = "mock")]
 mod mock;
 mod storage;
 
 pub use event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-pub use metadata::{Metadata, MetadataError};
 #[cfg(feature = "mock")]
 pub use mock::MockStorage;
 pub use storage::{Document, Storage, StorageError, StorageErrorKind, mtime_to_datetime};

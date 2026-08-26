@@ -16,7 +16,6 @@ ignore = { workspace = true }
 notify = { workspace = true }
 rw-meta = { workspace = true }
 rw-sections = { workspace = true }
-serde_yaml = { workspace = true }
 rayon = { workspace = true }
 rw-vcs = { workspace = true }
 tracing = { workspace = true }

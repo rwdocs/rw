@@ -359,11 +359,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_page_response_forwards_description_and_kind_from_render_result() {
-        // Regression guard: description/page_kind must not be re-derived here
-        // via `Storage::meta` — that lookup only resolves a sidecar file and
-        // cannot see frontmatter, so it would silently drop frontmatter-declared
-        // values. The sidecar is deliberately left unconfigured below, so a
-        // revert fails here.
+        // Regression guard: adapters must forward the resolved metadata from
+        // the render result, including frontmatter-only values. The sidecar is
+        // deliberately left unconfigured below, so a revert that stops
+        // projecting those resolved values fails here.
         let storage = MockStorage::new()
             .with_document_kind_description("billing", "Billing", "domain", "Money stuff")
             .with_content("billing", "# Billing\n\nOverview.")
@@ -405,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn test_page_meta_serialization_with_metadata() {
+    fn test_page_meta_serialization_with_optional_fields() {
         let meta = PageMeta {
             title: "Domain Guide".to_owned(),
             path: "/domain".to_owned(),

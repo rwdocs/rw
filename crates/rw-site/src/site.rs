@@ -570,11 +570,8 @@ impl Site {
     ///
     /// Uses `storage.scan()` to get documents (including virtual pages), then builds
     /// hierarchy based on path conventions. Virtual pages are identified by
-    /// `has_content=false` flag.
-    ///
-    /// Page titles are determined by:
-    /// 1. Metadata title from storage (if page has `page_kind`)
-    /// 2. Document title from storage (extracted from H1 or filename)
+    /// `has_content=false` flag. Storage resolves each document's metadata before
+    /// this method builds the hierarchy.
     fn load_from_storage(&self) -> Result<SiteState, StorageError> {
         let mut builder = SiteStateBuilder::new();
         let mut documents = self.storage.scan()?;
@@ -599,7 +596,7 @@ impl Site {
         // surfaces a contract violation as a clear panic instead of silently
         // coercing bad data to "default".
         for doc in &documents {
-            let namespace: Option<Namespace> = doc.namespace.as_deref().map(|s| {
+            let namespace: Option<Namespace> = doc.meta.namespace.as_deref().map(|s| {
                 s.parse().unwrap_or_else(|e| {
                     panic!(
                         "storage produced invalid namespace {s:?} for page {:?}: {e}",
@@ -610,23 +607,23 @@ impl Site {
 
             builder.add_page(
                 Page {
-                    title: doc.title.clone(),
+                    title: doc.meta.title.clone(),
                     path: doc.path.clone(),
                     has_content: doc.has_content,
-                    description: doc.description.clone(),
-                    page_kind: doc.page_kind.clone(),
+                    description: doc.meta.description.clone(),
+                    page_kind: doc.meta.kind.clone(),
                     origin: doc.origin.clone(),
-                    pages: doc.pages.clone(),
+                    pages: doc.meta.pages.clone(),
                     is_dir: doc.is_dir,
                 },
-                doc.page_kind.as_deref(),
+                doc.meta.kind.as_deref(),
                 namespace,
             );
         }
 
         // Apply custom page ordering from `pages` metadata
         for doc in &documents {
-            if let Some(pages) = &doc.pages {
+            if let Some(pages) = &doc.meta.pages {
                 builder.reorder_children_at(&doc.path, pages);
             }
         }
