@@ -7,8 +7,9 @@
 use std::fs;
 use std::sync::Arc;
 
-use rw_cache::NullCache;
+use rw_cache::{FileCache, NullCache};
 use rw_site::{PageRendererConfig, Site};
+use rw_storage::Storage;
 use rw_storage_fs::FsStorage;
 
 /// A page whose frontmatter title deliberately differs from its H1, so a test
@@ -70,7 +71,7 @@ fn page_response_uses_the_resolved_title() {
 
     let result = site.render("billing").unwrap();
 
-    assert_eq!(result.title, "Billing");
+    assert_eq!(result.meta.title, "Billing");
 }
 
 #[test]
@@ -80,7 +81,7 @@ fn page_without_an_h1_still_reports_a_title() {
     let result = site.render("setup-guide").unwrap();
 
     assert_eq!(
-        result.title, "Setup Guide",
+        result.meta.title, "Setup Guide",
         "the filename fallback must reach the page response"
     );
 }
@@ -94,13 +95,14 @@ fn page_response_uses_frontmatter_description_and_kind() {
 
     let result = site.render("billing").unwrap();
 
+    assert_eq!(result.meta.title, "Billing");
     assert_eq!(
-        result.description.as_deref(),
+        result.meta.description.as_deref(),
         Some("Money stuff"),
         "frontmatter description must reach the page response"
     );
     assert_eq!(
-        result.page_kind.as_deref(),
+        result.meta.kind.as_deref(),
         Some("domain"),
         "frontmatter kind must reach the page response"
     );
@@ -113,8 +115,37 @@ fn root_page_reports_no_kind_when_it_declares_none() {
     let result = site.render("").unwrap();
 
     assert_eq!(
-        result.page_kind, None,
+        result.meta.kind, None,
         "the implicit root section (kind \"section\") must not leak onto a page \
          that declared no kind"
     );
+}
+
+#[test]
+fn filesystem_meta_arc_is_shared_across_scan_fresh_and_cache_hit() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let docs = temp_dir.path().join("docs");
+    fs::create_dir_all(&docs).unwrap();
+    fs::write(docs.join("guide.md"), "# Guide\n\nBody.\n").unwrap();
+
+    let storage = Arc::new(FsStorage::new(temp_dir.path().to_path_buf(), docs));
+    let mut scanned_docs = storage.scan().unwrap();
+    assert_eq!(scanned_docs.len(), 1);
+    let scanned = scanned_docs.remove(0);
+    let meta = Arc::clone(&scanned.meta);
+
+    let cache_dir = tempfile::tempdir().unwrap();
+    let site = Site::new(
+        storage,
+        Arc::new(FileCache::new(cache_dir.path().join("cache"), "1.0.0")),
+        PageRendererConfig::default(),
+    );
+
+    let fresh = site.render("guide").unwrap();
+    assert!(!fresh.from_cache);
+    assert!(Arc::ptr_eq(&meta, &fresh.meta));
+
+    let cached = site.render("guide").unwrap();
+    assert!(cached.from_cache);
+    assert!(Arc::ptr_eq(&meta, &cached.meta));
 }

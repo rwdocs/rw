@@ -1,7 +1,7 @@
 //! Immutable site state and navigation tree building.
 //!
 //! [`SiteState`] is the pure data representation of the document hierarchy —
-//! a flat `Vec<Page>` with parent/child relationships tracked by indices.
+//! a flat `Vec<Document>` with parent/child relationships tracked by indices.
 //! It provides O(1) page lookups by URL path and O(d) breadcrumb building
 //! (where d is the page depth).
 //!
@@ -16,7 +16,8 @@ use rw_cache::{CacheBucket, CacheBucketExt};
 use rw_sections::{Namespace, Section, SectionAnchor, Sections};
 use serde::{Deserialize, Serialize};
 
-use crate::page::{BreadcrumbItem, Page};
+use crate::page::BreadcrumbItem;
+use rw_storage::Document;
 
 /// Extracts the last path segment from a `/`-separated path.
 fn last_segment(path: &str) -> &str {
@@ -46,7 +47,7 @@ pub struct NavItem {
 }
 
 /// A single section in the flat hierarchy, as returned by
-/// [`SiteState::list_sections`].
+/// [`Site::list_sections`](crate::Site::list_sections).
 ///
 /// Unlike [`NavItem`], which is scoped (nested sections appear as childless
 /// leaves), every section in the site appears here once — with its canonical
@@ -63,12 +64,12 @@ pub struct SectionEntry {
     pub ancestors: Vec<String>,
 }
 
-/// A single page in the site, as returned by [`SiteState::list_pages`].
+/// A single page in the site, as returned by
+/// [`Site::list_pages`](crate::Site::list_pages).
 ///
 /// Keyed by the same `(section_ref, subpath)` pair the comment system uses as a
 /// page's `document_id` (`PageMeta.sectionRef` + `PageMeta.subpath`), so a
-/// consumer can join these entries directly against stored comments. See
-/// [`list_pages`](SiteState::list_pages) for which pages are included.
+/// consumer can join these entries directly against stored comments.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PageEntry {
     /// Canonical section ref (`kind:namespace/name`) of the enclosing section.
@@ -111,7 +112,7 @@ pub struct PageEntry {
     /// for published bundles). `0.0` when the mtime is unknown.
     ///
     /// Filled by [`Site::list_pages`](crate::Site::list_pages), which owns
-    /// storage; [`SiteState::list_pages`] itself leaves it `0.0`.
+    /// storage. Snapshot-only listings leave it `0.0`.
     pub mtime: f64,
 }
 
@@ -176,7 +177,7 @@ pub struct Navigation {
 /// reloads. See [`Site`](crate::Site) for the higher-level API that manages
 /// loading and rendering.
 pub struct SiteState {
-    pages: Vec<Page>,
+    documents: Vec<Document>,
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
@@ -189,7 +190,7 @@ pub struct SiteState {
     /// state (page title/description/`has_content`, the sections map, and the
     /// root namespace). Folded into the page render cache etag so that changing
     /// one page busts the rendered-HTML cache of pages that reference it.
-    /// Recomputed in [`SiteState::new`]; never serialized.
+    /// Recomputed when the state is built; never serialized.
     resolution_fingerprint: u64,
 }
 
@@ -197,24 +198,24 @@ pub struct SiteState {
 ///
 /// Uses post-order DFS to compute the values efficiently in O(N) time.
 fn compute_subtree_has_content(
-    pages: &[Page],
+    documents: &[Document],
     children: &[Vec<usize>],
     roots: &[usize],
 ) -> Vec<bool> {
-    fn dfs(idx: usize, pages: &[Page], children: &[Vec<usize>], result: &mut [bool]) {
+    fn dfs(idx: usize, documents: &[Document], children: &[Vec<usize>], result: &mut [bool]) {
         // Process children first (post-order)
         for &child in &children[idx] {
-            dfs(child, pages, children, result);
+            dfs(child, documents, children, result);
         }
         // Page has content if it has content OR any child has content
-        result[idx] = pages[idx].has_content || children[idx].iter().any(|&c| result[c]);
+        result[idx] = documents[idx].has_content || children[idx].iter().any(|&c| result[c]);
     }
 
-    let mut subtree_has_content = vec![false; pages.len()];
+    let mut subtree_has_content = vec![false; documents.len()];
 
     // Traverse from roots to ensure all pages are visited
     for &root in roots {
-        dfs(root, pages, children, &mut subtree_has_content);
+        dfs(root, documents, children, &mut subtree_has_content);
     }
 
     subtree_has_content
@@ -222,17 +223,12 @@ fn compute_subtree_has_content(
 
 /// Hash the `SiteState` inputs that cross-page rendering reads.
 ///
-/// Covers wikilink display text + heading-anchor IDs (page titles),
+/// Covers wikilink display text + heading-anchor IDs (`Meta::title`),
 /// section-ref link attributes (the sections map), and C4 meta-include entity
-/// info (page title/description/`has_content` + section kind/namespace/name).
-/// Deliberately excludes `Page::origin` (read only when rendering the page that
-/// owns it — to set that page's own link-resolution base — never read about a
-/// page by another page's render, so it is not a cross-page input),
-/// `Page::pages` (navigation ordering, not page-body output), and
-/// `Page::page_kind` (a kind change moves the page's entry in the `sections`
-/// map, which is hashed whole above; the field itself is read live from the
-/// snapshot on every render — including a cache hit — so it can never go
-/// stale without a fingerprint).
+/// info (title/description/`has_content` + section kind/namespace/name).
+/// Deliberately excludes `Document::origin`, which only affects rendering of
+/// that document, and `Meta::pages`, which only affects navigation ordering.
+/// `Meta::kind` is represented by the sections map.
 ///
 /// `Section` is hashed whole, so any future field is auto-included — adding a
 /// field to `Section` widens the page-cache invalidation surface (a deliberate
@@ -248,17 +244,17 @@ fn compute_subtree_has_content(
 /// Rust-stdlib versions, the only effect is a one-time cold cache miss (a safe
 /// re-render, never stale data), and a crate version bump wipes the cache anyway.
 fn compute_resolution_fingerprint(
-    pages: &[Page],
+    documents: &[Document],
     sections: &Sections,
     root_namespace: &Namespace,
 ) -> u64 {
-    let mut page_entries: Vec<(&str, &str, Option<&str>, bool)> = pages
+    let mut page_entries: Vec<(&str, &str, Option<&str>, bool)> = documents
         .iter()
         .map(|p| {
             (
                 p.path.as_str(),
-                p.title.as_str(),
-                p.description.as_deref(),
+                p.meta.title.as_str(),
+                p.meta.description.as_deref(),
                 p.has_content,
             )
         })
@@ -282,19 +278,19 @@ impl SiteState {
     /// cache deserialization.
     #[must_use]
     pub(crate) fn new(
-        pages: Vec<Page>,
+        documents: Vec<Document>,
         children: Vec<Vec<usize>>,
         parents: Vec<Option<usize>>,
         roots: Vec<usize>,
         sections: HashMap<String, Section>,
         root_namespace: Namespace,
     ) -> Self {
-        let path_index: HashMap<String, usize> = pages
+        let path_index: HashMap<String, usize> = documents
             .iter()
             .enumerate()
             .map(|(i, page)| (page.path.clone(), i))
             .collect();
-        let subtree_has_content = compute_subtree_has_content(&pages, &children, &roots);
+        let subtree_has_content = compute_subtree_has_content(&documents, &children, &roots);
 
         let sections = Arc::new(Sections::with_implicit_root(
             sections,
@@ -319,10 +315,10 @@ impl SiteState {
         }
 
         let resolution_fingerprint =
-            compute_resolution_fingerprint(&pages, &sections, &root_namespace);
+            compute_resolution_fingerprint(&documents, &sections, &root_namespace);
 
         Self {
-            pages,
+            documents,
             children,
             parents,
             roots,
@@ -340,8 +336,8 @@ impl SiteState {
     /// `path` is a URL path without leading slash (e.g., `"guide"`,
     /// `"domain/billing"`, `""` for root).
     #[must_use]
-    pub fn get_page(&self, path: &str) -> Option<&Page> {
-        self.path_index.get(path).map(|&i| &self.pages[i])
+    pub fn get_page(&self, path: &str) -> Option<&Document> {
+        self.path_index.get(path).map(|&i| &self.documents[i])
     }
 
     /// Returns the page title at `path`, falling back to `default` if the page
@@ -349,7 +345,7 @@ impl SiteState {
     #[must_use]
     pub fn page_title_or(&self, path: &str, default: impl Into<String>) -> String {
         self.get_page(path)
-            .map_or_else(|| default.into(), |p| p.title.clone())
+            .map_or_else(|| default.into(), |p| p.meta.title.clone())
     }
 
     /// Returns children of `path` whose subtree contains at least one page
@@ -358,19 +354,19 @@ impl SiteState {
     /// When `path` is empty and no root `index.md` exists, returns top-level
     /// pages as a fallback.
     #[must_use]
-    fn get_children_with_content(&self, path: &str) -> Vec<&Page> {
+    fn get_children_with_content(&self, path: &str) -> Vec<&Document> {
         if let Some(&idx) = self.path_index.get(path) {
             self.children[idx]
                 .iter()
                 .filter(|&&j| self.subtree_has_content[j])
-                .map(|&j| &self.pages[j])
+                .map(|&j| &self.documents[j])
                 .collect()
         } else if path.is_empty() {
             // No root page exists, return root pages as fallback
             self.roots
                 .iter()
                 .filter(|&&i| self.subtree_has_content[i])
-                .map(|&i| &self.pages[i])
+                .map(|&i| &self.documents[i])
                 .collect()
         } else {
             Vec::new()
@@ -404,7 +400,7 @@ impl SiteState {
         let mut ancestors = Vec::new();
         let mut current = Some(idx);
         while let Some(i) = current {
-            ancestors.push(&self.pages[i]);
+            ancestors.push(&self.documents[i]);
             current = self.parents[i];
         }
 
@@ -426,7 +422,7 @@ impl SiteState {
                 .take(ancestors.len().saturating_sub(1))
                 .filter(|page| !page.path.is_empty())
                 .map(|page| BreadcrumbItem {
-                    title: page.title.clone(),
+                    title: page.meta.title.clone(),
                     path: page.path.clone(),
                     section_ref: String::new(),
                     subpath: String::new(),
@@ -439,8 +435,8 @@ impl SiteState {
     /// Get root-level pages.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn get_root_pages(&self) -> Vec<&Page> {
-        self.roots.iter().map(|&i| &self.pages[i]).collect()
+    pub(crate) fn get_root_pages(&self) -> Vec<&Document> {
+        self.roots.iter().map(|&i| &self.documents[i]).collect()
     }
 
     /// Finds sections whose last path segment matches `name`.
@@ -456,7 +452,7 @@ impl SiteState {
                 indices
                     .iter()
                     .filter_map(|&idx| {
-                        let path = &self.pages[idx].path;
+                        let path = &self.documents[idx].path;
                         self.sections.get(path).map(|info| (path.as_str(), info))
                     })
                     .collect()
@@ -629,7 +625,7 @@ impl SiteState {
     #[must_use]
     pub(crate) fn list_pages(&self) -> Vec<PageEntry> {
         let mut entries: Vec<PageEntry> = self
-            .pages
+            .documents
             .iter()
             .map(|page| {
                 let anchors = self.sections.anchors(&page.path);
@@ -644,7 +640,7 @@ impl SiteState {
                     section_ref,
                     subpath,
                     path: page.path.clone(),
-                    title: page.title.clone(),
+                    title: page.meta.title.clone(),
                     has_content: page.has_content,
                     anchors,
                     mtime: 0.0,
@@ -693,22 +689,22 @@ impl SiteState {
     ///
     /// Sections become leaf nodes - they don't include their children.
     /// Only includes children that have markdown content in their subtree.
-    fn build_nav_item_with_section_cutoff(&self, page: &Page) -> NavItem {
-        let section = self.sections.get(&page.path);
+    fn build_nav_item_with_section_cutoff(&self, document: &Document) -> NavItem {
+        let section = self.sections.get(&document.path);
 
         // Sections become leaf nodes - don't include children
         let children = if section.is_some() {
             Vec::new()
         } else {
-            self.get_children_with_content(&page.path)
+            self.get_children_with_content(&document.path)
                 .into_iter()
                 .map(|child| self.build_nav_item_with_section_cutoff(child))
                 .collect()
         };
 
         NavItem {
-            title: page.title.clone(),
-            path: page.path.clone(),
+            title: document.meta.title.clone(),
+            path: document.path.clone(),
             section: section.cloned(),
             children,
         }
@@ -837,14 +833,15 @@ fn parent_from_url(url_path: &str, path_index: &HashMap<String, usize>) -> Optio
 
 /// Builder for constructing [`SiteState`] instances.
 pub(crate) struct SiteStateBuilder {
-    pages: Vec<Page>,
+    documents: Vec<Document>,
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
     sections: HashMap<String, Section>,
     root_namespace: Option<Namespace>,
     path_index: HashMap<String, usize>,
-    namespaces: Vec<Namespace>,
+    namespaces: Vec<Arc<Namespace>>,
+    default_namespace: Arc<Namespace>,
 }
 
 impl SiteStateBuilder {
@@ -852,7 +849,7 @@ impl SiteStateBuilder {
     #[must_use]
     pub(crate) fn new() -> Self {
         Self {
-            pages: Vec::new(),
+            documents: Vec::new(),
             children: Vec::new(),
             parents: Vec::new(),
             roots: Vec::new(),
@@ -860,15 +857,11 @@ impl SiteStateBuilder {
             root_namespace: None,
             path_index: HashMap::new(),
             namespaces: Vec::new(),
+            default_namespace: Arc::new(Namespace::default()),
         }
     }
 
     /// Set the namespace of the implicit root section.
-    ///
-    /// Only exercised by tests (`list_sections_root_ref_honors_custom_root_namespace`,
-    /// `fingerprint_changes_on_root_namespace`); production callers always derive
-    /// the root namespace from the root page itself. `#[cfg(test)]` avoids a
-    /// `dead_code` warning on a production-only build.
     #[cfg(test)]
     #[must_use]
     pub(crate) fn root_namespace(mut self, namespace: Namespace) -> Self {
@@ -876,47 +869,51 @@ impl SiteStateBuilder {
         self
     }
 
-    /// Add a page, deriving its parent from `page.path`.
+    /// Adds a document and derives its parent and effective namespace.
     ///
-    /// The parent is the nearest existing ancestor. `namespace` of `None`
-    /// inherits the parent's namespace, matching how storage-loaded pages
-    /// inherit down the directory tree. `page_kind` of `Some` registers the
-    /// page as a section (visible via [`sections`](SiteState::sections),
-    /// [`list_sections`](SiteState::list_sections), and navigation scoping);
-    /// `None` leaves it a plain page.
+    /// Parentage and inheritance consider only already-added ancestors, so
+    /// callers must add ancestors first. The document remains unchanged: a
+    /// declared `meta.namespace` becomes its effective namespace; otherwise it
+    /// shares the nearest ancestor's namespace or the builder default.
     ///
-    /// Returns the index of the added page.
-    pub(crate) fn add_page(
-        &mut self,
-        page: Page,
-        page_kind: Option<&str>,
-        namespace: Option<Namespace>,
-    ) -> usize {
-        let parent_idx = parent_from_url(&page.path, &self.path_index);
-        let namespace = namespace
-            .or_else(|| parent_idx.map(|p| self.namespaces[p].clone()))
-            .unwrap_or_default();
-        let namespace_for_index = namespace.clone();
-        let idx = self.pages.len();
+    /// # Panics
+    ///
+    /// Panics if storage supplied an invalid namespace.
+    pub(crate) fn add_document(&mut self, document: Document) -> usize {
+        let parent_idx = parent_from_url(&document.path, &self.path_index);
+        let namespace = document
+            .meta
+            .namespace
+            .as_deref()
+            .map(|s| {
+                Arc::new(s.parse().unwrap_or_else(|e| {
+                    panic!(
+                        "storage produced invalid namespace {s:?} for page {:?}: {e}",
+                        document.path
+                    )
+                }))
+            })
+            .or_else(|| parent_idx.map(|p| Arc::clone(&self.namespaces[p])))
+            .unwrap_or_else(|| Arc::clone(&self.default_namespace));
+        let idx = self.documents.len();
 
-        // Register section if page has a kind
-        if let Some(section_kind) = page_kind {
-            let name = if page.path.is_empty() {
+        if let Some(section_kind) = document.meta.kind.as_deref() {
+            let name = if document.path.is_empty() {
                 Section::ROOT_NAME.to_owned()
             } else {
-                last_segment(&page.path).to_owned()
+                last_segment(&document.path).to_owned()
             };
             self.sections.insert(
-                page.path.clone(),
+                document.path.clone(),
                 Section {
                     name,
                     kind: section_kind.to_owned(),
-                    namespace,
+                    namespace: (*namespace).clone(),
                 },
             );
         }
 
-        self.pages.push(page);
+        self.documents.push(document);
         self.children.push(Vec::new());
         self.parents.push(parent_idx);
 
@@ -926,28 +923,25 @@ impl SiteStateBuilder {
             self.roots.push(idx);
         }
 
-        self.path_index.insert(self.pages[idx].path.clone(), idx);
-        self.namespaces.push(namespace_for_index);
+        self.path_index
+            .insert(self.documents[idx].path.clone(), idx);
+        self.namespaces.push(namespace);
 
         idx
     }
 
     /// Reorder children of `parent_idx` according to `slugs`.
-    ///
-    /// Listed slugs appear first in declared order, unlisted children
-    /// appear after sorted alphabetically by path. Section directories,
-    /// missing slugs, and duplicates are warned and skipped.
     fn reorder_children(&mut self, parent_idx: usize, slugs: &[String]) {
         let children = &self.children[parent_idx];
         if children.is_empty() || slugs.is_empty() {
             return;
         }
 
-        let parent_path = self.pages[parent_idx].path.as_str();
+        let parent_path = self.documents[parent_idx].path.as_str();
 
         let child_by_path: HashMap<&str, usize> = children
             .iter()
-            .map(|&idx| (self.pages[idx].path.as_str(), idx))
+            .map(|&idx| (self.documents[idx].path.as_str(), idx))
             .collect();
 
         let mut listed = Vec::new();
@@ -995,7 +989,7 @@ impl SiteStateBuilder {
             .filter(|idx| !listed.contains(idx))
             .copied()
             .collect();
-        unlisted.sort_by(|&a, &b| self.pages[a].path.cmp(&self.pages[b].path));
+        unlisted.sort_by(|&a, &b| self.documents[a].path.cmp(&self.documents[b].path));
 
         let mut reordered = listed;
         reordered.extend(unlisted);
@@ -1003,6 +997,7 @@ impl SiteStateBuilder {
     }
 
     /// Reorder children of the page at `path`. No-op if no such page exists.
+    #[cfg(test)]
     pub(crate) fn reorder_children_at(&mut self, path: &str, slugs: &[String]) {
         if let Some(&idx) = self.path_index.get(path) {
             self.reorder_children(idx, slugs);
@@ -1011,9 +1006,16 @@ impl SiteStateBuilder {
 
     /// Build the [`SiteState`] instance.
     #[must_use]
-    pub(crate) fn build(self) -> SiteState {
+    pub(crate) fn build(mut self) -> SiteState {
+        for idx in 0..self.documents.len() {
+            let meta = Arc::clone(&self.documents[idx].meta);
+            if let Some(slugs) = meta.pages.as_deref() {
+                self.reorder_children(idx, slugs);
+            }
+        }
+
         let Self {
-            pages,
+            documents,
             children,
             parents,
             roots,
@@ -1021,24 +1023,31 @@ impl SiteStateBuilder {
             root_namespace,
             path_index,
             namespaces,
+            default_namespace,
         } = self;
         let root_namespace = root_namespace.unwrap_or_else(|| {
-            path_index
-                .get("")
-                .map_or_else(Namespace::default, |&idx| namespaces[idx].clone())
+            path_index.get("").map_or_else(
+                || (*default_namespace).clone(),
+                |&idx| (*namespaces[idx]).clone(),
+            )
         });
-        SiteState::new(pages, children, parents, roots, sections, root_namespace)
+        SiteState::new(
+            documents,
+            children,
+            parents,
+            roots,
+            sections,
+            root_namespace,
+        )
     }
 }
 
 /// Borrowed view of cached site state for serialization (zero-copy).
 ///
-/// NOTE: `SiteState::resolution_fingerprint` is intentionally NOT part of this
-/// struct — it is recomputed in `SiteState::new` on every load (including cache
-/// reload) to avoid a serialized value desyncing from the data.
+/// `resolution_fingerprint` is derived from the loaded state, not serialized.
 #[derive(Serialize)]
 struct CachedSiteStateRef<'a> {
-    pages: &'a [Page],
+    pages: &'a [Document],
     children: &'a [Vec<usize>],
     parents: &'a [Option<usize>],
     roots: &'a [usize],
@@ -1049,7 +1058,7 @@ struct CachedSiteStateRef<'a> {
 impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
     fn from(state: &'a SiteState) -> Self {
         Self {
-            pages: &state.pages,
+            pages: &state.documents,
             children: &state.children,
             parents: &state.parents,
             roots: &state.roots,
@@ -1062,7 +1071,7 @@ impl<'a> From<&'a SiteState> for CachedSiteStateRef<'a> {
 /// Cache format for site state deserialization (owned).
 #[derive(Deserialize)]
 struct CachedSiteState {
-    pages: Vec<Page>,
+    pages: Vec<Document>,
     children: Vec<Vec<usize>>,
     parents: Vec<Option<usize>>,
     roots: Vec<usize>,
@@ -1088,6 +1097,48 @@ impl From<CachedSiteState> for SiteState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rw_meta::Meta;
+
+    fn test_document(
+        path: impl Into<String>,
+        title: impl Into<String>,
+        has_content: bool,
+        kind: Option<String>,
+        namespace: Option<Namespace>,
+        pages: Option<Vec<String>>,
+    ) -> Document {
+        Document {
+            path: path.into(),
+            has_content,
+            meta: Arc::new(Meta {
+                title: title.into(),
+                description: None,
+                kind,
+                namespace: namespace.map(|ns| ns.to_string()),
+                pages,
+            }),
+            origin: None,
+            is_dir: true,
+        }
+    }
+
+    fn add_test_document(
+        builder: &mut SiteStateBuilder,
+        path: impl Into<String>,
+        title: impl Into<String>,
+        has_content: bool,
+        kind: Option<&str>,
+        namespace: Option<Namespace>,
+    ) -> usize {
+        builder.add_document(test_document(
+            path,
+            title,
+            has_content,
+            kind.map(str::to_owned),
+            namespace,
+            None,
+        ))
+    }
 
     /// Declarative page descriptor for building test sites.
     ///
@@ -1150,17 +1201,14 @@ mod tests {
     fn site(pages: &[TestPage]) -> SiteState {
         let mut builder = SiteStateBuilder::new();
         for p in pages {
-            builder.add_page(
-                Page {
-                    title: p.title.clone(),
-                    path: p.path.clone(),
-                    has_content: p.has_content,
-                    page_kind: p.kind.clone(),
-                    ..Default::default()
-                },
-                p.kind.as_deref(),
+            builder.add_document(test_document(
+                p.path.clone(),
+                p.title.clone(),
+                p.has_content,
+                p.kind.clone(),
                 p.namespace.clone(),
-            );
+                None,
+            ));
         }
         builder.build()
     }
@@ -1208,7 +1256,7 @@ mod tests {
 
         assert!(page.is_some());
         let page = page.unwrap();
-        assert_eq!(page.title, "Guide");
+        assert_eq!(page.meta.title, "Guide");
         assert_eq!(page.path, "guide");
         assert!(page.has_content);
     }
@@ -1324,61 +1372,34 @@ mod tests {
         let roots = site.get_root_pages();
 
         assert_eq!(roots.len(), 2);
-        assert_eq!(roots[0].title, "A");
-        assert_eq!(roots[1].title, "B");
+        assert_eq!(roots[0].meta.title, "A");
+        assert_eq!(roots[1].meta.title, "B");
     }
 
     // SiteStateBuilder tests
 
     #[test]
-    fn test_add_page_returns_index() {
+    fn test_add_document_returns_index() {
         let mut builder = SiteStateBuilder::new();
 
-        let idx = builder.add_page(
-            Page {
-                title: "Guide".to_owned(),
-                path: "guide".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
+        let idx = add_test_document(&mut builder, "guide", "Guide", true, None, None);
 
         assert_eq!(idx, 0);
     }
 
     #[test]
-    fn test_add_page_increments_index() {
+    fn test_add_document_increments_index() {
         let mut builder = SiteStateBuilder::new();
 
-        let idx1 = builder.add_page(
-            Page {
-                title: "A".to_owned(),
-                path: "a".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        let idx2 = builder.add_page(
-            Page {
-                title: "B".to_owned(),
-                path: "b".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
+        let idx1 = add_test_document(&mut builder, "a", "A", true, None, None);
+        let idx2 = add_test_document(&mut builder, "b", "B", true, None, None);
 
         assert_eq!(idx1, 0);
         assert_eq!(idx2, 1);
     }
 
     #[test]
-    fn test_add_page_links_child() {
+    fn test_add_document_links_child() {
         let site = site(&[
             section("parent", "Parent", "section"),
             page("parent/child", "Child"),
@@ -1887,13 +1908,11 @@ mod tests {
         // root-level pages off one canonical ref instead of a brittle constant.
         // (issue #567 follow-up.)
         let mut builder = SiteStateBuilder::new().root_namespace("payments".parse().unwrap());
-        builder.add_page(
-            Page {
-                title: "Guide".to_owned(),
-                path: "guide".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
+        add_test_document(
+            &mut builder,
+            "guide",
+            "Guide",
+            true,
             None,
             Some("payments".parse().unwrap()),
         );
@@ -2340,11 +2359,6 @@ mod tests {
 
     #[test]
     fn cached_site_state_deserializes_old_section_without_namespace_field() {
-        // Cache entries written before the `namespace` field existed contain
-        // sections like {"kind":"domain","name":"billing"} with no namespace
-        // key. The serde default on Section::namespace must fill in "default"
-        // so an upgrade without a cache-version bump still loads the cache
-        // instead of silently turning every reload into a full storage scan.
         let json = r#"{
             "pages": [],
             "children": [],
@@ -2361,12 +2375,6 @@ mod tests {
 
     #[test]
     fn cached_site_state_deserializes_old_page_without_page_kind_field() {
-        // Cache entries written before `Page::page_kind` existed contain pages
-        // like {"title":"Billing","path":"billing","has_content":true} with no
-        // page_kind key. Because the field is `Option`, deserializing fills
-        // in None so an upgrade without a cache-version bump still loads the
-        // cache instead of silently turning every reload into a full storage
-        // scan.
         let json = r#"{
             "pages": [{"title": "Billing", "path": "billing", "has_content": true}],
             "children": [[]],
@@ -2376,17 +2384,155 @@ mod tests {
         }"#;
         let cached: CachedSiteState = serde_json::from_str(json).unwrap();
         let page = &cached.pages[0];
-        assert_eq!(page.title, "Billing");
-        assert_eq!(page.page_kind, None);
+        assert_eq!(page.meta.title, "Billing");
+        assert_eq!(page.meta.kind, None);
     }
 
     #[test]
-    fn add_page_with_namespace_builds_namespaced_section() {
+    fn add_document_with_namespace_builds_namespaced_section() {
         let site = site(&[section("billing", "Billing", "domain").ns("payments".parse().unwrap())]);
         assert_eq!(
             site.section_location("billing").0,
             "domain:payments/billing"
         );
+    }
+
+    #[test]
+    fn declared_child_namespace_overrides_inherited_effective_namespace() {
+        let state = site(&[
+            section("billing", "Billing", "domain").ns("payments".parse().unwrap()),
+            section("billing/api", "API", "system").ns("platform".parse().unwrap()),
+        ]);
+
+        let child = state.get_page("billing/api").unwrap();
+        assert_eq!(child.meta.namespace.as_deref(), Some("platform"));
+        assert_eq!(
+            state.section_location("billing/api").0,
+            "system:platform/api"
+        );
+    }
+
+    #[test]
+    fn builder_reuses_effective_namespace_allocations() {
+        let mut builder = SiteStateBuilder::new();
+        let parent = builder.add_document(test_document(
+            "billing",
+            "Billing",
+            true,
+            Some("domain".to_owned()),
+            Some("payments".parse().unwrap()),
+            None,
+        ));
+        let child = builder.add_document(test_document(
+            "billing/api",
+            "API",
+            true,
+            Some("system".to_owned()),
+            None,
+            None,
+        ));
+        let root_a = builder.add_document(test_document("guide", "Guide", true, None, None, None));
+        let root_b = builder.add_document(test_document("about", "About", true, None, None, None));
+
+        assert!(Arc::ptr_eq(
+            &builder.namespaces[parent],
+            &builder.namespaces[child]
+        ));
+        assert!(Arc::ptr_eq(
+            &builder.namespaces[root_a],
+            &builder.namespaces[root_b]
+        ));
+        assert!(Arc::ptr_eq(
+            &builder.namespaces[root_a],
+            &builder.default_namespace
+        ));
+    }
+
+    #[test]
+    fn structure_cache_legacy_pages_wire_deserializes_to_documents() {
+        let json = r#"{
+            "pages": [{
+                "title": "Billing",
+                "path": "billing",
+                "has_content": true,
+                "description": "Money stuff",
+                "page_kind": "domain",
+                "origin": "docs",
+                "pages": ["api"],
+                "is_dir": false
+            }],
+            "children": [[]],
+            "parents": [null],
+            "roots": [0],
+            "sections": {}
+        }"#;
+
+        let cached: CachedSiteState = serde_json::from_str(json).unwrap();
+        let document = &cached.pages[0];
+        assert_eq!(document.path, "billing");
+        assert_eq!(document.meta.title, "Billing");
+        assert_eq!(document.meta.description.as_deref(), Some("Money stuff"));
+        assert_eq!(document.meta.kind.as_deref(), Some("domain"));
+        assert_eq!(document.meta.namespace, None);
+        assert_eq!(document.origin.as_deref(), Some("docs"));
+        assert_eq!(
+            document.meta.pages.as_deref(),
+            Some(&["api".to_owned()][..])
+        );
+        assert!(!document.is_dir);
+    }
+
+    #[test]
+    fn structure_cache_new_pages_wire_remains_readable_by_legacy_page_shape() {
+        #[derive(Deserialize)]
+        struct LegacyCachedSiteState {
+            pages: Vec<LegacyPage>,
+        }
+
+        #[derive(Deserialize)]
+        struct LegacyPage {
+            title: String,
+            path: String,
+            has_content: bool,
+            description: Option<String>,
+            page_kind: Option<String>,
+            origin: Option<String>,
+            pages: Option<Vec<String>>,
+            is_dir: bool,
+        }
+
+        let state = SiteState::new(
+            vec![test_document(
+                "billing",
+                "Billing",
+                true,
+                Some("domain".to_owned()),
+                Some("payments".parse().unwrap()),
+                Some(vec!["api".to_owned()]),
+            )],
+            vec![vec![]],
+            vec![None],
+            vec![0],
+            HashMap::new(),
+            Namespace::default(),
+        );
+
+        let json = serde_json::to_string(&CachedSiteStateRef::from(&state)).unwrap();
+        assert!(json.contains("\"pages\""));
+        assert!(!json.contains("\"documents\""));
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["pages"][0]["namespace"], "payments");
+
+        let legacy: LegacyCachedSiteState = serde_json::from_str(&json).unwrap();
+        let page = &legacy.pages[0];
+        assert_eq!(page.title, "Billing");
+        assert_eq!(page.path, "billing");
+        assert!(page.has_content);
+        assert_eq!(page.description, None);
+        assert_eq!(page.page_kind.as_deref(), Some("domain"));
+        assert_eq!(page.origin, None);
+        assert_eq!(page.pages.as_deref(), Some(&["api".to_owned()][..]));
+        assert!(page.is_dir);
     }
 
     // The reorder tests below build a raw `SiteStateBuilder` instead of the
@@ -2397,43 +2543,14 @@ mod tests {
     #[test]
     fn test_navigation_respects_page_order() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            Page {
-                title: "Home".to_owned(),
-                path: String::new(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "Advanced".to_owned(),
-                path: "advanced".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "Config".to_owned(),
-                path: "config".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "Getting Started".to_owned(),
-                path: "getting-started".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
+        add_test_document(&mut builder, "", "Home", true, None, None);
+        add_test_document(&mut builder, "advanced", "Advanced", true, None, None);
+        add_test_document(&mut builder, "config", "Config", true, None, None);
+        add_test_document(
+            &mut builder,
+            "getting-started",
+            "Getting Started",
+            true,
             None,
             None,
         );
@@ -2454,46 +2571,10 @@ mod tests {
     #[test]
     fn test_reorder_unlisted_pages_sorted_alphabetically() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            Page {
-                title: "Home".to_owned(),
-                path: String::new(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "C".to_owned(),
-                path: "c".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "A".to_owned(),
-                path: "a".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "B".to_owned(),
-                path: "b".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
+        add_test_document(&mut builder, "", "Home", true, None, None);
+        add_test_document(&mut builder, "c", "C", true, None, None);
+        add_test_document(&mut builder, "a", "A", true, None, None);
+        add_test_document(&mut builder, "b", "B", true, None, None);
 
         // Only list "b" — "a" and "c" sorted alphabetically after
         builder.reorder_children_at("", &["b".to_owned()]);
@@ -2508,36 +2589,9 @@ mod tests {
     #[test]
     fn test_reorder_all_children_listed() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            Page {
-                title: "Home".to_owned(),
-                path: String::new(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "B".to_owned(),
-                path: "b".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "A".to_owned(),
-                path: "a".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
+        add_test_document(&mut builder, "", "Home", true, None, None);
+        add_test_document(&mut builder, "b", "B", true, None, None);
+        add_test_document(&mut builder, "a", "A", true, None, None);
 
         // All children listed — no unlisted remainder
         builder.reorder_children_at("", &["a".to_owned(), "b".to_owned()]);
@@ -2551,37 +2605,9 @@ mod tests {
     #[test]
     fn test_reorder_skips_section_slugs() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            Page {
-                title: "Home".to_owned(),
-                path: String::new(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "Guide".to_owned(),
-                path: "guide".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "Domain".to_owned(),
-                path: "domain".to_owned(),
-                has_content: true,
-                page_kind: Some("domain".to_owned()),
-                ..Default::default()
-            },
-            Some("domain"),
-            None,
-        );
+        add_test_document(&mut builder, "", "Home", true, None, None);
+        add_test_document(&mut builder, "guide", "Guide", true, None, None);
+        add_test_document(&mut builder, "domain", "Domain", true, Some("domain"), None);
 
         // "domain" is a section — should be skipped, order unchanged
         builder.reorder_children_at("", &["domain".to_owned(), "guide".to_owned()]);
@@ -2596,26 +2622,8 @@ mod tests {
     #[test]
     fn test_reorder_skips_missing_slugs() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            Page {
-                title: "Home".to_owned(),
-                path: String::new(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "A".to_owned(),
-                path: "a".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
+        add_test_document(&mut builder, "", "Home", true, None, None);
+        add_test_document(&mut builder, "a", "A", true, None, None);
 
         // "nonexistent" is not a child — should be skipped
         builder.reorder_children_at("", &["nonexistent".to_owned(), "a".to_owned()]);
@@ -2629,36 +2637,9 @@ mod tests {
     #[test]
     fn test_reorder_skips_duplicate_slugs() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            Page {
-                title: "Home".to_owned(),
-                path: String::new(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "A".to_owned(),
-                path: "a".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "B".to_owned(),
-                path: "b".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
+        add_test_document(&mut builder, "", "Home", true, None, None);
+        add_test_document(&mut builder, "a", "A", true, None, None);
+        add_test_document(&mut builder, "b", "B", true, None, None);
 
         // "a" listed twice — second occurrence ignored
         builder.reorder_children_at("", &["a".to_owned(), "b".to_owned(), "a".to_owned()]);
@@ -2673,36 +2654,9 @@ mod tests {
     #[test]
     fn test_reorder_no_pages_field_keeps_original_order() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            Page {
-                title: "Home".to_owned(),
-                path: String::new(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "B".to_owned(),
-                path: "b".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "A".to_owned(),
-                path: "a".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
+        add_test_document(&mut builder, "", "Home", true, None, None);
+        add_test_document(&mut builder, "b", "B", true, None, None);
+        add_test_document(&mut builder, "a", "A", true, None, None);
 
         // Empty slugs = no reorder
         builder.reorder_children_at("", &[]);
@@ -2716,43 +2670,21 @@ mod tests {
     #[test]
     fn test_reorder_nested_directory() {
         let mut builder = SiteStateBuilder::new();
-        builder.add_page(
-            Page {
-                title: "Home".to_owned(),
-                path: String::new(),
-                has_content: true,
-                ..Default::default()
-            },
+        add_test_document(&mut builder, "", "Home", true, None, None);
+        add_test_document(&mut builder, "guides", "Guides", true, None, None);
+        add_test_document(
+            &mut builder,
+            "guides/advanced",
+            "Advanced",
+            true,
             None,
             None,
         );
-        builder.add_page(
-            Page {
-                title: "Guides".to_owned(),
-                path: "guides".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "Advanced".to_owned(),
-                path: "guides/advanced".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
-            None,
-            None,
-        );
-        builder.add_page(
-            Page {
-                title: "Getting Started".to_owned(),
-                path: "guides/getting-started".to_owned(),
-                has_content: true,
-                ..Default::default()
-            },
+        add_test_document(
+            &mut builder,
+            "guides/getting-started",
+            "Getting Started",
+            true,
             None,
             None,
         );
@@ -2769,40 +2701,36 @@ mod tests {
 
     // ---- resolution fingerprint ----
 
-    // These helpers build a raw `Page`/`SiteStateBuilder` instead of the
-    // `site()`/`page()` DSL: they need `description` and `is_dir`, which the
-    // DSL's constructors don't expose, and they return the raw `u64`
-    // fingerprint rather than an assembled `SiteState`.
-
-    fn fingerprint_page(path: &str, title: &str, desc: Option<&str>, has_content: bool) -> Page {
-        Page {
-            title: title.to_owned(),
-            path: path.to_owned(),
-            has_content,
-            description: desc.map(str::to_owned),
-            page_kind: None,
-            origin: None,
-            pages: None,
-            is_dir: true,
-        }
+    fn fingerprint_document(
+        path: &str,
+        title: &str,
+        description: Option<&str>,
+        has_content: bool,
+    ) -> Document {
+        let mut document = test_document(path, title, has_content, None, None, None);
+        Arc::make_mut(&mut document.meta).description = description.map(str::to_owned);
+        document
     }
 
-    /// Build a single-root-page state and return its fingerprint.
-    fn fingerprint_of(page: Page, kind: Option<&str>, ns: Namespace) -> u64 {
-        let mut b = SiteStateBuilder::new();
-        b.add_page(page, kind, Some(ns));
-        b.build().resolution_fingerprint()
+    fn fingerprint_of(mut document: Document, kind: Option<&str>, namespace: Namespace) -> u64 {
+        let meta = Arc::make_mut(&mut document.meta);
+        meta.kind = kind.map(str::to_owned);
+        meta.namespace = Some(namespace.into());
+
+        let mut builder = SiteStateBuilder::new();
+        builder.add_document(document);
+        builder.build().resolution_fingerprint()
     }
 
     #[test]
     fn fingerprint_changes_on_title() {
         let a = fingerprint_of(
-            fingerprint_page("g", "Guide", None, true),
+            fingerprint_document("g", "Guide", None, true),
             None,
             Namespace::default(),
         );
         let b = fingerprint_of(
-            fingerprint_page("g", "Guide X", None, true),
+            fingerprint_document("g", "Guide X", None, true),
             None,
             Namespace::default(),
         );
@@ -2812,12 +2740,12 @@ mod tests {
     #[test]
     fn fingerprint_changes_on_description() {
         let a = fingerprint_of(
-            fingerprint_page("g", "Guide", None, true),
+            fingerprint_document("g", "Guide", None, true),
             None,
             Namespace::default(),
         );
         let b = fingerprint_of(
-            fingerprint_page("g", "Guide", Some("d"), true),
+            fingerprint_document("g", "Guide", Some("d"), true),
             None,
             Namespace::default(),
         );
@@ -2827,12 +2755,12 @@ mod tests {
     #[test]
     fn fingerprint_changes_on_has_content() {
         let a = fingerprint_of(
-            fingerprint_page("g", "Guide", None, true),
+            fingerprint_document("g", "Guide", None, true),
             None,
             Namespace::default(),
         );
         let b = fingerprint_of(
-            fingerprint_page("g", "Guide", None, false),
+            fingerprint_document("g", "Guide", None, false),
             None,
             Namespace::default(),
         );
@@ -2843,26 +2771,32 @@ mod tests {
     fn fingerprint_changes_on_section_kind_flip() {
         // `SiteModel::entity` matches on `s.kind`, so flipping a section's
         // kind re-targets which entity a diagram `!include` resolves to.
-        let mut page_a = fingerprint_page("billing", "Billing", None, true);
-        page_a.page_kind = Some("domain".to_owned());
-        let a = fingerprint_of(page_a, Some("domain"), Namespace::default());
-
-        let mut page_b = fingerprint_page("billing", "Billing", None, true);
-        page_b.page_kind = Some("system".to_owned());
-        let b = fingerprint_of(page_b, Some("system"), Namespace::default());
+        let a = fingerprint_of(
+            fingerprint_document("billing", "Billing", None, true),
+            Some("domain"),
+            Namespace::default(),
+        );
+        let b = fingerprint_of(
+            fingerprint_document("billing", "Billing", None, true),
+            Some("system"),
+            Namespace::default(),
+        );
 
         assert_ne!(a, b);
     }
 
     #[test]
     fn fingerprint_changes_on_section_namespace() {
-        let mut page_a = fingerprint_page("billing", "Billing", None, true);
-        page_a.page_kind = Some("domain".to_owned());
-        let a = fingerprint_of(page_a, Some("domain"), Namespace::default());
-
-        let mut page_b = fingerprint_page("billing", "Billing", None, true);
-        page_b.page_kind = Some("domain".to_owned());
-        let b = fingerprint_of(page_b, Some("domain"), "payments".parse().unwrap());
+        let a = fingerprint_of(
+            fingerprint_document("billing", "Billing", None, true),
+            Some("domain"),
+            Namespace::default(),
+        );
+        let b = fingerprint_of(
+            fingerprint_document("billing", "Billing", None, true),
+            Some("domain"),
+            "payments".parse().unwrap(),
+        );
 
         assert_ne!(a, b);
     }
@@ -2888,17 +2822,17 @@ mod tests {
     fn fingerprint_stable_across_excluded_fields() {
         // `origin` and `pages` are excluded from the fingerprint.
         let base = fingerprint_of(
-            fingerprint_page("g", "Guide", None, true),
+            fingerprint_document("g", "Guide", None, true),
             None,
             Namespace::default(),
         );
 
-        let mut p_origin = fingerprint_page("g", "Guide", None, true);
+        let mut p_origin = fingerprint_document("g", "Guide", None, true);
         p_origin.origin = Some("docs".to_owned());
         let with_origin = fingerprint_of(p_origin, None, Namespace::default());
 
-        let mut p_pages = fingerprint_page("g", "Guide", None, true);
-        p_pages.pages = Some(vec!["x".to_owned()]);
+        let mut p_pages = fingerprint_document("g", "Guide", None, true);
+        Arc::make_mut(&mut p_pages.meta).pages = Some(vec!["x".to_owned()]);
         let with_pages = fingerprint_of(p_pages, None, Namespace::default());
 
         assert_eq!(base, with_origin);
@@ -2908,12 +2842,12 @@ mod tests {
     #[test]
     fn fingerprint_changes_on_path() {
         let a = fingerprint_of(
-            fingerprint_page("g", "Guide", None, true),
+            fingerprint_document("g", "Guide", None, true),
             None,
             Namespace::default(),
         );
         let b = fingerprint_of(
-            fingerprint_page("h", "Guide", None, true),
+            fingerprint_document("h", "Guide", None, true),
             None,
             Namespace::default(),
         );
@@ -2922,11 +2856,11 @@ mod tests {
 
     #[test]
     fn fingerprint_stable_across_structure_cache_rebuild() {
-        let mut b = SiteStateBuilder::new();
-        let mut page = fingerprint_page("billing", "Billing", Some("desc"), true);
-        page.page_kind = Some("domain".to_owned());
-        b.add_page(page, Some("domain"), None);
-        let state = b.build();
+        let mut builder = SiteStateBuilder::new();
+        let mut document = fingerprint_document("billing", "Billing", Some("desc"), true);
+        Arc::make_mut(&mut document.meta).kind = Some("domain".to_owned());
+        builder.add_document(document);
+        let state = builder.build();
 
         // Round-trip through the on-disk structure-cache representation.
         let json = serde_json::to_string(&CachedSiteStateRef::from(&state)).unwrap();

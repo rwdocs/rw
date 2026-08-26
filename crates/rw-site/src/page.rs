@@ -20,7 +20,8 @@ use rw_renderer::{
 use rw_sections::{SectionAnchor, Sections};
 
 use crate::site::{SiteSnapshot, SiteTitleResolver};
-use rw_storage::{Storage, StorageError, StorageErrorKind};
+use rw_meta::Meta;
+use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
 use serde::{Deserialize, Serialize};
 
 /// Per-render dependencies from the current site snapshot.
@@ -71,61 +72,6 @@ pub struct PageRendererConfig {
     pub include_dirs: Vec<PathBuf>,
 }
 
-/// A single document in the site hierarchy.
-///
-/// Every entry in the navigation tree corresponds to a `Page`. Pages with
-/// markdown content have [`has_content`](Self::has_content) set to `true`;
-/// [virtual pages](crate#virtual-pages) (directories without `index.md`)
-/// have it set to `false`.
-#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Page {
-    /// Display title, resolved from (in priority order): frontmatter `title`,
-    /// else `meta.yaml` `title`, else the first `# H1` heading, else the
-    /// titlecased filename. Never empty — a filename that titlecases to
-    /// nothing falls back further (stem verbatim, then `Untitled`).
-    pub title: String,
-    /// URL path without leading slash (e.g., `"guide"`, `"domain/billing"`,
-    /// `""` for the site root).
-    pub path: String,
-    /// Whether this page has markdown content. `false` for virtual pages
-    /// that exist only as navigation containers.
-    pub has_content: bool,
-    /// Optional page description, resolved from frontmatter or `meta.yaml`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Declared page kind (`"domain"`, `"guide"`, …), resolved from frontmatter
-    /// or `meta.yaml`. `Some` exactly when this page registers a section.
-    /// `Page` is persisted in the structure cache (`CachedSiteState`); being
-    /// `Option` lets an entry cached before this field existed deserialize as
-    /// kindless rather than failing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[allow(clippy::struct_field_names)]
-    pub page_kind: Option<String>,
-    /// Source directory name for content originating outside `source_dir`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin: Option<String>,
-    /// Ordered list of child page slugs for navigation ordering.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pages: Option<Vec<String>>,
-    /// Whether this page's content is backed by a directory index (`index.md`
-    /// or the root/README homepage) rather than a leaf `name.md`. Controls how
-    /// the renderer resolves relative `.md` links (see
-    /// [`Document::is_dir`](rw_storage::Document)).
-    ///
-    /// Defaults to `true` when absent, for backward compatibility — see
-    /// [`default_is_dir`].
-    #[serde(default = "default_is_dir")]
-    pub is_dir: bool,
-}
-
-/// Serde default for [`Page::is_dir`]. `Page` is persisted in the
-/// structure cache (`CachedSiteState`), so an entry cached before this field
-/// existed must still deserialize; such a site had no leaf pages, so
-/// directory-style resolution preserves the links it was cached with.
-fn default_is_dir() -> bool {
-    true
-}
-
 /// One segment of the breadcrumb trail leading to a page.
 ///
 /// Breadcrumbs always start with a "Home" entry (path `""`) and include
@@ -152,8 +98,7 @@ pub struct BreadcrumbItem {
     /// and the page response's section-ancestry map (see
     /// [`Sections::ancestry_for`]) to resolve a host URL for this crumb.
     ///
-    /// Empty only in the transient state between construction and
-    /// [`apply_breadcrumb_sections`], which fills it in.
+    /// Empty only until breadcrumb sections are resolved.
     pub section_ref: String,
     /// This crumb's path relative to `section_ref`'s scope root (empty when the
     /// crumb path is exactly that section's root).
@@ -162,20 +107,16 @@ pub struct BreadcrumbItem {
 
 /// Output of rendering a single page via [`Site::render`](crate::Site::render).
 ///
-/// Contains everything the frontend needs to display a page: rendered HTML,
-/// resolved title, table of contents for the sidebar, breadcrumb trail,
-/// and the page's description and kind.
+/// Contains the rendered HTML, resolved metadata, table of contents, and
+/// breadcrumb trail needed to display a page.
 #[derive(Debug)]
 pub struct PageRenderResult {
     /// Rendered HTML body content.
     pub html: String,
-    /// The page's resolved title — frontmatter `title`, else `meta.yaml`
-    /// `title`, else the first `# H1`, else the titlecased filename. Read from
-    /// the site snapshot rather than from rendering, so navigation,
-    /// breadcrumbs, this response, and the search index all report one string.
-    /// Never empty — a filename that titlecases to nothing falls back further
-    /// (stem verbatim, then `Untitled`).
-    pub title: String,
+    /// Holds resolved metadata from the site snapshot. Navigation derives its
+    /// values from this metadata, while fresh and cached renders clone the same
+    /// allocation. Its title is always non-empty.
+    pub meta: Arc<Meta>,
     /// Headings found in the page, used to build a "table of contents" sidebar.
     pub toc: Vec<TocEntry>,
     /// Non-fatal issues encountered during rendering (e.g., unresolved
@@ -193,11 +134,6 @@ pub struct PageRenderResult {
     /// Ancestor trail from "Home" to the parent of this page.
     /// See [`BreadcrumbItem`] for the structure.
     pub breadcrumbs: Vec<BreadcrumbItem>,
-    /// Page description, resolved from frontmatter or `meta.yaml`.
-    pub description: Option<String>,
-    /// Declared page kind, resolved from frontmatter or `meta.yaml`. `Some`
-    /// exactly when this page registers a section.
-    pub page_kind: Option<String>,
     /// Canonical section refs (`"kind:namespace/name"`) this page references,
     /// via prose links and diagram `$link`s. Deduped and deterministically
     /// ordered; empty for pages that reference no sections. Survives the page
@@ -208,10 +144,10 @@ pub struct PageRenderResult {
     /// [`section_refs`](Self::section_refs)), and each breadcrumb section —
     /// mapped to that section's chain of [`SectionAnchor`]s. Each chain starts
     /// with the section itself (empty subpath), then its ancestors nearest-first
-    /// with the root last. Lets a host resolve a page's section context —
-    /// including the page's own section (`section_ancestry[meta.section_ref]`) —
-    /// without extra lookups. Rebuilt from live sections on every render, so it
-    /// is identical for cached and freshly-rendered pages.
+    /// with the root last. The enclosing section's ref always has an entry, so
+    /// a host can resolve the page's section context without another lookup.
+    /// Rebuilt from live sections on every render, so it is identical for
+    /// cached and freshly-rendered pages.
     pub section_ancestry: HashMap<String, Vec<SectionAnchor>>,
 }
 
@@ -221,7 +157,7 @@ pub struct PageRenderResult {
 /// Contains whitespace-separated tokens suitable for full-text search engines.
 #[derive(Debug, Clone)]
 pub struct SearchDocument {
-    /// Display title, resolved from [`Page::title`].
+    /// Uses [`Meta::title`] as the display title.
     pub title: String,
     /// Plain text content with whitespace-separated tokens.
     pub text: String,
@@ -359,14 +295,14 @@ impl PageRenderer {
     pub(crate) fn render(
         &self,
         path: &str,
-        page: &Page,
+        document: &Document,
         breadcrumbs: Vec<BreadcrumbItem>,
         ctx: &RenderContext,
     ) -> Result<PageRenderResult, RenderError> {
-        let mut result = if page.has_content {
-            self.render_content(path, page, breadcrumbs, ctx)?
+        let mut result = if document.has_content {
+            self.render_content(path, document, breadcrumbs, ctx)?
         } else {
-            self.render_virtual(path, page, breadcrumbs)
+            self.render_virtual(path, document, breadcrumbs)
         };
 
         apply_breadcrumb_sections(&mut result.breadcrumbs, &ctx.sections);
@@ -377,11 +313,9 @@ impl PageRenderer {
         // so cached and freshly-rendered pages carry the same map, rebuilt from
         // live sections every render.
         //
-        // The page's own section is included (like navigation includes its
-        // scope) so `section_ancestry[meta.section_ref]` resolves even for a
-        // section-root landing page that links to no other section — breadcrumbs
-        // exclude the current page, so its own section arrives via neither
-        // `section_refs` nor the crumbs otherwise.
+        // Include the page's enclosing section even when a section-root landing
+        // page has no links: breadcrumbs exclude the current page, so neither
+        // referenced sections nor crumbs would otherwise add it.
         //
         // `section_refs` are borrowed straight into the iterator; the page's own
         // ref and the breadcrumb refs need owning. `ancestry_for` collects into a
@@ -412,7 +346,7 @@ impl PageRenderer {
     fn render_content(
         &self,
         path: &str,
-        page: &Page,
+        document: &Document,
         breadcrumbs: Vec<BreadcrumbItem>,
         ctx: &RenderContext,
     ) -> Result<PageRenderResult, RenderError> {
@@ -434,15 +368,13 @@ impl PageRenderer {
         if let Some(cached) = self.page_bucket.get_json::<CachedPage>(path, &etag) {
             return Ok(PageRenderResult {
                 html: cached.html,
-                title: page.title.clone(),
+                meta: Arc::clone(&document.meta),
                 toc: cached.toc,
                 warnings: Vec::new(),
                 from_cache: true,
-                has_content: page.has_content,
+                has_content: document.has_content,
                 source_mtime,
                 breadcrumbs,
-                description: page.description.clone(),
-                page_kind: page.page_kind.clone(),
                 section_refs: cached.section_refs,
                 // Overwritten in `render()` after breadcrumb sections resolve.
                 section_ancestry: HashMap::new(),
@@ -450,7 +382,7 @@ impl PageRenderer {
         }
 
         let markdown_text = self.storage.read(path)?;
-        let renderer = self.create_renderer(path, page.origin.as_deref(), page.is_dir, ctx);
+        let renderer = self.create_renderer(path, document.origin.as_deref(), document.is_dir, ctx);
         let pass = renderer.begin(&markdown_text);
         let resolve_ctx = ResolveContext {
             model: ctx.meta_include_source.as_deref(),
@@ -482,15 +414,13 @@ impl PageRenderer {
 
         Ok(PageRenderResult {
             html: result.html,
-            title: page.title.clone(),
+            meta: Arc::clone(&document.meta),
             toc: result.toc,
             warnings: result.warnings,
             from_cache: false,
-            has_content: page.has_content,
+            has_content: document.has_content,
             source_mtime,
             breadcrumbs,
-            description: page.description.clone(),
-            page_kind: page.page_kind.clone(),
             section_refs: result.section_refs,
             // Overwritten in `render()` after breadcrumb sections resolve.
             section_ancestry: HashMap::new(),
@@ -500,22 +430,20 @@ impl PageRenderer {
     fn render_virtual(
         &self,
         path: &str,
-        page: &Page,
+        document: &Document,
         breadcrumbs: Vec<BreadcrumbItem>,
     ) -> PageRenderResult {
         let source_mtime = self.storage.mtime(path).unwrap_or(0.0);
 
         PageRenderResult {
-            html: format!("<h1>{}</h1>\n", escape_html(&page.title)),
-            title: page.title.clone(),
+            html: format!("<h1>{}</h1>\n", escape_html(&document.meta.title)),
+            meta: Arc::clone(&document.meta),
             toc: Vec::new(),
             warnings: Vec::new(),
             from_cache: false,
             has_content: false,
             source_mtime,
             breadcrumbs,
-            description: page.description.clone(),
-            page_kind: page.page_kind.clone(),
             section_refs: BTreeSet::new(),
             // Overwritten in `render()` after breadcrumb sections resolve.
             section_ancestry: HashMap::new(),
@@ -525,10 +453,10 @@ impl PageRenderer {
     pub(crate) fn render_search_document(
         &self,
         path: &str,
-        page: &Page,
+        document: &Document,
         ctx: &RenderContext,
     ) -> Result<Option<SearchDocument>, RenderError> {
-        if !page.has_content {
+        if !document.has_content {
             return Ok(None);
         }
 
@@ -560,7 +488,7 @@ impl PageRenderer {
         let result = renderer.begin(&stripped).finish(&Resolutions::new());
 
         Ok(Some(SearchDocument {
-            title: page.title.clone(),
+            title: document.meta.title.clone(),
             text: result.html,
         }))
     }
@@ -647,6 +575,7 @@ mod tests {
     use rw_diagrams::{
         Asset, DiagramContent, DiagramError, DiagramProvider, DiagramRequest, Entity, Resolved,
     };
+    use rw_meta::Meta;
     use rw_storage::MockStorage;
 
     use super::*;
@@ -657,15 +586,18 @@ mod tests {
         PageRenderer::new(Arc::new(storage), Arc::new(NullCache), config)
     }
 
-    fn make_page(title: &str, path: &str, has_content: bool) -> Page {
-        Page {
-            title: title.to_owned(),
+    fn make_page(title: &str, path: &str, has_content: bool) -> Document {
+        Document {
             path: path.to_owned(),
             has_content,
-            description: None,
-            page_kind: None,
+            meta: Arc::new(Meta {
+                title: title.to_owned(),
+                description: None,
+                kind: None,
+                namespace: None,
+                pages: None,
+            }),
             origin: None,
-            pages: None,
             is_dir: true,
         }
     }
@@ -918,8 +850,8 @@ mod tests {
         // A structure-cache entry (CachedSiteState) written before `is_dir`
         // existed has no such key; it must still deserialize, defaulting to true.
         let json = r#"{"title":"Guide","path":"guide","has_content":true}"#;
-        let page: Page = serde_json::from_str(json).unwrap();
-        assert!(page.is_dir);
+        let document: Document = serde_json::from_str(json).unwrap();
+        assert!(document.is_dir);
     }
 
     #[test]
@@ -935,7 +867,7 @@ mod tests {
             .unwrap();
 
         assert!(result.html.contains("<p>World</p>"));
-        assert_eq!(result.title, "Hello");
+        assert_eq!(result.meta.title, "Hello");
         assert!(!result.from_cache);
         assert!(result.has_content);
     }
@@ -982,7 +914,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.html, "<h1>My Domain</h1>\n");
-        assert_eq!(result.title, "My Domain");
+        assert_eq!(result.meta.title, "My Domain");
         assert!(!result.has_content);
         assert!(result.toc.is_empty());
     }
@@ -1289,17 +1221,20 @@ mod tests {
             .with_mtime("test", 1000.0);
 
         let renderer = create_renderer(storage);
-        let page = Page {
+        let mut page = make_page("Test", "test", true);
+        page.meta = Arc::new(Meta {
+            title: "Test".to_owned(),
             description: Some("A description".to_owned()),
-            page_kind: Some("domain".to_owned()),
-            ..make_page("Test", "test", true)
-        };
+            kind: Some("domain".to_owned()),
+            namespace: None,
+            pages: None,
+        });
         let result = renderer
             .render("test", &page, vec![], &RenderContext::default())
             .unwrap();
 
-        assert_eq!(result.description.as_deref(), Some("A description"));
-        assert_eq!(result.page_kind.as_deref(), Some("domain"));
+        assert_eq!(result.meta.description.as_deref(), Some("A description"));
+        assert_eq!(result.meta.kind.as_deref(), Some("domain"));
     }
 
     #[test]
@@ -1314,8 +1249,8 @@ mod tests {
             .render("test", &page, vec![], &RenderContext::default())
             .unwrap();
 
-        assert_eq!(result.description, None);
-        assert_eq!(result.page_kind, None);
+        assert_eq!(result.meta.description, None);
+        assert_eq!(result.meta.kind, None);
     }
 
     #[test]

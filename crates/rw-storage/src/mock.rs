@@ -122,6 +122,13 @@ impl MockStorage {
         Self::default()
     }
 
+    /// Adds a [`Document`] that [`Storage::scan`] returns verbatim.
+    #[must_use]
+    pub fn with_scanned_document(self, document: Document) -> Self {
+        self.documents.write().push(document);
+        self
+    }
+
     /// Add a document with the given URL path and title.
     ///
     /// The document has `has_content=true` and no `page_kind`.
