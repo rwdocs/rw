@@ -5,15 +5,15 @@ use fields::MetaFields;
 use head::Head;
 
 /// Resolved page metadata from all sources.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meta {
     /// Page kind (e.g., "domain", "guide").
     pub kind: Option<String>,
     /// Section namespace declared by this page's metadata.
     pub namespace: Option<String>,
-    /// Page title (always resolved and never empty — falls back to titlecase
-    /// of filename, then the filename stem itself, then `"Untitled"`; see
-    /// [`resolve_filename_title`]).
+    /// Page title (always resolved and never empty): frontmatter `title`, else
+    /// `meta.yaml` title, else the first H1, else the titlecased filename stem,
+    /// else the stem verbatim, else `"Untitled"`.
     pub title: String,
     /// Page description.
     pub description: Option<String>,
@@ -28,8 +28,8 @@ impl Meta {
     /// 1. Parses meta.yaml into base fields
     /// 2. Extracts frontmatter and first H1 from markdown via pulldown-cmark
     /// 3. Merges frontmatter over meta.yaml (frontmatter wins per field)
-    /// 4. Resolves title: frontmatter.title > meta.title > H1 > titlecase(filename),
-    ///    guaranteed non-empty (see [`resolve_filename_title`])
+    /// 4. Resolves title: frontmatter title, else `meta.yaml` title, else H1,
+    ///    else titlecased filename stem, else stem verbatim, else `"Untitled"`
     #[must_use]
     pub fn resolve(markdown: Option<&str>, meta_yaml: Option<&str>, filename: &str) -> Self {
         let base = meta_yaml.map(MetaFields::from_yaml).unwrap_or_default();

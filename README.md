@@ -39,7 +39,7 @@ Then serve your docs:
 rw serve
 ```
 
-RW looks for markdown files in `docs/` by default. If `docs/` has no `index.md`, the project root `README.md` is used as the homepage.
+RW looks for markdown files in `docs/` by default. If `docs/` has no `index.md`, the project root `README.md` is used as the homepage, including its frontmatter metadata.
 
 Open [http://localhost:7979](http://localhost:7979) to see your site.
 

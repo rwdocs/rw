@@ -7,9 +7,7 @@
 //! single `DocumentRef` by `scanner`.
 
 use glob::Pattern;
-use rw_meta::Meta;
 use std::ffi::OsStr;
-use std::fs::read_to_string;
 use std::path::{Path, PathBuf, absolute};
 
 /// Fallback name the README homepage is titled from when it has no H1.
@@ -31,8 +29,8 @@ pub(crate) enum SourceKind {
 ///
 /// Lower wins. This mirrors the lookup order in `FsStorage::resolve_meta`
 /// (canonical directory form, then the `index.` directory variant, then the
-/// sibling form), so the scanner's collision tie-break agrees with `meta()`.
-/// Each form is unique per url path, so equal-rank ties never occur.
+/// sibling form), so the scanner's collision tie-break agrees with the
+/// resolver. Each form is unique per url path, so equal-rank ties never occur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum MetaRank {
     /// Exact bare `<meta_filename>` (e.g. `dir/meta.yaml`).
@@ -498,26 +496,6 @@ impl PathResolver {
     /// actually-served homepage go through [`Self::resolve_content`] with `""`.
     pub(crate) fn existing_readme(&self) -> Option<&Path> {
         self.readme_path.exists().then_some(&*self.readme_path)
-    }
-
-    /// Metadata for the injected README homepage document, when a README exists.
-    ///
-    /// `scan` calls this only after finding no root document of its own, so the
-    /// README's own H1 (or [`HOMEPAGE_FALLBACK_NAME`] without one) titles the
-    /// root page. Resolving the title here rather than at the call site is what
-    /// keeps scan and the watch path — which titles the same page through
-    /// [`Self::content_fallback_name`] — from drifting onto two literals.
-    ///
-    /// Gated on the README existing, not on it being readable: an unreadable one
-    /// still yields metadata, titled from the fallback.
-    pub(crate) fn homepage_fallback_meta(&self) -> Option<Meta> {
-        let readme = self.existing_readme()?;
-        let markdown = read_to_string(readme).ok();
-        Some(Meta::resolve(
-            markdown.as_deref(),
-            None,
-            HOMEPAGE_FALLBACK_NAME,
-        ))
     }
 }
 

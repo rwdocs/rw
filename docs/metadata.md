@@ -6,7 +6,7 @@ Pages can have metadata defined in three ways:
 2. **Directory sidecar** — `meta.yaml` in a directory, applying to that directory's page
 3. **Named sidecar** — `<name>.meta.yaml`, applying to the page at `<name>` (a sibling `<name>.md`, or a content-less entity with no markdown)
 
-When both a markdown file and its sidecar exist, frontmatter values override the sidecar.
+When both a markdown file and its sidecar exist, frontmatter values override the sidecar. A project-root `README.md` used as the homepage is a regular markdown metadata source, so all of its frontmatter fields apply.
 
 ## Examples
 

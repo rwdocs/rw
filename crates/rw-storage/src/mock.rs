@@ -1,16 +1,16 @@
 //! Mock storage implementation for testing.
 //!
 //! Provides [`MockStorage`] for unit testing without filesystem access.
-//! Metadata is returned exactly as configured, with no cascading or merging.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 
 use parking_lot::RwLock;
+use rw_meta::Meta;
 
 use crate::event::{StorageEvent, StorageEventKind, StorageEventReceiver, WatchHandle};
-use crate::metadata::Metadata;
 use crate::storage::{Document, Storage, StorageError, StorageErrorKind};
 
 /// A one-shot/repeatable hook invoked inside a *successful* `scan()`.
@@ -29,13 +29,43 @@ impl std::fmt::Debug for ScanHook {
     }
 }
 
+fn meta(
+    title: impl Into<String>,
+    description: Option<String>,
+    kind: Option<String>,
+    namespace: Option<String>,
+    pages: Option<Vec<String>>,
+) -> Arc<Meta> {
+    Arc::new(Meta {
+        title: title.into(),
+        description,
+        kind,
+        namespace,
+        pages,
+    })
+}
+
+fn document(
+    path: impl Into<String>,
+    has_content: bool,
+    meta: Arc<Meta>,
+    origin: Option<String>,
+    is_dir: bool,
+) -> Document {
+    Document {
+        path: path.into(),
+        has_content,
+        meta,
+        origin,
+        is_dir,
+    }
+}
+
 /// Mock storage for testing.
 ///
 /// Stores documents and content in memory. Use the builder methods
-/// to configure the mock with test data.
-///
-/// Metadata is returned exactly as set via `with_metadata()` — no inheritance
-/// or merging is applied.
+/// to configure the mock with test data. Documents are returned exactly as
+/// configured; the mock does not apply metadata inheritance or merging.
 ///
 /// # Example
 ///
@@ -56,8 +86,6 @@ pub struct MockStorage {
     contents: RwLock<HashMap<String, String>>,
     /// Modification times keyed by URL path.
     mtimes: RwLock<HashMap<String, f64>>,
-    /// Metadata keyed by URL path.
-    metadata: RwLock<HashMap<String, Metadata>>,
     /// If set, `scan()` returns this error kind.
     scan_error: RwLock<Option<StorageErrorKind>>,
     /// If `true`, `scan()` panics instead of returning.
@@ -77,7 +105,6 @@ impl Default for MockStorage {
             documents: RwLock::new(Vec::new()),
             contents: RwLock::new(HashMap::new()),
             mtimes: RwLock::new(HashMap::new()),
-            metadata: RwLock::new(HashMap::new()),
             scan_error: RwLock::new(None),
             scan_panic: AtomicBool::new(false),
             has_changed: RwLock::new(None),
@@ -100,17 +127,13 @@ impl MockStorage {
     /// The document has `has_content=true` and no `page_kind`.
     #[must_use]
     pub fn with_document(self, path: impl Into<String>, title: impl Into<String>) -> Self {
-        self.documents.write().push(Document {
-            path: path.into(),
-            title: title.into(),
-            has_content: true,
-            page_kind: None,
-            namespace: None,
-            description: None,
-            origin: None,
-            pages: None,
-            is_dir: true,
-        });
+        self.documents.write().push(document(
+            path,
+            true,
+            meta(title, None, None, None, None),
+            None,
+            true,
+        ));
         self
     }
 
@@ -124,17 +147,13 @@ impl MockStorage {
         title: impl Into<String>,
         pages: Vec<String>,
     ) -> Self {
-        self.documents.write().push(Document {
-            path: path.into(),
-            title: title.into(),
-            has_content: true,
-            page_kind: None,
-            namespace: None,
-            description: None,
-            origin: None,
-            pages: Some(pages),
-            is_dir: true,
-        });
+        self.documents.write().push(document(
+            path,
+            true,
+            meta(title, None, None, None, Some(pages)),
+            None,
+            true,
+        ));
         self
     }
 
@@ -148,17 +167,13 @@ impl MockStorage {
         title: impl Into<String>,
         page_kind: impl Into<String>,
     ) -> Self {
-        self.documents.write().push(Document {
-            path: path.into(),
-            title: title.into(),
-            has_content: true,
-            page_kind: Some(page_kind.into()),
-            namespace: None,
-            description: None,
-            origin: None,
-            pages: None,
-            is_dir: true,
-        });
+        self.documents.write().push(document(
+            path,
+            true,
+            meta(title, None, Some(page_kind.into()), None, None),
+            None,
+            true,
+        ));
         self
     }
 
@@ -166,9 +181,7 @@ impl MockStorage {
     ///
     /// The document has `has_content=true`. Models what a real storage backend's
     /// `scan()` produces for a page whose frontmatter (or `meta.yaml`) declares
-    /// both fields — as opposed to [`with_metadata`](Self::with_metadata), which
-    /// configures the separate sidecar-only `meta()` lookup that never sees
-    /// frontmatter.
+    /// both fields.
     #[must_use]
     pub fn with_document_kind_description(
         self,
@@ -177,17 +190,19 @@ impl MockStorage {
         page_kind: impl Into<String>,
         description: impl Into<String>,
     ) -> Self {
-        self.documents.write().push(Document {
-            path: path.into(),
-            title: title.into(),
-            has_content: true,
-            page_kind: Some(page_kind.into()),
-            namespace: None,
-            description: Some(description.into()),
-            origin: None,
-            pages: None,
-            is_dir: true,
-        });
+        self.documents.write().push(document(
+            path,
+            true,
+            meta(
+                title,
+                Some(description.into()),
+                Some(page_kind.into()),
+                None,
+                None,
+            ),
+            None,
+            true,
+        ));
         self
     }
 
@@ -202,17 +217,19 @@ impl MockStorage {
         page_kind: impl Into<String>,
         namespace: impl Into<String>,
     ) -> Self {
-        self.documents.write().push(Document {
-            path: path.into(),
-            title: title.into(),
-            has_content: true,
-            page_kind: Some(page_kind.into()),
-            namespace: Some(namespace.into()),
-            description: None,
-            origin: None,
-            pages: None,
-            is_dir: true,
-        });
+        self.documents.write().push(document(
+            path,
+            true,
+            meta(
+                title,
+                None,
+                Some(page_kind.into()),
+                Some(namespace.into()),
+                None,
+            ),
+            None,
+            true,
+        ));
         self
     }
 
@@ -221,17 +238,13 @@ impl MockStorage {
     /// The document has `has_content=false`.
     #[must_use]
     pub fn with_virtual_page(self, path: impl Into<String>, title: impl Into<String>) -> Self {
-        self.documents.write().push(Document {
-            path: path.into(),
-            title: title.into(),
-            has_content: false,
-            page_kind: None,
-            namespace: None,
-            description: None,
-            origin: None,
-            pages: None,
-            is_dir: true,
-        });
+        self.documents.write().push(document(
+            path,
+            false,
+            meta(title, None, None, None, None),
+            None,
+            true,
+        ));
         self
     }
 
@@ -243,17 +256,13 @@ impl MockStorage {
         title: impl Into<String>,
         page_kind: impl Into<String>,
     ) -> Self {
-        self.documents.write().push(Document {
-            path: path.into(),
-            title: title.into(),
-            has_content: false,
-            page_kind: Some(page_kind.into()),
-            namespace: None,
-            description: None,
-            origin: None,
-            pages: None,
-            is_dir: true,
-        });
+        self.documents.write().push(document(
+            path,
+            false,
+            meta(title, None, Some(page_kind.into()), None, None),
+            None,
+            true,
+        ));
         self
     }
 
@@ -275,27 +284,14 @@ impl MockStorage {
         content: impl Into<String>,
     ) -> Self {
         let path: String = path.into();
-        self.documents.write().push(Document {
-            path: path.clone(),
-            title: title.into(),
-            has_content: true,
-            page_kind: None,
-            namespace: None,
-            description: None,
-            origin: None,
-            pages: None,
-            is_dir: true,
-        });
+        self.documents.write().push(document(
+            path.clone(),
+            true,
+            meta(title, None, None, None, None),
+            None,
+            true,
+        ));
         self.contents.write().insert(path, content.into());
-        self
-    }
-
-    /// Add metadata for a URL path.
-    ///
-    /// Metadata is returned exactly as set, with no inheritance applied.
-    #[must_use]
-    pub fn with_metadata(self, path: impl Into<String>, metadata: Metadata) -> Self {
-        self.metadata.write().insert(path.into(), metadata);
         self
     }
 
@@ -415,21 +411,7 @@ impl Storage for MockStorage {
         if let Some(hook) = self.scan_hook.write().0.as_mut() {
             hook();
         }
-        let guard = self.documents.read();
-        Ok(guard
-            .iter()
-            .map(|d| Document {
-                path: d.path.clone(),
-                title: d.title.clone(),
-                has_content: d.has_content,
-                page_kind: d.page_kind.clone(),
-                namespace: d.namespace.clone(),
-                description: d.description.clone(),
-                origin: d.origin.clone(),
-                pages: d.pages.clone(),
-                is_dir: d.is_dir,
-            })
-            .collect())
+        Ok(self.documents.read().clone())
     }
 
     fn read(&self, path: &str) -> Result<String, StorageError> {
@@ -461,16 +443,6 @@ impl Storage for MockStorage {
 
         // Return receiver and no-op handle (MockStorage doesn't need cleanup)
         Ok((StorageEventReceiver::new(rx), WatchHandle::no_op()))
-    }
-
-    fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
-        // Simple lookup, returning metadata exactly as configured
-        Ok(self.metadata.read().get(path).map(|m| Metadata {
-            title: m.title.clone(),
-            description: m.description.clone(),
-            page_kind: m.page_kind.clone(),
-            pages: m.pages.clone(),
-        }))
     }
 
     fn has_changed(&self) -> Result<bool, StorageError> {
@@ -512,11 +484,11 @@ mod tests {
 
         assert_eq!(docs.len(), 2);
         assert_eq!(docs[0].path, "guide");
-        assert_eq!(docs[0].title, "Guide");
+        assert_eq!(docs[0].meta.title, "Guide");
         assert!(docs[0].has_content);
-        assert!(docs[0].page_kind.is_none());
+        assert!(docs[0].meta.kind.is_none());
         assert_eq!(docs[1].path, "api");
-        assert_eq!(docs[1].title, "API");
+        assert_eq!(docs[1].meta.title, "API");
     }
 
     #[test]
@@ -537,9 +509,9 @@ mod tests {
         let content = storage.read("guide").unwrap();
 
         assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].title, "User Guide");
+        assert_eq!(docs[0].meta.title, "User Guide");
         assert!(docs[0].has_content);
-        assert!(docs[0].page_kind.is_none());
+        assert!(docs[0].meta.kind.is_none());
         assert_eq!(content, "# User Guide\n\nContent.");
     }
 
@@ -552,7 +524,7 @@ mod tests {
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].path, "domain");
         assert!(docs[0].has_content);
-        assert_eq!(docs[0].page_kind, Some("domain".to_owned()));
+        assert_eq!(docs[0].meta.kind, Some("domain".to_owned()));
     }
 
     #[test]
@@ -564,9 +536,9 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert_eq!(doc.path, "domain");
-        assert_eq!(doc.title, "Domain Title");
+        assert_eq!(doc.meta.title, "Domain Title");
         assert!(!doc.has_content);
-        assert!(doc.page_kind.is_none());
+        assert!(doc.meta.kind.is_none());
     }
 
     #[test]
@@ -579,7 +551,7 @@ mod tests {
         assert_eq!(docs.len(), 1);
         let doc = &docs[0];
         assert!(!doc.has_content);
-        assert_eq!(doc.page_kind, Some("section".to_owned()));
+        assert_eq!(doc.meta.kind, Some("section".to_owned()));
     }
 
     #[test]
@@ -595,46 +567,6 @@ mod tests {
         assert_eq!(err.kind, StorageErrorKind::NotFound);
         assert_eq!(err.backend, Some("Mock"));
         assert_eq!(err.path.as_deref(), Some(Path::new("missing")));
-    }
-
-    #[test]
-    fn test_meta_returns_stored_metadata() {
-        let meta = Metadata {
-            title: Some("Domain Title".to_owned()),
-            page_kind: Some("domain".to_owned()),
-            ..Default::default()
-        };
-        let storage = MockStorage::new().with_metadata("domain", meta);
-
-        let result = storage.meta("domain").unwrap();
-
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.title, Some("Domain Title".to_owned()));
-        assert_eq!(result.page_kind, Some("domain".to_owned()));
-    }
-
-    #[test]
-    fn test_meta_returns_none_when_no_metadata() {
-        let storage = MockStorage::new();
-
-        let result = storage.meta("").unwrap();
-
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_meta_no_inheritance() {
-        // MockStorage does NOT implement inheritance
-        let root_meta = Metadata {
-            title: Some("Root Title".to_owned()),
-            ..Default::default()
-        };
-        let storage = MockStorage::new().with_metadata("", root_meta);
-
-        // Child path has no metadata set - should return None
-        let result = storage.meta("child").unwrap();
-        assert!(result.is_none());
     }
 
     #[test]
@@ -808,7 +740,7 @@ mod tests {
         );
         let docs = storage.scan().unwrap();
         let doc = docs.iter().find(|d| d.path == "domains/billing").unwrap();
-        assert_eq!(doc.page_kind.as_deref(), Some("domain"));
-        assert_eq!(doc.namespace.as_deref(), Some("payments"));
+        assert_eq!(doc.meta.kind.as_deref(), Some("domain"));
+        assert_eq!(doc.meta.namespace.as_deref(), Some("payments"));
     }
 }

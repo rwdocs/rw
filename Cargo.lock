@@ -4487,9 +4487,9 @@ version = "0.1.35"
 dependencies = [
  "chrono",
  "parking_lot",
+ "rw-meta",
  "serde",
  "serde_json",
- "thiserror",
 ]
 
 [[package]]
@@ -4507,7 +4507,6 @@ dependencies = [
  "rw-storage",
  "rw-vcs",
  "serde_json",
- "serde_yaml",
  "tempfile",
  "tracing",
 ]

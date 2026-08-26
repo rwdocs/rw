@@ -172,11 +172,9 @@ async fn build_bundles(
         let resolved_content = rewrite_fences(&content, |lang, src| {
             bundle_source(lang, src, include_dirs, &mut warnings)
         });
-        let metadata = storage.meta(&doc.path)?;
 
         let bundle = PageBundle {
             content: resolved_content,
-            metadata,
         };
 
         let bundle_json = serde_json::to_vec(&bundle)?;
@@ -273,14 +271,27 @@ A -> B
             .iter()
             .find(|(key, _)| key == "pages/c.json")
             .expect("a bundle per page with content");
-        let bundle = String::from_utf8(json.clone()).expect("bundle is UTF-8");
+        let bundle: PageBundle = serde_json::from_slice(json).expect("valid page bundle JSON");
         assert!(
-            bundle.contains("Bob -> Charlie"),
-            "{key} kept the include unresolved: {bundle}"
+            bundle.content.contains("Bob -> Charlie"),
+            "{key} kept the include unresolved: {}",
+            bundle.content
         );
         assert!(
-            !bundle.contains("!include"),
-            "{key} still carries an !include: {bundle}"
+            !bundle.content.contains("!include"),
+            "{key} still carries an !include: {}",
+            bundle.content
+        );
+        let bundle_object: serde_json::Value =
+            serde_json::from_slice(json).expect("bundle is JSON object");
+        assert_eq!(
+            bundle_object
+                .as_object()
+                .expect("bundle serializes as an object")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["content".to_owned()]
         );
     }
 

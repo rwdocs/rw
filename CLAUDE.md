@@ -52,6 +52,10 @@ that names which fence languages are diagrams — but none of them produce marku
 **Data flow (NAPI)**: Node.js → rw-napi (napi-rs bindings) → rw-site, rw-renderer,
 rw-kroki (Rust) → Node.js objects
 
+**Metadata flow (storage)**: Markdown + sidecar → `rw-meta::Meta` →
+shared `Arc<Meta>` in `rw-storage::Document`. Storage serialization keeps
+the existing flattened wire shape while avoiding a second metadata lookup path.
+
 ## Key Technical Details
 
 - **Rust requirements**: Edition 2024, Rust 1.97+. `rust-toolchain.toml` pins the

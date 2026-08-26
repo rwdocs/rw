@@ -126,7 +126,7 @@ impl Scanner {
     ///
     /// Metadata collisions are resolved by `MetaRank` (lower wins: canonical
     /// bare form, then the `index.` variant, then a sibling), so the chosen
-    /// `meta_path` matches `meta()`'s resolution.
+    /// `meta_path` matches `PathResolver::resolve_meta`.
     ///
     /// Content collisions — a url path with both `X.md` and `X/index.md` —
     /// prefer `index.md`, matching `PathResolver::resolve_content`, so the

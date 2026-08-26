@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use aws_sdk_s3::Client;
 use aws_sdk_s3::operation::get_object::GetObjectError;
-use rw_storage::{Document, Metadata, Storage, StorageError, StorageErrorKind};
+use rw_storage::{Document, Storage, StorageError, StorageErrorKind};
 use tokio::runtime::{Handle, Runtime};
 
 use crate::format::{self, FORMAT_VERSION, MANIFEST_KEY, Manifest, PageBundle};
@@ -186,10 +186,6 @@ impl Storage for S3Storage {
 
     fn mtime(&self, path: &str) -> Result<f64, StorageError> {
         Ok(self.mtimes.lock().get(path).copied().unwrap_or(0.0))
-    }
-
-    fn meta(&self, path: &str) -> Result<Option<Metadata>, StorageError> {
-        Ok(self.fetch_page_bundle(path)?.metadata)
     }
 
     fn has_changed(&self) -> Result<bool, StorageError> {

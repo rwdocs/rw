@@ -1,10 +1,8 @@
 //! Frontmatter, sidecar `meta.yaml`, and the first H1 must resolve to one
-//! title, description, and kind — the same values navigation already reports.
+//! title, description, and kind used consistently by rendering and search.
 //!
-//! These run over a real `FsStorage` and a temp docs directory on purpose. The
-//! defect they pin lives in `Storage::meta`, whose lookup only ever finds a
-//! sidecar file; a `MockStorage` whose metadata is injected by hand cannot
-//! reproduce it and would pass against the broken code.
+//! These run over a real `FsStorage` and a temp docs directory on purpose so
+//! they exercise metadata resolution end to end.
 
 use std::fs;
 use std::sync::Arc;
