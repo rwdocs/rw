@@ -69,10 +69,4 @@ version:
 	$(MAKE) build
 
 bench:
-	cargo bench -p rw-site
-
-bench-baseline:
-	cargo bench -p rw-site -- --save-baseline main
-
-bench-compare:
-	cargo bench -p rw-site -- --baseline main
+	cargo bench -p rw-site --bench page_rendering --bench site_structure -- --timer os --sample-count 50 --min-time 1 --threads 1
