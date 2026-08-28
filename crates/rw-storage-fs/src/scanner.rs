@@ -258,7 +258,7 @@ mod tests {
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-        fs::write(domain_dir.join("meta.yaml"), "type: section").unwrap();
+        fs::write(domain_dir.join("meta.yaml"), "kind: section").unwrap();
 
         let scanner = Scanner::new(temp_dir.path(), "meta.yaml");
         let refs = scanner.scan();
@@ -336,7 +336,7 @@ mod tests {
         let domain_dir = temp_dir.path().join("domain");
         fs::create_dir(&domain_dir).unwrap();
         fs::write(domain_dir.join("index.md"), "# Domain").unwrap();
-        fs::write(domain_dir.join("config.yml"), "type: section").unwrap();
+        fs::write(domain_dir.join("config.yml"), "kind: section").unwrap();
         fs::write(domain_dir.join("meta.yaml"), "ignored").unwrap();
 
         let scanner = Scanner::new(temp_dir.path(), "config.yml");

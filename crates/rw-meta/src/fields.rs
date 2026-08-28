@@ -2,7 +2,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct MetaFields {
-    #[serde(alias = "type")]
     pub kind: Option<String>,
     pub namespace: Option<String>,
     pub title: Option<String>,
@@ -37,13 +36,6 @@ mod tests {
         let fields = MetaFields::from_yaml(yaml);
         assert_eq!(fields.title.as_deref(), Some("My Page"));
         assert_eq!(fields.kind.as_deref(), Some("service"));
-    }
-
-    #[test]
-    fn parse_type_alias() {
-        let yaml = "type: domain";
-        let fields = MetaFields::from_yaml(yaml);
-        assert_eq!(fields.kind.as_deref(), Some("domain"));
     }
 
     #[test]

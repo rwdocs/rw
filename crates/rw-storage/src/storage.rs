@@ -543,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn test_document_nested_with_type() {
+    fn test_document_nested_with_kind() {
         let doc = Document {
             path: "domain/billing".to_owned(),
             has_content: true,
