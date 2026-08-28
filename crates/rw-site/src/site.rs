@@ -1182,8 +1182,7 @@ mod tests {
     }
 
     #[test]
-    fn test_real_page_with_type() {
-        // Has both content and page_kind
+    fn test_real_page_with_kind() {
         let storage =
             MockStorage::new().with_document_and_kind("real-domain", "Meta Title", "domain");
 

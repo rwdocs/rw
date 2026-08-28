@@ -1120,7 +1120,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_virtual_page_with_type() {
+    fn test_scan_virtual_page_with_kind() {
         let temp_dir = create_test_dir();
         let domain_dir = temp_dir.path().join("my-nice-domain");
         fs::create_dir(&domain_dir).unwrap();

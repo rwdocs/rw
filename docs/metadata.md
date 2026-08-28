@@ -37,9 +37,14 @@ These fields are available in both frontmatter and meta.yaml:
 
 - `title` -- custom page title (overrides H1 extraction)
 - `description` -- page description for display
-- `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections. Also accepts `type` as an alias.
+- `kind` -- page kind (e.g., `domain`, `guide`). Pages with `kind` are registered as sections.
 - `namespace` -- Backstage catalog namespace for the section (see below).
 - `pages` -- ordered list of child page slugs for navigation sidebar ordering (directory-level only)
+
+### Migrating legacy metadata
+
+Earlier versions accepted `type` as an alias for `kind`. Rename that key to
+`kind`; `type` is now ignored in frontmatter and sidecars.
 
 ### `namespace`
 
@@ -163,7 +168,7 @@ Rel(sys_payment_gateway, sys_yookassa, "Processes payments")
 
 ### Include paths by kind
 
-| Type | Regular | External |
+| Kind | Regular | External |
 |------|---------|----------|
 | Domain | `systems/dmn_{name}.iuml` | `systems/ext/dmn_{name}.iuml` |
 | System | `systems/sys_{name}.iuml` | `systems/ext/sys_{name}.iuml` |

@@ -186,6 +186,21 @@ mod tests {
         assert_eq!(meta.description.as_deref(), Some("Meta YAML desc"));
     }
 
+    #[test]
+    fn resolve_meta_yaml_type_is_ignored_without_dropping_known_fields() {
+        let meta = Meta::resolve(None, Some("title: Sidecar\ntype: domain"), "page.md");
+        assert_eq!(meta.title, "Sidecar");
+        assert!(meta.kind.is_none());
+    }
+
+    #[test]
+    fn resolve_frontmatter_type_does_not_override_meta_yaml_kind() {
+        let markdown = "---\ntitle: Frontmatter Title\ntype: service\n---\n# Page\n";
+        let meta = Meta::resolve(Some(markdown), Some("kind: domain"), "page.md");
+        assert_eq!(meta.title, "Frontmatter Title");
+        assert_eq!(meta.kind.as_deref(), Some("domain"));
+    }
+
     // --- resolve: error handling ---
 
     #[test]
