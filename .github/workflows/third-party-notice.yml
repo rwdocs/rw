@@ -16,7 +16,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # cargo-about shells out to `cargo metadata`, so the job needs a toolchain
       # of its own rather than whichever one the runner image happens to ship.
@@ -36,7 +36,7 @@ jobs:
         run: cargo about generate --all-features --fail about.hbs > THIRD-PARTY-RUST.md
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: third-party-rust
           path: THIRD-PARTY-RUST.md
