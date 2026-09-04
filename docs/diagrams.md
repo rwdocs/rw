@@ -4,7 +4,16 @@ RW renders diagrams in fenced code blocks via [Kroki](https://kroki.io). Diagram
 
 ## Supported Formats
 
-RW supports PlantUML, Mermaid, GraphViz, and 14+ other formats supported by Kroki. Any diagram language supported by your Kroki instance can be used as the code block language identifier.
+RW supports an explicit set of Kroki language identifiers: `plantuml`,
+`c4plantuml`, `mermaid`, `graphviz` (or `dot`), `structurizr`, `ditaa`,
+`blockdiag`, `seqdiag`, `actdiag`, `nwdiag`, `packetdiag`, `rackdiag`, `erd`,
+`nomnoml`, `svgbob`, `vega`, `vegalite`, and `wavedrom`. Prefix any supported
+identifier with `kroki-` for compatibility with the MkDocs Kroki plugin, for
+example `kroki-structurizr`.
+
+A configured Kroki instance may support additional languages, but RW leaves an
+unknown fence as a syntax-highlighted code block rather than sending it to
+Kroki.
 
 ## Configuration
 
@@ -47,6 +56,31 @@ graph LR
 ````
 
 The diagram source is sent to the Kroki server, rendered, and embedded into the page as an SVG.
+
+### Structurizr
+
+Put a single-view Structurizr workspace directly in a `structurizr` fence:
+
+````markdown
+```structurizr
+workspace {
+    model {
+        store = softwareSystem "Online Feature Store"
+    }
+    views {
+        systemLandscape "feature-store" {
+            include *
+            autoLayout lr
+        }
+    }
+}
+```
+````
+
+`kroki-structurizr` is an equivalent spelling for documents migrating from the
+MkDocs Kroki plugin. RW sends the workspace to Kroki unchanged. It does not yet
+expose Kroki's `view-key` or `output=legend` options, so a workspace that needs
+one of those options is not supported.
 
 ### Attributes
 
