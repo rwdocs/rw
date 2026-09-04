@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Structurizr DSL diagrams now render through Kroki from `structurizr` and `kroki-structurizr` fenced code blocks. See [Diagram Rendering](docs/diagrams.md#structurizr).
+
 ### Removed
 
 - **Breaking (pre-1.0):** Page metadata no longer accepts `type` as an alias for `kind` in frontmatter or YAML sidecars. Rename `type` to `kind`; files that retain `type` still load, but rw silently ignores the key and does not register the page as a section. See [Page Metadata](docs/metadata.md).

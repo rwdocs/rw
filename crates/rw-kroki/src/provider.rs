@@ -431,6 +431,19 @@ mod tests {
     /// Nothing listens here, so a test pointed at it fails loudly instead of
     /// quietly succeeding against whatever Kroki the developer has running.
     const DEAD_KROKI: &str = "http://127.0.0.1:1";
+    const STRUCTURIZR_SOURCE: &str = r#"
+workspace {
+    model {
+        store = softwareSystem "Online Feature Store"
+    }
+    views {
+        systemLandscape "feature-store" {
+            include *
+            autoLayout lr
+        }
+    }
+}
+"#;
 
     // ── A cache a test can look inside ────────────────────────────────────
 
@@ -559,11 +572,60 @@ mod tests {
             "vega",
             "vegalite",
             "wavedrom",
+            "structurizr",
         ] {
             assert!(provider.handles(language), "should handle '{language}'");
             let prefixed = format!("kroki-{language}");
             assert!(provider.handles(&prefixed), "should handle '{prefixed}'");
         }
+    }
+
+    #[test]
+    fn structurizr_workspace_is_posted_unchanged_to_the_svg_endpoint() {
+        let stub = KrokiStub::start();
+        let provider = KrokiProvider::new(&stub.url);
+
+        let results = provider.resolve(
+            &[request(0, "structurizr", STRUCTURIZR_SOURCE)],
+            &ResolveContext::default(),
+        );
+
+        let resolved = results[0].as_ref().expect("Structurizr resolves");
+        assert_eq!(
+            svg_of(resolved),
+            format!(
+                r#"<svg width="400" height="200"><style></style><desc>{STRUCTURIZR_SOURCE}</desc></svg>"#
+            ),
+        );
+        assert_eq!(stub.paths(), ["/structurizr/svg"]);
+    }
+
+    #[test]
+    fn mkdocs_structurizr_spelling_honours_the_png_format() {
+        let stub = KrokiStub::start();
+        let provider = KrokiProvider::new(&stub.url);
+
+        let results = provider.resolve(
+            &[with_attr(
+                request(0, "kroki-structurizr", STRUCTURIZR_SOURCE),
+                "format",
+                "png",
+            )],
+            &ResolveContext::default(),
+        );
+
+        let resolved = results[0].as_ref().expect("Structurizr resolves");
+        let mut expected_png = png_header();
+        expected_png.extend_from_slice(STRUCTURIZR_SOURCE.as_bytes());
+        assert_eq!(png_of(resolved), expected_png);
+        assert_eq!(
+            resolved.size,
+            Some(Size {
+                width: 400,
+                height: 200,
+            }),
+        );
+        assert_eq!(stub.paths(), ["/structurizr/png"]);
     }
 
     #[test]

@@ -26,6 +26,7 @@ pub enum DiagramLanguage {
     Vega,
     VegaLite,
     WaveDrom,
+    Structurizr,
 }
 
 impl DiagramLanguage {
@@ -57,6 +58,7 @@ impl DiagramLanguage {
             "vega" => Some(Self::Vega),
             "vegalite" => Some(Self::VegaLite),
             "wavedrom" => Some(Self::WaveDrom),
+            "structurizr" => Some(Self::Structurizr),
             _ => None,
         }
     }
@@ -82,6 +84,7 @@ impl DiagramLanguage {
             Self::Vega => "vega",
             Self::VegaLite => "vegalite",
             Self::WaveDrom => "wavedrom",
+            Self::Structurizr => "structurizr",
         }
     }
 
@@ -189,6 +192,7 @@ mod tests {
             ("vega", DiagramLanguage::Vega),
             ("vegalite", DiagramLanguage::VegaLite),
             ("wavedrom", DiagramLanguage::WaveDrom),
+            ("structurizr", DiagramLanguage::Structurizr),
         ];
 
         for (name, expected) in languages {
@@ -235,6 +239,7 @@ mod tests {
             (DiagramLanguage::Vega, "vega"),
             (DiagramLanguage::VegaLite, "vegalite"),
             (DiagramLanguage::WaveDrom, "wavedrom"),
+            (DiagramLanguage::Structurizr, "structurizr"),
         ];
 
         for (lang, expected) in endpoints {
