@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "engines": {
-    "node": "^22.13.0 || >=24"
+    "node": "^22.22.2 || >=24.15.0"
   },
   "scripts": {
     "knip": "knip --treat-config-hints-as-errors",

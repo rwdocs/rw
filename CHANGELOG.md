@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Structurizr DSL diagrams now render through Kroki from `structurizr` and `kroki-structurizr` fenced code blocks. See [Diagram Rendering](docs/diagrams.md#structurizr).
 
+### Changed
+
+- **Breaking (pre-1.0):** `@rwdocs/viewer` now declares support for Node `^22.22.2 || >=24.15.0`, up from `^22.13.0 || >=24`. Node 22.13.0–22.22.1 and Node 24.0.0–24.14.x are no longer supported; npm warns by default on engine mismatches and rejects them when engine enforcement is enabled.
+
 ### Removed
 
 - **Breaking (pre-1.0):** Page metadata no longer accepts `type` as an alias for `kind` in frontmatter or YAML sidecars. Rename `type` to `kind`; files that retain `type` still load, but rw silently ignores the key and does not register the page as a section. See [Page Metadata](docs/metadata.md).
