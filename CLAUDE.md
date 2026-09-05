@@ -63,13 +63,17 @@ shapes. Storage serialization keeps the existing flattened wire format.
 - **Rust requirements**: Edition 2024, Rust 1.97+. `rust-toolchain.toml` pins the
   exact channel; `rust-version` in the workspace manifest tracks it, so bump both
   together
-- **Node requirements**: `^22.13.0 || >=24`, declared identically in the root
-  `package.json` and in `packages/viewer`. It tracks the dev toolchain, not the
-  shipped artifact — ESLint and jsdom set the 22.13 floor and nothing supports
+- **Node requirements**: `^22.22.2 || >=24.15.0`, declared identically in the
+  root `package.json` and in `packages/viewer`. It tracks the dev toolchain, not
+  the shipped artifact — this branch keeps `eslint-plugin-regexp` 3.1.1 and
+  `jsdoc-type-pratt-parser` 7.3.0, while the synchronized declarations prepare
+  for the separate pending PR #840 where `eslint-plugin-regexp` 3.2 resolves
+  `jsdoc-type-pratt-parser` 9.1.2. Those parser-set patch floors also exclude
   the 23 line, while the viewer's runtime dependencies declare no `engines` at
-  all. So it moves when the tooling does, and the two copies must move together.
-  Node 20 satisfies every dependency but is excluded deliberately: it reached
-  end of life on 2026-04-30.
+  all. The root `package.json`, `packages/viewer/package.json`, and the two
+  corresponding `package-lock.json` workspace records must move together. Node
+  20 remains excluded deliberately because it reached end of life on
+  2026-04-30.
 - **PlantUML**: A `plantuml` fence becomes a diagram request resolved by
   `rw-kroki` — inline SVG by default. `rw-confluence` appends `format=png`,
   writes the bytes into the bundle directory, and uploads them as attachments
