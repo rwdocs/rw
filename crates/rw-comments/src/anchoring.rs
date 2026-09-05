@@ -203,6 +203,25 @@ mod tests {
     }
 
     #[test]
+    fn browser_decoded_control_keeps_selector_offsets_aligned() {
+        let site = seeded_site("guide", "<div>before &#1; suffix</div>\n");
+
+        let selectors = resolve_quote(&site, "guide", "suffix").unwrap();
+
+        assert_eq!(
+            selectors,
+            vec![
+                Selector::TextQuoteSelector {
+                    exact: "suffix".to_owned(),
+                    prefix: "before \u{1} ".to_owned(),
+                    suffix: "\n".to_owned(),
+                },
+                Selector::TextPositionSelector { start: 9, end: 15 },
+            ]
+        );
+    }
+
+    #[test]
     fn non_ascii_page_uses_utf16_code_units() {
         // `TextPositionSelector` offsets are UTF-16 code units so the viewer
         // (which computes positions via `String.length`) can resolve them

@@ -1,0 +1,14 @@
+# Test configuration for the browser-character-reference comment E2E test
+# Kept on a dedicated port and source tree so it can't perturb the shared docs
+# navigation geometry used by the Toc-outline suite.
+
+[server]
+host = "127.0.0.1"
+port = 8085
+
+[docs]
+source_dir = "comment-entity-decoding"
+cache_enabled = false
+
+[live_reload]
+enabled = false

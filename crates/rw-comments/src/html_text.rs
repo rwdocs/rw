@@ -95,7 +95,7 @@ fn skip_to_figure_close(after_open: &str) -> &str {
 
 fn push_decoded(out: &mut String, chunk: &str) {
     if chunk.contains('&') {
-        out.push_str(&html_escape::decode_html_entities(chunk));
+        out.push_str(&htmlize::unescape(chunk));
     } else {
         out.push_str(chunk);
     }
@@ -165,6 +165,18 @@ mod tests {
     #[test]
     fn numeric_entities_are_decoded() {
         assert_eq!(html_to_text_content("<p>rocket &#x1F680;</p>"), "rocket 🚀");
+    }
+
+    #[test]
+    fn browser_character_reference_rules_are_followed() {
+        for (html, expected) in [
+            ("<p>&#1;</p>", "\u{1}"),
+            ("<p>&#0;</p>", "\u{fffd}"),
+            ("<p>&#x80;</p>", "€"),
+            ("<p>&times</p>", "×"),
+        ] {
+            assert_eq!(html_to_text_content(html), expected, "input: {html}");
+        }
     }
 
     #[test]

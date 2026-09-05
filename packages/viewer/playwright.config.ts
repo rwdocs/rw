@@ -74,6 +74,15 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 30000,
     },
+    {
+      command:
+        "./target/debug/rw serve -c packages/viewer/e2e/fixtures/rw-comment-entity-decoding.toml",
+      url: "http://127.0.0.1:8085",
+      env: hermeticEnv,
+      cwd: "../..",
+      reuseExistingServer: !process.env.CI,
+      timeout: 30000,
+    },
     // Live reload enabled, same fixture docs. Kept on its own port so the
     // diagram-isolation spec can rewrite a fixture file without broadcasting a
     // reload into every other spec's page (the suite is fullyParallel).
