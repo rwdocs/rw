@@ -64,7 +64,7 @@ jobs:
         run: cargo codspeed build -p rw-renderer
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@f22792bfac16f3e14eb9fbea76f4a48e9cc22b93 # v4
+        uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8 # v5
         with:
           mode: simulation
           run: cargo codspeed run
@@ -132,7 +132,7 @@ jobs:
         run: tar -xzf codspeed-site.tar.gz
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@f22792bfac16f3e14eb9fbea76f4a48e9cc22b93 # v4
+        uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8 # v5
         with:
           mode: walltime
           run: cargo codspeed run
