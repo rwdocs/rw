@@ -56,7 +56,12 @@ rw-kroki (Rust) → Node.js objects
 in `rw-storage::Document` → `rw-site::SiteState` → `PageRenderResult`. The site
 stores each `Document` directly and returns the same metadata allocation through
 fresh renders and cache hits; boundary adapters project their existing public
-shapes. Storage serialization keeps the existing flattened wire format.
+shapes. Page-local `Meta.name` overrides section/catalog and diagram identity only
+when `kind` is declared; it never inherits or changes titles/URLs. Diagram lookup
+uses effective `Section.name`; explicitly named, kind-declaring roots opt in,
+with eligibility included in the existing resolution fingerprint. Storage keeps
+the flattened wire with optional, omitted-when-absent `name`; S3 stays version 1,
+requiring readers to upgrade before publishers enable explicit names.
 
 ## Key Technical Details
 

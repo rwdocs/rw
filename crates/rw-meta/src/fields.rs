@@ -11,13 +11,14 @@ pub(crate) struct MetaFields {
     pub title: Option<String>,
     pub description: Option<String>,
     pub pages: Option<Vec<String>>,
+    pub name: Option<String>,
 }
 
 impl MetaFields {
     /// Extract fields from one YAML source; a failing field drops only itself,
     /// while a source that fails to parse (invalid YAML, non-mapping root)
     /// contributes nothing and yields one `Severity::Error` diagnostic.
-    /// Extraction order is fixed (kind, namespace, title, description, pages)
+    /// Extraction order is fixed (kind, namespace, title, description, pages, name)
     /// so diagnostics come back deterministic.
     pub(crate) fn from_yaml_with_diagnostics(
         yaml: &str,
@@ -68,6 +69,7 @@ impl MetaFields {
             title: string_field(&mapping, "title", source, &mut diagnostics),
             description: string_field(&mapping, "description", source, &mut diagnostics),
             pages: pages_field(&mapping, source, &mut diagnostics),
+            name: name_field(&mapping, source, &mut diagnostics),
         };
         (fields, diagnostics)
     }
@@ -79,11 +81,12 @@ impl MetaFields {
         self.title = other.title.or(self.title);
         self.description = other.description.or(self.description);
         self.pages = other.pages.or(self.pages);
+        self.name = other.name.or(self.name);
         self
     }
 }
 
-const KNOWN_KEYS: [&str; 5] = ["kind", "namespace", "title", "description", "pages"];
+const KNOWN_KEYS: [&str; 6] = ["kind", "namespace", "title", "description", "pages", "name"];
 
 fn normalize_known_keys(mapping: &Mapping) -> Result<Cow<'_, Mapping>, &'static str> {
     let mut seen = HashSet::new();
@@ -159,6 +162,25 @@ fn scalar_to_string(value: &Value) -> Option<String> {
         Value::Tagged(tagged) => scalar_to_string(&tagged.value),
         Value::Null | Value::Sequence(_) | Value::Mapping(_) => None,
     }
+}
+
+fn name_field(
+    mapping: &Mapping,
+    source: DiagnosticSource,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<String> {
+    let raw = string_field(mapping, "name", source, diagnostics)?;
+    // Declared names share Namespace's identifier grammar, not its inheritance.
+    if raw.parse::<rw_sections::Namespace>().is_ok() {
+        return Some(raw);
+    }
+    diagnostics.push(Diagnostic {
+        source,
+        field: Some("name".to_owned()),
+        severity: Severity::Warning,
+        message: format!("invalid name {raw:?}: must be 1-63 characters, start and end with a letter or digit, and contain only letters, digits, '-', '_', or '.'"),
+    });
+    None
 }
 
 fn namespace_field(

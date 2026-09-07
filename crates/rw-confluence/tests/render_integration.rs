@@ -145,6 +145,27 @@ fn serve(stream: &TcpStream, requests: &Mutex<Vec<(String, String)>>) {
 }
 
 #[test]
+fn declared_metadata_name_does_not_change_confluence_title() {
+    for metadata in ["kind: system", "kind: system\nname: payments-api"] {
+        let tmp = tempfile::tempdir().unwrap();
+        let markdown =
+            format!("---\n{metadata}\ntitle: Metadata title\n---\n# Confluence heading\n\nBody.\n");
+        let output = render(
+            &markdown,
+            tmp.path(),
+            RenderOptions {
+                extract_title: true,
+                ..RenderOptions::default()
+            },
+        )
+        .unwrap();
+        // With title extraction enabled, the first H1 supplies the export title;
+        // metadata declarations must not override it.
+        assert_eq!(output.title.as_deref(), Some("Confluence heading"));
+    }
+}
+
+#[test]
 fn render_writes_page_xhtml_for_plain_markdown() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let out = tmp.path();

@@ -181,6 +181,21 @@ Alice -> Bob: Hello
 
 The file `common/common-styles.iuml` will be found and included before rendering.
 
+### Metadata includes
+
+C4 metadata includes use the effective section name, not necessarily the URL
+slug. With `kind: system` and `name: payments-api` under
+`systems/payments-guide`, use `!include systems/sys_payments_api.iuml`
+(or `systems/ext/sys_payments_api.iuml` for an external entity). The old
+path-derived include is not an alias. System/domain labels still use the page
+title, service labels use the effective name, and links keep the actual URL.
+Explicitly named, kind-declaring homepages can be included too.
+
+Use hyphenated names: the legacy include convention changes hyphens to
+underscores and every underscore back to a hyphen, so literal underscores in
+names are not addressable. See [metadata includes](metadata.md#diagram-includes)
+and [reader-first S3 rollout](metadata.md#rust-source-compatibility-and-s3-rollout).
+
 ## Rendering
 
 Diagrams are rendered server-side via Kroki and embedded as SVGs. Key details:

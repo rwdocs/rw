@@ -7,6 +7,9 @@ use fields::MetaFields;
 use head::Head;
 
 /// Resolved page metadata from all sources.
+///
+/// Rust struct literals must include `name: None` when no name is declared;
+/// prefer [`Meta::resolve`] when constructing metadata from document sources.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meta {
     /// Page kind (e.g., "domain", "guide").
@@ -21,6 +24,9 @@ pub struct Meta {
     pub description: Option<String>,
     /// Ordered list of child page slugs for navigation ordering.
     pub pages: Option<Vec<String>>,
+    /// Declared page-local name; never inherited. Overrides section identity only
+    /// when this page declares `kind`; otherwise retained but not effective.
+    pub name: Option<String>,
 }
 
 /// Resolution result: canonical fields plus every recoverable problem found
@@ -92,6 +98,7 @@ impl Meta {
                 title,
                 description: merged.description,
                 pages: merged.pages,
+                name: merged.name,
             },
             diagnostics,
         }
@@ -138,6 +145,153 @@ fn titlecase_from_slug(slug: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn declared_name_scalar_and_identifier_boundaries() {
+        for (yaml, expected) in [
+            ("A", "A"),
+            ("9", "9"),
+            ("Pay-ments_API.v2", "Pay-ments_API.v2"),
+            ("42", "42"),
+            ("true", "true"),
+            ("3.14", "3.14"),
+            ("!custom Payments-API", "Payments-API"),
+        ] {
+            let result = Meta::resolve_with_diagnostics(
+                None,
+                Some(&format!("name: {yaml}\ntitle: Kept")),
+                "page.md",
+            );
+            assert_eq!(result.meta.name.as_deref(), Some(expected), "{yaml}");
+            assert_eq!(result.meta.title, "Kept");
+            assert!(result.diagnostics.is_empty(), "{yaml}");
+        }
+        let longest = "a".repeat(63);
+        assert_eq!(
+            Meta::resolve(None, Some(&format!("name: {longest}")), "p").name,
+            Some(longest)
+        );
+        assert_eq!(Meta::resolve(None, None, "path-derived").name, None);
+    }
+
+    #[test]
+    fn declared_name_invalid_values_recover_per_source() {
+        let too_long = "a".repeat(64);
+        for yaml in [
+            "''",
+            "' '",
+            "' padded'",
+            "'padded '",
+            "a/b",
+            "a:b",
+            "-start",
+            "end-",
+            "_start",
+            "end_",
+            ".start",
+            "end.",
+            "café",
+            "a+b",
+            "[a]",
+            "{a: b}",
+            "null",
+            "~",
+            "!custom [a]",
+            &too_long,
+        ] {
+            for source in [DiagnosticSource::Sidecar, DiagnosticSource::Frontmatter] {
+                let fields = format!("name: {yaml}\ntitle: Kept");
+                let markdown = format!("---\n{fields}\n---\n");
+                let result = match source {
+                    DiagnosticSource::Sidecar => {
+                        Meta::resolve_with_diagnostics(None, Some(&fields), "p")
+                    }
+                    DiagnosticSource::Frontmatter => {
+                        Meta::resolve_with_diagnostics(Some(&markdown), Some("name: fallback"), "p")
+                    }
+                };
+                assert_eq!(
+                    result.meta.name.as_deref(),
+                    if source == DiagnosticSource::Sidecar {
+                        None
+                    } else {
+                        Some("fallback")
+                    },
+                    "{source:?}: {yaml}"
+                );
+                assert_eq!(result.meta.title, "Kept", "{source:?}: {yaml}");
+                assert_eq!(result.diagnostics.len(), 1, "{source:?}: {yaml}");
+                let diagnostic = &result.diagnostics[0];
+                assert_eq!(
+                    diagnostic.field.as_deref(),
+                    Some("name"),
+                    "{source:?}: {yaml}"
+                );
+                assert_eq!(diagnostic.source, source, "{source:?}: {yaml}");
+                assert_eq!(diagnostic.severity, Severity::Warning, "{source:?}: {yaml}");
+            }
+        }
+    }
+
+    #[test]
+    fn declared_name_precedence_and_diagnostic_order() {
+        let result = Meta::resolve_with_diagnostics(
+            Some("---\nname: Frontmatter\n---"),
+            Some("name: Sidecar"),
+            "p",
+        );
+        assert_eq!(result.meta.name.as_deref(), Some("Frontmatter"));
+        assert!(result.diagnostics.is_empty());
+        let result =
+            Meta::resolve_with_diagnostics(Some("---\nname: Valid\n---"), Some("name: []"), "p");
+        assert_eq!(result.meta.name.as_deref(), Some("Valid"));
+        assert_eq!(result.diagnostics[0].source, DiagnosticSource::Sidecar);
+        let result = Meta::resolve_with_diagnostics(
+            Some("---\nname: []\n---"),
+            Some("name: []\npages: null\ndescription: []\ntitle: []\nnamespace: []\nkind: []"),
+            "p",
+        );
+        assert_eq!(
+            result
+                .diagnostics
+                .iter()
+                .map(|d| d.field.as_deref())
+                .collect::<Vec<_>>(),
+            vec![
+                Some("kind"),
+                Some("namespace"),
+                Some("title"),
+                Some("description"),
+                Some("pages"),
+                Some("name"),
+                Some("name")
+            ]
+        );
+        assert_eq!(result.diagnostics[5].source, DiagnosticSource::Sidecar);
+        assert_eq!(result.diagnostics[6].source, DiagnosticSource::Frontmatter);
+    }
+
+    #[test]
+    fn declared_name_tagged_key_and_duplicate_recovery() {
+        let result = Meta::resolve_with_diagnostics(
+            None,
+            Some("? !custom name\n: Payments-API\ntitle: Kept"),
+            "p",
+        );
+        assert_eq!(result.meta.name.as_deref(), Some("Payments-API"));
+        assert!(result.diagnostics.is_empty());
+        for yaml in [
+            "name: One\n? !custom name\n: Two\ntitle: Dropped",
+            "name: One\nname: Two\ntitle: Dropped",
+        ] {
+            let result = Meta::resolve_with_diagnostics(None, Some(yaml), "p");
+            assert_eq!(result.meta.name, None);
+            assert_eq!(result.meta.title, "P");
+            assert_eq!(result.diagnostics.len(), 1);
+            assert_eq!(result.diagnostics[0].field, None);
+            assert_eq!(result.diagnostics[0].severity, Severity::Error);
+        }
+    }
 
     // --- titlecase_from_slug ---
 

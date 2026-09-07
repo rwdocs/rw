@@ -72,14 +72,17 @@ const commentKey = `${meta.sectionRef}#${meta.subpath}`;
 | Change | `(sectionRef, subpath)` survives? |
 |--------|-----------------------------------|
 | Mounting a whole section under a different base URL, its `sectionRef` unchanged | ✅ Yes |
-| Relocating a whole section's directory while its name (last path segment) stays the same | ✅ Yes |
-| Renaming a section (its `sectionRef` changes) | ❌ No |
+| Relocating a whole section's directory while its effective name, kind, and namespace stay the same | ✅ Yes |
+| Renaming a section directory while keeping explicit `name`, kind, and namespace | ✅ Yes |
+| Changing a section's effective name (its `sectionRef` changes) | ❌ No |
 | Moving a single page **within** a section (its `subpath` changes) | ❌ No |
 
-A fully stable identity that survives section renames and intra-section moves
-would require an author-supplied front-matter `id` (or an engine-assigned durable
-slug). That is intentionally out of scope today; `(sectionRef, subpath)` is the
-cheap, high-value first step that covers the common case.
+An explicit [metadata `name`](metadata.md#name-identity-independent-of-the-documentation-path)
+can preserve identity across a section-directory rename: declare the old derived
+name before moving, and retain kind, namespace, and each page's relative subpath.
+It does **not** stabilize intra-section page moves. Changing an effective name
+changes the comment key; RW does not retain old-ref aliases or automatically
+migrate existing comments. A durable per-page ID remains out of scope.
 
 ## Resolve section ancestry with `sectionAncestry`
 

@@ -19,7 +19,7 @@ function project(t) {
   return projectDir;
 }
 
-test("renderPage returns resolved metadata without internal fields", async (t) => {
+test("renderPage projects explicit section identity without exposing raw name", async (t) => {
   const projectDir = project(t);
   const fixture = path.join(projectDir, "docs", "billing.md");
   fs.writeFileSync(
@@ -29,6 +29,7 @@ test("renderPage returns resolved metadata without internal fields", async (t) =
       "title: Billing",
       "description: Money stuff",
       "kind: domain",
+      "name: billing-api",
       "---",
       "# Different H1",
       "",
@@ -45,10 +46,10 @@ test("renderPage returns resolved metadata without internal fields", async (t) =
   assert.equal(page.meta.lastModified, "2024-01-02T03:04:05+00:00");
   assert.equal(page.meta.description, "Money stuff");
   assert.equal(page.meta.kind, "domain");
-  assert.equal(page.meta.sectionRef, "domain:default/billing");
+  assert.equal(page.meta.sectionRef, "domain:default/billing-api");
   assert.equal(page.meta.subpath, "");
   assert.deepEqual(page.sectionAncestry[page.meta.sectionRef][0], {
-    sectionRef: "domain:default/billing",
+    sectionRef: "domain:default/billing-api",
     subpath: "",
   });
   assert.deepEqual(Object.keys(page).sort(), responseKeys);

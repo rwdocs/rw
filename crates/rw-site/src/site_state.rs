@@ -221,11 +221,16 @@ fn compute_subtree_has_content(
     subtree_has_content
 }
 
+fn diagram_eligible(document: &Document) -> bool {
+    !document.path.is_empty() || (document.meta.kind.is_some() && document.meta.name.is_some())
+}
+
 /// Hash the `SiteState` inputs that cross-page rendering reads.
 ///
 /// Covers wikilink display text + heading-anchor IDs (`Meta::title`),
 /// section-ref link attributes (the sections map), and C4 meta-include entity
-/// info (title/description/`has_content` + section kind/namespace/name).
+/// info (title/description/`has_content` + section kind/namespace/name), including
+/// whether the homepage explicitly opts into diagram lookup.
 /// Deliberately excludes `Document::origin`, which only affects rendering of
 /// that document, and `Meta::pages`, which only affects navigation ordering.
 /// `Meta::kind` is represented by the sections map.
@@ -248,7 +253,7 @@ fn compute_resolution_fingerprint(
     sections: &Sections,
     root_namespace: &Namespace,
 ) -> u64 {
-    let mut page_entries: Vec<(&str, &str, Option<&str>, bool)> = documents
+    let mut page_entries: Vec<_> = documents
         .iter()
         .map(|p| {
             (
@@ -256,6 +261,7 @@ fn compute_resolution_fingerprint(
                 p.meta.title.as_str(),
                 p.meta.description.as_deref(),
                 p.has_content,
+                diagram_eligible(p),
             )
         })
         .collect();
@@ -297,18 +303,14 @@ impl SiteState {
             root_namespace.clone(),
         ));
 
-        // Index sections by directory name (the last path segment). Skip the
-        // synthetic "" root: its last segment is "", which no C4 `!include`
-        // entity name can match, so indexing it would add a phantom entry.
+        // The homepage participates in diagram lookup only with explicit kind and name.
         let mut sections_by_name: HashMap<String, Vec<usize>> = HashMap::new();
-        for path in sections.paths() {
-            if path.is_empty() {
-                continue;
-            }
-            if let Some(&idx) = path_index.get(path) {
-                let dir_name = last_segment(path);
+        for (path, section) in sections.iter() {
+            if let Some(&idx) = path_index.get(path)
+                && diagram_eligible(&documents[idx])
+            {
                 sections_by_name
-                    .entry(dir_name.to_owned())
+                    .entry(section.name.clone())
                     .or_default()
                     .push(idx);
             }
@@ -439,11 +441,10 @@ impl SiteState {
         self.roots.iter().map(|&i| &self.documents[i]).collect()
     }
 
-    /// Finds sections whose last path segment matches `name`.
+    /// Finds diagram-eligible sections whose effective name exactly matches `name`.
     ///
-    /// For example, `find_sections_by_name("payment-gateway")` matches a
-    /// section at `"domains/billing/systems/payment-gateway"`. Returns an
-    /// empty `Vec` if no section has that directory name.
+    /// Names are declared overrides or path-derived fallbacks. The homepage is
+    /// eligible only when it explicitly declares both kind and name.
     #[must_use]
     pub fn find_sections_by_name(&self, name: &str) -> Vec<(&str, &Section)> {
         self.sections_by_name
@@ -618,10 +619,9 @@ impl SiteState {
     /// Each entry's anchors come from one [`Sections::anchors`] walk, which is
     /// O(depth) with O(1) map lookups, so this is O(pages × depth). Sorted by
     /// `(section_ref, subpath)`, then by `path` to break ties: the key is unique
-    /// per page in the common case, but two sections sharing a last segment and
-    /// kind (`a/billing` and `b/billing`, both `kind: domain`) collapse to one
-    /// ref, so their pages collide. `path` is unique per page, making the order
-    /// total regardless.
+    /// per page in the common case, but sections with the same kind, namespace,
+    /// and effective name share a ref, so matching subpaths collide. `path` is
+    /// unique per page, making the order total regardless.
     #[must_use]
     pub(crate) fn list_pages(&self) -> Vec<PageEntry> {
         let mut entries: Vec<PageEntry> = self
@@ -878,7 +878,7 @@ impl SiteStateBuilder {
     ///
     /// # Panics
     ///
-    /// Panics if storage supplied an invalid namespace.
+    /// Panics if storage supplied an invalid namespace or declared section name.
     pub(crate) fn add_document(&mut self, document: Document) -> usize {
         let parent_idx = parent_from_url(&document.path, &self.path_index);
         let namespace = document
@@ -898,7 +898,16 @@ impl SiteStateBuilder {
         let idx = self.documents.len();
 
         if let Some(section_kind) = document.meta.kind.as_deref() {
-            let name = if document.path.is_empty() {
+            let name = if let Some(name) = &document.meta.name {
+                name.parse::<Namespace>()
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "storage produced invalid name {name:?} for page {:?}",
+                            document.path
+                        )
+                    })
+                    .into()
+            } else if document.path.is_empty() {
                 Section::ROOT_NAME.to_owned()
             } else {
                 last_segment(&document.path).to_owned()
@@ -1111,6 +1120,7 @@ mod tests {
             path: path.into(),
             has_content,
             meta: Arc::new(Meta {
+                name: None,
                 title: title.into(),
                 description: None,
                 kind,
@@ -2389,6 +2399,32 @@ mod tests {
         assert_eq!(page.meta.kind, None);
     }
 
+    fn assert_invalid_wire_section_name_rejected(name: &str) {
+        let document: Document = serde_json::from_value(serde_json::json!({
+            "path": "systems/guide", "title": "Guide", "has_content": true,
+            "page_kind": "system", "name": name
+        }))
+        .unwrap();
+        let result = std::panic::catch_unwind(|| {
+            SiteStateBuilder::new().add_document(document);
+        });
+        let panic = result.expect_err("invalid storage name must be rejected");
+        let message = panic.downcast_ref::<String>().unwrap();
+        assert!(message.contains("invalid name"), "{message}");
+        assert!(message.contains("systems/guide"), "{message}");
+        assert!(!message.contains("invalid namespace"), "{message}");
+    }
+
+    #[test]
+    fn raw_wire_empty_section_name_is_rejected() {
+        assert_invalid_wire_section_name_rejected("");
+    }
+
+    #[test]
+    fn raw_wire_malformed_section_name_is_rejected() {
+        assert_invalid_wire_section_name_rejected("bad/value");
+    }
+
     #[test]
     fn add_document_with_namespace_builds_namespaced_section() {
         let site = site(&[section("billing", "Billing", "domain").ns("payments".parse().unwrap())]);
@@ -2721,6 +2757,85 @@ mod tests {
         let mut builder = SiteStateBuilder::new();
         builder.add_document(document);
         builder.build().resolution_fingerprint()
+    }
+
+    #[test]
+    fn declared_root_name_changes_eligibility_fingerprint_and_survives_cache() {
+        let mut document = fingerprint_document("", "Homepage", None, true);
+        Arc::make_mut(&mut document.meta).kind = Some("system".to_owned());
+        let build = |doc| {
+            let mut builder = SiteStateBuilder::new();
+            builder.add_document(doc);
+            builder.build()
+        };
+        let unnamed = build(document.clone());
+        Arc::make_mut(&mut document.meta).name = Some("root".to_owned());
+        let named = build(document.clone());
+        assert_eq!(unnamed.sections().get(""), named.sections().get(""));
+        assert_ne!(
+            unnamed.resolution_fingerprint(),
+            named.resolution_fingerprint()
+        );
+        assert!(unnamed.find_sections_by_name("root").is_empty());
+        assert_eq!(named.find_sections_by_name("root").len(), 1);
+        let json = serde_json::to_string(&CachedSiteStateRef::from(&named)).unwrap();
+        let cached: CachedSiteState = serde_json::from_str(&json).unwrap();
+        let rebuilt = SiteState::from(cached);
+        assert_eq!(
+            rebuilt.resolution_fingerprint(),
+            named.resolution_fingerprint()
+        );
+        assert_eq!(
+            rebuilt.find_sections_by_name("root"),
+            named.find_sections_by_name("root")
+        );
+        assert_eq!(
+            rebuilt.get_page("").unwrap().meta.name.as_deref(),
+            Some("root")
+        );
+        Arc::make_mut(&mut document.meta).name = None;
+        assert_eq!(
+            build(document).resolution_fingerprint(),
+            unnamed.resolution_fingerprint()
+        );
+    }
+
+    #[test]
+    fn declared_effective_name_changes_fingerprint_and_roundtrips_structure_cache() {
+        let mut document = fingerprint_document("guide", "Guide", None, true);
+        document.meta = Arc::new(rw_meta::Meta::resolve(
+            None,
+            Some("kind: system\nname: payments-api\nnamespace: commerce\ntitle: Guide"),
+            "guide",
+        ));
+        let mut builder = SiteStateBuilder::new();
+        builder.add_document(document.clone());
+        let named = builder.build();
+        let json = serde_json::to_string(&CachedSiteStateRef::from(&named)).unwrap();
+        let rebuilt = SiteState::from(serde_json::from_str::<CachedSiteState>(&json).unwrap());
+        assert_eq!(
+            rebuilt.section_location("guide"),
+            ("system:commerce/payments-api".to_owned(), String::new())
+        );
+        assert_eq!(
+            rebuilt.find_sections_by_name("payments-api"),
+            named.find_sections_by_name("payments-api")
+        );
+        assert_eq!(
+            rebuilt.get_page("guide").unwrap().meta.name.as_deref(),
+            Some("payments-api")
+        );
+        assert_eq!(
+            rebuilt.resolution_fingerprint(),
+            named.resolution_fingerprint()
+        );
+        Arc::make_mut(&mut document.meta).name = Some("renamed-api".to_owned());
+        let mut builder = SiteStateBuilder::new();
+        builder.add_document(document);
+        assert_ne!(
+            builder.build().resolution_fingerprint(),
+            named.resolution_fingerprint()
+        );
     }
 
     #[test]
